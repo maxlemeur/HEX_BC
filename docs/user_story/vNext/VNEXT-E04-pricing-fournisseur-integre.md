@@ -7,6 +7,12 @@
 Rendre le pricing fournisseur exploitable depuis l'affaire en logique de couverture et d'exceptions,
 sans promettre un arbitrage full-auto.
 
+## Contrat source
+
+Le detail de scenario et les criteres d'acceptation par story restent dans:
+- `docs/user_story/vNext/TIMAX-vNext-backlog-structure.md`
+- section `EPIC-4`
+
 ## Ce qui existe deja
 
 - import pricebook CSV

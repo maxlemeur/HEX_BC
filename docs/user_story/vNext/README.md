@@ -58,6 +58,21 @@ Cette repartition limite les collisions sur les fichiers les plus sensibles:
 - Equipe A possede la coque affaire et les surfaces visibles
 - Equipe B possede les pipelines internes et la logique de selection/pricing
 
+## Unite d'execution
+
+L'unite d'execution a confier aux devs n'est pas "un epic complet" mais:
+- une `user story` precise
+- ou un petit lot coherent de user stories explicitement assigne
+
+Les epics servent a cadrer:
+- le perimetre
+- les dependances
+- les zones de code
+
+Le contrat detaille de chaque story reste dans:
+- [TIMAX-vNext-backlog-structure.md](./TIMAX-vNext-backlog-structure.md)
+- [TIMAX-vNext-decisions-risques.md](./TIMAX-vNext-decisions-risques.md)
+
 ## Ordre de lancement recommande
 
 ### Vague 1

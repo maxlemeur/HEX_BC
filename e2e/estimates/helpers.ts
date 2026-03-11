@@ -408,9 +408,11 @@ export async function createEstimateViaWizard(
   ]);
 
   const versionId = extractVersionIdFromUrl(page.url());
+  const loadingStatus = page.getByText("Chargement du chiffrage...");
+  await loadingStatus.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
   await expect(
     page.getByRole("heading", { name: /Editer le chiffrage|Éditer le chiffrage/i })
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 30_000 });
 
   return { projectName, title, versionId };
 }

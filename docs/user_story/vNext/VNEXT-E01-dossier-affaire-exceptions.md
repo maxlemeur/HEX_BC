@@ -10,6 +10,12 @@ Faire de l'affaire le cockpit unique du chiffreur:
 - timeline transverse
 - file d'exceptions orientee action
 
+## Contrat source
+
+Le detail de scenario et les criteres d'acceptation par story restent dans:
+- `docs/user_story/vNext/TIMAX-vNext-backlog-structure.md`
+- section `EPIC-1`
+
 ## Ce qui existe deja
 
 - hub affaire

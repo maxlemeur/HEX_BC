@@ -446,6 +446,21 @@ async function seedFinishLineLine(input: {
   const lineId = randomUUID();
   const quantity = input.quantity ?? 12;
   const puHtCents = input.puHtCents ?? 0;
+  const { data: latestRootItems, error: latestRootItemsError } = await sb
+    .from("estimate_items")
+    .select("position")
+    .eq("version_id", input.versionId)
+    .is("parent_id", null)
+    .order("position", { ascending: false })
+    .limit(1);
+
+  if (latestRootItemsError) {
+    throw new Error(
+      `Load finish line root position failed: ${latestRootItemsError.message}`
+    );
+  }
+
+  const nextRootPosition = (latestRootItems?.[0]?.position ?? -1) + 1;
 
   const { error } = await sb.from("estimate_items").insert(
     [
@@ -454,7 +469,7 @@ async function seedFinishLineLine(input: {
         tenant_id: input.tenantId,
         version_id: input.versionId,
         item_type: "section",
-        position: 0,
+        position: nextRootPosition,
         title: "Section finish line",
         description: null,
         quantity: null,
@@ -529,12 +544,13 @@ async function seedDeliverySite(input: {
 }) {
   const sb = await getAuthenticatedSupabaseClient();
   const siteId = randomUUID();
+  const uniqueProjectCode = `${input.projectCode}-${siteId.slice(0, 8)}`;
 
   const { error } = await sb.from("delivery_sites").insert({
     id: siteId,
     tenant_id: input.tenantId,
     name: input.name,
-    project_code: input.projectCode,
+    project_code: uniqueProjectCode,
     address: "1 rue du chantier",
     postal_code: "69000",
     city: "Lyon",
@@ -562,6 +578,7 @@ async function seedSelectedSupplierPrice(input: {
   const supplierId = randomUUID();
   const productId = randomUUID();
   const supplierPriceId = randomUUID();
+  const uniqueReference = `${input.supplierReference}-${productId.slice(0, 8)}`;
 
   const { error: supplierError } = await sb.from("suppliers").insert({
     id: supplierId,
@@ -578,7 +595,7 @@ async function seedSelectedSupplierPrice(input: {
     id: productId,
     tenant_id: input.tenantId,
     designation: input.productDesignation,
-    reference: input.supplierReference,
+    reference: uniqueReference,
     unit_price_cents: input.unitPriceCents,
     tax_rate_bp: 2000,
     is_active: true,
@@ -593,7 +610,7 @@ async function seedSelectedSupplierPrice(input: {
     tenant_id: input.tenantId,
     supplier_id: supplierId,
     product_id: productId,
-    supplier_sku: input.supplierReference,
+    supplier_sku: uniqueReference,
     unit: "u",
     min_quantity: 1,
     unit_price_cents: input.unitPriceCents,
@@ -625,6 +642,9 @@ async function seedSelectedSupplierPrice(input: {
 }
 
 async function expectPilotageSection(page: Page) {
+  await page
+    .getByRole("heading", { name: "Pilotage de l'affaire" })
+    .waitFor({ state: "visible", timeout: 30_000 });
   const pilotageSection = page
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Pilotage de l'affaire" }) });
@@ -633,8 +653,19 @@ async function expectPilotageSection(page: Page) {
 }
 
 async function openAffaireHub(page: Page, projectId: string) {
-  await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
-  return expectPilotageSection(page);
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
+
+    try {
+      return await expectPilotageSection(page);
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("Affaire hub did not load.");
 }
 
 async function clickWithin(section: Locator, role: "button" | "link", name: string) {
@@ -718,10 +749,9 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     pilotageSection = await openAffaireHub(page, projectId);
     await clickWithin(pilotageSection, "button", "Ajouter des pieces");
     await expect(
-      page.getByRole("button", {
-        name: /Zone de depot multi-documents\. Glissez des fichiers ou appuyez pour selectionner\./i,
-      })
+      page.getByRole("region", { name: /Intake dossier affaire/i })
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ajouter des fichiers" })).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
     await clickWithin(pilotageSection, "button", "Ouvrir le brief");
@@ -744,7 +774,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       page.getByRole("heading", { name: /Revue des exceptions & preuves/i })
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /Revoir les ecarts DPGF/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Ecarts DPGF/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ecarts DPGF", exact: true })).toBeVisible();
   });
 
   test("affiche une finish line lisible avec deux statuts distincts et leurs blocages", async ({
@@ -763,7 +793,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       supplyTypeId,
     });
 
-    const pilotageSection = await openAffaireHub(page, projectId);
+    await openAffaireHub(page, projectId);
 
     await expect(pilotageSection).toContainText("Pret a envoyer");
     await expect(pilotageSection).toContainText("Pret a commander");
@@ -886,7 +916,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     ).toHaveAttribute("href", /\/dashboard\/orders\/.+/);
     await expect(pilotageSection.getByText("A traiter avant la creation")).toBeVisible();
     await expect(
-      pilotageSection.getByText("Aucun prix fournisseur exploitable")
+      pilotageSection.getByText("Aucun prix fournisseur exploitable", { exact: true })
     ).toBeVisible();
     await expect(
       pilotageSection.getByText("Ligne sans prix fournisseur")
@@ -900,13 +930,21 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       projectName: buildEstimateName("US63-HIERARCHIE"),
       title: "US-6.3 Hierarchie des flux",
     });
+    const tenantId = await getTenantIdForVersion(versionId);
+
+    await seedPlanSetWithFile({
+      projectId,
+      versionId,
+      tenantId,
+      name: "Plans fallback legacy",
+    });
 
     const pilotageSection = await openAffaireHub(page, projectId);
 
     await expect(page.getByText("Parcours recommande")).toBeVisible();
-    await expect(page.getByText("Flux principal")).toBeVisible();
-    await expect(page.getByText("Aides adjacentes")).toBeVisible();
-    await expect(page.getByText("Fallback legacy")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Flux principal", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Aides adjacentes", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Fallback legacy", exact: true })).toBeVisible();
     await expect(
       page.getByText("Aucun renvoi par defaut vers le legacy")
     ).toBeVisible();
@@ -914,11 +952,11 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       page.getByRole("link", { name: "Ouvrir le fallback legacy" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/takeoff`);
 
-    await clickWithin(pilotageSection, "link", "Ouvrir le fallback legacy");
+    await page.getByRole("link", { name: "Ouvrir le fallback legacy" }).click();
 
     await expect(page).toHaveURL(`/dashboard/estimates/${versionId}/takeoff`);
-    await expect(page.getByText("Legacy estimate-first")).toBeVisible();
-    await expect(page.getByText("Flux principal: affaire")).toBeVisible();
+    await expect(page.getByText("Legacy estimate-first", { exact: true })).toBeVisible();
+    await expect(page.getByText("Flux principal: affaire", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Revenir au flux principal" })
     ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateProfileUiMode } from "@/app/dashboard/_actions/profile";
-import { useUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/components/UserContext";
 import {
   DEFAULT_UI_MODE,
   isUiMode,
@@ -45,7 +45,9 @@ function writeUiModeToStorage(mode: UiMode, profileId: string | null) {
 type SetModeInput = UiMode | ((previousMode: UiMode) => UiMode);
 
 export function useUiMode() {
-  const { profile, setProfile } = useUserContext();
+  const userContext = useOptionalUserContext();
+  const profile = userContext?.profile ?? null;
+  const setProfile = userContext?.setProfile;
   const profileId = profile?.id ?? null;
   const profileMode = normalizeUiMode(profile?.ui_mode ?? DEFAULT_UI_MODE);
 
@@ -65,7 +67,7 @@ export function useUiMode() {
       void updateProfileUiMode({ mode: nextMode })
         .then((result) => {
           const persistedMode = normalizeUiMode(result.mode);
-          setProfile((currentProfile) =>
+          setProfile?.((currentProfile) =>
             currentProfile?.id === expectedProfileId
               ? {
                   ...currentProfile,
@@ -113,7 +115,7 @@ export function useUiMode() {
         return;
       }
 
-      setProfile((currentProfile) =>
+      setProfile?.((currentProfile) =>
         currentProfile
           ? {
               ...currentProfile,

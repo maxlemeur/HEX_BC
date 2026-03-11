@@ -45,3 +45,7 @@ export function useUserContext() {
   }
   return context;
 }
+
+export function useOptionalUserContext() {
+  return useContext(UserContext);
+}

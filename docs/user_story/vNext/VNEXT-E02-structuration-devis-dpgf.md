@@ -7,6 +7,12 @@
 Consolider le pipeline canonique DPGF pour qu'il reste la source de verite de la structure devis,
 et faire converger le DPGF PDF vers ce meme pipeline.
 
+## Contrat source
+
+Le detail de scenario et les criteres d'acceptation par story restent dans:
+- `docs/user_story/vNext/TIMAX-vNext-backlog-structure.md`
+- section `EPIC-2`
+
 ## Ce qui existe deja
 
 - import `csv/xlsx`

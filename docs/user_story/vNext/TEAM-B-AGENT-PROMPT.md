@@ -10,6 +10,9 @@ Execution attendue :
 - lire `docs/user_story/vNext/IMPLEMENTATION_PLAN.md`
 - lire `docs/user_story/vNext/SEQUENCING_2_TEAMS.md`
 - lire l'epic vNext confie
+- lire obligatoirement `docs/user_story/vNext/TIMAX-vNext-backlog-structure.md`
+- lire `docs/user_story/vNext/TIMAX-vNext-decisions-risques.md` si la story touche un arbitrage produit, une exception ou une finish line
+- prendre en charge une `user story` precise, pas un epic entier sans decoupage explicite
 - implementer dans le perimetre de l'equipe B uniquement
 - ne pas prendre possession du shell affaire ou de la composition `AffaireHub`
 - travailler directement sur `main`
@@ -35,6 +38,7 @@ Regles specifiques equipe B :
 - aucune suggestion IA ne doit s'appliquer silencieusement
 - toute provenance ou incertitude pertinente doit rester visible
 - si une surface affaire est necessaire, exposer d'abord un contrat stable pour l'equipe A
+- verifier en fin de travail que l'implementation colle aux criteres d'acceptation de la story source, soit avec les skills agent-browser ou playwright interactive. Si il y a pas assez de data seed les toi même avec mcp supabase ou créer des plan ou DPGF etc toi meême 
 
 Fin attendue :
 - pas de compte rendu final

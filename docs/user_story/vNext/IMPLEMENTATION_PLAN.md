@@ -42,6 +42,14 @@ Strategie:
 - Equipe B expose des fetchers, actions ou contrats consommes par Equipe A.
 - Toute edition d'un de ces fichiers doit etre precedee d'un contrat stabilise.
 
+Regle pratique:
+- aucun dev ne part "sur l'epic" sans story assignee
+- pour chaque story touchant un hotspot, un mini handoff doit exister avant implementation:
+  - objectif de la story
+  - fichiers possedes
+  - contrats exposes
+  - fichiers interdits a l'autre equipe
+
 ## Chemin critique
 
 ```text
@@ -225,3 +233,4 @@ Pourquoi ce couplage:
 - la trace de provenance reste visible pour quantites et prix quand applicable
 - au moins un parcours critique Playwright par vague
 - aucun blocage UX majeur sur reprise, erreur partielle ou attente async
+- toute story implementee doit etre relue contre son contrat source dans `TIMAX-vNext-backlog-structure.md`

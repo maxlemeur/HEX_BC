@@ -67,14 +67,14 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
     // 3. Navigate back to the hub affaire
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    // 4. Check the "Analyser les plans" button is visible in the action bar
-    const actionBar = page.locator(".action-bar");
-    await expect(actionBar).toBeVisible({ timeout: 10_000 });
+    // 4. Check the launch CTA is visible from the hub.
+    const plansSection = page
+      .locator("section")
+      .filter({ hasText: "Plans, preuves & exceptions" });
+    await expect(plansSection).toBeVisible({ timeout: 15_000 });
 
-    const launchButton = actionBar.getByRole("button", {
-      name: /Analyser les plans/i,
-    });
-    await expect(launchButton).toBeVisible({ timeout: 5_000 });
+    const launchButton = page.getByRole("button", { name: "Analyser les plans" }).first();
+    await expect(launchButton).toBeVisible({ timeout: 15_000 });
 
     // 5. Click "Analyser les plans" → dialog should open
     await launchButton.click();

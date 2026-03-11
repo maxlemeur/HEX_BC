@@ -83,6 +83,10 @@ async function openEstimateEditor(page: Page, versionId: string) {
       timeout: 60_000,
     });
 
+    await page
+      .getByText("Chargement du chiffrage...")
+      .waitFor({ state: "hidden", timeout: 30_000 })
+      .catch(() => {});
     await expect(
       page.getByTestId("estimate-editor-open-generated-ouvrage-button")
     ).toBeVisible({ timeout: 30_000 });

@@ -9,6 +9,12 @@ Rendre le parcours robuste dans le temps:
 - reprise apres attente, erreur ou echec partiel
 - hierarchie claire entre principal, adjacent et legacy
 
+## Contrat source
+
+Le detail de scenario et les criteres d'acceptation par story restent dans:
+- `docs/user_story/vNext/TIMAX-vNext-backlog-structure.md`
+- section `EPIC-6`
+
 ## Ce qui existe deja
 
 - carry-over best effort

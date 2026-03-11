@@ -152,6 +152,88 @@ async function seedReviewIntakeDocument(input: {
   return { uploadId, documentId, fileName };
 }
 
+async function seedEstimateLine(input: {
+  tenantId: string;
+  versionId: string;
+  title?: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const sectionId = randomUUID();
+  const lineId = randomUUID();
+
+  const { error } = await sb.from("estimate_items").insert(
+    [
+      {
+        id: sectionId,
+        tenant_id: input.tenantId,
+        version_id: input.versionId,
+        item_type: "section",
+        position: 0,
+        title: "Section cockpit",
+        description: null,
+        quantity: null,
+        unit_price_ht_cents: null,
+        tax_rate_bp: null,
+        k_fo: null,
+        h_mo: null,
+        h_mo_majoration: 1,
+        k_mo: null,
+        h_mo_atelier: null,
+        k_mo_atelier: 1,
+        labor_role_atelier_id: null,
+        h_mo_chantier: null,
+        k_mo_chantier: 1,
+        labor_role_chantier_id: null,
+        pu_ht_cents: null,
+        labor_role_id: null,
+        category_id: null,
+        supply_type_id: null,
+        selected_supplier_price_id: null,
+        line_total_ht_cents: null,
+        line_tax_cents: null,
+        line_total_ttc_cents: null,
+      },
+      {
+        id: lineId,
+        tenant_id: input.tenantId,
+        version_id: input.versionId,
+        parent_id: sectionId,
+        item_type: "line",
+        position: 1,
+        title: input.title ?? "Ligne cockpit",
+        description: "u",
+        quantity: 1,
+        unit_price_ht_cents: 1_500,
+        tax_rate_bp: 2000,
+        k_fo: 1,
+        h_mo: 0,
+        h_mo_majoration: 1,
+        k_mo: 1,
+        h_mo_atelier: null,
+        k_mo_atelier: 1,
+        labor_role_atelier_id: null,
+        h_mo_chantier: null,
+        k_mo_chantier: 1,
+        labor_role_chantier_id: null,
+        pu_ht_cents: 1_500,
+        labor_role_id: null,
+        category_id: null,
+        supply_type_id: null,
+        selected_supplier_price_id: null,
+        line_total_ht_cents: 1_500,
+        line_tax_cents: 300,
+        line_total_ttc_cents: 1_800,
+      },
+    ] as never
+  );
+
+  if (error) {
+    throw new Error(`Seed estimate line failed: ${error.message}`);
+  }
+
+  return { lineId };
+}
+
 async function seedPendingBrief(input: {
   projectId: string;
   tenantId: string;
@@ -234,6 +316,24 @@ async function closePreview(page: Page) {
   await preview.getByRole("button", { name: /Annuler/i }).click();
 }
 
+async function clickCockpitAction(page: Page, label: string) {
+  const inlineAction = page.locator(".cockpit-command-strip button", {
+    hasText: label,
+  });
+  if (await inlineAction.isVisible().catch(() => false)) {
+    await inlineAction.click();
+    return;
+  }
+
+  const overflowToggle = page
+    .locator(".cockpit-command-strip button")
+    .filter({ hasText: /^\+\d+ autre/ })
+    .first();
+  await expect(overflowToggle).toBeVisible();
+  await overflowToggle.click();
+  await page.getByRole("button", { name: label, exact: true }).click();
+}
+
 test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {
   test.beforeEach(async ({ page }) => {
     await loginWithUi(page);
@@ -247,19 +347,16 @@ test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {
       title: "EST-374 Preview",
     });
     const projectId = await extractProjectId(page, versionId);
+    const { tenantId } = await extractProjectContext(projectId);
+    await seedEstimateLine({
+      tenantId,
+      versionId,
+      title: "Ligne validation",
+    });
 
     await page.goto(`/dashboard/affaires/${projectId}`);
-    await expect(
-      page.locator(".cockpit-command-strip button", {
-        hasText: "Preparer la validation",
-      }),
-    ).toBeVisible();
-
-    await page
-      .locator(".cockpit-command-strip button", {
-        hasText: "Preparer la validation",
-      })
-      .click();
+    await expect(page.locator(".cockpit-command-strip")).toBeVisible();
+    await clickCockpitAction(page, "Preparer la validation");
 
     const inlinePreviewText = await readPreviewText(page);
     expect(inlinePreviewText).toContain("Preparer la validation");
@@ -292,12 +389,8 @@ test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {
 
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    const reviewAction = page.locator(".cockpit-command-strip button", {
-      hasText: "Confirmer 1 piece a revoir",
-    });
-    await expect(reviewAction).toBeVisible();
-
-    await reviewAction.click();
+    await expect(page.locator(".cockpit-command-strip")).toBeVisible();
+    await clickCockpitAction(page, "Confirmer 1 piece a revoir");
 
     await expect(page).toHaveURL(
       new RegExp(`/dashboard/affaires/${projectId}\\?intakeFilter=a_revoir`),
@@ -333,12 +426,8 @@ test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {
 
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    const briefAction = page.locator(".cockpit-command-strip button", {
-      hasText: "Confirmer le brief affaire",
-    });
-    await expect(briefAction).toBeVisible();
-
-    await briefAction.click();
+    await expect(page.locator(".cockpit-command-strip")).toBeVisible();
+    await clickCockpitAction(page, "Confirmer le brief affaire");
 
     const preview = page.getByRole("dialog").last();
     await expect(preview).toContainText("Confirmer le brief affaire");

@@ -9,6 +9,12 @@ Offrir une sortie unique depuis l'affaire:
 - devis PDF / email / BDC
 - brouillons de commandes par fournisseur
 
+## Contrat source
+
+Le detail de scenario et les criteres d'acceptation par story restent dans:
+- `docs/user_story/vNext/TIMAX-vNext-backlog-structure.md`
+- section `EPIC-5`
+
 ## Ce qui existe deja
 
 - PDF devis
