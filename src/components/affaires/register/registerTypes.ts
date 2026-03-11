@@ -1,0 +1,39 @@
+import type {
+  AffaireRegisterEntry,
+  AffaireRegisterEntryKind,
+  AffaireRegisterEntrySeverity,
+  AffaireRegisterEntryStatus,
+  AffaireRegisterPageResult,
+  AffaireRegisterScopeOptions,
+  AffaireRegisterSummary,
+  AffaireRegisterTimelineEvent,
+} from "@/lib/affaires/register";
+
+export type AffaireRegisterCardProps = {
+  projectId: string;
+  versionId: string | null;
+  registerPage: AffaireRegisterPageResult | null;
+  scopeOptions: AffaireRegisterScopeOptions;
+  summary?: AffaireRegisterSummary | null;
+  timelineEvents?: AffaireRegisterTimelineEvent[];
+  isReadOnly?: boolean;
+  errorMessage?: string;
+};
+
+export type RegisterScopeType = "project" | "lot" | "line" | "exception";
+
+export type RegisterEntryFormState = {
+  kind: AffaireRegisterEntryKind;
+  severity: AffaireRegisterEntrySeverity;
+  text: string;
+  scopeType: RegisterScopeType;
+  scopeId: string;
+  scopeRef: string;
+  scopeLabel: string;
+  sourceFileName: string;
+};
+
+export type PendingTransition = {
+  entry: AffaireRegisterEntry;
+  nextStatus: AffaireRegisterEntryStatus;
+};

@@ -156,7 +156,7 @@ describe("AffaireRegisterCard", () => {
     );
 
     await user.selectOptions(
-      screen.getByLabelText("Filtrer par severite"),
+      screen.getByLabelText("Filtrer par sévérité"),
       "critical"
     );
 
@@ -182,9 +182,10 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
+    await user.click(screen.getByRole("button", { name: /Ajouter un point/ }));
     await user.type(
       screen.getByRole("textbox", { name: "Texte" }),
-      "Verifier le phasage chantier"
+      "Vérifier le phasage chantier"
     );
     await user.click(screen.getByRole("button", { name: "Ajouter au registre" }));
 
@@ -193,7 +194,7 @@ describe("AffaireRegisterCard", () => {
         projectId: "11111111-1111-4111-8111-111111111111",
         versionId: "22222222-2222-4222-8222-222222222222",
         kind: "assumption",
-        text: "Verifier le phasage chantier",
+        text: "Vérifier le phasage chantier",
         severity: "warning",
         scopeType: "project",
         scopeId: null,
@@ -221,10 +222,10 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "A clarifier avec client" }));
+    await user.click(screen.getByRole("button", { name: "À clarifier avec client" }));
     await user.type(
       screen.getByRole("textbox", { name: "Commentaire de trace (facultatif)" }),
-      "A confirmer avec le client."
+      "À confirmer avec le client."
     );
     await user.click(
       screen.getByRole("button", { name: "Confirmer la clarification client" })
@@ -236,7 +237,7 @@ describe("AffaireRegisterCard", () => {
         versionId,
         entryId: "entry-1",
         status: "clarify_with_client",
-        comment: "A confirmer avec le client.",
+        comment: "À confirmer avec le client.",
       });
     });
 
@@ -259,7 +260,7 @@ describe("AffaireRegisterCard", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Rouvrir" }));
-    await user.click(screen.getByRole("button", { name: "Confirmer la reouverture" }));
+    await user.click(screen.getByRole("button", { name: "Confirmer la réouverture" }));
 
     await waitFor(() => {
       expect(mockUpdateAffaireRegisterEntryStatusAction).toHaveBeenCalledWith({
@@ -310,7 +311,8 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
-    await user.type(screen.getByRole("textbox", { name: "Texte" }), "Verifier le lot");
+    await user.click(screen.getByRole("button", { name: /Ajouter un point/ }));
+    await user.type(screen.getByRole("textbox", { name: "Texte" }), "Vérifier le lot");
     await user.selectOptions(screen.getByLabelText("Scope"), "line");
 
     expect(
@@ -334,7 +336,7 @@ describe("AffaireRegisterCard", () => {
     );
 
     expect(screen.getByText("Points ouverts")).toBeInTheDocument();
-    expect(screen.getByText("Historique recent du registre")).toBeInTheDocument();
+    expect(screen.getByText("Historique récent du registre")).toBeInTheDocument();
     expect(screen.getByText("Statut modifie")).toBeInTheDocument();
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
   });
@@ -362,11 +364,11 @@ describe("AffaireRegisterCard", () => {
     );
 
     expect(
-      screen.getByText("Aucun point ne correspond a ces filtres.")
+      screen.getByText("Aucun point ne correspond à ces filtres.")
     ).toBeInTheDocument();
-    expect(screen.getByText(/Vue paginee sur une tranche du registre/)).toBeInTheDocument();
+    expect(screen.getByText(/Vue paginée sur une tranche du registre/)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Revenir au debut" })
+      screen.getByRole("button", { name: "Revenir au début" })
     ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "Charger les points suivants" })
@@ -385,6 +387,28 @@ describe("AffaireRegisterCard", () => {
 
     expect(screen.getByText("Chargement du registre…")).toBeInTheDocument();
     expect(screen.getByText("Points ouverts")).toBeInTheDocument();
-    expect(screen.getByText("Recuperation des points ouverts, avec historique recent et filtres disponibles.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Récupération des points ouverts, avec historique récent et filtres disponibles."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("hides mutations when the card is read-only", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage()}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
+        isReadOnly
+      />
+    );
+
+    expect(screen.getByText("Consultation uniquement")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ajouter un point" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Valider" })).not.toBeInTheDocument();
   });
 });
