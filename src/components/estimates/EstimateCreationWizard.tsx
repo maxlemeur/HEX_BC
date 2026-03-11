@@ -122,8 +122,6 @@ export function EstimateCreationWizard({
       setIsSubmitting(false);
       return;
     }
-
-    setIsSubmitting(false);
   }
 
   const isLastStep = currentStep === STEPS.length - 1;

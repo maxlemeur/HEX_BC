@@ -404,6 +404,25 @@ describe("EstimateCreationWizard", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps quick create disabled after success to prevent duplicate creation", async () => {
+    const { user, onCreated } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Quick create");
+
+    const quickCreateButton = screen.getByRole("button", {
+      name: /Créer directement/,
+    });
+    await user.click(quickCreateButton);
+
+    await waitFor(() => {
+      expect(onCreated).toHaveBeenCalledWith("version-abc-123");
+    });
+    expect(quickCreateButton).toBeDisabled();
+
+    await user.click(quickCreateButton);
+    expect(vi.mocked(createEstimate)).toHaveBeenCalledTimes(1);
+  });
+
   it("shows margin tiers table when tiered mode selected", async () => {
     const { user } = setup();
 
