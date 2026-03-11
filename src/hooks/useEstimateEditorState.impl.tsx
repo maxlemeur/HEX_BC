@@ -6131,9 +6131,9 @@ export function useEstimateEditorState({
       };
 
       if (!persist) {
-        startTransition(() => {
-          applyLocalItemPatch();
-        });
+        // Draft keystrokes must update synchronously to preserve the native caret
+        // position in controlled inputs (titles, AID, numeric cells).
+        applyLocalItemPatch();
         return;
       }
 
