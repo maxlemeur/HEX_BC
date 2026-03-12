@@ -32,6 +32,7 @@ describe("IntakeWorkspace", () => {
     mockRefresh.mockReset();
     mockSearchParams.delete("intakeFilter");
     mockSearchParams.delete("intakeDocument");
+    mockSearchParams.delete("briefBlock");
     mockScrollIntoView.mockReset();
     Element.prototype.scrollIntoView = mockScrollIntoView;
     window.history.replaceState({}, "", "/dashboard/affaires/project-1");
@@ -234,6 +235,7 @@ describe("IntakeWorkspace", () => {
 
   it("opens and highlights the source document targeted from the brief", async () => {
     mockSearchParams.set("intakeDocument", "doc-1");
+    mockSearchParams.set("briefBlock", "scope");
 
     render(
       <IntakeWorkspace
@@ -263,13 +265,22 @@ describe("IntakeWorkspace", () => {
       />,
     );
 
-    expect(await screen.findByText("source-brief.pdf")).toBeInTheDocument();
-
-    const highlightedDocument = document.querySelector("[data-document-id='doc-1']");
-    expect(highlightedDocument).toHaveAttribute("data-highlighted", "true");
+    expect(await screen.findAllByText("source-brief.pdf")).toHaveLength(2);
+    expect(screen.getByText("Source du brief")).toBeInTheDocument();
+    expect(screen.getByText("Perimetre detecte")).toBeInTheDocument();
+    expect(screen.getAllByText("Plans").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/Perimetre detecte s'appuie sur cette pièce du dossier/i),
+    ).toBeInTheDocument();
+    const documentCard = document.querySelector("[data-document-id='doc-1']");
+    expect(documentCard).toHaveAttribute("data-highlighted", "true");
 
     await waitFor(() => {
       expect(mockScrollIntoView).toHaveBeenCalled();
+    });
+    expect(mockScrollIntoView).toHaveBeenCalledWith({
+      behavior: "auto",
+      block: "center",
     });
   });
 

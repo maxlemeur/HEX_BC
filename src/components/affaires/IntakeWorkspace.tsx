@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-server";
-import type { AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
+import type {
+  AffaireIntakeBriefBlockKey,
+  AffaireIntakeDocumentKind,
+} from "@/lib/affaires/intake";
+import {
+  AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS,
+  AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
+} from "@/lib/affaires/intake";
 import { Badge } from "@/components/ui/Badge";
 import {
   COCKPIT_OPEN_SURFACE_EVENT,
@@ -26,6 +33,7 @@ type IntakeWorkspaceProps = {
 
 const FILTER_PARAM = "intakeFilter";
 const FOCUS_DOCUMENT_PARAM = "intakeDocument";
+const FOCUS_BRIEF_BLOCK_PARAM = "briefBlock";
 const FILTER_A_REVOIR = "a_revoir";
 const AUTO_REFRESH_INTERVAL_MS = 4_000;
 const AUTO_REFRESH_MAX_MS = 60_000;
@@ -43,6 +51,18 @@ function isDocumentNeedsReview(doc: WorkspaceData["documents"][number]) {
   );
 }
 
+function parseBriefBlockSearchParam(
+  value: string | null
+): AffaireIntakeBriefBlockKey | null {
+  if (!value) {
+    return null;
+  }
+
+  return value in AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS
+    ? (value as AffaireIntakeBriefBlockKey)
+    : null;
+}
+
 export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgfAlreadyImported, plansSynced }: IntakeWorkspaceProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -54,6 +74,9 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
   );
   const [focusDocumentId, setFocusDocumentId] = useState<string | null>(
     searchParams.get(FOCUS_DOCUMENT_PARAM)
+  );
+  const [focusBriefBlock, setFocusBriefBlock] = useState<AffaireIntakeBriefBlockKey | null>(
+    parseBriefBlockSearchParam(searchParams.get(FOCUS_BRIEF_BLOCK_PARAM))
   );
   const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
 
@@ -77,6 +100,9 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
   useEffect(() => {
     setActiveFilter(searchParams.get(FILTER_PARAM));
     setFocusDocumentId(searchParams.get(FOCUS_DOCUMENT_PARAM));
+    setFocusBriefBlock(
+      parseBriefBlockSearchParam(searchParams.get(FOCUS_BRIEF_BLOCK_PARAM))
+    );
   }, [searchParams]);
 
   useEffect(() => {
@@ -101,7 +127,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
         return false;
       }
 
-      documentNode.scrollIntoView({ behavior: "smooth", block: "center" });
+      documentNode.scrollIntoView({ behavior: "auto", block: "center" });
       setAnnouncement("Piece source ouverte dans le dossier.");
       return true;
     };
@@ -229,6 +255,10 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
 
   // For filter mode, only show reviewDocs (same behaviour as before)
   const filteredDocuments = isFilterActive ? reviewDocs : documents;
+  const focusedDocument =
+    focusDocumentId !== null
+      ? documents.find((document) => document.documentId === focusDocumentId) ?? null
+      : null;
 
   // Missing pieces: check if any critical
   const hasCriticalMissing = workspace?.missingPieces.some((p) => p.severity === "critical") ?? false;
@@ -272,6 +302,13 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
     if (processingCount > 0) parts.push(`${processingCount} en cours`);
     return parts.join(", ");
   }, [classifiedCount, needsReviewCount, processingCount]);
+
+  const focusBannerTitle = focusBriefBlock
+    ? AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS[focusBriefBlock]
+    : null;
+  const focusBannerCategory = focusedDocument
+    ? AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[focusedDocument.detectedCategory]
+    : null;
 
   return (
     <section className="dashboard-card p-5 animate-fade-in" aria-label="Intake dossier affaire">
@@ -373,6 +410,28 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
       {workspace && workspace.missingPieces.length > 0 && (
         <div className="mb-4">
           <IntakeMissingPieces pieces={workspace.missingPieces} onAddFile={() => setShowDropzone(true)} />
+        </div>
+      )}
+
+      {focusedDocument && (
+        <div className="mb-4 rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/6 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-[var(--slate-800)]">
+              Source du brief
+            </p>
+            {focusBannerTitle ? (
+              <Badge variant="info" size="sm">{focusBannerTitle}</Badge>
+            ) : null}
+            {focusBannerCategory ? (
+              <Badge variant="neutral" size="sm">{focusBannerCategory}</Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm text-[var(--slate-600)]">
+            {focusBannerTitle
+              ? `${focusBannerTitle} s'appuie sur cette pièce du dossier.`
+              : "Cette pièce du dossier est utilisée comme source du brief."}{" "}
+            <span className="font-medium text-[var(--slate-800)]">{focusedDocument.fileName}</span>
+          </p>
         </div>
       )}
 

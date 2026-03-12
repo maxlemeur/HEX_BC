@@ -126,10 +126,12 @@ describe("BriefDraftCard", () => {
     // The source annotation for scope item 0 should show "DPGF.pdf"
     const scopeItem = screen.getByText("Lot 1 - Gros oeuvre").closest("li");
     expect(scopeItem).toBeTruthy();
-    const sourceLink = within(scopeItem!).getByRole("link", { name: "DPGF.pdf" });
+    const sourceLink = within(scopeItem!).getByRole("link", {
+      name: "Pièce source · DPGF.pdf",
+    });
     expect(sourceLink).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1#intake`
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope#intake`
     );
   });
 
@@ -159,16 +161,16 @@ describe("BriefDraftCard", () => {
     );
     const section = getSection();
     expect(
-      within(section).getByRole("link", { name: "Synthese-source.pdf" })
+      within(section).getByRole("link", { name: "Pièce source · Synthese-source.pdf" })
     ).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=11111111-1111-4111-8111-111111111111#intake`
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=11111111-1111-4111-8111-111111111111&briefBlock=summary#intake`
     );
     expect(
-      within(section).getByRole("link", { name: "Objet-source.pdf" })
+      within(section).getByRole("link", { name: "Pièce source · Objet-source.pdf" })
     ).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=22222222-2222-4222-8222-222222222222#intake`
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=22222222-2222-4222-8222-222222222222&briefBlock=project_object#intake`
     );
   });
 

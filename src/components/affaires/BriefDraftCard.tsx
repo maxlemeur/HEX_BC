@@ -51,6 +51,7 @@ const MAX_LIST_ITEMS = 12;
 const MAX_SUMMARY_LENGTH = 900;
 const MAX_EDITABLE_LIST_ITEM_LENGTH = 280;
 const INTAKE_DOCUMENT_PARAM = "intakeDocument";
+const BRIEF_BLOCK_PARAM = "briefBlock";
 
 const BLOCK_ORDER: AffaireIntakeBriefBlockKey[] = [
   "project_object",
@@ -142,9 +143,13 @@ function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
 /*  BriefSourceAnnotation                                              */
 /* ------------------------------------------------------------------ */
 
-function buildBriefSourceHref(projectId: string, sourceDocumentId: string) {
+function buildBriefSourceHref(
+  projectId: string,
+  source: Pick<AffaireIntakeBriefSource, "sourceDocumentId" | "blockKey">
+) {
   const params = new URLSearchParams({
-    [INTAKE_DOCUMENT_PARAM]: sourceDocumentId,
+    [INTAKE_DOCUMENT_PARAM]: source.sourceDocumentId,
+    [BRIEF_BLOCK_PARAM]: source.blockKey,
   });
   return `/dashboard/affaires/${projectId}?${params.toString()}#intake`;
 }
@@ -174,11 +179,11 @@ function BriefSourceAnnotation({
       {uniqueSources.map((source) => (
         <a
           key={`${source.sourceDocumentId}:${source.sourceFileName}`}
-          href={buildBriefSourceHref(projectId, source.sourceDocumentId)}
+          href={buildBriefSourceHref(projectId, source)}
           className="inline-flex items-center rounded-full border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-0.5 text-[11px] font-medium text-[var(--brand-blue)] transition-colors hover:border-[var(--brand-blue)]/30 hover:bg-[var(--brand-blue)]/6 hover:text-[var(--brand-blue-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)]/30 focus-visible:ring-offset-2"
           title={source.rationale ?? `Ouvrir ${source.sourceFileName} dans le dossier`}
         >
-          {source.sourceFileName}
+          Pièce source · {source.sourceFileName}
         </a>
       ))}
     </div>
