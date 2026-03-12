@@ -77,7 +77,7 @@ function getSection() {
 describe("BriefDraftCard", () => {
   it("renders empty state when briefDraft is null", () => {
     render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={null} />);
-    expect(within(getSection()).getByText("Aucun brief genere")).toBeInTheDocument();
+    expect(within(getSection()).getByText("Aucun brief généré")).toBeInTheDocument();
   });
 
   it("renders all 8 block headings", () => {
@@ -105,20 +105,20 @@ describe("BriefDraftCard", () => {
     expect(within(section).getByText("CCTP manquant")).toBeInTheDocument();
   });
 
-  it("shows 'A confirmer' badge when status is a_confirmer", () => {
+  it("shows 'À confirmer' badge when status is a_confirmer", () => {
     render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
     const section = getSection();
-    const badges = within(section).getAllByText("A confirmer");
+    const badges = within(section).getAllByText("À confirmer");
     expect(badges.length).toBeGreaterThanOrEqual(1);
     expect(badges[0].closest("[data-variant='warning']")).toBeTruthy();
   });
 
-  it("shows 'Confirme' badge when status is confirme", () => {
+  it("shows 'Confirmé' badge when status is confirme", () => {
     render(
       <BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft({ status: "confirme" })} />
     );
     const section = getSection();
-    expect(within(section).getByText("Confirme")).toBeInTheDocument();
+    expect(within(section).getByText("Confirmé")).toBeInTheDocument();
   });
 
   it("displays source annotations", () => {
@@ -131,7 +131,53 @@ describe("BriefDraftCard", () => {
     });
     expect(sourceLink).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope#intake`
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope&briefEntry=0#intake`
+    );
+  });
+
+  it("keeps distinct source links when the same document backs multiple brief entries", () => {
+    render(
+      <BriefDraftCard
+        projectId={PROJECT_ID}
+        briefDraft={makeBriefDraft({
+          scope: ["Lot 1 - Gros oeuvre", "Lot 2 - Electricite"],
+          sources: [
+            {
+              blockKey: "scope",
+              entryIndex: 0,
+              sourceDocumentId: "doc-1",
+              sourceFileName: "DPGF.pdf",
+              rationale: null,
+            },
+            {
+              blockKey: "scope",
+              entryIndex: 1,
+              sourceDocumentId: "doc-1",
+              sourceFileName: "DPGF.pdf",
+              rationale: null,
+            },
+          ],
+        })}
+      />
+    );
+
+    const firstScopeItem = screen.getByText("Lot 1 - Gros oeuvre").closest("li");
+    const secondScopeItem = screen.getByText("Lot 2 - Electricite").closest("li");
+
+    expect(firstScopeItem).toBeTruthy();
+    expect(secondScopeItem).toBeTruthy();
+
+    expect(
+      within(firstScopeItem!).getByRole("link", { name: "Pièce source · DPGF.pdf" })
+    ).toHaveAttribute(
+      "href",
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope&briefEntry=0#intake`
+    );
+    expect(
+      within(secondScopeItem!).getByRole("link", { name: "Pièce source · DPGF.pdf" })
+    ).toHaveAttribute(
+      "href",
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope&briefEntry=1#intake`
     );
   });
 
@@ -164,13 +210,13 @@ describe("BriefDraftCard", () => {
       within(section).getByRole("link", { name: "Pièce source · Synthese-source.pdf" })
     ).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=11111111-1111-4111-8111-111111111111&briefBlock=summary#intake`
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=11111111-1111-4111-8111-111111111111&briefBlock=summary&briefEntry=0#intake`
     );
     expect(
       within(section).getByRole("link", { name: "Pièce source · Objet-source.pdf" })
     ).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=22222222-2222-4222-8222-222222222222&briefBlock=project_object#intake`
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=22222222-2222-4222-8222-222222222222&briefBlock=project_object&briefEntry=0#intake`
     );
   });
 
@@ -213,7 +259,7 @@ describe("BriefDraftCard", () => {
       vigilancePoints: ["Point de vigilance X"],
       assumptions: ["Hypothese A"],
     });
-    expect(mockToast.success).toHaveBeenCalledWith({ title: "Brief mis a jour." });
+    expect(mockToast.success).toHaveBeenCalledWith({ title: "Brief mis à jour." });
     expect(mockRefresh).toHaveBeenCalled();
   });
 
@@ -282,7 +328,7 @@ describe("BriefDraftCard", () => {
     await user.click(within(section).getByText("Oui, confirmer"));
 
     expect(mockConfirmAffaireBrief).toHaveBeenCalledWith({ projectId: PROJECT_ID });
-    expect(mockToast.success).toHaveBeenCalledWith({ title: "Brief confirme." });
+    expect(mockToast.success).toHaveBeenCalledWith({ title: "Brief confirmé." });
     expect(mockRefresh).toHaveBeenCalled();
   });
 
@@ -374,8 +420,8 @@ describe("BriefDraftCard", () => {
   it("shows executive summary banner with counts", () => {
     render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
     const section = getSection();
-    expect(within(section).getByText("2 pieces")).toBeInTheDocument();
-    expect(within(section).getByText("1 hypotheses")).toBeInTheDocument();
+    expect(within(section).getByText("2 pièces")).toBeInTheDocument();
+    expect(within(section).getByText("1 hypothèses")).toBeInTheDocument();
     expect(within(section).getByText("1 vigilance")).toBeInTheDocument();
     expect(within(section).getByText("1 manquant(s)")).toBeInTheDocument();
   });
@@ -393,12 +439,24 @@ describe("BriefDraftCard", () => {
       <BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft({ lots: [] })} />
     );
     const section = getSection();
-    expect(within(section).getByText("Aucun element detecte")).toBeInTheDocument();
+    expect(within(section).getByText("Aucun élément détecté")).toBeInTheDocument();
   });
 
   it("does not show confirm button when status is confirme", () => {
     render(
       <BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft({ status: "confirme" })} />
+    );
+    const section = getSection();
+    expect(within(section).queryByText("Confirmer le brief")).not.toBeInTheDocument();
+  });
+
+  it("can hide the confirm button when the flow hero already carries it", () => {
+    render(
+      <BriefDraftCard
+        projectId={PROJECT_ID}
+        briefDraft={makeBriefDraft()}
+        hideConfirmAction
+      />
     );
     const section = getSection();
     expect(within(section).queryByText("Confirmer le brief")).not.toBeInTheDocument();

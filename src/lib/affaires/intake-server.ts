@@ -2671,8 +2671,9 @@ export async function fetchAffaireIntakeWorkspace(
     context.supabase
       .from("affaire_intake_documents" as never)
       .select(DOCUMENT_SELECT as never)
-      .eq("upload_id", upload.id)
+      .eq("project_id", project.id)
       .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
   );
 
   if (docsError) {

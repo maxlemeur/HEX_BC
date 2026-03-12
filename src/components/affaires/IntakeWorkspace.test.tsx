@@ -22,6 +22,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/app/dashboard/affaires/_actions/intake", () => ({
   reclassifyAffaireDocument: vi.fn(),
+  setAffaireDocumentAsPrimary: vi.fn(),
 }));
 
 import { IntakeWorkspace } from "@/components/affaires/IntakeWorkspace";
@@ -33,6 +34,7 @@ describe("IntakeWorkspace", () => {
     mockSearchParams.delete("intakeFilter");
     mockSearchParams.delete("intakeDocument");
     mockSearchParams.delete("briefBlock");
+    mockSearchParams.delete("briefEntry");
     mockScrollIntoView.mockReset();
     Element.prototype.scrollIntoView = mockScrollIntoView;
     window.history.replaceState({}, "", "/dashboard/affaires/project-1");
@@ -144,6 +146,41 @@ describe("IntakeWorkspace", () => {
     expect(screen.getByText("1 valide, 1 a confirmer, 1 en cours")).toBeInTheDocument();
   });
 
+  it("keeps persisted classified documents out of the review bucket", () => {
+    render(
+      <IntakeWorkspace
+        projectId="project-1"
+        workspace={{
+          projectId: "project-1",
+          uploadId: "upload-1",
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              classificationStatus: "classified",
+              confidence: 0.42,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: ["Faible confiance initiale"],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+      />
+    );
+
+    expect(screen.getByText("1 valide")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /A revoir/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Documents a confirmer" })).not.toBeInTheDocument();
+  });
+
   it("opens the dropzone when the cockpit requests intake upload", async () => {
     render(
       <IntakeWorkspace
@@ -198,6 +235,29 @@ describe("IntakeWorkspace", () => {
     });
   });
 
+  it("hides the duplicate intake heading in entry mode when the affaire is still empty", () => {
+    render(
+      <IntakeWorkspace
+        projectId="project-1"
+        entryMode
+        workspace={{
+          projectId: "project-1",
+          uploadId: null,
+          documents: [],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Dossier de consultation")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /Zone de depot multi-documents/i,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows section headers for grouped documents", () => {
     render(
       <IntakeWorkspace
@@ -230,12 +290,15 @@ describe("IntakeWorkspace", () => {
     );
 
     expect(screen.getByRole("region", { name: /Documents a confirmer/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Documents valides/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: /Documents classes par categorie/i }),
+    ).toBeInTheDocument();
   });
 
   it("opens and highlights the source document targeted from the brief", async () => {
     mockSearchParams.set("intakeDocument", "doc-1");
     mockSearchParams.set("briefBlock", "scope");
+    mockSearchParams.set("briefEntry", "0");
 
     render(
       <IntakeWorkspace
@@ -260,7 +323,21 @@ describe("IntakeWorkspace", () => {
             },
           ],
           missingPieces: [],
-          briefDraft: null,
+          briefDraft: {
+            status: "a_confirmer",
+            summary: "Resume du projet",
+            projectObject: "Construction d'un batiment",
+            scope: ["Lot 1 - Gros oeuvre"],
+            lots: [],
+            receivedPieces: [],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "upload-1",
+            lastGeneratedAt: "2026-03-01T10:00:00+01:00",
+            confirmedAt: null,
+          },
         }}
       />,
     );
@@ -268,10 +345,13 @@ describe("IntakeWorkspace", () => {
     expect(await screen.findAllByText("source-brief.pdf")).toHaveLength(2);
     expect(screen.getByText("Source du brief")).toBeInTheDocument();
     expect(screen.getByText("Perimetre detecte")).toBeInTheDocument();
+    expect(screen.getByText("Element 1")).toBeInTheDocument();
     expect(screen.getAllByText("Plans").length).toBeGreaterThan(0);
     expect(
       screen.getByText(/Perimetre detecte s'appuie sur cette pièce du dossier/i),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Enonce cible/i)).toBeInTheDocument();
+    expect(screen.getByText("Lot 1 - Gros oeuvre")).toBeInTheDocument();
     const documentCard = document.querySelector("[data-document-id='doc-1']");
     expect(documentCard).toHaveAttribute("data-highlighted", "true");
 
@@ -282,6 +362,106 @@ describe("IntakeWorkspace", () => {
       behavior: "auto",
       block: "center",
     });
+  });
+
+  it("does not re-scroll the focused source document on workspace refreshes", async () => {
+    mockSearchParams.set("intakeDocument", "doc-1");
+    mockSearchParams.set("briefBlock", "scope");
+    mockSearchParams.set("briefEntry", "0");
+
+    const initialWorkspace = {
+      projectId: "project-1",
+      uploadId: "upload-1",
+      documents: [
+        {
+          documentId: "doc-1",
+          fileName: "source-brief.pdf",
+          detectedCategory: "plans" as const,
+          confidence: 0.95,
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: [],
+            detectedVariants: [],
+          },
+          issues: [],
+        },
+      ],
+      missingPieces: [],
+      briefDraft: {
+        status: "a_confirmer" as const,
+        summary: "Resume du projet",
+        projectObject: "Construction d'un batiment",
+        scope: ["Lot 1 - Gros oeuvre"],
+        lots: [],
+        receivedPieces: [],
+        assumptions: [],
+        vigilancePoints: [],
+        missingElements: [],
+        sources: [],
+        uploadId: "upload-1",
+        lastGeneratedAt: "2026-03-01T10:00:00+01:00",
+        confirmedAt: null,
+      },
+    };
+
+    const { rerender } = render(
+      <IntakeWorkspace projectId="project-1" workspace={initialWorkspace} />,
+    );
+
+    await waitFor(() => {
+      expect(mockScrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <IntakeWorkspace
+        projectId="project-1"
+        workspace={{
+          ...initialWorkspace,
+          documents: initialWorkspace.documents.map((document) => ({
+            ...document,
+            issues: ["Classification rafraichie"],
+          })),
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Source du brief")).toBeInTheDocument();
+      expect(mockScrollIntoView).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("can hide duplicate add-file actions when the flow hero already carries them", () => {
+    render(
+      <IntakeWorkspace
+        projectId="project-1"
+        hideAddFilesAction
+        hideMissingPiecesAction
+        workspace={{
+          projectId: "project-1",
+          uploadId: "upload-1",
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "classified.pdf",
+              detectedCategory: "plans",
+              confidence: 0.95,
+              extractedMetadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
+              issues: [],
+            },
+          ],
+          missingPieces: [
+            { code: "missing_cctp", label: "CCTP manquant", severity: "warning" },
+          ],
+          briefDraft: null,
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Ajouter des fichiers" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ajouter les pieces manquantes" })).not.toBeInTheDocument();
   });
 
   it("displays detected variants in document card", () => {

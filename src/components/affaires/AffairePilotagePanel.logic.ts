@@ -1,3 +1,7 @@
+import {
+  isAffaireIntakeDocumentNeedingReview,
+  isAffaireIntakeDocumentProcessing,
+} from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { buildAffaireRegisterHubHref, type AffaireRegisterSummary } from "@/lib/affaires/register";
 import type {
@@ -60,6 +64,13 @@ export type FinishLineCard = {
   action: PilotageAction | null;
 };
 
+export type FinishLineReadiness = {
+  reveal: boolean;
+  title: string;
+  summary: string;
+  blockers: string[];
+};
+
 function isRegisterExceptionCoveringSendBlocker(
   flagKey: NonNullable<AffaireHubFinishLineSummaryResult>["readyToSend"]["blockingFlags"][number]["key"],
   exceptionIds: ReadonlySet<string>,
@@ -112,20 +123,13 @@ function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
 function isDocumentProcessing(
   document: NonNullable<AffairePilotageWorkspace>["documents"][number],
 ) {
-  return (
-    document.confidence === 0 &&
-    document.detectedCategory === "a_classer" &&
-    document.issues.length === 0
-  );
+  return isAffaireIntakeDocumentProcessing(document);
 }
 
 function isDocumentNeedingReview(
   document: NonNullable<AffairePilotageWorkspace>["documents"][number],
 ) {
-  return (
-    !isDocumentProcessing(document) &&
-    (document.detectedCategory === "a_classer" || document.confidence < 0.65)
-  );
+  return isAffaireIntakeDocumentNeedingReview(document);
 }
 
 export function buildTakeoffExceptionsHref(
@@ -396,6 +400,61 @@ export function buildFinishLineCards(input: {
   };
 
   return [readyToSendCard, readyToOrderCard] satisfies FinishLineCard[];
+}
+
+export function buildFinishLineReadiness(input: {
+  intakeWorkspace: AffairePilotageWorkspace;
+  dpgfSource: AffaireHubDpgfSourceResult;
+  currentVersion: AffairePilotageCurrentVersion;
+  lineCount: number;
+}) {
+  const blockers: string[] = [];
+  const reviewDocumentsCount = countDocumentsNeedingReview(input.intakeWorkspace);
+  const criticalMissingPiecesCount =
+    input.intakeWorkspace?.missingPieces.filter((piece) => piece.severity === "critical")
+      .length ?? 0;
+
+  if (reviewDocumentsCount > 0) {
+    blockers.push(
+      `${reviewDocumentsCount} piece${reviewDocumentsCount > 1 ? "s" : ""} reste${reviewDocumentsCount > 1 ? "nt" : ""} a confirmer dans le dossier.`,
+    );
+  }
+
+  if (criticalMissingPiecesCount > 0) {
+    blockers.push(
+      `${criticalMissingPiecesCount} piece${criticalMissingPiecesCount > 1 ? "s critiques manquantes" : " critique manquante"} avant la sortie.`,
+    );
+  }
+
+  if (input.dpgfSource === null) {
+    blockers.push("Importez puis validez le DPGF avant de preparer la sortie.");
+  } else if (!hasValidatedDpgfMapping(input.dpgfSource)) {
+    blockers.push("Validez le DPGF avant d'ouvrir la sortie devis.");
+  }
+
+  if (input.currentVersion === null) {
+    blockers.push("Creez un premier devis brouillon pour materialiser la sortie.");
+  } else if (input.lineCount === 0) {
+    blockers.push("Materialisez au moins une ligne de devis exploitable.");
+  }
+
+  if (blockers.length === 0) {
+    return {
+      reveal: true,
+      title: "Sortie devis et achats",
+      summary:
+        "Le dossier est assez mature pour afficher la sortie devis, l'email client, le BDC et la preparation achats.",
+      blockers: [],
+    } satisfies FinishLineReadiness;
+  }
+
+  return {
+    reveal: false,
+    title: "Sortie devis masquee pour l'instant",
+    summary:
+      "PDF, email, BDC et commandes apparaitront seulement quand la structure devis sera exploitable sans ambiguite.",
+    blockers: blockers.slice(0, 3),
+  } satisfies FinishLineReadiness;
 }
 
 function countDocumentsNeedingReview(intakeWorkspace: AffairePilotageWorkspace) {

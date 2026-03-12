@@ -32,6 +32,7 @@ type BriefDraftCardProps = {
   projectId: string;
   briefDraft: AffaireIntakeBriefDraft | null;
   isReadOnly?: boolean;
+  hideConfirmAction?: boolean;
 };
 
 type BadgeVariant = "neutral" | "info" | "success" | "warning" | "error";
@@ -52,6 +53,7 @@ const MAX_SUMMARY_LENGTH = 900;
 const MAX_EDITABLE_LIST_ITEM_LENGTH = 280;
 const INTAKE_DOCUMENT_PARAM = "intakeDocument";
 const BRIEF_BLOCK_PARAM = "briefBlock";
+const BRIEF_ENTRY_PARAM = "briefEntry";
 
 const BLOCK_ORDER: AffaireIntakeBriefBlockKey[] = [
   "project_object",
@@ -145,11 +147,12 @@ function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
 
 function buildBriefSourceHref(
   projectId: string,
-  source: Pick<AffaireIntakeBriefSource, "sourceDocumentId" | "blockKey">
+  source: Pick<AffaireIntakeBriefSource, "sourceDocumentId" | "blockKey" | "entryIndex">
 ) {
   const params = new URLSearchParams({
     [INTAKE_DOCUMENT_PARAM]: source.sourceDocumentId,
     [BRIEF_BLOCK_PARAM]: source.blockKey,
+    [BRIEF_ENTRY_PARAM]: String(source.entryIndex),
   });
   return `/dashboard/affaires/${projectId}?${params.toString()}#intake`;
 }
@@ -375,6 +378,7 @@ export function BriefDraftCard({
   projectId,
   briefDraft,
   isReadOnly,
+  hideConfirmAction = false,
 }: Readonly<BriefDraftCardProps>) {
   const router = useRouter();
   const toast = useToast();
@@ -558,7 +562,7 @@ export function BriefDraftCard({
                 Modifier
               </button>
             )}
-            {!isEditing && briefDraft.status === "a_confirmer" && (
+            {!isEditing && briefDraft.status === "a_confirmer" && !hideConfirmAction && (
               <button
                 type="button"
                 onClick={() => setShowConfirmDialog(true)}

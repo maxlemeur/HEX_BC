@@ -11,6 +11,8 @@ import type {
 import {
   AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS,
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
+  isAffaireIntakeDocumentNeedingReview,
+  isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import { Badge } from "@/components/ui/Badge";
 import {
@@ -29,11 +31,15 @@ type IntakeWorkspaceProps = {
   onBridgeDpgfImport?: () => void;
   dpgfAlreadyImported?: boolean;
   plansSynced?: boolean;
+  entryMode?: boolean;
+  hideAddFilesAction?: boolean;
+  hideMissingPiecesAction?: boolean;
 };
 
 const FILTER_PARAM = "intakeFilter";
 const FOCUS_DOCUMENT_PARAM = "intakeDocument";
 const FOCUS_BRIEF_BLOCK_PARAM = "briefBlock";
+const FOCUS_BRIEF_ENTRY_PARAM = "briefEntry";
 const FILTER_A_REVOIR = "a_revoir";
 const AUTO_REFRESH_INTERVAL_MS = 4_000;
 const AUTO_REFRESH_MAX_MS = 60_000;
@@ -41,14 +47,11 @@ const UPLOAD_REFRESH_INTERVAL_MS = 2_000;
 const UPLOAD_REFRESH_MAX_ATTEMPTS = 15;
 
 function isDocumentProcessing(doc: WorkspaceData["documents"][number]) {
-  return doc.confidence === 0 && doc.detectedCategory === "a_classer" && doc.issues.length === 0;
+  return isAffaireIntakeDocumentProcessing(doc);
 }
 
 function isDocumentNeedsReview(doc: WorkspaceData["documents"][number]) {
-  return (
-    (doc.detectedCategory === "a_classer" || doc.confidence < 0.65) &&
-    !isDocumentProcessing(doc)
-  );
+  return isAffaireIntakeDocumentNeedingReview(doc);
 }
 
 function parseBriefBlockSearchParam(
@@ -63,7 +66,56 @@ function parseBriefBlockSearchParam(
     : null;
 }
 
-export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgfAlreadyImported, plansSynced }: IntakeWorkspaceProps) {
+function parseBriefEntrySearchParam(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isInteger(parsedValue) && parsedValue >= 0 ? parsedValue : null;
+}
+
+function getFocusedBriefExcerpt(
+  briefDraft: WorkspaceData["briefDraft"] | null | undefined,
+  blockKey: AffaireIntakeBriefBlockKey | null,
+  entryIndex: number | null
+) {
+  if (!briefDraft || !blockKey) {
+    return null;
+  }
+
+  switch (blockKey) {
+    case "summary":
+      return briefDraft.summary;
+    case "project_object":
+      return briefDraft.projectObject;
+    case "scope":
+      return entryIndex !== null ? briefDraft.scope[entryIndex] ?? null : null;
+    case "lots":
+      return entryIndex !== null ? briefDraft.lots[entryIndex] ?? null : null;
+    case "received_pieces":
+      return entryIndex !== null ? briefDraft.receivedPieces[entryIndex] ?? null : null;
+    case "assumptions":
+      return entryIndex !== null ? briefDraft.assumptions[entryIndex] ?? null : null;
+    case "vigilance_points":
+      return entryIndex !== null ? briefDraft.vigilancePoints[entryIndex] ?? null : null;
+    case "missing_elements":
+      return entryIndex !== null ? briefDraft.missingElements[entryIndex] ?? null : null;
+    default:
+      return null;
+  }
+}
+
+export function IntakeWorkspace({
+  projectId,
+  workspace,
+  onBridgeDpgfImport,
+  dpgfAlreadyImported,
+  plansSynced,
+  entryMode = false,
+  hideAddFilesAction = false,
+  hideMissingPiecesAction = false,
+}: IntakeWorkspaceProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -77,6 +129,9 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
   );
   const [focusBriefBlock, setFocusBriefBlock] = useState<AffaireIntakeBriefBlockKey | null>(
     parseBriefBlockSearchParam(searchParams.get(FOCUS_BRIEF_BLOCK_PARAM))
+  );
+  const [focusBriefEntry, setFocusBriefEntry] = useState<number | null>(
+    parseBriefEntrySearchParam(searchParams.get(FOCUS_BRIEF_ENTRY_PARAM))
   );
   const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
 
@@ -95,6 +150,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
 
   // Auto-refresh while documents are still being classified
   const autoRefreshStartRef = useRef<number | null>(null);
+  const lastScrolledFocusKeyRef = useRef<string | null>(null);
   const hasProcessingDocs = workspace?.documents.some(isDocumentProcessing) ?? false;
 
   useEffect(() => {
@@ -103,10 +159,19 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
     setFocusBriefBlock(
       parseBriefBlockSearchParam(searchParams.get(FOCUS_BRIEF_BLOCK_PARAM))
     );
+    setFocusBriefEntry(
+      parseBriefEntrySearchParam(searchParams.get(FOCUS_BRIEF_ENTRY_PARAM))
+    );
   }, [searchParams]);
 
   useEffect(() => {
     if (!focusDocumentId) {
+      lastScrolledFocusKeyRef.current = null;
+      return;
+    }
+
+    const focusKey = `${focusDocumentId}:${focusBriefBlock ?? ""}:${focusBriefEntry ?? ""}`;
+    if (lastScrolledFocusKeyRef.current === focusKey) {
       return;
     }
 
@@ -128,6 +193,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
       }
 
       documentNode.scrollIntoView({ behavior: "auto", block: "center" });
+      lastScrolledFocusKeyRef.current = focusKey;
       setAnnouncement("Piece source ouverte dans le dossier.");
       return true;
     };
@@ -149,7 +215,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
         clearTimeout(timeoutId);
       }
     };
-  }, [focusDocumentId, workspace?.documents]);
+  }, [focusBriefBlock, focusBriefEntry, focusDocumentId, workspace?.documents]);
 
   useEffect(() => {
     if (!hasProcessingDocs) {
@@ -214,6 +280,10 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
         const trigger = document.querySelector<HTMLElement>(
           `[data-intake-dropzone-trigger="${projectId}"]`,
         );
+        if (detail.triggerFilePicker) {
+          trigger?.click();
+          return;
+        }
         trigger?.focus();
       });
     };
@@ -303,63 +373,85 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
     return parts.join(", ");
   }, [classifiedCount, needsReviewCount, processingCount]);
 
+  const shouldRenderEntryShell = entryMode && !hasDocuments;
   const focusBannerTitle = focusBriefBlock
     ? AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS[focusBriefBlock]
     : null;
+  const focusBannerEntryLabel =
+    focusBriefBlock &&
+    focusBriefBlock !== "summary" &&
+    focusBriefBlock !== "project_object" &&
+    focusBriefEntry !== null
+      ? `Element ${focusBriefEntry + 1}`
+      : null;
+  const focusBannerExcerpt = getFocusedBriefExcerpt(
+    workspace?.briefDraft,
+    focusBriefBlock,
+    focusBriefEntry
+  );
   const focusBannerCategory = focusedDocument
     ? AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[focusedDocument.detectedCategory]
     : null;
 
   return (
-    <section className="dashboard-card p-5 animate-fade-in" aria-label="Intake dossier affaire">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-            Dossier de consultation
-          </h2>
-          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-            {hasDocuments
-              ? `${documents.length} document${documents.length > 1 ? "s" : ""} — classés automatiquement`
-              : "Déposez vos pièces (CCTP, DPGF, plans, courriers) pour lancer l'analyse"}
-          </p>
-        </div>
+    <section
+      className={
+        shouldRenderEntryShell
+          ? "animate-fade-in"
+          : "dashboard-card p-5 animate-fade-in"
+      }
+      aria-label="Intake dossier affaire"
+    >
+      {shouldRenderEntryShell ? null : (
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+              Dossier de consultation
+            </h2>
+            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              {hasDocuments
+                ? `${documents.length} document${documents.length > 1 ? "s" : ""} — classés automatiquement`
+                : "Déposez vos pièces (CCTP, DPGF, plans, courriers) pour lancer l'analyse"}
+            </p>
+          </div>
 
-        <div className="flex items-center gap-2">
-          {/* "A revoir" filter toggle */}
-          {needsReviewCount > 0 && (
-            <button
-              type="button"
-              onClick={toggleFilter}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
-                isFilterActive
-                  ? "bg-[var(--warning)]/10 text-[var(--warning)] ring-1 ring-[var(--warning)]/30"
-                  : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"
-              }`}
-              aria-pressed={isFilterActive}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-              </svg>
-              A revoir ({needsReviewCount})
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {/* "A revoir" filter toggle */}
+            {needsReviewCount > 0 && (
+              <button
+                type="button"
+                onClick={toggleFilter}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  isFilterActive
+                    ? "bg-[var(--warning)]/10 text-[var(--warning)] ring-1 ring-[var(--warning)]/30"
+                    : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"
+                }`}
+                aria-pressed={isFilterActive}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+                A revoir ({needsReviewCount})
+              </button>
+            )}
 
-          {/* Add files button */}
-          {hasDocuments && (
-            <button
-              type="button"
-              onClick={() => setShowDropzone((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="12" x2="12" y1="5" y2="19" />
-                <line x1="5" x2="19" y1="12" y2="12" />
-              </svg>
-              {showDropzone ? "Masquer" : "Ajouter des fichiers"}
-            </button>
-          )}
+            {/* Add files button */}
+            {hasDocuments && !hideAddFilesAction && (
+              <button
+                type="button"
+                onClick={() => setShowDropzone((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="12" x2="12" y1="5" y2="19" />
+                  <line x1="5" x2="19" y1="12" y2="12" />
+                </svg>
+                {showDropzone ? "Masquer" : "Ajouter des fichiers"}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Progress bar */}
       {hasDocuments && (
@@ -402,6 +494,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
             projectId={projectId}
             onUploadComplete={handleUploadComplete}
             compact={hasDocuments}
+            hideSurface={shouldRenderEntryShell}
           />
         </div>
       )}
@@ -409,7 +502,12 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
       {/* Missing pieces */}
       {workspace && workspace.missingPieces.length > 0 && (
         <div className="mb-4">
-          <IntakeMissingPieces pieces={workspace.missingPieces} onAddFile={() => setShowDropzone(true)} />
+          <IntakeMissingPieces
+            pieces={workspace.missingPieces}
+            onAddFile={
+              hideMissingPiecesAction ? undefined : () => setShowDropzone(true)
+            }
+          />
         </div>
       )}
 
@@ -420,18 +518,37 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
               Source du brief
             </p>
             {focusBannerTitle ? (
-              <Badge variant="info" size="sm">{focusBannerTitle}</Badge>
+              <Badge variant="info" size="sm">
+                {focusBannerTitle}
+              </Badge>
+            ) : null}
+            {focusBannerEntryLabel ? (
+              <Badge variant="neutral" size="sm">
+                {focusBannerEntryLabel}
+              </Badge>
             ) : null}
             {focusBannerCategory ? (
-              <Badge variant="neutral" size="sm">{focusBannerCategory}</Badge>
+              <Badge variant="neutral" size="sm">
+                {focusBannerCategory}
+              </Badge>
             ) : null}
           </div>
           <p className="mt-1 text-sm text-[var(--slate-600)]">
             {focusBannerTitle
               ? `${focusBannerTitle} s'appuie sur cette pièce du dossier.`
               : "Cette pièce du dossier est utilisée comme source du brief."}{" "}
-            <span className="font-medium text-[var(--slate-800)]">{focusedDocument.fileName}</span>
+            <span className="font-medium text-[var(--slate-800)]">
+              {focusedDocument.fileName}
+            </span>
           </p>
+          {focusBannerExcerpt ? (
+            <p className="mt-2 text-xs text-[var(--slate-500)]">
+              Enonce cible :{" "}
+              <span className="font-medium text-[var(--slate-700)]">
+                {focusBannerExcerpt}
+              </span>
+            </p>
+          ) : null}
         </div>
       )}
 
