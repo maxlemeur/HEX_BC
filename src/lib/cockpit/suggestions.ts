@@ -339,7 +339,36 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (registerSummary && registerSummary.openQuestionsCount > 0) {
+  if (
+    registerSummary &&
+    registerSummary.clarifyWithClientCount > 0 &&
+    !isReadOnlyReview
+  ) {
+    const count = registerSummary.clarifyWithClientCount;
+    const isCritical = (registerSummary.criticalClarifyWithClientCount ?? 0) > 0;
+    suggestions.push(
+      createSuggestion({
+        actionId: "list-clarifications",
+        label: `Traiter ${count} clarification${count !== 1 ? "s" : ""} client`,
+        intent: "list_hypotheses",
+        preview: isCritical
+          ? "Des clarifications critiques restent a porter vers le client avant envoi."
+          : "Des clarifications client restent ouvertes dans le registre affaire.",
+        target: {
+          kind: "navigate",
+          href: `${buildAffaireRegisterHubHref({
+            projectId,
+            status: "clarify_with_client",
+          })}#register`,
+        },
+        requiresConfirmation: false,
+        confirmTone: "warning",
+        priority: isCritical ? 720 : 610,
+      }),
+    );
+  }
+
+  if (registerSummary && registerSummary.openQuestionsCount > 0 && !isReadOnlyReview) {
     const count = registerSummary.criticalOpenCount > 0
       ? registerSummary.criticalOpenCount
       : registerSummary.openQuestionsCount;

@@ -413,6 +413,32 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("surfaces client clarifications before generic open hypotheses", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+        registerSummary: makeRegisterSummary({
+          openQuestionsCount: 4,
+          criticalOpenCount: 1,
+          clarifyWithClientCount: 2,
+          criticalClarifyWithClientCount: 1,
+        }),
+      }),
+    );
+
+    expect(result.find((s) => s.actionId === "list-clarifications")).toEqual(
+      expect.objectContaining({
+        intent: "list_hypotheses",
+        label: "Traiter 2 clarifications client",
+        preview: "Des clarifications critiques restent a porter vers le client avant envoi.",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/affaires/proj-42?registerStatus=clarify_with_client#register",
+        },
+      }),
+    );
+  });
+
   it("keeps analyze plans and prepare validation on open surfaces", () => {
     const result = computeCockpitSuggestions(
       makeInput({

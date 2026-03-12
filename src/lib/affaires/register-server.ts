@@ -16,6 +16,7 @@ import {
   AFFAIRE_REGISTER_KIND_LABELS,
   buildAffaireRegisterContinuationHypothesisText,
   affaireRegisterEventTypeSchema,
+  extractAffaireRegisterClientClarificationRequest,
   affaireRegisterEntryKindSchema,
   affaireRegisterEntryOriginKindSchema,
   affaireRegisterEntrySeveritySchema,
@@ -25,6 +26,7 @@ import {
   encodeAffaireRegisterCursor,
   normalizeAffaireRegisterText,
   type AffaireRegisterEntry,
+  type AffaireRegisterClientClarificationRequest,
   type AffaireRegisterContinuationDecision,
   type AffaireRegisterEventType,
   type AffaireRegisterEntryKind,
@@ -124,6 +126,7 @@ type AffaireRegisterGateEntry = {
   status: AffaireRegisterEntryStatus;
   text: string;
   scopeLabel: string;
+  clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
 };
 
@@ -132,6 +135,7 @@ export type AffaireRegisterGateSummary = {
   criticalOpenEntries: AffaireRegisterGateEntry[];
   nonCriticalOpenEntries: AffaireRegisterGateEntry[];
   clarifyWithClientEntries: AffaireRegisterGateEntry[];
+  criticalClarifyWithClientEntries?: AffaireRegisterGateEntry[];
   openAssumptionEntries: AffaireRegisterGateEntry[];
   openMissingPieceEntries: AffaireRegisterGateEntry[];
   continuedWithHypothesisEntries?: AffaireRegisterGateEntry[];
@@ -396,6 +400,9 @@ function toAffaireRegisterEntry(
     updatedByName: row.updated_by_profile?.full_name?.trim() || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    clientClarificationRequest: extractAffaireRegisterClientClarificationRequest(
+      row.metadata
+    ),
     continuationDecision: extractAffaireRegisterContinuationDecision(row.metadata),
     history: [],
   };
@@ -672,6 +679,7 @@ async function insertAffaireRegisterEvent(input: {
     | "created"
     | "synced"
     | "status_changed"
+    | "clarify_with_client_requested"
     | "continued_with_hypothesis"
     | "deactivated"
     | "reactivated";
@@ -1073,6 +1081,9 @@ export async function fetchAffaireRegisterGateSummary(input: {
         typeof row.scope_label === "string" && row.scope_label.trim().length > 0
           ? row.scope_label.trim()
           : "Affaire",
+      clientClarificationRequest: isRecord(row.metadata)
+        ? extractAffaireRegisterClientClarificationRequest(row.metadata)
+        : null,
       continuationDecision: isRecord(row.metadata)
         ? extractAffaireRegisterContinuationDecision(row.metadata)
         : null,
@@ -1087,6 +1098,9 @@ export async function fetchAffaireRegisterGateSummary(input: {
   );
   const clarifyWithClientEntries = normalized.filter(
     (entry) => entry.status === "clarify_with_client"
+  );
+  const criticalClarifyWithClientEntries = clarifyWithClientEntries.filter(
+    (entry) => entry.severity === "critical"
   );
   const openAssumptionEntries = normalized.filter(
     (entry) => entry.status === "open" && entry.kind === "assumption"
@@ -1109,6 +1123,7 @@ export async function fetchAffaireRegisterGateSummary(input: {
     criticalOpenEntries,
     nonCriticalOpenEntries,
     clarifyWithClientEntries,
+    criticalClarifyWithClientEntries,
     openAssumptionEntries,
     openMissingPieceEntries,
     continuedWithHypothesisEntries,
@@ -1135,6 +1150,8 @@ export async function fetchAffaireRegisterSummary(input: {
     criticalOpenCount: gateSummary.criticalOpenEntries.length,
     nonCriticalOpenCount: gateSummary.nonCriticalOpenEntries.length,
     clarifyWithClientCount: gateSummary.clarifyWithClientEntries.length,
+    criticalClarifyWithClientCount:
+      gateSummary.criticalClarifyWithClientEntries?.length ?? 0,
     openAssumptionCount: gateSummary.openAssumptionEntries.length,
     openMissingPieceCount: gateSummary.openMissingPieceEntries.length,
     continuedWithHypothesisCount:
@@ -1548,10 +1565,30 @@ export async function updateAffaireRegisterEntryStatus(
     } as const;
   }
 
+  const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
+  const clarificationRequest =
+    parsed.status === "clarify_with_client"
+      ? ({
+          status: "clarify_with_client",
+          requestedAt: new Date().toISOString(),
+          requestedByUserId: context.userId,
+          previousStatus: entry.status,
+          comment,
+        } satisfies AffaireRegisterClientClarificationRequest)
+      : null;
+  const nextMetadata = { ...entry.metadata };
+
+  if (clarificationRequest) {
+    nextMetadata.clientClarificationRequest = clarificationRequest;
+  } else if ("clientClarificationRequest" in nextMetadata) {
+    delete nextMetadata.clientClarificationRequest;
+  }
+
   const { data: updatedData, error: updateError } = await context.supabase
     .from("affaire_register_entries" as never)
     .update({
       status: parsed.status,
+      metadata: nextMetadata,
       updated_by: context.userId,
     } as never)
     .eq("id", entry.id as never)
@@ -1571,14 +1608,20 @@ export async function updateAffaireRegisterEntryStatus(
     supabase: context.supabase,
     entryId: entry.id,
     actorUserId: context.userId,
-    eventType: "status_changed",
-    reason: normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null,
+    eventType:
+      parsed.status === "clarify_with_client"
+        ? "clarify_with_client_requested"
+        : "status_changed",
+    reason: comment,
     beforePayload: {
       status: entry.status,
+      clientClarificationRequest:
+        extractAffaireRegisterClientClarificationRequest(entry.metadata),
     } satisfies Json,
     afterPayload: {
       status: updatedEntry.status,
-      comment: normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null,
+      clientClarificationRequest: clarificationRequest,
+      comment,
     } satisfies Json,
   });
 

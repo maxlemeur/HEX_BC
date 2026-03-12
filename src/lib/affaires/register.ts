@@ -24,6 +24,7 @@ export const affaireRegisterEventTypeSchema = z.enum([
   "created",
   "synced",
   "status_changed",
+  "clarify_with_client_requested",
   "continued_with_hypothesis",
   "deactivated",
   "reactivated",
@@ -96,6 +97,7 @@ export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
   created: "Entree creee",
   synced: "Resynchronisee",
   status_changed: "Statut modifie",
+  clarify_with_client_requested: "Clarification client demandee",
   continued_with_hypothesis: "Continuation acceptee sous hypothese",
   deactivated: "Entree archivee",
   reactivated: "Entree reactivee",
@@ -148,6 +150,7 @@ export type AffaireRegisterEntry = {
   updatedByName: string | null;
   createdAt: string;
   updatedAt: string;
+  clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
   history: AffaireRegisterTimelineEvent[];
 };
@@ -196,11 +199,26 @@ export type AffaireRegisterSummary = {
   criticalOpenCount: number;
   nonCriticalOpenCount: number;
   clarifyWithClientCount: number;
+  criticalClarifyWithClientCount?: number;
   openAssumptionCount: number;
   openMissingPieceCount: number;
   continuedWithHypothesisCount?: number;
   continuedCriticalMissingPieceCount?: number;
 };
+
+export const affaireRegisterClientClarificationRequestSchema = z
+  .object({
+    status: z.literal("clarify_with_client"),
+    requestedAt: z.string().datetime({ offset: true }),
+    requestedByUserId: z.string().uuid().nullable(),
+    previousStatus: affaireRegisterEntryStatusSchema,
+    comment: z.string().trim().min(1).max(320).nullable().optional(),
+  })
+  .strict();
+
+export type AffaireRegisterClientClarificationRequest = z.infer<
+  typeof affaireRegisterClientClarificationRequestSchema
+>;
 
 export const affaireRegisterContinuationDecisionSchema = z
   .object({
@@ -292,6 +310,24 @@ export function extractAffaireRegisterContinuationDecision(
   return parsed.success ? parsed.data : null;
 }
 
+export function extractAffaireRegisterClientClarificationRequest(
+  metadata: unknown
+): AffaireRegisterClientClarificationRequest | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("clientClarificationRequest" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = affaireRegisterClientClarificationRequestSchema.safeParse(
+    (metadata as Record<string, unknown>).clientClarificationRequest
+  );
+  return parsed.success ? parsed.data : null;
+}
+
 export function canAffaireRegisterEntryContinueWithHypothesis(
   entry: Pick<AffaireRegisterEntry, "kind" | "status" | "continuationDecision">
 ) {
@@ -299,6 +335,15 @@ export function canAffaireRegisterEntryContinueWithHypothesis(
     entry.kind === "missing_piece" &&
     entry.status === "open" &&
     !entry.continuationDecision
+  );
+}
+
+export function canAffaireRegisterEntryClarifyWithClient(
+  entry: Pick<AffaireRegisterEntry, "status" | "clientClarificationRequest">
+) {
+  return (
+    entry.status === "open" &&
+    !entry.clientClarificationRequest
   );
 }
 

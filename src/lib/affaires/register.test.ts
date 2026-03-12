@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canAffaireRegisterEntryClarifyWithClient,
   buildAffaireRegisterContinuationHypothesisText,
   canAffaireRegisterEntryContinueWithHypothesis,
+  extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterContinuationDecision,
 } from "@/lib/affaires/register";
 
@@ -58,6 +60,46 @@ describe("affaire register continuation contract", () => {
       status: "accepted_with_hypothesis",
       hypothesisText: "Hypothese documentaire",
       comment: "Decision tracee.",
+    });
+  });
+
+  it("exposes whether an entry can still be moved to client clarification", () => {
+    expect(
+      canAffaireRegisterEntryClarifyWithClient({
+        status: "open",
+        clientClarificationRequest: null,
+      })
+    ).toBe(true);
+
+    expect(
+      canAffaireRegisterEntryClarifyWithClient({
+        status: "clarify_with_client",
+        clientClarificationRequest: {
+          status: "clarify_with_client",
+          requestedAt: "2026-03-13T10:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "open",
+          comment: "Besoin d'une reponse client.",
+        },
+      })
+    ).toBe(false);
+  });
+
+  it("extracts client clarification requests from entry metadata", () => {
+    expect(
+      extractAffaireRegisterClientClarificationRequest({
+        clientClarificationRequest: {
+          status: "clarify_with_client",
+          requestedAt: "2026-03-13T10:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "open",
+          comment: "Besoin d'une reponse client.",
+        },
+      })
+    ).toMatchObject({
+      status: "clarify_with_client",
+      previousStatus: "open",
+      comment: "Besoin d'une reponse client.",
     });
   });
 });
