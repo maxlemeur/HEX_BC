@@ -113,12 +113,41 @@ describe("BriefDraftCard", () => {
     expect(badges[0].closest("[data-variant='warning']")).toBeTruthy();
   });
 
+  it("shows a visible banner when the brief still needs confirmation", () => {
+    render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
+    const section = getSection();
+    expect(within(section).getByText("Validation du brief requise")).toBeInTheDocument();
+    expect(
+      within(section).getByText(/Confirmez ce cadrage avant de poursuivre le chiffrage/i)
+    ).toBeInTheDocument();
+  });
+
   it("shows 'Confirmé' badge when status is confirme", () => {
     render(
       <BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft({ status: "confirme" })} />
     );
     const section = getSection();
     expect(within(section).getByText("Confirmé")).toBeInTheDocument();
+  });
+
+  it("shows the confirmed brief as the working reference", () => {
+    render(
+      <BriefDraftCard
+        projectId={PROJECT_ID}
+        briefDraft={makeBriefDraft({
+          status: "confirme",
+          confirmedAt: "2026-03-06T09:15:00+01:00",
+        })}
+      />
+    );
+    const section = getSection();
+    expect(within(section).getByText("Brief de référence")).toBeInTheDocument();
+    expect(within(section).getByText("Confirmé le 06/03/2026")).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        /Ce cadrage sert de base commune pour la suite du chiffrage/i
+      )
+    ).toBeInTheDocument();
   });
 
   it("displays source annotations", () => {
@@ -263,6 +292,50 @@ describe("BriefDraftCard", () => {
     expect(mockRefresh).toHaveBeenCalled();
   });
 
+  it("reopens confirmation explicitly when a confirmed brief is edited", async () => {
+    mockUpdateAffaireBrief.mockResolvedValueOnce({
+      ok: true,
+      status: "a_confirmer",
+    });
+    const user = userEvent.setup();
+    render(
+      <BriefDraftCard
+        projectId={PROJECT_ID}
+        briefDraft={makeBriefDraft({
+          status: "confirme",
+          confirmedAt: "2026-03-06T09:15:00+01:00",
+        })}
+      />
+    );
+    const section = getSection();
+
+    await user.click(within(section).getByText("Modifier"));
+    expect(
+      screen.getByText(/ce brief repassera à valider pour sécuriser le cadrage/i)
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByRole("button", { name: "Enregistrer et revalider" })
+    ).toBeInTheDocument();
+
+    const summaryInput = screen.getByDisplayValue("Resume du projet");
+    await user.clear(summaryInput);
+    await user.type(summaryInput, "Resume revalide");
+    await user.click(within(section).getByRole("button", { name: "Enregistrer et revalider" }));
+
+    expect(mockUpdateAffaireBrief).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      summary: "Resume revalide",
+      scope: ["Lot 1 - Gros oeuvre", "Lot 2 - Electricite"],
+      vigilancePoints: ["Point de vigilance X"],
+      assumptions: ["Hypothese A"],
+    });
+    expect(mockToast.info).toHaveBeenCalledWith({
+      title: "Brief mis à jour.",
+      description: "Le brief doit être confirmé à nouveau avant la suite du chiffrage.",
+    });
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
   it("skips no-op saves for confirmed briefs", async () => {
     const user = userEvent.setup();
     render(
@@ -274,7 +347,9 @@ describe("BriefDraftCard", () => {
     const section = getSection();
 
     await user.click(within(section).getByText("Modifier"));
-    await user.click(within(section).getByText("Enregistrer"));
+    await user.click(
+      within(section).getByRole("button", { name: "Enregistrer et revalider" })
+    );
 
     expect(mockUpdateAffaireBrief).not.toHaveBeenCalled();
     expect(mockToast.success).not.toHaveBeenCalled();
@@ -325,6 +400,11 @@ describe("BriefDraftCard", () => {
     await user.click(within(section).getByText("Confirmer le brief"));
     // Confirmation dialog should appear
     expect(within(section).getByText("Confirmer ce brief ?")).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        "Il deviendra la référence de travail pour la suite du chiffrage."
+      )
+    ).toBeInTheDocument();
     await user.click(within(section).getByText("Oui, confirmer"));
 
     expect(mockConfirmAffaireBrief).toHaveBeenCalledWith({ projectId: PROJECT_ID });

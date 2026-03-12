@@ -452,13 +452,21 @@ export function BriefDraftCard({
 
     startTransition(async () => {
       try {
-        await updateAffaireBrief({
+        const result = await updateAffaireBrief({
           projectId,
           ...nextPayload,
         });
         setIsEditing(false);
-        setAnnouncement("Brief mis à jour.");
-        toast.success({ title: "Brief mis à jour." });
+        if (briefDraft.status === "confirme" && result?.status === "a_confirmer") {
+          setAnnouncement("Brief mis à jour. Une nouvelle confirmation est requise.");
+          toast.info({
+            title: "Brief mis à jour.",
+            description: "Le brief doit être confirmé à nouveau avant la suite du chiffrage.",
+          });
+        } else {
+          setAnnouncement("Brief mis à jour.");
+          toast.success({ title: "Brief mis à jour." });
+        }
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de la sauvegarde.");
@@ -539,6 +547,15 @@ export function BriefDraftCard({
         minute: "2-digit",
       })
     : null;
+  const confirmationDate = briefDraft?.confirmedAt
+    ? new Date(briefDraft.confirmedAt).toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : null;
+  const isConfirmedBrief = briefDraft?.status === "confirme";
+  const requiresConfirmation = briefDraft?.status === "a_confirmer";
 
   return (
     <section className="dashboard-card p-5" aria-label="Brief affaire">
@@ -577,6 +594,36 @@ export function BriefDraftCard({
         )}
       </div>
 
+      {briefDraft && isConfirmedBrief && !isEditing && !showConfirmDialog && (
+        <div className="mt-3 rounded-lg border border-[var(--success)]/20 bg-[var(--success)]/6 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-[var(--slate-800)]">
+              Brief de référence
+            </p>
+            {confirmationDate ? (
+              <Badge variant="success" size="sm">
+                Confirmé le {confirmationDate}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm text-[var(--slate-600)]">
+            Ce cadrage sert de base commune pour la suite du chiffrage. Si le dossier
+            a changé, modifiez le brief pour relancer une validation.
+          </p>
+        </div>
+      )}
+
+      {briefDraft && requiresConfirmation && !isEditing && !showConfirmDialog && (
+        <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/6 px-4 py-3">
+          <p className="text-sm font-semibold text-[var(--slate-800)]">
+            Validation du brief requise
+          </p>
+          <p className="mt-1 text-sm text-[var(--slate-600)]">
+            Confirmez ce cadrage avant de poursuivre le chiffrage. Tant qu&apos;il reste
+            à valider, la suite doit être relue.
+          </p>
+        </div>
+      )}
 
       {/* Executive summary banner */}
       {briefDraft && !isEditing && !showConfirmDialog && (
@@ -596,6 +643,9 @@ export function BriefDraftCard({
       {showConfirmDialog && briefDraft && (
         <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
           <p className="text-sm font-medium text-[var(--slate-800)]">Confirmer ce brief ?</p>
+          <p className="mt-1 text-sm text-[var(--slate-600)]">
+            Il deviendra la référence de travail pour la suite du chiffrage.
+          </p>
           <p className="mt-1 text-xs text-[var(--slate-600)]">
             {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {briefDraft.missingElements.length} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
           </p>
@@ -648,24 +698,31 @@ export function BriefDraftCard({
 
       {/* Edit footer */}
       {isEditing && (
-        <div className="sticky bottom-0 z-10 -mx-5 mt-4 flex items-center gap-2 border-t border-[var(--slate-200)] bg-surface px-5 py-3">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isPending}
-            aria-busy={isPending}
-            className="btn btn-primary btn-sm text-xs"
-          >
-            {isPending ? "..." : "Enregistrer"}
-          </button>
-          <button
-            type="button"
-            onClick={handleCancelEdit}
-            disabled={isPending}
-            className="btn btn-secondary btn-sm text-xs"
-          >
-            Annuler
-          </button>
+        <div className="sticky bottom-0 z-10 -mx-5 mt-4 space-y-2 border-t border-[var(--slate-200)] bg-surface px-5 py-3">
+          {isConfirmedBrief && (
+            <p className="text-xs text-[var(--slate-600)]">
+              En enregistrant, ce brief repassera à valider pour sécuriser le cadrage mis à jour.
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isPending}
+              aria-busy={isPending}
+              className="btn btn-primary btn-sm text-xs"
+            >
+              {isPending ? "..." : isConfirmedBrief ? "Enregistrer et revalider" : "Enregistrer"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              disabled={isPending}
+              className="btn btn-secondary btn-sm text-xs"
+            >
+              Annuler
+            </button>
+          </div>
         </div>
       )}
 
