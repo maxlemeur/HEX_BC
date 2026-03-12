@@ -20,6 +20,7 @@ type IntakeDocumentCardProps = {
   projectId: string;
   onReclassified: () => void;
   compact?: boolean;
+  isEmphasized?: boolean;
 };
 
 function getFileTypeIcon(fileName: string) {
@@ -82,6 +83,7 @@ export function IntakeDocumentCard({
   projectId,
   onReclassified,
   compact = false,
+  isEmphasized = false,
 }: IntakeDocumentCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(doc.detectedCategory);
@@ -122,8 +124,13 @@ export function IntakeDocumentCard({
   if (compact && !isEditing) {
     return (
       <div
-        className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2"
+        className={`flex items-center gap-3 rounded-lg border bg-surface px-3 py-2 transition-colors ${
+          isEmphasized
+            ? "border-[var(--brand-blue)]/40 ring-2 ring-[var(--brand-blue)]/15"
+            : "border-[var(--slate-200)]"
+        }`}
         data-document-id={doc.documentId}
+        data-highlighted={isEmphasized ? "true" : undefined}
       >
         <span className={`text-[10px] font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
         <p className="min-w-0 flex-1 truncate text-sm text-[var(--slate-700)]" title={doc.fileName}>
@@ -139,12 +146,15 @@ export function IntakeDocumentCard({
   return (
     <div
       className={`rounded-xl border px-4 py-3 transition-colors ${
-        isAmbiguous && !isProcessing
+        isEmphasized
+          ? "border-[var(--brand-blue)]/40 bg-[var(--brand-blue)]/6 ring-2 ring-[var(--brand-blue)]/15"
+          : isAmbiguous && !isProcessing
           ? "border-[var(--warning)]/40 bg-amber-50"
           : "border-[var(--slate-200)] bg-surface"
       }`}
       data-document-id={doc.documentId}
       data-needs-review={isAmbiguous && !isProcessing ? "true" : undefined}
+      data-highlighted={isEmphasized ? "true" : undefined}
     >
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">

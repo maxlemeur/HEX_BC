@@ -25,6 +25,7 @@ type IntakeWorkspaceProps = {
 };
 
 const FILTER_PARAM = "intakeFilter";
+const FOCUS_DOCUMENT_PARAM = "intakeDocument";
 const FILTER_A_REVOIR = "a_revoir";
 const AUTO_REFRESH_INTERVAL_MS = 4_000;
 const AUTO_REFRESH_MAX_MS = 60_000;
@@ -51,6 +52,9 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
   const [activeFilter, setActiveFilter] = useState<string | null>(
     searchParams.get(FILTER_PARAM)
   );
+  const [focusDocumentId, setFocusDocumentId] = useState<string | null>(
+    searchParams.get(FOCUS_DOCUMENT_PARAM)
+  );
   const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
 
   const isFilterActive = activeFilter === FILTER_A_REVOIR;
@@ -72,7 +76,54 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
 
   useEffect(() => {
     setActiveFilter(searchParams.get(FILTER_PARAM));
+    setFocusDocumentId(searchParams.get(FOCUS_DOCUMENT_PARAM));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!focusDocumentId) {
+      return;
+    }
+
+    const hasMatchingDocument = (workspace?.documents ?? []).some(
+      (document) => document.documentId === focusDocumentId
+    );
+
+    if (!hasMatchingDocument) {
+      return;
+    }
+
+    const highlightDocument = () => {
+      const documentNode = document.querySelector<HTMLElement>(
+        `[data-document-id="${focusDocumentId}"]`
+      );
+
+      if (!documentNode) {
+        return false;
+      }
+
+      documentNode.scrollIntoView({ behavior: "smooth", block: "center" });
+      setAnnouncement("Piece source ouverte dans le dossier.");
+      return true;
+    };
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const rafId = requestAnimationFrame(() => {
+      if (highlightDocument()) {
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        highlightDocument();
+      }, 120);
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [focusDocumentId, workspace?.documents]);
 
   useEffect(() => {
     if (!hasProcessingDocs) {
@@ -345,6 +396,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
                     document={doc}
                     projectId={projectId}
                     onReclassified={handleReclassified}
+                    isEmphasized={focusDocumentId === doc.documentId}
                   />
                 ))}
               </div>
@@ -370,6 +422,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
                     document={doc}
                     projectId={projectId}
                     onReclassified={handleReclassified}
+                    isEmphasized={focusDocumentId === doc.documentId}
                   />
                 ))}
               </div>
@@ -398,6 +451,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
                     onBridgeDpgfImport={cat === "dpgf" ? onBridgeDpgfImport : undefined}
                     dpgfAlreadyImported={cat === "dpgf" ? dpgfAlreadyImported : undefined}
                     plansSynced={cat === "plans" ? plansSynced : undefined}
+                    focusDocumentId={focusDocumentId}
                   />
                 ))}
               </div>
@@ -415,6 +469,7 @@ export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgf
               document={doc}
               projectId={projectId}
               onReclassified={handleReclassified}
+              isEmphasized={focusDocumentId === doc.documentId}
             />
           ))}
         </div>

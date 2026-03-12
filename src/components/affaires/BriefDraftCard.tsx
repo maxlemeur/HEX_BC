@@ -50,6 +50,7 @@ const EDITABLE_BLOCKS = new Set<AffaireIntakeBriefBlockKey>([
 const MAX_LIST_ITEMS = 12;
 const MAX_SUMMARY_LENGTH = 900;
 const MAX_EDITABLE_LIST_ITEM_LENGTH = 280;
+const INTAKE_DOCUMENT_PARAM = "intakeDocument";
 
 const BLOCK_ORDER: AffaireIntakeBriefBlockKey[] = [
   "project_object",
@@ -141,17 +142,46 @@ function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
 /*  BriefSourceAnnotation                                              */
 /* ------------------------------------------------------------------ */
 
-function BriefSourceAnnotation({ sources }: { sources: AffaireIntakeBriefSource[] }) {
+function buildBriefSourceHref(projectId: string, sourceDocumentId: string) {
+  const params = new URLSearchParams({
+    [INTAKE_DOCUMENT_PARAM]: sourceDocumentId,
+  });
+  return `/dashboard/affaires/${projectId}?${params.toString()}#intake`;
+}
+
+function BriefSourceAnnotation({
+  projectId,
+  sources,
+}: {
+  projectId: string;
+  sources: AffaireIntakeBriefSource[];
+}) {
   if (sources.length === 0) return null;
-  const fileNames = [...new Set(sources.map((s) => s.sourceFileName))];
+  const uniqueSources = Array.from(
+    new Map(
+      sources.map((source) => [
+        `${source.sourceDocumentId}:${source.sourceFileName}`,
+        source,
+      ])
+    ).values()
+  );
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-[var(--slate-400)]">
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--slate-400)]">
       <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
         <polyline points="14 2 14 8 20 8" />
       </svg>
-      {fileNames.join(", ")}
-    </span>
+      {uniqueSources.map((source) => (
+        <a
+          key={`${source.sourceDocumentId}:${source.sourceFileName}`}
+          href={buildBriefSourceHref(projectId, source.sourceDocumentId)}
+          className="inline-flex items-center rounded-full border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-0.5 text-[11px] font-medium text-[var(--brand-blue)] transition-colors hover:border-[var(--brand-blue)]/30 hover:bg-[var(--brand-blue)]/6 hover:text-[var(--brand-blue-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)]/30 focus-visible:ring-offset-2"
+          title={source.rationale ?? `Ouvrir ${source.sourceFileName} dans le dossier`}
+        >
+          {source.sourceFileName}
+        </a>
+      ))}
+    </div>
   );
 }
 
@@ -231,6 +261,7 @@ function BriefEditableList({
 /* ------------------------------------------------------------------ */
 
 function BriefBlockSection({
+  projectId,
   blockKey,
   items,
   paragraph,
@@ -241,6 +272,7 @@ function BriefBlockSection({
   editParagraph,
   onEditParagraphChange,
 }: {
+  projectId: string;
   blockKey: AffaireIntakeBriefBlockKey;
   items?: string[];
   paragraph?: string;
@@ -293,7 +325,12 @@ function BriefBlockSection({
         /* Read-only paragraph */
         <>
           <p className="text-sm text-[var(--slate-700)]">{paragraph}</p>
-          {paragraphSources.length > 0 && <BriefSourceAnnotation sources={paragraphSources} />}
+          {paragraphSources.length > 0 && (
+            <BriefSourceAnnotation
+              projectId={projectId}
+              sources={paragraphSources}
+            />
+          )}
         </>
       ) : items && items.length > 0 ? (
         /* Read-only list */
@@ -308,7 +345,12 @@ function BriefBlockSection({
                   )}
                   {item}
                 </span>
-                {entrySources.length > 0 && blockKey !== "received_pieces" && <BriefSourceAnnotation sources={entrySources} />}
+                {entrySources.length > 0 && blockKey !== "received_pieces" && (
+                  <BriefSourceAnnotation
+                    projectId={projectId}
+                    sources={entrySources}
+                  />
+                )}
               </li>
             );
           })}
@@ -583,6 +625,7 @@ export function BriefDraftCard({
             return (
               <BriefBlockSection
                 key={blockKey}
+                projectId={projectId}
                 blockKey={blockKey}
                 sourceLookup={sourceLookup}
                 isEditing={isEditing}

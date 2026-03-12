@@ -126,9 +126,11 @@ describe("BriefDraftCard", () => {
     // The source annotation for scope item 0 should show "DPGF.pdf"
     const scopeItem = screen.getByText("Lot 1 - Gros oeuvre").closest("li");
     expect(scopeItem).toBeTruthy();
-    // Source file name appears somewhere in the component
-    const sourceAnnotations = within(scopeItem!).getAllByText("DPGF.pdf");
-    expect(sourceAnnotations.length).toBeGreaterThanOrEqual(1);
+    const sourceLink = within(scopeItem!).getByRole("link", { name: "DPGF.pdf" });
+    expect(sourceLink).toHaveAttribute(
+      "href",
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1#intake`
+    );
   });
 
   it("displays source annotations for paragraph blocks", () => {
@@ -156,8 +158,18 @@ describe("BriefDraftCard", () => {
       />
     );
     const section = getSection();
-    expect(within(section).getByText("Synthese-source.pdf")).toBeInTheDocument();
-    expect(within(section).getByText("Objet-source.pdf")).toBeInTheDocument();
+    expect(
+      within(section).getByRole("link", { name: "Synthese-source.pdf" })
+    ).toHaveAttribute(
+      "href",
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=11111111-1111-4111-8111-111111111111#intake`
+    );
+    expect(
+      within(section).getByRole("link", { name: "Objet-source.pdf" })
+    ).toHaveAttribute(
+      "href",
+      `/dashboard/affaires/${PROJECT_ID}?intakeDocument=22222222-2222-4222-8222-222222222222#intake`
+    );
   });
 
   it("enters and cancels edit mode", async () => {

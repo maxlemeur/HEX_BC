@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS } from "@/lib/affaires/intake";
@@ -17,6 +17,7 @@ type IntakeCategoryCardProps = {
   dpgfAlreadyImported?: boolean;
   // Plans-specific
   plansSynced?: boolean;
+  focusDocumentId?: string | null;
 };
 
 const CATEGORY_ICONS: Record<AffaireIntakeDocumentKind, React.ReactNode> = {
@@ -103,6 +104,7 @@ export function IntakeCategoryCard({
   onBridgeDpgfImport,
   dpgfAlreadyImported,
   plansSynced,
+  focusDocumentId = null,
 }: IntakeCategoryCardProps) {
   const [expanded, setExpanded] = useState(false);
   const label = AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[category];
@@ -113,6 +115,15 @@ export function IntakeCategoryCard({
   // Truncated file names for collapsed view
   const previewNames = documents.slice(0, 3).map((d) => d.fileName);
   const moreCount = count - previewNames.length;
+  const shouldFocusDocument =
+    focusDocumentId !== null &&
+    documents.some((document) => document.documentId === focusDocumentId);
+
+  useEffect(() => {
+    if (shouldFocusDocument) {
+      setExpanded(true);
+    }
+  }, [shouldFocusDocument]);
 
   return (
     <div className="rounded-xl border border-[var(--slate-200)] bg-surface transition-shadow hover:shadow-sm">
@@ -190,6 +201,7 @@ export function IntakeCategoryCard({
               document={doc}
               projectId={projectId}
               onReclassified={onReclassified}
+              isEmphasized={focusDocumentId === doc.documentId}
             />
           ))}
         </div>

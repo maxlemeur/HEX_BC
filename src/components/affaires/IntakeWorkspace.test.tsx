@@ -9,6 +9,7 @@ const { mockReplace, mockRefresh, mockSearchParams } = vi.hoisted(() => ({
   mockRefresh: vi.fn(),
   mockSearchParams: new URLSearchParams(),
 }));
+const mockScrollIntoView = vi.fn();
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard/affaires/project-1",
@@ -30,6 +31,9 @@ describe("IntakeWorkspace", () => {
     mockReplace.mockReset();
     mockRefresh.mockReset();
     mockSearchParams.delete("intakeFilter");
+    mockSearchParams.delete("intakeDocument");
+    mockScrollIntoView.mockReset();
+    Element.prototype.scrollIntoView = mockScrollIntoView;
     window.history.replaceState({}, "", "/dashboard/affaires/project-1");
   });
 
@@ -226,6 +230,47 @@ describe("IntakeWorkspace", () => {
 
     expect(screen.getByRole("region", { name: /Documents a confirmer/i })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Documents valides/i })).toBeInTheDocument();
+  });
+
+  it("opens and highlights the source document targeted from the brief", async () => {
+    mockSearchParams.set("intakeDocument", "doc-1");
+
+    render(
+      <IntakeWorkspace
+        projectId="project-1"
+        workspace={{
+          projectId: "project-1",
+          uploadId: "upload-1",
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "source-brief.pdf",
+              detectedCategory: "plans",
+              confidence: 0.95,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+      />,
+    );
+
+    expect(await screen.findByText("source-brief.pdf")).toBeInTheDocument();
+
+    const highlightedDocument = document.querySelector("[data-document-id='doc-1']");
+    expect(highlightedDocument).toHaveAttribute("data-highlighted", "true");
+
+    await waitFor(() => {
+      expect(mockScrollIntoView).toHaveBeenCalled();
+    });
   });
 
   it("displays detected variants in document card", () => {
