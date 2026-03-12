@@ -757,10 +757,16 @@ function buildPanelModel(
         ...finishLineBlockers,
       ]).slice(0, 3);
 
+  const allowSecondaryAides = heroState === "ready_to_continue";
   const aides: PanelAction[] = [];
-  if (generateStructureSuggestion && primaryAction?.key !== generateStructureSuggestion.actionId) {
+  if (
+    allowSecondaryAides &&
+    generateStructureSuggestion &&
+    primaryAction?.key !== generateStructureSuggestion.actionId
+  ) {
     aides.push(toSuggestionAction(generateStructureSuggestion, "ghost"));
   } else if (
+    allowSecondaryAides &&
     input.currentVersion?.status === "draft" &&
     (input.versionZeroSummary?.activeDraft || input.versionZeroSummary?.canGenerate)
   ) {
@@ -775,9 +781,14 @@ function buildPanelModel(
     );
   }
 
-  if (analyzePlansSuggestion && primaryAction?.key !== analyzePlansSuggestion.actionId) {
+  if (
+    allowSecondaryAides &&
+    analyzePlansSuggestion &&
+    primaryAction?.key !== analyzePlansSuggestion.actionId
+  ) {
     aides.push(toSuggestionAction(analyzePlansSuggestion, "ghost"));
   } else if (
+    allowSecondaryAides &&
     input.takeoffEnabled &&
     primaryAction?.key !== "plans" &&
     (input.plansSummary?.planSetCount ?? 0) > 0

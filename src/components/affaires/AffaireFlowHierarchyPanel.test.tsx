@@ -94,7 +94,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     });
   });
 
-  it("surfaces the next action, blockers, optional aids and legacy fallback", () => {
+  it("prioritises documentary stabilisation over production aids and keeps the legacy fallback", () => {
     const dispatchEventSpy = vi.spyOn(document, "dispatchEvent");
     const addMissingPieces = buildSuggestion({
       actionId: "add-missing-pieces",
@@ -236,7 +236,8 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByRole("button", { name: "Ajouter les pieces manquantes" })).not.toBeInTheDocument();
     expect(screen.queryByText("Triage termine")).not.toBeInTheDocument();
     expect(screen.getByText("1 ecart majeur sur les metres")).toBeInTheDocument();
-    expect(screen.getByText("Outils utiles si besoin")).toBeInTheDocument();
+    expect(screen.queryByText("Outils utiles si besoin")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ouvrir V0 IA" })).not.toBeInTheDocument();
     expect(screen.getByText("Reprise legacy")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Ouvrir le fallback legacy" }),
@@ -722,6 +723,8 @@ describe("AffaireFlowHierarchyPanel", () => {
       screen.getAllByText("Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.").length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText("Aide disponible")).not.toBeInTheDocument();
+    expect(screen.queryByText("Outils utiles si besoin")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ouvrir V0 IA" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Generer la structure du devis" }));
     expect(onExecuteSuggestion).toHaveBeenCalledWith(generateStructure);
