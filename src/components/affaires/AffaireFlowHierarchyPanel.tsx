@@ -677,17 +677,22 @@ function buildPanelModel(
       ]).filter(Boolean),
     };
   } else if (generateStructureSuggestion) {
-    title = "Preparer la structure du devis";
+    const hasStructureDraft = generateStructureSuggestion.label
+      .toLowerCase()
+      .includes("revoir");
+    title = generateStructureSuggestion.label;
     summary = generateStructureSuggestion.preview;
-    statusLabel = "Aide disponible";
-    statusVariant = "info";
+    statusLabel = hasStructureDraft ? "Structure a reprendre" : "Structure a generer";
+    statusVariant = "success";
     heroState = "structure";
     readinessLevel = "ready_with_reservations";
     primaryAction = toSuggestionAction(generateStructureSuggestion);
     resultCard = {
       kind: "structure",
       title: "Brief confirme",
-      message: "Generez la structure du devis pour materialiser le chiffrage.",
+      message: hasStructureDraft
+        ? "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+        : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
       action: primaryAction,
       facts: dedupe([
         hasDpgf ? "Base devis prete" : "",
@@ -1113,7 +1118,7 @@ function getStateWhyContent(card: PanelResultCard) {
   }
   if (card.kind === "structure") {
     return {
-      title: "Le brief est confirme. La structure peut maintenant materialiser le chiffrage.",
+      title: "Le brief est confirme. La prochaine action est de generer la structure du devis.",
       hints: card.facts.slice(0, 3),
     };
   }
@@ -1127,7 +1132,7 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
   if (card.kind === "primary") return "Reference principale a definir";
   if (card.kind === "missing") return "Pieces critiques manquantes";
   if (card.kind === "brief") return "Dossier exploitable";
-  if (card.kind === "structure") return "Structure du devis";
+  if (card.kind === "structure") return "Structure a generer";
   return "Analyse des plans";
 }
 

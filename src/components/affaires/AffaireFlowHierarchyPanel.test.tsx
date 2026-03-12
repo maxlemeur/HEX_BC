@@ -622,6 +622,111 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
   });
 
+  it("surfaces an explicit structure action once the brief is confirmed", () => {
+    const onExecuteSuggestion = vi.fn();
+    const generateStructure = buildSuggestion({
+      actionId: "generate-structure",
+      label: "Generer la structure du devis",
+      intent: "generate_structure",
+      preview: "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-brief-confirmed/edit?openVersionZero=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-brief-confirmed"
+        currentVersion={{
+          id: "version-brief-confirmed",
+          projectId: "project-brief-confirmed",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-brief-confirmed",
+          projectId: "project-brief-confirmed",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-1",
+          isVersionEmpty: true,
+          canGenerate: true,
+          availableLots: [],
+          activeDraft: null,
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Consultation electricite avec plans et DPGF recus.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts", "Courants faibles"],
+            lots: ["Electricite", "SSI"],
+            receivedPieces: ["DPGF", "Plans"],
+            assumptions: ["Tarifs a confirmer."],
+            vigilancePoints: ["Verifier la variante SSI en option."],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[generateStructure]}
+        onExecuteSuggestion={onExecuteSuggestion}
+      />,
+    );
+
+    expect(screen.getAllByText("Generer la structure du devis").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Structure a generer").length).toBeGreaterThan(0);
+    expect(screen.getByText("Brief confirme")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Aide disponible")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Generer la structure du devis" }));
+    expect(onExecuteSuggestion).toHaveBeenCalledWith(generateStructure);
+  });
+
   it("surfaces the intake evidence when a document must be reviewed and allows quick reclassification", async () => {
     const user = userEvent.setup();
     const onExecuteSuggestion = vi.fn();
