@@ -93,7 +93,7 @@ describe("AffairesDenseTable", () => {
     cleanup();
   });
 
-  it("navigates to the primary estimate when the row body is clicked", () => {
+  it("navigates to the affaire hub when the row body is clicked", () => {
     render(
       <AffairesDenseTable
         items={[baseItem]}
@@ -105,7 +105,7 @@ describe("AffairesDenseTable", () => {
 
     fireEvent.click(screen.getByText("Affaire Alpha"));
 
-    expect(pushMock).toHaveBeenCalledWith("/dashboard/estimates/version-1");
+    expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
   });
 
   it("does not trigger row navigation when the hub action is clicked", () => {

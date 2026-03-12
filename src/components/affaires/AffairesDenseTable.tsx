@@ -251,11 +251,7 @@ export function AffairesDenseTable({
                   item.currentVersionNumber !== null &&
                   item.currentStatus !== null;
 
-                const primaryHref = hasCurrentVersion
-                  ? item.currentStatus === "draft"
-                    ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                    : `/dashboard/estimates/${item.currentVersionId}`
-                  : `/dashboard/affaires/${item.projectId}`;
+                const primaryHref = `/dashboard/affaires/${item.projectId}`;
                 const expanded = isExpanded(item.projectId);
                 const cached = expandCache[item.projectId];
 
