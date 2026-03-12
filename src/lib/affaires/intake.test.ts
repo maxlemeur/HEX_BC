@@ -181,9 +181,46 @@ describe("affaire intake helpers", () => {
       reviewDocumentsCount: 1,
       missingPiecesCount: 3,
       criticalMissingPiecesCount: 1,
-      provisionalMissingPiecesCount: 2,
+      provisionalMissingPiecesCount: 1,
       provisionalCriticalMissingPiecesCount: 1,
-      confirmedMissingPiecesCount: 1,
+      confirmedMissingPiecesCount: 2,
+      confirmedCriticalMissingPiecesCount: 0,
+      reviewCouldLiftCriticalMissing: true,
+      reviewBeforeMissing: true,
+      dominantAction: "review",
+      hubReadinessImpact: "critical",
+    });
+  });
+
+  it("treats a generic PDF under review as a provisional plan or CCTP candidate", () => {
+    const snapshot = buildAffaireIntakeReadinessSnapshot({
+      documents: [
+        {
+          fileName: "A101.pdf",
+          uploadStatus: "uploaded",
+          classificationStatus: "ambiguous",
+          detectedCategory: "a_classer",
+          confidence: 0.34,
+          issues: ["Categorie a confirmer"],
+        },
+        {
+          fileName: "bordereau.xlsx",
+          uploadStatus: "uploaded",
+          classificationStatus: "classified",
+          detectedCategory: "dpgf",
+          confidence: 0.98,
+          issues: [],
+        },
+      ],
+    });
+
+    expect(snapshot).toMatchObject({
+      reviewDocumentsCount: 1,
+      missingPiecesCount: 3,
+      criticalMissingPiecesCount: 1,
+      provisionalMissingPiecesCount: 1,
+      provisionalCriticalMissingPiecesCount: 1,
+      confirmedMissingPiecesCount: 2,
       confirmedCriticalMissingPiecesCount: 0,
       reviewCouldLiftCriticalMissing: true,
       reviewBeforeMissing: true,

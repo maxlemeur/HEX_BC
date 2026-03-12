@@ -679,6 +679,9 @@ function getAffaireIntakeReviewProbableKinds(
   if (["xlsx", "xls", "csv"].includes(extension)) {
     kinds.add("dpgf");
     kinds.add("bpu_dqe");
+  } else if (extension === "pdf") {
+    kinds.add("plans");
+    kinds.add("cctp");
   } else if (["doc", "docx"].includes(extension)) {
     kinds.add("cctp");
   } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(extension)) {
@@ -686,6 +689,114 @@ function getAffaireIntakeReviewProbableKinds(
   }
 
   return [...kinds];
+}
+
+function getAffaireIntakeProvisionalMissingPieceIndexes(input: {
+  missingPieces: AffaireIntakeWorkspaceMissingPiece[];
+  reviewDocuments: Pick<
+    AffaireIntakeReviewableDocument,
+    "fileName" | "detectedCategory" | "documentKind"
+  >[];
+}) {
+  const matchableMissingPieces = input.missingPieces
+    .map((piece, index) => {
+      const kind = getAffaireIntakeMissingPieceKind(piece);
+      return kind
+        ? {
+            index,
+            kind,
+            severity: piece.severity,
+          }
+        : null;
+    })
+    .filter((piece): piece is NonNullable<typeof piece> => piece !== null);
+
+  if (matchableMissingPieces.length === 0 || input.reviewDocuments.length === 0) {
+    return new Set<number>();
+  }
+
+  const reviewCandidates = input.reviewDocuments.map((document) => {
+    const probableKinds = getAffaireIntakeReviewProbableKinds(document);
+
+    return matchableMissingPieces
+      .filter((piece) => probableKinds.includes(piece.kind))
+      .sort((left, right) => {
+        if (left.severity !== right.severity) {
+          return left.severity === "critical" ? -1 : 1;
+        }
+
+        const leftRank = probableKinds.indexOf(left.kind);
+        const rightRank = probableKinds.indexOf(right.kind);
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+
+        return left.index - right.index;
+      });
+  });
+
+  type MatchScore = {
+    matchedCount: number;
+    criticalMatchedCount: number;
+    matchedIndexes: number[];
+  };
+
+  const cache = new Map<string, MatchScore>();
+
+  const compareScores = (left: MatchScore, right: MatchScore) => {
+    if (left.matchedCount !== right.matchedCount) {
+      return left.matchedCount - right.matchedCount;
+    }
+
+    if (left.criticalMatchedCount !== right.criticalMatchedCount) {
+      return left.criticalMatchedCount - right.criticalMatchedCount;
+    }
+
+    return 0;
+  };
+
+  const solve = (reviewIndex: number, usedMask: number): MatchScore => {
+    if (reviewIndex >= reviewCandidates.length) {
+      return {
+        matchedCount: 0,
+        criticalMatchedCount: 0,
+        matchedIndexes: [],
+      };
+    }
+
+    const cacheKey = `${reviewIndex}:${usedMask}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    let bestScore = solve(reviewIndex + 1, usedMask);
+
+    for (const candidate of reviewCandidates[reviewIndex]) {
+      const bit = 1 << candidate.index;
+      if ((usedMask & bit) !== 0) {
+        continue;
+      }
+
+      const nextScore = solve(reviewIndex + 1, usedMask | bit);
+      const candidateScore: MatchScore = {
+        matchedCount: nextScore.matchedCount + 1,
+        criticalMatchedCount:
+          nextScore.criticalMatchedCount +
+          (candidate.severity === "critical" ? 1 : 0),
+        matchedIndexes: [candidate.index, ...nextScore.matchedIndexes],
+      };
+
+      if (compareScores(candidateScore, bestScore) > 0) {
+        bestScore = candidateScore;
+      }
+    }
+
+    cache.set(cacheKey, bestScore);
+    return bestScore;
+  };
+
+  return new Set(solve(0, 0).matchedIndexes);
 }
 
 export function buildAffaireIntakeReadinessSnapshot(input: {
@@ -708,13 +819,13 @@ export function buildAffaireIntakeReadinessSnapshot(input: {
   const reviewDocuments = uploadedDocuments.filter((document) =>
     isAffaireIntakeDocumentNeedingReview(document)
   );
-  const reviewKinds = new Set(
-    reviewDocuments.flatMap((document) => getAffaireIntakeReviewProbableKinds(document))
-  );
-  const provisionalMissingPieces = missingPieces.filter((piece) => {
-    const kind = getAffaireIntakeMissingPieceKind(piece);
-    return kind ? reviewKinds.has(kind) : false;
+  const provisionalMissingPieceIndexes = getAffaireIntakeProvisionalMissingPieceIndexes({
+    missingPieces,
+    reviewDocuments,
   });
+  const provisionalMissingPieces = missingPieces.filter((_, index) =>
+    provisionalMissingPieceIndexes.has(index)
+  );
   const criticalMissingPiecesCount = missingPieces.filter(
     (piece) => piece.severity === "critical"
   ).length;
