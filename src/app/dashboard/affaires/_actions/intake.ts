@@ -10,6 +10,7 @@ import {
 import {
   confirmAffaireBrief as confirmAffaireBriefServer,
   reclassifyAffaireDocument as reclassifyAffaireDocumentServer,
+  setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
   updateAffaireBrief as updateAffaireBriefServer,
 } from "@/lib/affaires/intake-server";
 
@@ -18,9 +19,16 @@ const reclassifyAffaireDocumentInputSchema = z.object({
   documentId: z.string().uuid("documentId invalide."),
   category: affaireIntakeDocumentKindSchema,
 });
+const setAffaireDocumentAsPrimaryInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  documentId: z.string().uuid("documentId invalide."),
+});
 
 export type ReclassifyAffaireDocumentInput = z.infer<
   typeof reclassifyAffaireDocumentInputSchema
+>;
+export type SetAffaireDocumentAsPrimaryInput = z.infer<
+  typeof setAffaireDocumentAsPrimaryInputSchema
 >;
 
 const updateAffaireBriefInputSchema = z.object({
@@ -48,6 +56,18 @@ export async function reclassifyAffaireDocument(
 ) {
   const parsed = reclassifyAffaireDocumentInputSchema.parse(input);
   const result = await reclassifyAffaireDocumentServer(parsed);
+
+  revalidatePath("/dashboard/affaires");
+  revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
+
+  return result;
+}
+
+export async function setAffaireDocumentAsPrimary(
+  input: SetAffaireDocumentAsPrimaryInput
+) {
+  const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
+  const result = await setAffaireDocumentAsPrimaryServer(parsed);
 
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`);

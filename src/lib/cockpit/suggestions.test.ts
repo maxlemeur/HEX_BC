@@ -160,6 +160,7 @@ describe("computeCockpitSuggestions", () => {
               documentId: "doc-1",
               fileName: "piece.pdf",
               detectedCategory: "annexes",
+              classificationStatus: "ambiguous",
               confidence: 0.4,
               extractedMetadata: {
                 projectName: null,
@@ -182,6 +183,66 @@ describe("computeCockpitSuggestions", () => {
           kind: "navigate",
           href: "/dashboard/affaires/proj-42?intakeFilter=a_revoir#intake",
         },
+      }),
+    );
+  });
+
+  it("does not derive a review action when the persisted status is already classified", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "piece.pdf",
+              detectedCategory: "annexes",
+              classificationStatus: "classified",
+              confidence: 0.4,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: ["Faible confiance initiale"],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "review_intake")).toBeUndefined();
+  });
+
+  it("surfaces failed classifications in the intake review suggestion", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "piece.pdf",
+              detectedCategory: "plans",
+              classificationStatus: "failed",
+              confidence: 0.95,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: ["OCR indisponible"],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "review_intake")).toEqual(
+      expect.objectContaining({
+        label: "Confirmer 1 piece a revoir",
       }),
     );
   });

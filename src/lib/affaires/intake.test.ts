@@ -5,7 +5,11 @@ import {
   affaireIntakeExtractedMetadataSchema,
   buildAffaireIntakeMissingPieces,
   deriveAffaireIntakeUploadStatusFromDocuments,
+  getDefaultAffaireIntakeDocumentPriority,
   getHeuristicAffaireDocumentClassification,
+  isAffaireIntakeDocumentNeedingReview,
+  isAffaireIntakeDocumentProcessing,
+  isAffaireIntakePrimaryEligibleKind,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeTextList,
 } from "@/lib/affaires/intake";
@@ -110,6 +114,72 @@ describe("affaire intake helpers", () => {
         }),
       ])
     );
+  });
+
+  it("allows only DPGF and CCTP to be primary categories", () => {
+    expect(isAffaireIntakePrimaryEligibleKind("dpgf")).toBe(true);
+    expect(isAffaireIntakePrimaryEligibleKind("cctp")).toBe(true);
+    expect(isAffaireIntakePrimaryEligibleKind("plans")).toBe(false);
+  });
+
+  it("defaults the first DPGF to primary and later ones to secondary", () => {
+    expect(
+      getDefaultAffaireIntakeDocumentPriority({
+        documentKind: "dpgf",
+        hasExistingPrimary: false,
+      })
+    ).toBe("primary");
+    expect(
+      getDefaultAffaireIntakeDocumentPriority({
+        documentKind: "dpgf",
+        hasExistingPrimary: true,
+      })
+    ).toBe("secondary");
+    expect(
+      getDefaultAffaireIntakeDocumentPriority({
+        documentKind: "plans",
+        hasExistingPrimary: false,
+      })
+    ).toBe("secondary");
+  });
+
+  it("treats queued and processing documents as still processing", () => {
+    expect(
+      isAffaireIntakeDocumentProcessing({
+        classificationStatus: "queued",
+        detectedCategory: "a_classer",
+        confidence: 0,
+        issues: [],
+      })
+    ).toBe(true);
+    expect(
+      isAffaireIntakeDocumentProcessing({
+        classificationStatus: "processing",
+        detectedCategory: "plans",
+        confidence: 0.92,
+        issues: ["Analyse en cours"],
+      })
+    ).toBe(true);
+  });
+
+  it("prefers the persisted classification status over local confidence heuristics", () => {
+    expect(
+      isAffaireIntakeDocumentNeedingReview({
+        classificationStatus: "classified",
+        detectedCategory: "annexes",
+        confidence: 0.24,
+        issues: ["Faible confiance initiale"],
+      })
+    ).toBe(false);
+
+    expect(
+      isAffaireIntakeDocumentNeedingReview({
+        classificationStatus: "failed",
+        detectedCategory: "plans",
+        confidence: 0.98,
+        issues: ["OCR indisponible"],
+      })
+    ).toBe(true);
   });
 
   it("normalizes and deduplicates editable brief lists", () => {

@@ -65,7 +65,15 @@ export const affaireIntakeClassificationStatusSchema = z.enum([
   "failed",
 ]);
 
-export const affaireIntakeClassificationSourceSchema = z.enum(["ai", "manual"]);
+export const affaireIntakeClassificationSourceSchema = z.enum([
+  "ai",
+  "heuristic",
+  "manual",
+]);
+export const affaireIntakeDocumentPrioritySchema = z.enum([
+  "primary",
+  "secondary",
+]);
 export const affaireIntakeBriefStatusSchema = z.enum([
   "a_confirmer",
   "confirme",
@@ -121,6 +129,9 @@ export type AffaireIntakeClassificationStatus = z.infer<
 export type AffaireIntakeClassificationSource = z.infer<
   typeof affaireIntakeClassificationSourceSchema
 >;
+export type AffaireIntakeDocumentPriority = z.infer<
+  typeof affaireIntakeDocumentPrioritySchema
+>;
 export type AffaireIntakeBriefStatus = z.infer<
   typeof affaireIntakeBriefStatusSchema
 >;
@@ -144,6 +155,15 @@ export type AffaireIntakeWorkspaceDocumentSummary = {
   uploadStatus: AffaireIntakeDocumentUploadStatus;
   classificationStatus: AffaireIntakeClassificationStatus;
   documentKind: AffaireIntakeDocumentKind;
+  documentPriority?: AffaireIntakeDocumentPriority | null;
+};
+
+export type AffaireIntakeReviewableDocument = {
+  classificationStatus?: AffaireIntakeClassificationStatus | null;
+  detectedCategory?: AffaireIntakeDocumentKind | null;
+  documentKind?: AffaireIntakeDocumentKind | null;
+  confidence?: number | null;
+  issues?: string[] | null;
 };
 
 export const AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS: Record<
@@ -157,6 +177,14 @@ export const AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS: Record<
   annexes: "Annexes",
   emails: "Emails / courriers",
   a_classer: "A classer",
+};
+
+export const AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS: Record<
+  AffaireIntakeDocumentPriority,
+  string
+> = {
+  primary: "Principal",
+  secondary: "Complementaire",
 };
 
 export const AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS: Record<
@@ -230,6 +258,23 @@ const DIRECT_EXTENSION_MIME_TYPES: Record<string, string> = {
   doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
+
+export function isAffaireIntakePrimaryEligibleKind(
+  kind: AffaireIntakeDocumentKind,
+) {
+  return kind === "dpgf" || kind === "cctp";
+}
+
+export function getDefaultAffaireIntakeDocumentPriority(input: {
+  documentKind: AffaireIntakeDocumentKind;
+  hasExistingPrimary: boolean;
+}): AffaireIntakeDocumentPriority {
+  if (!isAffaireIntakePrimaryEligibleKind(input.documentKind)) {
+    return "secondary";
+  }
+
+  return input.hasExistingPrimary ? "secondary" : "primary";
+}
 
 const DOCUMENT_KIND_HINTS: Array<{
   kind: Exclude<AffaireIntakeDocumentKind, "annexes" | "a_classer">;
@@ -459,6 +504,44 @@ export function deriveAffaireIntakeClassificationStatus(input: {
   }
 
   return "classified" satisfies AffaireIntakeClassificationStatus;
+}
+
+export function isAffaireIntakeDocumentProcessing(
+  document: AffaireIntakeReviewableDocument
+) {
+  if (
+    document.classificationStatus === "queued" ||
+    document.classificationStatus === "processing"
+  ) {
+    return true;
+  }
+
+  const category = document.detectedCategory ?? document.documentKind ?? "a_classer";
+  const issuesCount = document.issues?.length ?? 0;
+
+  return (
+    (document.confidence ?? 0) === 0 &&
+    category === "a_classer" &&
+    issuesCount === 0
+  );
+}
+
+export function isAffaireIntakeDocumentNeedingReview(
+  document: AffaireIntakeReviewableDocument
+) {
+  if (document.classificationStatus) {
+    return (
+      !isAffaireIntakeDocumentProcessing(document) &&
+      (document.classificationStatus === "ambiguous" ||
+        document.classificationStatus === "failed")
+    );
+  }
+
+  const category = document.detectedCategory ?? document.documentKind ?? "a_classer";
+  return (
+    !isAffaireIntakeDocumentProcessing(document) &&
+    (category === "a_classer" || clampConfidence(document.confidence ?? 0) < 0.65)
+  );
 }
 
 export function deriveAffaireIntakeUploadStatusFromDocuments(

@@ -29,6 +29,7 @@ import {
   affaireIntakeClassificationSourceSchema,
   affaireIntakeClassificationStatusSchema,
   affaireIntakeDocumentKindSchema,
+  affaireIntakeDocumentPrioritySchema,
   affaireIntakeDocumentUploadStatusSchema,
   affaireIntakeUploadStatusSchema,
   buildAffaireIntakeMissingPieces,
@@ -39,6 +40,7 @@ import {
   getAffaireIntakeFileExtension,
   getHeuristicAffaireDocumentClassification,
   inferAffaireIntakeMimeType,
+  isAffaireIntakePrimaryEligibleKind,
   isMimeTypeSupportedForAiClassification,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeTextList,
@@ -50,6 +52,7 @@ import {
   type AffaireIntakeClassificationSource,
   type AffaireIntakeClassificationStatus,
   type AffaireIntakeDocumentKind,
+  type AffaireIntakeDocumentPriority,
   type AffaireIntakeDocumentUploadStatus,
   type AffaireIntakeExtractedMetadata,
   type AffaireIntakeUploadStatus,
@@ -101,6 +104,7 @@ type AffaireIntakeDocumentRow = {
   rejection_reason: string | null;
   classification_status: AffaireIntakeClassificationStatus;
   document_kind: AffaireIntakeDocumentKind;
+  document_priority: AffaireIntakeDocumentPriority;
   confidence: number | null;
   issues: string[];
   extracted_metadata: AffaireIntakeExtractedMetadata;
@@ -208,6 +212,9 @@ export type AffaireIntakeWorkspace = {
     documentId: string;
     fileName: string;
     detectedCategory: AffaireIntakeDocumentKind;
+    classificationStatus?: AffaireIntakeClassificationStatus;
+    classificationSource?: AffaireIntakeClassificationSource | null;
+    documentPriority?: AffaireIntakeDocumentPriority | null;
     confidence: number;
     extractedMetadata: AffaireIntakeExtractedMetadata;
     issues: string[];
@@ -244,6 +251,7 @@ const DOCUMENT_SELECT = [
   "rejection_reason",
   "classification_status",
   "document_kind",
+  "document_priority",
   "confidence",
   "issues",
   "extracted_metadata",
@@ -414,11 +422,15 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     row.classification_status
   );
   const documentKind = affaireIntakeDocumentKindSchema.safeParse(row.document_kind);
+  const documentPriority = affaireIntakeDocumentPrioritySchema.safeParse(
+    row.document_priority
+  );
 
   if (
     !uploadStatus.success ||
     !classificationStatus.success ||
     !documentKind.success ||
+    !documentPriority.success ||
     typeof row.id !== "string"
   ) {
     return null;
@@ -442,6 +454,7 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     rejection_reason: toStringOrNull(row.rejection_reason),
     classification_status: classificationStatus.data,
     document_kind: documentKind.data,
+    document_priority: documentPriority.data,
     confidence:
       typeof row.confidence === "number" && Number.isFinite(row.confidence)
         ? row.confidence
@@ -459,6 +472,108 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
     updated_at: toStringOrNull(row.updated_at) ?? new Date(0).toISOString(),
   };
+}
+
+function pickPrimaryDocumentForKind(
+  documents: AffaireIntakeDocumentRow[],
+  kind: "dpgf" | "cctp"
+) {
+  const docsForKind = documents.filter((document) => document.document_kind === kind);
+
+  if (docsForKind.length === 0) {
+    return null;
+  }
+
+  const existingPrimary =
+    docsForKind.find((document) => document.document_priority === "primary") ?? null;
+
+  if (existingPrimary) {
+    return existingPrimary;
+  }
+
+  return [...docsForKind].sort((left, right) => {
+    if (left.created_at !== right.created_at) {
+      return left.created_at.localeCompare(right.created_at);
+    }
+
+    return left.id.localeCompare(right.id);
+  })[0] ?? null;
+}
+
+function buildDocumentPriorityMap(documents: AffaireIntakeDocumentRow[]) {
+  const nextPriorityById = new Map<string, AffaireIntakeDocumentPriority>();
+  const primaryDpgf = pickPrimaryDocumentForKind(documents, "dpgf");
+  const primaryCctp = pickPrimaryDocumentForKind(documents, "cctp");
+
+  for (const document of documents) {
+    if (!isAffaireIntakePrimaryEligibleKind(document.document_kind)) {
+      nextPriorityById.set(document.id, "secondary");
+      continue;
+    }
+
+    const primaryDocument =
+      document.document_kind === "dpgf" ? primaryDpgf : primaryCctp;
+
+    nextPriorityById.set(
+      document.id,
+      primaryDocument?.id === document.id ? "primary" : "secondary"
+    );
+  }
+
+  return nextPriorityById;
+}
+
+async function syncAffaireIntakeDocumentPriorities(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  projectId: string;
+}) {
+  const { data, error } = await resolveSupabaseQuery<{
+    data: unknown[];
+    error: unknown;
+  }>(
+    getAffaireIntakeSelectTable(input.supabase, "affaire_intake_documents")
+      .select(DOCUMENT_SELECT as never)
+      .eq("project_id", input.projectId)
+      .order("created_at", { ascending: true })
+  );
+
+  if (error) {
+    throw internalError(
+      "Impossible de recalculer les priorites documentaires intake.",
+      error
+    );
+  }
+
+  const documents = (data ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+  const nextPriorityById = buildDocumentPriorityMap(documents);
+
+  for (const document of documents) {
+    const nextPriority =
+      nextPriorityById.get(document.id) ?? "secondary";
+
+    if (document.document_priority === nextPriority) {
+      continue;
+    }
+
+    const { error: updateError } = await resolveSupabaseQuery<{
+      error: unknown;
+    }>(
+      getAffaireIntakeUpdateTable(input.supabase, "affaire_intake_documents")
+        .update({
+          document_priority: nextPriority,
+        } as never)
+        .eq("id", document.id)
+    );
+
+    if (updateError) {
+      throw internalError(
+        "Impossible de synchroniser les priorites documentaires intake.",
+        updateError
+      );
+    }
+  }
 }
 
 function normalizeJsonTextArray(
@@ -695,7 +810,10 @@ async function classifyAffaireIntakeDocument(input: {
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
-}): Promise<AffaireIntakeClassificationResult> {
+}): Promise<{
+  result: AffaireIntakeClassificationResult;
+  source: AffaireIntakeClassificationSource;
+}> {
   const heuristicResult = getHeuristicAffaireDocumentClassification({
     fileName: input.fileName,
     mimeType: input.mimeType,
@@ -714,11 +832,14 @@ async function classifyAffaireIntakeDocument(input: {
 
   if (!filePayload) {
     return {
-      ...heuristicResult,
-      issues: addIssue(
-        heuristicResult.issues,
-        "Analyse IA indisponible pour ce format, classement heuristique applique."
-      ),
+      result: {
+        ...heuristicResult,
+        issues: addIssue(
+          heuristicResult.issues,
+          "Analyse IA indisponible pour ce format, classement heuristique applique."
+        ),
+      },
+      source: "heuristic",
     };
   }
 
@@ -737,10 +858,17 @@ async function classifyAffaireIntakeDocument(input: {
       },
     });
 
-    return mergeAffaireDocumentClassificationWithHeuristic({
+    const mergedResult = mergeAffaireDocumentClassificationWithHeuristic({
       aiResult: geminiResult.data,
       heuristicResult,
     });
+    const source =
+      mergedResult.documentKind === geminiResult.data.documentKind ? "ai" : "heuristic";
+
+    return {
+      result: mergedResult,
+      source,
+    };
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
       fileName: input.fileName,
@@ -748,11 +876,14 @@ async function classifyAffaireIntakeDocument(input: {
     });
 
     return {
-      ...heuristicResult,
-      issues: addIssue(
-        heuristicResult.issues,
-        "Classification heuristique retenue car l'analyse IA a echoue."
-      ),
+      result: {
+        ...heuristicResult,
+        issues: addIssue(
+          heuristicResult.issues,
+          "Classification heuristique retenue car l'analyse IA a echoue."
+        ),
+      },
+      source: "heuristic",
     };
   }
 }
@@ -842,6 +973,7 @@ async function insertAffaireIntakeEvent(input: {
     | "document.classified"
     | "document.classification_failed"
     | "document.reclassified"
+    | "document.priority_changed"
     | "upload.completed"
     | "brief.generated"
     | "brief.updated"
@@ -2341,8 +2473,8 @@ export async function processAffaireIntakeUpload(uploadId: string) {
         bytes,
       });
       const classificationStatus = deriveAffaireIntakeClassificationStatus({
-        documentKind: classification.documentKind,
-        confidence: classification.confidence,
+        documentKind: classification.result.documentKind,
+        confidence: classification.result.confidence,
       });
 
       const { error: updateDocumentError } = await resolveSupabaseQuery<{
@@ -2352,11 +2484,11 @@ export async function processAffaireIntakeUpload(uploadId: string) {
           .from("affaire_intake_documents" as never)
           .update({
             classification_status: classificationStatus,
-            document_kind: classification.documentKind,
-            confidence: classification.confidence,
-            issues: classification.issues,
-            extracted_metadata: classification.extractedMetadata,
-            classification_source: "ai",
+            document_kind: classification.result.documentKind,
+            confidence: classification.result.confidence,
+            issues: classification.result.issues,
+            extracted_metadata: classification.result.extractedMetadata,
+            classification_source: classification.source,
             classified_at: nowIso,
           } as never)
           .eq("id", document.id)
@@ -2372,9 +2504,10 @@ export async function processAffaireIntakeUpload(uploadId: string) {
         documentId: document.id,
         eventType: "document.classified",
         afterPayload: {
-          document_kind: classification.documentKind,
+          document_kind: classification.result.documentKind,
           classification_status: classificationStatus,
-          confidence: classification.confidence,
+          classification_source: classification.source,
+          confidence: classification.result.confidence,
         },
       });
     } catch (error) {
@@ -2412,6 +2545,11 @@ export async function processAffaireIntakeUpload(uploadId: string) {
       });
     }
   }
+
+  await syncAffaireIntakeDocumentPriorities({
+    supabase,
+    projectId: upload.project_id,
+  });
 
   const status = await updateUploadStatusFromStoredDocuments({
     supabase,
@@ -2559,6 +2697,9 @@ export async function fetchAffaireIntakeWorkspace(
       documentId: document.id,
       fileName: document.file_name,
       detectedCategory: document.document_kind,
+      classificationStatus: document.classification_status,
+      classificationSource: document.classification_source,
+      documentPriority: document.document_priority,
       confidence: document.confidence ?? 0,
       extractedMetadata: document.extracted_metadata,
       issues: [
@@ -2820,6 +2961,11 @@ export async function reclassifyAffaireDocument(input: {
     );
   }
 
+  await syncAffaireIntakeDocumentPriorities({
+    supabase: context.supabase,
+    projectId: project.id,
+  });
+
   await insertAffaireIntakeEvent({
     supabase: context.supabase,
     uploadId: document.upload_id,
@@ -2830,6 +2976,7 @@ export async function reclassifyAffaireDocument(input: {
     afterPayload: {
       document_kind: input.category,
       classification_status: classificationStatus,
+      classification_source: "manual",
       confidence: input.category === "a_classer" ? 0.4 : 1,
     },
   });
@@ -2871,4 +3018,137 @@ export async function reclassifyAffaireDocument(input: {
   });
 
   return { ok: true } as const;
+}
+
+export async function setAffaireDocumentAsPrimary(input: {
+  projectId: string;
+  documentId: string;
+}) {
+  const { context, project } = await requireAffaireProjectOwnerOrAdmin(
+    input.projectId
+  );
+
+  const { data, error } = await resolveSupabaseQuery<{
+    data: unknown;
+    error: unknown;
+  }>(
+    context.supabase
+      .from("affaire_intake_documents" as never)
+      .select(DOCUMENT_SELECT as never)
+      .eq("id", input.documentId)
+      .eq("project_id", project.id)
+      .maybeSingle()
+  );
+
+  if (error) {
+    throw internalError(
+      "Impossible de charger le document intake principal.",
+      error
+    );
+  }
+
+  const document = normalizeDocumentRow(data);
+
+  if (!document) {
+    throw notFound("Document intake introuvable.");
+  }
+
+  if (!isAffaireIntakePrimaryEligibleKind(document.document_kind)) {
+    throw badRequest(
+      "Seuls les documents DPGF et CCTP peuvent etre definis comme principaux."
+    );
+  }
+
+  const { data: kindDocumentsData, error: kindDocumentsError } =
+    await resolveSupabaseQuery<{
+      data: unknown[];
+      error: unknown;
+    }>(
+      context.supabase
+        .from("affaire_intake_documents" as never)
+        .select(DOCUMENT_SELECT as never)
+        .eq("project_id", project.id)
+        .eq("document_kind", document.document_kind)
+        .order("created_at", { ascending: true })
+    );
+
+  if (kindDocumentsError) {
+    throw internalError(
+      "Impossible de charger les documents intake de cette categorie.",
+      kindDocumentsError
+    );
+  }
+
+  const kindDocuments = (kindDocumentsData ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+  const previousPrimary =
+    kindDocuments.find((row) => row.document_priority === "primary") ?? null;
+
+  if (previousPrimary?.id !== document.id) {
+    const { error: demoteError } = await resolveSupabaseQuery<{
+      error: unknown;
+    }>(
+      context.supabase
+        .from("affaire_intake_documents" as never)
+        .update({
+          document_priority: "secondary",
+        } as never)
+        .eq("project_id", project.id)
+        .eq("document_kind", document.document_kind)
+        .eq("document_priority", "primary")
+    );
+
+    if (demoteError) {
+      throw internalError(
+        "Impossible de retirer le document principal actuel.",
+        demoteError
+      );
+    }
+
+    const { error: promoteError } = await resolveSupabaseQuery<{
+      error: unknown;
+    }>(
+      context.supabase
+        .from("affaire_intake_documents" as never)
+        .update({
+          document_priority: "primary",
+        } as never)
+        .eq("id", document.id)
+    );
+
+    if (promoteError) {
+      throw internalError(
+        "Impossible de definir ce document comme principal.",
+        promoteError
+      );
+    }
+  }
+
+  await syncAffaireIntakeDocumentPriorities({
+    supabase: context.supabase,
+    projectId: project.id,
+  });
+
+  await insertAffaireIntakeEvent({
+    supabase: context.supabase,
+    uploadId: document.upload_id,
+    documentId: document.id,
+    actorUserId: context.userId,
+    eventType: "document.priority_changed",
+    beforePayload: {
+      previous_primary_document_id: previousPrimary?.id ?? null,
+      previous_primary_file_name: previousPrimary?.file_name ?? null,
+      document_priority: document.document_priority,
+    },
+    afterPayload: {
+      document_kind: document.document_kind,
+      document_priority: "primary",
+    },
+  });
+
+  return {
+    ok: true,
+    documentPriority: "primary" as const,
+  };
 }

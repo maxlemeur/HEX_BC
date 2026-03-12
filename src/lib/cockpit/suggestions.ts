@@ -1,4 +1,5 @@
 import type { AffaireHubPlansSummaryData } from "@/components/affaires/PlansMetresCard";
+import { isAffaireIntakeDocumentNeedingReview } from "@/lib/affaires/intake";
 import { buildAffaireRegisterHubHref, type AffaireRegisterSummary } from "@/lib/affaires/register";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
@@ -73,16 +74,6 @@ function byPriority(left: CockpitSuggestion, right: CockpitSuggestion) {
   return left.label.localeCompare(right.label, "fr");
 }
 
-function isDocumentProcessing(
-  document: NonNullable<ComputeCockpitSuggestionsInput["intakeWorkspace"]>["documents"][number],
-) {
-  return (
-    document.confidence === 0 &&
-    document.detectedCategory === "a_classer" &&
-    document.issues.length === 0
-  );
-}
-
 function countDocumentsNeedingReview(
   intakeWorkspace: ComputeCockpitSuggestionsInput["intakeWorkspace"],
 ) {
@@ -91,9 +82,7 @@ function countDocumentsNeedingReview(
   }
 
   return intakeWorkspace.documents.filter(
-    (document) =>
-      !isDocumentProcessing(document) &&
-      (document.detectedCategory === "a_classer" || document.confidence < 0.65),
+    (document) => isAffaireIntakeDocumentNeedingReview(document),
   ).length;
 }
 

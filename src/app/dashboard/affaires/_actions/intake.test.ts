@@ -7,6 +7,7 @@ vi.mock("next/cache", () => ({
 vi.mock("@/lib/affaires/intake-server", () => ({
   confirmAffaireBrief: vi.fn(),
   reclassifyAffaireDocument: vi.fn(),
+  setAffaireDocumentAsPrimary: vi.fn(),
   updateAffaireBrief: vi.fn(),
 }));
 
@@ -15,11 +16,13 @@ import { revalidatePath } from "next/cache";
 import {
   confirmAffaireBrief,
   reclassifyAffaireDocument,
+  setAffaireDocumentAsPrimary,
   updateAffaireBrief,
 } from "@/app/dashboard/affaires/_actions/intake";
 import {
   confirmAffaireBrief as confirmAffaireBriefServer,
   reclassifyAffaireDocument as reclassifyAffaireDocumentServer,
+  setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
   updateAffaireBrief as updateAffaireBriefServer,
 } from "@/lib/affaires/intake-server";
 
@@ -80,6 +83,31 @@ describe("affaire intake server actions", () => {
     expect(result).toEqual({
       ok: true,
       status: "a_confirmer",
+    });
+  });
+
+  it("promotes a document as primary and revalidates the affaire paths", async () => {
+    vi.mocked(setAffaireDocumentAsPrimaryServer).mockResolvedValue({
+      ok: true,
+      documentPriority: "primary",
+    });
+
+    const result = await setAffaireDocumentAsPrimary({
+      projectId: PROJECT_ID,
+      documentId: DOCUMENT_ID,
+    });
+
+    expect(vi.mocked(setAffaireDocumentAsPrimaryServer)).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      documentId: DOCUMENT_ID,
+    });
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/affaires/${PROJECT_ID}`
+    );
+    expect(result).toEqual({
+      ok: true,
+      documentPriority: "primary",
     });
   });
 
