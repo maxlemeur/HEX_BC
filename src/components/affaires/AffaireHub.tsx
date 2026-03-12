@@ -58,7 +58,7 @@ import {
 } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
-import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
+import type { CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import { CockpitCommandBar } from "@/components/cockpit/CockpitCommandBar";
@@ -141,6 +141,18 @@ export function shouldShowAffaireCreatedOnboardingBanner(input: {
   );
 }
 
+export function isAffaireFreshStartState(input: {
+  intakeWorkspace: Pick<AffaireIntakeWorkspace, "documents"> | null | undefined;
+  dpgfSource: AffaireHubDpgfSourceResult;
+  lineCount: number;
+}) {
+  return (
+    (input.intakeWorkspace?.documents?.length ?? 0) === 0 &&
+    !input.dpgfSource &&
+    input.lineCount === 0
+  );
+}
+
 function fmtDate(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "-" : DATE_FMT.format(d);
@@ -216,6 +228,76 @@ function isSameCockpitPreference(
   }
 
   return left.isHidden === right.isHidden && left.isPinned === right.isPinned;
+}
+
+function findCockpitIntent(
+  suggestions: CockpitSuggestion[],
+  intent: CockpitIntent,
+) {
+  return suggestions.find((suggestion) => !suggestion.isHidden && suggestion.intent === intent) ?? null;
+}
+
+export function getAffaireHubDominantIntent(suggestions: CockpitSuggestion[]) {
+  if (findCockpitIntent(suggestions, "review_intake")) {
+    return "review_intake" as const;
+  }
+
+  if (findCockpitIntent(suggestions, "add_missing_pieces")) {
+    return "add_missing_pieces" as const;
+  }
+
+  if (findCockpitIntent(suggestions, "confirm_brief")) {
+    return "confirm_brief" as const;
+  }
+
+  if (findCockpitIntent(suggestions, "analyze_plans")) {
+    return "analyze_plans" as const;
+  }
+
+  if (findCockpitIntent(suggestions, "generate_structure")) {
+    return "generate_structure" as const;
+  }
+
+  return null;
+}
+
+export function filterAffaireHubCommandBarSuggestions(
+  suggestions: CockpitSuggestion[],
+  dominantIntent: CockpitIntent | null,
+) {
+  if (!dominantIntent) {
+    return suggestions;
+  }
+
+  const suppressedIntentsByDominant: Partial<Record<CockpitIntent, CockpitIntent[]>> = {
+    review_intake: [
+      "add_missing_pieces",
+      "confirm_brief",
+      "generate_structure",
+      "analyze_plans",
+    ],
+    add_missing_pieces: ["confirm_brief", "generate_structure", "analyze_plans"],
+    confirm_brief: ["generate_structure", "analyze_plans"],
+    generate_structure: ["analyze_plans"],
+    analyze_plans: ["generate_structure"],
+  };
+  const suppressedIntents = new Set(suppressedIntentsByDominant[dominantIntent] ?? []);
+
+  return suggestions.filter((suggestion) => {
+    if (suggestion.intent === dominantIntent) {
+      return false;
+    }
+
+    if (suggestion.intent === "add_files") {
+      return false;
+    }
+
+    if (suppressedIntents.has(suggestion.intent)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -375,7 +457,7 @@ function ActionBar({
             Plus
           </button>
           {moreOpen && (
-            <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-lg border border-[var(--slate-200)] bg-white py-1 shadow-lg">
+            <div className="absolute right-0 top-full z-50 mt-1 w-[min(200px,calc(100vw-2rem))] rounded-lg border border-[var(--slate-200)] bg-white py-1 shadow-lg">
               {/* New version */}
               <button
                 type="button"
@@ -1095,6 +1177,34 @@ export function AffaireHub({
     () => cockpitState.filter((suggestion) => !suggestion.isHidden),
     [cockpitState],
   );
+  const dominantFlowIntent = useMemo(
+    () => getAffaireHubDominantIntent(visibleCockpitSuggestions),
+    [visibleCockpitSuggestions],
+  );
+  const commandBarSuggestions = useMemo(
+    () => filterAffaireHubCommandBarSuggestions(cockpitState, dominantFlowIntent),
+    [cockpitState, dominantFlowIntent],
+  );
+  const hiddenPilotageExceptionIds = useMemo(() => {
+    if (dominantFlowIntent === "review_intake") {
+      return ["intake-review"];
+    }
+    if (dominantFlowIntent === "add_missing_pieces") {
+      return ["missing-pieces"];
+    }
+    if (dominantFlowIntent === "confirm_brief") {
+      return ["brief-confirm"];
+    }
+    if (dominantFlowIntent === "analyze_plans") {
+      return ["takeoff-launch"];
+    }
+    return [];
+  }, [dominantFlowIntent]);
+  const isFreshStartState = isAffaireFreshStartState({
+    intakeWorkspace,
+    dpgfSource,
+    lineCount: summary.lineCount,
+  });
 
   useEffect(() => {
     cockpitStateRef.current = cockpitState;
@@ -1420,11 +1530,11 @@ export function AffaireHub({
                         onLaunchMetre={() => setShowLaunchMetreDialog(true)}
                       />
                     ) : null}
-                    {cockpitState.length > 0 && (
+                    {commandBarSuggestions.length > 0 && (
                       <>
                         <div className="mx-0.5 h-5 w-px bg-[var(--slate-200)]" />
                         <CockpitCommandBar
-                          suggestions={cockpitState}
+                          suggestions={commandBarSuggestions}
                           onExecute={handleExecuteCockpitSuggestion}
                           onToggleHidden={(actionId, isHidden) => {
                             handleToggleCockpitPreference({ actionId, isHidden });
@@ -1563,41 +1673,50 @@ export function AffaireHub({
               versionZeroSummary={versionZeroSummary}
               takeoffEnabled={takeoffEnabled}
               plansSummary={plansSummary ?? null}
-            />
-          </div>
-
-          <div className="mt-4">
-            <AffairePilotagePanel
-              projectId={summary.project.id}
-              projectName={summary.project.name}
               intakeWorkspace={intakeWorkspace ?? null}
-              dpgfSource={dpgfSource}
-              plansSummary={plansSummary ?? null}
-              registerSummary={registerSummary ?? null}
-              approvalSummary={approvalSummary ?? null}
-              currentVersion={
-                summary.currentVersion
-                  ? {
-                      id: summary.currentVersion.id,
-                      status: summary.currentVersion.status,
-                      versionNumber: summary.currentVersion.versionNumber,
-                    }
-                  : null
-              }
-              lineCount={summary.lineCount}
               finishLineSummary={finishLineSummary ?? null}
-              takeoffEnabled={takeoffEnabled}
-              onOpenSurface={
-                isReadOnlyReview
-                  ? undefined
-                  : (surfaceId) => {
-                      openHubSurface(surfaceId);
-                    }
-              }
+              cockpitSuggestions={visibleCockpitSuggestions}
+              onExecuteSuggestion={handleExecuteCockpitSuggestion}
             />
           </div>
 
-          <AffaireProgressStrip summary={summary} dpgfSource={dpgfSource} />
+          {!isFreshStartState ? (
+            <div className="mt-4">
+              <AffairePilotagePanel
+                projectId={summary.project.id}
+                projectName={summary.project.name}
+                intakeWorkspace={intakeWorkspace ?? null}
+                dpgfSource={dpgfSource}
+                plansSummary={plansSummary ?? null}
+                registerSummary={registerSummary ?? null}
+                approvalSummary={approvalSummary ?? null}
+                currentVersion={
+                  summary.currentVersion
+                    ? {
+                        id: summary.currentVersion.id,
+                        status: summary.currentVersion.status,
+                        versionNumber: summary.currentVersion.versionNumber,
+                      }
+                    : null
+                }
+                lineCount={summary.lineCount}
+                finishLineSummary={finishLineSummary ?? null}
+                takeoffEnabled={takeoffEnabled}
+                hiddenExceptionIds={hiddenPilotageExceptionIds}
+                onOpenSurface={
+                  isReadOnlyReview
+                    ? undefined
+                    : (surfaceId) => {
+                        openHubSurface(surfaceId);
+                      }
+                }
+              />
+            </div>
+          ) : null}
+
+          {!isFreshStartState ? (
+            <AffaireProgressStrip summary={summary} dpgfSource={dpgfSource} />
+          ) : null}
 
           {directionSignals && directionSignals.alerts.length > 0 ? (
             <div className="mt-4">
@@ -1608,16 +1727,22 @@ export function AffaireHub({
           {/* Two-column layout (Recommendation #3)
               Left: operational flow (intake, brief, financial, DPGF, timeline)
               Right: control (register, approval, journal, plans) */}
-          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-5">
-            <div className="space-y-4 lg:col-span-3">
+          <div className={`mt-3 grid grid-cols-1 gap-4${isFreshStartState ? "" : " lg:grid-cols-5"}`}>
+            <div className={`space-y-4${isFreshStartState ? "" : " lg:col-span-3"}`}>
               {/* Intake workspace: document upload, classification triage */}
               {intakeWorkspace !== undefined && (
                 <div id="intake" className="scroll-mt-24">
                   <IntakeWorkspace
                     projectId={summary.project.id}
                     workspace={intakeWorkspace}
+                    entryMode={isFreshStartState}
+                    hideAddFilesAction={
+                      dominantFlowIntent === "review_intake" ||
+                      dominantFlowIntent === "add_missing_pieces"
+                    }
+                    hideMissingPiecesAction={dominantFlowIntent === "add_missing_pieces"}
                     onBridgeDpgfImport={
-                      isReadOnlyReview
+                      isReadOnlyReview || dominantFlowIntent === "generate_structure"
                         ? undefined
                         : () => {
                             setImportResult(null);
@@ -1629,17 +1754,18 @@ export function AffaireHub({
                   />
                 </div>
               )}
-              {intakeWorkspace !== undefined && (
+              {!isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="brief" className="scroll-mt-24">
                   <BriefDraftCard
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     isReadOnly={isReadOnlyReview}
+                    hideConfirmAction={dominantFlowIntent === "confirm_brief"}
                   />
                 </div>
               )}
-              <FinancialSummaryCard summary={summary} />
-              {isExpert && (
+              {!isFreshStartState ? <FinancialSummaryCard summary={summary} /> : null}
+              {!isFreshStartState && isExpert && (
                 <MarginAnalysisWidget
                   data={marginAnalysis ?? null}
                   errorMessage={sectionErrors?.marginAnalysis}
@@ -1659,17 +1785,19 @@ export function AffaireHub({
                   }
                 />
               )}
-              <VersionTimelineCard
-                timeline={timeline}
-                projectId={summary.project.id}
-                currentVersionId={currentVersionId}
-                acceptedVersionId={acceptedVersionId}
-                isReadOnlyReview={isReadOnlyReview}
-                errorMessage={sectionErrors?.timeline}
-              />
+              {!isFreshStartState ? (
+                <VersionTimelineCard
+                  timeline={timeline}
+                  projectId={summary.project.id}
+                  currentVersionId={currentVersionId}
+                  acceptedVersionId={acceptedVersionId}
+                  isReadOnlyReview={isReadOnlyReview}
+                  errorMessage={sectionErrors?.timeline}
+                />
+              ) : null}
             </div>
 
-            <div className="space-y-4 lg:col-span-2">
+            {!isFreshStartState ? <div className="space-y-4 lg:col-span-2">
               {/* Register: moved to sidebar (Recommendation #3) */}
               <div id="register" className="scroll-mt-24">
                 <AffaireRegisterCard
@@ -1723,27 +1851,29 @@ export function AffaireHub({
                     plans={plansSummary ?? null}
                     projectId={summary.project.id}
                     errorMessage={sectionErrors?.plansSummary}
+                    hideLaunchAction={dominantFlowIntent === "analyze_plans"}
                     onLaunchMetre={
                       isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
                     }
                   />
                 </div>
               ) : null}
-            </div>
+            </div> : null}
           </div>
         </>
       )}
 
-      {/* Workflow stepper — sticky bottom bar */}
-      <div className="sticky bottom-0 z-10 -mx-4 mt-6 border-t border-[var(--slate-200)] bg-white/95 px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
-        <AffaireWorkflowStepper
-          summary={summary}
-          dpgfSource={dpgfSource}
-          intakeWorkspace={intakeWorkspace}
-          approvalSummary={approvalSummary}
-          lineCount={summary.lineCount}
-        />
-      </div>
+      {!isFreshStartState ? (
+        <div className="sticky bottom-0 z-10 -mx-4 mt-6 border-t border-[var(--slate-200)] bg-white/95 px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
+          <AffaireWorkflowStepper
+            summary={summary}
+            dpgfSource={dpgfSource}
+            intakeWorkspace={intakeWorkspace}
+            approvalSummary={approvalSummary}
+            lineCount={summary.lineCount}
+          />
+        </div>
+      ) : null}
 
       {!isReadOnlyReview ? (
         <LaunchMetreDialog
