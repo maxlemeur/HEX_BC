@@ -56,7 +56,7 @@ export type ComputeCockpitSuggestionsInput = {
   hasIntakeWorkspaceError?: boolean;
   intakeWorkspace: Pick<
     AffaireIntakeWorkspace,
-    "uploadId" | "documents" | "missingPieces" | "briefDraft"
+    "uploadId" | "documents" | "missingPieces" | "readiness" | "briefDraft"
   > | null;
   versionZeroSummary: Pick<VersionZeroDraftSummary, "canGenerate" | "activeDraft"> | null;
   currentVersion: { id: string; status: string } | null;
@@ -77,6 +77,10 @@ function byPriority(left: CockpitSuggestion, right: CockpitSuggestion) {
 function countDocumentsNeedingReview(
   intakeWorkspace: ComputeCockpitSuggestionsInput["intakeWorkspace"],
 ) {
+  if (intakeWorkspace?.readiness) {
+    return intakeWorkspace.readiness.reviewDocumentsCount;
+  }
+
   if (!intakeWorkspace) {
     return 0;
   }
@@ -84,6 +88,49 @@ function countDocumentsNeedingReview(
   return intakeWorkspace.documents.filter(
     (document) => isAffaireIntakeDocumentNeedingReview(document),
   ).length;
+}
+
+function describeMissingPieces(
+  intakeWorkspace: ComputeCockpitSuggestionsInput["intakeWorkspace"],
+) {
+  const readiness = intakeWorkspace?.readiness;
+  const missingPiecesCount =
+    readiness?.missingPiecesCount ?? intakeWorkspace?.missingPieces.length ?? 0;
+  const provisionalMissingPiecesCount = readiness?.provisionalMissingPiecesCount ?? 0;
+  const confirmedMissingPiecesCount =
+    readiness?.confirmedMissingPiecesCount ??
+    Math.max(0, missingPiecesCount - provisionalMissingPiecesCount);
+  const provisionalCriticalMissingPiecesCount =
+    readiness?.provisionalCriticalMissingPiecesCount ?? 0;
+  const plural = missingPiecesCount > 1 ? "s" : "";
+
+  if (missingPiecesCount === 0) {
+    return null;
+  }
+
+  if (provisionalMissingPiecesCount === 0) {
+    return {
+      label: `Ajouter ${missingPiecesCount} piece${plural} manquante${plural}`,
+      preview:
+        "Completer le dossier avec les pieces manquantes detectees pendant l'intake.",
+    };
+  }
+
+  if (confirmedMissingPiecesCount === 0) {
+    return {
+      label: `Completer ${missingPiecesCount} piece${plural} potentiellement manquante${plural}`,
+      preview:
+        provisionalCriticalMissingPiecesCount > 0
+          ? "Des pieces a revoir peuvent encore lever un manque critique. Purgez la review avant de conclure que le dossier est incomplet."
+          : "Des pieces a revoir peuvent encore lever ces manques. Purgez la review avant de conclure que le dossier est incomplet.",
+    };
+  }
+
+  const confirmedPlural = confirmedMissingPiecesCount > 1 ? "s" : "";
+  return {
+    label: `Ajouter ${missingPiecesCount} piece${plural} manquante${plural}`,
+    preview: `${confirmedMissingPiecesCount} piece${confirmedPlural} reste${confirmedMissingPiecesCount > 1 ? "nt" : ""} vraiment manquante${confirmedPlural}; ${provisionalMissingPiecesCount} sera${provisionalMissingPiecesCount > 1 ? "ient" : ""} a reconfirmer apres review.`,
+  };
 }
 
 function createSuggestion(
@@ -142,7 +189,7 @@ export function computeCockpitSuggestions(
     preferences = [],
   } = input;
   const reviewDocumentsCount = countDocumentsNeedingReview(intakeWorkspace);
-  const missingPiecesCount = intakeWorkspace?.missingPieces.length ?? 0;
+  const missingPieces = describeMissingPieces(intakeWorkspace);
   const hasDocuments = (intakeWorkspace?.documents.length ?? 0) > 0;
   const briefDraft = intakeWorkspace?.briefDraft ?? null;
 
@@ -181,13 +228,13 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (!hasIntakeWorkspaceError && missingPiecesCount > 0 && !isReadOnlyReview) {
+  if (!hasIntakeWorkspaceError && missingPieces && !isReadOnlyReview) {
     suggestions.push(
       createSuggestion({
         actionId: "add-missing-pieces",
-        label: `Ajouter ${missingPiecesCount} piece${missingPiecesCount > 1 ? "s" : ""} manquante${missingPiecesCount > 1 ? "s" : ""}`,
+        label: missingPieces.label,
         intent: "add_missing_pieces",
-        preview: "Completer le dossier avec les pieces manquantes detectees pendant l'intake.",
+        preview: missingPieces.preview,
         target: { kind: "open_surface", surfaceId: "intake-upload" },
         requiresConfirmation: false,
         confirmTone: "info",

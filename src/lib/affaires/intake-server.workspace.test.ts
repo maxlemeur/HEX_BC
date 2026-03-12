@@ -178,6 +178,7 @@ describe("fetchAffaireIntakeWorkspace", () => {
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       userId: USER_ID,
       tenantId: TENANT_ID,
+      tenantRole: "admin",
       supabase: createSupabaseMock([
         createDocumentRow({
           id: "doc-primary-dpgf",
@@ -194,7 +195,7 @@ describe("fetchAffaireIntakeWorkspace", () => {
           documentPriority: "secondary",
         }),
       ]),
-    } as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
 
     const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
 
@@ -207,5 +208,12 @@ describe("fetchAffaireIntakeWorkspace", () => {
       "primary",
       "secondary",
     ]);
+    expect(workspace.readiness).toMatchObject({
+      reviewDocumentsCount: 0,
+      missingPiecesCount: 3,
+      criticalMissingPiecesCount: 1,
+      dominantAction: "missing",
+      hubReadinessImpact: "critical",
+    });
   });
 });

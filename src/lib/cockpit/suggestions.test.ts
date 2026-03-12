@@ -247,6 +247,76 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("softens missing-piece wording when review can still lift a critical missing", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "bordereau.xlsx",
+              detectedCategory: "dpgf",
+              classificationStatus: "ambiguous",
+              confidence: 0.41,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: ["Categorie a confirmer"],
+            },
+            {
+              documentId: "doc-2",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              classificationStatus: "classified",
+              confidence: 0.96,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [
+            { code: "missing_dpgf", label: "DPGF manquant", severity: "critical" },
+            { code: "missing_cctp", label: "CCTP non detecte", severity: "warning" },
+          ],
+          readiness: {
+            reviewDocumentsCount: 1,
+            missingPiecesCount: 2,
+            criticalMissingPiecesCount: 1,
+            provisionalMissingPiecesCount: 1,
+            provisionalCriticalMissingPiecesCount: 1,
+            confirmedMissingPiecesCount: 1,
+            confirmedCriticalMissingPiecesCount: 0,
+            reviewCouldLiftCriticalMissing: true,
+            reviewBeforeMissing: true,
+            dominantAction: "review",
+            hubReadinessImpact: "critical",
+          },
+        }),
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "review_intake")).toEqual(
+      expect.objectContaining({
+        label: "Confirmer 1 piece a revoir",
+      }),
+    );
+    expect(result.find((suggestion) => suggestion.intent === "add_missing_pieces")).toEqual(
+      expect.objectContaining({
+        label: "Ajouter 2 pieces manquantes",
+        preview: "1 piece reste vraiment manquante; 1 sera a reconfirmer apres review.",
+      }),
+    );
+  });
+
   it("keeps intake suggestions hidden when the workspace failed to load", () => {
     const result = computeCockpitSuggestions(
       makeInput({

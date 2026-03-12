@@ -151,6 +151,23 @@ export type AffaireIntakeWorkspaceMissingPiece = {
   severity: "info" | "warning" | "critical";
 };
 
+export type AffaireIntakeReadinessImpact = "none" | "warning" | "critical";
+export type AffaireIntakeDominantAction = "none" | "review" | "missing";
+
+export type AffaireIntakeReadinessSnapshot = {
+  reviewDocumentsCount: number;
+  missingPiecesCount: number;
+  criticalMissingPiecesCount: number;
+  provisionalMissingPiecesCount: number;
+  provisionalCriticalMissingPiecesCount: number;
+  confirmedMissingPiecesCount: number;
+  confirmedCriticalMissingPiecesCount: number;
+  reviewCouldLiftCriticalMissing: boolean;
+  reviewBeforeMissing: boolean;
+  dominantAction: AffaireIntakeDominantAction;
+  hubReadinessImpact: AffaireIntakeReadinessImpact;
+};
+
 export type AffaireIntakeWorkspaceDocumentSummary = {
   uploadStatus: AffaireIntakeDocumentUploadStatus;
   classificationStatus: AffaireIntakeClassificationStatus;
@@ -159,11 +176,23 @@ export type AffaireIntakeWorkspaceDocumentSummary = {
 };
 
 export type AffaireIntakeReviewableDocument = {
+  fileName?: string | null;
+  uploadStatus?: AffaireIntakeDocumentUploadStatus | null;
   classificationStatus?: AffaireIntakeClassificationStatus | null;
   detectedCategory?: AffaireIntakeDocumentKind | null;
   documentKind?: AffaireIntakeDocumentKind | null;
   confidence?: number | null;
   issues?: string[] | null;
+};
+
+const AFFAIRE_INTAKE_MISSING_PIECE_KIND_BY_CODE: Record<
+  string,
+  Exclude<AffaireIntakeDocumentKind, "annexes" | "emails" | "a_classer">
+> = {
+  missing_dpgf: "dpgf",
+  missing_plans: "plans",
+  missing_cctp: "cctp",
+  missing_bpu_dqe: "bpu_dqe",
 };
 
 export const AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS: Record<
@@ -588,7 +617,7 @@ export function buildAffaireIntakeMissingPieces(
   const presentKinds = new Set(
     documents
       .filter((document) => document.uploadStatus === "uploaded")
-      .filter((document) => document.classificationStatus !== "failed")
+      .filter((document) => document.classificationStatus === "classified")
       .map((document) => document.documentKind)
       .filter((kind) => kind !== "a_classer")
   );
@@ -628,6 +657,103 @@ export function buildAffaireIntakeMissingPieces(
   }
 
   return missingPieces;
+}
+
+function getAffaireIntakeMissingPieceKind(
+  piece: Pick<AffaireIntakeWorkspaceMissingPiece, "code">
+) {
+  return AFFAIRE_INTAKE_MISSING_PIECE_KIND_BY_CODE[piece.code] ?? null;
+}
+
+function getAffaireIntakeReviewProbableKinds(
+  document: Pick<AffaireIntakeReviewableDocument, "fileName" | "detectedCategory" | "documentKind">
+) {
+  const kinds = new Set<AffaireIntakeDocumentKind>();
+  const persistedKind = document.detectedCategory ?? document.documentKind ?? null;
+
+  if (persistedKind && persistedKind !== "a_classer") {
+    kinds.add(persistedKind);
+  }
+
+  const extension = document.fileName?.split(".").pop()?.trim().toLowerCase() ?? "";
+  if (["xlsx", "xls", "csv"].includes(extension)) {
+    kinds.add("dpgf");
+    kinds.add("bpu_dqe");
+  } else if (["doc", "docx"].includes(extension)) {
+    kinds.add("cctp");
+  } else if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(extension)) {
+    kinds.add("plans");
+  }
+
+  return [...kinds];
+}
+
+export function buildAffaireIntakeReadinessSnapshot(input: {
+  documents: AffaireIntakeReviewableDocument[];
+  missingPieces?: AffaireIntakeWorkspaceMissingPiece[];
+}): AffaireIntakeReadinessSnapshot {
+  const uploadedDocuments = input.documents.filter(
+    (document) => (document.uploadStatus ?? "uploaded") === "uploaded"
+  );
+  const missingPieces =
+    input.missingPieces ??
+    buildAffaireIntakeMissingPieces(
+      uploadedDocuments.map((document) => ({
+        uploadStatus: document.uploadStatus ?? "uploaded",
+        classificationStatus: document.classificationStatus ?? "ambiguous",
+        documentKind:
+          document.detectedCategory ?? document.documentKind ?? "a_classer",
+      }))
+    );
+  const reviewDocuments = uploadedDocuments.filter((document) =>
+    isAffaireIntakeDocumentNeedingReview(document)
+  );
+  const reviewKinds = new Set(
+    reviewDocuments.flatMap((document) => getAffaireIntakeReviewProbableKinds(document))
+  );
+  const provisionalMissingPieces = missingPieces.filter((piece) => {
+    const kind = getAffaireIntakeMissingPieceKind(piece);
+    return kind ? reviewKinds.has(kind) : false;
+  });
+  const criticalMissingPiecesCount = missingPieces.filter(
+    (piece) => piece.severity === "critical"
+  ).length;
+  const provisionalCriticalMissingPiecesCount = provisionalMissingPieces.filter(
+    (piece) => piece.severity === "critical"
+  ).length;
+  const reviewDocumentsCount = reviewDocuments.length;
+  const missingPiecesCount = missingPieces.length;
+  const provisionalMissingPiecesCount = provisionalMissingPieces.length;
+  const confirmedMissingPiecesCount =
+    missingPiecesCount - provisionalMissingPiecesCount;
+  const confirmedCriticalMissingPiecesCount =
+    criticalMissingPiecesCount - provisionalCriticalMissingPiecesCount;
+  const reviewCouldLiftCriticalMissing =
+    provisionalCriticalMissingPiecesCount > 0;
+
+  return {
+    reviewDocumentsCount,
+    missingPiecesCount,
+    criticalMissingPiecesCount,
+    provisionalMissingPiecesCount,
+    provisionalCriticalMissingPiecesCount,
+    confirmedMissingPiecesCount,
+    confirmedCriticalMissingPiecesCount,
+    reviewCouldLiftCriticalMissing,
+    reviewBeforeMissing: reviewDocumentsCount > 0 && reviewCouldLiftCriticalMissing,
+    dominantAction:
+      reviewDocumentsCount > 0
+        ? "review"
+        : missingPiecesCount > 0
+          ? "missing"
+          : "none",
+    hubReadinessImpact:
+      criticalMissingPiecesCount > 0
+        ? "critical"
+        : missingPiecesCount > 0
+          ? "warning"
+          : "none",
+  };
 }
 
 export function normalizeAffaireIntakeTextList(

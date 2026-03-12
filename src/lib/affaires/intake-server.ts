@@ -32,6 +32,7 @@ import {
   affaireIntakeDocumentPrioritySchema,
   affaireIntakeDocumentUploadStatusSchema,
   affaireIntakeUploadStatusSchema,
+  buildAffaireIntakeReadinessSnapshot,
   buildAffaireIntakeMissingPieces,
   buildAffaireIntakeStoragePath,
   createEmptyAffaireIntakeExtractedMetadata,
@@ -55,6 +56,7 @@ import {
   type AffaireIntakeDocumentPriority,
   type AffaireIntakeDocumentUploadStatus,
   type AffaireIntakeExtractedMetadata,
+  type AffaireIntakeReadinessSnapshot,
   type AffaireIntakeUploadStatus,
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
@@ -220,6 +222,7 @@ export type AffaireIntakeWorkspace = {
     issues: string[];
   }>;
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
+  readiness?: AffaireIntakeReadinessSnapshot;
   briefDraft: AffaireIntakeBriefDraft | null;
 };
 
@@ -2660,6 +2663,10 @@ export async function fetchAffaireIntakeWorkspace(
       uploadId: null,
       documents: [],
       missingPieces: [],
+      readiness: buildAffaireIntakeReadinessSnapshot({
+        documents: [],
+        missingPieces: [],
+      }),
       briefDraft: brief?.draft ?? null,
     };
   }
@@ -2690,31 +2697,47 @@ export async function fetchAffaireIntakeWorkspace(
     supabase: context.supabase,
     projectId: project.id,
   });
+  const workspaceDocuments = documents.map((document) => ({
+    documentId: document.id,
+    fileName: document.file_name,
+    detectedCategory: document.document_kind,
+    classificationStatus: document.classification_status,
+    classificationSource: document.classification_source,
+    documentPriority: document.document_priority,
+    confidence: document.confidence ?? 0,
+    extractedMetadata: document.extracted_metadata,
+    issues: [
+      ...document.issues,
+      ...(document.rejection_reason ? [document.rejection_reason] : []),
+    ],
+  }));
+  const missingPieces = buildAffaireIntakeMissingPieces(
+    documents.map((document) => ({
+      uploadStatus: document.upload_status,
+      classificationStatus: document.classification_status,
+      documentKind: document.document_kind,
+    }))
+  );
 
   return {
     projectId: project.id,
     uploadId: upload.id,
-    documents: documents.map((document) => ({
-      documentId: document.id,
-      fileName: document.file_name,
-      detectedCategory: document.document_kind,
-      classificationStatus: document.classification_status,
-      classificationSource: document.classification_source,
-      documentPriority: document.document_priority,
-      confidence: document.confidence ?? 0,
-      extractedMetadata: document.extracted_metadata,
-      issues: [
-        ...document.issues,
-        ...(document.rejection_reason ? [document.rejection_reason] : []),
-      ],
-    })),
-    missingPieces: buildAffaireIntakeMissingPieces(
-      documents.map((document) => ({
+    documents: workspaceDocuments,
+    missingPieces,
+    readiness: buildAffaireIntakeReadinessSnapshot({
+      documents: documents.map((document) => ({
+        fileName: document.file_name,
         uploadStatus: document.upload_status,
         classificationStatus: document.classification_status,
-        documentKind: document.document_kind,
-      }))
-    ),
+        detectedCategory: document.document_kind,
+        confidence: document.confidence,
+        issues: [
+          ...document.issues,
+          ...(document.rejection_reason ? [document.rejection_reason] : []),
+        ],
+      })),
+      missingPieces,
+    }),
     briefDraft: brief?.draft ?? null,
   };
 }

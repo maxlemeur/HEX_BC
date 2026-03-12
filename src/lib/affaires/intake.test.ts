@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   affaireIntakeBriefDraftSchema,
   affaireIntakeExtractedMetadataSchema,
+  buildAffaireIntakeReadinessSnapshot,
   buildAffaireIntakeMissingPieces,
   deriveAffaireIntakeUploadStatusFromDocuments,
   getDefaultAffaireIntakeDocumentPriority,
@@ -114,6 +115,81 @@ describe("affaire intake helpers", () => {
         }),
       ])
     );
+  });
+
+  it("does not let an ambiguous spreadsheet satisfy a critical missing piece", () => {
+    const missingPieces = buildAffaireIntakeMissingPieces([
+      {
+        uploadStatus: "uploaded",
+        classificationStatus: "ambiguous",
+        documentKind: "dpgf",
+      },
+      {
+        uploadStatus: "uploaded",
+        classificationStatus: "classified",
+        documentKind: "plans",
+      },
+    ]);
+
+    expect(missingPieces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "missing_dpgf",
+          severity: "critical",
+        }),
+      ])
+    );
+  });
+
+  it("marks critical missing pieces as provisional when an active review could lift them", () => {
+    const missingPieces = buildAffaireIntakeMissingPieces([
+      {
+        uploadStatus: "uploaded",
+        classificationStatus: "ambiguous",
+        documentKind: "dpgf",
+      },
+      {
+        uploadStatus: "uploaded",
+        classificationStatus: "classified",
+        documentKind: "plans",
+      },
+    ]);
+
+    const snapshot = buildAffaireIntakeReadinessSnapshot({
+      documents: [
+        {
+          fileName: "bordereau.xlsx",
+          uploadStatus: "uploaded",
+          classificationStatus: "ambiguous",
+          detectedCategory: "dpgf",
+          confidence: 0.41,
+          issues: ["Categorie a confirmer"],
+        },
+        {
+          fileName: "plans.pdf",
+          uploadStatus: "uploaded",
+          classificationStatus: "classified",
+          detectedCategory: "plans",
+          confidence: 0.98,
+          issues: [],
+        },
+      ],
+      missingPieces,
+    });
+
+    expect(snapshot).toMatchObject({
+      reviewDocumentsCount: 1,
+      missingPiecesCount: 3,
+      criticalMissingPiecesCount: 1,
+      provisionalMissingPiecesCount: 2,
+      provisionalCriticalMissingPiecesCount: 1,
+      confirmedMissingPiecesCount: 1,
+      confirmedCriticalMissingPiecesCount: 0,
+      reviewCouldLiftCriticalMissing: true,
+      reviewBeforeMissing: true,
+      dominantAction: "review",
+      hubReadinessImpact: "critical",
+    });
   });
 
   it("allows only DPGF and CCTP to be primary categories", () => {
