@@ -14,15 +14,18 @@ import type { Database, Json } from "@/types/database";
 
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  buildAffaireRegisterContinuationHypothesisText,
   affaireRegisterEventTypeSchema,
   affaireRegisterEntryKindSchema,
   affaireRegisterEntryOriginKindSchema,
   affaireRegisterEntrySeveritySchema,
   affaireRegisterEntryStatusSchema,
   affaireRegisterScopeTypeSchema,
+  extractAffaireRegisterContinuationDecision,
   encodeAffaireRegisterCursor,
   normalizeAffaireRegisterText,
   type AffaireRegisterEntry,
+  type AffaireRegisterContinuationDecision,
   type AffaireRegisterEventType,
   type AffaireRegisterEntryKind,
   type AffaireRegisterEntryOriginKind,
@@ -114,10 +117,15 @@ type EstimateItemScopeRow = {
   position: number;
 };
 
-type AffaireRegisterGateEntry = Pick<
-  AffaireRegisterEntry,
-  "id" | "kind" | "severity" | "status" | "text" | "scopeLabel"
->;
+type AffaireRegisterGateEntry = {
+  id: string;
+  kind: AffaireRegisterEntryKind;
+  severity: AffaireRegisterEntrySeverity;
+  status: AffaireRegisterEntryStatus;
+  text: string;
+  scopeLabel: string;
+  continuationDecision?: AffaireRegisterContinuationDecision | null;
+};
 
 export type AffaireRegisterGateSummary = {
   openQuestionsCount: number;
@@ -126,6 +134,8 @@ export type AffaireRegisterGateSummary = {
   clarifyWithClientEntries: AffaireRegisterGateEntry[];
   openAssumptionEntries: AffaireRegisterGateEntry[];
   openMissingPieceEntries: AffaireRegisterGateEntry[];
+  continuedWithHypothesisEntries?: AffaireRegisterGateEntry[];
+  continuedCriticalMissingPieceEntries?: AffaireRegisterGateEntry[];
 };
 
 type ListAffaireRegisterPageInput = {
@@ -241,6 +251,12 @@ const updateAffaireRegisterEntryStatusInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   entryId: z.string().uuid("entryId invalide."),
   status: affaireRegisterEntryStatusSchema,
+  comment: z.string().trim().max(320).nullable().optional(),
+});
+
+const continueAffaireRegisterWithHypothesisInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  entryId: z.string().uuid("entryId invalide."),
   comment: z.string().trim().max(320).nullable().optional(),
 });
 
@@ -380,8 +396,31 @@ function toAffaireRegisterEntry(
     updatedByName: row.updated_by_profile?.full_name?.trim() || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    continuationDecision: extractAffaireRegisterContinuationDecision(row.metadata),
     history: [],
   };
+}
+
+function hasAcceptedContinuationDecision(
+  metadata: Record<string, unknown>
+): metadata is Record<string, unknown> & {
+  continuationDecision: AffaireRegisterContinuationDecision;
+} {
+  return extractAffaireRegisterContinuationDecision(metadata) !== null;
+}
+
+function readContinuationSourceEntryId(metadata: Record<string, unknown>) {
+  const source = metadata.continuationSource;
+  if (
+    typeof source !== "object" ||
+    source === null ||
+    Array.isArray(source) ||
+    typeof (source as Record<string, unknown>).entryId !== "string"
+  ) {
+    return null;
+  }
+
+  return (source as Record<string, unknown>).entryId;
 }
 
 function extractRegisterEventStatus(
@@ -629,7 +668,13 @@ async function insertAffaireRegisterEvent(input: {
   supabase: Supabase;
   entryId: string;
   actorUserId?: string | null;
-  eventType: "created" | "synced" | "status_changed" | "deactivated" | "reactivated";
+  eventType:
+    | "created"
+    | "synced"
+    | "status_changed"
+    | "continued_with_hypothesis"
+    | "deactivated"
+    | "reactivated";
   reason?: string | null;
   beforePayload?: Json | null;
   afterPayload?: Json | null;
@@ -1002,7 +1047,7 @@ export async function fetchAffaireRegisterGateSummary(input: {
   supabase: Supabase;
   projectId: string;
   versionId?: string | null;
-}) {
+}): Promise<AffaireRegisterGateSummary> {
   let query = input.supabase
     .from("affaire_register_entries" as never)
     .select(GATE_ENTRY_SELECT as never)
@@ -1028,6 +1073,9 @@ export async function fetchAffaireRegisterGateSummary(input: {
         typeof row.scope_label === "string" && row.scope_label.trim().length > 0
           ? row.scope_label.trim()
           : "Affaire",
+      continuationDecision: isRecord(row.metadata)
+        ? extractAffaireRegisterContinuationDecision(row.metadata)
+        : null,
     }))
     .filter((row) => row.id.length > 0 && row.text.length > 0);
 
@@ -1046,6 +1094,12 @@ export async function fetchAffaireRegisterGateSummary(input: {
   const openMissingPieceEntries = normalized.filter(
     (entry) => entry.status === "open" && entry.kind === "missing_piece"
   );
+  const continuedWithHypothesisEntries = openMissingPieceEntries.filter(
+    (entry) => entry.continuationDecision?.status === "accepted_with_hypothesis"
+  );
+  const continuedCriticalMissingPieceEntries = continuedWithHypothesisEntries.filter(
+    (entry) => entry.severity === "critical"
+  );
 
   return {
     openQuestionsCount:
@@ -1057,6 +1111,8 @@ export async function fetchAffaireRegisterGateSummary(input: {
     clarifyWithClientEntries,
     openAssumptionEntries,
     openMissingPieceEntries,
+    continuedWithHypothesisEntries,
+    continuedCriticalMissingPieceEntries,
   } satisfies AffaireRegisterGateSummary;
 }
 
@@ -1081,6 +1137,10 @@ export async function fetchAffaireRegisterSummary(input: {
     clarifyWithClientCount: gateSummary.clarifyWithClientEntries.length,
     openAssumptionCount: gateSummary.openAssumptionEntries.length,
     openMissingPieceCount: gateSummary.openMissingPieceEntries.length,
+    continuedWithHypothesisCount:
+      gateSummary.continuedWithHypothesisEntries?.length ?? 0,
+    continuedCriticalMissingPieceCount:
+      gateSummary.continuedCriticalMissingPieceEntries?.length ?? 0,
   };
 }
 
@@ -1525,6 +1585,206 @@ export async function updateAffaireRegisterEntryStatus(
   return {
     ok: true,
     entry: toAffaireRegisterEntry(updatedEntry),
+  } as const;
+}
+
+export async function continueAffaireRegisterWithHypothesis(
+  input: z.infer<typeof continueAffaireRegisterWithHypothesisInputSchema>
+) {
+  const parsed = continueAffaireRegisterWithHypothesisInputSchema.parse(input);
+  const { context, project } = await requireAffaireRegisterProjectAccess(
+    parsed.projectId,
+    "editor"
+  );
+  const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
+
+  const { data, error } = await context.supabase
+    .from("affaire_register_entries" as never)
+    .select(ENTRY_SELECT as never)
+    .eq("project_id", project.id as never)
+    .eq("id", parsed.entryId as never)
+    .eq("is_active", true as never)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger l'entree du registre.");
+  }
+
+  const sourceEntry = normalizeAffaireRegisterEntryRow(data);
+  if (!sourceEntry) {
+    throw notFound("Entree du registre introuvable.");
+  }
+
+  if (sourceEntry.kind !== "missing_piece" || sourceEntry.status !== "open") {
+    throw badRequest(
+      "Seules les pieces manquantes ouvertes peuvent etre poursuivies sous hypothese."
+    );
+  }
+
+  let assumptionsQuery = context.supabase
+    .from("affaire_register_entries" as never)
+    .select(ENTRY_SELECT as never)
+    .eq("project_id", project.id as never)
+    .eq("kind", "assumption" as never)
+    .eq("is_active", true as never);
+  assumptionsQuery = applyVersionScopeFilter(
+    assumptionsQuery as never,
+    sourceEntry.version_id
+  ) as never;
+
+  const { data: assumptionData, error: assumptionError } = await assumptionsQuery.order(
+    "created_at",
+    { ascending: false }
+  );
+
+  if (assumptionError) {
+    throw mapSupabaseError(
+      assumptionError,
+      "Impossible de charger les hypotheses de continuation."
+    );
+  }
+
+  const existingHypothesis = ((assumptionData ?? []) as unknown[])
+    .map((row) => normalizeAffaireRegisterEntryRow(row))
+    .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null)
+    .find((row) => readContinuationSourceEntryId(row.metadata) === sourceEntry.id);
+
+  if (
+    extractAffaireRegisterContinuationDecision(sourceEntry.metadata)?.status ===
+    "accepted_with_hypothesis"
+  ) {
+    return {
+      ok: true,
+      entry: toAffaireRegisterEntry(sourceEntry),
+      hypothesisEntry: existingHypothesis ? toAffaireRegisterEntry(existingHypothesis) : null,
+    } as const;
+  }
+
+  const hypothesisText = buildAffaireRegisterContinuationHypothesisText({
+    entryText: sourceEntry.text,
+  });
+  const continuationMetadata = {
+    continuationSource: {
+      kind: sourceEntry.kind,
+      entryId: sourceEntry.id,
+      code: sourceEntry.code,
+      text: sourceEntry.text,
+    },
+  } satisfies Record<string, unknown>;
+
+  let hypothesisEntry: AffaireRegisterEntryWithProfilesRow | undefined =
+    existingHypothesis ?? undefined;
+
+  if (!hypothesisEntry) {
+    const { data: hypothesisData, error: hypothesisInsertError } = await context.supabase
+      .from("affaire_register_entries" as never)
+      .insert({
+        project_id: project.id,
+        version_id: sourceEntry.version_id,
+        source_document_id: sourceEntry.source_document_id,
+        kind: "assumption",
+        code: sourceEntry.code,
+        text: hypothesisText,
+        severity: sourceEntry.severity,
+        status: "open",
+        origin_kind: "manual",
+        scope_type: sourceEntry.scope_type,
+        scope_id: sourceEntry.scope_id,
+        scope_ref: sourceEntry.scope_ref,
+        scope_label: sourceEntry.scope_label,
+        source_file_name: sourceEntry.source_file_name,
+        sync_key: null,
+        is_active: true,
+        metadata: continuationMetadata,
+        created_by: context.userId,
+        updated_by: context.userId,
+      } as never)
+      .select(ENTRY_SELECT as never)
+      .single();
+
+    if (hypothesisInsertError) {
+      throw mapSupabaseError(
+        hypothesisInsertError,
+        "Impossible de creer l'hypothese de continuation."
+      );
+    }
+
+    const normalizedHypothesisEntry = normalizeAffaireRegisterEntryRow(hypothesisData);
+    if (!normalizedHypothesisEntry) {
+      throw badRequest("Reponse invalide lors de la creation de l'hypothese.");
+    }
+    hypothesisEntry = normalizedHypothesisEntry;
+
+    await insertAffaireRegisterEvent({
+      supabase: context.supabase,
+      entryId: hypothesisEntry.id,
+      actorUserId: context.userId,
+      eventType: "created",
+      reason: "manual.continue_with_hypothesis",
+      afterPayload: {
+        kind: hypothesisEntry.kind,
+        severity: hypothesisEntry.severity,
+        status: hypothesisEntry.status,
+        sourceEntryId: sourceEntry.id,
+      } satisfies Json,
+    });
+  }
+
+  const decision = {
+    status: "accepted_with_hypothesis",
+    hypothesisEntryId: hypothesisEntry.id,
+    hypothesisText: hypothesisEntry.text,
+    acceptedAt: new Date().toISOString(),
+    acceptedByUserId: context.userId,
+    comment,
+  } satisfies AffaireRegisterContinuationDecision;
+
+  const { data: updatedData, error: updateError } = await context.supabase
+    .from("affaire_register_entries" as never)
+    .update({
+      metadata: {
+        ...sourceEntry.metadata,
+        continuationDecision: decision,
+      },
+      updated_by: context.userId,
+    } as never)
+    .eq("id", sourceEntry.id as never)
+    .select(ENTRY_SELECT as never)
+    .single();
+
+  if (updateError) {
+    throw mapSupabaseError(
+      updateError,
+      "Impossible de tracer la continuation sous hypothese."
+    );
+  }
+
+  const updatedEntry = normalizeAffaireRegisterEntryRow(updatedData);
+  if (!updatedEntry) {
+    throw badRequest("Reponse invalide lors de la mise a jour du registre.");
+  }
+
+  await insertAffaireRegisterEvent({
+    supabase: context.supabase,
+    entryId: sourceEntry.id,
+    actorUserId: context.userId,
+    eventType: "continued_with_hypothesis",
+    reason: comment,
+    beforePayload: {
+      status: sourceEntry.status,
+      continuationDecision: null,
+    } satisfies Json,
+    afterPayload: {
+      status: updatedEntry.status,
+      continuationDecision: decision,
+      comment,
+    } satisfies Json,
+  });
+
+  return {
+    ok: true,
+    entry: toAffaireRegisterEntry(updatedEntry),
+    hypothesisEntry: toAffaireRegisterEntry(hypothesisEntry),
   } as const;
 }
 

@@ -24,6 +24,7 @@ export const affaireRegisterEventTypeSchema = z.enum([
   "created",
   "synced",
   "status_changed",
+  "continued_with_hypothesis",
   "deactivated",
   "reactivated",
 ]);
@@ -95,6 +96,7 @@ export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
   created: "Entree creee",
   synced: "Resynchronisee",
   status_changed: "Statut modifie",
+  continued_with_hypothesis: "Continuation acceptee sous hypothese",
   deactivated: "Entree archivee",
   reactivated: "Entree reactivee",
 };
@@ -146,6 +148,7 @@ export type AffaireRegisterEntry = {
   updatedByName: string | null;
   createdAt: string;
   updatedAt: string;
+  continuationDecision?: AffaireRegisterContinuationDecision | null;
   history: AffaireRegisterTimelineEvent[];
 };
 
@@ -195,7 +198,24 @@ export type AffaireRegisterSummary = {
   clarifyWithClientCount: number;
   openAssumptionCount: number;
   openMissingPieceCount: number;
+  continuedWithHypothesisCount?: number;
+  continuedCriticalMissingPieceCount?: number;
 };
+
+export const affaireRegisterContinuationDecisionSchema = z
+  .object({
+    status: z.literal("accepted_with_hypothesis"),
+    hypothesisEntryId: z.string().uuid().nullable(),
+    hypothesisText: z.string().trim().min(1).max(320).nullable(),
+    acceptedAt: z.string().datetime({ offset: true }),
+    acceptedByUserId: z.string().uuid().nullable(),
+    comment: z.string().trim().min(1).max(320).nullable().optional(),
+  })
+  .strict();
+
+export type AffaireRegisterContinuationDecision = z.infer<
+  typeof affaireRegisterContinuationDecisionSchema
+>;
 
 function encodeBase64(binary: string) {
   return btoa(binary);
@@ -252,6 +272,45 @@ export function parseAffaireRegisterKindSearchParam(
   const normalized = Array.isArray(value) ? value[0] : value;
   const parsed = affaireRegisterEntryKindSchema.safeParse(normalized?.trim());
   return parsed.success ? parsed.data : null;
+}
+
+export function extractAffaireRegisterContinuationDecision(
+  metadata: unknown
+): AffaireRegisterContinuationDecision | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("continuationDecision" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = affaireRegisterContinuationDecisionSchema.safeParse(
+    (metadata as Record<string, unknown>).continuationDecision
+  );
+  return parsed.success ? parsed.data : null;
+}
+
+export function canAffaireRegisterEntryContinueWithHypothesis(
+  entry: Pick<AffaireRegisterEntry, "kind" | "status" | "continuationDecision">
+) {
+  return (
+    entry.kind === "missing_piece" &&
+    entry.status === "open" &&
+    !entry.continuationDecision
+  );
+}
+
+export function buildAffaireRegisterContinuationHypothesisText(input: {
+  entryText: string;
+}) {
+  const normalized = normalizeAffaireRegisterText(input.entryText, 320).toLowerCase();
+  if (!normalized) {
+    return "Continuation acceptee sous hypothese documentaire a confirmer avant remise.";
+  }
+
+  return `Continuation acceptee sans ${normalized}. Hypothese documentaire a confirmer avant remise.`;
 }
 
 export function parseAffaireRegisterCursorSearchParam(

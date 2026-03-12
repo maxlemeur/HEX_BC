@@ -11,6 +11,7 @@ import {
   normalizeAffaireRegisterText,
 } from "@/lib/affaires/register";
 import {
+  continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
   updateAffaireRegisterEntryStatus,
 } from "@/lib/affaires/register-server";
@@ -37,12 +38,23 @@ const updateAffaireRegisterEntryStatusActionInputSchema = z.object({
   comment: z.string().trim().max(320).nullable().optional(),
 });
 
+const continueAffaireRegisterWithHypothesisActionInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  versionId: z.string().uuid("versionId invalide.").nullable().optional(),
+  entryId: z.string().uuid("entryId invalide."),
+  comment: z.string().trim().max(320).nullable().optional(),
+});
+
 export type CreateAffaireRegisterEntryActionInput = z.infer<
   typeof createAffaireRegisterEntryActionInputSchema
 >;
 
 export type UpdateAffaireRegisterEntryStatusActionInput = z.infer<
   typeof updateAffaireRegisterEntryStatusActionInputSchema
+>;
+
+export type ContinueAffaireRegisterWithHypothesisActionInput = z.infer<
+  typeof continueAffaireRegisterWithHypothesisActionInputSchema
 >;
 
 function revalidateAffaireRegisterPaths(projectId: string, versionId?: string | null) {
@@ -84,6 +96,24 @@ export async function updateAffaireRegisterEntryStatusAction(
     projectId: parsed.projectId,
     entryId: parsed.entryId,
     status: parsed.status,
+    comment: parsed.comment ?? null,
+  });
+
+  revalidateAffaireRegisterPaths(parsed.projectId, parsed.versionId ?? result.entry.versionId);
+
+  return result;
+}
+
+export async function continueAffaireRegisterWithHypothesisAction(
+  input: ContinueAffaireRegisterWithHypothesisActionInput
+) {
+  const parsed = continueAffaireRegisterWithHypothesisActionInputSchema.parse({
+    ...input,
+    comment: input.comment ? normalizeAffaireRegisterText(input.comment, 320) : null,
+  });
+  const result = await continueAffaireRegisterWithHypothesis({
+    projectId: parsed.projectId,
+    entryId: parsed.entryId,
     comment: parsed.comment ?? null,
   });
 
