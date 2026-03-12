@@ -541,6 +541,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.getByText("Chiffrage CFO/CFA d'un batiment tertiaire.")).toBeInTheDocument();
     expect(screen.getByText("Lots: Electricite, SSI")).toBeInTheDocument();
     expect(screen.getByText("Point de vigilance: Verifier la variante SSI en option.")).toBeInTheDocument();
+    expect(screen.getByText("Dossier de consultation")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirmer le brief affaire" }));
     expect(onExecuteSuggestion).toHaveBeenCalledWith(confirmBrief);
@@ -718,16 +719,111 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     expect(screen.getAllByText("Generer la structure du devis").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Structure a generer").length).toBeGreaterThan(0);
-    expect(screen.getByText("Brief confirme")).toBeInTheDocument();
+    expect(screen.queryByText("Brief confirme")).not.toBeInTheDocument();
     expect(
       screen.getAllByText("Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.").length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText("Aide disponible")).not.toBeInTheDocument();
     expect(screen.queryByText("Outils utiles si besoin")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Ouvrir V0 IA" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Dossier de consultation")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Generer la structure du devis" }));
     expect(onExecuteSuggestion).toHaveBeenCalledWith(generateStructure);
+  });
+
+  it("keeps the lower panel only when the hero compresses additional validated context", () => {
+    const generateStructure = buildSuggestion({
+      actionId: "generate-structure-overflow",
+      label: "Generer la structure du devis",
+      intent: "generate_structure",
+      preview: "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-plans-ready/edit?openVersionZero=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-plans-ready"
+        currentVersion={{
+          id: "version-plans-ready",
+          projectId: "project-plans-ready",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-plans-ready",
+          projectId: "project-plans-ready",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-1",
+          isVersionEmpty: true,
+          canGenerate: true,
+          availableLots: [],
+          activeDraft: null,
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-cctp",
+              fileName: "cctp.docx",
+              detectedCategory: "cctp",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[generateStructure]}
+      />,
+    );
+
+    expect(screen.getByText("Autres valides (1)")).toBeInTheDocument();
+    expect(screen.getByText("Dossier de consultation")).toBeInTheDocument();
   });
 
   it("surfaces the intake evidence when a document must be reviewed and allows quick reclassification", async () => {

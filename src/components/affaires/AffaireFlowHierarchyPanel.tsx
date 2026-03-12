@@ -1277,6 +1277,14 @@ function ResultCard({
     classifiedCount > visibleValidatedCount;
   const showReviewLowerPanel =
     card.kind === "review" && (reviewAdditionalCount > 0 || showReviewContextSection);
+  const showContextLowerPanel =
+    card.kind !== "review" &&
+    card.kind !== "missing" &&
+    card.kind !== "primary" &&
+    (evidence.length > 0 ||
+      classifiedCount > visibleValidatedCount ||
+      reviewCount > 0 ||
+      processingCount > 0);
   const showLowerPanel =
     card.kind === "missing"
       ? showMissingLowerPanel
@@ -1284,7 +1292,7 @@ function ResultCard({
         ? showPrimaryLowerPanel
         : card.kind === "review"
           ? showReviewLowerPanel
-          : true;
+          : showContextLowerPanel;
 
   const stateToneClassName =
     card.kind === "review"
