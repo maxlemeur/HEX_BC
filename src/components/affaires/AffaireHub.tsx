@@ -1751,20 +1751,20 @@ export function AffaireHub({
               {/* Intake workspace: document upload, classification triage */}
               {intakeWorkspace !== undefined && (
                 <div id="intake" className="scroll-mt-24">
-                <IntakeWorkspace
-                  projectId={summary.project.id}
-                  workspace={intakeWorkspace}
-                  entryMode={isFreshStartState}
-                  hideAddFilesAction={intakeWorkspacePresentation.hideAddFilesAction}
-                  hideMissingPiecesAction={intakeWorkspacePresentation.hideMissingPiecesAction}
-                  onBridgeDpgfImport={
-                    !intakeWorkspacePresentation.showBridgeDpgfImport
-                      ? undefined
-                      : () => {
-                          setImportResult(null);
-                          setShowImportFlow(true);
-                        }
-                  }
+                  <IntakeWorkspace
+                    projectId={summary.project.id}
+                    workspace={intakeWorkspace}
+                    entryMode={isFreshStartState}
+                    hideAddFilesAction={intakeWorkspacePresentation.hideAddFilesAction}
+                    hideMissingPiecesAction={intakeWorkspacePresentation.hideMissingPiecesAction}
+                    onBridgeDpgfImport={
+                      !intakeWorkspacePresentation.showBridgeDpgfImport
+                        ? undefined
+                        : () => {
+                            setImportResult(null);
+                            setShowImportFlow(true);
+                          }
+                    }
                     dpgfAlreadyImported={dpgfSource !== null}
                     plansSynced={(plansSummary?.planSetCount ?? 0) > 0}
                   />
