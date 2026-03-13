@@ -337,9 +337,37 @@ describe("AffaireRegisterCard", () => {
 
     expect(screen.getByText("Points ouverts")).toBeInTheDocument();
     expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
+    expect(screen.getByText("Hypotheses ouvertes")).toBeInTheDocument();
     expect(screen.getByText("Historique récent du registre")).toBeInTheDocument();
     expect(screen.getByText("Statut modifie")).toBeInTheDocument();
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
+  });
+
+  it("filters directly to missing-piece traces from the summary cards", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage()}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openAssumptionCount: 1,
+          openMissingPieceCount: 2,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Pieces manquantes suivies/i }));
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/dashboard/affaires/project-1?registerStatus=open&registerKind=missing_piece",
+        { scroll: false }
+      );
+    });
   });
 
   it("surfaces visible submission blockers and lets the user jump to critical items", async () => {
