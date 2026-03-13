@@ -26,6 +26,7 @@ export const affaireRegisterEventTypeSchema = z.enum([
   "status_changed",
   "clarify_with_client_requested",
   "continued_with_hypothesis",
+  "revalidation_requested",
   "deactivated",
   "reactivated",
 ]);
@@ -34,6 +35,19 @@ export const affaireRegisterScopeTypeSchema = z.enum([
   "lot",
   "line",
   "exception",
+]);
+export const affaireRegisterRevalidationCauseSchema = z.enum([
+  "addendum_received",
+  "late_critical_piece",
+  "document_replaced",
+  "manual_reopen",
+]);
+export const affaireRegisterRevalidationImpactedStageSchema = z.enum([
+  "document_review",
+  "brief_review",
+  "plans_replay",
+  "exceptions_review",
+  "submission_readiness",
 ]);
 
 export type AffaireRegisterEntryKind = z.infer<
@@ -53,6 +67,12 @@ export type AffaireRegisterEventType = z.infer<
 >;
 export type AffaireRegisterScopeType = z.infer<
   typeof affaireRegisterScopeTypeSchema
+>;
+export type AffaireRegisterRevalidationCause = z.infer<
+  typeof affaireRegisterRevalidationCauseSchema
+>;
+export type AffaireRegisterRevalidationImpactedStage = z.infer<
+  typeof affaireRegisterRevalidationImpactedStageSchema
 >;
 
 export const AFFAIRE_REGISTER_KIND_LABELS: Record<
@@ -99,6 +119,7 @@ export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
   status_changed: "Statut modifie",
   clarify_with_client_requested: "Clarification client demandee",
   continued_with_hypothesis: "Continuation acceptee sous hypothese",
+  revalidation_requested: "Revalidation demandee",
   deactivated: "Entree archivee",
   reactivated: "Entree reactivee",
 };
@@ -111,6 +132,25 @@ export const AFFAIRE_REGISTER_SCOPE_LABELS: Record<
   lot: "Lot",
   line: "Ligne",
   exception: "Exception",
+};
+export const AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS: Record<
+  AffaireRegisterRevalidationCause,
+  string
+> = {
+  addendum_received: "Additif recu",
+  late_critical_piece: "Piece critique recue tardivement",
+  document_replaced: "Document remplace",
+  manual_reopen: "Reouverture manuelle",
+};
+export const AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS: Record<
+  AffaireRegisterRevalidationImpactedStage,
+  string
+> = {
+  document_review: "Revue documentaire",
+  brief_review: "Revue du brief",
+  plans_replay: "Relance plans",
+  exceptions_review: "Revue des exceptions",
+  submission_readiness: "Readiness pre-remise",
 };
 
 export const AFFAIRE_REGISTER_STATUS_QUERY_PARAM = "registerStatus";
@@ -152,6 +192,7 @@ export type AffaireRegisterEntry = {
   updatedAt: string;
   clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
+  revalidationRequest?: AffaireRegisterRevalidationRequest | null;
   history: AffaireRegisterTimelineEvent[];
 };
 
@@ -204,6 +245,12 @@ export type AffaireRegisterSummary = {
   openMissingPieceCount: number;
   continuedWithHypothesisCount?: number;
   continuedCriticalMissingPieceCount?: number;
+  revalidationRequired?: boolean;
+  revalidationRequiredCount?: number;
+  criticalRevalidationRequiredCount?: number;
+  revalidationBlocksSubmission?: boolean;
+  revalidationBlocksEstimation?: boolean;
+  revalidationImpactedStages?: AffaireRegisterRevalidationImpactedStage[];
 };
 
 export const affaireRegisterClientClarificationRequestSchema = z
@@ -233,6 +280,27 @@ export const affaireRegisterContinuationDecisionSchema = z
 
 export type AffaireRegisterContinuationDecision = z.infer<
   typeof affaireRegisterContinuationDecisionSchema
+>;
+
+export const affaireRegisterRevalidationRequestSchema = z
+  .object({
+    status: z.literal("required"),
+    requestedAt: z.string().datetime({ offset: true }),
+    requestedByUserId: z.string().uuid().nullable(),
+    previousStatus: affaireRegisterEntryStatusSchema,
+    cause: affaireRegisterRevalidationCauseSchema,
+    triggerDocumentId: z.string().uuid().nullable().optional(),
+    triggerFileName: z.string().trim().min(1).max(255).nullable().optional(),
+    impactedStages: z
+      .array(affaireRegisterRevalidationImpactedStageSchema)
+      .min(1)
+      .max(5),
+    comment: z.string().trim().min(1).max(320).nullable().optional(),
+  })
+  .strict();
+
+export type AffaireRegisterRevalidationRequest = z.infer<
+  typeof affaireRegisterRevalidationRequestSchema
 >;
 
 function encodeBase64(binary: string) {
@@ -328,6 +396,24 @@ export function extractAffaireRegisterClientClarificationRequest(
   return parsed.success ? parsed.data : null;
 }
 
+export function extractAffaireRegisterRevalidationRequest(
+  metadata: unknown
+): AffaireRegisterRevalidationRequest | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("revalidationRequest" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = affaireRegisterRevalidationRequestSchema.safeParse(
+    (metadata as Record<string, unknown>).revalidationRequest
+  );
+  return parsed.success ? parsed.data : null;
+}
+
 export function canAffaireRegisterEntryContinueWithHypothesis(
   entry: Pick<AffaireRegisterEntry, "kind" | "status" | "continuationDecision">
 ) {
@@ -344,6 +430,15 @@ export function canAffaireRegisterEntryClarifyWithClient(
   return (
     entry.status === "open" &&
     !entry.clientClarificationRequest
+  );
+}
+
+export function canAffaireRegisterEntryRequestRevalidation(
+  entry: Pick<AffaireRegisterEntry, "status" | "revalidationRequest">
+) {
+  return (
+    entry.status !== "open" ||
+    entry.revalidationRequest?.status !== "required"
   );
 }
 

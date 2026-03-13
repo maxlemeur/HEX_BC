@@ -1,6 +1,10 @@
 import type { AffaireHubPlansSummaryData } from "@/components/affaires/PlansMetresCard";
 import { isAffaireIntakeDocumentNeedingReview } from "@/lib/affaires/intake";
-import { buildAffaireRegisterHubHref, type AffaireRegisterSummary } from "@/lib/affaires/register";
+import {
+  AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
+  buildAffaireRegisterHubHref,
+  type AffaireRegisterSummary,
+} from "@/lib/affaires/register";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
@@ -141,6 +145,20 @@ function createSuggestion(
     isPinned: false,
     isHidden: false,
   };
+}
+
+function describeRevalidationImpactedStages(
+  registerSummary: ComputeCockpitSuggestionsInput["registerSummary"],
+) {
+  const stages = registerSummary?.revalidationImpactedStages ?? [];
+  if (stages.length === 0) {
+    return null;
+  }
+
+  return stages
+    .slice(0, 2)
+    .map((stage) => AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS[stage])
+    .join(" + ");
 }
 
 export function sortCockpitSuggestions(suggestions: CockpitSuggestion[]) {
@@ -335,6 +353,40 @@ export function computeCockpitSuggestions(
         requiresConfirmation: false,
         confirmTone: "info",
         priority: 450,
+      }),
+    );
+  }
+
+  if (
+    registerSummary &&
+    registerSummary.revalidationRequired &&
+    (registerSummary.revalidationRequiredCount ?? 0) > 0 &&
+    !isReadOnlyReview
+  ) {
+    const count = registerSummary.revalidationRequiredCount ?? 0;
+    const isCritical = (registerSummary.criticalRevalidationRequiredCount ?? 0) > 0;
+    const impactedStages = describeRevalidationImpactedStages(registerSummary);
+    suggestions.push(
+      createSuggestion({
+        actionId: "review-revalidation",
+        label: isCritical
+          ? `Relancer ${count} revalidation${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""}`
+          : `Relancer ${count} revalidation${count > 1 ? "s" : ""} ciblee${count > 1 ? "s" : ""}`,
+        intent: "list_hypotheses",
+        preview: impactedStages
+          ? `Un additif ou une piece critique recue tardivement impose une revue ciblee: ${impactedStages}.`
+          : "Un additif ou une piece critique recue tardivement impose une revue ciblee avant remise.",
+        target: {
+          kind: "navigate",
+          href: `${buildAffaireRegisterHubHref({
+            projectId,
+            status: "open",
+            severity: isCritical ? "critical" : null,
+          })}#register`,
+        },
+        requiresConfirmation: false,
+        confirmTone: "warning",
+        priority: isCritical ? 735 : 625,
       }),
     );
   }

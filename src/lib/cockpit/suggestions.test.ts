@@ -44,6 +44,12 @@ function makeRegisterSummary(
     clarifyWithClientCount: 0,
     openAssumptionCount: 2,
     openMissingPieceCount: 2,
+    revalidationRequired: false,
+    revalidationRequiredCount: 0,
+    criticalRevalidationRequiredCount: 0,
+    revalidationBlocksSubmission: false,
+    revalidationBlocksEstimation: false,
+    revalidationImpactedStages: [],
     ...overrides,
   };
 }
@@ -434,6 +440,34 @@ describe("computeCockpitSuggestions", () => {
         target: {
           kind: "navigate",
           href: "/dashboard/affaires/proj-42?registerStatus=clarify_with_client#register",
+        },
+      }),
+    );
+  });
+
+  it("surfaces targeted revalidation when late documents invalidate prior review", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+        registerSummary: makeRegisterSummary({
+          revalidationRequired: true,
+          revalidationRequiredCount: 2,
+          criticalRevalidationRequiredCount: 1,
+          revalidationBlocksSubmission: true,
+          revalidationImpactedStages: ["document_review", "submission_readiness"],
+        }),
+      }),
+    );
+
+    expect(result.find((s) => s.actionId === "review-revalidation")).toEqual(
+      expect.objectContaining({
+        intent: "list_hypotheses",
+        label: "Relancer 2 revalidations critiques",
+        preview:
+          "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pre-remise.",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/affaires/proj-42?registerStatus=open&registerSeverity=critical#register",
         },
       }),
     );

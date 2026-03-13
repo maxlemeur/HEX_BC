@@ -7,6 +7,7 @@ vi.mock("next/cache", () => ({
 vi.mock("@/lib/affaires/register-server", () => ({
   continueAffaireRegisterWithHypothesis: vi.fn(),
   createAffaireRegisterEntry: vi.fn(),
+  requestAffaireRegisterRevalidation: vi.fn(),
   updateAffaireRegisterEntryStatus: vi.fn(),
 }));
 
@@ -15,11 +16,13 @@ import { revalidatePath } from "next/cache";
 import {
   continueAffaireRegisterWithHypothesisAction,
   createAffaireRegisterEntryAction,
+  requestAffaireRegisterRevalidationAction,
   updateAffaireRegisterEntryStatusAction,
 } from "@/app/dashboard/affaires/_actions/register";
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
+  requestAffaireRegisterRevalidation,
   updateAffaireRegisterEntryStatus,
 } from "@/lib/affaires/register-server";
 
@@ -196,6 +199,75 @@ describe("affaire register server actions", () => {
       projectId: PROJECT_ID,
       entryId: ENTRY_ID,
       comment: "Budget exploratoire maintenu.",
+    });
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/affaires/${PROJECT_ID}`
+    );
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/estimates/${VERSION_ID}`
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("requests revalidation and revalidates affaire and estimate paths", async () => {
+    vi.mocked(requestAffaireRegisterRevalidation).mockResolvedValue({
+      ok: true,
+      entry: {
+        id: ENTRY_ID,
+        kind: "missing_piece",
+        code: "missing_dpgf",
+        text: "DPGF manquant",
+        severity: "critical",
+        status: "open",
+        originKind: "system",
+        scopeType: "project",
+        scopeId: null,
+        scopeRef: null,
+        scopeLabel: "Affaire test",
+        versionId: VERSION_ID,
+        sourceDocumentId: null,
+        sourceFileName: "additif-lot-c.pdf",
+        createdBy: null,
+        createdByName: null,
+        updatedBy: null,
+        updatedByName: null,
+        createdAt: "2026-03-06T10:00:00.000Z",
+        updatedAt: "2026-03-06T10:05:00.000Z",
+        revalidationRequest: {
+          status: "required",
+          requestedAt: "2026-03-06T10:05:00.000Z",
+          requestedByUserId: PROJECT_ID,
+          previousStatus: "validated",
+          cause: "addendum_received",
+          triggerDocumentId: "44444444-4444-4444-8444-444444444444",
+          triggerFileName: "additif-lot-c.pdf",
+          impactedStages: ["document_review", "submission_readiness"],
+          comment: "Verifier le lot C apres additif.",
+        },
+        history: [],
+      },
+    });
+
+    const result = await requestAffaireRegisterRevalidationAction({
+      projectId: PROJECT_ID,
+      versionId: VERSION_ID,
+      entryId: ENTRY_ID,
+      cause: "addendum_received",
+      impactedStages: ["document_review", "submission_readiness"],
+      triggerDocumentId: "44444444-4444-4444-8444-444444444444",
+      triggerFileName: " additif-lot-c.pdf ",
+      comment: " Verifier le lot C apres additif. ",
+    });
+
+    expect(vi.mocked(requestAffaireRegisterRevalidation)).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      entryId: ENTRY_ID,
+      cause: "addendum_received",
+      impactedStages: ["document_review", "submission_readiness"],
+      triggerDocumentId: "44444444-4444-4444-8444-444444444444",
+      triggerFileName: "additif-lot-c.pdf",
+      comment: "Verifier le lot C apres additif.",
     });
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(

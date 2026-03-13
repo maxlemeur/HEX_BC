@@ -7,12 +7,15 @@ import {
   affaireRegisterEntryKindSchema,
   affaireRegisterEntrySeveritySchema,
   affaireRegisterEntryStatusSchema,
+  affaireRegisterRevalidationCauseSchema,
+  affaireRegisterRevalidationImpactedStageSchema,
   affaireRegisterScopeTypeSchema,
   normalizeAffaireRegisterText,
 } from "@/lib/affaires/register";
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
+  requestAffaireRegisterRevalidation,
   updateAffaireRegisterEntryStatus,
 } from "@/lib/affaires/register-server";
 
@@ -38,6 +41,20 @@ const updateAffaireRegisterEntryStatusActionInputSchema = z.object({
   comment: z.string().trim().max(320).nullable().optional(),
 });
 
+const requestAffaireRegisterRevalidationActionInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  versionId: z.string().uuid("versionId invalide.").nullable().optional(),
+  entryId: z.string().uuid("entryId invalide."),
+  cause: affaireRegisterRevalidationCauseSchema,
+  impactedStages: z
+    .array(affaireRegisterRevalidationImpactedStageSchema)
+    .min(1)
+    .max(5),
+  triggerDocumentId: z.string().uuid("triggerDocumentId invalide.").nullable().optional(),
+  triggerFileName: z.string().trim().max(255).nullable().optional(),
+  comment: z.string().trim().max(320).nullable().optional(),
+});
+
 const continueAffaireRegisterWithHypothesisActionInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   versionId: z.string().uuid("versionId invalide.").nullable().optional(),
@@ -51,6 +68,10 @@ export type CreateAffaireRegisterEntryActionInput = z.infer<
 
 export type UpdateAffaireRegisterEntryStatusActionInput = z.infer<
   typeof updateAffaireRegisterEntryStatusActionInputSchema
+>;
+
+export type RequestAffaireRegisterRevalidationActionInput = z.infer<
+  typeof requestAffaireRegisterRevalidationActionInputSchema
 >;
 
 export type ContinueAffaireRegisterWithHypothesisActionInput = z.infer<
@@ -96,6 +117,31 @@ export async function updateAffaireRegisterEntryStatusAction(
     projectId: parsed.projectId,
     entryId: parsed.entryId,
     status: parsed.status,
+    comment: parsed.comment ?? null,
+  });
+
+  revalidateAffaireRegisterPaths(parsed.projectId, parsed.versionId ?? result.entry.versionId);
+
+  return result;
+}
+
+export async function requestAffaireRegisterRevalidationAction(
+  input: RequestAffaireRegisterRevalidationActionInput
+) {
+  const parsed = requestAffaireRegisterRevalidationActionInputSchema.parse({
+    ...input,
+    triggerFileName: input.triggerFileName
+      ? normalizeAffaireRegisterText(input.triggerFileName, 255)
+      : null,
+    comment: input.comment ? normalizeAffaireRegisterText(input.comment, 320) : null,
+  });
+  const result = await requestAffaireRegisterRevalidation({
+    projectId: parsed.projectId,
+    entryId: parsed.entryId,
+    cause: parsed.cause,
+    impactedStages: parsed.impactedStages,
+    triggerDocumentId: parsed.triggerDocumentId ?? null,
+    triggerFileName: parsed.triggerFileName ?? null,
     comment: parsed.comment ?? null,
   });
 

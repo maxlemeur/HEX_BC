@@ -19,10 +19,13 @@ import {
   extractAffaireRegisterClientClarificationRequest,
   affaireRegisterEntryKindSchema,
   affaireRegisterEntryOriginKindSchema,
+  affaireRegisterRevalidationCauseSchema,
+  affaireRegisterRevalidationImpactedStageSchema,
   affaireRegisterEntrySeveritySchema,
   affaireRegisterEntryStatusSchema,
   affaireRegisterScopeTypeSchema,
   extractAffaireRegisterContinuationDecision,
+  extractAffaireRegisterRevalidationRequest,
   encodeAffaireRegisterCursor,
   normalizeAffaireRegisterText,
   type AffaireRegisterEntry,
@@ -34,6 +37,7 @@ import {
   type AffaireRegisterEntrySeverity,
   type AffaireRegisterEntryStatus,
   type AffaireRegisterPageResult,
+  type AffaireRegisterRevalidationRequest,
   type AffaireRegisterScopeOption,
   type AffaireRegisterScopeOptions,
   type AffaireRegisterScopeType,
@@ -128,6 +132,7 @@ type AffaireRegisterGateEntry = {
   scopeLabel: string;
   clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
+  revalidationRequest?: AffaireRegisterRevalidationRequest | null;
 };
 
 export type AffaireRegisterGateSummary = {
@@ -140,6 +145,11 @@ export type AffaireRegisterGateSummary = {
   openMissingPieceEntries: AffaireRegisterGateEntry[];
   continuedWithHypothesisEntries?: AffaireRegisterGateEntry[];
   continuedCriticalMissingPieceEntries?: AffaireRegisterGateEntry[];
+  revalidationRequiredEntries?: AffaireRegisterGateEntry[];
+  criticalRevalidationRequiredEntries?: AffaireRegisterGateEntry[];
+  revalidationImpactedStages?: Array<
+    z.infer<typeof affaireRegisterRevalidationImpactedStageSchema>
+  >;
 };
 
 type ListAffaireRegisterPageInput = {
@@ -198,7 +208,7 @@ const EVENT_SELECT = [
   "entry:affaire_register_entries!inner(project_id, version_id, kind, text, scope_label)",
 ].join(", ");
 const GATE_ENTRY_SELECT =
-  "id, kind, text, severity, status, scope_label, version_id, is_active";
+  "id, kind, text, severity, status, scope_label, version_id, is_active, metadata";
 const PAGE_SIZE_DEFAULT = 8;
 const PAGE_SIZE_MAX = 25;
 
@@ -255,6 +265,19 @@ const updateAffaireRegisterEntryStatusInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   entryId: z.string().uuid("entryId invalide."),
   status: affaireRegisterEntryStatusSchema,
+  comment: z.string().trim().max(320).nullable().optional(),
+});
+
+const requestAffaireRegisterRevalidationInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  entryId: z.string().uuid("entryId invalide."),
+  cause: affaireRegisterRevalidationCauseSchema,
+  impactedStages: z
+    .array(affaireRegisterRevalidationImpactedStageSchema)
+    .min(1, "Au moins une etape impactee est requise.")
+    .max(5),
+  triggerDocumentId: z.string().uuid("triggerDocumentId invalide.").nullable().optional(),
+  triggerFileName: z.string().trim().max(255).nullable().optional(),
   comment: z.string().trim().max(320).nullable().optional(),
 });
 
@@ -404,6 +427,7 @@ function toAffaireRegisterEntry(
       row.metadata
     ),
     continuationDecision: extractAffaireRegisterContinuationDecision(row.metadata),
+    revalidationRequest: extractAffaireRegisterRevalidationRequest(row.metadata),
     history: [],
   };
 }
@@ -428,6 +452,12 @@ function readContinuationSourceEntryId(metadata: Record<string, unknown>) {
   }
 
   return (source as Record<string, unknown>).entryId;
+}
+
+function dedupeRevalidationImpactedStages(
+  stages: Array<z.infer<typeof affaireRegisterRevalidationImpactedStageSchema>>
+) {
+  return Array.from(new Set(stages));
 }
 
 function extractRegisterEventStatus(
@@ -681,6 +711,7 @@ async function insertAffaireRegisterEvent(input: {
     | "status_changed"
     | "clarify_with_client_requested"
     | "continued_with_hypothesis"
+    | "revalidation_requested"
     | "deactivated"
     | "reactivated";
   reason?: string | null;
@@ -1087,6 +1118,9 @@ export async function fetchAffaireRegisterGateSummary(input: {
       continuationDecision: isRecord(row.metadata)
         ? extractAffaireRegisterContinuationDecision(row.metadata)
         : null,
+      revalidationRequest: isRecord(row.metadata)
+        ? extractAffaireRegisterRevalidationRequest(row.metadata)
+        : null,
     }))
     .filter((row) => row.id.length > 0 && row.text.length > 0);
 
@@ -1114,6 +1148,21 @@ export async function fetchAffaireRegisterGateSummary(input: {
   const continuedCriticalMissingPieceEntries = continuedWithHypothesisEntries.filter(
     (entry) => entry.severity === "critical"
   );
+  const revalidationRequiredEntries = normalized.filter(
+    (entry) =>
+      entry.revalidationRequest?.status === "required" &&
+      (entry.status === "open" || entry.status === "clarify_with_client")
+  );
+  const criticalRevalidationRequiredEntries = revalidationRequiredEntries.filter(
+    (entry) => entry.severity === "critical"
+  );
+  const revalidationImpactedStages = Array.from(
+    new Set(
+      revalidationRequiredEntries.flatMap(
+        (entry) => entry.revalidationRequest?.impactedStages ?? []
+      )
+    )
+  );
 
   return {
     openQuestionsCount:
@@ -1128,6 +1177,9 @@ export async function fetchAffaireRegisterGateSummary(input: {
     openMissingPieceEntries,
     continuedWithHypothesisEntries,
     continuedCriticalMissingPieceEntries,
+    revalidationRequiredEntries,
+    criticalRevalidationRequiredEntries,
+    revalidationImpactedStages,
   } satisfies AffaireRegisterGateSummary;
 }
 
@@ -1158,6 +1210,16 @@ export async function fetchAffaireRegisterSummary(input: {
       gateSummary.continuedWithHypothesisEntries?.length ?? 0,
     continuedCriticalMissingPieceCount:
       gateSummary.continuedCriticalMissingPieceEntries?.length ?? 0,
+    revalidationRequired:
+      (gateSummary.revalidationRequiredEntries?.length ?? 0) > 0,
+    revalidationRequiredCount:
+      gateSummary.revalidationRequiredEntries?.length ?? 0,
+    criticalRevalidationRequiredCount:
+      gateSummary.criticalRevalidationRequiredEntries?.length ?? 0,
+    revalidationBlocksSubmission:
+      (gateSummary.revalidationRequiredEntries?.length ?? 0) > 0,
+    revalidationBlocksEstimation: false,
+    revalidationImpactedStages: gateSummary.revalidationImpactedStages ?? [],
   };
 }
 
@@ -1583,6 +1645,9 @@ export async function updateAffaireRegisterEntryStatus(
   } else if ("clientClarificationRequest" in nextMetadata) {
     delete nextMetadata.clientClarificationRequest;
   }
+  if (parsed.status !== "open" && "revalidationRequest" in nextMetadata) {
+    delete nextMetadata.revalidationRequest;
+  }
 
   const { data: updatedData, error: updateError } = await context.supabase
     .from("affaire_register_entries" as never)
@@ -1617,10 +1682,112 @@ export async function updateAffaireRegisterEntryStatus(
       status: entry.status,
       clientClarificationRequest:
         extractAffaireRegisterClientClarificationRequest(entry.metadata),
+      revalidationRequest: extractAffaireRegisterRevalidationRequest(entry.metadata),
     } satisfies Json,
     afterPayload: {
       status: updatedEntry.status,
       clientClarificationRequest: clarificationRequest,
+      revalidationRequest:
+        parsed.status === "open"
+          ? extractAffaireRegisterRevalidationRequest(updatedEntry.metadata)
+          : null,
+      comment,
+    } satisfies Json,
+  });
+
+  return {
+    ok: true,
+    entry: toAffaireRegisterEntry(updatedEntry),
+  } as const;
+}
+
+export async function requestAffaireRegisterRevalidation(
+  input: z.infer<typeof requestAffaireRegisterRevalidationInputSchema>
+) {
+  const parsed = requestAffaireRegisterRevalidationInputSchema.parse(input);
+  const { context, project } = await requireAffaireRegisterProjectAccess(
+    parsed.projectId,
+    "editor"
+  );
+  const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
+
+  const { data, error } = await context.supabase
+    .from("affaire_register_entries" as never)
+    .select(ENTRY_SELECT as never)
+    .eq("project_id", project.id as never)
+    .eq("id", parsed.entryId as never)
+    .eq("is_active", true as never)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger l'entree du registre.");
+  }
+
+  const entry = normalizeAffaireRegisterEntryRow(data);
+  if (!entry) {
+    throw notFound("Entree du registre introuvable.");
+  }
+
+  const impactedStages = dedupeRevalidationImpactedStages(parsed.impactedStages);
+  const revalidationRequest = {
+    status: "required",
+    requestedAt: new Date().toISOString(),
+    requestedByUserId: context.userId,
+    previousStatus: entry.status,
+    cause: parsed.cause,
+    triggerDocumentId: parsed.triggerDocumentId ?? null,
+    triggerFileName:
+      normalizeAffaireRegisterText(parsed.triggerFileName ?? "", 255) || null,
+    impactedStages,
+    comment,
+  } satisfies AffaireRegisterRevalidationRequest;
+  const nextMetadata = {
+    ...entry.metadata,
+    revalidationRequest,
+  };
+
+  if ("clientClarificationRequest" in nextMetadata) {
+    delete nextMetadata.clientClarificationRequest;
+  }
+
+  const { data: updatedData, error: updateError } = await context.supabase
+    .from("affaire_register_entries" as never)
+    .update({
+      status: "open",
+      metadata: nextMetadata,
+      updated_by: context.userId,
+    } as never)
+    .eq("id", entry.id as never)
+    .select(ENTRY_SELECT as never)
+    .single();
+
+  if (updateError) {
+    throw mapSupabaseError(
+      updateError,
+      "Impossible de demander la revalidation du registre."
+    );
+  }
+
+  const updatedEntry = normalizeAffaireRegisterEntryRow(updatedData);
+  if (!updatedEntry) {
+    throw badRequest("Reponse invalide lors de la revalidation du registre.");
+  }
+
+  await insertAffaireRegisterEvent({
+    supabase: context.supabase,
+    entryId: entry.id,
+    actorUserId: context.userId,
+    eventType: "revalidation_requested",
+    reason: comment,
+    beforePayload: {
+      status: entry.status,
+      clientClarificationRequest:
+        extractAffaireRegisterClientClarificationRequest(entry.metadata),
+      revalidationRequest: extractAffaireRegisterRevalidationRequest(entry.metadata),
+    } satisfies Json,
+    afterPayload: {
+      status: updatedEntry.status,
+      revalidationRequest,
       comment,
     } satisfies Json,
   });

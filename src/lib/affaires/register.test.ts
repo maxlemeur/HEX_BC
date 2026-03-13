@@ -4,8 +4,10 @@ import {
   canAffaireRegisterEntryClarifyWithClient,
   buildAffaireRegisterContinuationHypothesisText,
   canAffaireRegisterEntryContinueWithHypothesis,
+  canAffaireRegisterEntryRequestRevalidation,
   extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterContinuationDecision,
+  extractAffaireRegisterRevalidationRequest,
 } from "@/lib/affaires/register";
 
 describe("affaire register continuation contract", () => {
@@ -101,5 +103,54 @@ describe("affaire register continuation contract", () => {
       previousStatus: "open",
       comment: "Besoin d'une reponse client.",
     });
+  });
+
+  it("extracts revalidation requests from entry metadata", () => {
+    expect(
+      extractAffaireRegisterRevalidationRequest({
+        revalidationRequest: {
+          status: "required",
+          requestedAt: "2026-03-13T11:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "validated",
+          cause: "addendum_received",
+          triggerDocumentId: "33333333-3333-4333-8333-333333333333",
+          triggerFileName: "additif-lot-c.pdf",
+          impactedStages: ["document_review", "submission_readiness"],
+          comment: "Verifier le lot C apres additif.",
+        },
+      })
+    ).toMatchObject({
+      status: "required",
+      previousStatus: "validated",
+      cause: "addendum_received",
+      impactedStages: ["document_review", "submission_readiness"],
+    });
+  });
+
+  it("exposes whether an entry can still request revalidation", () => {
+    expect(
+      canAffaireRegisterEntryRequestRevalidation({
+        status: "validated",
+        revalidationRequest: null,
+      })
+    ).toBe(true);
+
+    expect(
+      canAffaireRegisterEntryRequestRevalidation({
+        status: "open",
+        revalidationRequest: {
+          status: "required",
+          requestedAt: "2026-03-13T11:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "validated",
+          cause: "addendum_received",
+          triggerDocumentId: null,
+          triggerFileName: null,
+          impactedStages: ["document_review"],
+          comment: null,
+        },
+      })
+    ).toBe(false);
   });
 });
