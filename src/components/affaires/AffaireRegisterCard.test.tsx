@@ -336,9 +336,102 @@ describe("AffaireRegisterCard", () => {
     );
 
     expect(screen.getByText("Points ouverts")).toBeInTheDocument();
+    expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
     expect(screen.getByText("Historique récent du registre")).toBeInTheDocument();
     expect(screen.getByText("Statut modifie")).toBeInTheDocument();
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
+  });
+
+  it("surfaces visible submission blockers and lets the user jump to critical items", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-critical",
+              text: "Le DPGF principal n'est pas arbitré.",
+              severity: "critical",
+              status: "open",
+              scopeType: "project",
+              scopeLabel: "Affaire test",
+              sourceFileName: "dpgf-a.xlsx",
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-client",
+              text: "Variante à confirmer avec le client.",
+              severity: "warning",
+              status: "clarify_with_client",
+              scopeType: "lot",
+              scopeLabel: "Lot CFO",
+              sourceFileName: "note-client.pdf",
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          criticalOpenCount: 1,
+          clarifyWithClientCount: 1,
+          openQuestionsCount: 1,
+          nonCriticalOpenCount: 0,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
+    expect(screen.getAllByText("Le DPGF principal n'est pas arbitré.").length).toBeGreaterThan(0);
+    expect(screen.getByText("Retour client requis avant envoi.")).toBeInTheDocument();
+    expect(screen.getByText("Point critique ouvert à arbitrer avant remise.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Voir les critiques" }));
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical",
+        { scroll: false }
+      );
+    });
+  });
+
+  it("keeps submission blockers visible even when the current slice does not contain them", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [],
+          filters: {
+            status: "validated",
+            severity: null,
+            kind: null,
+            cursor: null,
+            focusEntryId: null,
+          },
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          criticalOpenCount: 2,
+          clarifyWithClientCount: 1,
+          openQuestionsCount: 2,
+          nonCriticalOpenCount: 0,
+        })}
+        timelineEvents={[]}
+      />
+    );
+
+    expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Ces points bloquants ne sont pas visibles dans la vue courante. Utilisez les filtres pour les traiter en priorité."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Voir les clarifications client" })).toBeInTheDocument();
   });
 
   it("shows a clearer filtered empty state and pagination guidance", () => {

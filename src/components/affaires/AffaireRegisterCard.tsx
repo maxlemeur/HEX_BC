@@ -4,6 +4,7 @@ import { RegisterEntryForm } from "./register/RegisterEntryForm";
 import { RegisterEntryList } from "./register/RegisterEntryList";
 import { RegisterFiltersBar } from "./register/RegisterFiltersBar";
 import { RegisterPagination } from "./register/RegisterPagination";
+import { RegisterSubmissionBlockers } from "./register/RegisterSubmissionBlockers";
 import { RegisterSummaryCards } from "./register/RegisterSummaryCards";
 import { RegisterTimeline } from "./register/RegisterTimeline";
 import { RegisterTransitionDialog } from "./register/RegisterTransitionDialog";
@@ -81,6 +82,12 @@ export function AffaireRegisterCard({
 
       <RegisterSummaryCards
         itemCount={controller.items.length}
+        summary={controller.effectiveSummary}
+        onApplyFilters={controller.applyFilters}
+      />
+
+      <RegisterSubmissionBlockers
+        items={controller.items}
         summary={controller.effectiveSummary}
         onApplyFilters={controller.applyFilters}
       />
