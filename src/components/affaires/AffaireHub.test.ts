@@ -3,6 +3,7 @@ import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 
 import {
   filterAffaireHubCommandBarSuggestions,
+  getAffaireHubIntakeWorkspacePresentation,
   getAffaireHubDominantIntent,
   isAffaireFreshStartState,
   shouldShowAffaireCreatedOnboardingBanner,
@@ -247,5 +248,57 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
         (suggestion) => suggestion.intent,
       ),
     ).toEqual(["legacy_fallback"]);
+  });
+});
+
+describe("getAffaireHubIntakeWorkspacePresentation", () => {
+  it("still de-duplicates upload actions when missing pieces is dominant", () => {
+    expect(
+      getAffaireHubIntakeWorkspacePresentation({
+        dominantIntent: "add_missing_pieces",
+        isReadOnlyReview: false,
+      }),
+    ).toMatchObject({
+      hideAddFilesAction: true,
+      hideMissingPiecesAction: true,
+      showBridgeDpgfImport: true,
+    });
+  });
+
+  it("keeps the intake upload action visible while intake review is dominant", () => {
+    expect(
+      getAffaireHubIntakeWorkspacePresentation({
+        dominantIntent: "review_intake",
+        isReadOnlyReview: false,
+      }),
+    ).toMatchObject({
+      hideAddFilesAction: false,
+      hideMissingPiecesAction: false,
+      showBridgeDpgfImport: true,
+    });
+  });
+
+  it("keeps the DPGF import bridge available while structure generation is dominant", () => {
+    expect(
+      getAffaireHubIntakeWorkspacePresentation({
+        dominantIntent: "generate_structure",
+        isReadOnlyReview: false,
+      }),
+    ).toMatchObject({
+      hideAddFilesAction: false,
+      hideMissingPiecesAction: false,
+      showBridgeDpgfImport: true,
+    });
+  });
+
+  it("still hides write actions in read-only review mode", () => {
+    expect(
+      getAffaireHubIntakeWorkspacePresentation({
+        dominantIntent: "generate_structure",
+        isReadOnlyReview: true,
+      }),
+    ).toMatchObject({
+      showBridgeDpgfImport: false,
+    });
   });
 });

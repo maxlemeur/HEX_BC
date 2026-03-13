@@ -300,6 +300,17 @@ export function filterAffaireHubCommandBarSuggestions(
   });
 }
 
+export function getAffaireHubIntakeWorkspacePresentation(input: {
+  dominantIntent: CockpitIntent | null;
+  isReadOnlyReview?: boolean;
+}) {
+  return {
+    hideAddFilesAction: input.dominantIntent === "add_missing_pieces",
+    hideMissingPiecesAction: input.dominantIntent === "add_missing_pieces",
+    showBridgeDpgfImport: !input.isReadOnlyReview,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Section: Back to list                                              */
 /* ------------------------------------------------------------------ */
@@ -1185,6 +1196,14 @@ export function AffaireHub({
     () => filterAffaireHubCommandBarSuggestions(cockpitState, dominantFlowIntent),
     [cockpitState, dominantFlowIntent],
   );
+  const intakeWorkspacePresentation = useMemo(
+    () =>
+      getAffaireHubIntakeWorkspacePresentation({
+        dominantIntent: dominantFlowIntent,
+        isReadOnlyReview,
+      }),
+    [dominantFlowIntent, isReadOnlyReview],
+  );
   const hiddenPilotageExceptionIds = useMemo(() => {
     if (dominantFlowIntent === "review_intake") {
       return ["intake-review"];
@@ -1732,23 +1751,20 @@ export function AffaireHub({
               {/* Intake workspace: document upload, classification triage */}
               {intakeWorkspace !== undefined && (
                 <div id="intake" className="scroll-mt-24">
-                  <IntakeWorkspace
-                    projectId={summary.project.id}
-                    workspace={intakeWorkspace}
-                    entryMode={isFreshStartState}
-                    hideAddFilesAction={
-                      dominantFlowIntent === "review_intake" ||
-                      dominantFlowIntent === "add_missing_pieces"
-                    }
-                    hideMissingPiecesAction={dominantFlowIntent === "add_missing_pieces"}
-                    onBridgeDpgfImport={
-                      isReadOnlyReview || dominantFlowIntent === "generate_structure"
-                        ? undefined
-                        : () => {
-                            setImportResult(null);
-                            setShowImportFlow(true);
-                          }
-                    }
+                <IntakeWorkspace
+                  projectId={summary.project.id}
+                  workspace={intakeWorkspace}
+                  entryMode={isFreshStartState}
+                  hideAddFilesAction={intakeWorkspacePresentation.hideAddFilesAction}
+                  hideMissingPiecesAction={intakeWorkspacePresentation.hideMissingPiecesAction}
+                  onBridgeDpgfImport={
+                    !intakeWorkspacePresentation.showBridgeDpgfImport
+                      ? undefined
+                      : () => {
+                          setImportResult(null);
+                          setShowImportFlow(true);
+                        }
+                  }
                     dpgfAlreadyImported={dpgfSource !== null}
                     plansSynced={(plansSummary?.planSetCount ?? 0) > 0}
                   />

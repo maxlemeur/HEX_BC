@@ -84,7 +84,7 @@ const baseItem: AffaireListItem = {
 };
 
 describe("AffairesCardList", () => {
-  it("keeps the card body as a primary link to the current estimate", () => {
+  it("keeps the card body as a primary link to the affaire hub", () => {
     render(
       <AffairesCardList
         items={[baseItem]}
@@ -96,10 +96,10 @@ describe("AffairesCardList", () => {
 
     expect(
       screen.getByRole("link", { name: /affaire alpha/i })
-    ).toHaveAttribute("href", "/dashboard/estimates/version-1");
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1");
   });
 
-  it("routes draft cards to the estimate editor", () => {
+  it("keeps draft cards pointed at the affaire hub", () => {
     render(
       <AffairesCardList
         items={[
@@ -119,7 +119,7 @@ describe("AffairesCardList", () => {
 
     expect(
       screen.getByRole("link", { name: /affaire brouillon/i })
-    ).toHaveAttribute("href", "/dashboard/estimates/version-draft/edit");
+    ).toHaveAttribute("href", "/dashboard/affaires/project-2");
   });
 
   it("renders a favorite toggle with the proper label", () => {
@@ -154,6 +154,6 @@ describe("AffairesCardList", () => {
     expect(onToggleFavorite).toHaveBeenCalledWith("project-1", true);
     expect(
       screen.getByRole("link", { name: /affaire alpha/i })
-    ).toHaveAttribute("href", "/dashboard/estimates/version-1");
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1");
   });
 });

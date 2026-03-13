@@ -114,11 +114,7 @@ export function AffairesCardList({
           item.currentVersionNumber !== null &&
           item.currentStatus !== null;
 
-        const primaryHref = hasCurrentVersion
-          ? item.currentStatus === "draft"
-            ? `/dashboard/estimates/${item.currentVersionId}/edit`
-            : `/dashboard/estimates/${item.currentVersionId}`
-          : `/dashboard/affaires/${item.projectId}`;
+        const primaryHref = `/dashboard/affaires/${item.projectId}`;
 
         const canDelete =
           !hasCurrentVersion || item.currentStatus === "draft";
