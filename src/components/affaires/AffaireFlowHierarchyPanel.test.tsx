@@ -732,6 +732,135 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(onExecuteSuggestion).toHaveBeenCalledWith(generateStructure);
   });
 
+  it("keeps the structure hero in review mode when a V0 draft already exists", async () => {
+    const user = userEvent.setup();
+    const reviewStructure = buildSuggestion({
+      actionId: "generate-structure",
+      label: "Revoir la structure du devis",
+      intent: "generate_structure",
+      preview: "Reprendre la revue de la V0 IA avant materialisation dans le devis.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-structure-review/edit?openVersionZero=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-structure-review"
+        currentVersion={{
+          id: "version-structure-review",
+          projectId: "project-structure-review",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-structure-review",
+          projectId: "project-structure-review",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-1",
+          isVersionEmpty: true,
+          canGenerate: true,
+          availableLots: ["Electricite"],
+          activeDraft: {
+            id: "draft-1",
+            status: "ia_a_revoir",
+            createdAt: "2026-03-11T13:00:00.000Z",
+            materializedAt: null,
+            selectedLots: ["Electricite"],
+            counts: {
+              lots: 1,
+              lines: 12,
+              pending: 4,
+              accepted: 6,
+              edited: 2,
+              rejected: 0,
+              missingLots: 0,
+              partialLots: 0,
+              lowConfidenceLines: 1,
+            },
+            summaryText: "V0 IA prete pour revue.",
+            state: "active",
+          },
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Consultation electricite avec plans et DPGF recus.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts", "Courants faibles"],
+            lots: ["Electricite"],
+            receivedPieces: ["DPGF", "Plans"],
+            assumptions: ["Tarifs a confirmer."],
+            vigilancePoints: ["Verifier la variante SSI en option."],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[reviewStructure]}
+      />,
+    );
+
+    expect(screen.getAllByText("Revoir la structure du devis").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Structure a reprendre").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Structure a generer")).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+      ).length,
+    ).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Pourquoi Structure a reprendre" }));
+
+    expect(
+      screen.getByText(
+        "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("keeps the lower panel only when the hero compresses additional validated context", () => {
     const generateStructure = buildSuggestion({
       actionId: "generate-structure-overflow",

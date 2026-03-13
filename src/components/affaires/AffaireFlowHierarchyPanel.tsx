@@ -149,6 +149,11 @@ function dedupe(values: string[]) {
   return [...new Set(values)];
 }
 
+function isStructureResumeAction(action: PanelAction) {
+  const label = action.label.toLowerCase();
+  return label.includes("revoir") || label.includes("reprendre");
+}
+
 function hasCriticalMissingCategory(
   missingPieces: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["missingPieces"],
   category: string,
@@ -1109,6 +1114,9 @@ function getReviewChoiceConsequence(input: {
 }
 
 function getStateWhyContent(card: PanelResultCard) {
+  const isStructureResumeCard =
+    card.kind === "structure" && isStructureResumeAction(card.action);
+
   if (card.kind === "primary") {
     return {
       title: "TIMAX peut analyser plusieurs DPGF / CCTP, mais un seul document principal doit etre choisi par categorie pour lancer les automatismes engageants.",
@@ -1129,7 +1137,9 @@ function getStateWhyContent(card: PanelResultCard) {
   }
   if (card.kind === "structure") {
     return {
-      title: "Le brief est confirme. La prochaine action est de generer la structure du devis.",
+      title: isStructureResumeCard
+        ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
+        : "Le brief est confirme. La prochaine action est de generer la structure du devis.",
       hints: card.facts.slice(0, 3),
     };
   }
@@ -1143,7 +1153,11 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
   if (card.kind === "primary") return "Reference principale a definir";
   if (card.kind === "missing") return "Pieces critiques manquantes";
   if (card.kind === "brief") return "Dossier exploitable";
-  if (card.kind === "structure") return "Structure a generer";
+  if (card.kind === "structure") {
+    return isStructureResumeAction(card.action)
+      ? "Structure a reprendre"
+      : "Structure a generer";
+  }
   return "Analyse des plans";
 }
 
