@@ -195,6 +195,28 @@ function findSubmissionReadinessPrimaryCategory(
   return firstBlockingGroup?.category ?? submissionReadiness.groups[0]?.category ?? null;
 }
 
+function buildSubmissionReadinessDetails(
+  submissionReadiness: SubmissionReadinessSnapshot,
+) {
+  const groupDetails = submissionReadiness.groups.map((group) =>
+    describeSubmissionReadinessGroup(group)
+  );
+  const concreteDetails = [
+    ...submissionReadiness.blockers.map((flag) => flag.label),
+    ...submissionReadiness.alerts.map((flag) => flag.label),
+  ];
+
+  if (groupDetails.length === 0) {
+    return concreteDetails.slice(0, 3);
+  }
+
+  if (concreteDetails.length === 0) {
+    return groupDetails.slice(0, 3);
+  }
+
+  return [...groupDetails.slice(0, 2), ...concreteDetails.slice(0, 1)];
+}
+
 function buildRegisterActionFromBlockingFlag(input: {
   projectId: string;
   flag: ReadyToSendBlockingFlag;
@@ -362,21 +384,21 @@ export function buildReadyToSendAction(input: {
     return registerAction;
   }
 
-  const primaryCategory = findSubmissionReadinessPrimaryCategory(submissionReadiness);
-
-  if (primaryCategory === "approvals") {
-    return {
-      kind: "href" as const,
-      label: "Ouvrir la validation",
-      href: "#approval",
-    };
-  }
-
   if (blockingFlag && isPdfFinishLineFlag(blockingFlag) && input.currentVersion) {
     return {
       kind: "href" as const,
       label: "Ouvrir la sortie devis",
       href: "#finish-line-output",
+    };
+  }
+
+  const primaryCategory = findSubmissionReadinessPrimaryCategory(submissionReadiness);
+
+  if (submissionReadiness?.status === "blocked" && primaryCategory === "approvals") {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir la validation",
+      href: "#approval",
     };
   }
 
@@ -509,13 +531,7 @@ export function buildFinishLineCards(input: {
 
   const submissionReadiness = resolveSubmissionReadiness(input.finishLineSummary);
   const readyToSendDetails = submissionReadiness
-    ? [
-        ...submissionReadiness.groups.map((group) =>
-          describeSubmissionReadinessGroup(group)
-        ),
-        ...submissionReadiness.blockers.map((flag) => flag.label),
-        ...submissionReadiness.alerts.map((flag) => flag.label),
-      ].slice(0, 3)
+    ? buildSubmissionReadinessDetails(submissionReadiness)
     : [];
 
   const readyToSendCard: FinishLineCard = {

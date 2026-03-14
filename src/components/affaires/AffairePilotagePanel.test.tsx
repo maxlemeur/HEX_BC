@@ -484,6 +484,148 @@ describe("AffairePilotagePanel", () => {
     ]);
   });
 
+  it("keeps one concrete send blocker label when multiple readiness groups are present", () => {
+    const cards = buildFinishLineCards({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        ...makeFinishLineSummary(),
+        submissionReadiness: {
+          status: "blocked",
+          blockers: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+            {
+              key: "no_pdf_generated",
+              category: "pdf",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun document PDF n'est genere pour cette version.",
+            },
+            {
+              key: "rule_violation",
+              category: "approvals",
+              severity: "blocking",
+              count: 1,
+              item_ids: ["rule:approval"],
+              label: "Validation interne requise",
+              description: "Une validation interne reste necessaire.",
+            },
+          ],
+          alerts: [],
+          groups: [
+            {
+              category: "documents",
+              blockers: [
+                {
+                  key: "critical_missing_pieces",
+                  category: "documents",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "Documents critiques manquants",
+                  description: "Des pieces critiques restent manquantes.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+            {
+              category: "pdf",
+              blockers: [
+                {
+                  key: "no_pdf_generated",
+                  category: "pdf",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "PDF absent",
+                  description: "Aucun document PDF n'est genere pour cette version.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+            {
+              category: "approvals",
+              blockers: [
+                {
+                  key: "rule_violation",
+                  category: "approvals",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: ["rule:approval"],
+                  label: "Validation interne requise",
+                  description: "Une validation interne reste necessaire.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+          ],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "critical_missing_pieces",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+            {
+              key: "no_pdf_generated",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun document PDF n'est genere pour cette version.",
+            },
+            {
+              key: "rule_violation",
+              severity: "blocking",
+              count: 1,
+              item_ids: ["rule:approval"],
+              label: "Validation interne requise",
+              description: "Une validation interne reste necessaire.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(cards[0]?.details).toEqual([
+      "Documents · 1 blocage",
+      "PDF · 1 blocage",
+      "Documents critiques manquants",
+    ]);
+  });
+
   it("prioritizes submission readiness over the ready-to-send alias in finish-line cards", () => {
     const cards = buildFinishLineCards({
       projectId: "project-1",
@@ -688,6 +830,43 @@ describe("AffairePilotagePanel", () => {
     expect(
       screen.getByRole("link", { name: /Mettre a jour les prix fournisseurs/i })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");
+  });
+
+  it("keeps degraded finish-line cards and actions visible when readiness cannot be loaded", () => {
+    const { container } = render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet finish line"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={makeDpgfSource()}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={{
+            id: "version-1",
+            status: "draft",
+            versionNumber: 1,
+          }}
+          lineCount={12}
+          finishLineSummary={null}
+          takeoffEnabled
+        />
+      </ToastProvider>
+    );
+    const scope = within(container);
+
+    expect(scope.getAllByText("Indisponible").length).toBeGreaterThan(0);
+    expect(
+      scope.getByText("La verification de sortie devis est indisponible pour le moment.")
+    ).toBeInTheDocument();
+    expect(
+      scope.getByText("La verification achats est indisponible pour le moment.")
+    ).toBeInTheDocument();
+    expect(scope.getAllByText("PDF, email et BDC depuis le meme point").length).toBeGreaterThan(0);
+    expect(scope.getByRole("button", { name: /Telecharger le PDF/i })).toBeInTheDocument();
+    expect(scope.getByRole("button", { name: /Preparer l'envoi/i })).toBeDisabled();
+    expect(scope.getByRole("button", { name: /Exporter le BDC/i })).toBeInTheDocument();
   });
 
   it("keeps the finish line visible when canonical submission readiness exists on an immature dossier", () => {
@@ -1059,6 +1238,80 @@ describe("AffairePilotagePanel", () => {
       kind: "href",
       label: "Ouvrir la validation",
       href: "#approval",
+    });
+  });
+
+  it("keeps approval-only warnings on the send finish line CTA", () => {
+    const action = buildReadyToSendAction({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        ...makeFinishLineSummary(),
+        submissionReadiness: {
+          status: "warning",
+          blockers: [],
+          alerts: [
+            {
+              key: "rule_violation",
+              category: "approvals",
+              severity: "warning",
+              count: 1,
+              item_ids: ["rule:approval"],
+              label: "Validation interne a verifier",
+              description: "Une reserve de validation interne reste a verifier.",
+            },
+          ],
+          groups: [
+            {
+              category: "approvals",
+              blockers: [],
+              alerts: [
+                {
+                  key: "rule_violation",
+                  category: "approvals",
+                  severity: "warning",
+                  count: 1,
+                  item_ids: ["rule:approval"],
+                  label: "Validation interne a verifier",
+                  description: "Une reserve de validation interne reste a verifier.",
+                },
+              ],
+              blockerCount: 0,
+              alertCount: 1,
+            },
+          ],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "warning",
+          blockingFlags: [],
+          warningFlags: [
+            {
+              key: "rule_violation",
+              severity: "warning",
+              count: 1,
+              item_ids: ["rule:approval"],
+              label: "Validation interne a verifier",
+              description: "Une reserve de validation interne reste a verifier.",
+            },
+          ],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(action).toEqual({
+      kind: "href",
+      label: "Ouvrir la sortie devis",
+      href: "#finish-line-output",
     });
   });
 
