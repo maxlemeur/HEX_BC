@@ -232,7 +232,7 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
       {
         actionId: "legacy",
         label: "Ouvrir le fallback legacy",
-        intent: "legacy_fallback",
+        intent: "view_exceptions",
         preview: "",
         target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
         requiresConfirmation: false,
@@ -247,7 +247,7 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
       filterAffaireHubCommandBarSuggestions(suggestions, "review_intake").map(
         (suggestion) => suggestion.intent,
       ),
-    ).toEqual(["legacy_fallback"]);
+    ).toEqual(["view_exceptions"]);
   });
 });
 

@@ -13,6 +13,34 @@ const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const ENTRY_ID = "44444444-4444-4444-8444-444444444444";
 const NOW = "2026-03-13T10:00:00.000Z";
 
+type EntryRow = {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  version_id: string | null;
+  source_document_id: string | null;
+  kind: "missing_piece";
+  code: string;
+  text: string;
+  severity: "critical";
+  status: "open" | "clarify_with_client" | "validated" | "rejected";
+  origin_kind: "system";
+  scope_type: "project";
+  scope_id: string | null;
+  scope_ref: string | null;
+  scope_label: string;
+  source_file_name: string;
+  sync_key: string;
+  is_active: boolean;
+  metadata: Record<string, unknown>;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  created_by_profile: null;
+  updated_by_profile: null;
+};
+
 function createProjectRow() {
   return {
     id: PROJECT_ID,
@@ -25,7 +53,9 @@ function createProjectRow() {
   };
 }
 
-function createOpenEntryRow() {
+function createEntryRow(
+  overrides: Partial<EntryRow> = {},
+): EntryRow {
   return {
     id: ENTRY_ID,
     tenant_id: TENANT_ID,
@@ -52,12 +82,13 @@ function createOpenEntryRow() {
     updated_at: NOW,
     created_by_profile: null,
     updated_by_profile: null,
+    ...overrides,
   };
 }
 
 function createClarifiedEntryRow() {
   return {
-    ...createOpenEntryRow(),
+    ...createEntryRow(),
     status: "clarify_with_client" as const,
     metadata: {
       clientClarificationRequest: {
@@ -71,10 +102,15 @@ function createClarifiedEntryRow() {
   };
 }
 
-function createSupabaseMock() {
+function createSupabaseMock(options?: {
+  entryRow?: ReturnType<typeof createEntryRow>;
+  updatedEntryRow?: ReturnType<typeof createEntryRow>;
+}) {
   const eventPayloads: unknown[] = [];
   const updatePayloads: unknown[] = [];
   let registerEntriesCall = 0;
+  const entryRow = options?.entryRow ?? createEntryRow();
+  const updatedEntryRow = options?.updatedEntryRow ?? createClarifiedEntryRow();
 
   const supabase = {
     auth: {
@@ -149,7 +185,7 @@ function createSupabaseMock() {
             throw new Error(`Unexpected maybeSingle call #${currentCall}`);
           }
           return {
-            data: createOpenEntryRow(),
+            data: entryRow,
             error: null,
           };
         });
@@ -162,7 +198,7 @@ function createSupabaseMock() {
             throw new Error(`Unexpected single call #${currentCall}`);
           }
           return {
-            data: createClarifiedEntryRow(),
+            data: updatedEntryRow,
             error: null,
           };
         });
@@ -220,5 +256,27 @@ describe("updateAffaireRegisterEntryStatus", () => {
       previousStatus: "open",
       comment: "Verifier le perimetre client.",
     });
+  });
+
+  it("rejects client clarification transitions from resolved entries", async () => {
+    const { supabase, eventPayloads, updatePayloads } = createSupabaseMock({
+      entryRow: createEntryRow({ status: "validated" as const }),
+      updatedEntryRow: createEntryRow({ status: "validated" as const }),
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      updateAffaireRegisterEntryStatus({
+        projectId: PROJECT_ID,
+        entryId: ENTRY_ID,
+        status: "clarify_with_client",
+        comment: "Verifier le perimetre client.",
+      })
+    ).rejects.toThrow(
+      "Seules les entrees ouvertes peuvent etre basculees en clarification client."
+    );
+
+    expect(updatePayloads).toHaveLength(0);
+    expect(eventPayloads).toHaveLength(0);
   });
 });

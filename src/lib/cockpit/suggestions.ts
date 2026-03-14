@@ -420,10 +420,14 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (registerSummary && registerSummary.openQuestionsCount > 0 && !isReadOnlyReview) {
+  const openRegisterCount = registerSummary
+    ? registerSummary.criticalOpenCount + registerSummary.nonCriticalOpenCount
+    : 0;
+
+  if (registerSummary && openRegisterCount > 0 && !isReadOnlyReview) {
     const count = registerSummary.criticalOpenCount > 0
       ? registerSummary.criticalOpenCount
-      : registerSummary.openQuestionsCount;
+      : openRegisterCount;
     const isCritical = registerSummary.criticalOpenCount > 0;
     suggestions.push(
       createSuggestion({

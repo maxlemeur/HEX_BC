@@ -445,6 +445,31 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("does not add the generic open-register suggestion when only client clarifications remain", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+        registerSummary: makeRegisterSummary({
+          openQuestionsCount: 2,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 2,
+          criticalClarifyWithClientCount: 0,
+        }),
+      }),
+    );
+
+    expect(result.find((s) => s.actionId === "list-clarifications")).toEqual(
+      expect.objectContaining({
+        target: {
+          kind: "navigate",
+          href: "/dashboard/affaires/proj-42?registerStatus=clarify_with_client#register",
+        },
+      }),
+    );
+    expect(result.find((s) => s.actionId === "list-hypotheses")).toBeUndefined();
+  });
+
   it("surfaces targeted revalidation when late documents invalidate prior review", () => {
     const result = computeCockpitSuggestions(
       makeInput({

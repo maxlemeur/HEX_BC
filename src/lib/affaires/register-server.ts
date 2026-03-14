@@ -1627,6 +1627,12 @@ export async function updateAffaireRegisterEntryStatus(
     } as const;
   }
 
+  if (parsed.status === "clarify_with_client" && entry.status !== "open") {
+    throw badRequest(
+      "Seules les entrees ouvertes peuvent etre basculees en clarification client."
+    );
+  }
+
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
   const clarificationRequest =
     parsed.status === "clarify_with_client"
