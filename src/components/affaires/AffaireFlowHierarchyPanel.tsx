@@ -619,6 +619,10 @@ function buildPanelModel(
   const revalidationFacts = (input.registerSummary?.revalidationImpactedStages ?? [])
     .slice(0, 2)
     .map((stage) => AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS[stage]);
+  const hasStudyContinuationSuggestion =
+    (planExceptionCount > 0 && viewExceptionsSuggestion !== null) ||
+    analyzePlansSuggestion !== null ||
+    generateStructureSuggestion !== null;
   const reviewCouldResolveCriticalMissing =
     reviewDocument !== null &&
     getReviewProbableCategories(reviewDocument).some((category) =>
@@ -897,7 +901,11 @@ function buildPanelModel(
       ]).filter(Boolean),
       evidence: ["Tracee dans le registre affaire"],
     };
-  } else if (hasClarificationDriver && clarificationSuggestion) {
+  } else if (
+    hasClarificationDriver &&
+    clarificationSuggestion &&
+    !hasStudyContinuationSuggestion
+  ) {
     title = clarificationSuggestion.label;
     summary = clarificationSuggestion.preview;
     statusLabel = "Clarification client requise";
@@ -947,6 +955,7 @@ function buildPanelModel(
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
+        clarificationFact,
         continuationHypothesisFact,
         hasPlans ? "Plans detectes" : "",
         hasDpgf
@@ -985,6 +994,7 @@ function buildPanelModel(
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
+        clarificationFact,
         continuationHypothesisFact,
         hasDpgf
           ? hasWorkReservations
@@ -1052,11 +1062,17 @@ function buildPanelModel(
 
   const hasDominantRegisterAction =
     primaryAction?.kind === "suggestion" &&
-    (primaryAction.key === "list-clarifications" ||
-      primaryAction.key === "review-revalidation");
+    primaryAction.key === "review-revalidation";
   const allowSecondaryAides =
     heroState === "ready_to_continue" && !hasDominantRegisterAction;
   const aides: PanelAction[] = [];
+  if (
+    allowSecondaryAides &&
+    clarificationSuggestion &&
+    primaryAction?.key !== clarificationSuggestion.actionId
+  ) {
+    aides.push(toSuggestionAction(clarificationSuggestion, "ghost"));
+  }
   if (
     allowSecondaryAides &&
     generateStructureSuggestion &&

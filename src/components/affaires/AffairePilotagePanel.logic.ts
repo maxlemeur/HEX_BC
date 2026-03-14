@@ -1089,7 +1089,6 @@ export function buildPilotageExceptions(input: {
         href: `${buildAffaireRegisterHubHref({
           projectId: input.projectId,
           status: "clarify_with_client",
-          kind: "assumption",
         })}#register`,
       },
     });

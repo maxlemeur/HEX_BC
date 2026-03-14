@@ -251,10 +251,7 @@ export function getAffaireHubDominantIntent(suggestions: CockpitSuggestion[]) {
     return "review_intake" as const;
   }
 
-  if (
-    findCockpitAction(suggestions, "review-revalidation") ||
-    findCockpitAction(suggestions, "list-clarifications")
-  ) {
+  if (findCockpitAction(suggestions, "review-revalidation")) {
     return "list_hypotheses" as const;
   }
 
@@ -272,6 +269,10 @@ export function getAffaireHubDominantIntent(suggestions: CockpitSuggestion[]) {
 
   if (findCockpitIntent(suggestions, "generate_structure")) {
     return "generate_structure" as const;
+  }
+
+  if (findCockpitAction(suggestions, "list-clarifications")) {
+    return "list_hypotheses" as const;
   }
 
   return null;

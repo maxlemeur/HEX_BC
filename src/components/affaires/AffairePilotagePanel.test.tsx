@@ -269,8 +269,7 @@ describe("AffairePilotagePanel", () => {
       action: {
         kind: "href",
         label: "Voir les clarifications client",
-        href:
-          "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption#register",
+        href: "/dashboard/affaires/project-1?registerStatus=clarify_with_client#register",
       },
     });
   });

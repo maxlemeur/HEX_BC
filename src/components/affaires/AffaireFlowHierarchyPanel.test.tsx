@@ -1149,7 +1149,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
   });
 
-  it("prioritises client clarification when the canonical hub driver requires it", () => {
+  it("keeps the takeoff continuation CTA visible when client clarifications stay open", () => {
     const clarificationSuggestion = buildSuggestion({
       actionId: "list-clarifications",
       label: "Traiter 1 clarification client",
@@ -1263,10 +1263,131 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Traiter 1 clarification client" })).toBeInTheDocument();
-    expect(screen.getByText("Clarification client requise")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lancer le metre" })).toBeInTheDocument();
+    expect(screen.getByText("Analyse sous reserves")).toBeInTheDocument();
     expect(screen.getByText("1 clarification client ouverte")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Lancer le metre" })).not.toBeInTheDocument();
+  });
+
+  it("keeps secondary aides visible when only client clarifications remain", () => {
+    const clarificationSuggestion = buildSuggestion({
+      actionId: "list-clarifications",
+      label: "Traiter 1 clarification client",
+      intent: "list_hypotheses",
+      preview: "Des clarifications critiques restent a porter vers le client avant envoi.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-clarify-only?registerStatus=clarify_with_client#register",
+      },
+      priority: 720,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-clarify-only"
+        hubReadiness={{
+          status: "ready_with_reservations",
+          workingBasis: "established",
+          allowsContinuation: true,
+          briefStatus: "confirme",
+          drivers: [
+            {
+              code: "client_clarification",
+              source: "register",
+              severity: "critical",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 1,
+            continuedWithHypothesisCount: 0,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-clarify-only",
+          projectId: "project-clarify-only",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={{
+          planSetCount: 1,
+          planFileCount: 2,
+          totalSizeBytes: 1024,
+          hasLegacyFallback: false,
+          defaultPlanSetId: "set-clarify",
+          defaultPlanSetName: "Plans dossier",
+          defaultPlanSetSource: "affaire-intake",
+          defaultPlanSetFileCount: 2,
+          defaultPlanSetUpdatedAt: "2026-03-11T12:00:00.000Z",
+          latestJob: null,
+          coveragePercent: null,
+          exceptionCount: 0,
+          openQuestionsCount: 0,
+          failureReasonLabel: null,
+        }}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+        registerSummary={{
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 1,
+          criticalClarifyWithClientCount: 1,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 0,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[clarificationSuggestion]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Traiter 1 clarification client" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir les plans" })).toBeInTheDocument();
   });
 
   it("prioritises revalidation when the canonical hub driver requires it", () => {

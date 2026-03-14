@@ -143,7 +143,7 @@ describe("getAffaireHubDominantIntent", () => {
     ).toBe("review_intake");
   });
 
-  it("prioritises canonical clarifications before progression CTAs", () => {
+  it("keeps progression CTAs ahead of client clarifications", () => {
     expect(
       getAffaireHubDominantIntent([
         {
@@ -167,6 +167,37 @@ describe("getAffaireHubDominantIntent", () => {
           requiresConfirmation: false,
           confirmTone: "info",
           priority: 200,
+          isPinned: false,
+          isHidden: false,
+        },
+      ]),
+    ).toBe("generate_structure");
+  });
+
+  it("still prioritises client clarifications when no progression CTA remains", () => {
+    expect(
+      getAffaireHubDominantIntent([
+        {
+          actionId: "list-clarifications",
+          label: "Traiter 1 clarification client",
+          intent: "list_hypotheses",
+          preview: "",
+          target: { kind: "navigate", href: "/dashboard/affaires/project?registerStatus=clarify_with_client#register" },
+          requiresConfirmation: false,
+          confirmTone: "warning",
+          priority: 300,
+          isPinned: false,
+          isHidden: false,
+        },
+        {
+          actionId: "legacy",
+          label: "Ouvrir le fallback legacy",
+          intent: "view_exceptions",
+          preview: "",
+          target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
+          requiresConfirmation: false,
+          confirmTone: "info",
+          priority: 50,
           isPinned: false,
           isHidden: false,
         },
