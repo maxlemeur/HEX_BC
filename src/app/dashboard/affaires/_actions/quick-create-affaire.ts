@@ -71,7 +71,7 @@ export type ManualEstimateEntryPointResult = {
 
 export type StartAffaireFromImportResult =
   | {
-      destination: "hub";
+      destination: "estimate_editor";
       projectId: string;
       versionId: string;
       redirectUrl: string;
@@ -203,14 +203,14 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
     }
   }
 
-  const redirectUrl = `/dashboard/affaires/${projectId}?created=1`;
+  const manualEstimate = buildManualEstimateEntryPoint(projectId, versionId);
   revalidateQuickCreatePaths(projectId, versionId);
 
   return {
     projectId,
     versionId,
-    redirectUrl,
-    manualEstimate: buildManualEstimateEntryPoint(projectId, versionId),
+    redirectUrl: manualEstimate.editorRedirectUrl,
+    manualEstimate,
   };
 }
 
@@ -307,7 +307,7 @@ export async function startAffaireFromImport(
 
   if (!importId) {
     return {
-      destination: "hub",
+      destination: "estimate_editor",
       ...(await createAndOptionallyLinkEmptyAffaire({
         supabase,
         membership,
@@ -366,7 +366,7 @@ export async function startAffaireFromImport(
 
   if (normalizedRows.validLines.length === 0) {
     return {
-      destination: "hub",
+      destination: "estimate_editor",
       ...(await createAndOptionallyLinkEmptyAffaire({
         supabase,
         membership,

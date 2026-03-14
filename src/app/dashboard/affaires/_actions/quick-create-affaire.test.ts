@@ -248,7 +248,7 @@ describe("quickCreateAffaire", () => {
     });
   });
 
-  it("creates a canonical blank estimate and redirects to affaire hub when no import is provided", async () => {
+  it("creates a canonical blank estimate and redirects to the manual estimate editor when no import is provided", async () => {
     const { supabase } = createSupabaseStub({
       role: "engineer",
       createdProjectId: CREATED_PROJECT_ID,
@@ -259,7 +259,9 @@ describe("quickCreateAffaire", () => {
       quickCreateAffaire({
         projectName: "Affaire vide",
       })
-    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
+    ).rejects.toThrow(
+      `NEXT_REDIRECT:/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`
+    );
 
     expect(createEstimate).toHaveBeenCalledWith({
       project: {
@@ -291,7 +293,7 @@ describe("quickCreateAffaire", () => {
     ).resolves.toEqual({
       projectId: CREATED_PROJECT_ID,
       versionId: CREATED_VERSION_ID,
-      redirectUrl: `/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`,
+      redirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
       manualEstimate: {
         mode: "manual",
         creationMode: "blank",
@@ -317,7 +319,9 @@ describe("quickCreateAffaire", () => {
         importId: null,
         linkImportId: IMPORT_ID,
       })
-    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
+    ).rejects.toThrow(
+      `NEXT_REDIRECT:/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`
+    );
 
     expect(createEstimate).toHaveBeenCalledWith({
       project: {
@@ -476,7 +480,7 @@ describe("quickCreateAffaire", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("creates a canonical blank affaire and links the import when rows are not importable", async () => {
+  it("creates a canonical blank affaire, links the import, and redirects to the manual estimate editor when rows are not importable", async () => {
     const { supabase, importUpdateBuilder } =
       createSupabaseStub({
         role: "engineer",
@@ -502,7 +506,9 @@ describe("quickCreateAffaire", () => {
         projectName: "Affaire invalide",
         importId: IMPORT_ID,
       })
-    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
+    ).rejects.toThrow(
+      `NEXT_REDIRECT:/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`
+    );
 
     expect(createEstimate).toHaveBeenCalledWith({
       project: {
@@ -518,7 +524,7 @@ describe("quickCreateAffaire", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("returns a hub destination and links the import when rows are not importable", async () => {
+  it("returns an estimate editor destination and links the import when rows are not importable", async () => {
     const { supabase, importUpdateBuilder } = createSupabaseStub({
       role: "engineer",
       importProjectId: null,
@@ -544,10 +550,10 @@ describe("quickCreateAffaire", () => {
         importId: IMPORT_ID,
       })
     ).resolves.toEqual({
-      destination: "hub",
+      destination: "estimate_editor",
       projectId: CREATED_PROJECT_ID,
       versionId: CREATED_VERSION_ID,
-      redirectUrl: `/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`,
+      redirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
       manualEstimate: {
         mode: "manual",
         creationMode: "blank",
