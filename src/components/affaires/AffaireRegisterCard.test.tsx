@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const mockReplace = vi.fn();
@@ -338,9 +338,89 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Points ouverts")).toBeInTheDocument();
     expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
     expect(screen.getByText("Hypotheses ouvertes")).toBeInTheDocument();
+    expect(screen.getByText("Contexte métier")).toBeInTheDocument();
+    expect(screen.getByText("Ce point concerne toute l'affaire Affaire test.")).toBeInTheDocument();
     expect(screen.getByText("Historique récent du registre")).toBeInTheDocument();
     expect(screen.getByText("Statut modifie")).toBeInTheDocument();
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
+  });
+
+  it("renders business context tags for line and exception register entries", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-line",
+              text: "Le poste reste a aligner avec la DPGF.",
+              originKind: "system",
+              scopeType: "line",
+              scopeRef: "L-120",
+              scopeLabel: "Armoire TGBT Hall",
+              sourceFileName: "dpgf-cfo.xlsx",
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-exception",
+              text: "L'exception SSI reste a arbitrer.",
+              originKind: "manual",
+              scopeType: "exception",
+              scopeRef: "EX-04",
+              scopeLabel: "Variante SSI hall principal",
+              sourceFileName: null,
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 2,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 2,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 2,
+          openMissingPieceCount: 0,
+        })}
+        timelineEvents={[]}
+      />
+    );
+
+    const lineCard = screen.getByText("Le poste reste a aligner avec la DPGF.").closest("article");
+    const exceptionCard = screen
+      .getByText("L'exception SSI reste a arbitrer.")
+      .closest("article");
+
+    expect(lineCard).not.toBeNull();
+    expect(exceptionCard).not.toBeNull();
+
+    expect(
+      within(lineCard as HTMLElement).getByText(
+        "Ce point concerne la ligne L-120 · Armoire TGBT Hall."
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(lineCard as HTMLElement).getByText((_, element) =>
+        element?.textContent === "Pièce liée · dpgf-cfo.xlsx"
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(lineCard as HTMLElement).getByText((_, element) =>
+        element?.textContent === "Créé via · Systeme"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      within(exceptionCard as HTMLElement).getByText(
+        "Ce point concerne l'exception EX-04 · Variante SSI hall principal."
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(exceptionCard as HTMLElement).getByText((_, element) =>
+        element?.textContent === "Exception · EX-04 · Variante SSI hall principal"
+      )
+    ).toBeInTheDocument();
   });
 
   it("filters directly to missing-piece traces from the summary cards", async () => {
@@ -427,6 +507,55 @@ describe("AffaireRegisterCard", () => {
     });
   });
 
+  it("keeps revalidation blockers visible even without critical-open or client-clarification counts", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-revalidation",
+              text: "Le nouvel additif impose une reprise ciblee.",
+              severity: "warning",
+              status: "open",
+              revalidationRequest: {
+                status: "required",
+                requestedAt: "2026-03-06T10:00:00.000Z",
+                requestedByUserId: null,
+                previousStatus: "validated",
+                cause: "addendum_received",
+                triggerDocumentId: null,
+                triggerFileName: "additif-cfo.pdf",
+                impactedStages: ["submission_readiness"],
+                comment: null,
+              },
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 1,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 1,
+          clarifyWithClientCount: 0,
+          revalidationRequired: true,
+          revalidationRequiredCount: 1,
+          revalidationBlocksSubmission: true,
+          revalidationImpactedStages: ["submission_readiness"],
+        })}
+        timelineEvents={[]}
+      />
+    );
+
+    expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
+    expect(screen.getByText("Revalidation ciblee requise avant remise.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Blocages actifs: 0 critiques ouvertes · 0 clarifications client · 1 revalidation requise.")
+    ).toBeInTheDocument();
+  });
+
   it("keeps submission blockers visible even when the current slice does not contain them", () => {
     render(
       <AffaireRegisterCard
@@ -460,6 +589,72 @@ describe("AffaireRegisterCard", () => {
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Voir les clarifications client" })).toBeInTheDocument();
+  });
+
+  it("prioritizes critical client clarifications ahead of warning ones in the preview", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-warning-1",
+              text: "Clarification warning 1",
+              severity: "warning",
+              status: "clarify_with_client",
+              updatedAt: "2026-03-06T09:13:00.000Z",
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-warning-2",
+              text: "Clarification warning 2",
+              severity: "warning",
+              status: "clarify_with_client",
+              updatedAt: "2026-03-06T09:12:00.000Z",
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-warning-3",
+              text: "Clarification warning 3",
+              severity: "warning",
+              status: "clarify_with_client",
+              updatedAt: "2026-03-06T09:11:00.000Z",
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-critical-client",
+              text: "Clarification critique client",
+              severity: "critical",
+              status: "clarify_with_client",
+              updatedAt: "2026-03-06T09:10:00.000Z",
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 4,
+          criticalClarifyWithClientCount: 1,
+        })}
+        timelineEvents={[]}
+      />
+    );
+
+    const blockerPanel = screen
+      .getByRole("heading", { name: "À traiter avant remise" })
+      .closest("section");
+
+    expect(blockerPanel).not.toBeNull();
+    expect(
+      within(blockerPanel as HTMLElement).getByText("Clarification critique client")
+    ).toBeInTheDocument();
+    expect(
+      within(blockerPanel as HTMLElement).queryByText("Clarification warning 3")
+    ).not.toBeInTheDocument();
   });
 
   it("shows a clearer filtered empty state and pagination guidance", () => {

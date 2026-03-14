@@ -1,7 +1,5 @@
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
-  AFFAIRE_REGISTER_ORIGIN_LABELS,
-  AFFAIRE_REGISTER_SCOPE_LABELS,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
   type AffaireRegisterEntry,
@@ -10,6 +8,8 @@ import {
 
 import {
   formatDateTime,
+  getEntryContextSummary,
+  getEntryContextTags,
   getEntryStatusActions,
   SEVERITY_TONE,
   STATUS_TONE,
@@ -65,16 +65,30 @@ function RegisterEntryCard({
             </span>
           </div>
           <p className="mt-3 text-sm text-[var(--slate-800)]">{entry.text}</p>
+          <div className="mt-3 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              Contexte métier
+            </p>
+            <p className="mt-1 text-sm text-[var(--slate-700)]">
+              {getEntryContextSummary(entry)}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {getEntryContextTags(entry).map((tag) => (
+                <span
+                  key={`${entry.id}-${tag.label}`}
+                  className="rounded-full border border-[var(--slate-200)] bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]"
+                >
+                  <span className="font-medium text-[var(--slate-700)]">{tag.label}</span>
+                  {` · ${tag.value}`}
+                </span>
+              ))}
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--slate-500)]">
-            <span>
-              Scope: {AFFAIRE_REGISTER_SCOPE_LABELS[entry.scopeType]} · {entry.scopeLabel}
-            </span>
-            <span>Origine: {AFFAIRE_REGISTER_ORIGIN_LABELS[entry.originKind]}</span>
             <span>
               MAJ: {formatDateTime(entry.updatedAt)}
               {entry.updatedByName ? ` · ${entry.updatedByName}` : ""}
             </span>
-            {entry.sourceFileName ? <span>Source: {entry.sourceFileName}</span> : null}
           </div>
         </div>
         <div className="w-full max-w-sm rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-3">
