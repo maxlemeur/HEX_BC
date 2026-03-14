@@ -470,10 +470,12 @@ describe("estimate send gating", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "critical_open_questions",
+          category: "documents",
           count: 1,
         }),
         expect.objectContaining({
           key: "client_clarification_required",
+          category: "register",
           count: 1,
         }),
       ])
@@ -482,6 +484,7 @@ describe("estimate send gating", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "open_questions_pending",
+          category: "register",
           count: 1,
         }),
       ])

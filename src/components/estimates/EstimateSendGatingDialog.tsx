@@ -5,6 +5,10 @@ import Link from "next/link";
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
+import {
+  ESTIMATE_READINESS_CATEGORY_LABELS,
+  resolveEstimateReadinessCategoryFromGatingFlagKey,
+} from "@/lib/estimates/readiness";
 
 type EstimateSendGatingDialogProps = {
   isOpen: boolean;
@@ -26,17 +30,25 @@ function formatFlagCount(count: number) {
 function formatRegisterAction(flag: EstimateSendGatingFlag) {
   switch (flag.key) {
     case "critical_open_questions":
-      return "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
+      return flag.category === "documents"
+        ? "Recuperez ou requalifiez ces pieces critiques avant de reprendre l'envoi."
+        : "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
     case "client_clarification_required":
-      return "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
+      return flag.category === "documents"
+        ? "Revenez sur les demandes de pieces client pour solder ou requalifier ces attentes documentaires."
+        : "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
     case "open_questions_pending":
-      return "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
+      return flag.category === "documents"
+        ? "Passez par le registre affaire pour solder ou assumer explicitement ces pieces manquantes."
+        : "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
     default:
       return null;
   }
 }
 
 function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
+  const kind = flag.category === "documents" ? "missing_piece" : "assumption";
+
   switch (flag.key) {
     case "critical_open_questions":
       return buildAffaireRegisterSearchHref({
@@ -44,7 +56,7 @@ function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
         searchParams: new URLSearchParams(),
         status: "open",
         severity: "critical",
-        kind: null,
+        kind,
         cursor: null,
       });
     case "client_clarification_required":
@@ -53,7 +65,7 @@ function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
         searchParams: new URLSearchParams(),
         status: "clarify_with_client",
         severity: null,
-        kind: null,
+        kind,
         cursor: null,
       });
     case "open_questions_pending":
@@ -62,7 +74,7 @@ function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
         searchParams: new URLSearchParams(),
         status: "open",
         severity: null,
-        kind: null,
+        kind,
         cursor: null,
       });
     default:
@@ -84,6 +96,7 @@ function parseRegisterEntries(flag: EstimateSendGatingFlag) {
           const scopeLabel = typeof record.scopeLabel === "string" ? record.scopeLabel.trim() : "";
           const text = typeof record.text === "string" ? record.text.trim() : "";
           const href = typeof record.href === "string" ? record.href.trim() : "";
+          const kind = typeof record.kind === "string" ? record.kind.trim() : "";
 
           if (!text) {
             return null;
@@ -93,6 +106,7 @@ function parseRegisterEntries(flag: EstimateSendGatingFlag) {
             key: `${flag.key}-register-entry-${index}`,
             label: scopeLabel ? `${scopeLabel}: ${text}` : text,
             href: href || null,
+            kind: kind || null,
           };
         })
         .filter(
@@ -102,6 +116,7 @@ function parseRegisterEntries(flag: EstimateSendGatingFlag) {
             key: string;
             label: string;
             href: string | null;
+            kind: string | null;
           } => entry !== null
         )
     : [];
@@ -181,10 +196,11 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
     }
   }
   if (registerEntries.length > 0) {
+    const registerEntryPrefix = flag.category === "documents" ? "Documents" : "Registre";
     registerEntries.slice(0, 3).forEach((entry) => {
       detailsLines.push({
         key: entry.key,
-        text: `Registre: ${entry.label}`,
+        text: `${registerEntryPrefix}: ${entry.label}`,
         href: entry.href,
       });
     });
@@ -239,23 +255,30 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
 
   return (
     <ul className="space-y-2 text-sm">
-      {flags.map((flag) => (
+      {flags.map((flag, index) => (
         (() => {
           const registerAction = formatRegisterAction(flag);
           const hasFocusedRegisterLinks = parseRegisterEntries(flag).some(
             (entry) => entry.href
           );
           const registerHref = projectId ? buildRegisterHref(projectId, flag) : null;
+          const category =
+            flag.category ?? resolveEstimateReadinessCategoryFromGatingFlagKey(flag.key);
 
           return (
             <li
-              key={`${flag.key}-${flag.severity}`}
+              key={`${flag.key}-${flag.severity}-${index}`}
               className="rounded-lg border border-[var(--slate-200)] bg-[var(--surface-subtle)] px-3 py-2"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium text-[var(--slate-800)]">
-                  {flag.label}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-[var(--slate-800)]">
+                    {flag.label}
+                  </span>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--slate-500)]">
+                    {ESTIMATE_READINESS_CATEGORY_LABELS[category]}
+                  </span>
+                </div>
                 <span className="text-xs text-[var(--slate-500)]">
                   {formatFlagCount(flag.count)}
                 </span>

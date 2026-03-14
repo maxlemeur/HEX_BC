@@ -1249,7 +1249,8 @@ describe("submitEstimateApproval", () => {
     expect(summary.submissionReadiness.blockers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "register:critical_open_questions",
+          id: "register:critical_missing_pieces",
+          category: "documents",
         }),
       ])
     );
@@ -1257,9 +1258,11 @@ describe("submitEstimateApproval", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "register:open_questions_pending",
+          category: "register",
         }),
         expect.objectContaining({
           id: "register:client_clarification_required",
+          category: "register",
         }),
       ])
     );

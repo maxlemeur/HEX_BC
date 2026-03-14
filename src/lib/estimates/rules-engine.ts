@@ -8,6 +8,7 @@ import {
   fetchAffaireRegisterGateSummary,
 } from "@/lib/affaires/register-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
+import type { EstimateReadinessCategory } from "@/lib/estimates/readiness";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import {
   normalizeEstimateApprovalDecision,
@@ -676,6 +677,7 @@ export type EstimateApprovalSubmissionSignal = {
   id: string;
   label: string;
   message: string;
+  category?: EstimateReadinessCategory;
   actionLabel?: string;
   actionHref?: string;
 };
@@ -1569,6 +1571,7 @@ function toSubmissionReadinessSignal(input: {
   id: string;
   label: string;
   message: string;
+  category?: EstimateReadinessCategory;
   actionLabel?: string;
   actionHref?: string;
 }): EstimateApprovalSubmissionSignal {
@@ -1576,6 +1579,7 @@ function toSubmissionReadinessSignal(input: {
     id: input.id,
     label: input.label,
     message: input.message,
+    category: input.category,
     actionLabel: input.actionLabel,
     actionHref: input.actionHref,
   };
@@ -1607,6 +1611,7 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
           id: `rule:${violation.rule_id}`,
           label: resolveApprovalSummaryLabel(violation.rule_type),
           message: violation.message,
+          category: "approvals",
         })
       ),
     ...input.rulesEvaluation.unavailableSignals
@@ -1616,6 +1621,7 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
           id: `signal:${signal.rule_id}`,
           label: resolveApprovalSummaryLabel(signal.rule_type),
           message: signal.message,
+          category: "approvals",
         })
       ),
   ];
@@ -1626,6 +1632,7 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
         id: `rule:${violation.rule_id}`,
         label: resolveApprovalSummaryLabel(violation.rule_type),
         message: violation.message,
+        category: "approvals",
       })
     ),
     ...input.rulesEvaluation.unavailableSignals
@@ -1635,6 +1642,7 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
           id: `signal:${signal.rule_id}`,
           label: resolveApprovalSummaryLabel(signal.rule_type),
           message: signal.message,
+          category: "approvals",
         })
       ),
   ];
@@ -1665,65 +1673,155 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
 
   const blockers = [...input.submissionReadiness.blockers];
   const alerts = [...input.submissionReadiness.alerts];
+  const criticalMissingPieceEntries = registerSummary.criticalOpenEntries.filter(
+    (entry) => entry.kind === "missing_piece"
+  );
+  const criticalAssumptionEntries = registerSummary.criticalOpenEntries.filter(
+    (entry) => entry.kind === "assumption"
+  );
+  const openMissingPieceEntries = registerSummary.nonCriticalOpenEntries.filter(
+    (entry) => entry.kind === "missing_piece"
+  );
+  const openAssumptionEntries = registerSummary.nonCriticalOpenEntries.filter(
+    (entry) => entry.kind === "assumption"
+  );
+  const clarifyMissingPieceEntries = registerSummary.clarifyWithClientEntries.filter(
+    (entry) => entry.kind === "missing_piece"
+  );
+  const clarifyAssumptionEntries = registerSummary.clarifyWithClientEntries.filter(
+    (entry) => entry.kind === "assumption"
+  );
 
-  if (registerSummary.criticalOpenEntries.length > 0) {
+  if (criticalMissingPieceEntries.length > 0) {
+    blockers.push(
+      toSubmissionReadinessSignal({
+        id: "register:critical_missing_pieces",
+        label: "Documents",
+        message: buildAffaireRegisterSubmissionSignalMessage({
+          entries: criticalMissingPieceEntries,
+          label: "Documents critiques manquants",
+          intro: "Des pieces critiques restent manquantes avant soumission.",
+        }),
+        category: "documents",
+        actionLabel: "Ouvrir les documents manquants",
+        actionHref: buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "open",
+          severity: "critical",
+          kind: "missing_piece",
+          focusEntryId: criticalMissingPieceEntries[0]?.id ?? null,
+        }),
+      })
+    );
+  }
+
+  if (criticalAssumptionEntries.length > 0) {
     blockers.push(
       toSubmissionReadinessSignal({
         id: "register:critical_open_questions",
         label: "Registre affaire",
         message: buildAffaireRegisterSubmissionSignalMessage({
-          entries: registerSummary.criticalOpenEntries,
+          entries: criticalAssumptionEntries,
           label: "Questions critiques ouvertes",
           intro: "Des questions critiques restent ouvertes.",
         }),
+        category: "register",
         actionLabel: "Ouvrir le registre",
         actionHref: buildAffaireRegisterHubHref({
           projectId: input.projectId,
           status: "open",
           severity: "critical",
-          focusEntryId: registerSummary.criticalOpenEntries[0]?.id ?? null,
+          kind: "assumption",
+          focusEntryId: criticalAssumptionEntries[0]?.id ?? null,
         }),
       })
     );
   }
 
-  if (registerSummary.nonCriticalOpenEntries.length > 0) {
+  if (openMissingPieceEntries.length > 0) {
+    alerts.push(
+      toSubmissionReadinessSignal({
+        id: "register:missing_pieces_pending",
+        label: "Documents",
+        message: buildAffaireRegisterSubmissionSignalMessage({
+          entries: openMissingPieceEntries,
+          label: "Documents manquants",
+          intro: "Des pieces manquantes restent ouvertes avant validation.",
+        }),
+        category: "documents",
+        actionLabel: "Ouvrir les documents manquants",
+        actionHref: buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "open",
+          kind: "missing_piece",
+          focusEntryId: openMissingPieceEntries[0]?.id ?? null,
+        }),
+      })
+    );
+  }
+
+  if (openAssumptionEntries.length > 0) {
     alerts.push(
       toSubmissionReadinessSignal({
         id: "register:open_questions_pending",
         label: "Registre affaire",
         message: buildAffaireRegisterSubmissionSignalMessage({
-          entries: registerSummary.nonCriticalOpenEntries,
+          entries: openAssumptionEntries,
           label: "Questions ouvertes",
-          intro:
-            "Des hypotheses ou pieces manquantes restent ouvertes avant validation.",
+          intro: "Des hypotheses restent ouvertes avant validation.",
         }),
+        category: "register",
         actionLabel: "Ouvrir le registre",
         actionHref: buildAffaireRegisterHubHref({
           projectId: input.projectId,
           status: "open",
-          focusEntryId: registerSummary.nonCriticalOpenEntries[0]?.id ?? null,
+          kind: "assumption",
+          focusEntryId: openAssumptionEntries[0]?.id ?? null,
         }),
       })
     );
   }
 
-  if (registerSummary.clarifyWithClientEntries.length > 0) {
+  if (clarifyMissingPieceEntries.length > 0) {
+    alerts.push(
+      toSubmissionReadinessSignal({
+        id: "register:client_missing_documents_required",
+        label: "Documents",
+        message: buildAffaireRegisterSubmissionSignalMessage({
+          entries: clarifyMissingPieceEntries,
+          label: "Documents attendus du client",
+          intro: "Des pieces restent a demander au client avant envoi externe.",
+        }),
+        category: "documents",
+        actionLabel: "Ouvrir les documents attendus",
+        actionHref: buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "clarify_with_client",
+          kind: "missing_piece",
+          focusEntryId: clarifyMissingPieceEntries[0]?.id ?? null,
+        }),
+      })
+    );
+  }
+
+  if (clarifyAssumptionEntries.length > 0) {
     alerts.push(
       toSubmissionReadinessSignal({
         id: "register:client_clarification_required",
         label: "Registre affaire",
         message: buildAffaireRegisterSubmissionSignalMessage({
-          entries: registerSummary.clarifyWithClientEntries,
+          entries: clarifyAssumptionEntries,
           label: "Clarifications client",
           intro:
             "Des points restent a clarifier avec le client avant envoi externe.",
         }),
+        category: "register",
         actionLabel: "Ouvrir le registre",
         actionHref: buildAffaireRegisterHubHref({
           projectId: input.projectId,
           status: "clarify_with_client",
-          focusEntryId: registerSummary.clarifyWithClientEntries[0]?.id ?? null,
+          kind: "assumption",
+          focusEntryId: clarifyAssumptionEntries[0]?.id ?? null,
         }),
       })
     );
@@ -1738,6 +1836,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
           versionZeroSummary.activeDraft.counts.pending > 0
             ? `La V0 IA comporte encore ${versionZeroSummary.activeDraft.counts.pending} ligne(s) en attente de validation humaine.`
             : "Une V0 IA active doit etre materialisee ou abandonnee avant soumission.",
+        category: "estimate_quality",
         actionLabel: "Ouvrir la V0",
         actionHref: `/dashboard/estimates/${input.versionId}/edit?openVersionZero=1`,
       })

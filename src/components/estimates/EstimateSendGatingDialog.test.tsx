@@ -22,19 +22,21 @@ describe("EstimateSendGatingDialog", () => {
         blockingFlags={[
           {
             key: "critical_open_questions",
+            category: "documents",
             severity: "blocking",
             count: 2,
             itemIds: [],
-            label: "Questions critiques ouvertes",
-            description: "Le registre affaire contient des questions critiques ouvertes.",
+            label: "Documents critiques manquants",
+            description: "Des pieces critiques restent manquantes dans le registre affaire.",
             details: {
               total_ht_cents: 125000,
               budget_ceiling_ht_cents: 100000,
               register_entries: [
                 {
+                  kind: "missing_piece",
                   scopeLabel: "Lot CFO",
                   text: "Verifier la variante",
-                  href: "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
+                  href: "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
                 },
               ],
             },
@@ -43,6 +45,7 @@ describe("EstimateSendGatingDialog", () => {
         warningFlags={[
           {
             key: "open_questions_pending",
+            category: "register",
             severity: "warning",
             count: 1,
             itemIds: [],
@@ -63,17 +66,19 @@ describe("EstimateSendGatingDialog", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi."
+        "Recuperez ou requalifiez ces pieces critiques avant de reprendre l'envoi."
       )
     ).toBeInTheDocument();
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Registre").length).toBeGreaterThan(0);
     expect(
       screen.getByText(
         "Ces signaux n'interdisent pas toujours l'envoi, mais ils doivent etre assumes explicitement."
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Registre: Lot CFO: Verifier la variante" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Documents: Lot CFO: Verifier la variante" })).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
     );
     const registerLinks = screen.getAllByRole("link", {
       name: "Ouvrir le registre affaire",
@@ -81,7 +86,7 @@ describe("EstimateSendGatingDialog", () => {
     expect(registerLinks).toHaveLength(1);
     expect(registerLinks[0]).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=open"
+      "/dashboard/affaires/project-1?registerStatus=open&registerKind=assumption"
     );
   });
 });

@@ -297,22 +297,24 @@ describe("EstimateApprovalActions", () => {
           submissionReadiness: {
             blockers: [
               {
-                id: "register:critical_open_questions",
-                label: "Registre affaire",
-                message: "Questions critiques ouvertes.",
-                actionLabel: "Ouvrir le registre",
+                id: "register:critical_missing_pieces",
+                category: "documents",
+                label: "Documents",
+                message: "Documents critiques manquants.",
+                actionLabel: "Ouvrir les documents manquants",
                 actionHref:
-                  "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
+                  "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
               },
             ],
             alerts: [
               {
                 id: "register:client_clarification_required",
+                category: "register",
                 label: "Registre affaire",
                 message: "Clarifications client en attente.",
                 actionLabel: "Ouvrir le registre",
                 actionHref:
-                  "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6",
+                  "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6",
               },
             ],
           },
@@ -342,14 +344,17 @@ describe("EstimateApprovalActions", () => {
         "Visibles pour la validation interne. Certaines alertes devront etre traitees avant l'envoi client."
       )
     ).toBeInTheDocument();
-    const registerLinks = screen.getAllByRole("link", { name: "Ouvrir le registre" });
-    expect(registerLinks[0]).toHaveAttribute(
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Registre").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("link", { name: "Ouvrir les documents manquants" })
+    ).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
     );
-    expect(registerLinks[1]).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Ouvrir le registre" })).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
+      "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
     );
   });
 

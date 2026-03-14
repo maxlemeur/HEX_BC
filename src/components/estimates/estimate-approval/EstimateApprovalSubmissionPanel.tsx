@@ -1,6 +1,12 @@
 import Link from "next/link";
 
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import {
+  ESTIMATE_READINESS_CATEGORY_LABELS,
+  ESTIMATE_READINESS_CATEGORY_ORDER,
+  resolveEstimateReadinessCategoryFromSubmissionSignal,
+  type EstimateReadinessCategory,
+} from "@/lib/estimates/readiness";
 
 import type { EstimateApprovalSubmissionOverview } from "./shared";
 import {
@@ -10,6 +16,33 @@ import {
 } from "./shared";
 
 type CorrectionChecklist = NonNullable<EstimateApprovalSummary["correctionChecklist"]>;
+
+function groupSubmissionSignals(
+  signals: EstimateApprovalSummary["submissionReadiness"]["blockers"],
+) {
+  const groups = new Map<
+    EstimateReadinessCategory,
+    EstimateApprovalSummary["submissionReadiness"]["blockers"]
+  >();
+
+  signals.forEach((signal) => {
+    const category = resolveEstimateReadinessCategoryFromSubmissionSignal({
+      id: signal.id,
+      category: signal.category ?? null,
+    });
+    const current = groups.get(category) ?? [];
+    current.push(signal);
+    groups.set(category, current);
+  });
+
+  return ESTIMATE_READINESS_CATEGORY_ORDER
+    .map((category) => ({
+      category,
+      label: ESTIMATE_READINESS_CATEGORY_LABELS[category],
+      items: groups.get(category) ?? [],
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 export function EstimateApprovalSubmissionPanel({
   versionId,
@@ -56,6 +89,8 @@ export function EstimateApprovalSubmissionPanel({
       : requestableReasonsCount === 0 ||
         summary.submissionReadiness.blockers.length > 0 ||
         summary.availableReviewers.length === 0);
+  const blockerGroups = groupSubmissionSignals(summary.submissionReadiness.blockers);
+  const alertGroups = groupSubmissionSignals(summary.submissionReadiness.alerts);
 
   return (
     <section className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4">
@@ -205,34 +240,41 @@ export function EstimateApprovalSubmissionPanel({
               </div>
               {summary.submissionReadiness.blockers.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {summary.submissionReadiness.blockers.map((entry) => {
-                    const action = resolveSubmissionSignalAction({
-                      projectId,
-                      signal: entry,
-                    });
+                  {blockerGroups.map((group) => (
+                    <div key={group.category} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[var(--danger)]">
+                        {group.label}
+                      </p>
+                      {group.items.map((entry) => {
+                        const action = resolveSubmissionSignalAction({
+                          projectId,
+                          signal: entry,
+                        });
 
-                    return (
-                      <article
-                        key={entry.id}
-                        className="rounded-xl border border-[var(--danger)]/15 bg-white/90 px-3 py-3"
-                      >
-                        <p className="text-sm font-semibold text-[var(--slate-800)]">
-                          {entry.label}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--slate-700)]">
-                          {entry.message}
-                        </p>
-                        {action ? (
-                          <Link
-                            href={action.href}
-                            className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                        return (
+                          <article
+                            key={entry.id}
+                            className="rounded-xl border border-[var(--danger)]/15 bg-white/90 px-3 py-3"
                           >
-                            {action.label}
-                          </Link>
-                        ) : null}
-                      </article>
-                    );
-                  })}
+                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                              {entry.label}
+                            </p>
+                            <p className="mt-1 text-sm text-[var(--slate-700)]">
+                              {entry.message}
+                            </p>
+                            {action ? (
+                              <Link
+                                href={action.href}
+                                className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                              >
+                                {action.label}
+                              </Link>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-[var(--slate-600)]">
@@ -257,34 +299,41 @@ export function EstimateApprovalSubmissionPanel({
               </div>
               {summary.submissionReadiness.alerts.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {summary.submissionReadiness.alerts.map((entry) => {
-                    const action = resolveSubmissionSignalAction({
-                      projectId,
-                      signal: entry,
-                    });
+                  {alertGroups.map((group) => (
+                    <div key={group.category} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[var(--warning)]">
+                        {group.label}
+                      </p>
+                      {group.items.map((entry) => {
+                        const action = resolveSubmissionSignalAction({
+                          projectId,
+                          signal: entry,
+                        });
 
-                    return (
-                      <article
-                        key={entry.id}
-                        className="rounded-xl border border-[var(--warning)]/15 bg-white/90 px-3 py-3"
-                      >
-                        <p className="text-sm font-semibold text-[var(--slate-800)]">
-                          {entry.label}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--slate-700)]">
-                          {entry.message}
-                        </p>
-                        {action ? (
-                          <Link
-                            href={action.href}
-                            className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                        return (
+                          <article
+                            key={entry.id}
+                            className="rounded-xl border border-[var(--warning)]/15 bg-white/90 px-3 py-3"
                           >
-                            {action.label}
-                          </Link>
-                        ) : null}
-                      </article>
-                    );
-                  })}
+                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                              {entry.label}
+                            </p>
+                            <p className="mt-1 text-sm text-[var(--slate-700)]">
+                              {entry.message}
+                            </p>
+                            {action ? (
+                              <Link
+                                href={action.href}
+                                className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                              >
+                                {action.label}
+                              </Link>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-[var(--slate-600)]">

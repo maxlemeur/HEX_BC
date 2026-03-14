@@ -14,6 +14,11 @@ import {
 } from "@/lib/estimate-quality";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import type { Database } from "@/types/database";
+import {
+  resolveEstimateReadinessCategoryFromGatingFlagKey,
+  resolveEstimateReadinessCategoryFromRegisterEntryKind,
+  type EstimateReadinessCategory,
+} from "@/lib/estimates/readiness";
 
 import { mapSupabaseError } from "./errors";
 import { evaluateRules, type EstimateRuleViolation } from "./rules-engine";
@@ -122,6 +127,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
 
 export type EstimateGatingFlag = {
   key: EstimateGatingFlagKey;
+  category?: EstimateReadinessCategory;
   severity: EstimateGatingSeverity;
   count: number;
   item_ids: string[];
@@ -249,6 +255,65 @@ function parseProjectBudgetCeilingHtCents(notes: string | null) {
   const parsed = Number.parseInt(regexMatch[1], 10);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
+}
+
+function buildRegisterGatingEntries(input: {
+  entries: Awaited<ReturnType<typeof fetchAffaireRegisterGateSummary>>["criticalOpenEntries"];
+  projectId: string;
+  status: "open" | "clarify_with_client";
+  severity: "critical" | null;
+  kind: "missing_piece" | "assumption";
+}) {
+  return input.entries.map((entry) => ({
+    ...entry,
+    href: buildAffaireRegisterHubHref({
+      projectId: input.projectId,
+      status: input.status,
+      severity: input.severity,
+      kind: input.kind,
+      focusEntryId: entry.id,
+    }),
+  }));
+}
+
+function pushRegisterGatingFlag(input: {
+  bucket: EstimateGatingFlag[];
+  key: Extract<
+    EstimateGatingFlagKey,
+    | "critical_open_questions"
+    | "client_clarification_required"
+    | "open_questions_pending"
+  >;
+  severity: EstimateGatingSeverity;
+  projectId: string;
+  status: "open" | "clarify_with_client";
+  entries: Awaited<ReturnType<typeof fetchAffaireRegisterGateSummary>>["criticalOpenEntries"];
+  kind: "missing_piece" | "assumption";
+  label: string;
+  description: string;
+}) {
+  if (input.entries.length === 0) {
+    return;
+  }
+
+  input.bucket.push({
+    key: input.key,
+    category: resolveEstimateReadinessCategoryFromRegisterEntryKind(input.kind),
+    severity: input.severity,
+    count: input.entries.length,
+    item_ids: [],
+    label: input.label,
+    description: input.description,
+    details: {
+      register_entries: buildRegisterGatingEntries({
+        entries: input.entries,
+        projectId: input.projectId,
+        status: input.status,
+        severity: input.severity === "blocking" ? "critical" : null,
+        kind: input.kind,
+      }),
+    },
+  });
 }
 
 function buildItemIdsByFlag(
@@ -489,6 +554,7 @@ export async function evaluateEstimateSendGating(
 
     const flag: EstimateGatingFlag = {
       key,
+      category: resolveEstimateReadinessCategoryFromGatingFlagKey(key),
       severity,
       count: itemIds.length,
       item_ids: itemIds,
@@ -529,6 +595,7 @@ export async function evaluateEstimateSendGating(
   if (rulesEvaluation.blockingViolations.length > 0) {
     blockingFlags.push({
       key: "rule_violation",
+      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
       severity: "blocking",
       count: rulesEvaluation.blockingViolations.length,
       item_ids: [],
@@ -541,6 +608,7 @@ export async function evaluateEstimateSendGating(
   if (rulesEvaluation.warningViolations.length > 0) {
     warningFlags.push({
       key: "rule_violation",
+      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
       severity: "warning",
       count: rulesEvaluation.warningViolations.length,
       item_ids: [],
@@ -550,69 +618,94 @@ export async function evaluateEstimateSendGating(
     });
   }
 
-  if (registerSummary.criticalOpenEntries.length > 0) {
-    blockingFlags.push({
-      key: "critical_open_questions",
-      severity: "blocking",
-      count: registerSummary.criticalOpenEntries.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.critical_open_questions.label,
-      description: ESTIMATE_GATING_FLAG_META.critical_open_questions.description,
-      details: {
-        register_entries: registerSummary.criticalOpenEntries.map((entry) => ({
-          ...entry,
-          href: buildAffaireRegisterHubHref({
-            projectId: input.project.id,
-            status: "open",
-            severity: "critical",
-            focusEntryId: entry.id,
-          }),
-        })),
-      },
-    });
-  }
+  const criticalMissingPieceEntries = registerSummary.criticalOpenEntries.filter(
+    (entry) => entry.kind === "missing_piece"
+  );
+  const criticalAssumptionEntries = registerSummary.criticalOpenEntries.filter(
+    (entry) => entry.kind === "assumption"
+  );
+  const clarifyMissingPieceEntries = registerSummary.clarifyWithClientEntries.filter(
+    (entry) => entry.kind === "missing_piece"
+  );
+  const clarifyAssumptionEntries = registerSummary.clarifyWithClientEntries.filter(
+    (entry) => entry.kind === "assumption"
+  );
+  const openMissingPieceEntries = registerSummary.nonCriticalOpenEntries.filter(
+    (entry) => entry.kind === "missing_piece"
+  );
+  const openAssumptionEntries = registerSummary.nonCriticalOpenEntries.filter(
+    (entry) => entry.kind === "assumption"
+  );
 
-  if (registerSummary.clarifyWithClientEntries.length > 0) {
-    blockingFlags.push({
-      key: "client_clarification_required",
-      severity: "blocking",
-      count: registerSummary.clarifyWithClientEntries.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.client_clarification_required.label,
-      description: ESTIMATE_GATING_FLAG_META.client_clarification_required.description,
-      details: {
-        register_entries: registerSummary.clarifyWithClientEntries.map((entry) => ({
-          ...entry,
-          href: buildAffaireRegisterHubHref({
-            projectId: input.project.id,
-            status: "clarify_with_client",
-            focusEntryId: entry.id,
-          }),
-        })),
-      },
-    });
-  }
-
-  if (registerSummary.nonCriticalOpenEntries.length > 0) {
-    warningFlags.push({
-      key: "open_questions_pending",
-      severity: "warning",
-      count: registerSummary.nonCriticalOpenEntries.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.open_questions_pending.label,
-      description: ESTIMATE_GATING_FLAG_META.open_questions_pending.description,
-      details: {
-        register_entries: registerSummary.nonCriticalOpenEntries.map((entry) => ({
-          ...entry,
-          href: buildAffaireRegisterHubHref({
-            projectId: input.project.id,
-            status: "open",
-            focusEntryId: entry.id,
-          }),
-        })),
-      },
-    });
-  }
+  pushRegisterGatingFlag({
+    bucket: blockingFlags,
+    key: "critical_open_questions",
+    severity: "blocking",
+    projectId: input.project.id,
+    status: "open",
+    entries: criticalMissingPieceEntries,
+    kind: "missing_piece",
+    label: "Documents critiques manquants",
+    description:
+      "Des pieces critiques restent manquantes ou inexploitees dans le registre affaire.",
+  });
+  pushRegisterGatingFlag({
+    bucket: blockingFlags,
+    key: "critical_open_questions",
+    severity: "blocking",
+    projectId: input.project.id,
+    status: "open",
+    entries: criticalAssumptionEntries,
+    kind: "assumption",
+    label: ESTIMATE_GATING_FLAG_META.critical_open_questions.label,
+    description: ESTIMATE_GATING_FLAG_META.critical_open_questions.description,
+  });
+  pushRegisterGatingFlag({
+    bucket: blockingFlags,
+    key: "client_clarification_required",
+    severity: "blocking",
+    projectId: input.project.id,
+    status: "clarify_with_client",
+    entries: clarifyMissingPieceEntries,
+    kind: "missing_piece",
+    label: "Documents attendus du client",
+    description:
+      "Des pieces attendues du client restent necessaires avant l'envoi.",
+  });
+  pushRegisterGatingFlag({
+    bucket: blockingFlags,
+    key: "client_clarification_required",
+    severity: "blocking",
+    projectId: input.project.id,
+    status: "clarify_with_client",
+    entries: clarifyAssumptionEntries,
+    kind: "assumption",
+    label: ESTIMATE_GATING_FLAG_META.client_clarification_required.label,
+    description: ESTIMATE_GATING_FLAG_META.client_clarification_required.description,
+  });
+  pushRegisterGatingFlag({
+    bucket: warningFlags,
+    key: "open_questions_pending",
+    severity: "warning",
+    projectId: input.project.id,
+    status: "open",
+    entries: openMissingPieceEntries,
+    kind: "missing_piece",
+    label: "Documents manquants a traiter",
+    description:
+      "Des pieces manquantes non critiques restent ouvertes dans le registre affaire.",
+  });
+  pushRegisterGatingFlag({
+    bucket: warningFlags,
+    key: "open_questions_pending",
+    severity: "warning",
+    projectId: input.project.id,
+    status: "open",
+    entries: openAssumptionEntries,
+    kind: "assumption",
+    label: ESTIMATE_GATING_FLAG_META.open_questions_pending.label,
+    description: ESTIMATE_GATING_FLAG_META.open_questions_pending.description,
+  });
 
   return {
     canSend: blockingFlags.length === 0,

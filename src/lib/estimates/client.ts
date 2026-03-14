@@ -671,6 +671,12 @@ export type EstimatePdfStatusResponse = {
 
 export type EstimateSendGatingFlag = {
   key: string;
+  category?:
+    | "documents"
+    | "register"
+    | "estimate_quality"
+    | "pdf"
+    | "approvals";
   severity: "blocking" | "warning";
   count: number;
   itemIds: string[];
@@ -1407,6 +1413,7 @@ function parseEstimateSendGatingFlag(
   if (!isRecord(value)) return null;
 
   const key = toStringValue(value.key);
+  const categoryRaw = toStringValue(value.category);
   const severityRaw = toStringValue(value.severity);
   const count = toNumber(value.count);
   const label = toStringValue(value.label);
@@ -1429,6 +1436,14 @@ function parseEstimateSendGatingFlag(
 
   return {
     key,
+    category:
+      categoryRaw === "documents" ||
+      categoryRaw === "register" ||
+      categoryRaw === "estimate_quality" ||
+      categoryRaw === "pdf" ||
+      categoryRaw === "approvals"
+        ? categoryRaw
+        : undefined,
     severity: severityRaw,
     count,
     itemIds,
