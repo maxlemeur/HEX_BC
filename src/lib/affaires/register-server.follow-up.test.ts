@@ -17,6 +17,34 @@ const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const ENTRY_ID = "55555555-5555-4555-8555-555555555555";
 const NOW = "2026-03-14T10:00:00.000Z";
 
+type RegisterEntryRow = {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  version_id: string | null;
+  source_document_id: string | null;
+  kind: "missing_piece";
+  code: string;
+  text: string;
+  severity: "info" | "warning" | "critical";
+  status: "open";
+  origin_kind: "system";
+  scope_type: "project";
+  scope_id: string | null;
+  scope_ref: string | null;
+  scope_label: string;
+  source_file_name: string;
+  sync_key: string;
+  is_active: boolean;
+  metadata: Record<string, unknown>;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  created_by_profile: null;
+  updated_by_profile: null;
+};
+
 function createProjectRow() {
   return {
     id: PROJECT_ID,
@@ -29,7 +57,16 @@ function createProjectRow() {
   };
 }
 
-function createEntryRow() {
+function createEntryRow(overrides: Partial<RegisterEntryRow> = {}) {
+  const base = createBaseEntryRow();
+  return {
+    ...base,
+    ...overrides,
+    metadata: overrides.metadata ?? base.metadata,
+  };
+}
+
+function createBaseEntryRow(): RegisterEntryRow {
   return {
     id: ENTRY_ID,
     tenant_id: TENANT_ID,
@@ -93,10 +130,15 @@ function createUpdatedEntryRow() {
   };
 }
 
-function createSupabaseMock() {
+function createSupabaseMock(options?: {
+  initialEntryRow?: ReturnType<typeof createEntryRow>;
+  updatedEntryRow?: ReturnType<typeof createEntryRow>;
+}) {
   const eventPayloads: unknown[] = [];
   const updatePayloads: unknown[] = [];
   let registerEntriesCall = 0;
+  const initialEntryRow = options?.initialEntryRow ?? createEntryRow();
+  const updatedEntryRow = options?.updatedEntryRow ?? createUpdatedEntryRow();
 
   const supabase = {
     auth: {
@@ -221,7 +263,7 @@ function createSupabaseMock() {
           }
 
           return {
-            data: createEntryRow(),
+            data: initialEntryRow,
             error: null,
           };
         });
@@ -235,7 +277,7 @@ function createSupabaseMock() {
           }
 
           return {
-            data: createUpdatedEntryRow(),
+            data: updatedEntryRow,
             error: null,
           };
         });
@@ -330,6 +372,130 @@ describe("affaire register follow-up contract", () => {
       ownerUserId: OWNER_ID,
       ownerName: "Marie Curie",
       dueDate: "2026-03-20",
+    });
+  });
+
+  it("preserves canonical severity when editing follow-up fields on overridden entries", async () => {
+    const initialEntryRow = createEntryRow({
+      severity: "warning",
+      metadata: {
+        severityDecision: {
+          mode: "manual",
+          canonicalSeverity: "critical",
+          overriddenSeverity: "warning",
+          updatedAt: NOW,
+          updatedByUserId: USER_ID,
+          comment: "Mode budget assume.",
+        },
+      },
+    });
+    const updatedEntryRow = createEntryRow({
+      severity: "warning",
+      metadata: {
+        severityDecision: {
+          mode: "manual",
+          canonicalSeverity: "critical",
+          overriddenSeverity: "warning",
+          updatedAt: NOW,
+          updatedByUserId: USER_ID,
+          comment: "Mode budget assume.",
+        },
+        followUp: {
+          ownerUserId: OWNER_ID,
+          ownerName: "Marie Curie",
+          dueDate: "2026-03-20",
+          updatedAt: NOW,
+          updatedByUserId: USER_ID,
+          comment: "Owner assigned.",
+        },
+      },
+    });
+    const { supabase, updatePayloads } = createSupabaseMock({
+      initialEntryRow,
+      updatedEntryRow,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateAffaireRegisterEntryFollowUp({
+      projectId: PROJECT_ID,
+      entryId: ENTRY_ID,
+      ownerUserId: OWNER_ID,
+      dueDate: "2026-03-20",
+      comment: "Owner assigned.",
+    });
+
+    expect(updatePayloads[0]).toMatchObject({
+      severity: "warning",
+      metadata: expect.objectContaining({
+        severityDecision: expect.objectContaining({
+          mode: "manual",
+          canonicalSeverity: "critical",
+          overriddenSeverity: "warning",
+        }),
+      }),
+    });
+    expect(result.entry.severityDecision).toMatchObject({
+      mode: "manual",
+      canonicalSeverity: "critical",
+      overriddenSeverity: "warning",
+    });
+  });
+
+  it("restores the stored canonical severity when clearing a manual override", async () => {
+    const initialEntryRow = createEntryRow({
+      severity: "warning",
+      metadata: {
+        severityDecision: {
+          mode: "manual",
+          canonicalSeverity: "critical",
+          overriddenSeverity: "warning",
+          updatedAt: NOW,
+          updatedByUserId: USER_ID,
+          comment: "Mode budget assume.",
+        },
+      },
+    });
+    const updatedEntryRow = createEntryRow({
+      severity: "critical",
+      metadata: {
+        severityDecision: {
+          mode: "canonical",
+          canonicalSeverity: "critical",
+          overriddenSeverity: null,
+          updatedAt: NOW,
+          updatedByUserId: USER_ID,
+          comment: "Retour au systeme.",
+        },
+      },
+    });
+    const { supabase, updatePayloads } = createSupabaseMock({
+      initialEntryRow,
+      updatedEntryRow,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateAffaireRegisterEntryFollowUp({
+      projectId: PROJECT_ID,
+      entryId: ENTRY_ID,
+      severity: null,
+      comment: "Retour au systeme.",
+    });
+
+    expect(updatePayloads[0]).toMatchObject({
+      severity: "critical",
+      metadata: expect.objectContaining({
+        severityDecision: expect.objectContaining({
+          mode: "canonical",
+          canonicalSeverity: "critical",
+          overriddenSeverity: null,
+        }),
+      }),
+    });
+    expect(result.entry.severity).toBe("critical");
+    expect(result.entry.severityDecision).toMatchObject({
+      mode: "canonical",
+      canonicalSeverity: "critical",
+      overriddenSeverity: null,
     });
   });
 });

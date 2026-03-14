@@ -2116,9 +2116,15 @@ export async function updateAffaireRegisterEntryFollowUp(
   const now = new Date().toISOString();
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
   const currentFollowUp = extractAffaireRegisterFollowUp(entry.metadata);
+  const existingSeverityDecision = extractAffaireRegisterSeverityDecision(
+    entry.metadata
+  );
   const currentSeverityDecision = buildCanonicalSeverityDecision({
-    severity: entry.severity,
-    existing: extractAffaireRegisterSeverityDecision(entry.metadata),
+    severity:
+      existingSeverityDecision?.mode === "manual"
+        ? existingSeverityDecision.canonicalSeverity
+        : entry.severity,
+    existing: existingSeverityDecision,
     updatedAt: entry.updated_at,
     updatedByUserId: entry.updated_by,
   });
