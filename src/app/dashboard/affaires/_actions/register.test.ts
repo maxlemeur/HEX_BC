@@ -8,6 +8,7 @@ vi.mock("@/lib/affaires/register-server", () => ({
   continueAffaireRegisterWithHypothesis: vi.fn(),
   createAffaireRegisterEntry: vi.fn(),
   requestAffaireRegisterRevalidation: vi.fn(),
+  updateAffaireRegisterEntryFollowUp: vi.fn(),
   updateAffaireRegisterEntryStatus: vi.fn(),
 }));
 
@@ -17,12 +18,14 @@ import {
   continueAffaireRegisterWithHypothesisAction,
   createAffaireRegisterEntryAction,
   requestAffaireRegisterRevalidationAction,
+  updateAffaireRegisterEntryFollowUpAction,
   updateAffaireRegisterEntryStatusAction,
 } from "@/app/dashboard/affaires/_actions/register";
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
   requestAffaireRegisterRevalidation,
+  updateAffaireRegisterEntryFollowUp,
   updateAffaireRegisterEntryStatus,
 } from "@/lib/affaires/register-server";
 
@@ -139,6 +142,78 @@ describe("affaire register server actions", () => {
       entryId: ENTRY_ID,
       status: "validated",
       comment: "Piece fournie par le client.",
+    });
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/affaires/${PROJECT_ID}`
+    );
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/estimates/${VERSION_ID}`
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("updates severity, owner and due date and revalidates the register pages", async () => {
+    vi.mocked(updateAffaireRegisterEntryFollowUp).mockResolvedValue({
+      ok: true,
+      entry: {
+        id: ENTRY_ID,
+        kind: "missing_piece",
+        code: "missing_dpgf",
+        text: "DPGF manquant",
+        severity: "warning",
+        status: "open",
+        originKind: "system",
+        scopeType: "project",
+        scopeId: null,
+        scopeRef: null,
+        scopeLabel: "Affaire test",
+        versionId: VERSION_ID,
+        sourceDocumentId: null,
+        sourceFileName: null,
+        createdBy: null,
+        createdByName: null,
+        updatedBy: null,
+        updatedByName: null,
+        createdAt: "2026-03-06T10:00:00.000Z",
+        updatedAt: "2026-03-06T10:05:00.000Z",
+        severityDecision: {
+          mode: "manual",
+          canonicalSeverity: "critical",
+          overriddenSeverity: "warning",
+          updatedAt: "2026-03-06T10:05:00.000Z",
+          updatedByUserId: PROJECT_ID,
+          comment: "Mode budget assume.",
+        },
+        followUp: {
+          ownerUserId: "44444444-4444-4444-8444-444444444444",
+          ownerName: "Marie Curie",
+          dueDate: "2026-03-20",
+          updatedAt: "2026-03-06T10:05:00.000Z",
+          updatedByUserId: PROJECT_ID,
+          comment: "Mode budget assume.",
+        },
+        history: [],
+      },
+    });
+
+    const result = await updateAffaireRegisterEntryFollowUpAction({
+      projectId: PROJECT_ID,
+      versionId: VERSION_ID,
+      entryId: ENTRY_ID,
+      severity: "warning",
+      ownerUserId: "44444444-4444-4444-8444-444444444444",
+      dueDate: "2026-03-20",
+      comment: " Mode budget assume. ",
+    });
+
+    expect(vi.mocked(updateAffaireRegisterEntryFollowUp)).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      entryId: ENTRY_ID,
+      severity: "warning",
+      ownerUserId: "44444444-4444-4444-8444-444444444444",
+      dueDate: "2026-03-20",
+      comment: "Mode budget assume.",
     });
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(

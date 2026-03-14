@@ -13,7 +13,9 @@ import {
   extractAffaireRegisterBusinessLocation,
   extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterContinuationDecision,
+  extractAffaireRegisterFollowUp,
   extractAffaireRegisterRevalidationRequest,
+  extractAffaireRegisterSeverityDecision,
   isAffaireRegisterEntryRevalidationRequired,
   parseAffaireRegisterRevalidationSearchParam,
   resolveAffaireRegisterBusinessLocation,
@@ -290,6 +292,44 @@ describe("affaire register continuation contract", () => {
       versionId: null,
       sourceDocumentId: null,
       sourceFileName: "plans.pdf",
+    });
+  });
+
+  it("extracts persisted severity decisions and follow-up data from metadata", () => {
+    const metadata = {
+      severityDecision: {
+        mode: "manual",
+        canonicalSeverity: "critical",
+        overriddenSeverity: "warning",
+        updatedAt: "2026-03-14T10:00:00.000Z",
+        updatedByUserId: "11111111-1111-4111-8111-111111111111",
+        comment: "Budget exploratoire.",
+      },
+      followUp: {
+        ownerUserId: "22222222-2222-4222-8222-222222222222",
+        ownerName: "Marie Curie",
+        dueDate: "2026-03-20",
+        updatedAt: "2026-03-14T10:05:00.000Z",
+        updatedByUserId: "11111111-1111-4111-8111-111111111111",
+        comment: "A relancer avant revue.",
+      },
+    };
+
+    expect(extractAffaireRegisterSeverityDecision(metadata)).toEqual({
+      mode: "manual",
+      canonicalSeverity: "critical",
+      overriddenSeverity: "warning",
+      updatedAt: "2026-03-14T10:00:00.000Z",
+      updatedByUserId: "11111111-1111-4111-8111-111111111111",
+      comment: "Budget exploratoire.",
+    });
+    expect(extractAffaireRegisterFollowUp(metadata)).toEqual({
+      ownerUserId: "22222222-2222-4222-8222-222222222222",
+      ownerName: "Marie Curie",
+      dueDate: "2026-03-20",
+      updatedAt: "2026-03-14T10:05:00.000Z",
+      updatedByUserId: "11111111-1111-4111-8111-111111111111",
+      comment: "A relancer avant revue.",
     });
   });
 

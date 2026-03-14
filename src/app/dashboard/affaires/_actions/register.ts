@@ -15,6 +15,7 @@ import {
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
+  updateAffaireRegisterEntryFollowUp,
   requestAffaireRegisterRevalidation,
   updateAffaireRegisterEntryStatus,
 } from "@/lib/affaires/register-server";
@@ -40,6 +41,30 @@ const updateAffaireRegisterEntryStatusActionInputSchema = z.object({
   status: affaireRegisterEntryStatusSchema,
   comment: z.string().trim().max(320).nullable().optional(),
 });
+
+const updateAffaireRegisterEntryFollowUpActionInputSchema = z
+  .object({
+    projectId: z.string().uuid("projectId invalide."),
+    versionId: z.string().uuid("versionId invalide.").nullable().optional(),
+    entryId: z.string().uuid("entryId invalide."),
+    severity: affaireRegisterEntrySeveritySchema.nullable().optional(),
+    ownerUserId: z.string().uuid("ownerUserId invalide.").nullable().optional(),
+    dueDate: z.string().date("dueDate invalide.").nullable().optional(),
+    comment: z.string().trim().max(320).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.severity === undefined &&
+      value.ownerUserId === undefined &&
+      value.dueDate === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Au moins une mise a jour de severite, responsable ou echeance est requise.",
+      });
+    }
+  });
 
 const requestAffaireRegisterRevalidationActionInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
@@ -68,6 +93,10 @@ export type CreateAffaireRegisterEntryActionInput = z.infer<
 
 export type UpdateAffaireRegisterEntryStatusActionInput = z.infer<
   typeof updateAffaireRegisterEntryStatusActionInputSchema
+>;
+
+export type UpdateAffaireRegisterEntryFollowUpActionInput = z.infer<
+  typeof updateAffaireRegisterEntryFollowUpActionInputSchema
 >;
 
 export type RequestAffaireRegisterRevalidationActionInput = z.infer<
@@ -117,6 +146,29 @@ export async function updateAffaireRegisterEntryStatusAction(
     projectId: parsed.projectId,
     entryId: parsed.entryId,
     status: parsed.status,
+    comment: parsed.comment ?? null,
+  });
+
+  revalidateAffaireRegisterPaths(parsed.projectId, parsed.versionId ?? result.entry.versionId);
+
+  return result;
+}
+
+export async function updateAffaireRegisterEntryFollowUpAction(
+  input: UpdateAffaireRegisterEntryFollowUpActionInput
+) {
+  const parsed = updateAffaireRegisterEntryFollowUpActionInputSchema.parse({
+    ...input,
+    comment: input.comment ? normalizeAffaireRegisterText(input.comment, 320) : null,
+  });
+  const result = await updateAffaireRegisterEntryFollowUp({
+    projectId: parsed.projectId,
+    entryId: parsed.entryId,
+    severity:
+      parsed.severity === undefined ? undefined : parsed.severity ?? null,
+    ownerUserId:
+      parsed.ownerUserId === undefined ? undefined : parsed.ownerUserId ?? null,
+    dueDate: parsed.dueDate === undefined ? undefined : parsed.dueDate ?? null,
     comment: parsed.comment ?? null,
   });
 

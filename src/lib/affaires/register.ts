@@ -24,6 +24,7 @@ export const affaireRegisterEventTypeSchema = z.enum([
   "created",
   "synced",
   "status_changed",
+  "follow_up_updated",
   "clarify_with_client_requested",
   "continued_with_hypothesis",
   "revalidation_requested",
@@ -127,6 +128,7 @@ export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
   created: "Entree creee",
   synced: "Resynchronisee",
   status_changed: "Statut modifie",
+  follow_up_updated: "Pilotage metier mis a jour",
   clarify_with_client_requested: "Clarification client demandee",
   continued_with_hypothesis: "Continuation acceptee sous hypothese",
   revalidation_requested: "Revalidation demandee",
@@ -203,6 +205,8 @@ export type AffaireRegisterEntry = {
   updatedAt: string;
   businessImpact?: AffaireRegisterBusinessImpact[];
   location?: AffaireRegisterBusinessLocation;
+  severityDecision?: AffaireRegisterSeverityDecision | null;
+  followUp?: AffaireRegisterFollowUp | null;
   clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
   revalidationRequest?: AffaireRegisterRevalidationRequest | null;
@@ -287,6 +291,42 @@ export type AffaireRegisterSummary = {
   revalidationBlocksSubmission?: boolean;
   revalidationBlocksEstimation?: boolean;
   revalidationImpactedStages?: AffaireRegisterRevalidationImpactedStage[];
+};
+
+export const affaireRegisterSeverityDecisionSchema = z
+  .object({
+    mode: z.enum(["canonical", "manual"]),
+    canonicalSeverity: affaireRegisterEntrySeveritySchema,
+    overriddenSeverity: affaireRegisterEntrySeveritySchema.nullable(),
+    updatedAt: z.string().datetime({ offset: true }),
+    updatedByUserId: z.string().uuid().nullable(),
+    comment: z.string().trim().min(1).max(320).nullable().optional(),
+  })
+  .strict();
+
+export type AffaireRegisterSeverityDecision = z.infer<
+  typeof affaireRegisterSeverityDecisionSchema
+>;
+
+export const affaireRegisterFollowUpSchema = z
+  .object({
+    ownerUserId: z.string().uuid().nullable(),
+    ownerName: z.string().trim().min(1).max(180).nullable(),
+    dueDate: z.string().date().nullable(),
+    updatedAt: z.string().datetime({ offset: true }),
+    updatedByUserId: z.string().uuid().nullable(),
+    comment: z.string().trim().min(1).max(320).nullable().optional(),
+  })
+  .strict();
+
+export type AffaireRegisterFollowUp = z.infer<
+  typeof affaireRegisterFollowUpSchema
+>;
+
+export type AffaireRegisterOwnerOption = {
+  userId: string;
+  label: string;
+  role: "admin" | "director" | "engineer";
 };
 
 export const affaireRegisterClientClarificationRequestSchema = z
@@ -412,6 +452,42 @@ export function extractAffaireRegisterContinuationDecision(
 
   const parsed = affaireRegisterContinuationDecisionSchema.safeParse(
     (metadata as Record<string, unknown>).continuationDecision
+  );
+  return parsed.success ? parsed.data : null;
+}
+
+export function extractAffaireRegisterSeverityDecision(
+  metadata: unknown
+): AffaireRegisterSeverityDecision | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("severityDecision" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = affaireRegisterSeverityDecisionSchema.safeParse(
+    (metadata as Record<string, unknown>).severityDecision
+  );
+  return parsed.success ? parsed.data : null;
+}
+
+export function extractAffaireRegisterFollowUp(
+  metadata: unknown
+): AffaireRegisterFollowUp | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("followUp" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = affaireRegisterFollowUpSchema.safeParse(
+    (metadata as Record<string, unknown>).followUp
   );
   return parsed.success ? parsed.data : null;
 }
