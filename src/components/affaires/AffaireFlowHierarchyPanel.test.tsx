@@ -839,6 +839,214 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
   });
 
+  it("softens missing-piece guidance when canonical readiness already allows continuation", () => {
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-missing-reserved"
+        hubReadiness={{
+          status: "ready_with_reservations",
+          workingBasis: "established",
+          allowsContinuation: true,
+          briefStatus: "confirme",
+          drivers: [
+            {
+              code: "critical_missing_piece",
+              source: "intake",
+              severity: "critical",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 1,
+            confirmedCriticalMissingPiecesCount: 1,
+          },
+          register: {
+            criticalOpenCount: 1,
+            clarifyWithClientCount: 0,
+            continuedWithHypothesisCount: 0,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-missing-reserved",
+          projectId: "project-missing-reserved",
+          versionNumber: 2,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [{ code: "missing_plans", label: "Plans manquants", severity: "critical" }],
+          briefDraft: {
+            status: "confirme",
+            summary: "Brief confirme.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts"],
+            lots: ["Electricite"],
+            receivedPieces: ["DPGF"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: ["Plans"],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        registerSummary={{
+          openQuestionsCount: 1,
+          criticalOpenCount: 1,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 1,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[]}
+      />,
+    );
+
+    expect(screen.queryByText(/avant de lancer le metre/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Avancer sous reserves")).toBeInTheDocument();
+  });
+
+  it("keeps the brief hero aligned with canonical not-ready status", () => {
+    const confirmBrief = buildSuggestion({
+      actionId: "confirm-brief-not-ready",
+      label: "Confirmer le brief affaire",
+      intent: "confirm_brief",
+      preview: "Valider le cadrage du dossier avant de debloquer la suite du chiffrage assiste.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-brief-not-ready#brief",
+      },
+      priority: 700,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-brief-not-ready"
+        hubReadiness={{
+          status: "not_ready",
+          workingBasis: "insufficient",
+          allowsContinuation: false,
+          briefStatus: "a_confirmer",
+          drivers: [
+            {
+              code: "brief_to_confirm",
+              source: "brief",
+              severity: "critical",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 0,
+            continuedWithHypothesisCount: 0,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-brief-not-ready",
+          projectId: "project-brief-not-ready",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "a_confirmer",
+            summary: "Brief a confirmer.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts"],
+            lots: ["Electricite"],
+            receivedPieces: ["DPGF", "Plans"],
+            assumptions: [],
+            vigilancePoints: ["Verifier les hypotheses de phasage."],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: null,
+          },
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[confirmBrief]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Base de travail insuffisante" })).toBeInTheDocument();
+    expect(screen.getAllByText("Brief a confirmer").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Dossier exploitable")).not.toBeInTheDocument();
+    expect(screen.getByText("Base insuffisante")).toBeInTheDocument();
+  });
+
   it("shows the canonical hub readiness even when the local next step looks ready", () => {
     const analyzePlans = buildSuggestion({
       actionId: "analyze-plans",
@@ -939,6 +1147,108 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base de travail prete")).not.toBeInTheDocument();
     expect(screen.getByText("Base devis disponible sous reserves")).toBeInTheDocument();
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
+  });
+
+  it("blocks plan launch CTAs when canonical readiness is not ready", () => {
+    const analyzePlans = buildSuggestion({
+      actionId: "analyze-plans-not-ready",
+      label: "Lancer le metre",
+      intent: "analyze_plans",
+      preview: "Analyser les plans pour extraire les quantites.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-not-ready/plans",
+      },
+      priority: 600,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-not-ready"
+        hubReadiness={{
+          status: "not_ready",
+          workingBasis: "insufficient",
+          allowsContinuation: false,
+          briefStatus: "missing",
+          drivers: [
+            {
+              code: "brief_missing",
+              source: "brief",
+              severity: "critical",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 0,
+            continuedWithHypothesisCount: 0,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-not-ready",
+          projectId: "project-not-ready",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[analyzePlans]}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Lancer le metre" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Confirmer le brief" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-not-ready#brief",
+    );
+    expect(screen.getByText("Base insuffisante")).toBeInTheDocument();
   });
 
   it("prefers canonical submission readiness over the legacy ready-to-send alias", () => {

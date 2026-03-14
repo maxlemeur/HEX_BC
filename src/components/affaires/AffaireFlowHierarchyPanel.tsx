@@ -64,6 +64,7 @@ type PanelResultCard =
       kind: "review";
       title: string;
       message: string;
+      readinessStatus?: PanelModel["readinessLevel"];
       action: PanelAction;
       facts: string[];
       evidence: string[];
@@ -72,6 +73,7 @@ type PanelResultCard =
       kind: "primary";
       title: string;
       message: string;
+      readinessStatus?: PanelModel["readinessLevel"];
       action: PanelAction | null;
       facts: string[];
       evidence?: string[];
@@ -80,6 +82,7 @@ type PanelResultCard =
       kind: "missing";
       title: string;
       message: string;
+      readinessStatus?: PanelModel["readinessLevel"];
       action: PanelAction;
       facts: string[];
       slotStatus: {
@@ -92,6 +95,7 @@ type PanelResultCard =
       kind: "brief" | "structure" | "plans";
       title: string;
       message: string;
+      readinessStatus?: PanelModel["readinessLevel"];
       action: PanelAction;
       facts: string[];
       evidence?: string[];
@@ -519,6 +523,9 @@ function buildPanelModel(
   const generateStructureSuggestion = findSuggestion(suggestions, "generate_structure");
   const viewExceptionsSuggestion = findSuggestion(suggestions, "view_exceptions");
   const prepareValidationSuggestion = findSuggestion(suggestions, "prepare_validation");
+  const canonicalHubReadiness = input.hubReadiness ?? null;
+  const canonicalReadinessStatus = canonicalHubReadiness?.status ?? null;
+  const allowsCanonicalContinuation = canonicalHubReadiness?.allowsContinuation ?? false;
 
   let title = "Continuer depuis l'affaire";
   let summary =
@@ -540,9 +547,7 @@ function buildPanelModel(
   const hasDocumentReservations =
     documentReadinessFlags.length > 0 ||
     hasOpenCriticalRegisterDocumentRisk(input.registerSummary);
-  const hasCanonicalWorkReservations =
-    input.hubReadiness?.status === "ready_with_reservations" ||
-    input.hubReadiness?.status === "not_ready";
+  const hasCanonicalWorkReservations = canonicalReadinessStatus === "ready_with_reservations";
   const hasWorkReservations = hasDocumentReservations || hasCanonicalWorkReservations;
   const documentReservationFacts = dedupe(
     documentReadinessFlags.map((flag) => flag.label).slice(0, 2),
@@ -640,15 +645,20 @@ function buildPanelModel(
     };
   } else if (criticalMissingPieces.length > 0 || missingPieces.length > 0) {
     const count = criticalMissingPieces.length > 0 ? criticalMissingPieces.length : missingPieces.length;
-    title = "Completer le dossier";
-    summary =
-      criticalMissingPieces.length > 0
+    const missingPiecesAllowContinuation =
+      allowsCanonicalContinuation && canonicalReadinessStatus !== "not_ready";
+    title = missingPiecesAllowContinuation ? "Consolider le dossier" : "Completer le dossier";
+    summary = missingPiecesAllowContinuation
+      ? criticalMissingPieces.length > 0
+        ? `Le dossier peut avancer, mais ${count} piece${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} reste${count > 1 ? "nt" : ""} a regulariser pour fiabiliser le metre et la sortie devis.`
+        : `Le dossier reste exploitable, mais ${count} piece${count > 1 ? "s" : ""} manque${count > 1 ? "nt" : ""} encore pour fiabiliser le chiffrage.`
+      : criticalMissingPieces.length > 0
         ? `Ajoutez d'abord ${count} piece${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} avant de lancer le metre ou de finaliser la sortie devis.`
         : `Le dossier reste incomplet. Ajoutez les pieces manquantes avant de poursuivre le chiffrage.`;
-    statusLabel = "Dossier incomplet";
+    statusLabel = missingPiecesAllowContinuation ? "Sous reserves" : "Dossier incomplet";
     statusVariant = "warning";
     heroState = "missing";
-    readinessLevel = "not_ready";
+    readinessLevel = canonicalReadinessStatus ?? "not_ready";
     primaryAction = addMissingPiecesSuggestion
       ? toSuggestionAction(addMissingPiecesSuggestion)
       : addFilesSuggestion
@@ -662,13 +672,19 @@ function buildPanelModel(
           });
     resultCard = {
       kind: "missing",
-      title: "Dossier incomplet",
-      message:
-        !hasDpgf && !hasPlans
+      title: missingPiecesAllowContinuation ? "Dossier exploitable sous reserves" : "Dossier incomplet",
+      message: missingPiecesAllowContinuation
+        ? !hasDpgf && !hasPlans
+          ? "La base actuelle permet d'avancer, mais la base devis et les plans restent a consolider."
+          : !hasDpgf
+            ? "Les plans sont presents. Ajoutez la base devis pour fiabiliser la suite du chiffrage."
+            : "La base devis est presente. Ajoutez les plans techniques pour fiabiliser la suite."
+        : !hasDpgf && !hasPlans
           ? "Il manque la base devis et les plans pour lancer l'analyse."
           : !hasDpgf
             ? "Les plans sont presents, mais il manque encore la base devis."
             : "La base devis est prete, mais il manque encore les plans techniques.",
+      readinessStatus: readinessLevel,
       action: primaryAction,
       facts: missingPieces.map((piece) => piece.label).slice(0, 3),
       slotStatus: {
@@ -680,12 +696,15 @@ function buildPanelModel(
   } else if (confirmBriefSuggestion || briefDraft?.status === "a_confirmer") {
     title = "Confirmer le brief";
     summary =
-      confirmBriefSuggestion?.preview ??
-      "Valider le cadrage du dossier pour debloquer la suite du chiffrage assiste.";
-    statusLabel = "Brief a valider";
-    statusVariant = "info";
+      canonicalReadinessStatus === "not_ready"
+        ? confirmBriefSuggestion?.preview ??
+          "Valider le cadrage du dossier avant de debloquer la suite du chiffrage assiste."
+        : confirmBriefSuggestion?.preview ??
+          "Valider le cadrage du dossier pour debloquer la suite du chiffrage assiste.";
+    statusLabel = canonicalReadinessStatus === "not_ready" ? "Base insuffisante" : "Brief a valider";
+    statusVariant = canonicalReadinessStatus === "not_ready" ? "warning" : "info";
     heroState = "brief";
-    readinessLevel = "ready_with_reservations";
+    readinessLevel = canonicalReadinessStatus ?? "ready_with_reservations";
     primaryAction = confirmBriefSuggestion
       ? toSuggestionAction(confirmBriefSuggestion)
       : toHrefAction({
@@ -697,9 +716,15 @@ function buildPanelModel(
         });
     resultCard = {
       kind: "brief",
-      title: "Dossier exploitable",
+      title:
+        canonicalReadinessStatus === "not_ready"
+          ? "Base de travail insuffisante"
+          : "Dossier exploitable",
       message:
-        "Les pieces critiques sont presentes. Confirmez le cadrage metier avant de chiffrer.",
+        canonicalReadinessStatus === "not_ready"
+          ? "Confirmez le cadrage metier avant de structurer le devis ou de lancer le metre."
+          : "Les pieces critiques sont presentes. Confirmez le cadrage metier avant de chiffrer.",
+      readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
         hasDpgf ? "DPGF detecte" : "",
@@ -716,6 +741,65 @@ function buildPanelModel(
           : "",
       ]).filter(Boolean),
     };
+  } else if (canonicalReadinessStatus === "not_ready") {
+    const reviewPending = canonicalHubReadiness?.drivers.some((driver) => driver.code === "review_pending") ?? false;
+    const briefPending =
+      canonicalHubReadiness?.drivers.some(
+        (driver) => driver.code === "brief_missing" || driver.code === "brief_to_confirm",
+      ) ?? false;
+    const canonicalMissingCount =
+      canonicalHubReadiness?.intake.confirmedCriticalMissingPiecesCount ||
+      canonicalHubReadiness?.intake.confirmedMissingPiecesCount ||
+      0;
+
+    title = reviewPending
+      ? "Verifier les documents recus"
+      : briefPending
+        ? "Confirmer le brief"
+        : canonicalMissingCount > 0
+          ? "Completer le dossier"
+          : "Stabiliser le dossier";
+    summary = reviewPending
+      ? reviewIntakeSuggestion?.preview ??
+        "Des documents doivent encore etre confirmes avant toute reprise du chiffrage."
+      : briefPending
+        ? "Le cadrage metier doit etre valide avant de relancer les automatismes."
+        : canonicalMissingCount > 0
+          ? `Ajoutez d'abord ${canonicalMissingCount} piece${canonicalMissingCount > 1 ? "s" : ""} manquante${canonicalMissingCount > 1 ? "s" : ""} avant de relancer les automatismes.`
+          : "Le backend indique que le dossier n'est pas encore exploitable. Traitez le blocage prioritaire avant de poursuivre.";
+    statusLabel = "Base insuffisante";
+    statusVariant = "warning";
+    heroState = reviewPending ? "review" : briefPending ? "brief" : "missing";
+    readinessLevel = "not_ready";
+    primaryAction = reviewPending
+      ? reviewIntakeSuggestion
+        ? toSuggestionAction(reviewIntakeSuggestion)
+        : toHrefAction({
+            key: "review-intake-fallback",
+            label: "Confirmer les pieces",
+            description: "Ouvrir les pieces a revoir depuis le dossier intake.",
+            href: `/dashboard/affaires/${input.projectId}?intakeFilter=a_revoir#intake`,
+            variant: "primary",
+          })
+      : briefPending
+        ? toHrefAction({
+            key: "confirm-brief-fallback",
+            label: "Confirmer le brief",
+            description: "Ouvrir le brief affaire pour valider le cadrage metier.",
+            href: `/dashboard/affaires/${input.projectId}#brief`,
+            variant: "primary",
+          })
+        : addMissingPiecesSuggestion
+          ? toSuggestionAction(addMissingPiecesSuggestion)
+          : addFilesSuggestion
+            ? toSuggestionAction(addFilesSuggestion)
+            : toHrefAction({
+                key: "missing-intake-fallback",
+                label: "Completer le dossier",
+                description: "Ouvrir l'intake pour ajouter les pieces manquantes.",
+                href: `/dashboard/affaires/${input.projectId}#intake`,
+                variant: "primary",
+              });
   } else if (planExceptionCount > 0 && viewExceptionsSuggestion) {
     title = "Traiter les ecarts de preuves";
     summary = viewExceptionsSuggestion.preview;
@@ -740,6 +824,7 @@ function buildPanelModel(
       message: hasWorkReservations
         ? "Lancez l'analyse des plans, mais le dossier reste incomplet."
         : "Lancez l'analyse des plans pour extraire les quantites.",
+      readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
         hasPlans ? "Plans detectes" : "",
@@ -772,6 +857,7 @@ function buildPanelModel(
         : hasWorkReservations
           ? "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
+      readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
         hasDpgf
@@ -1206,6 +1292,14 @@ function getStateWhyContent(card: PanelResultCard) {
     };
   }
   if (card.kind === "brief") {
+    if (card.readinessStatus === "not_ready") {
+      return {
+        title:
+          "Le cadrage metier n'est pas encore stabilise. Confirmez le brief avant de lancer la structure ou le metre.",
+        hints: [...card.facts.slice(0, 2), ...(card.evidence ?? []).slice(0, 1)],
+      };
+    }
+
     return {
       title: "Le dossier est exploitable, mais le cadrage metier doit etre valide avant de structurer le devis.",
       hints: [...card.facts.slice(0, 2), ...(card.evidence ?? []).slice(0, 1)],
@@ -1228,7 +1322,9 @@ function getStateWhyContent(card: PanelResultCard) {
 function getStateHeroBadgeLabel(card: PanelResultCard) {
   if (card.kind === "primary") return "Reference principale a definir";
   if (card.kind === "missing") return "Pieces critiques manquantes";
-  if (card.kind === "brief") return "Dossier exploitable";
+  if (card.kind === "brief") {
+    return card.readinessStatus === "not_ready" ? "Brief a confirmer" : "Dossier exploitable";
+  }
   if (card.kind === "structure") {
     return isStructureResumeAction(card.action)
       ? "Structure a reprendre"
@@ -1392,7 +1488,9 @@ function ResultCard({
       : card.kind === "missing"
         ? "border-danger/20 bg-error-light"
         : card.kind === "brief"
-          ? "border-sky-200 bg-sky-50"
+          ? card.readinessStatus === "not_ready"
+            ? "border-amber-300 bg-amber-50"
+            : "border-sky-200 bg-sky-50"
           : card.kind === "structure"
             ? "border-indigo-200 bg-indigo-50"
             : "border-emerald-200 bg-emerald-50";
