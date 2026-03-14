@@ -423,6 +423,115 @@ describe("AffaireFinishLineActions", () => {
     expect(
       screen.getAllByText(/1 point reste a verifier avant l'envoi final/i).length
     ).toBeGreaterThan(0);
+    const emailCard = getLatestByTestId("affaire-finish-line-email").closest("article");
+    expect(emailCard).not.toBeNull();
+    expect(
+      within(emailCard as HTMLElement).getByText("Qualite devis · 1 reserve")
+    ).toBeInTheDocument();
+  });
+
+  it("shows canonical blocker categories in the email card", () => {
+    renderActions({
+      finishLineSummary: makeFinishLineSummary({
+        submissionReadiness: {
+          status: "blocked",
+          blockers: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+            {
+              key: "no_pdf_generated",
+              category: "pdf",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun PDF genere.",
+            },
+          ],
+          alerts: [],
+          groups: [
+            {
+              category: "documents",
+              blockers: [
+                {
+                  key: "critical_missing_pieces",
+                  category: "documents",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "Documents critiques manquants",
+                  description: "Des pieces critiques restent manquantes.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+            {
+              category: "pdf",
+              blockers: [
+                {
+                  key: "no_pdf_generated",
+                  category: "pdf",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "PDF absent",
+                  description: "Aucun PDF genere.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+          ],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "critical_missing_pieces",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+            {
+              key: "no_pdf_generated",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun PDF genere.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      }),
+    });
+
+    const emailCard = getLatestByTestId("affaire-finish-line-email").closest("article");
+    expect(emailCard).not.toBeNull();
+    expect(
+      within(emailCard as HTMLElement).getByText("Documents · 1 blocage")
+    ).toBeInTheDocument();
+    expect(
+      within(emailCard as HTMLElement).getByText("PDF · 1 blocage")
+    ).toBeInTheDocument();
   });
 
   it("generates the PDF from the affaire finish line and refreshes the hub", async () => {

@@ -376,6 +376,114 @@ describe("AffairePilotagePanel", () => {
     expect(cards[1]?.details).toContain("1 ligne sans fournisseur retenu");
   });
 
+  it("groups send blockers by canonical category in finish-line cards", () => {
+    const cards = buildFinishLineCards({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        ...makeFinishLineSummary(),
+        submissionReadiness: {
+          status: "blocked",
+          blockers: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+            {
+              key: "no_pdf_generated",
+              category: "pdf",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun document PDF n'est genere pour cette version.",
+            },
+          ],
+          alerts: [],
+          groups: [
+            {
+              category: "documents",
+              blockers: [
+                {
+                  key: "critical_missing_pieces",
+                  category: "documents",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "Documents critiques manquants",
+                  description: "Des pieces critiques restent manquantes.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+            {
+              category: "pdf",
+              blockers: [
+                {
+                  key: "no_pdf_generated",
+                  category: "pdf",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "PDF absent",
+                  description: "Aucun document PDF n'est genere pour cette version.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+          ],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "critical_missing_pieces",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+            {
+              key: "no_pdf_generated",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun document PDF n'est genere pour cette version.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(cards[0]?.details).toEqual([
+      "Documents · 1 blocage",
+      "PDF · 1 blocage",
+      "Documents critiques manquants",
+    ]);
+  });
+
   it("prioritizes submission readiness over the ready-to-send alias in finish-line cards", () => {
     const cards = buildFinishLineCards({
       projectId: "project-1",
@@ -449,7 +557,10 @@ describe("AffairePilotagePanel", () => {
       status: "warning",
       summary: "1 point a verifier avant l'envoi.",
     });
-    expect(cards[0]?.details).toEqual(["Prix a revalider"]);
+    expect(cards[0]?.details).toEqual([
+      "Qualite devis · 1 reserve",
+      "Prix a revalider",
+    ]);
   });
 
   it("exposes supplier price import from the affaire when no estimate exists yet", () => {
@@ -874,6 +985,80 @@ describe("AffairePilotagePanel", () => {
       label: "Ouvrir les clarifications client",
       href:
         "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption#register",
+    });
+  });
+
+  it("routes approval blockers to the validation section", () => {
+    const action = buildReadyToSendAction({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        ...makeFinishLineSummary(),
+        submissionReadiness: {
+          status: "blocked",
+          blockers: [
+            {
+              key: "rule_violation",
+              category: "approvals",
+              severity: "blocking",
+              count: 1,
+              item_ids: ["rule:approval"],
+              label: "Validation interne requise",
+              description: "Une validation interne reste necessaire.",
+            },
+          ],
+          alerts: [],
+          groups: [
+            {
+              category: "approvals",
+              blockers: [
+                {
+                  key: "rule_violation",
+                  category: "approvals",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: ["rule:approval"],
+                  label: "Validation interne requise",
+                  description: "Une validation interne reste necessaire.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+          ],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "rule_violation",
+              severity: "blocking",
+              count: 1,
+              item_ids: ["rule:approval"],
+              label: "Validation interne requise",
+              description: "Une validation interne reste necessaire.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(action).toEqual({
+      kind: "href",
+      label: "Ouvrir la validation",
+      href: "#approval",
     });
   });
 

@@ -9,6 +9,10 @@ import type {
   AffaireHubFinishLineSummaryResult,
 } from "@/lib/affaires/server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import {
+  ESTIMATE_READINESS_CATEGORY_LABELS,
+  type EstimateReadinessCategory,
+} from "@/lib/estimates/readiness";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 
@@ -77,6 +81,9 @@ type ReadyToSendBlockingFlag =
 type SubmissionReadinessSnapshot =
   NonNullable<AffaireHubFinishLineSummaryResult["submissionReadiness"]>;
 
+type SubmissionReadinessGroup =
+  SubmissionReadinessSnapshot["groups"][number];
+
 export function resolveSubmissionReadiness(
   finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined
 ): SubmissionReadinessSnapshot | null {
@@ -140,6 +147,52 @@ function resolveBlockingFlagRegisterSeverity(
 
 export function isPdfFinishLineFlag(flag: ReadyToSendBlockingFlag) {
   return flag.category === "pdf" || flag.key === "no_pdf_generated";
+}
+
+function formatSubmissionReadinessGroupCount(input: {
+  blockerCount: number;
+  alertCount: number;
+}) {
+  const parts: string[] = [];
+
+  if (input.blockerCount > 0) {
+    parts.push(
+      `${input.blockerCount} blocage${input.blockerCount > 1 ? "s" : ""}`,
+    );
+  }
+
+  if (input.alertCount > 0) {
+    parts.push(
+      `${input.alertCount} reserve${input.alertCount > 1 ? "s" : ""}`,
+    );
+  }
+
+  return parts.join(", ");
+}
+
+export function describeSubmissionReadinessGroup(
+  group: SubmissionReadinessGroup,
+) {
+  const categoryLabel = ESTIMATE_READINESS_CATEGORY_LABELS[group.category];
+  const countLabel = formatSubmissionReadinessGroupCount({
+    blockerCount: group.blockerCount,
+    alertCount: group.alertCount,
+  });
+
+  return `${categoryLabel} · ${countLabel}`;
+}
+
+function findSubmissionReadinessPrimaryCategory(
+  submissionReadiness: SubmissionReadinessSnapshot | null,
+): EstimateReadinessCategory | null {
+  if (!submissionReadiness || submissionReadiness.groups.length === 0) {
+    return null;
+  }
+
+  const firstBlockingGroup =
+    submissionReadiness.groups.find((group) => group.blockerCount > 0) ?? null;
+
+  return firstBlockingGroup?.category ?? submissionReadiness.groups[0]?.category ?? null;
 }
 
 function buildRegisterActionFromBlockingFlag(input: {
@@ -309,6 +362,16 @@ export function buildReadyToSendAction(input: {
     return registerAction;
   }
 
+  const primaryCategory = findSubmissionReadinessPrimaryCategory(submissionReadiness);
+
+  if (primaryCategory === "approvals") {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir la validation",
+      href: "#approval",
+    };
+  }
+
   if (blockingFlag && isPdfFinishLineFlag(blockingFlag) && input.currentVersion) {
     return {
       kind: "href" as const,
@@ -446,7 +509,13 @@ export function buildFinishLineCards(input: {
 
   const submissionReadiness = resolveSubmissionReadiness(input.finishLineSummary);
   const readyToSendDetails = submissionReadiness
-    ? [...submissionReadiness.blockers.map((flag) => flag.label), ...submissionReadiness.alerts.map((flag) => flag.label)].slice(0, 3)
+    ? [
+        ...submissionReadiness.groups.map((group) =>
+          describeSubmissionReadinessGroup(group)
+        ),
+        ...submissionReadiness.blockers.map((flag) => flag.label),
+        ...submissionReadiness.alerts.map((flag) => flag.label),
+      ].slice(0, 3)
     : [];
 
   const readyToSendCard: FinishLineCard = {

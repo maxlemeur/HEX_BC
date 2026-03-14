@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 import {
+  describeSubmissionReadinessGroup,
   isPdfFinishLineFlag,
   resolveSubmissionReadiness,
 } from "./AffairePilotagePanel.logic";
@@ -167,6 +168,8 @@ export function AffaireFinishLineActions({
   const [pdfFeedback, setPdfFeedback] = useState<FeedbackState>(null);
   const [isExportingBdc, setIsExportingBdc] = useState(false);
   const [bdcError, setBdcError] = useState<string | null>(null);
+  const submissionReadiness = resolveSubmissionReadiness(finishLineSummary);
+  const submissionReadinessGroups = submissionReadiness?.groups ?? [];
   const sendActionState = getSendActionState(currentVersion, finishLineSummary);
   const defaultSubject = useMemo(() => {
     if (!currentVersion) {
@@ -418,6 +421,21 @@ export function AffaireFinishLineActions({
               <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
                 {sendActionState.note}
               </p>
+              {submissionReadinessGroups.length > 0 ? (
+                <ul className="mt-3 flex flex-wrap gap-2" aria-label="Categories de blocage pre-remise">
+                  {submissionReadinessGroups.map((group) => (
+                    <li key={group.category}>
+                      <Badge
+                        variant={group.blockerCount > 0 ? "error" : "warning"}
+                        size="sm"
+                        withDot
+                      >
+                        {describeSubmissionReadinessGroup(group)}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <div className="mt-4" data-testid="affaire-finish-line-email">
                 <button
                   type="button"
