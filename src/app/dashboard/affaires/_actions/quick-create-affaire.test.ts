@@ -16,14 +16,20 @@ vi.mock("@/lib/mappings/server", () => ({
   createMapping: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/server", () => ({
+  createEstimate: vi.fn(),
+}));
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
   initializeAffaireDraft,
   quickCreateAffaire,
+  startAffaireManualEstimate,
   startAffaireFromImport,
 } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
+import { createEstimate } from "@/lib/estimates/server";
 import { createMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -94,6 +100,23 @@ function createImportUpdateBuilder() {
   return builder;
 }
 
+function createEstimateProjectAccessBuilder(projectId: string) {
+  const builder = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+
+  builder.select.mockReturnValue(builder);
+  builder.eq.mockReturnValue(builder);
+  builder.maybeSingle.mockResolvedValue({
+    data: { id: projectId },
+    error: null,
+  });
+
+  return builder;
+}
+
 function createMappedRowsBuilder(rows: unknown[]) {
   const builder = {
     select: vi.fn(),
@@ -138,36 +161,6 @@ function createLatestMappingBuilder(mappingId: string | null) {
   return builder;
 }
 
-function createEstimateProjectsInsertBuilder(projectId: string) {
-  const single = vi.fn().mockResolvedValue({
-    data: { id: projectId },
-    error: null,
-  });
-  const select = vi.fn(() => ({ single }));
-  const insert = vi.fn(() => ({ select }));
-
-  return {
-    insert,
-    select,
-    single,
-  };
-}
-
-function createEstimateVersionsInsertBuilder(versionId: string) {
-  const single = vi.fn().mockResolvedValue({
-    data: { id: versionId },
-    error: null,
-  });
-  const select = vi.fn(() => ({ single }));
-  const insert = vi.fn(() => ({ select }));
-
-  return {
-    insert,
-    select,
-    single,
-  };
-}
-
 function createSupabaseStub(input: {
   role: "engineer" | "admin" | "viewer";
   importProjectId?: string | null;
@@ -193,10 +186,9 @@ function createSupabaseStub(input: {
     input.importProjectId !== undefined
       ? createLatestMappingBuilder(input.latestMappingId ?? null)
       : null;
-  const projectInsertBuilder = createEstimateProjectsInsertBuilder(
+  const estimateProjectAccessBuilder = createEstimateProjectAccessBuilder(
     input.createdProjectId ?? CREATED_PROJECT_ID
   );
-  const versionInsertBuilder = createEstimateVersionsInsertBuilder(CREATED_VERSION_ID);
 
   const tableQueues: Record<string, unknown[]> = {
     tenant_memberships: [membershipBuilder],
@@ -209,8 +201,7 @@ function createSupabaseStub(input: {
     ],
     dpgf_rows_mapped: mappedRowsBuilder ? [mappedRowsBuilder] : [],
     dpgf_mappings: latestMappingBuilder ? [latestMappingBuilder] : [],
-    estimate_projects: [projectInsertBuilder],
-    estimate_versions: [versionInsertBuilder],
+    estimate_projects: [estimateProjectAccessBuilder],
   };
 
   const supabase = {
@@ -226,16 +217,6 @@ function createSupabaseStub(input: {
       if (!builder) {
         throw new Error(`Unexpected table access: ${table}`);
       }
-      if (table === "estimate_projects") {
-        return {
-          insert: (builder as ReturnType<typeof createEstimateProjectsInsertBuilder>).insert,
-        };
-      }
-      if (table === "estimate_versions") {
-        return {
-          insert: (builder as ReturnType<typeof createEstimateVersionsInsertBuilder>).insert,
-        };
-      }
       return builder;
     }),
     rpc: vi.fn().mockResolvedValue(
@@ -248,8 +229,6 @@ function createSupabaseStub(input: {
 
   return {
     supabase,
-    projectInsertBuilder,
-    versionInsertBuilder,
     importUpdateBuilder,
   };
 }
@@ -260,13 +239,17 @@ describe("quickCreateAffaire", () => {
     vi.mocked(createMapping).mockResolvedValue({
       mapping: { id: "mapping-created" },
     } as never);
+    vi.mocked(createEstimate).mockResolvedValue({
+      project: { id: CREATED_PROJECT_ID },
+      version: { id: CREATED_VERSION_ID },
+    } as never);
     vi.mocked(redirect).mockImplementation((url: string) => {
       throw new Error(`NEXT_REDIRECT:${url}`);
     });
   });
 
-  it("creates an empty project and redirects to affaire hub when no import is provided", async () => {
-    const { supabase, projectInsertBuilder } = createSupabaseStub({
+  it("creates a canonical blank estimate and redirects to affaire hub when no import is provided", async () => {
+    const { supabase } = createSupabaseStub({
       role: "engineer",
       createdProjectId: CREATED_PROJECT_ID,
     });
@@ -278,14 +261,13 @@ describe("quickCreateAffaire", () => {
       })
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
 
-    expect(projectInsertBuilder.insert).toHaveBeenCalledWith({
-      tenant_id: TENANT_ID,
-      user_id: USER_ID,
-      name: "Affaire vide",
-      client_name: null,
-      reference: null,
-      notes: null,
-      is_archived: false,
+    expect(createEstimate).toHaveBeenCalledWith({
+      project: {
+        name: "Affaire vide",
+        client_name: null,
+        reference: null,
+      },
+      creation_mode: "blank",
     });
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard/affaires");
     expect(revalidatePath).toHaveBeenCalledWith(
@@ -310,6 +292,13 @@ describe("quickCreateAffaire", () => {
       projectId: CREATED_PROJECT_ID,
       versionId: CREATED_VERSION_ID,
       redirectUrl: `/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`,
+      manualEstimate: {
+        mode: "manual",
+        creationMode: "blank",
+        projectId: CREATED_PROJECT_ID,
+        versionId: CREATED_VERSION_ID,
+        editorRedirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
+      },
     });
   });
 
@@ -330,6 +319,14 @@ describe("quickCreateAffaire", () => {
       })
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
 
+    expect(createEstimate).toHaveBeenCalledWith({
+      project: {
+        name: "Affaire import lie",
+        client_name: null,
+        reference: null,
+      },
+      creation_mode: "blank",
+    });
     expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
       project_id: CREATED_PROJECT_ID,
     });
@@ -479,8 +476,8 @@ describe("quickCreateAffaire", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("creates an empty affaire and links the import when rows are not importable", async () => {
-    const { supabase, importUpdateBuilder, projectInsertBuilder, versionInsertBuilder } =
+  it("creates a canonical blank affaire and links the import when rows are not importable", async () => {
+    const { supabase, importUpdateBuilder } =
       createSupabaseStub({
         role: "engineer",
         importProjectId: null,
@@ -507,10 +504,13 @@ describe("quickCreateAffaire", () => {
       })
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
 
-    expect(projectInsertBuilder.insert).toHaveBeenCalledTimes(1);
-    expect(versionInsertBuilder.insert).toHaveBeenCalledWith({
-      project_id: CREATED_PROJECT_ID,
-      version_number: 1,
+    expect(createEstimate).toHaveBeenCalledWith({
+      project: {
+        name: "Affaire invalide",
+        client_name: null,
+        reference: null,
+      },
+      creation_mode: "blank",
     });
     expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
       project_id: CREATED_PROJECT_ID,
@@ -548,10 +548,52 @@ describe("quickCreateAffaire", () => {
       projectId: CREATED_PROJECT_ID,
       versionId: CREATED_VERSION_ID,
       redirectUrl: `/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`,
+      manualEstimate: {
+        mode: "manual",
+        creationMode: "blank",
+        projectId: CREATED_PROJECT_ID,
+        versionId: CREATED_VERSION_ID,
+        editorRedirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
+      },
     });
 
     expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
       project_id: CREATED_PROJECT_ID,
+    });
+  });
+
+  it("creates a new manual estimate version on an existing affaire", async () => {
+    const { supabase } = createSupabaseStub({
+      role: "engineer",
+      createdProjectId: CREATED_PROJECT_ID,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(createEstimate).mockResolvedValue({
+      project: { id: CREATED_PROJECT_ID },
+      version: { id: "99999999-9999-4999-8999-999999999999" },
+    } as never);
+
+    await expect(
+      startAffaireManualEstimate({
+        projectId: CREATED_PROJECT_ID,
+        versionTitle: "Base manuelle",
+      })
+    ).resolves.toEqual({
+      mode: "manual",
+      creationMode: "blank",
+      projectId: CREATED_PROJECT_ID,
+      versionId: "99999999-9999-4999-8999-999999999999",
+      editorRedirectUrl:
+        "/dashboard/estimates/99999999-9999-4999-8999-999999999999/edit?entry=manual",
+    });
+
+    expect(createEstimate).toHaveBeenCalledWith({
+      project_id: CREATED_PROJECT_ID,
+      creation_mode: "blank",
+      version: {
+        title: "Base manuelle",
+        max_section_depth: expect.any(Number),
+      },
     });
   });
 

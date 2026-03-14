@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
+  assertProjectAccessOrThrow,
   ensureImportProjectLink,
   fetchLatestMappingId,
   fetchMappedRowsForImport,
@@ -20,6 +21,8 @@ import {
   sortValidLinesForEstimateCreation,
   toRpcImportLines,
 } from "@/lib/affaires/import-flow-server";
+import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
+import { createEstimate } from "@/lib/estimates/server";
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -55,6 +58,15 @@ export type InitializeAffaireDraftResult = {
   projectId: string;
   versionId: string;
   redirectUrl: string;
+  manualEstimate: ManualEstimateEntryPointResult;
+};
+
+export type ManualEstimateEntryPointResult = {
+  mode: "manual";
+  creationMode: "blank";
+  projectId: string;
+  versionId: string;
+  editorRedirectUrl: string;
 };
 
 export type StartAffaireFromImportResult =
@@ -63,6 +75,7 @@ export type StartAffaireFromImportResult =
       projectId: string;
       versionId: string;
       redirectUrl: string;
+      manualEstimate: ManualEstimateEntryPointResult;
     }
   | {
       destination: "estimate_editor";
@@ -89,50 +102,41 @@ function ensureEngineerOrAdmin(role: string) {
   }
 }
 
-async function createProjectWithEmptyV1({
-  supabase,
-  tenantId,
-  userId,
+function buildManualEstimateEntryPoint(
+  projectId: string,
+  versionId: string
+): ManualEstimateEntryPointResult {
+  return {
+    mode: "manual",
+    creationMode: "blank",
+    projectId,
+    versionId,
+    editorRedirectUrl: `/dashboard/estimates/${versionId}/edit?entry=manual`,
+  };
+}
+
+async function createProjectWithBlankEstimate({
   projectName,
   clientName,
   reference,
 }: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
-  tenantId: string;
-  userId: string;
   projectName: string;
   clientName: string | null;
   reference: string | null;
 }) {
-  const { data: project, error: projectError } = await supabase
-    .from("estimate_projects")
-    .insert({
-      tenant_id: tenantId,
-      user_id: userId,
+  const created = await createEstimate({
+    project: {
       name: projectName,
       client_name: clientName,
       reference,
-      notes: null,
-      is_archived: false,
-    })
-    .select("id")
-    .single();
+    },
+    creation_mode: "blank",
+  });
 
-  if (projectError || !project) {
-    throw new Error("Impossible de creer la nouvelle affaire.");
-  }
-
-  const { data: version, error: versionError } = await supabase
-    .from("estimate_versions")
-    .insert({ project_id: project.id, version_number: 1 })
-    .select("id")
-    .single();
-
-  if (versionError || !version) {
-    throw new Error("Impossible de creer la premiere version.");
-  }
-
-  return { projectId: project.id, versionId: version.id };
+  return {
+    projectId: created.project.id,
+    versionId: created.version.id,
+  };
 }
 
 async function getQuickCreateContext() {
@@ -168,10 +172,7 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
   reference: string | null;
   linkImportId?: string | null;
 }): Promise<InitializeAffaireDraftResult> {
-  const { projectId, versionId } = await createProjectWithEmptyV1({
-    supabase: input.supabase,
-    tenantId: input.membership.tenant_id,
-    userId: input.userId,
+  const { projectId, versionId } = await createProjectWithBlankEstimate({
     projectName: input.projectName,
     clientName: input.clientName,
     reference: input.reference,
@@ -209,6 +210,7 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
     projectId,
     versionId,
     redirectUrl,
+    manualEstimate: buildManualEstimateEntryPoint(projectId, versionId),
   };
 }
 
@@ -236,6 +238,54 @@ export async function initializeAffaireDraft(
     reference: normalizeNullableText(parsed.data.reference),
     linkImportId: parsed.data.linkImportId ?? null,
   });
+}
+
+const startAffaireManualEstimateSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  versionTitle: z.string().trim().max(200).nullable().optional(),
+});
+
+export type StartAffaireManualEstimateInput = z.infer<
+  typeof startAffaireManualEstimateSchema
+>;
+
+export type StartAffaireManualEstimateResult = ManualEstimateEntryPointResult;
+
+export async function startAffaireManualEstimate(
+  input: StartAffaireManualEstimateInput
+): Promise<StartAffaireManualEstimateResult> {
+  const parsed = startAffaireManualEstimateSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error("Payload de creation manuelle invalide.");
+  }
+
+  const context = await getQuickCreateContext();
+
+  await assertProjectAccessOrThrow({
+    supabase: context.supabase,
+    projectId: parsed.data.projectId,
+    tenantId: context.membership.tenant_id,
+    userId: context.userId,
+    isTenantAdmin: context.isTenantAdmin,
+  });
+
+  const versionTitle = normalizeNullableText(parsed.data.versionTitle);
+  const created = await createEstimate({
+    project_id: parsed.data.projectId,
+    creation_mode: "blank",
+    ...(versionTitle
+      ? {
+          version: {
+            title: versionTitle,
+            max_section_depth: DEFAULT_MAX_SECTION_DEPTH,
+          },
+        }
+      : {}),
+  });
+
+  revalidateQuickCreatePaths(created.project.id, created.version.id);
+
+  return buildManualEstimateEntryPoint(created.project.id, created.version.id);
 }
 
 export async function startAffaireFromImport(
