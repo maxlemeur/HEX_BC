@@ -334,6 +334,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
           status: effectiveSummary.currentVersion.status,
         }
       : null,
+    structureMode: effectiveSummary.structureMode ?? null,
     lineCount: effectiveSummary.lineCount,
     preferences: effectiveCockpitPreferences,
   });

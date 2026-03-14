@@ -38,6 +38,7 @@ describe("shouldShowAffaireCreatedOnboardingBanner", () => {
           mappingUpdatedAt: "2026-03-11T08:05:00.000Z",
           parseMode: "spreadsheet",
           rowCount: 42,
+          mappedRowCount: 42,
         },
       }),
     ).toBe(false);
@@ -73,6 +74,7 @@ describe("isAffaireFreshStartState", () => {
           mappingUpdatedAt: "2026-03-11T08:05:00.000Z",
           parseMode: "spreadsheet",
           rowCount: 42,
+          mappedRowCount: 42,
         },
         lineCount: 0,
       }),

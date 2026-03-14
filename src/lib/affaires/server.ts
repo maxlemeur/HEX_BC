@@ -15,6 +15,10 @@ import {
   type ListEstimateProjectVersionsResult,
 } from "@/lib/estimates/server";
 import {
+  resolveEstimateStructureModeSummary,
+  type EstimateStructureModeSummary,
+} from "@/lib/estimates/structure-mode";
+import {
   ESTIMATE_READINESS_CATEGORY_ORDER,
   type EstimateReadinessCategory,
 } from "@/lib/estimates/readiness";
@@ -210,6 +214,7 @@ export type AffaireHubSummaryResult = {
   lineCount: number;
   hubReadiness?: AffaireHubReadinessResult | null;
   structureContinuation?: AffairePreliminaryStructureCapability | null;
+  structureMode?: EstimateStructureModeSummary | null;
 };
 
 export type AffaireHubDpgfSourceResult = {
@@ -222,6 +227,7 @@ export type AffaireHubDpgfSourceResult = {
   mappingUpdatedAt: string | null;
   parseMode: string;
   rowCount: number;
+  mappedRowCount: number;
 } | null;
 
 export type AffaireHubPlansSummaryResult = {
@@ -906,8 +912,15 @@ async function fetchAffaireHubSummaryWithContext(
   let lineCount = 0;
   let hubReadiness: AffaireHubReadinessResult | null = null;
   let structureContinuation: AffairePreliminaryStructureCapability | null = null;
+  let structureMode: EstimateStructureModeSummary | null = null;
   if (currentVersion) {
-    const [{ count, error }, intakeResult, registerGateSummaryResult] = await Promise.all([
+    const [
+      lineCountResult,
+      lineItemsResult,
+      intakeResult,
+      registerGateSummaryResult,
+      dpgfSource,
+    ] = await Promise.all([
       context.supabase
         .from("estimate_items")
         .select("id", { count: "exact", head: true })
@@ -915,6 +928,12 @@ async function fetchAffaireHubSummaryWithContext(
         .eq("version_id", currentVersion.id)
         .eq("item_type", "line")
         .limit(1),
+      context.supabase
+        .from("estimate_items")
+        .select("item_type, source_provider")
+        .eq("tenant_id", context.tenantId)
+        .eq("version_id", currentVersion.id)
+        .eq("item_type", "line"),
       Promise.resolve(fetchAffaireIntakeWorkspace(project.id)).catch(() => null),
       Promise.resolve(
         fetchAffaireRegisterGateSummary({
@@ -923,13 +942,40 @@ async function fetchAffaireHubSummaryWithContext(
           versionId: currentVersion.id,
         })
       ).catch(() => null),
+      Promise.resolve(fetchAffaireHubDpgfSourceWithContext(context, project)).catch(
+        () => null
+      ),
     ]);
 
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de compter les lignes de la version.");
+    if (lineCountResult.error) {
+      throw mapSupabaseError(
+        lineCountResult.error,
+        "Impossible de compter les lignes de la version."
+      );
     }
 
-    lineCount = count ?? 0;
+    if (lineItemsResult.error) {
+      throw mapSupabaseError(
+        lineItemsResult.error,
+        "Impossible de qualifier la structure de la version."
+      );
+    }
+
+    lineCount = lineCountResult.count ?? 0;
+    structureMode = Array.isArray(lineItemsResult.data)
+      ? resolveEstimateStructureModeSummary({
+          items: lineItemsResult.data as Array<{
+            item_type?: "section" | "line" | null;
+            source_provider?: string | null;
+          }>,
+          linkedDpgfSource: dpgfSource
+            ? {
+                importStatus: dpgfSource.importStatus,
+                mappedRowCount: dpgfSource.mappedRowCount,
+              }
+            : null,
+        })
+      : null;
 
     if (intakeResult) {
       structureContinuation = resolveAffairePreliminaryStructureCapability({
@@ -1006,6 +1052,7 @@ async function fetchAffaireHubSummaryWithContext(
     lineCount,
     hubReadiness,
     structureContinuation,
+    structureMode,
   };
 }
 
@@ -1033,17 +1080,33 @@ async function fetchAffaireHubDpgfSourceWithContext(
     return null;
   }
 
-  const { data: mappingData, error: mappingError } = await context.supabase
-    .from("dpgf_mappings")
-    .select("id, status, created_at, updated_at, tenant_id, import_id")
-    .eq("tenant_id", context.tenantId)
-    .eq("import_id", latestImport.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const [mappingResult, mappedRowsCountResult] = await Promise.all([
+    context.supabase
+      .from("dpgf_mappings")
+      .select("id, status, created_at, updated_at, tenant_id, import_id")
+      .eq("tenant_id", context.tenantId)
+      .eq("import_id", latestImport.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    context.supabase
+      .from("dpgf_rows_mapped")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", context.tenantId)
+      .eq("import_id", latestImport.id),
+  ]);
+
+  const { data: mappingData, error: mappingError } = mappingResult;
 
   if (mappingError) {
     throw mapSupabaseError(mappingError, "Impossible de charger le statut de mapping DPGF.");
+  }
+
+  if (mappedRowsCountResult.error) {
+    throw mapSupabaseError(
+      mappedRowsCountResult.error,
+      "Impossible de compter les lignes DPGF mappees."
+    );
   }
 
   const latestMapping = (mappingData ?? null) as AffaireHubDpgfMappingRow | null;
@@ -1058,6 +1121,7 @@ async function fetchAffaireHubDpgfSourceWithContext(
     mappingUpdatedAt: latestMapping?.updated_at ?? null,
     parseMode: latestImport.parse_mode,
     rowCount: toSafeInteger(latestImport.row_count),
+    mappedRowCount: mappedRowsCountResult.count ?? 0,
   };
 }
 

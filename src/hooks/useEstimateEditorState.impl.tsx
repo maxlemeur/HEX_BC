@@ -1632,11 +1632,13 @@ export function useEstimateEditorState({
   focusItemId = null,
   autoOpenVersionZero = false,
   autoOpenStructureDraft = false,
+  autoImportLinkedDpgf = false,
 }: {
   versionId: string;
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
   autoOpenStructureDraft?: boolean;
+  autoImportLinkedDpgf?: boolean;
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
@@ -1756,6 +1758,8 @@ export function useEstimateEditorState({
     useState<AffaireLinkedDpgfSource>(null);
   const [isLoadingLinkedDpgfSource, setIsLoadingLinkedDpgfSource] =
     useState(false);
+  const [hasResolvedLinkedDpgfSource, setHasResolvedLinkedDpgfSource] =
+    useState(false);
   const [isImportingDpgfSource, setIsImportingDpgfSource] = useState(false);
   const {
     push: pushHistoryCommand,
@@ -1783,6 +1787,7 @@ export function useEstimateEditorState({
   const removedTempItemIdsRef = useRef<Set<string>>(new Set());
   const pendingBufferedUpdateCountRef = useRef(0);
   const isFlushingBufferedUpdatesRef = useRef(false);
+  const hasAutoImportedLinkedDpgfRef = useRef(false);
   const applyPendingBufferedUpdatesToItems = useCallback(
     (sourceItems: EditorEstimateItem[]) =>
       applyBufferedUpdatesToItems(
@@ -1791,6 +1796,10 @@ export function useEstimateEditorState({
       ),
     []
   );
+
+  useEffect(() => {
+    hasAutoImportedLinkedDpgfRef.current = false;
+  }, [autoImportLinkedDpgf, resolvedVersionId]);
 
   useEffect(() => {
     if (!focusItemId) {
@@ -2094,12 +2103,14 @@ export function useEstimateEditorState({
     if (!projectId) {
       setLinkedDpgfSource(null);
       setIsLoadingLinkedDpgfSource(false);
+      setHasResolvedLinkedDpgfSource(false);
       return;
     }
     const targetProjectId = projectId;
 
     let active = true;
     setIsLoadingLinkedDpgfSource(true);
+    setHasResolvedLinkedDpgfSource(false);
 
     async function loadLinkedDpgfSource() {
       try {
@@ -2113,6 +2124,7 @@ export function useEstimateEditorState({
       } finally {
         if (active) {
           setIsLoadingLinkedDpgfSource(false);
+          setHasResolvedLinkedDpgfSource(true);
         }
       }
     }
@@ -5938,6 +5950,56 @@ export function useEstimateEditorState({
     isReadOnly,
     readOnlyActionErrorMessage,
     reloadItems,
+  ]);
+
+  const clearAutoImportLinkedDpgfSearchParam = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    if (!currentUrl.searchParams.has("importLinkedDpgf")) {
+      return;
+    }
+
+    currentUrl.searchParams.delete("importLinkedDpgf");
+    const nextQuery = currentUrl.searchParams.toString();
+    router.replace(nextQuery ? `${currentUrl.pathname}?${nextQuery}` : currentUrl.pathname, {
+      scroll: false,
+    });
+  }, [router]);
+
+  useEffect(() => {
+    if (
+      !autoImportLinkedDpgf ||
+      hasAutoImportedLinkedDpgfRef.current ||
+      !version ||
+      version.status !== "draft" ||
+      !hasResolvedLinkedDpgfSource ||
+      isLoadingLinkedDpgfSource ||
+      isImportingDpgfSource
+    ) {
+      return;
+    }
+
+    hasAutoImportedLinkedDpgfRef.current = true;
+    clearAutoImportLinkedDpgfSearchParam();
+
+    if (!hasLinkedDpgfSource) {
+      setActionError("Aucune source DPGF importable n'est liee a cette affaire.");
+      return;
+    }
+
+    void handleImportDpgfSource();
+  }, [
+    autoImportLinkedDpgf,
+    clearAutoImportLinkedDpgfSearchParam,
+    handleImportDpgfSource,
+    hasResolvedLinkedDpgfSource,
+    hasLinkedDpgfSource,
+    isImportingDpgfSource,
+    isLoadingLinkedDpgfSource,
+    version,
   ]);
 
   const handleDeleteItem = useCallback(

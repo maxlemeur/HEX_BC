@@ -78,6 +78,7 @@ function makeDpgfSource(
     mappingUpdatedAt: "2026-03-10T08:05:00.000Z",
     parseMode: "spreadsheet",
     rowCount: 42,
+    mappedRowCount: 42,
     ...overrides,
   };
 }

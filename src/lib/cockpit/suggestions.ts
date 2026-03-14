@@ -10,6 +10,7 @@ import {
 } from "@/lib/affaires/register";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 
@@ -20,6 +21,7 @@ export type CockpitIntent =
   | "confirm_brief"
   | "analyze_plans"
   | "generate_structure"
+  | "continue_hybrid"
   | "view_exceptions"
   | "list_hypotheses"
   | "prepare_validation";
@@ -67,6 +69,13 @@ export type ComputeCockpitSuggestionsInput = {
   > | null;
   versionZeroSummary: Pick<VersionZeroDraftSummary, "canGenerate" | "activeDraft"> | null;
   currentVersion: { id: string; status: string } | null;
+  structureMode?: Pick<
+    EstimateStructureModeSummary,
+    | "mode"
+    | "manualLineCount"
+    | "linkedDpgfMappedRowCount"
+    | "canImportLinkedDpgfIntoCurrentStructure"
+  > | null;
   lineCount?: number;
   preferences?: CockpitCommandPreference[];
 };
@@ -207,6 +216,7 @@ export function computeCockpitSuggestions(
     intakeWorkspace,
     versionZeroSummary,
     currentVersion,
+    structureMode = null,
     lineCount = 0,
     preferences = [],
   } = input;
@@ -285,6 +295,33 @@ export function computeCockpitSuggestions(
         requiresConfirmation: true,
         confirmTone: "info",
         priority: 750,
+      }),
+    );
+  }
+
+  if (
+    currentVersion?.status === "draft" &&
+    structureMode?.canImportLinkedDpgfIntoCurrentStructure &&
+    !isReadOnlyReview
+  ) {
+    const preview =
+      structureMode.linkedDpgfMappedRowCount > 0
+        ? `Conserver les ${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} deja saisie${structureMode.manualLineCount > 1 ? "s" : ""} et importer explicitement ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF dans la meme version.`
+        : "Conserver les lignes deja saisies et importer explicitement la DPGF source dans la meme version.";
+
+    suggestions.push(
+      createSuggestion({
+        actionId: "continue-hybrid",
+        label: "Passer le devis en hybride",
+        intent: "continue_hybrid",
+        preview,
+        target: {
+          kind: "navigate",
+          href: `/dashboard/estimates/${currentVersion.id}/edit?importLinkedDpgf=1`,
+        },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 645,
       }),
     );
   }

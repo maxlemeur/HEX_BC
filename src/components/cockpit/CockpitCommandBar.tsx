@@ -69,6 +69,7 @@ const INTENT_ICONS: Record<CockpitIntent, ReactNode> = {
   confirm_brief: <ShieldCheckIcon />,
   analyze_plans: <PlayIcon />,
   generate_structure: <PlayIcon />,
+  continue_hybrid: <PlayIcon />,
   view_exceptions: <EyeIcon />,
   list_hypotheses: <ListIcon />,
   prepare_validation: <ShieldCheckIcon />,

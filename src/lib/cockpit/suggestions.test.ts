@@ -404,6 +404,31 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("suggests the explicit hybrid continuation when a manual structure can import the linked DPGF", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        currentVersion: { id: "version-1", status: "draft" },
+        structureMode: {
+          mode: "manual",
+          manualLineCount: 3,
+          linkedDpgfMappedRowCount: 18,
+          canImportLinkedDpgfIntoCurrentStructure: true,
+        },
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "continue_hybrid")).toEqual(
+      expect.objectContaining({
+        label: "Passer le devis en hybride",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/estimates/version-1/edit?importLinkedDpgf=1",
+        },
+        preview: expect.stringContaining("18 ligne"),
+      }),
+    );
+  });
+
   it("falls back to the preliminary structure preview from the primary CCTP when no V0 path is available", () => {
     const result = computeCockpitSuggestions(
       makeInput({

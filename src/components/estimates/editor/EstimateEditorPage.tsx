@@ -23,6 +23,7 @@ type EstimateEditorPageProps = {
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
   autoOpenStructureDraft?: boolean;
+  autoImportLinkedDpgf?: boolean;
 };
 
 const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
@@ -44,12 +45,14 @@ export function EstimateEditorPage({
   focusItemId = null,
   autoOpenVersionZero = false,
   autoOpenStructureDraft = false,
+  autoImportLinkedDpgf = false,
 }: EstimateEditorPageProps) {
   const model = useEstimateEditorState({
     versionId,
     focusItemId,
     autoOpenVersionZero,
     autoOpenStructureDraft,
+    autoImportLinkedDpgf,
   });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsRegion = useMemo(

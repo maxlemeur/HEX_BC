@@ -158,8 +158,12 @@ function createFromMock(
     };
     const queue = tableScenarios[table];
 
-    if ((!queue || queue.length === 0) &&
-      (table === "estimate_versions" || table === "takeoff_version_links")) {
+    if (
+      (!queue || queue.length === 0) &&
+      (table === "estimate_versions" ||
+        table === "takeoff_version_links" ||
+        table === "estimate_items")
+    ) {
       tableScenarios[table] = [
         {
           maybeSingle: defaultResult,
@@ -1211,6 +1215,7 @@ describe("affaires hub server", () => {
       primarySourceKind: null,
       availableLots: [],
     });
+    expect(summary.structureMode).toBeNull();
   });
 
   it("exposes the CCTP-based structure continuation contract in the hub summary", async () => {
@@ -1266,6 +1271,60 @@ describe("affaires hub server", () => {
             limit: {
               data: null,
               count: 0,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [
+                {
+                  item_type: "line",
+                  source_provider: "manual",
+                },
+              ],
+              count: null,
+              error: null,
+            },
+          },
+        ],
+        dpgf_imports: [
+          {
+            maybeSingle: {
+              data: {
+                id: "import-1",
+                filename: "source.csv",
+                source_format: "csv",
+                status: "completed",
+                created_at: "2026-03-04T08:00:00+00:00",
+                parse_mode: "server",
+                row_count: 33,
+                tenant_id: TENANT_ID,
+                project_id: PROJECT_ID,
+              },
+              error: null,
+            },
+          },
+        ],
+        dpgf_mappings: [
+          {
+            maybeSingle: {
+              data: {
+                id: "mapping-1",
+                status: "validated",
+                created_at: "2026-03-04T08:20:00+00:00",
+                updated_at: "2026-03-04T08:21:00+00:00",
+                tenant_id: TENANT_ID,
+                import_id: "import-1",
+              },
+              error: null,
+            },
+          },
+        ],
+        dpgf_rows_mapped: [
+          {
+            limit: {
+              data: null,
+              count: 33,
               error: null,
             },
           },
@@ -1339,6 +1398,13 @@ describe("affaires hub server", () => {
           fileName: "cctp-principal.pdf",
         }),
       ],
+    });
+    expect(summary.structureMode).toMatchObject({
+      mode: "manual",
+      manualLineCount: 1,
+      importedLineCount: 0,
+      canImportLinkedDpgfIntoCurrentStructure: true,
+      linkedDpgfMappedRowCount: 33,
     });
     expect(summary.hubReadiness).toMatchObject({
       status: "ready_with_reservations",
@@ -1488,6 +1554,15 @@ describe("affaires hub server", () => {
             },
           },
         ],
+        dpgf_rows_mapped: [
+          {
+            limit: {
+              data: null,
+              count: 33,
+              error: null,
+            },
+          },
+        ],
       },
     });
 
@@ -1505,6 +1580,7 @@ describe("affaires hub server", () => {
       mappingUpdatedAt: "2026-03-04T08:21:00+00:00",
       parseMode: "server",
       rowCount: 33,
+      mappedRowCount: 33,
     });
   });
 
