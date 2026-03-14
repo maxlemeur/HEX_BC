@@ -96,6 +96,35 @@ function createEntryRows() {
       created_by_profile: null,
       updated_by_profile: null,
     },
+    {
+      id: "77777777-7777-4777-8777-777777777777",
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_id: VERSION_ID,
+      source_document_id: null,
+      kind: "assumption",
+      code: null,
+      text: "Poste volontairement exclu du perimetre",
+      severity: "warning",
+      status: "rejected",
+      origin_kind: "manual",
+      scope_type: "project",
+      scope_id: null,
+      scope_ref: null,
+      scope_label: "Hydro Express",
+      source_file_name: "memo-exclusions.pdf",
+      sync_key: null,
+      is_active: true,
+      metadata: {
+        businessImpact: ["affects_hub_readiness"],
+      },
+      created_by: USER_ID,
+      updated_by: USER_ID,
+      created_at: NOW,
+      updated_at: NOW,
+      created_by_profile: null,
+      updated_by_profile: null,
+    },
   ];
 }
 
@@ -202,19 +231,23 @@ describe("fetchAffaireRegisterReviewExport", () => {
     expect(result.projectReference).toBe("AFF-HEX-42");
     expect(result.clientName).toBe("Client test");
     expect(result.summary).toMatchObject({
-      rowCount: 2,
+      rowCount: 3,
       criticalCount: 1,
       blockingCount: 1,
       clarificationCount: 1,
       hypothesisCount: 1,
+      exclusionCount: 1,
       missingPieceCount: 0,
     });
     expect(result.groups.map((group) => group.key)).toEqual([
       "hypothesis",
+      "exclusion",
       "clarification",
     ]);
     expect(result.reviewNote).toContain("Revue interne registre - Hydro Express");
+    expect(result.reviewNote).toContain("Exclusions: 1");
     expect(result.csvContent).toContain("Hypotheses;Hypothese");
+    expect(result.csvContent).toContain("Exclusions;Hypothese");
     expect(result.csvContent).toContain("Clarifications client;Piece manquante");
   });
 });

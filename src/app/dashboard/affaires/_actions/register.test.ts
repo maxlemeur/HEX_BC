@@ -237,7 +237,7 @@ describe("affaire register server actions", () => {
       clientName: "Client test",
       versionId: VERSION_ID,
       capabilities: {
-        explicitExclusions: "not_supported",
+        explicitExclusions: "supported",
         supportedEntryKinds: ["assumption", "missing_piece"],
       },
       summary: {
@@ -247,6 +247,7 @@ describe("affaire register server actions", () => {
         clarificationCount: 1,
         revalidationCount: 0,
         hypothesisCount: 1,
+        exclusionCount: 0,
         missingPieceCount: 0,
       },
       groups: [],

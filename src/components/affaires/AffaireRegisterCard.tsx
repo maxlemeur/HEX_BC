@@ -2,6 +2,7 @@
 
 import { RegisterEntryForm } from "./register/RegisterEntryForm";
 import { RegisterEntryList } from "./register/RegisterEntryList";
+import { RegisterExportActions } from "./register/RegisterExportActions";
 import { RegisterFiltersBar } from "./register/RegisterFiltersBar";
 import { RegisterPagination } from "./register/RegisterPagination";
 import { RegisterSubmissionBlockers } from "./register/RegisterSubmissionBlockers";
@@ -58,6 +59,10 @@ export function AffaireRegisterCard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <RegisterExportActions
+            projectId={props.projectId}
+            versionId={versionId}
+          />
           {controller.hasActiveFilters ? (
             <div className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 text-xs text-[var(--brand-blue)]">
               Vue filtrée

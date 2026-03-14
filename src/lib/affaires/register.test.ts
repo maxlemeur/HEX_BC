@@ -508,26 +508,66 @@ describe("affaire register continuation contract", () => {
           revalidationRequest: null,
           history: [],
         },
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          kind: "missing_piece",
+          code: null,
+          text: "Variante volontairement exclue du perimetre",
+          severity: "warning",
+          status: "rejected",
+          originKind: "manual",
+          scopeType: "project",
+          scopeId: null,
+          scopeRef: null,
+          scopeLabel: "Affaire test",
+          versionId: null,
+          sourceDocumentId: null,
+          sourceFileName: "memo-exclusions.pdf",
+          createdBy: null,
+          createdByName: null,
+          updatedBy: null,
+          updatedByName: null,
+          createdAt: "2026-03-14T09:45:00.000Z",
+          updatedAt: "2026-03-14T09:45:00.000Z",
+          businessImpact: ["affects_hub_readiness"],
+          location: undefined,
+          severityDecision: null,
+          followUp: null,
+          clientClarificationRequest: null,
+          continuationDecision: null,
+          revalidationRequest: null,
+          history: [],
+        },
       ],
     });
 
-    expect(exportResult.capabilities.explicitExclusions).toBe("not_supported");
+    expect(exportResult.capabilities.explicitExclusions).toBe("supported");
     expect(exportResult.summary).toMatchObject({
-      rowCount: 2,
+      rowCount: 3,
       criticalCount: 1,
       blockingCount: 1,
       clarificationCount: 1,
       hypothesisCount: 1,
+      exclusionCount: 1,
       missingPieceCount: 0,
     });
     expect(exportResult.groups.map((group) => group.key)).toEqual([
       "hypothesis",
+      "exclusion",
       "clarification",
     ]);
-    expect(exportResult.reviewNote).toContain("Exclusions explicites: non supportees");
-    expect(exportResult.reviewNote).toContain("Hypotheses: 1 - Pieces manquantes: 0 - Clarifications: 1");
+    expect(exportResult.reviewNote).toContain("Points exportes: 3");
+    expect(exportResult.reviewNote).toContain(
+      "Hypotheses: 1 - Pieces manquantes: 0 - Clarifications: 1 - Revalidations: 0 - Exclusions: 1"
+    );
+    expect(exportResult.reviewNote).toContain(
+      "- Exclusion / Affaire test: Variante volontairement exclue du perimetre - source memo-exclusions.pdf"
+    );
     expect(exportResult.csvContent).toContain("section;type;severite;statut");
     expect(exportResult.csvContent).toContain("'=Base tarifaire a confirmer");
+    expect(exportResult.csvContent).toContain(
+      "Exclusions;Piece manquante;Attention;Rejetee;Variante volontairement exclue du perimetre"
+    );
     expect(exportResult.csvFilename).toBe("registre-revue-aff-42-hydro-express.csv");
   });
 });

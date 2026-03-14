@@ -11,6 +11,7 @@ const mockToast = {
   info: vi.fn(),
 };
 const mockCreateAffaireRegisterEntryAction = vi.fn();
+const mockFetchAffaireRegisterReviewExportAction = vi.fn();
 const mockUpdateAffaireRegisterEntryStatusAction = vi.fn();
 let mockSearchParams = new URLSearchParams();
 
@@ -30,6 +31,8 @@ vi.mock("@/components/ui/Toast", () => ({
 vi.mock("@/app/dashboard/affaires/_actions/register", () => ({
   createAffaireRegisterEntryAction: (...args: unknown[]) =>
     mockCreateAffaireRegisterEntryAction(...args),
+  fetchAffaireRegisterReviewExportAction: (...args: unknown[]) =>
+    mockFetchAffaireRegisterReviewExportAction(...args),
   updateAffaireRegisterEntryStatusAction: (...args: unknown[]) =>
     mockUpdateAffaireRegisterEntryStatusAction(...args),
 }));
@@ -129,6 +132,32 @@ describe("AffaireRegisterCard", () => {
       ok: true,
       entry: buildRegisterPage().items[0],
     });
+    mockFetchAffaireRegisterReviewExportAction.mockResolvedValue({
+      generatedAt: "2026-03-14T11:00:00.000Z",
+      projectId: "11111111-1111-4111-8111-111111111111",
+      projectLabel: "Affaire test",
+      projectReference: "AFF-TEST",
+      clientName: "Client test",
+      versionId: "22222222-2222-4222-8222-222222222222",
+      capabilities: {
+        explicitExclusions: "supported",
+        supportedEntryKinds: ["assumption", "missing_piece"],
+      },
+      summary: {
+        rowCount: 2,
+        criticalCount: 0,
+        blockingCount: 0,
+        clarificationCount: 0,
+        revalidationCount: 0,
+        hypothesisCount: 1,
+        exclusionCount: 1,
+        missingPieceCount: 0,
+      },
+      groups: [],
+      reviewNote: "Revue interne registre - Affaire test\n",
+      csvFilename: "registre-revue-aff-test.csv",
+      csvContent: "section;type\n",
+    });
     mockUpdateAffaireRegisterEntryStatusAction.mockResolvedValue({
       ok: true,
       entry: {
@@ -206,6 +235,67 @@ describe("AffaireRegisterCard", () => {
     });
     expect(mockRefresh).toHaveBeenCalled();
     expect(mockToast.success).toHaveBeenCalled();
+  });
+
+  it("exports the review bundle from the register card header", async () => {
+    const user = userEvent.setup();
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const createObjectURLMock = vi.fn(() => "blob:register-export");
+    const revokeObjectURLMock = vi.fn();
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: createObjectURLMock,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: revokeObjectURLMock,
+    });
+
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage()}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Exporter revue" }));
+
+    await waitFor(() => {
+      expect(mockFetchAffaireRegisterReviewExportAction).toHaveBeenCalledWith({
+        projectId: "11111111-1111-4111-8111-111111111111",
+        versionId: "22222222-2222-4222-8222-222222222222",
+      });
+    });
+    expect(createObjectURLMock).toHaveBeenCalledTimes(2);
+    expect(revokeObjectURLMock).toHaveBeenCalledTimes(2);
+    expect(anchorClickSpy).toHaveBeenCalledTimes(2);
+    expect(mockToast.success).toHaveBeenCalledWith({
+      title: "Export pret",
+      description: "Le CSV et la note de revue interne ont ete telecharges.",
+    });
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: originalCreateObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: originalRevokeObjectURL,
+    });
+    anchorClickSpy.mockRestore();
   });
 
   it("supports open -> clarify_with_client -> open -> validated transitions with explicit action copy", async () => {

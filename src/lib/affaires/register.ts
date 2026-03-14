@@ -59,6 +59,7 @@ export const affaireRegisterBusinessImpactSchema = z.enum([
 ]);
 export const affaireRegisterReviewExportSectionSchema = z.enum([
   "hypothesis",
+  "exclusion",
   "missing_piece",
   "clarification",
   "revalidation",
@@ -188,6 +189,7 @@ export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_LABELS: Record<
   string
 > = {
   hypothesis: "Hypotheses",
+  exclusion: "Exclusions",
   missing_piece: "Pieces manquantes",
   clarification: "Clarifications client",
   revalidation: "Revalidations",
@@ -197,6 +199,8 @@ export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_DESCRIPTIONS: Record<
   string
 > = {
   hypothesis: "Hypotheses ouvertes ou acceptees sous reserve pour poursuivre l'etude.",
+  exclusion:
+    "Points explicitement ecartes du perimetre et a rendre visibles avant remise.",
   missing_piece: "Pieces manquantes encore ouvertes a rendre visibles avant remise.",
   clarification: "Points qui attendent explicitement un retour client.",
   revalidation: "Points deja resolus puis rouverts apres additif ou piece tardive.",
@@ -403,7 +407,7 @@ export type AffaireRegisterReviewExport = {
   clientName: string | null;
   versionId: string | null;
   capabilities: {
-    explicitExclusions: "not_supported";
+    explicitExclusions: "not_supported" | "supported";
     supportedEntryKinds: AffaireRegisterEntryKind[];
   };
   summary: {
@@ -413,6 +417,7 @@ export type AffaireRegisterReviewExport = {
     clarificationCount: number;
     revalidationCount: number;
     hypothesisCount: number;
+    exclusionCount: number;
     missingPieceCount: number;
   };
   groups: AffaireRegisterReviewExportGroup[];
@@ -989,6 +994,10 @@ function resolveAffaireRegisterReviewExportSection(
     "kind" | "status" | "revalidationRequest"
   >
 ): AffaireRegisterReviewExportSection {
+  if (entry.status === "rejected") {
+    return "exclusion";
+  }
+
   if (isAffaireRegisterEntryRevalidationRequired(entry)) {
     return "revalidation";
   }
@@ -1071,6 +1080,7 @@ export function buildAffaireRegisterReviewExport(input: {
   const includedEntries = input.entries.filter(
     (entry) =>
       entry.status === "open" ||
+      entry.status === "rejected" ||
       entry.status === "clarify_with_client" ||
       isAffaireRegisterEntryRevalidationRequired(entry)
   );
@@ -1122,20 +1132,23 @@ export function buildAffaireRegisterReviewExport(input: {
     })
     .filter((group) => group.count > 0);
 
-  const criticalRows = rows.filter((row) => row.severity === "critical");
-  const blockingRows = rows.filter((row) =>
+  const activeRows = rows.filter((row) => row.status !== "rejected");
+  const exclusionRows = rows.filter((row) => row.section === "exclusion");
+  const criticalRows = activeRows.filter((row) => row.severity === "critical");
+  const blockingRows = activeRows.filter((row) =>
     row.businessImpacts.includes("blocks_submission")
   );
-  const clarificationCount = rows.filter(
+  const clarificationCount = activeRows.filter(
     (row) => row.section === "clarification"
   ).length;
-  const revalidationCount = rows.filter(
+  const revalidationCount = activeRows.filter(
     (row) => row.section === "revalidation"
   ).length;
-  const hypothesisCount = rows.filter(
+  const hypothesisCount = activeRows.filter(
     (row) => row.section === "hypothesis"
   ).length;
-  const missingPieceCount = rows.filter(
+  const exclusionCount = exclusionRows.length;
+  const missingPieceCount = activeRows.filter(
     (row) => row.section === "missing_piece"
   ).length;
   const reviewNoteLines = [
@@ -1146,14 +1159,17 @@ export function buildAffaireRegisterReviewExport(input: {
     ]
       .filter(Boolean)
       .join(" - "),
-    `Points ouverts exportes: ${rows.length}`,
-    `Critiques: ${criticalRows.length} - Bloquants pre-remise: ${blockingRows.length}`,
-    `Hypotheses: ${hypothesisCount} - Pieces manquantes: ${missingPieceCount} - Clarifications: ${clarificationCount} - Revalidations: ${revalidationCount}`,
-    "Exclusions explicites: non supportees dans ce slice registre.",
+    `Points exportes: ${rows.length}`,
+    `Critiques actives: ${criticalRows.length} - Bloquants pre-remise: ${blockingRows.length}`,
+    `Hypotheses: ${hypothesisCount} - Pieces manquantes: ${missingPieceCount} - Clarifications: ${clarificationCount} - Revalidations: ${revalidationCount} - Exclusions: ${exclusionCount}`,
     ...criticalRows.slice(0, 5).map((row) => {
       const dueLabel = row.dueDate ? ` - echeance ${row.dueDate}` : "";
       const ownerLabel = row.ownerName ? ` - responsable ${row.ownerName}` : "";
       return `- ${row.sectionLabel} / ${row.scopeLabel}: ${row.text}${ownerLabel}${dueLabel}`;
+    }),
+    ...exclusionRows.slice(0, 5).map((row) => {
+      const sourceLabel = row.sourceLabel ? ` - source ${row.sourceLabel}` : "";
+      return `- Exclusion / ${row.scopeLabel}: ${row.text}${sourceLabel}`;
     }),
   ].filter((line) => line && line.trim().length > 0);
 
@@ -1204,7 +1220,7 @@ export function buildAffaireRegisterReviewExport(input: {
     clientName: input.clientName ?? null,
     versionId: input.versionId ?? null,
     capabilities: {
-      explicitExclusions: "not_supported" as const,
+      explicitExclusions: "supported" as const,
       supportedEntryKinds: ["assumption", "missing_piece"] satisfies AffaireRegisterEntryKind[],
     },
     summary: {
@@ -1214,6 +1230,7 @@ export function buildAffaireRegisterReviewExport(input: {
       clarificationCount,
       revalidationCount,
       hypothesisCount,
+      exclusionCount,
       missingPieceCount,
     },
     groups,
