@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -32,6 +32,20 @@ type Props = {
   onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
   favoritePendingIds: string[];
 };
+
+type ManagerQueueFilter = "all" | "follow_up";
+
+function hasManagerFollowUpSignal(data: AffaireDenseExpandData) {
+  const hubReadiness = data.summary.hubReadiness ?? null;
+  if (!hubReadiness) {
+    return false;
+  }
+
+  return (
+    hubReadiness.status === "not_ready" ||
+    hubReadiness.drivers.some((driver) => driver.code === "critical_missing_piece")
+  );
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-FR", {
@@ -159,10 +173,45 @@ export function AffairesDenseTable({
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
 
+  const [managerFilter, setManagerFilter] = useState<ManagerQueueFilter>("all");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandCache, setExpandCache] = useState<
     Record<string, AffaireDenseExpandData | "loading" | "error">
   >({});
+  const expandCacheRef = useRef(expandCache);
+
+  useEffect(() => {
+    expandCacheRef.current = expandCache;
+  }, [expandCache]);
+
+  const ensureExpandData = useCallback((projectId: string) => {
+    const cached = expandCacheRef.current[projectId];
+    if (cached && cached !== "error") {
+      return;
+    }
+
+    setExpandCache((current) => {
+      if (current[projectId] && current[projectId] !== "error") {
+        return current;
+      }
+
+      return { ...current, [projectId]: "loading" };
+    });
+
+    fetchAffaireDenseExpandData(projectId)
+      .then((data) =>
+        setExpandCache((current) => ({ ...current, [projectId]: data }))
+      )
+      .catch(() =>
+        setExpandCache((current) => ({ ...current, [projectId]: "error" }))
+      );
+  }, []);
+
+  useEffect(() => {
+    items.forEach((item) => {
+      ensureExpandData(item.projectId);
+    });
+  }, [ensureExpandData, items]);
 
   // Only consider expanded IDs that are in the current items (auto-reset on pagination/filter)
   const currentItemIds = useMemo(() => new Set(items.map((i) => i.projectId)), [items]);
@@ -179,26 +228,94 @@ export function AffairesDenseTable({
           next.delete(projectId);
         } else {
           next.add(projectId);
-          if (!expandCache[projectId] || expandCache[projectId] === "error") {
-            setExpandCache((c) => ({ ...c, [projectId]: "loading" }));
-            fetchAffaireDenseExpandData(projectId)
-              .then((data) =>
-                setExpandCache((c) => ({ ...c, [projectId]: data }))
-              )
-              .catch(() =>
-                setExpandCache((c) => ({ ...c, [projectId]: "error" }))
-              );
-          }
+          ensureExpandData(projectId);
         }
         return next;
       });
     },
-    [expandCache]
+    [ensureExpandData]
   );
+
+  const managerFollowUpIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    items.forEach((item) => {
+      const cached = expandCache[item.projectId];
+      if (
+        cached &&
+        cached !== "loading" &&
+        cached !== "error" &&
+        hasManagerFollowUpSignal(cached)
+      ) {
+        ids.add(item.projectId);
+      }
+    });
+
+    return ids;
+  }, [expandCache, items]);
+
+  const pendingManagerSignalsCount = useMemo(
+    () =>
+      items.filter((item) => {
+        const cached = expandCache[item.projectId];
+        return !cached || cached === "loading";
+      }).length,
+    [expandCache, items]
+  );
+
+  const visibleItems = useMemo(() => {
+    if (managerFilter === "all") {
+      return items;
+    }
+
+    return items.filter((item) => managerFollowUpIds.has(item.projectId));
+  }, [items, managerFilter, managerFollowUpIds]);
 
   return (
     <div className="dashboard-card overflow-hidden">
       <ConfirmModal {...modalProps} />
+      <div className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[var(--slate-800)]">
+              Relances manager
+            </p>
+            <p className="mt-1 text-xs text-[var(--slate-500)]">
+              Repere les affaires visibles soit non pretes, soit deja marquees par une piece critique manquante.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                managerFilter === "all"
+                  ? "bg-[var(--slate-900)] text-white"
+                  : "border border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)]"
+              }`}
+              onClick={() => setManagerFilter("all")}
+            >
+              Toutes ({items.length})
+            </button>
+            <button
+              type="button"
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                managerFilter === "follow_up"
+                  ? "bg-[var(--danger)] text-white"
+                  : "border border-[var(--danger)]/20 bg-[var(--danger)]/5 text-[var(--danger)] hover:bg-[var(--danger)]/10"
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+              disabled={pendingManagerSignalsCount > 0}
+              onClick={() => setManagerFilter("follow_up")}
+            >
+              A relancer en priorite ({managerFollowUpIds.size})
+            </button>
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-[var(--slate-500)]">
+          {pendingManagerSignalsCount > 0
+            ? `Qualification manager en cours sur ${pendingManagerSignalsCount} affaire${pendingManagerSignalsCount > 1 ? "s" : ""} visible${pendingManagerSignalsCount > 1 ? "s" : ""}.`
+            : `${managerFollowUpIds.size} affaire${managerFollowUpIds.size > 1 ? "s" : ""} a relancer en priorite sur cette page.`}
+        </p>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -238,13 +355,13 @@ export function AffairesDenseTable({
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 ? (
+            {visibleItems.length === 0 ? (
               <AffairesEmptyState
-                emptyVariant={emptyVariant}
+                emptyVariant={managerFilter === "follow_up" ? "filtered" : emptyVariant}
                 onCreateAffaire={onCreateAffaire}
               />
             ) : (
-              items.map((item) => {
+              visibleItems.map((item) => {
                 const hasCurrentVersion =
                   item.hasCurrentVersion &&
                   item.currentVersionId !== null &&

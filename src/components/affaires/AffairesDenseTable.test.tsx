@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AffaireListItem } from "./types";
@@ -156,5 +156,93 @@ describe("AffairesDenseTable", () => {
 
     expect(pushMock).not.toHaveBeenCalled();
     expect(onToggleFavorite).toHaveBeenCalledWith("project-1", true);
+  });
+
+  it("filters the visible portfolio to not-ready or critical-missing dossiers for manager follow-up", async () => {
+    fetchExpandDataMock.mockImplementation(async (projectId: string) => ({
+      summary: {
+        currentVersion: null,
+        acceptedVersion: null,
+        lineCount: 0,
+        hubReadiness:
+          projectId === "project-1"
+            ? {
+                status: "not_ready",
+                workingBasis: "insufficient",
+                allowsContinuation: false,
+                briefStatus: "a_confirmer",
+                drivers: [
+                  {
+                    code: "critical_missing_piece",
+                    source: "register",
+                    severity: "critical",
+                    count: 1,
+                  },
+                ],
+                intake: {
+                  reviewDocumentsCount: 0,
+                  confirmedMissingPiecesCount: 1,
+                  confirmedCriticalMissingPiecesCount: 1,
+                },
+                register: {
+                  criticalOpenCount: 1,
+                  clarifyWithClientCount: 0,
+                  continuedWithHypothesisCount: 0,
+                  revalidationRequiredCount: 0,
+                  criticalRevalidationRequiredCount: 0,
+                },
+              }
+            : {
+                status: "ready",
+                workingBasis: "established",
+                allowsContinuation: true,
+                briefStatus: "confirme",
+                drivers: [],
+                intake: {
+                  reviewDocumentsCount: 0,
+                  confirmedMissingPiecesCount: 0,
+                  confirmedCriticalMissingPiecesCount: 0,
+                },
+                register: {
+                  criticalOpenCount: 0,
+                  clarifyWithClientCount: 0,
+                  continuedWithHypothesisCount: 0,
+                  revalidationRequiredCount: 0,
+                  criticalRevalidationRequiredCount: 0,
+                },
+              },
+      },
+      dpgfSource: null,
+    }));
+
+    render(
+      <AffairesDenseTable
+        items={[
+          baseItem,
+          {
+            ...baseItem,
+            projectId: "project-2",
+            projectName: "Affaire Beta",
+          },
+        ]}
+        emptyVariant="filtered"
+        onToggleFavorite={vi.fn()}
+        favoritePendingIds={[]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /A relancer en priorite \(1\)/i })
+      ).toBeEnabled();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /A relancer en priorite \(1\)/i })
+    );
+
+    expect(screen.getByText("Affaire Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Affaire Beta")).not.toBeInTheDocument();
+    expect(screen.getByText("1 affaire a relancer en priorite sur cette page.")).toBeInTheDocument();
   });
 });
