@@ -18,6 +18,10 @@ import {
   fetchAffaireRegisterScopeOptions,
 } from "@/lib/affaires/register-server";
 import {
+  applyAffaireHubDevScenario,
+  parseAffaireHubDevScenario,
+} from "@/lib/affaires/hub-dev-scenarios";
+import {
   fetchAffaireHubDpgfSource,
   fetchAffaireHubFinishLineSummary,
   fetchAffaireHubMarginAnalysis,
@@ -59,6 +63,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
 
   const justCreated =
     typeof search.created === "string" && search.created === "1";
+  const devHubScenario =
+    process.env.NODE_ENV !== "production"
+      ? parseAffaireHubDevScenario(search.devHubScenario)
+      : null;
 
   const timelinePageRaw =
     typeof search.timelinePage === "string"
@@ -266,37 +274,63 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     }
   }
 
+  let effectiveSummary = summary;
+  let effectiveIntakeWorkspace = intakeWorkspace;
+  let effectivePlansSummary = plansSummary;
+  let effectiveVersionZeroSummary = versionZeroSummary;
+  let effectiveRegisterSummary = registerSummary;
+  let effectiveApprovalSummary = approvalSummary;
+  let effectiveFinishLineSummary = finishLineSummary;
+  let effectiveCockpitPreferences = cockpitPreferences;
+
+  if (devHubScenario) {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: devHubScenario,
+      projectId,
+      summary,
+    });
+
+    effectiveSummary = overrides.summary;
+    effectiveIntakeWorkspace = overrides.intakeWorkspace;
+    effectivePlansSummary = overrides.plansSummary;
+    effectiveVersionZeroSummary = overrides.versionZeroSummary;
+    effectiveRegisterSummary = overrides.registerSummary;
+    effectiveApprovalSummary = overrides.approvalSummary;
+    effectiveFinishLineSummary = overrides.finishLineSummary;
+    effectiveCockpitPreferences = [];
+  }
+
   const cockpitSuggestions = computeCockpitSuggestions({
     projectId,
     takeoffEnabled,
     isReadOnlyReview,
-    plansSummary,
-    registerSummary,
-    approvalSummary,
+    plansSummary: effectivePlansSummary,
+    registerSummary: effectiveRegisterSummary,
+    approvalSummary: effectiveApprovalSummary,
     hasIntakeWorkspaceError,
-    intakeWorkspace,
-    versionZeroSummary,
-    currentVersion: summary.currentVersion
+    intakeWorkspace: effectiveIntakeWorkspace,
+    versionZeroSummary: effectiveVersionZeroSummary,
+    currentVersion: effectiveSummary.currentVersion
       ? {
-          id: summary.currentVersion.id,
-          status: summary.currentVersion.status,
+          id: effectiveSummary.currentVersion.id,
+          status: effectiveSummary.currentVersion.status,
         }
       : null,
-    lineCount: summary.lineCount,
-    preferences: cockpitPreferences,
+    lineCount: effectiveSummary.lineCount,
+    preferences: effectiveCockpitPreferences,
   });
 
   return (
     <AffaireHub
-      summary={summary}
+      summary={effectiveSummary}
       timeline={timeline}
       dpgfSource={dpgfSource}
       marginAnalysis={marginAnalysis}
-      approvalSummary={approvalSummary}
+      approvalSummary={effectiveApprovalSummary}
       approvalJournal={approvalJournal}
       directionSignals={directionSignals}
       isReadOnlyReview={isReadOnlyReview}
-      plansSummary={plansSummary}
+      plansSummary={effectivePlansSummary}
       takeoffEnabled={takeoffEnabled}
       projectVersions={projectVersions.map((version) => ({
         id: version.id,
@@ -304,13 +338,13 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       }))}
       sectionErrors={sectionErrors}
       justCreated={justCreated}
-      intakeWorkspace={intakeWorkspace}
+      intakeWorkspace={effectiveIntakeWorkspace}
       registerPage={registerPage}
       registerScopeOptions={registerScopeOptions}
-      registerSummary={registerSummary}
+      registerSummary={effectiveRegisterSummary}
       registerTimeline={registerTimeline}
-      versionZeroSummary={versionZeroSummary}
-      finishLineSummary={finishLineSummary}
+      versionZeroSummary={effectiveVersionZeroSummary}
+      finishLineSummary={effectiveFinishLineSummary}
       cockpitSuggestions={cockpitSuggestions}
       viewerProfileId={profile?.id ?? null}
     />

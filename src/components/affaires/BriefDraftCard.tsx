@@ -556,6 +556,8 @@ export function BriefDraftCard({
     : null;
   const isConfirmedBrief = briefDraft?.status === "confirme";
   const requiresConfirmation = briefDraft?.status === "a_confirmer";
+  const showConfirmationBanner =
+    requiresConfirmation && !isReadOnly && !hideConfirmAction;
 
   return (
     <section className="dashboard-card p-5" aria-label="Brief affaire">
@@ -613,7 +615,7 @@ export function BriefDraftCard({
         </div>
       )}
 
-      {briefDraft && requiresConfirmation && !isEditing && !showConfirmDialog && (
+      {briefDraft && showConfirmationBanner && !isEditing && !showConfirmDialog && (
         <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/6 px-4 py-3">
           <p className="text-sm font-semibold text-[var(--slate-800)]">
             Validation du brief requise

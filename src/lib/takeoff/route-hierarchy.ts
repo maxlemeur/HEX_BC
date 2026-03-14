@@ -73,11 +73,11 @@ function buildLegacyTargetHref(input: {
   }
 
   if (input.kind === "estimate_takeoff_legacy" || input.kind === "estimate_launch_legacy") {
-    return `/dashboard/affaires/${input.projectId}/takeoff`;
+    return `/dashboard/affaires/${input.projectId}`;
   }
 
-  if (input.kind === "estimate_job_legacy" && input.versionId) {
-    return `/dashboard/affaires/${input.projectId}/takeoff?tab=jobs&version=${input.versionId}`;
+  if (input.kind === "estimate_job_legacy") {
+    return `/dashboard/affaires/${input.projectId}`;
   }
 
   if (input.kind === "estimate_review_legacy" && input.jobId && input.versionId) {
@@ -90,6 +90,27 @@ function buildLegacyTargetHref(input: {
   }
 
   return `/dashboard/affaires/${input.projectId}/takeoff`;
+}
+
+function buildLegacyTargetLabel(input: { kind: TakeoffRouteHierarchyKind; targetHref: string | null }) {
+  if (!input.targetHref) {
+    return null;
+  }
+
+  switch (input.kind) {
+    case "dashboard_takeoff_legacy":
+      return "Ouvrir les affaires";
+    case "estimate_plans_legacy":
+      return "Ouvrir les plans affaire";
+    case "estimate_review_legacy":
+      return "Ouvrir la revue metres affaire";
+    case "estimate_takeoff_legacy":
+    case "estimate_launch_legacy":
+    case "estimate_job_legacy":
+      return "Revenir au cockpit affaire";
+    default:
+      return "Revenir a l'affaire";
+  }
 }
 
 export function buildTakeoffRouteHierarchy(input: {
@@ -152,7 +173,10 @@ export function buildTakeoffRouteHierarchy(input: {
       "Vous etes dans une surface legacy estimate-first. Le flux principal reste l'affaire ; utilisez ce chemin seulement si vous reprenez un contexte existant ou un cas de fallback.",
     provenanceLabel,
     targetHref,
-    targetLabel: targetHref ? "Revenir au flux principal" : null,
+    targetLabel: buildLegacyTargetLabel({
+      kind: input.kind,
+      targetHref,
+    }),
   };
 }
 

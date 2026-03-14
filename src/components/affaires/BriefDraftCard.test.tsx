@@ -447,6 +447,9 @@ describe("BriefDraftCard", () => {
     const section = getSection();
     expect(within(section).queryByText("Modifier")).not.toBeInTheDocument();
     expect(within(section).queryByText("Confirmer le brief")).not.toBeInTheDocument();
+    expect(
+      within(section).queryByText("Validation du brief requise")
+    ).not.toBeInTheDocument();
   });
 
   it("adds and removes list items", async () => {
@@ -540,5 +543,8 @@ describe("BriefDraftCard", () => {
     );
     const section = getSection();
     expect(within(section).queryByText("Confirmer le brief")).not.toBeInTheDocument();
+    expect(
+      within(section).queryByText("Validation du brief requise")
+    ).not.toBeInTheDocument();
   });
 });

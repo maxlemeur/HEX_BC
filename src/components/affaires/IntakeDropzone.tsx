@@ -26,6 +26,7 @@ type IntakeDropzoneProps = {
   projectId: string;
   onUploadComplete: (uploadId: string) => void;
   compact?: boolean;
+  hideSurface?: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,6 +118,7 @@ export function IntakeDropzone({
   projectId,
   onUploadComplete,
   compact = false,
+  hideSurface = false,
 }: IntakeDropzoneProps) {
   const inputId = `intake-dropzone-input-${projectId}`;
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -217,6 +219,7 @@ export function IntakeDropzone({
         compact={compact}
         uploadingFileCount={state.phase === "uploading" ? state.fileCount : null}
         triggerId={projectId}
+        hiddenSurface={hideSurface}
       />
 
       {/* Client-side validation errors */}

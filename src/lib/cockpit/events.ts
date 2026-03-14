@@ -12,6 +12,7 @@ export type CockpitOpenSurfaceEventDetail = {
   projectId: string;
   actionId: string;
   surfaceId: CockpitSurfaceId;
+  triggerFilePicker?: boolean;
 };
 
 export function dispatchCockpitExecuteAction(

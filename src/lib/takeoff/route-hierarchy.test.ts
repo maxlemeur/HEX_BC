@@ -29,8 +29,8 @@ describe("buildTakeoffRouteHierarchy", () => {
       description:
         "Vous etes dans une surface legacy estimate-first. Le flux principal reste l'affaire ; utilisez ce chemin seulement si vous reprenez un contexte existant ou un cas de fallback.",
       provenanceLabel: "Provenance du chemin : legacy estimate-first / historique takeoff",
-      targetHref: "/dashboard/affaires/project-1/takeoff",
-      targetLabel: "Revenir au flux principal",
+      targetHref: "/dashboard/affaires/project-1",
+      targetLabel: "Revenir au cockpit affaire",
     });
   });
 
@@ -61,7 +61,8 @@ describe("buildTakeoffRouteHierarchy", () => {
     ).toMatchObject({
       classification: "legacy",
       provenanceLabel: "Provenance du chemin : legacy estimate-first / suivi job",
-      targetHref: "/dashboard/affaires/project-1/takeoff?tab=jobs&version=version-1",
+      targetHref: "/dashboard/affaires/project-1",
+      targetLabel: "Revenir au cockpit affaire",
     });
   });
 
@@ -90,6 +91,7 @@ describe("buildTakeoffRouteHierarchy", () => {
       classification: "legacy",
       provenanceLabel: "Provenance du chemin : legacy estimate-first / portail takeoff",
       targetHref: "/dashboard/affaires",
+      targetLabel: "Ouvrir les affaires",
     });
   });
 });

@@ -3,13 +3,25 @@
 import { useCallback, useState, useTransition } from "react";
 
 import { Badge } from "@/components/ui/Badge";
-import type { AffaireIntakeDocumentKind, AffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
-import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
+import type {
+  AffaireIntakeDocumentKind,
+  AffaireIntakeDocumentPriority,
+  AffaireIntakeExtractedMetadata,
+} from "@/lib/affaires/intake";
+import {
+  AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
+  isAffaireIntakePrimaryEligibleKind,
+} from "@/lib/affaires/intake";
+import {
+  reclassifyAffaireDocument,
+  setAffaireDocumentAsPrimary,
+} from "@/app/dashboard/affaires/_actions/intake";
 
 export type IntakeDocumentData = {
   documentId: string;
   fileName: string;
   detectedCategory: AffaireIntakeDocumentKind;
+  documentPriority?: AffaireIntakeDocumentPriority | null;
   confidence: number;
   extractedMetadata: AffaireIntakeExtractedMetadata;
   issues: string[];
@@ -94,6 +106,8 @@ export function IntakeDocumentCard({
   const isProcessing = doc.confidence === 0 && doc.detectedCategory === "a_classer" && doc.issues.length === 0;
   const confidenceDisplay = getConfidenceDisplay(doc.confidence);
   const fileType = getFileTypeIcon(doc.fileName);
+  const isPriorityEligible = isAffaireIntakePrimaryEligibleKind(doc.detectedCategory);
+  const documentPriority = doc.documentPriority ?? "secondary";
 
   const handleReclassify = useCallback(() => {
     if (selectedCategory === doc.detectedCategory) {
@@ -117,6 +131,25 @@ export function IntakeDocumentCard({
     });
   }, [selectedCategory, doc.detectedCategory, doc.documentId, projectId, onReclassified]);
 
+  const handleSetPrimary = useCallback(() => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await setAffaireDocumentAsPrimary({
+          projectId,
+          documentId: doc.documentId,
+        });
+        onReclassified();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Erreur lors du changement de document principal."
+        );
+      }
+    });
+  }, [doc.documentId, onReclassified, projectId]);
+
   const meta = doc.extractedMetadata;
   const hasMetadata = meta.projectName || meta.clientName || meta.deadlineAt || meta.detectedLots.length > 0 || meta.detectedVariants.length > 0;
 
@@ -139,6 +172,11 @@ export function IntakeDocumentCard({
         <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)} size="sm">
           {CATEGORY_LABELS[doc.detectedCategory]}
         </Badge>
+        {isPriorityEligible ? (
+          <Badge variant={documentPriority === "primary" ? "success" : "neutral"} size="sm">
+            {AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS[documentPriority]}
+          </Badge>
+        ) : null}
       </div>
     );
   }
@@ -179,6 +217,14 @@ export function IntakeDocumentCard({
                   <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)} size="sm">
                     {CATEGORY_LABELS[doc.detectedCategory]}
                   </Badge>
+                  {isPriorityEligible ? (
+                    <Badge
+                      variant={documentPriority === "primary" ? "success" : "neutral"}
+                      size="sm"
+                    >
+                      {AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS[documentPriority]}
+                    </Badge>
+                  ) : null}
                   <Badge variant={confidenceDisplay.variant} size="sm">
                     {confidenceDisplay.label} ({Math.round(doc.confidence * 100)}%)
                   </Badge>
@@ -190,13 +236,25 @@ export function IntakeDocumentCard({
 
         {/* Reclassify button */}
         {!isProcessing && !isEditing && (
-          <button
-            type="button"
-            onClick={() => { setSelectedCategory(doc.detectedCategory); setIsEditing(true); }}
-            className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
-          >
-            Reclasser
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {isPriorityEligible && documentPriority !== "primary" ? (
+              <button
+                type="button"
+                onClick={handleSetPrimary}
+                disabled={isPending}
+                className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-60"
+              >
+                Definir comme principal
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => { setSelectedCategory(doc.detectedCategory); setIsEditing(true); }}
+              className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
+            >
+              Reclasser
+            </button>
+          </div>
         )}
       </div>
 

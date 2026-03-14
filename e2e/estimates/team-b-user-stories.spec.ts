@@ -900,11 +900,10 @@ test.describe("VNEXT Team B - user stories e2e", () => {
   }) => {
     await page.goto("/dashboard/affaires/8ba45ad2-c20d-4b50-b56b-69e2d0bd6e94");
 
-    await expect(page.getByText("Parcours recommande", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Flux principal", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Aides adjacentes", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Fallback legacy", exact: true })).toBeVisible();
+    await expect(page.getByText("Prochaine etape", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Completer le dossier", exact: true })).toBeVisible();
+    await expect(page.getByText("Blocages a traiter")).toBeVisible();
     await expect(page.getByRole("link", { name: "Ouvrir le fallback legacy" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Ouvrir le centre metres" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ajouter 3 pieces manquantes" })).toBeVisible();
   });
 });

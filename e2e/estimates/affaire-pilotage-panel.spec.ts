@@ -793,7 +793,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       supplyTypeId,
     });
 
-    await openAffaireHub(page, projectId);
+    const pilotageSection = await openAffaireHub(page, projectId);
 
     await expect(pilotageSection).toContainText("Pret a envoyer");
     await expect(pilotageSection).toContainText("Pret a commander");
@@ -939,15 +939,10 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       name: "Plans fallback legacy",
     });
 
-    const pilotageSection = await openAffaireHub(page, projectId);
+    await openAffaireHub(page, projectId);
 
-    await expect(page.getByText("Parcours recommande")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Flux principal", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Aides adjacentes", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Fallback legacy", exact: true })).toBeVisible();
-    await expect(
-      page.getByText("Aucun renvoi par defaut vers le legacy")
-    ).toBeVisible();
+    await expect(page.getByText("Prochaine etape")).toBeVisible();
+    await expect(page.getByText("Reprise legacy")).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Ouvrir le fallback legacy" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/takeoff`);
@@ -958,7 +953,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(page.getByText("Legacy estimate-first", { exact: true })).toBeVisible();
     await expect(page.getByText("Flux principal: affaire", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Revenir au flux principal" })
-    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
+      page.getByRole("link", { name: "Revenir au cockpit affaire" })
+    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}`);
   });
 });

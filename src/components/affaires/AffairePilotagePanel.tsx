@@ -14,7 +14,6 @@ import {
   buildFinishLineCards,
   buildPilotageExceptions,
   buildPilotageSteps,
-  countPrioritizedFinishLineBlockers,
   type AffairePilotageCurrentVersion,
   type AffairePilotageWorkspace,
   type FinishLineCard,
@@ -39,6 +38,7 @@ type AffairePilotagePanelProps = {
   takeoffEnabled?: boolean;
   onOpenSurface?: (surfaceId: CockpitSurfaceId) => void;
   ghost?: boolean;
+  hiddenExceptionIds?: string[];
 };
 
 function getStepBadgeVariant(status: PilotageStepStatus) {
@@ -226,6 +226,7 @@ export function AffairePilotagePanel({
   takeoffEnabled = false,
   onOpenSurface,
   ghost = false,
+  hiddenExceptionIds = [],
 }: AffairePilotagePanelProps) {
   const allowSurfaceActions = typeof onOpenSurface === "function";
   const steps = ghost
@@ -249,22 +250,17 @@ export function AffairePilotagePanel({
         registerSummary,
         approvalSummary,
         allowSurfaceActions,
-      });
+      }).filter((exception) => !hiddenExceptionIds.includes(exception.id));
+  const hasVisibleFinishLine = !ghost && currentVersion !== null && finishLineSummary != null;
   const finishLineCards = ghost
     ? []
-    : buildFinishLineCards({
+    : hasVisibleFinishLine
+      ? buildFinishLineCards({
         projectId,
         currentVersion,
         finishLineSummary,
-      });
-  const prioritizedBlockerCount = ghost
-    ? 0
-    : exceptions.length +
-      countPrioritizedFinishLineBlockers({
-        finishLineCards,
-        finishLineSummary,
-        exceptions,
-      });
+      })
+      : [];
 
   return (
     <section className={`dashboard-card p-5 animate-fade-in${ghost ? " relative" : ""}`}>
@@ -279,69 +275,56 @@ export function AffairePilotagePanel({
             <h2 className="text-sm font-semibold text-[var(--slate-800)]">
               Pilotage de l&apos;affaire
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
-              La vue par defaut remonte ce qui bloque vraiment et indique ou reprendre.
-            </p>
           </div>
-          <Badge
-            variant={ghost ? "neutral" : prioritizedBlockerCount > 0 ? "warning" : "success"}
-            size="sm"
-            withDot
-            className="self-start"
-          >
-            {ghost
-              ? "En attente"
-              : prioritizedBlockerCount > 0
-                ? `${prioritizedBlockerCount} point${prioritizedBlockerCount > 1 ? "s" : ""} a traiter`
-                : "Aucun blocage prioritaire"}
-          </Badge>
         </div>
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-2">
-        {finishLineCards.map((card) => (
-          <div
-            key={card.key}
-            className="rounded-2xl border border-[var(--slate-200)] bg-white p-4"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
-                  Finish line
-                </p>
-                <h3 className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
-                  {card.label}
-                </h3>
+      {finishLineCards.length > 0 ? (
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          {finishLineCards.map((card) => (
+            <div
+              key={card.key}
+              className="rounded-2xl border border-[var(--slate-200)] bg-white p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+                    Finish line
+                  </p>
+                  <h3 className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                    {card.label}
+                  </h3>
+                </div>
+                <Badge variant={getFinishLineBadgeVariant(card.status)} size="sm" withDot>
+                  {getFinishLineBadgeLabel(card.status)}
+                </Badge>
               </div>
-              <Badge variant={getFinishLineBadgeVariant(card.status)} size="sm" withDot>
-                {getFinishLineBadgeLabel(card.status)}
-              </Badge>
+
+              <p className="mt-3 text-sm leading-6 text-[var(--slate-600)]">
+                {card.summary}
+              </p>
+
+              <ul className="mt-3 space-y-2">
+                {card.details.map((detail) => (
+                  <li
+                    key={`${card.key}-${detail}`}
+                    className="rounded-lg bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]"
+                  >
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+
+              {card.action ? (
+                <div className="mt-4">
+                  <ExceptionActionButton action={card.action} onOpenSurface={onOpenSurface} />
+                </div>
+              ) : null}
             </div>
+          ))}
+        </div>
+      ) : null}
 
-            <p className="mt-3 text-sm leading-6 text-[var(--slate-600)]">
-              {card.summary}
-            </p>
-
-            <ul className="mt-3 space-y-2">
-              {card.details.map((detail) => (
-                <li
-                  key={`${card.key}-${detail}`}
-                  className="rounded-lg bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]"
-                >
-                  {detail}
-                </li>
-              ))}
-            </ul>
-
-            {card.action ? (
-              <div className="mt-4">
-                <ExceptionActionButton action={card.action} onOpenSurface={onOpenSurface} />
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-
-      {!ghost ? (
+      {hasVisibleFinishLine ? (
         <AffaireFinishLineActions
           projectId={projectId}
           projectName={projectName}

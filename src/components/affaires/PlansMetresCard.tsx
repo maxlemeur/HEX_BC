@@ -60,6 +60,7 @@ type PlansMetresCardProps = {
   projectId: string;
   errorMessage?: string;
   onLaunchMetre?: () => void;
+  hideLaunchAction?: boolean;
 };
 
 /* ------------------------------------------------------------------ */
@@ -190,6 +191,7 @@ export function PlansMetresCard({
   projectId,
   errorMessage,
   onLaunchMetre,
+  hideLaunchAction = false,
 }: PlansMetresCardProps) {
   const continuityPlanSetId =
     plans?.latestJob !== null && plans?.latestJob !== undefined
@@ -481,7 +483,7 @@ export function PlansMetresCard({
             Ouvrir le registre
           </Link>
         ) : null}
-        {needsAction ? (
+        {needsAction && !hideLaunchAction ? (
           <>
             <button
               type="button"
@@ -515,7 +517,7 @@ export function PlansMetresCard({
             Suivre l&apos;analyse
           </Link>
         ) : null}
-        {canLaunchNewAnalysis ? (
+        {canLaunchNewAnalysis && !hideLaunchAction ? (
           <button
             type="button"
             disabled={!onLaunchMetre}

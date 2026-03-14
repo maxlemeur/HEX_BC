@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 
 import type { AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
-import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS } from "@/lib/affaires/intake";
+import {
+  AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
+  isAffaireIntakePrimaryEligibleKind,
+} from "@/lib/affaires/intake";
 import { Badge } from "@/components/ui/Badge";
 import { IntakeDocumentCard, type IntakeDocumentData } from "./IntakeDocumentCard";
 
@@ -111,6 +114,10 @@ export function IntakeCategoryCard({
   const icon = CATEGORY_ICONS[category];
   const colorClass = CATEGORY_COLORS[category];
   const count = documents.length;
+  const primaryCount = documents.filter((document) => document.documentPriority === "primary").length;
+  const secondaryCount = documents.filter(
+    (document) => (document.documentPriority ?? "secondary") === "secondary"
+  ).length;
 
   // Truncated file names for collapsed view
   const previewNames = documents.slice(0, 3).map((d) => d.fileName);
@@ -142,6 +149,14 @@ export function IntakeCategoryCard({
             <Badge variant="neutral" size="sm">
               {count}
             </Badge>
+            {isAffaireIntakePrimaryEligibleKind(category) && primaryCount > 0 && (
+              <Badge variant="success" size="sm">Principal</Badge>
+            )}
+            {isAffaireIntakePrimaryEligibleKind(category) && secondaryCount > 0 && (
+              <Badge variant="neutral" size="sm">
+                Autres {secondaryCount}
+              </Badge>
+            )}
             {/* Contextual badges */}
             {category === "dpgf" && dpgfAlreadyImported && (
               <Badge variant="success" size="sm">Importe</Badge>

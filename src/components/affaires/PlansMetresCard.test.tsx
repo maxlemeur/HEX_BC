@@ -191,6 +191,43 @@ describe("PlansMetresCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("can hide the launch CTA when the flow hero already carries it", () => {
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 0,
+        usableJobs: 0,
+        blockingExceptionsJobs: 0,
+      },
+      jobs: [],
+      pagination: { limit: 6, offset: 0, total: 0 },
+    });
+
+    renderWithSWR(
+      <PlansMetresCard
+        projectId="project-1"
+        hideLaunchAction
+        onLaunchMetre={vi.fn()}
+        plans={{
+          defaultPlanSetId: "plan-set-1",
+          defaultPlanSetSource: "affaire-intake",
+          defaultPlanSetFileCount: 2,
+          planSetCount: 1,
+          planFileCount: 2,
+          totalSizeBytes: 2048,
+          latestJob: null,
+          coveragePercent: null,
+          exceptionCount: null,
+          openQuestionsCount: 0,
+          failureReasonLabel: null,
+        }}
+      />
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Analyser les plans" })
+    ).not.toBeInTheDocument();
+  });
+
   it("exposes retry and remediation CTAs when the latest job needs action", () => {
     vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
       counters: {

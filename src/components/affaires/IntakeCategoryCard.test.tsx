@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/dashboard/affaires/_actions/intake", () => ({
   reclassifyAffaireDocument: vi.fn(),
+  setAffaireDocumentAsPrimary: vi.fn(),
 }));
 
 import { IntakeCategoryCard } from "@/components/affaires/IntakeCategoryCard";

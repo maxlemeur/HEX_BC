@@ -17,6 +17,7 @@ type AffaireFileDropSurfaceProps = {
   compact?: boolean;
   uploadingFileCount?: number | null;
   triggerId?: string;
+  hiddenSurface?: boolean;
 };
 
 export function AffaireFileDropSurface({
@@ -27,6 +28,7 @@ export function AffaireFileDropSurface({
   compact = false,
   uploadingFileCount = null,
   triggerId,
+  hiddenSurface = false,
 }: Readonly<AffaireFileDropSurfaceProps>) {
   const [dragActive, setDragActive] = useState(false);
   const isUploading = typeof uploadingFileCount === "number";
@@ -51,17 +53,22 @@ export function AffaireFileDropSurface({
 
       <div
         data-intake-dropzone-trigger={triggerId}
-        className={`rounded-xl border-2 border-dashed transition-colors ${
+        className={`${hiddenSurface ? "sr-only" : `rounded-xl border-2 border-dashed transition-colors ${
           dragActive
             ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
             : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
         } ${compact ? "p-4" : "p-6"} ${
           disabled || isUploading ? "pointer-events-none opacity-60" : "cursor-pointer"
-        }`}
-        role="button"
-        tabIndex={disabled || isUploading ? -1 : 0}
-        aria-label="Zone de depot multi-documents. Glissez des fichiers ou appuyez pour selectionner."
+        }`}`}
+        role={hiddenSurface ? undefined : "button"}
+        tabIndex={hiddenSurface || disabled || isUploading ? -1 : 0}
+        aria-label={
+          hiddenSurface
+            ? undefined
+            : "Zone de depot multi-documents. Glissez des fichiers ou appuyez pour selectionner."
+        }
         aria-disabled={disabled || isUploading}
+        aria-hidden={hiddenSurface}
         onClick={() => {
           if (!disabled && !isUploading) {
             inputRef.current?.click();

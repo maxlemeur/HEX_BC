@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import { expect, test } from "@playwright/test";
 
 import {
@@ -7,8 +5,6 @@ import {
   createEstimateViaWizard,
   loginWithUi,
 } from "./helpers";
-
-const SAMPLE_CSV = path.join(__dirname, "../fixtures/sample.csv");
 
 async function extractProjectId(page: import("@playwright/test").Page, versionId: string) {
   const response = await page.request.get(`/api/estimates/${versionId}`, {
@@ -82,15 +78,8 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
     await expect(metreDialog).toBeVisible();
     await expect(metreDialog.getByText(/Analyser les plans/i)).toBeVisible();
 
-    // 6. Upload CSV file via the TakeoffUploadForm inside the dialog
-    const fileInput = metreDialog.locator("input[type='file']").first();
-    await fileInput.setInputFiles(SAMPLE_CSV);
-
-    // Wait for file to be selected
-    await expect(metreDialog.getByText("sample.csv")).toBeVisible({ timeout: 5_000 });
-
-    // Submit
-    await metreDialog.getByRole("button", { name: /Lancer l'extraction/i }).click();
+    // 6. Launch analysis from the retained plan set
+    await metreDialog.getByRole("button", { name: /Analyser maintenant/i }).click();
 
     // 7. After success, click "Centre d'activite" to navigate to takeoff page
     const activityButton = metreDialog.getByRole("button", { name: /Centre d'activit/i });
