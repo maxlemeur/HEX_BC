@@ -102,8 +102,11 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   total_exceeds_budget: "blocking",
   no_pdf_generated: "blocking",
   rule_violation: "blocking",
+  critical_missing_pieces: "blocking",
   critical_open_questions: "blocking",
+  client_missing_documents_required: "blocking",
   client_clarification_required: "blocking",
+  missing_pieces_pending: "warning",
   open_questions_pending: "warning",
   version_zero_review_pending: "blocking",
 };

@@ -41,8 +41,11 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "total_exceeds_budget",
   "no_pdf_generated",
   "rule_violation",
+  "critical_missing_pieces",
   "critical_open_questions",
+  "client_missing_documents_required",
   "client_clarification_required",
+  "missing_pieces_pending",
   "open_questions_pending",
   "version_zero_review_pending",
 ] as const;
@@ -81,15 +84,30 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Des regles metier (marge, remise, approbation) ne sont pas satisfaites.",
   },
+  critical_missing_pieces: {
+    label: "Documents critiques manquants",
+    description:
+      "Le registre affaire contient des pieces manquantes critiques encore ouvertes.",
+  },
   critical_open_questions: {
     label: "Questions critiques ouvertes",
     description:
       "Le registre affaire contient des hypotheses ou pieces manquantes critiques encore ouvertes.",
   },
+  client_missing_documents_required: {
+    label: "Documents attendus du client",
+    description:
+      "Le registre affaire contient des pieces attendues du client avant l'envoi.",
+  },
   client_clarification_required: {
     label: "Clarification client requise",
     description:
       "Le registre affaire contient des points a clarifier avec le client avant l'envoi.",
+  },
+  missing_pieces_pending: {
+    label: "Documents manquants a traiter",
+    description:
+      "Des pieces manquantes non critiques restent ouvertes dans le registre affaire.",
   },
   open_questions_pending: {
     label: "Questions ouvertes a traiter",
@@ -119,8 +137,11 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   total_exceeds_budget: "blocking",
   no_pdf_generated: "blocking",
   rule_violation: "blocking",
+  critical_missing_pieces: "blocking",
   critical_open_questions: "blocking",
+  client_missing_documents_required: "blocking",
   client_clarification_required: "blocking",
+  missing_pieces_pending: "warning",
   open_questions_pending: "warning",
   version_zero_review_pending: "blocking",
 };
@@ -280,13 +301,17 @@ function pushRegisterGatingFlag(input: {
   bucket: EstimateGatingFlag[];
   key: Extract<
     EstimateGatingFlagKey,
+    | "critical_missing_pieces"
     | "critical_open_questions"
+    | "client_missing_documents_required"
     | "client_clarification_required"
+    | "missing_pieces_pending"
     | "open_questions_pending"
   >;
   severity: EstimateGatingSeverity;
   projectId: string;
   status: "open" | "clarify_with_client";
+  registerSeverity: "critical" | null;
   entries: Awaited<ReturnType<typeof fetchAffaireRegisterGateSummary>>["criticalOpenEntries"];
   kind: "missing_piece" | "assumption";
   label: string;
@@ -309,7 +334,7 @@ function pushRegisterGatingFlag(input: {
         entries: input.entries,
         projectId: input.projectId,
         status: input.status,
-        severity: input.severity === "blocking" ? "critical" : null,
+        severity: input.registerSeverity,
         kind: input.kind,
       }),
     },
@@ -639,10 +664,11 @@ export async function evaluateEstimateSendGating(
 
   pushRegisterGatingFlag({
     bucket: blockingFlags,
-    key: "critical_open_questions",
+    key: "critical_missing_pieces",
     severity: "blocking",
     projectId: input.project.id,
     status: "open",
+    registerSeverity: "critical",
     entries: criticalMissingPieceEntries,
     kind: "missing_piece",
     label: "Documents critiques manquants",
@@ -655,6 +681,7 @@ export async function evaluateEstimateSendGating(
     severity: "blocking",
     projectId: input.project.id,
     status: "open",
+    registerSeverity: "critical",
     entries: criticalAssumptionEntries,
     kind: "assumption",
     label: ESTIMATE_GATING_FLAG_META.critical_open_questions.label,
@@ -662,10 +689,11 @@ export async function evaluateEstimateSendGating(
   });
   pushRegisterGatingFlag({
     bucket: blockingFlags,
-    key: "client_clarification_required",
+    key: "client_missing_documents_required",
     severity: "blocking",
     projectId: input.project.id,
     status: "clarify_with_client",
+    registerSeverity: null,
     entries: clarifyMissingPieceEntries,
     kind: "missing_piece",
     label: "Documents attendus du client",
@@ -678,6 +706,7 @@ export async function evaluateEstimateSendGating(
     severity: "blocking",
     projectId: input.project.id,
     status: "clarify_with_client",
+    registerSeverity: null,
     entries: clarifyAssumptionEntries,
     kind: "assumption",
     label: ESTIMATE_GATING_FLAG_META.client_clarification_required.label,
@@ -685,10 +714,11 @@ export async function evaluateEstimateSendGating(
   });
   pushRegisterGatingFlag({
     bucket: warningFlags,
-    key: "open_questions_pending",
+    key: "missing_pieces_pending",
     severity: "warning",
     projectId: input.project.id,
     status: "open",
+    registerSeverity: null,
     entries: openMissingPieceEntries,
     kind: "missing_piece",
     label: "Documents manquants a traiter",
@@ -701,6 +731,7 @@ export async function evaluateEstimateSendGating(
     severity: "warning",
     projectId: input.project.id,
     status: "open",
+    registerSeverity: null,
     entries: openAssumptionEntries,
     kind: "assumption",
     label: ESTIMATE_GATING_FLAG_META.open_questions_pending.label,

@@ -27,6 +27,10 @@ export function resolveEstimateReadinessCategoryFromGatingFlagKey(
   key: string,
 ): EstimateReadinessCategory {
   switch (key) {
+    case "critical_missing_pieces":
+    case "client_missing_documents_required":
+    case "missing_pieces_pending":
+      return "documents";
     case "critical_open_questions":
     case "client_clarification_required":
     case "open_questions_pending":

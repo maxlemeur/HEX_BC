@@ -407,6 +407,14 @@ describe("estimate send gating", () => {
           text: "Le phasage reste a confirmer",
           scopeLabel: "Affaire test",
         },
+        {
+          id: "reg-4",
+          kind: "missing_piece",
+          severity: "warning",
+          status: "open",
+          text: "Ajouter le DOE",
+          scopeLabel: "Lot CFO",
+        },
       ],
       clarifyWithClientEntries: [
         {
@@ -415,6 +423,14 @@ describe("estimate send gating", () => {
           severity: "warning",
           status: "clarify_with_client",
           text: "Valider la variante avec le client",
+          scopeLabel: "Lot CFO",
+        },
+        {
+          id: "reg-5",
+          kind: "missing_piece",
+          severity: "warning",
+          status: "clarify_with_client",
+          text: "Demander le plan de reservation",
           scopeLabel: "Lot CFO",
         },
       ],
@@ -430,12 +446,12 @@ describe("estimate send gating", () => {
       ],
       openMissingPieceEntries: [
         {
-          id: "reg-1",
+          id: "reg-4",
           kind: "missing_piece",
-          severity: "critical",
+          severity: "warning",
           status: "open",
-          text: "CCTP complet manquant",
-          scopeLabel: "Affaire test",
+          text: "Ajouter le DOE",
+          scopeLabel: "Lot CFO",
         },
       ],
     });
@@ -469,7 +485,7 @@ describe("estimate send gating", () => {
     expect(result.blockingFlags).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          key: "critical_open_questions",
+          key: "critical_missing_pieces",
           category: "documents",
           count: 1,
         }),
@@ -478,10 +494,34 @@ describe("estimate send gating", () => {
           category: "register",
           count: 1,
         }),
+        expect.objectContaining({
+          key: "client_missing_documents_required",
+          category: "documents",
+          count: 1,
+          details: {
+            register_entries: [
+              expect.objectContaining({
+                href: "/dashboard/affaires/55555555-5555-4555-8555-555555555555?registerStatus=clarify_with_client&registerKind=missing_piece&registerFocus=reg-5",
+              }),
+            ],
+          },
+        }),
       ])
     );
     expect(result.warningFlags).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          key: "missing_pieces_pending",
+          category: "documents",
+          count: 1,
+          details: {
+            register_entries: [
+              expect.objectContaining({
+                href: "/dashboard/affaires/55555555-5555-4555-8555-555555555555?registerStatus=open&registerKind=missing_piece&registerFocus=reg-4",
+              }),
+            ],
+          },
+        }),
         expect.objectContaining({
           key: "open_questions_pending",
           category: "register",

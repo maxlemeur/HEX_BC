@@ -21,7 +21,7 @@ describe("EstimateSendGatingDialog", () => {
         onForceConfirm={vi.fn()}
         blockingFlags={[
           {
-            key: "critical_open_questions",
+            key: "critical_missing_pieces",
             category: "documents",
             severity: "blocking",
             count: 2,
@@ -87,6 +87,53 @@ describe("EstimateSendGatingDialog", () => {
     expect(registerLinks[0]).toHaveAttribute(
       "href",
       "/dashboard/affaires/project-1?registerStatus=open&registerKind=assumption"
+    );
+  });
+
+  it("keeps clarify-with-client register links focusable for non-critical entries", () => {
+    render(
+      <EstimateSendGatingDialog
+        isOpen
+        isSubmitting={false}
+        phaseLabel={null}
+        canForce
+        projectId="project-1"
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+        onForceConfirm={vi.fn()}
+        blockingFlags={[
+          {
+            key: "client_clarification_required",
+            category: "register",
+            severity: "blocking",
+            count: 1,
+            itemIds: [],
+            label: "Clarification client requise",
+            description: "Une clarification client reste ouverte.",
+            details: {
+              register_entries: [
+                {
+                  kind: "assumption",
+                  scopeLabel: "Lot CFO",
+                  text: "Valider la variante",
+                  href: "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6",
+                },
+              ],
+            },
+          },
+        ]}
+        warningFlags={[]}
+      />
+    );
+
+    expect(
+      screen.queryByRole("link", { name: "Ouvrir le registre affaire" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Registre: Lot CFO: Valider la variante" })
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
     );
   });
 });

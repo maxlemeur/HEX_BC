@@ -29,34 +29,50 @@ function formatFlagCount(count: number) {
 
 function formatRegisterAction(flag: EstimateSendGatingFlag) {
   switch (flag.key) {
+    case "critical_missing_pieces":
+      return "Recuperez ou requalifiez ces pieces critiques avant de reprendre l'envoi.";
     case "critical_open_questions":
-      return flag.category === "documents"
-        ? "Recuperez ou requalifiez ces pieces critiques avant de reprendre l'envoi."
-        : "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
+      return "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
+    case "client_missing_documents_required":
+      return "Revenez sur les demandes de pieces client pour solder ou requalifier ces attentes documentaires.";
     case "client_clarification_required":
-      return flag.category === "documents"
-        ? "Revenez sur les demandes de pieces client pour solder ou requalifier ces attentes documentaires."
-        : "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
+      return "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
+    case "missing_pieces_pending":
+      return "Passez par le registre affaire pour solder ou assumer explicitement ces pieces manquantes.";
     case "open_questions_pending":
-      return flag.category === "documents"
-        ? "Passez par le registre affaire pour solder ou assumer explicitement ces pieces manquantes."
-        : "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
+      return "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
     default:
       return null;
   }
 }
 
 function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
-  const kind = flag.category === "documents" ? "missing_piece" : "assumption";
-
   switch (flag.key) {
+    case "critical_missing_pieces":
+      return buildAffaireRegisterSearchHref({
+        pathname: `/dashboard/affaires/${projectId}`,
+        searchParams: new URLSearchParams(),
+        status: "open",
+        severity: "critical",
+        kind: "missing_piece",
+        cursor: null,
+      });
     case "critical_open_questions":
       return buildAffaireRegisterSearchHref({
         pathname: `/dashboard/affaires/${projectId}`,
         searchParams: new URLSearchParams(),
         status: "open",
         severity: "critical",
-        kind,
+        kind: "assumption",
+        cursor: null,
+      });
+    case "client_missing_documents_required":
+      return buildAffaireRegisterSearchHref({
+        pathname: `/dashboard/affaires/${projectId}`,
+        searchParams: new URLSearchParams(),
+        status: "clarify_with_client",
+        severity: null,
+        kind: "missing_piece",
         cursor: null,
       });
     case "client_clarification_required":
@@ -65,7 +81,16 @@ function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
         searchParams: new URLSearchParams(),
         status: "clarify_with_client",
         severity: null,
-        kind,
+        kind: "assumption",
+        cursor: null,
+      });
+    case "missing_pieces_pending":
+      return buildAffaireRegisterSearchHref({
+        pathname: `/dashboard/affaires/${projectId}`,
+        searchParams: new URLSearchParams(),
+        status: "open",
+        severity: null,
+        kind: "missing_piece",
         cursor: null,
       });
     case "open_questions_pending":
@@ -74,7 +99,7 @@ function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
         searchParams: new URLSearchParams(),
         status: "open",
         severity: null,
-        kind,
+        kind: "assumption",
         cursor: null,
       });
     default:
