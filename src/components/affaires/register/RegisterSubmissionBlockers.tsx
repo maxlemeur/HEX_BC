@@ -4,6 +4,7 @@ import {
   AFFAIRE_REGISTER_SCOPE_LABELS,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
+  isAffaireRegisterEntryRevalidationRequired,
   type AffaireRegisterEntry,
   type AffaireRegisterBusinessImpact,
   type AffaireRegisterEntryKind,
@@ -180,10 +181,13 @@ export function RegisterSubmissionBlockers({
     summary.criticalOpenCount > 0 ||
     summary.clarifyWithClientCount > 0 ||
     revalidationBlockingCount > 0;
-  const visibleCriticalOpenCount = items.filter(
+  const visibleStandardWorkflowEntries = items.filter(
+    (entry) => !isAffaireRegisterEntryRevalidationRequired(entry),
+  );
+  const visibleCriticalOpenCount = visibleStandardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.severity === "critical",
   ).length;
-  const visibleClarifyWithClientCount = items.filter(
+  const visibleClarifyWithClientCount = visibleStandardWorkflowEntries.filter(
     (entry) => entry.status === "clarify_with_client",
   ).length;
   const visibleRevalidationBlockingCount = items.filter((entry) =>
@@ -236,6 +240,7 @@ export function RegisterSubmissionBlockers({
                   status: "open",
                   severity: "critical",
                   kind: null,
+                  revalidationRequired: false,
                   cursor: null,
                 })
               }
@@ -252,6 +257,7 @@ export function RegisterSubmissionBlockers({
                   status: "clarify_with_client",
                   severity: null,
                   kind: null,
+                  revalidationRequired: false,
                   cursor: null,
                 })
               }
@@ -275,6 +281,23 @@ export function RegisterSubmissionBlockers({
               ? `Impacts a revoir: ${revalidationStages}.`
               : "Un additif ou une piece critique recue tardivement impose une nouvelle revue avant remise."}
           </p>
+          <div className="mt-3">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() =>
+                onApplyFilters({
+                  status: null,
+                  severity: null,
+                  kind: null,
+                  revalidationRequired: true,
+                  cursor: null,
+                })
+              }
+            >
+              Voir les revalidations
+            </button>
+          </div>
         </div>
       ) : null}
 

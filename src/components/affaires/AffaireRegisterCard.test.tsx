@@ -676,6 +676,91 @@ describe("AffaireRegisterCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("links hidden revalidation blockers back to the revalidation slice", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [],
+          filters: {
+            status: "validated",
+            severity: null,
+            kind: null,
+            revalidationRequired: false,
+            cursor: null,
+            focusEntryId: null,
+          },
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          revalidationRequired: true,
+          revalidationRequiredCount: 2,
+          revalidationBlocksSubmission: true,
+          revalidationImpactedStages: ["submission_readiness"],
+        })}
+        timelineEvents={[]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Voir les revalidations" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Voir les revalidations" }));
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/dashboard/affaires/project-1?registerRevalidation=required",
+        { scroll: false }
+      );
+    });
+  });
+
+  it("clears the revalidation filter when switching back to standard blockers", async () => {
+    const user = userEvent.setup();
+    mockSearchParams = new URLSearchParams("registerRevalidation=required");
+
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          filters: {
+            status: null,
+            severity: null,
+            kind: null,
+            revalidationRequired: true,
+            cursor: null,
+            focusEntryId: null,
+          },
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          criticalOpenCount: 1,
+          clarifyWithClientCount: 1,
+          revalidationRequired: true,
+          revalidationRequiredCount: 1,
+          revalidationBlocksSubmission: true,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Voir les critiques" }));
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical",
+        { scroll: false }
+      );
+    });
+  });
+
   it("keeps submission blockers visible even when the current slice does not contain them", () => {
     render(
       <AffaireRegisterCard
@@ -710,6 +795,91 @@ describe("AffaireRegisterCard", () => {
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Voir les clarifications client" })).toBeInTheDocument();
+  });
+
+  it("keeps the hidden-blocker hint when only revalidation rows are visible", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-revalidation-critical",
+              text: "Le DPGF relance une revue critique.",
+              severity: "critical",
+              status: "open",
+              revalidationRequest: {
+                status: "required",
+                requestedAt: "2026-03-06T10:00:00.000Z",
+                requestedByUserId: null,
+                previousStatus: "validated",
+                cause: "addendum_received",
+                triggerDocumentId: null,
+                triggerFileName: "additif-cfo.pdf",
+                impactedStages: ["submission_readiness"],
+                comment: null,
+              },
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-revalidation-warning-1",
+              text: "Le lot CFO doit etre revu apres additif.",
+              severity: "warning",
+              status: "open",
+              revalidationRequest: {
+                status: "required",
+                requestedAt: "2026-03-06T10:01:00.000Z",
+                requestedByUserId: null,
+                previousStatus: "validated",
+                cause: "addendum_received",
+                triggerDocumentId: null,
+                triggerFileName: "additif-cfo.pdf",
+                impactedStages: ["submission_readiness"],
+                comment: null,
+              },
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-revalidation-warning-2",
+              text: "La variante SSI doit etre rejouee.",
+              severity: "warning",
+              status: "open",
+              revalidationRequest: {
+                status: "required",
+                requestedAt: "2026-03-06T10:02:00.000Z",
+                requestedByUserId: null,
+                previousStatus: "validated",
+                cause: "late_critical_piece",
+                triggerDocumentId: null,
+                triggerFileName: "note-ssi.pdf",
+                impactedStages: ["submission_readiness"],
+                comment: null,
+              },
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 0,
+          criticalOpenCount: 1,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          revalidationRequired: true,
+          revalidationRequiredCount: 3,
+          revalidationBlocksSubmission: true,
+          revalidationImpactedStages: ["submission_readiness"],
+        })}
+        timelineEvents={[]}
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "D'autres points bloquants existent sur cette vue ou une autre tranche du registre."
+      )
+    ).toBeInTheDocument();
   });
 
   it("prioritizes critical client clarifications ahead of warning ones in the preview", () => {
