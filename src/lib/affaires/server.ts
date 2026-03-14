@@ -18,6 +18,7 @@ import {
   classifyTakeoffPlanSetSource,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
   getTakeoffFailureReasonLabel,
@@ -138,12 +139,55 @@ export type AffaireHubVersionSummary = {
   updatedAt: string;
 };
 
+export type AffaireHubReadinessStatus =
+  | "not_ready"
+  | "ready_with_reservations"
+  | "ready";
+
+export type AffaireHubReadinessDriverCode =
+  | "review_pending"
+  | "brief_missing"
+  | "brief_to_confirm"
+  | "critical_missing_piece"
+  | "warning_missing_piece"
+  | "client_clarification"
+  | "continued_with_hypothesis"
+  | "revalidation_required";
+
+export type AffaireHubReadinessDriver = {
+  code: AffaireHubReadinessDriverCode;
+  source: "intake" | "brief" | "register";
+  severity: "critical" | "warning" | "info";
+  count: number;
+};
+
+export type AffaireHubReadinessResult = {
+  status: AffaireHubReadinessStatus;
+  workingBasis: "insufficient" | "established";
+  allowsContinuation: boolean;
+  briefStatus: "missing" | "a_confirmer" | "confirme";
+  drivers: AffaireHubReadinessDriver[];
+  intake: {
+    reviewDocumentsCount: number;
+    confirmedMissingPiecesCount: number;
+    confirmedCriticalMissingPiecesCount: number;
+  };
+  register: {
+    criticalOpenCount: number;
+    clarifyWithClientCount: number;
+    continuedWithHypothesisCount: number;
+    revalidationRequiredCount: number;
+    criticalRevalidationRequiredCount: number;
+  };
+};
+
 export type AffaireHubSummaryResult = {
   project: AffaireHubProject;
   currentVersion: AffaireHubVersionSummary | null;
   acceptedVersion: AffaireHubVersionSummary | null;
   versionsCount: number;
   lineCount: number;
+  hubReadiness?: AffaireHubReadinessResult | null;
 };
 
 export type AffaireHubDpgfSourceResult = {
@@ -383,6 +427,155 @@ function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersio
   };
 }
 
+export function buildAffaireHubReadinessSnapshot(input: {
+  lineCount: number;
+  briefStatus?: "a_confirmer" | "confirme" | null;
+  intakeReadiness?: {
+    reviewDocumentsCount: number;
+    confirmedMissingPiecesCount: number;
+    confirmedCriticalMissingPiecesCount: number;
+  } | null;
+  registerGateSummary?: {
+    criticalOpenEntries: unknown[];
+    clarifyWithClientEntries?: unknown[] | null;
+    continuedWithHypothesisEntries?: unknown[] | null;
+    revalidationRequiredEntries?: unknown[] | null;
+    criticalRevalidationRequiredEntries?: unknown[] | null;
+  } | null;
+}): AffaireHubReadinessResult {
+  const briefStatus = input.briefStatus ?? "missing";
+  const reviewDocumentsCount = input.intakeReadiness?.reviewDocumentsCount ?? 0;
+  const confirmedMissingPiecesCount =
+    input.intakeReadiness?.confirmedMissingPiecesCount ?? 0;
+  const confirmedCriticalMissingPiecesCount =
+    input.intakeReadiness?.confirmedCriticalMissingPiecesCount ?? 0;
+  const criticalOpenCount = input.registerGateSummary?.criticalOpenEntries.length ?? 0;
+  const clarifyWithClientCount =
+    input.registerGateSummary?.clarifyWithClientEntries?.length ?? 0;
+  const continuedWithHypothesisCount =
+    input.registerGateSummary?.continuedWithHypothesisEntries?.length ?? 0;
+  const revalidationRequiredCount =
+    input.registerGateSummary?.revalidationRequiredEntries?.length ?? 0;
+  const criticalRevalidationRequiredCount =
+    input.registerGateSummary?.criticalRevalidationRequiredEntries?.length ?? 0;
+  const drivers: AffaireHubReadinessDriver[] = [];
+
+  if (reviewDocumentsCount > 0) {
+    drivers.push({
+      code: "review_pending",
+      source: "intake",
+      severity: "critical",
+      count: reviewDocumentsCount,
+    });
+  }
+
+  if (briefStatus === "missing") {
+    drivers.push({
+      code: "brief_missing",
+      source: "brief",
+      severity: input.lineCount > 0 ? "warning" : "critical",
+      count: 1,
+    });
+  } else if (briefStatus === "a_confirmer") {
+    drivers.push({
+      code: "brief_to_confirm",
+      source: "brief",
+      severity: input.lineCount > 0 ? "warning" : "critical",
+      count: 1,
+    });
+  }
+
+  if (confirmedCriticalMissingPiecesCount > 0) {
+    drivers.push({
+      code: "critical_missing_piece",
+      source: "intake",
+      severity: "critical",
+      count: confirmedCriticalMissingPiecesCount,
+    });
+  }
+
+  const warningMissingPiecesCount = Math.max(
+    confirmedMissingPiecesCount - confirmedCriticalMissingPiecesCount,
+    0
+  );
+  if (warningMissingPiecesCount > 0) {
+    drivers.push({
+      code: "warning_missing_piece",
+      source: "intake",
+      severity: "warning",
+      count: warningMissingPiecesCount,
+    });
+  }
+
+  if (clarifyWithClientCount > 0) {
+    drivers.push({
+      code: "client_clarification",
+      source: "register",
+      severity: criticalOpenCount > 0 ? "critical" : "warning",
+      count: clarifyWithClientCount,
+    });
+  }
+
+  if (continuedWithHypothesisCount > 0) {
+    drivers.push({
+      code: "continued_with_hypothesis",
+      source: "register",
+      severity: "warning",
+      count: continuedWithHypothesisCount,
+    });
+  }
+
+  if (revalidationRequiredCount > 0) {
+    drivers.push({
+      code: "revalidation_required",
+      source: "register",
+      severity:
+        criticalRevalidationRequiredCount > 0 ? "critical" : "warning",
+      count: revalidationRequiredCount,
+    });
+  }
+
+  const workingBasisEstablished =
+    briefStatus === "confirme" || input.lineCount > 0 || continuedWithHypothesisCount > 0;
+
+  let status: AffaireHubReadinessStatus = "ready";
+  if (reviewDocumentsCount > 0) {
+    status = "not_ready";
+  } else if (briefStatus !== "confirme" && input.lineCount === 0) {
+    status = "not_ready";
+  } else if (confirmedCriticalMissingPiecesCount > 0) {
+    status = workingBasisEstablished ? "ready_with_reservations" : "not_ready";
+  } else if (
+    warningMissingPiecesCount > 0 ||
+    clarifyWithClientCount > 0 ||
+    continuedWithHypothesisCount > 0 ||
+    revalidationRequiredCount > 0 ||
+    briefStatus !== "confirme"
+  ) {
+    status = "ready_with_reservations";
+  }
+
+  return {
+    status,
+    workingBasis: workingBasisEstablished ? "established" : "insufficient",
+    allowsContinuation: status !== "not_ready",
+    briefStatus,
+    drivers,
+    intake: {
+      reviewDocumentsCount,
+      confirmedMissingPiecesCount,
+      confirmedCriticalMissingPiecesCount,
+    },
+    register: {
+      criticalOpenCount,
+      clarifyWithClientCount,
+      continuedWithHypothesisCount,
+      revalidationRequiredCount,
+      criticalRevalidationRequiredCount,
+    },
+  };
+}
+
 const PLAN_FILE_SUM_BATCH_SIZE = 500;
 const AFFAIRE_PROJECT_VERSIONS_BATCH_SIZE = 1000;
 
@@ -476,20 +669,76 @@ async function fetchAffaireHubSummaryWithContext(
   const acceptedVersion = (acceptedVersionResult.data ?? null) as AffaireHubVersionRow | null;
 
   let lineCount = 0;
+  let hubReadiness: AffaireHubReadinessResult | null = null;
   if (currentVersion) {
-    const { count, error } = await context.supabase
-      .from("estimate_items")
-      .select("id", { count: "exact", head: true })
-      .eq("tenant_id", context.tenantId)
-      .eq("version_id", currentVersion.id)
-      .eq("item_type", "line")
-      .limit(1);
+    const [{ count, error }, intakeResult, registerGateSummaryResult] = await Promise.all([
+      context.supabase
+        .from("estimate_items")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", context.tenantId)
+        .eq("version_id", currentVersion.id)
+        .eq("item_type", "line")
+        .limit(1),
+      Promise.resolve(fetchAffaireIntakeWorkspace(project.id)).catch(() => null),
+      Promise.resolve(
+        fetchAffaireRegisterGateSummary({
+          supabase: context.supabase as never,
+          projectId: project.id,
+          versionId: currentVersion.id,
+        })
+      ).catch(() => null),
+    ]);
 
     if (error) {
       throw mapSupabaseError(error, "Impossible de compter les lignes de la version.");
     }
 
     lineCount = count ?? 0;
+
+    if (intakeResult && registerGateSummaryResult) {
+      hubReadiness = buildAffaireHubReadinessSnapshot({
+        lineCount,
+        briefStatus: intakeResult.briefDraft?.status ?? null,
+        intakeReadiness: intakeResult.readiness
+          ? {
+              reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
+              confirmedMissingPiecesCount:
+                intakeResult.readiness.confirmedMissingPiecesCount,
+              confirmedCriticalMissingPiecesCount:
+                intakeResult.readiness.confirmedCriticalMissingPiecesCount,
+            }
+          : null,
+        registerGateSummary: registerGateSummaryResult,
+      });
+    }
+  } else {
+    const [intakeResult, registerGateSummaryResult] = await Promise.all([
+      Promise.resolve(fetchAffaireIntakeWorkspace(project.id)).catch(() => null),
+      Promise.resolve(
+        fetchAffaireRegisterGateSummary({
+          supabase: context.supabase as never,
+          projectId: project.id,
+          versionId: null,
+        })
+      ).catch(() => null),
+    ]);
+
+    if (intakeResult && registerGateSummaryResult) {
+      hubReadiness = buildAffaireHubReadinessSnapshot({
+        lineCount: 0,
+        briefStatus: intakeResult.briefDraft?.status ?? null,
+        intakeReadiness: intakeResult.readiness
+          ? {
+              reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
+              confirmedMissingPiecesCount:
+                intakeResult.readiness.confirmedMissingPiecesCount,
+              confirmedCriticalMissingPiecesCount:
+                intakeResult.readiness.confirmedCriticalMissingPiecesCount,
+            }
+          : null,
+        registerGateSummary: registerGateSummaryResult,
+      });
+    }
   }
 
   return {
@@ -503,6 +752,7 @@ async function fetchAffaireHubSummaryWithContext(
     acceptedVersion: acceptedVersion ? toAffaireHubVersionSummary(acceptedVersion) : null,
     versionsCount: versionsCountResult.count ?? 0,
     lineCount,
+    hubReadiness,
   };
 }
 

@@ -49,6 +49,13 @@ export const affaireRegisterRevalidationImpactedStageSchema = z.enum([
   "exceptions_review",
   "submission_readiness",
 ]);
+export const affaireRegisterBusinessImpactSchema = z.enum([
+  "affects_hub_readiness",
+  "blocks_submission",
+  "affects_structure_generation",
+  "affects_takeoff",
+  "requires_client_answer",
+]);
 
 export type AffaireRegisterEntryKind = z.infer<
   typeof affaireRegisterEntryKindSchema
@@ -73,6 +80,9 @@ export type AffaireRegisterRevalidationCause = z.infer<
 >;
 export type AffaireRegisterRevalidationImpactedStage = z.infer<
   typeof affaireRegisterRevalidationImpactedStageSchema
+>;
+export type AffaireRegisterBusinessImpact = z.infer<
+  typeof affaireRegisterBusinessImpactSchema
 >;
 
 export const AFFAIRE_REGISTER_KIND_LABELS: Record<
@@ -191,10 +201,22 @@ export type AffaireRegisterEntry = {
   updatedByName: string | null;
   createdAt: string;
   updatedAt: string;
+  businessImpact?: AffaireRegisterBusinessImpact[];
+  location?: AffaireRegisterBusinessLocation;
   clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
   revalidationRequest?: AffaireRegisterRevalidationRequest | null;
   history: AffaireRegisterTimelineEvent[];
+};
+
+export type AffaireRegisterBusinessLocation = {
+  scopeType: AffaireRegisterScopeType;
+  scopeId: string | null;
+  scopeRef: string | null;
+  scopeLabel: string;
+  versionId: string | null;
+  sourceDocumentId: string | null;
+  sourceFileName: string | null;
 };
 
 export type AffaireRegisterTimelineEvent = {
@@ -464,6 +486,84 @@ export function buildAffaireRegisterContinuationHypothesisText(input: {
   }
 
   return `Continuation acceptee sans ${normalized}. Hypothese documentaire a confirmer avant remise.`;
+}
+
+export function buildAffaireRegisterBusinessLocation(input: {
+  scopeType: AffaireRegisterScopeType;
+  scopeId: string | null;
+  scopeRef: string | null;
+  scopeLabel: string;
+  versionId: string | null;
+  sourceDocumentId: string | null;
+  sourceFileName: string | null;
+}): AffaireRegisterBusinessLocation {
+  return {
+    scopeType: input.scopeType,
+    scopeId: input.scopeId,
+    scopeRef: input.scopeRef,
+    scopeLabel: input.scopeLabel,
+    versionId: input.versionId,
+    sourceDocumentId: input.sourceDocumentId,
+    sourceFileName: input.sourceFileName,
+  };
+}
+
+export function deriveAffaireRegisterBusinessImpact(input: {
+  kind: AffaireRegisterEntryKind;
+  code: string | null;
+  severity: AffaireRegisterEntrySeverity;
+  status: AffaireRegisterEntryStatus;
+  clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
+  continuationDecision?: AffaireRegisterContinuationDecision | null;
+  revalidationRequest?: AffaireRegisterRevalidationRequest | null;
+}) {
+  const impacts = new Set<AffaireRegisterBusinessImpact>();
+  const unresolved =
+    input.status === "open" || input.status === "clarify_with_client";
+
+  if (unresolved) {
+    impacts.add("affects_hub_readiness");
+  }
+
+  if (input.severity === "critical" && unresolved) {
+    impacts.add("blocks_submission");
+  }
+
+  if (
+    input.kind === "missing_piece" &&
+    (input.code === "missing_dpgf" || input.code === "missing_bpu_dqe")
+  ) {
+    impacts.add("affects_structure_generation");
+  }
+
+  if (input.kind === "missing_piece" && input.code === "missing_plans") {
+    impacts.add("affects_takeoff");
+  }
+
+  if (
+    input.status === "clarify_with_client" ||
+    input.clientClarificationRequest?.status === "clarify_with_client"
+  ) {
+    impacts.add("requires_client_answer");
+    impacts.add("affects_hub_readiness");
+    if (input.severity === "critical") {
+      impacts.add("blocks_submission");
+    }
+  }
+
+  if (isAffaireRegisterEntryRevalidationRequired(input)) {
+    impacts.add("affects_hub_readiness");
+    impacts.add("blocks_submission");
+  }
+
+  if (input.continuationDecision?.status === "accepted_with_hypothesis") {
+    impacts.add("affects_hub_readiness");
+    if (input.severity === "critical") {
+      impacts.add("blocks_submission");
+    }
+  }
+
+  return [...impacts];
 }
 
 export function parseAffaireRegisterCursorSearchParam(

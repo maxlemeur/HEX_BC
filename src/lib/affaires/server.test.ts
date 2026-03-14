@@ -13,7 +13,12 @@ vi.mock("@/lib/affaires/register-server", () => ({
   fetchAffaireRegisterGateSummary: vi.fn(),
 }));
 
+vi.mock("@/lib/affaires/intake-server", () => ({
+  fetchAffaireIntakeWorkspace: vi.fn(),
+}));
+
 import { ApiError } from "@/lib/estimates/errors";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
@@ -22,6 +27,7 @@ import {
 } from "@/lib/estimates/server";
 import { normalizeAffaireListQuery, parseAffaireListQuery } from "@/lib/affaires/schemas";
 import {
+  buildAffaireHubReadinessSnapshot,
   fetchAffaireCounters,
   fetchAffaireHubDpgfSource,
   fetchAffaireHubMarginAnalysis,
@@ -55,6 +61,43 @@ type TableQueryScenario = {
   limit?: QueryResult;
   maybeSingle?: QueryResult;
 };
+
+beforeEach(() => {
+  vi.mocked(fetchAffaireIntakeWorkspace).mockResolvedValue({
+    projectId: PROJECT_ID,
+    uploadId: null,
+    documents: [],
+    missingPieces: [],
+    readiness: {
+      reviewDocumentsCount: 0,
+      missingPiecesCount: 0,
+      criticalMissingPiecesCount: 0,
+      provisionalMissingPiecesCount: 0,
+      provisionalCriticalMissingPiecesCount: 0,
+      confirmedMissingPiecesCount: 0,
+      confirmedCriticalMissingPiecesCount: 0,
+      reviewCouldLiftCriticalMissing: false,
+      reviewBeforeMissing: false,
+      dominantAction: "none",
+      hubReadinessImpact: "none",
+    },
+    briefDraft: null,
+  } as never);
+  vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+    openQuestionsCount: 0,
+    criticalOpenEntries: [],
+    nonCriticalOpenEntries: [],
+    clarifyWithClientEntries: [],
+    criticalClarifyWithClientEntries: [],
+    openAssumptionEntries: [],
+    openMissingPieceEntries: [],
+    continuedWithHypothesisEntries: [],
+    continuedCriticalMissingPieceEntries: [],
+    revalidationRequiredEntries: [],
+    criticalRevalidationRequiredEntries: [],
+    revalidationImpactedStages: [],
+  } as never);
+});
 
 function createContext(options?: { role?: TenantRole; rpcResult?: RpcResult }) {
   const rpc = vi.fn().mockResolvedValue(
@@ -216,6 +259,72 @@ describe("affaires query schemas", () => {
       sort: "updatedAt",
       dir: "desc",
     });
+  });
+});
+
+describe("affaires hub readiness contract", () => {
+  it("keeps a confirmed brief with critical missing pieces under reservations", () => {
+    const snapshot = buildAffaireHubReadinessSnapshot({
+      lineCount: 0,
+      briefStatus: "confirme",
+      intakeReadiness: {
+        reviewDocumentsCount: 0,
+        confirmedMissingPiecesCount: 2,
+        confirmedCriticalMissingPiecesCount: 2,
+      },
+      registerGateSummary: {
+        criticalOpenEntries: [{ id: "missing-dpgf" }],
+        clarifyWithClientEntries: [],
+        continuedWithHypothesisEntries: [],
+        revalidationRequiredEntries: [],
+        criticalRevalidationRequiredEntries: [],
+      },
+    });
+
+    expect(snapshot.status).toBe("ready_with_reservations");
+    expect(snapshot.workingBasis).toBe("established");
+    expect(snapshot.briefStatus).toBe("confirme");
+    expect(snapshot.drivers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "critical_missing_piece",
+          source: "intake",
+          severity: "critical",
+          count: 2,
+        }),
+      ])
+    );
+  });
+
+  it("marks dossiers without confirmed brief or structure as not ready", () => {
+    const snapshot = buildAffaireHubReadinessSnapshot({
+      lineCount: 0,
+      briefStatus: "a_confirmer",
+      intakeReadiness: {
+        reviewDocumentsCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+      },
+      registerGateSummary: {
+        criticalOpenEntries: [],
+        clarifyWithClientEntries: [],
+        continuedWithHypothesisEntries: [],
+        revalidationRequiredEntries: [],
+        criticalRevalidationRequiredEntries: [],
+      },
+    });
+
+    expect(snapshot.status).toBe("not_ready");
+    expect(snapshot.workingBasis).toBe("insufficient");
+    expect(snapshot.drivers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "brief_to_confirm",
+          source: "brief",
+          severity: "critical",
+        }),
+      ])
+    );
   });
 });
 
@@ -1198,6 +1307,7 @@ describe("affaires hub server", () => {
       planSetCount: 0,
       planFileCount: 0,
       totalSizeBytes: 0,
+      hasLegacyFallback: false,
       defaultPlanSetId: null,
       defaultPlanSetName: null,
       defaultPlanSetSource: null,
@@ -1348,6 +1458,7 @@ describe("affaires hub server", () => {
       planSetCount: 1,
       planFileCount: 3,
       totalSizeBytes: 600,
+      hasLegacyFallback: false,
       defaultPlanSetId: null,
       defaultPlanSetName: null,
       defaultPlanSetSource: null,
@@ -1438,6 +1549,7 @@ describe("affaires hub server", () => {
       planSetCount: 1201,
       planFileCount: 1001,
       totalSizeBytes: 15030,
+      hasLegacyFallback: false,
       defaultPlanSetId: null,
       defaultPlanSetName: null,
       defaultPlanSetSource: null,
@@ -2198,6 +2310,10 @@ describe("affaires hub server", () => {
     expect(pageData.summary.project.name).toBe("Affaire Hub");
     expect(pageData.summary.versionsCount).toBe(1);
     expect(pageData.summary.lineCount).toBe(12);
+    expect(pageData.summary.hubReadiness).toMatchObject({
+      status: "ready_with_reservations",
+      briefStatus: "missing",
+    });
     expect(pageData.timeline.pagination.page).toBe(1);
     expect(pageData.dpgfSource).toBeNull();
   });

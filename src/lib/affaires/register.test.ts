@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAffaireRegisterBusinessLocation,
   buildAffaireRegisterHubHref,
   canAffaireRegisterEntryClarifyWithClient,
   buildAffaireRegisterContinuationHypothesisText,
   canAffaireRegisterEntryContinueWithHypothesis,
   canAffaireRegisterEntryRequestRevalidation,
+  deriveAffaireRegisterBusinessImpact,
   extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterContinuationDecision,
   extractAffaireRegisterRevalidationRequest,
@@ -198,6 +200,64 @@ describe("affaire register continuation contract", () => {
         },
       })
     ).toBe(false);
+  });
+
+  it("derives reusable business impacts for missing pieces and client clarifications", () => {
+    expect(
+      deriveAffaireRegisterBusinessImpact({
+        kind: "missing_piece",
+        code: "missing_dpgf",
+        severity: "critical",
+        status: "open",
+        clientClarificationRequest: null,
+        continuationDecision: null,
+        revalidationRequest: null,
+      })
+    ).toEqual([
+      "affects_hub_readiness",
+      "blocks_submission",
+      "affects_structure_generation",
+    ]);
+
+    expect(
+      deriveAffaireRegisterBusinessImpact({
+        kind: "assumption",
+        code: null,
+        severity: "warning",
+        status: "clarify_with_client",
+        clientClarificationRequest: {
+          status: "clarify_with_client",
+          requestedAt: "2026-03-13T10:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "open",
+          comment: "Besoin d'une reponse client.",
+        },
+        continuationDecision: null,
+        revalidationRequest: null,
+      })
+    ).toEqual(["affects_hub_readiness", "requires_client_answer"]);
+  });
+
+  it("packages a structured business location without losing the legacy scope fields", () => {
+    expect(
+      buildAffaireRegisterBusinessLocation({
+        scopeType: "line",
+        scopeId: "11111111-1111-4111-8111-111111111111",
+        scopeRef: "2.1",
+        scopeLabel: "Tableau divisionnaire hall",
+        versionId: "22222222-2222-4222-8222-222222222222",
+        sourceDocumentId: "33333333-3333-4333-8333-333333333333",
+        sourceFileName: "dpgf-hall.xlsx",
+      })
+    ).toEqual({
+      scopeType: "line",
+      scopeId: "11111111-1111-4111-8111-111111111111",
+      scopeRef: "2.1",
+      scopeLabel: "Tableau divisionnaire hall",
+      versionId: "22222222-2222-4222-8222-222222222222",
+      sourceDocumentId: "33333333-3333-4333-8333-333333333333",
+      sourceFileName: "dpgf-hall.xlsx",
+    });
   });
 
   it("parses and builds revalidation-focused register links", () => {

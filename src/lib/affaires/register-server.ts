@@ -14,7 +14,9 @@ import type { Database, Json } from "@/types/database";
 
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  buildAffaireRegisterBusinessLocation,
   buildAffaireRegisterContinuationHypothesisText,
+  deriveAffaireRegisterBusinessImpact,
   affaireRegisterEventTypeSchema,
   extractAffaireRegisterClientClarificationRequest,
   affaireRegisterEntryKindSchema,
@@ -128,10 +130,19 @@ type EstimateItemScopeRow = {
 type AffaireRegisterGateEntry = {
   id: string;
   kind: AffaireRegisterEntryKind;
+  code?: string | null;
   severity: AffaireRegisterEntrySeverity;
   status: AffaireRegisterEntryStatus;
   text: string;
+  scopeType?: AffaireRegisterScopeType;
+  scopeId?: string | null;
+  scopeRef?: string | null;
   scopeLabel: string;
+  versionId?: string | null;
+  sourceDocumentId?: string | null;
+  sourceFileName?: string | null;
+  businessImpact?: ReturnType<typeof deriveAffaireRegisterBusinessImpact>;
+  location?: ReturnType<typeof buildAffaireRegisterBusinessLocation>;
   clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
   continuationDecision?: AffaireRegisterContinuationDecision | null;
   revalidationRequest?: AffaireRegisterRevalidationRequest | null;
@@ -210,8 +221,23 @@ const EVENT_SELECT = [
   "actor_profile:actor_user_id(full_name)",
   "entry:affaire_register_entries!inner(project_id, version_id, kind, text, scope_label)",
 ].join(", ");
-const GATE_ENTRY_SELECT =
-  "id, kind, text, severity, status, scope_label, version_id, is_active, metadata";
+const GATE_ENTRY_SELECT = [
+  "id",
+  "kind",
+  "code",
+  "text",
+  "severity",
+  "status",
+  "scope_type",
+  "scope_id",
+  "scope_ref",
+  "scope_label",
+  "version_id",
+  "source_document_id",
+  "source_file_name",
+  "is_active",
+  "metadata",
+].join(", ");
 const PAGE_SIZE_DEFAULT = 8;
 const PAGE_SIZE_MAX = 25;
 
@@ -405,6 +431,14 @@ function normalizeAffaireRegisterEntryRow(
 function toAffaireRegisterEntry(
   row: AffaireRegisterEntryWithProfilesRow
 ): AffaireRegisterEntry {
+  const clientClarificationRequest = extractAffaireRegisterClientClarificationRequest(
+    row.metadata
+  );
+  const continuationDecision = extractAffaireRegisterContinuationDecision(
+    row.metadata
+  );
+  const revalidationRequest = extractAffaireRegisterRevalidationRequest(row.metadata);
+
   return {
     id: row.id,
     kind: row.kind,
@@ -426,11 +460,27 @@ function toAffaireRegisterEntry(
     updatedByName: row.updated_by_profile?.full_name?.trim() || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    clientClarificationRequest: extractAffaireRegisterClientClarificationRequest(
-      row.metadata
-    ),
-    continuationDecision: extractAffaireRegisterContinuationDecision(row.metadata),
-    revalidationRequest: extractAffaireRegisterRevalidationRequest(row.metadata),
+    businessImpact: deriveAffaireRegisterBusinessImpact({
+      kind: row.kind,
+      code: row.code,
+      severity: row.severity,
+      status: row.status,
+      clientClarificationRequest,
+      continuationDecision,
+      revalidationRequest,
+    }),
+    location: buildAffaireRegisterBusinessLocation({
+      scopeType: row.scope_type,
+      scopeId: row.scope_id,
+      scopeRef: row.scope_ref,
+      scopeLabel: row.scope_label,
+      versionId: row.version_id,
+      sourceDocumentId: row.source_document_id,
+      sourceFileName: row.source_file_name,
+    }),
+    clientClarificationRequest,
+    continuationDecision,
+    revalidationRequest,
     history: [],
   };
 }
@@ -1108,13 +1158,24 @@ export async function fetchAffaireRegisterGateSummary(input: {
     .map((row) => ({
       id: typeof row.id === "string" ? row.id : "",
       kind: affaireRegisterEntryKindSchema.parse(row.kind),
+      code: typeof row.code === "string" ? row.code.trim() || null : null,
       text: typeof row.text === "string" ? row.text.trim() : "",
       severity: affaireRegisterEntrySeveritySchema.parse(row.severity),
       status: affaireRegisterEntryStatusSchema.parse(row.status),
+      scopeType: affaireRegisterScopeTypeSchema.parse(row.scope_type),
+      scopeId: typeof row.scope_id === "string" ? row.scope_id : null,
+      scopeRef: typeof row.scope_ref === "string" ? row.scope_ref.trim() || null : null,
       scopeLabel:
         typeof row.scope_label === "string" && row.scope_label.trim().length > 0
           ? row.scope_label.trim()
           : "Affaire",
+      versionId: typeof row.version_id === "string" ? row.version_id : null,
+      sourceDocumentId:
+        typeof row.source_document_id === "string" ? row.source_document_id : null,
+      sourceFileName:
+        typeof row.source_file_name === "string"
+          ? row.source_file_name.trim() || null
+          : null,
       clientClarificationRequest: isRecord(row.metadata)
         ? extractAffaireRegisterClientClarificationRequest(row.metadata)
         : null,
@@ -1124,6 +1185,28 @@ export async function fetchAffaireRegisterGateSummary(input: {
       revalidationRequest: isRecord(row.metadata)
         ? extractAffaireRegisterRevalidationRequest(row.metadata)
         : null,
+      get businessImpact() {
+        return deriveAffaireRegisterBusinessImpact({
+          kind: this.kind,
+          code: this.code,
+          severity: this.severity,
+          status: this.status,
+          clientClarificationRequest: this.clientClarificationRequest,
+          continuationDecision: this.continuationDecision,
+          revalidationRequest: this.revalidationRequest,
+        });
+      },
+      get location() {
+        return buildAffaireRegisterBusinessLocation({
+          scopeType: this.scopeType,
+          scopeId: this.scopeId,
+          scopeRef: this.scopeRef,
+          scopeLabel: this.scopeLabel,
+          versionId: this.versionId,
+          sourceDocumentId: this.sourceDocumentId,
+          sourceFileName: this.sourceFileName,
+        });
+      },
     }))
     .filter((row) => row.id.length > 0 && row.text.length > 0);
   const standardWorkflowEntries = normalized.filter(
