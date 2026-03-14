@@ -537,13 +537,22 @@ export function buildAffaireHubReadinessSnapshot(input: {
 
   const workingBasisEstablished =
     briefStatus === "confirme" || input.lineCount > 0 || continuedWithHypothesisCount > 0;
+  const lacksWorkingBasis =
+    briefStatus !== "confirme" &&
+    input.lineCount === 0 &&
+    continuedWithHypothesisCount === 0;
+  const hasCriticalRegisterReservations =
+    criticalOpenCount > 0 || criticalRevalidationRequiredCount > 0;
 
   let status: AffaireHubReadinessStatus = "ready";
   if (reviewDocumentsCount > 0) {
     status = "not_ready";
-  } else if (briefStatus !== "confirme" && input.lineCount === 0) {
+  } else if (lacksWorkingBasis) {
     status = "not_ready";
-  } else if (confirmedCriticalMissingPiecesCount > 0) {
+  } else if (
+    confirmedCriticalMissingPiecesCount > 0 ||
+    hasCriticalRegisterReservations
+  ) {
     status = workingBasisEstablished ? "ready_with_reservations" : "not_ready";
   } else if (
     warningMissingPiecesCount > 0 ||

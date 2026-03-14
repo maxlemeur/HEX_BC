@@ -326,6 +326,62 @@ describe("affaires hub readiness contract", () => {
       ])
     );
   });
+
+  it("keeps accepted continuation dossiers under reservations before structure exists", () => {
+    const snapshot = buildAffaireHubReadinessSnapshot({
+      lineCount: 0,
+      briefStatus: "a_confirmer",
+      intakeReadiness: {
+        reviewDocumentsCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+      },
+      registerGateSummary: {
+        criticalOpenEntries: [{ id: "missing-plan" }],
+        clarifyWithClientEntries: [],
+        continuedWithHypothesisEntries: [{ id: "missing-plan" }],
+        revalidationRequiredEntries: [],
+        criticalRevalidationRequiredEntries: [],
+      },
+    });
+
+    expect(snapshot.status).toBe("ready_with_reservations");
+    expect(snapshot.workingBasis).toBe("established");
+    expect(snapshot.allowsContinuation).toBe(true);
+    expect(snapshot.drivers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "continued_with_hypothesis",
+          source: "register",
+          severity: "warning",
+          count: 1,
+        }),
+      ])
+    );
+  });
+
+  it("downgrades confirmed dossiers when critical register entries stay open", () => {
+    const snapshot = buildAffaireHubReadinessSnapshot({
+      lineCount: 12,
+      briefStatus: "confirme",
+      intakeReadiness: {
+        reviewDocumentsCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+      },
+      registerGateSummary: {
+        criticalOpenEntries: [{ id: "manual-critical-assumption" }],
+        clarifyWithClientEntries: [],
+        continuedWithHypothesisEntries: [],
+        revalidationRequiredEntries: [],
+        criticalRevalidationRequiredEntries: [],
+      },
+    });
+
+    expect(snapshot.status).toBe("ready_with_reservations");
+    expect(snapshot.workingBasis).toBe("established");
+    expect(snapshot.register.criticalOpenCount).toBe(1);
+  });
 });
 
 describe("affaires server (list + counters)", () => {
