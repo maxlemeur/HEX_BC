@@ -33,7 +33,7 @@ type Props = {
   favoritePendingIds: string[];
 };
 
-type ManagerQueueFilter = "all" | "follow_up" | "reservations";
+type ManagerQueueFilter = "all" | "follow_up" | "reservations" | "revalidation";
 
 function hasManagerFollowUpSignal(data: AffaireDenseExpandData) {
   const hubReadiness = data.summary.hubReadiness ?? null;
@@ -49,6 +49,18 @@ function hasManagerFollowUpSignal(data: AffaireDenseExpandData) {
 
 function hasManagerReservationSignal(data: AffaireDenseExpandData) {
   return data.summary.hubReadiness?.status === "ready_with_reservations";
+}
+
+function hasManagerRevalidationSignal(data: AffaireDenseExpandData) {
+  const hubReadiness = data.summary.hubReadiness ?? null;
+  if (!hubReadiness) {
+    return false;
+  }
+
+  return (
+    hubReadiness.register.revalidationRequiredCount > 0 ||
+    hubReadiness.drivers.some((driver) => driver.code === "revalidation_required")
+  );
 }
 
 function formatDate(iso: string): string {
@@ -276,6 +288,24 @@ export function AffairesDenseTable({
     return ids;
   }, [expandCache, items]);
 
+  const managerRevalidationIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    items.forEach((item) => {
+      const cached = expandCache[item.projectId];
+      if (
+        cached &&
+        cached !== "loading" &&
+        cached !== "error" &&
+        hasManagerRevalidationSignal(cached)
+      ) {
+        ids.add(item.projectId);
+      }
+    });
+
+    return ids;
+  }, [expandCache, items]);
+
   const pendingManagerSignalsCount = useMemo(
     () =>
       items.filter((item) => {
@@ -294,8 +324,12 @@ export function AffairesDenseTable({
       return items.filter((item) => managerReservationIds.has(item.projectId));
     }
 
+    if (managerFilter === "revalidation") {
+      return items.filter((item) => managerRevalidationIds.has(item.projectId));
+    }
+
     return items.filter((item) => managerFollowUpIds.has(item.projectId));
-  }, [items, managerFilter, managerFollowUpIds, managerReservationIds]);
+  }, [items, managerFilter, managerFollowUpIds, managerReservationIds, managerRevalidationIds]);
 
   return (
     <div className="dashboard-card overflow-hidden">
@@ -307,7 +341,7 @@ export function AffairesDenseTable({
               Relances manager
             </p>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Repere les affaires visibles a relancer en priorite ou a revoir sous reserves.
+              Repere les affaires visibles a relancer en priorite, a revoir sous reserves ou a rouvrir en revalidation.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -346,6 +380,18 @@ export function AffairesDenseTable({
             >
               A revoir sous reserves ({managerReservationIds.size})
             </button>
+            <button
+              type="button"
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                managerFilter === "revalidation"
+                  ? "bg-[var(--brand-blue-dark)] text-white"
+                  : "border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/10 text-[var(--brand-blue-dark)] hover:bg-[var(--brand-blue)]/15"
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+              disabled={pendingManagerSignalsCount > 0}
+              onClick={() => setManagerFilter("revalidation")}
+            >
+              A rouvrir en revalidation ({managerRevalidationIds.size})
+            </button>
           </div>
         </div>
         <p className="mt-2 text-xs text-[var(--slate-500)]">
@@ -353,7 +399,9 @@ export function AffairesDenseTable({
             ? `Qualification manager en cours sur ${pendingManagerSignalsCount} affaire${pendingManagerSignalsCount > 1 ? "s" : ""} visible${pendingManagerSignalsCount > 1 ? "s" : ""}.`
             : managerFilter === "reservations"
               ? `${managerReservationIds.size} affaire${managerReservationIds.size > 1 ? "s" : ""} a revoir sous reserves sur cette page.`
-              : `${managerFollowUpIds.size} affaire${managerFollowUpIds.size > 1 ? "s" : ""} a relancer en priorite sur cette page.`}
+              : managerFilter === "revalidation"
+                ? `${managerRevalidationIds.size} affaire${managerRevalidationIds.size > 1 ? "s" : ""} a rouvrir en revalidation sur cette page.`
+                : `${managerFollowUpIds.size} affaire${managerFollowUpIds.size > 1 ? "s" : ""} a relancer en priorite sur cette page.`}
         </p>
       </div>
       <div className="overflow-x-auto">

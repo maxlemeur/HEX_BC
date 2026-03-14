@@ -333,4 +333,92 @@ describe("AffairesDenseTable", () => {
     expect(screen.queryByText("Affaire Beta")).not.toBeInTheDocument();
     expect(screen.getByText("1 affaire a revoir sous reserves sur cette page.")).toBeInTheDocument();
   });
+
+  it("filters the visible portfolio to dossiers reopened in revalidation", async () => {
+    fetchExpandDataMock.mockImplementation(async (projectId: string) => ({
+      summary: {
+        currentVersion: null,
+        acceptedVersion: null,
+        lineCount: 0,
+        hubReadiness:
+          projectId === "project-1"
+            ? {
+                status: "ready_with_reservations",
+                workingBasis: "established",
+                allowsContinuation: true,
+                briefStatus: "confirme",
+                drivers: [
+                  {
+                    code: "revalidation_required",
+                    source: "register",
+                    severity: "warning",
+                    count: 1,
+                  },
+                ],
+                intake: {
+                  reviewDocumentsCount: 0,
+                  confirmedMissingPiecesCount: 0,
+                  confirmedCriticalMissingPiecesCount: 0,
+                },
+                register: {
+                  criticalOpenCount: 0,
+                  clarifyWithClientCount: 0,
+                  continuedWithHypothesisCount: 0,
+                  revalidationRequiredCount: 1,
+                  criticalRevalidationRequiredCount: 1,
+                },
+              }
+            : {
+                status: "ready",
+                workingBasis: "established",
+                allowsContinuation: true,
+                briefStatus: "confirme",
+                drivers: [],
+                intake: {
+                  reviewDocumentsCount: 0,
+                  confirmedMissingPiecesCount: 0,
+                  confirmedCriticalMissingPiecesCount: 0,
+                },
+                register: {
+                  criticalOpenCount: 0,
+                  clarifyWithClientCount: 0,
+                  continuedWithHypothesisCount: 0,
+                  revalidationRequiredCount: 0,
+                  criticalRevalidationRequiredCount: 0,
+                },
+              },
+      },
+      dpgfSource: null,
+    }));
+
+    render(
+      <AffairesDenseTable
+        items={[
+          baseItem,
+          {
+            ...baseItem,
+            projectId: "project-2",
+            projectName: "Affaire Beta",
+          },
+        ]}
+        emptyVariant="filtered"
+        onToggleFavorite={vi.fn()}
+        favoritePendingIds={[]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /A rouvrir en revalidation \(1\)/i })
+      ).toBeEnabled();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /A rouvrir en revalidation \(1\)/i })
+    );
+
+    expect(screen.getByText("Affaire Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Affaire Beta")).not.toBeInTheDocument();
+    expect(screen.getByText("1 affaire a rouvrir en revalidation sur cette page.")).toBeInTheDocument();
+  });
 });
