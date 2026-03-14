@@ -16,6 +16,7 @@ import {
   extractAffaireRegisterRevalidationRequest,
   isAffaireRegisterEntryRevalidationRequired,
   parseAffaireRegisterRevalidationSearchParam,
+  resolveAffaireRegisterBusinessLocation,
 } from "@/lib/affaires/register";
 
 describe("affaire register continuation contract", () => {
@@ -282,6 +283,39 @@ describe("affaire register continuation contract", () => {
       "blocks_submission",
     ]);
     expect(extractAffaireRegisterBusinessLocation(metadata)).toEqual({
+      scopeType: "project",
+      scopeId: null,
+      scopeRef: null,
+      scopeLabel: "Affaire test",
+      versionId: null,
+      sourceDocumentId: null,
+      sourceFileName: "plans.pdf",
+    });
+  });
+
+  it("resolves business location from live row fields when persisted source references are stale", () => {
+    expect(
+      resolveAffaireRegisterBusinessLocation({
+        metadata: {
+          structuredLocation: {
+            scopeType: "project",
+            scopeId: null,
+            scopeRef: null,
+            scopeLabel: "Affaire test",
+            versionId: null,
+            sourceDocumentId: "33333333-3333-4333-8333-333333333333",
+            sourceFileName: "plans.pdf",
+          },
+        },
+        scopeType: "project",
+        scopeId: null,
+        scopeRef: null,
+        scopeLabel: "Affaire test",
+        versionId: null,
+        sourceDocumentId: null,
+        sourceFileName: "plans.pdf",
+      })
+    ).toEqual({
       scopeType: "project",
       scopeId: null,
       scopeRef: null,

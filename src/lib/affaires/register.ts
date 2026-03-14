@@ -520,6 +520,30 @@ export function buildAffaireRegisterBusinessLocation(input: {
   };
 }
 
+export function resolveAffaireRegisterBusinessLocation(input: {
+  metadata: unknown;
+  scopeType: AffaireRegisterScopeType;
+  scopeId: string | null;
+  scopeRef: string | null;
+  scopeLabel: string;
+  versionId: string | null;
+  sourceDocumentId: string | null;
+  sourceFileName: string | null;
+}) {
+  const persistedLocation = extractAffaireRegisterBusinessLocation(input.metadata);
+  const liveLocation = buildAffaireRegisterBusinessLocation({
+    scopeType: input.scopeType,
+    scopeId: input.scopeId,
+    scopeRef: input.scopeRef,
+    scopeLabel: input.scopeLabel,
+    versionId: input.versionId,
+    sourceDocumentId: input.sourceDocumentId,
+    sourceFileName: input.sourceFileName,
+  });
+
+  return persistedLocation ? { ...persistedLocation, ...liveLocation } : liveLocation;
+}
+
 export function extractAffaireRegisterBusinessImpact(
   metadata: unknown
 ): AffaireRegisterBusinessImpact[] | null {

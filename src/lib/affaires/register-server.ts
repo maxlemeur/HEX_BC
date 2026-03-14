@@ -35,6 +35,7 @@ import {
   isAffaireRegisterEntryRevalidationRequired,
   isAffaireRegisterEntryResolved,
   normalizeAffaireRegisterText,
+  resolveAffaireRegisterBusinessLocation,
   type AffaireRegisterEntry,
   type AffaireRegisterClientClarificationRequest,
   type AffaireRegisterContinuationDecision,
@@ -450,7 +451,8 @@ function toAffaireRegisterEntry(
     continuationDecision,
     revalidationRequest,
   });
-  const derivedLocation = buildAffaireRegisterBusinessLocation({
+  const location = resolveAffaireRegisterBusinessLocation({
+    metadata: row.metadata,
     scopeType: row.scope_type,
     scopeId: row.scope_id,
     scopeRef: row.scope_ref,
@@ -483,12 +485,23 @@ function toAffaireRegisterEntry(
     updatedAt: row.updated_at,
     businessImpact:
       extractAffaireRegisterBusinessImpact(row.metadata) ?? derivedBusinessImpact,
-    location: extractAffaireRegisterBusinessLocation(row.metadata) ?? derivedLocation,
+    location,
     clientClarificationRequest,
     continuationDecision,
     revalidationRequest,
     history: [],
   };
+}
+
+function clearAffaireRegisterWorkflowMetadata(metadata: Record<string, unknown>) {
+  const nextMetadata = { ...metadata };
+
+  delete nextMetadata.clientClarificationRequest;
+  delete nextMetadata.continuationDecision;
+  delete nextMetadata.continuationSource;
+  delete nextMetadata.revalidationRequest;
+
+  return nextMetadata;
 }
 
 function hasAcceptedContinuationDecision(
@@ -952,6 +965,10 @@ async function upsertSyncedEntries(input: {
       const existing = existingBySyncKey.get(row.syncKey);
       const nextStatus: AffaireRegisterEntryStatus =
         existing && existing.is_active ? existing.status : "open";
+      const baseMetadata =
+        existing && !existing.is_active
+          ? clearAffaireRegisterWorkflowMetadata(existing.metadata)
+          : existing?.metadata ?? {};
 
       return {
         project_id: input.project.id,
@@ -971,7 +988,7 @@ async function upsertSyncedEntries(input: {
         sync_key: row.syncKey,
         is_active: true,
         metadata: buildAffaireRegisterDerivedMetadata({
-          metadata: existing?.metadata ?? {},
+          metadata: baseMetadata,
           kind: row.kind,
           code: row.code ?? null,
           severity: row.severity,
@@ -984,11 +1001,17 @@ async function upsertSyncedEntries(input: {
           sourceDocumentId: row.sourceDocumentId ?? null,
           sourceFileName: row.sourceFileName ?? null,
           clientClarificationRequest:
-            extractAffaireRegisterClientClarificationRequest(existing?.metadata ?? null),
+            existing && existing.is_active
+              ? extractAffaireRegisterClientClarificationRequest(existing.metadata)
+              : null,
           continuationDecision:
-            extractAffaireRegisterContinuationDecision(existing?.metadata ?? null),
+            existing && existing.is_active
+              ? extractAffaireRegisterContinuationDecision(existing.metadata)
+              : null,
           revalidationRequest:
-            extractAffaireRegisterRevalidationRequest(existing?.metadata ?? null),
+            existing && existing.is_active
+              ? extractAffaireRegisterRevalidationRequest(existing.metadata)
+              : null,
         }),
         created_by: existing?.created_by ?? input.actorUserId ?? null,
         updated_by: input.actorUserId ?? null,
@@ -1233,26 +1256,16 @@ export async function fetchAffaireRegisterGateSummary(input: {
             });
       },
       get location() {
-        return isRecord(row.metadata)
-          ? extractAffaireRegisterBusinessLocation(row.metadata) ??
-              buildAffaireRegisterBusinessLocation({
-                scopeType: this.scopeType ?? "project",
-                scopeId: this.scopeId ?? null,
-                scopeRef: this.scopeRef ?? null,
-                scopeLabel: this.scopeLabel,
-                versionId: this.versionId ?? null,
-                sourceDocumentId: this.sourceDocumentId ?? null,
-                sourceFileName: this.sourceFileName ?? null,
-              })
-          : buildAffaireRegisterBusinessLocation({
-              scopeType: this.scopeType ?? "project",
-              scopeId: this.scopeId ?? null,
-              scopeRef: this.scopeRef ?? null,
-              scopeLabel: this.scopeLabel,
-              versionId: this.versionId ?? null,
-              sourceDocumentId: this.sourceDocumentId ?? null,
-              sourceFileName: this.sourceFileName ?? null,
-            });
+        return resolveAffaireRegisterBusinessLocation({
+          metadata: row.metadata,
+          scopeType: this.scopeType ?? "project",
+          scopeId: this.scopeId ?? null,
+          scopeRef: this.scopeRef ?? null,
+          scopeLabel: this.scopeLabel,
+          versionId: this.versionId ?? null,
+          sourceDocumentId: this.sourceDocumentId ?? null,
+          sourceFileName: this.sourceFileName ?? null,
+        });
       },
     }))
     .filter((row) => row.id.length > 0 && row.text.length > 0);
