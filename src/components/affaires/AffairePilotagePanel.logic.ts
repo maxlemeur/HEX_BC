@@ -3,7 +3,11 @@ import {
   isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import { buildAffaireRegisterHubHref, type AffaireRegisterSummary } from "@/lib/affaires/register";
+import {
+  AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
+  buildAffaireRegisterHubHref,
+  type AffaireRegisterSummary,
+} from "@/lib/affaires/register";
 import type {
   AffaireHubDpgfSourceResult,
   AffaireHubFinishLineSummaryResult,
@@ -1041,6 +1045,51 @@ export function buildPilotageExceptions(input: {
           projectId: input.projectId,
           status: "open",
           severity: "critical",
+        })}#register`,
+      },
+    });
+  } else if ((input.registerSummary?.revalidationRequiredCount ?? 0) > 0) {
+    const count = input.registerSummary?.revalidationRequiredCount ?? 0;
+    const criticalCount = input.registerSummary?.criticalRevalidationRequiredCount ?? 0;
+    const revalidationStages = (input.registerSummary?.revalidationImpactedStages ?? [])
+      .slice(0, 2)
+      .map((stage) => AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS[stage])
+      .join(" + ");
+    exceptions.push({
+      id: "register-revalidation",
+      title: `${count} revalidation${count > 1 ? "s" : ""} a relancer`,
+      summary: revalidationStages
+        ? `Le dossier a change. Reprenez ${revalidationStages.toLowerCase()} avant la suite.`
+        : "Le dossier a change. Reprenez la revalidation ciblee avant la suite.",
+      severity: criticalCount > 0 ? "critical" : "warning",
+      action: {
+        kind: "href",
+        label: "Voir les revalidations",
+        href: `${buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          severity: criticalCount > 0 ? "critical" : null,
+          revalidationRequired: true,
+        })}#register`,
+      },
+    });
+  } else if ((input.registerSummary?.clarifyWithClientCount ?? 0) > 0) {
+    const count = input.registerSummary?.clarifyWithClientCount ?? 0;
+    const criticalCount = input.registerSummary?.criticalClarifyWithClientCount ?? 0;
+    exceptions.push({
+      id: "register-clarify",
+      title: `${count} clarification${count > 1 ? "s" : ""} client a porter`,
+      summary:
+        criticalCount > 0
+          ? "Un retour client reste attendu sur un point critique du dossier."
+          : "Le dossier reste actif, mais un retour client reste attendu pour la suite.",
+      severity: criticalCount > 0 ? "critical" : "warning",
+      action: {
+        kind: "href",
+        label: "Voir les clarifications client",
+        href: `${buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "clarify_with_client",
+          kind: "assumption",
         })}#register`,
       },
     });

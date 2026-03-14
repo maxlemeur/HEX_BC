@@ -14,7 +14,10 @@ import {
   isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { AffaireRegisterSummary } from "@/lib/affaires/register";
+import {
+  AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
+  type AffaireRegisterSummary,
+} from "@/lib/affaires/register";
 import type { AffaireHubFinishLineSummaryResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
@@ -488,6 +491,21 @@ function findSuggestion(
   return suggestions.find((suggestion) => suggestion.intent === intent) ?? null;
 }
 
+function findSuggestionByActionId(
+  suggestions: CockpitSuggestion[],
+  actionId: string,
+) {
+  return suggestions.find((suggestion) => suggestion.actionId === actionId) ?? null;
+}
+
+function formatCountLabel(
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+) {
+  return `${count} ${count > 1 ? plural : singular}`;
+}
+
 function buildPanelModel(
   input: Readonly<AffaireFlowHierarchyPanelProps>,
 ): PanelModel {
@@ -523,9 +541,18 @@ function buildPanelModel(
   const generateStructureSuggestion = findSuggestion(suggestions, "generate_structure");
   const viewExceptionsSuggestion = findSuggestion(suggestions, "view_exceptions");
   const prepareValidationSuggestion = findSuggestion(suggestions, "prepare_validation");
+  const clarificationSuggestion = findSuggestionByActionId(
+    suggestions,
+    "list-clarifications",
+  );
+  const revalidationSuggestion = findSuggestionByActionId(
+    suggestions,
+    "review-revalidation",
+  );
   const canonicalHubReadiness = input.hubReadiness ?? null;
   const canonicalReadinessStatus = canonicalHubReadiness?.status ?? null;
   const allowsCanonicalContinuation = canonicalHubReadiness?.allowsContinuation ?? false;
+  const canonicalDrivers = canonicalHubReadiness?.drivers ?? [];
 
   let title = "Continuer depuis l'affaire";
   let summary =
@@ -552,6 +579,46 @@ function buildPanelModel(
   const documentReservationFacts = dedupe(
     documentReadinessFlags.map((flag) => flag.label).slice(0, 2),
   );
+  const clarificationCount =
+    input.registerSummary?.clarifyWithClientCount ??
+    canonicalHubReadiness?.register.clarifyWithClientCount ??
+    0;
+  const continuationHypothesisCount =
+    input.registerSummary?.continuedWithHypothesisCount ??
+    canonicalHubReadiness?.register.continuedWithHypothesisCount ??
+    0;
+  const revalidationCount =
+    input.registerSummary?.revalidationRequiredCount ??
+    canonicalHubReadiness?.register.revalidationRequiredCount ??
+    0;
+  const hasClarificationDriver = canonicalDrivers.some(
+    (driver) => driver.code === "client_clarification",
+  );
+  const hasContinuationHypothesisDriver = canonicalDrivers.some(
+    (driver) => driver.code === "continued_with_hypothesis",
+  );
+  const hasRevalidationDriver = canonicalDrivers.some(
+    (driver) => driver.code === "revalidation_required",
+  );
+  const continuationHypothesisFact =
+    continuationHypothesisCount > 0
+      ? `${formatCountLabel(
+          continuationHypothesisCount,
+          "hypothese de continuation active",
+          "hypotheses de continuation actives",
+        )}`
+      : "";
+  const clarificationFact =
+    clarificationCount > 0
+      ? `${formatCountLabel(
+          clarificationCount,
+          "clarification client ouverte",
+          "clarifications client ouvertes",
+        )}`
+      : "";
+  const revalidationFacts = (input.registerSummary?.revalidationImpactedStages ?? [])
+    .slice(0, 2)
+    .map((stage) => AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS[stage]);
   const reviewCouldResolveCriticalMissing =
     reviewDocument !== null &&
     getReviewProbableCategories(reviewDocument).some((category) =>
@@ -798,8 +865,59 @@ function buildPanelModel(
                 label: "Completer le dossier",
                 description: "Ouvrir l'intake pour ajouter les pieces manquantes.",
                 href: `/dashboard/affaires/${input.projectId}#intake`,
-                variant: "primary",
-              });
+              variant: "primary",
+            });
+  } else if (hasRevalidationDriver && revalidationSuggestion) {
+    title = revalidationSuggestion.label;
+    summary = revalidationSuggestion.preview;
+    statusLabel = "Revalidation requise";
+    statusVariant = "warning";
+    heroState = "ready_to_continue";
+    readinessLevel = canonicalReadinessStatus ?? "ready_with_reservations";
+    primaryAction = toSuggestionAction(revalidationSuggestion);
+    resultCard = {
+      kind: "primary",
+      title:
+        revalidationCount > 1
+          ? `${revalidationCount} revalidations a relancer`
+          : "Revalidation a relancer",
+      message:
+        revalidationFacts.length > 0
+          ? `Le dossier a change. Relancez d'abord ${revalidationFacts.join(" + ").toLowerCase()} avant de reprendre la remise.`
+          : "Le dossier a change. Relancez la revalidation ciblee avant de poursuivre.",
+      readinessStatus: readinessLevel,
+      action: primaryAction,
+      facts: dedupe([
+        formatCountLabel(
+          Math.max(revalidationCount, 1),
+          "revalidation requise",
+          "revalidations requises",
+        ),
+        ...revalidationFacts,
+      ]).filter(Boolean),
+      evidence: ["Tracee dans le registre affaire"],
+    };
+  } else if (hasClarificationDriver && clarificationSuggestion) {
+    title = clarificationSuggestion.label;
+    summary = clarificationSuggestion.preview;
+    statusLabel = "Clarification client requise";
+    statusVariant = "warning";
+    heroState = "ready_to_continue";
+    readinessLevel = canonicalReadinessStatus ?? "ready_with_reservations";
+    primaryAction = toSuggestionAction(clarificationSuggestion);
+    resultCard = {
+      kind: "primary",
+      title:
+        clarificationCount > 1
+          ? `${clarificationCount} clarifications client ouvertes`
+          : "Clarification client ouverte",
+      message:
+        "Le dossier reste exploitable, mais un retour client est encore attendu avant la remise.",
+      readinessStatus: readinessLevel,
+      action: primaryAction,
+      facts: dedupe([clarificationFact, continuationHypothesisFact]).filter(Boolean),
+      evidence: ["Tracee dans le registre affaire"],
+    };
   } else if (planExceptionCount > 0 && viewExceptionsSuggestion) {
     title = "Traiter les ecarts de preuves";
     summary = viewExceptionsSuggestion.preview;
@@ -822,11 +940,14 @@ function buildPanelModel(
       kind: "plans",
       title: hasWorkReservations ? "Structure disponible sous reserves" : "Structure prete",
       message: hasWorkReservations
-        ? "Lancez l'analyse des plans, mais le dossier reste incomplet."
+        ? hasContinuationHypothesisDriver && !hasDocumentReservations
+          ? "Lancez l'analyse des plans en gardant la trace d'hypothese active dans le registre."
+          : "Lancez l'analyse des plans, mais le dossier reste incomplet."
         : "Lancez l'analyse des plans pour extraire les quantites.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
+        continuationHypothesisFact,
         hasPlans ? "Plans detectes" : "",
         hasDpgf
           ? hasWorkReservations
@@ -852,14 +973,19 @@ function buildPanelModel(
       title: hasWorkReservations ? "Structure generable sous reserves" : "Brief confirme",
       message: hasStructureDraft
         ? hasWorkReservations
-          ? "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
+          ? hasContinuationHypothesisDriver && !hasDocumentReservations
+            ? "Le brief est confirme. Reprenez la structure du devis en gardant la trace d'hypothese active."
+            : "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
         : hasWorkReservations
-          ? "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
+          ? hasContinuationHypothesisDriver && !hasDocumentReservations
+            ? "Le brief est confirme. Generez la structure du devis en gardant la trace d'hypothese active."
+            : "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
+        continuationHypothesisFact,
         hasDpgf
           ? hasWorkReservations
             ? "Base devis disponible sous reserves"
@@ -924,7 +1050,12 @@ function buildPanelModel(
         ...finishLineBlockers,
       ]).slice(0, 3);
 
-  const allowSecondaryAides = heroState === "ready_to_continue";
+  const hasDominantRegisterAction =
+    primaryAction?.kind === "suggestion" &&
+    (primaryAction.key === "list-clarifications" ||
+      primaryAction.key === "review-revalidation");
+  const allowSecondaryAides =
+    heroState === "ready_to_continue" && !hasDominantRegisterAction;
   const aides: PanelAction[] = [];
   if (
     allowSecondaryAides &&

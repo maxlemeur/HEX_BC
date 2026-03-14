@@ -245,6 +245,69 @@ describe("AffairePilotagePanel", () => {
     expect(exceptions.some((exception) => exception.id === "brief-confirm")).toBe(true);
   });
 
+  it("surfaces dedicated clarification exceptions when the register only carries client clarifications", () => {
+    const exceptions = buildPilotageExceptions({
+      projectId: "project-1",
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: null,
+      plansSummary: null,
+      registerSummary: {
+        openQuestionsCount: 0,
+        criticalOpenCount: 0,
+        nonCriticalOpenCount: 0,
+        clarifyWithClientCount: 1,
+        criticalClarifyWithClientCount: 1,
+        openAssumptionCount: 0,
+        openMissingPieceCount: 0,
+      },
+      approvalSummary: null,
+    });
+
+    expect(exceptions[0]).toMatchObject({
+      id: "register-clarify",
+      title: "1 clarification client a porter",
+      action: {
+        kind: "href",
+        label: "Voir les clarifications client",
+        href:
+          "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption#register",
+      },
+    });
+  });
+
+  it("surfaces dedicated revalidation exceptions when the dossier must be reopened", () => {
+    const exceptions = buildPilotageExceptions({
+      projectId: "project-1",
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: null,
+      plansSummary: null,
+      registerSummary: {
+        openQuestionsCount: 0,
+        criticalOpenCount: 0,
+        nonCriticalOpenCount: 0,
+        clarifyWithClientCount: 0,
+        openAssumptionCount: 0,
+        openMissingPieceCount: 0,
+        revalidationRequired: true,
+        revalidationRequiredCount: 1,
+        criticalRevalidationRequiredCount: 1,
+        revalidationImpactedStages: ["document_review", "submission_readiness"],
+      },
+      approvalSummary: null,
+    });
+
+    expect(exceptions[0]).toMatchObject({
+      id: "register-revalidation",
+      title: "1 revalidation a relancer",
+      action: {
+        kind: "href",
+        label: "Voir les revalidations",
+        href:
+          "/dashboard/affaires/project-1?registerSeverity=critical&registerRevalidation=required#register",
+      },
+    });
+  });
+
   it("surfaces DPGF mapping blockers in the exception queue", () => {
     const exceptions = buildPilotageExceptions({
       projectId: "project-1",

@@ -1149,6 +1149,382 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
   });
 
+  it("prioritises client clarification when the canonical hub driver requires it", () => {
+    const clarificationSuggestion = buildSuggestion({
+      actionId: "list-clarifications",
+      label: "Traiter 1 clarification client",
+      intent: "list_hypotheses",
+      preview: "Des clarifications critiques restent a porter vers le client avant envoi.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-clarify?registerStatus=clarify_with_client#register",
+      },
+      priority: 720,
+    });
+    const analyzePlans = buildSuggestion({
+      actionId: "analyze-plans",
+      label: "Lancer le metre",
+      intent: "analyze_plans",
+      preview: "Analyser les plans pour extraire les quantites.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-clarify/plans",
+      },
+      priority: 600,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-clarify"
+        hubReadiness={{
+          status: "ready_with_reservations",
+          workingBasis: "established",
+          allowsContinuation: true,
+          briefStatus: "confirme",
+          drivers: [
+            {
+              code: "client_clarification",
+              source: "register",
+              severity: "critical",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 1,
+            continuedWithHypothesisCount: 0,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-clarify",
+          projectId: "project-clarify",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+        registerSummary={{
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 1,
+          criticalClarifyWithClientCount: 1,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 0,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[clarificationSuggestion, analyzePlans]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Traiter 1 clarification client" })).toBeInTheDocument();
+    expect(screen.getByText("Clarification client requise")).toBeInTheDocument();
+    expect(screen.getByText("1 clarification client ouverte")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lancer le metre" })).not.toBeInTheDocument();
+  });
+
+  it("prioritises revalidation when the canonical hub driver requires it", () => {
+    const revalidationSuggestion = buildSuggestion({
+      actionId: "review-revalidation",
+      label: "Relancer 1 revalidation critique",
+      intent: "list_hypotheses",
+      preview: "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pre-remise.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-revalidation?registerRevalidation=required#register",
+      },
+      priority: 735,
+    });
+    const generateStructure = buildSuggestion({
+      actionId: "generate-structure",
+      label: "Generer la structure du devis",
+      intent: "generate_structure",
+      preview: "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-revalidation/edit?openVersionZero=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-revalidation"
+        hubReadiness={{
+          status: "ready_with_reservations",
+          workingBasis: "established",
+          allowsContinuation: true,
+          briefStatus: "confirme",
+          drivers: [
+            {
+              code: "revalidation_required",
+              source: "register",
+              severity: "critical",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 0,
+            continuedWithHypothesisCount: 0,
+            revalidationRequiredCount: 1,
+            criticalRevalidationRequiredCount: 1,
+          },
+        }}
+        currentVersion={{
+          id: "version-revalidation",
+          projectId: "project-revalidation",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+        registerSummary={{
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 0,
+          revalidationRequired: true,
+          revalidationRequiredCount: 1,
+          criticalRevalidationRequiredCount: 1,
+          revalidationImpactedStages: ["document_review", "submission_readiness"],
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[revalidationSuggestion, generateStructure]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Relancer 1 revalidation critique" })).toBeInTheDocument();
+    expect(screen.getByText("Revalidation requise")).toBeInTheDocument();
+    expect(screen.getByText("1 revalidation requise")).toBeInTheDocument();
+    expect(screen.getByText("Revue documentaire")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generer la structure du devis" })).not.toBeInTheDocument();
+  });
+
+  it("keeps continuation hypotheses explicit in the dominant structure card", () => {
+    const generateStructure = buildSuggestion({
+      actionId: "generate-structure",
+      label: "Generer la structure du devis",
+      intent: "generate_structure",
+      preview: "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-hypothesis/edit?openVersionZero=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-hypothesis"
+        hubReadiness={{
+          status: "ready_with_reservations",
+          workingBasis: "established",
+          allowsContinuation: true,
+          briefStatus: "confirme",
+          drivers: [
+            {
+              code: "continued_with_hypothesis",
+              source: "register",
+              severity: "warning",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 0,
+            continuedWithHypothesisCount: 1,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-hypothesis",
+          projectId: "project-hypothesis",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-hypothesis",
+          projectId: "project-hypothesis",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-1",
+          isVersionEmpty: true,
+          canGenerate: true,
+          availableLots: [],
+          activeDraft: null,
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Brief confirme.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts"],
+            lots: ["Electricite"],
+            receivedPieces: ["DPGF", "Plans"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        registerSummary={{
+          openQuestionsCount: 1,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 1,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 1,
+          openMissingPieceCount: 0,
+          continuedWithHypothesisCount: 1,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[generateStructure]}
+      />,
+    );
+
+    expect(screen.getByText("1 hypothese de continuation active")).toBeInTheDocument();
+    expect(
+      screen.getByText("Le brief est confirme. Generez la structure du devis en gardant la trace d'hypothese active."),
+    ).toBeInTheDocument();
+  });
+
   it("blocks plan launch CTAs when canonical readiness is not ready", () => {
     const analyzePlans = buildSuggestion({
       actionId: "analyze-plans-not-ready",

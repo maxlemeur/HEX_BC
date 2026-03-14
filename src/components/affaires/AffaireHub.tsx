@@ -237,9 +237,25 @@ function findCockpitIntent(
   return suggestions.find((suggestion) => !suggestion.isHidden && suggestion.intent === intent) ?? null;
 }
 
+function findCockpitAction(
+  suggestions: CockpitSuggestion[],
+  actionId: string,
+) {
+  return suggestions.find(
+    (suggestion) => !suggestion.isHidden && suggestion.actionId === actionId,
+  ) ?? null;
+}
+
 export function getAffaireHubDominantIntent(suggestions: CockpitSuggestion[]) {
   if (findCockpitIntent(suggestions, "review_intake")) {
     return "review_intake" as const;
+  }
+
+  if (
+    findCockpitAction(suggestions, "review-revalidation") ||
+    findCockpitAction(suggestions, "list-clarifications")
+  ) {
+    return "list_hypotheses" as const;
   }
 
   if (findCockpitIntent(suggestions, "add_missing_pieces")) {
@@ -280,8 +296,19 @@ export function filterAffaireHubCommandBarSuggestions(
     confirm_brief: ["generate_structure", "analyze_plans"],
     generate_structure: ["analyze_plans"],
     analyze_plans: ["generate_structure"],
+    list_hypotheses: [
+      "add_missing_pieces",
+      "confirm_brief",
+      "generate_structure",
+      "analyze_plans",
+      "prepare_validation",
+    ],
   };
   const suppressedIntents = new Set(suppressedIntentsByDominant[dominantIntent] ?? []);
+  const hasRegisterDominantAction =
+    dominantIntent === "list_hypotheses" &&
+    (findCockpitAction(suggestions, "review-revalidation") ||
+      findCockpitAction(suggestions, "list-clarifications"));
 
   return suggestions.filter((suggestion) => {
     if (suggestion.intent === dominantIntent) {
@@ -293,6 +320,10 @@ export function filterAffaireHubCommandBarSuggestions(
     }
 
     if (suppressedIntents.has(suggestion.intent)) {
+      return false;
+    }
+
+    if (hasRegisterDominantAction && suggestion.intent === "list_hypotheses") {
       return false;
     }
 
@@ -1188,6 +1219,14 @@ export function AffaireHub({
     () => cockpitState.filter((suggestion) => !suggestion.isHidden),
     [cockpitState],
   );
+  const hasDominantClarificationSuggestion = useMemo(
+    () => visibleCockpitSuggestions.some((suggestion) => suggestion.actionId === "list-clarifications"),
+    [visibleCockpitSuggestions],
+  );
+  const hasDominantRevalidationSuggestion = useMemo(
+    () => visibleCockpitSuggestions.some((suggestion) => suggestion.actionId === "review-revalidation"),
+    [visibleCockpitSuggestions],
+  );
   const dominantFlowIntent = useMemo(
     () => getAffaireHubDominantIntent(visibleCockpitSuggestions),
     [visibleCockpitSuggestions],
@@ -1217,8 +1256,16 @@ export function AffaireHub({
     if (dominantFlowIntent === "analyze_plans") {
       return ["takeoff-launch"];
     }
+    if (dominantFlowIntent === "list_hypotheses") {
+      if (hasDominantClarificationSuggestion) {
+        return ["register-clarify", "register-open"];
+      }
+      if (hasDominantRevalidationSuggestion) {
+        return ["register-revalidation", "register-open"];
+      }
+    }
     return [];
-  }, [dominantFlowIntent]);
+  }, [dominantFlowIntent, hasDominantClarificationSuggestion, hasDominantRevalidationSuggestion]);
   const isFreshStartState = isAffaireFreshStartState({
     intakeWorkspace,
     dpgfSource,

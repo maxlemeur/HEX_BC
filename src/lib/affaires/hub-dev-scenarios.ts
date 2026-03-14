@@ -32,6 +32,9 @@ export const AFFAIRE_HUB_DEV_SCENARIOS = [
   "cctp-only",
   "complete-brief",
   "brief-confirmed",
+  "accepted-with-hypothesis",
+  "clarify-client",
+  "revalidation-required",
   "plans-ready",
 ] as const;
 
@@ -62,8 +65,18 @@ function createRegisterSummary(input?: Partial<AffaireRegisterSummary>): Affaire
     criticalOpenCount: input?.criticalOpenCount ?? 0,
     nonCriticalOpenCount: input?.nonCriticalOpenCount ?? 0,
     clarifyWithClientCount: input?.clarifyWithClientCount ?? 0,
+    criticalClarifyWithClientCount: input?.criticalClarifyWithClientCount ?? 0,
     openAssumptionCount: input?.openAssumptionCount ?? 0,
     openMissingPieceCount: input?.openMissingPieceCount ?? 0,
+    continuedWithHypothesisCount: input?.continuedWithHypothesisCount ?? 0,
+    continuedCriticalMissingPieceCount: input?.continuedCriticalMissingPieceCount ?? 0,
+    revalidationRequired: input?.revalidationRequired ?? false,
+    revalidationRequiredCount: input?.revalidationRequiredCount ?? 0,
+    criticalRevalidationRequiredCount:
+      input?.criticalRevalidationRequiredCount ?? 0,
+    revalidationBlocksSubmission: input?.revalidationBlocksSubmission ?? false,
+    revalidationBlocksEstimation: input?.revalidationBlocksEstimation ?? false,
+    revalidationImpactedStages: input?.revalidationImpactedStages ?? [],
   };
 }
 
@@ -257,10 +270,15 @@ function withScenarioHubReadiness(
               registerSummary.clarifyWithClientCount,
             ),
             continuedWithHypothesisEntries: createEntries(
-              registerSummary.openAssumptionCount,
+              registerSummary.continuedWithHypothesisCount ??
+                registerSummary.openAssumptionCount,
             ),
-            revalidationRequiredEntries: [],
-            criticalRevalidationRequiredEntries: [],
+            revalidationRequiredEntries: createEntries(
+              registerSummary.revalidationRequiredCount ?? 0,
+            ),
+            criticalRevalidationRequiredEntries: createEntries(
+              registerSummary.criticalRevalidationRequiredCount ?? 0,
+            ),
           }
         : null,
     }),
@@ -860,6 +878,136 @@ export function applyAffaireHubDevScenario(
       summary: withScenarioHubReadiness(summary, intakeWorkspace, registerSummary),
       intakeWorkspace,
       plansSummary: null,
+      versionZeroSummary: createVersionZeroSummary({
+        projectId: input.projectId,
+        versionId,
+      }),
+      registerSummary,
+      approvalSummary: null,
+      finishLineSummary: null,
+    };
+  }
+
+  if (input.scenario === "accepted-with-hypothesis") {
+    const intakeWorkspace: AffaireIntakeWorkspace = {
+      projectId: input.projectId,
+      uploadId: DEV_UPLOAD_ID,
+      documents: [
+        createDocument({
+          documentId: "acacacac-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          fileName: "dpgf-electricite.xlsx",
+          detectedCategory: "dpgf",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "bcbcbcbc-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          fileName: "plans-rdc.pdf",
+          detectedCategory: "plans",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+      ],
+      missingPieces: [],
+      briefDraft: createBriefDraft("confirme"),
+    };
+    const registerSummary = createRegisterSummary({
+      openQuestionsCount: 1,
+      nonCriticalOpenCount: 1,
+      openAssumptionCount: 1,
+      continuedWithHypothesisCount: 1,
+    });
+
+    return {
+      summary: withScenarioHubReadiness(summary, intakeWorkspace, registerSummary),
+      intakeWorkspace,
+      plansSummary: createPlansSummary({ versionId, latestJobStatus: null }),
+      versionZeroSummary: createVersionZeroSummary({
+        projectId: input.projectId,
+        versionId,
+      }),
+      registerSummary,
+      approvalSummary: null,
+      finishLineSummary: null,
+    };
+  }
+
+  if (input.scenario === "clarify-client") {
+    const intakeWorkspace: AffaireIntakeWorkspace = {
+      projectId: input.projectId,
+      uploadId: DEV_UPLOAD_ID,
+      documents: [
+        createDocument({
+          documentId: "cdcdcdcd-cccc-4ccc-8ccc-cccccccccccc",
+          fileName: "dpgf-electricite.xlsx",
+          detectedCategory: "dpgf",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "dededede-dddd-4ddd-8ddd-dddddddddddd",
+          fileName: "plans-rdc.pdf",
+          detectedCategory: "plans",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+      ],
+      missingPieces: [],
+      briefDraft: createBriefDraft("confirme"),
+    };
+    const registerSummary = createRegisterSummary({
+      clarifyWithClientCount: 1,
+      criticalClarifyWithClientCount: 1,
+    });
+
+    return {
+      summary: withScenarioHubReadiness(summary, intakeWorkspace, registerSummary),
+      intakeWorkspace,
+      plansSummary: createPlansSummary({ versionId, latestJobStatus: null }),
+      versionZeroSummary: createVersionZeroSummary({
+        projectId: input.projectId,
+        versionId,
+      }),
+      registerSummary,
+      approvalSummary: null,
+      finishLineSummary: null,
+    };
+  }
+
+  if (input.scenario === "revalidation-required") {
+    const intakeWorkspace: AffaireIntakeWorkspace = {
+      projectId: input.projectId,
+      uploadId: DEV_UPLOAD_ID,
+      documents: [
+        createDocument({
+          documentId: "efefefef-eeee-4eee-8eee-eeeeeeeeeeee",
+          fileName: "dpgf-electricite.xlsx",
+          detectedCategory: "dpgf",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "f0f0f0f0-ffff-4fff-8fff-ffffffffffff",
+          fileName: "plans-rdc.pdf",
+          detectedCategory: "plans",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+      ],
+      missingPieces: [],
+      briefDraft: createBriefDraft("confirme"),
+    };
+    const registerSummary = createRegisterSummary({
+      revalidationRequired: true,
+      revalidationRequiredCount: 1,
+      criticalRevalidationRequiredCount: 1,
+      revalidationImpactedStages: ["document_review", "submission_readiness"],
+    });
+
+    return {
+      summary: withScenarioHubReadiness(summary, intakeWorkspace, registerSummary),
+      intakeWorkspace,
+      plansSummary: createPlansSummary({ versionId, latestJobStatus: null }),
       versionZeroSummary: createVersionZeroSummary({
         projectId: input.projectId,
         versionId,

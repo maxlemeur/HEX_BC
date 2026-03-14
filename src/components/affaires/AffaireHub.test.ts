@@ -141,6 +141,37 @@ describe("getAffaireHubDominantIntent", () => {
       ]),
     ).toBe("review_intake");
   });
+
+  it("prioritises canonical clarifications before progression CTAs", () => {
+    expect(
+      getAffaireHubDominantIntent([
+        {
+          actionId: "list-clarifications",
+          label: "Traiter 1 clarification client",
+          intent: "list_hypotheses",
+          preview: "",
+          target: { kind: "navigate", href: "/dashboard/affaires/project?registerStatus=clarify_with_client#register" },
+          requiresConfirmation: false,
+          confirmTone: "warning",
+          priority: 300,
+          isPinned: false,
+          isHidden: false,
+        },
+        {
+          actionId: "generate-structure",
+          label: "Generer la structure du devis",
+          intent: "generate_structure",
+          preview: "",
+          target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit?openVersionZero=1" },
+          requiresConfirmation: false,
+          confirmTone: "info",
+          priority: 200,
+          isPinned: false,
+          isHidden: false,
+        },
+      ]),
+    ).toBe("list_hypotheses");
+  });
 });
 
 describe("filterAffaireHubCommandBarSuggestions", () => {
@@ -245,6 +276,65 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
 
     expect(
       filterAffaireHubCommandBarSuggestions(suggestions, "review_intake").map(
+        (suggestion) => suggestion.intent,
+      ),
+    ).toEqual(["view_exceptions"]);
+  });
+
+  it("removes competing progression CTAs when a clarification is dominant", () => {
+    const suggestions: CockpitSuggestion[] = [
+      {
+        actionId: "list-clarifications",
+        label: "Traiter 1 clarification client",
+        intent: "list_hypotheses",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/affaires/project?registerStatus=clarify_with_client#register" },
+        requiresConfirmation: false,
+        confirmTone: "warning",
+        priority: 250,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "list-hypotheses",
+        label: "Traiter 2 hypotheses ouvertes",
+        intent: "list_hypotheses",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/affaires/project?registerStatus=open#register" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 240,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "generate-structure",
+        label: "Generer la structure du devis",
+        intent: "generate_structure",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit?openVersionZero=1" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 150,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "legacy",
+        label: "Ouvrir le fallback legacy",
+        intent: "view_exceptions",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 50,
+        isPinned: false,
+        isHidden: false,
+      },
+    ];
+
+    expect(
+      filterAffaireHubCommandBarSuggestions(suggestions, "list_hypotheses").map(
         (suggestion) => suggestion.intent,
       ),
     ).toEqual(["view_exceptions"]);

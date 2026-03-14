@@ -42,6 +42,13 @@ describe("hub dev scenarios", () => {
     expect(parseAffaireHubDevScenario("crowded-review-missing")).toBe(
       "crowded-review-missing"
     );
+    expect(parseAffaireHubDevScenario("accepted-with-hypothesis")).toBe(
+      "accepted-with-hypothesis"
+    );
+    expect(parseAffaireHubDevScenario("clarify-client")).toBe("clarify-client");
+    expect(parseAffaireHubDevScenario("revalidation-required")).toBe(
+      "revalidation-required"
+    );
     expect(parseAffaireHubDevScenario("unknown")).toBeNull();
     expect(parseAffaireHubDevScenario(undefined)).toBeNull();
   });
@@ -407,6 +414,89 @@ describe("hub dev scenarios", () => {
     expect(
       suggestions.some((suggestion) => suggestion.intent === "generate_structure"),
     ).toBe(true);
+  });
+
+  it("builds an accepted-with-hypothesis scenario with degraded but continued hub readiness", () => {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: "accepted-with-hypothesis",
+      projectId: "project-dev",
+      summary: baseSummary,
+    });
+
+    expect(overrides.summary.hubReadiness).toMatchObject({
+      status: "ready_with_reservations",
+      allowsContinuation: true,
+      register: {
+        continuedWithHypothesisCount: 1,
+      },
+    });
+    expect(overrides.registerSummary).toEqual(
+      expect.objectContaining({
+        continuedWithHypothesisCount: 1,
+      }),
+    );
+  });
+
+  it("builds a clarify-client scenario with a canonical clarification driver", () => {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: "clarify-client",
+      projectId: "project-dev",
+      summary: baseSummary,
+    });
+
+    const suggestions = computeCockpitSuggestions({
+      projectId: "project-dev",
+      takeoffEnabled: true,
+      isReadOnlyReview: false,
+      plansSummary: overrides.plansSummary,
+      registerSummary: overrides.registerSummary,
+      approvalSummary: overrides.approvalSummary,
+      intakeWorkspace: overrides.intakeWorkspace,
+      versionZeroSummary: overrides.versionZeroSummary,
+      currentVersion: {
+        id: overrides.summary.currentVersion!.id,
+        status: overrides.summary.currentVersion!.status,
+      },
+      lineCount: overrides.summary.lineCount,
+      preferences: [],
+    });
+
+    expect(overrides.summary.hubReadiness).toMatchObject({
+      status: "ready_with_reservations",
+      drivers: [expect.objectContaining({ code: "client_clarification" })],
+    });
+    expect(suggestions.find((suggestion) => suggestion.actionId === "list-clarifications")).toBeTruthy();
+  });
+
+  it("builds a revalidation-required scenario with a canonical revalidation driver", () => {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: "revalidation-required",
+      projectId: "project-dev",
+      summary: baseSummary,
+    });
+
+    const suggestions = computeCockpitSuggestions({
+      projectId: "project-dev",
+      takeoffEnabled: true,
+      isReadOnlyReview: false,
+      plansSummary: overrides.plansSummary,
+      registerSummary: overrides.registerSummary,
+      approvalSummary: overrides.approvalSummary,
+      intakeWorkspace: overrides.intakeWorkspace,
+      versionZeroSummary: overrides.versionZeroSummary,
+      currentVersion: {
+        id: overrides.summary.currentVersion!.id,
+        status: overrides.summary.currentVersion!.status,
+      },
+      lineCount: overrides.summary.lineCount,
+      preferences: [],
+    });
+
+    expect(overrides.summary.hubReadiness).toMatchObject({
+      status: "ready_with_reservations",
+      drivers: [expect.objectContaining({ code: "revalidation_required" })],
+    });
+    expect(suggestions.find((suggestion) => suggestion.actionId === "review-revalidation")).toBeTruthy();
   });
 
   it("builds a plans-ready scenario ready for takeoff launch", () => {
