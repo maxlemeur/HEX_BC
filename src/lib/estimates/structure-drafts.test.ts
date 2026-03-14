@@ -637,6 +637,13 @@ function createGenerateStructureSupabaseMock(options?: {
   cctpDocuments?: Array<{
     id: string;
     file_name: string;
+    upload_status?: "uploaded" | "pending" | "rejected";
+    classification_status?:
+      | "queued"
+      | "processing"
+      | "classified"
+      | "ambiguous"
+      | "failed";
     document_priority: "primary" | "secondary" | null;
     extracted_metadata: {
       projectName: string | null;
@@ -717,6 +724,8 @@ function createGenerateStructureSupabaseMock(options?: {
     (options?.cctpDocuments ?? []).map((document) => ({
       ...document,
       document_kind: "cctp",
+      upload_status: document.upload_status ?? "uploaded",
+      classification_status: document.classification_status ?? "classified",
     }))
   );
   const discardPendingBuilder = createEqChainBuilder();
@@ -944,6 +953,42 @@ describe("generateEstimateStructureDraft", () => {
         }),
       ])
     );
+  });
+
+  it("ignores ambiguous CCTP rows when building structure draft sources", async () => {
+    const { supabase } = createGenerateStructureSupabaseMock({
+      cctpDocuments: [
+        {
+          id: "cctp-ambiguous",
+          file_name: "cctp-a-revoir.pdf",
+          upload_status: "uploaded",
+          classification_status: "ambiguous",
+          document_priority: "primary",
+          extracted_metadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Electricite"],
+            detectedVariants: [],
+          },
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(callGeminiStructured).mockRejectedValueOnce(
+      new Error("Generation Gemini indisponible.")
+    );
+
+    const result = await generateEstimateStructureDraft(VERSION_ID, {
+      strategy: "hybrid",
+    });
+
+    expect(result.sources.find((source) => source.kind === "primary_cctp")).toMatchObject({
+      available: false,
+      used: false,
+    });
+    expect(result.nodes.map((node) => node.label)).not.toContain("Electricite");
   });
 });
 

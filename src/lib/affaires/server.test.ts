@@ -1282,6 +1282,7 @@ describe("affaires hub server", () => {
           documentId: "cctp-1",
           fileName: "cctp-principal.pdf",
           detectedCategory: "cctp",
+          classificationStatus: "classified",
           documentPriority: "primary",
           confidence: 0.88,
           extractedMetadata: {

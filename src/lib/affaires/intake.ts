@@ -290,6 +290,8 @@ type AffairePreliminaryStructureWorkspaceDocument = {
   documentId?: string | null;
   fileName?: string | null;
   detectedCategory?: AffaireIntakeDocumentKind | null;
+  uploadStatus?: AffaireIntakeDocumentUploadStatus | null;
+  classificationStatus?: AffaireIntakeClassificationStatus | null;
   documentPriority?: AffaireIntakeDocumentPriority | null;
   extractedMetadata?: AffaireIntakeExtractedMetadata | null;
 };
@@ -968,9 +970,16 @@ export function resolveAffairePreliminaryStructureCapability(input: {
     documents.find(
       (document) =>
         document.detectedCategory === "cctp" &&
+        document.classificationStatus === "classified" &&
+        (document.uploadStatus == null || document.uploadStatus === "uploaded") &&
         document.documentPriority === "primary"
     ) ??
-    documents.find((document) => document.detectedCategory === "cctp") ??
+    documents.find(
+      (document) =>
+        document.detectedCategory === "cctp" &&
+        document.classificationStatus === "classified" &&
+        (document.uploadStatus == null || document.uploadStatus === "uploaded")
+    ) ??
     null;
 
   if (primaryCctp) {

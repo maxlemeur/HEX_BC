@@ -118,6 +118,8 @@ type AffaireIntakeDocumentRow = {
   id: string;
   file_name: string;
   document_kind: string;
+  upload_status: string;
+  classification_status: string;
   document_priority: string | null;
   extracted_metadata: Json | null;
 };
@@ -1768,11 +1770,13 @@ async function loadStructureDraftSourceBundle(input: {
     supabase
       .from("affaire_intake_documents" as never)
       .select(
-        "id, file_name, document_kind, document_priority, extracted_metadata" as never
+        "id, file_name, document_kind, upload_status, classification_status, document_priority, extracted_metadata" as never
       )
       .eq("tenant_id", tenantId)
       .eq("project_id", project.id)
       .eq("document_kind", "cctp")
+      .eq("upload_status", "uploaded")
+      .eq("classification_status", "classified")
       .order("created_at", { ascending: true })
       .order("id", { ascending: true }),
   ]);
@@ -1806,6 +1810,9 @@ async function loadStructureDraftSourceBundle(input: {
         documentId: document.id,
         fileName: document.file_name,
         detectedCategory: document.document_kind === "cctp" ? "cctp" : "a_classer",
+        uploadStatus: document.upload_status === "uploaded" ? "uploaded" : null,
+        classificationStatus:
+          document.classification_status === "classified" ? "classified" : null,
         documentPriority:
           document.document_priority === "primary" ||
           document.document_priority === "secondary"

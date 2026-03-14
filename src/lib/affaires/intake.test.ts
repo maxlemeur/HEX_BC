@@ -289,6 +289,8 @@ describe("affaire intake helpers", () => {
           documentId: "cctp-secondary",
           fileName: "cctp-v2.pdf",
           detectedCategory: "cctp",
+          uploadStatus: "uploaded",
+          classificationStatus: "classified",
           documentPriority: "secondary",
           extractedMetadata: {
             projectName: null,
@@ -302,6 +304,8 @@ describe("affaire intake helpers", () => {
           documentId: "cctp-primary",
           fileName: "cctp-v3.pdf",
           detectedCategory: "cctp",
+          uploadStatus: "uploaded",
+          classificationStatus: "classified",
           documentPriority: "primary",
           extractedMetadata: {
             projectName: null,
@@ -339,6 +343,8 @@ describe("affaire intake helpers", () => {
           documentId: "cctp-primary",
           fileName: "cctp.pdf",
           detectedCategory: "cctp",
+          uploadStatus: "uploaded",
+          classificationStatus: "classified",
           documentPriority: "primary",
           extractedMetadata: {
             projectName: null,
@@ -362,6 +368,51 @@ describe("affaire intake helpers", () => {
         availability: "limited",
       }),
     ]);
+  });
+
+  it("ignores unreviewed CCTP classifications for preliminary structure access", () => {
+    const capability = resolveAffairePreliminaryStructureCapability({
+      briefDraft: null,
+      documents: [
+        {
+          documentId: "cctp-ambiguous",
+          fileName: "cctp-a-revoir.pdf",
+          detectedCategory: "cctp",
+          uploadStatus: "uploaded",
+          classificationStatus: "ambiguous",
+          documentPriority: "primary",
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Electricite"],
+            detectedVariants: [],
+          },
+        },
+        {
+          documentId: "cctp-processing",
+          fileName: "cctp-en-cours.pdf",
+          detectedCategory: "cctp",
+          uploadStatus: "uploaded",
+          classificationStatus: "processing",
+          documentPriority: "secondary",
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["CVC"],
+            detectedVariants: [],
+          },
+        },
+      ],
+    });
+
+    expect(capability).toMatchObject({
+      canOpen: false,
+      primarySourceKind: null,
+      availableLots: [],
+      sources: [],
+    });
   });
 
   it("treats queued and processing documents as still processing", () => {

@@ -69,10 +69,9 @@ function makeApprovalSummary(
 function makeIntakeWorkspace(
   overrides: Partial<AffaireIntakeWorkspace> = {},
 ): AffaireIntakeWorkspace {
-  return {
-    projectId: "proj-42",
-    uploadId: "upload-1",
-    documents: [
+  const { documents: _documentsOverride, ...restOverrides } = overrides;
+  const documents = (
+    overrides.documents ?? [
       {
         documentId: "doc-1",
         fileName: "plans.pdf",
@@ -87,10 +86,19 @@ function makeIntakeWorkspace(
         },
         issues: [],
       },
-    ],
+    ]
+  ).map((document) => ({
+    classificationStatus: "classified" as const,
+    ...document,
+  }));
+
+  return {
+    projectId: "proj-42",
+    uploadId: "upload-1",
+    documents,
     missingPieces: [],
     briefDraft: null,
-    ...overrides,
+    ...restOverrides,
   };
 }
 
