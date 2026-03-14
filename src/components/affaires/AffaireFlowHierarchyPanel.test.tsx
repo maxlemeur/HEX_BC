@@ -1149,7 +1149,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
   });
 
-  it("keeps the takeoff continuation CTA visible when client clarifications stay open", () => {
+  it("prioritises client clarification over takeoff continuation when both are available", () => {
     const clarificationSuggestion = buildSuggestion({
       actionId: "list-clarifications",
       label: "Traiter 1 clarification client",
@@ -1263,12 +1263,13 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Lancer le metre" })).toBeInTheDocument();
-    expect(screen.getByText("Analyse sous reserves")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Traiter 1 clarification client" })).toBeInTheDocument();
+    expect(screen.getByText("Clarification client requise")).toBeInTheDocument();
     expect(screen.getByText("1 clarification client ouverte")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lancer le metre" })).not.toBeInTheDocument();
   });
 
-  it("keeps secondary aides visible when only client clarifications remain", () => {
+  it("keeps the clarification CTA as the only visible next step when client clarifications remain", () => {
     const clarificationSuggestion = buildSuggestion({
       actionId: "list-clarifications",
       label: "Traiter 1 clarification client",
@@ -1387,7 +1388,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.getByRole("button", { name: "Traiter 1 clarification client" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ouvrir les plans" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ouvrir les plans" })).not.toBeInTheDocument();
   });
 
   it("prioritises revalidation when the canonical hub driver requires it", () => {

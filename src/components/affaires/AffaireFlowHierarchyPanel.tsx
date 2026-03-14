@@ -903,8 +903,7 @@ function buildPanelModel(
     };
   } else if (
     hasClarificationDriver &&
-    clarificationSuggestion &&
-    !hasStudyContinuationSuggestion
+    clarificationSuggestion
   ) {
     title = clarificationSuggestion.label;
     summary = clarificationSuggestion.preview;
@@ -1062,7 +1061,8 @@ function buildPanelModel(
 
   const hasDominantRegisterAction =
     primaryAction?.kind === "suggestion" &&
-    primaryAction.key === "review-revalidation";
+    (primaryAction.key === "review-revalidation" ||
+      primaryAction.key === "list-clarifications");
   const allowSecondaryAides =
     heroState === "ready_to_continue" && !hasDominantRegisterAction;
   const aides: PanelAction[] = [];
