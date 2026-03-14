@@ -22,6 +22,7 @@ type EstimateEditorPageProps = {
   versionId: string;
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
+  autoOpenStructureDraft?: boolean;
 };
 
 const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
@@ -42,11 +43,13 @@ export function EstimateEditorPage({
   versionId,
   focusItemId = null,
   autoOpenVersionZero = false,
+  autoOpenStructureDraft = false,
 }: EstimateEditorPageProps) {
   const model = useEstimateEditorState({
     versionId,
     focusItemId,
     autoOpenVersionZero,
+    autoOpenStructureDraft,
   });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsRegion = useMemo(

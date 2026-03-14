@@ -13,6 +13,7 @@ import {
   isAffaireIntakePrimaryEligibleKind,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeTextList,
+  resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 
 describe("affaire intake helpers", () => {
@@ -254,6 +255,113 @@ describe("affaire intake helpers", () => {
         hasExistingPrimary: false,
       })
     ).toBe("secondary");
+  });
+
+  it("opens a preliminary structure from a confirmed brief even without a CCTP", () => {
+    const capability = resolveAffairePreliminaryStructureCapability({
+      briefDraft: {
+        status: "confirme",
+        lots: ["Electricite", "CVC"],
+      },
+      documents: [],
+    });
+
+    expect(capability).toMatchObject({
+      canOpen: true,
+      primarySourceKind: "confirmed_brief",
+      availableLots: ["Electricite", "CVC"],
+    });
+    expect(capability.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "confirmed_brief",
+          availability: "ready",
+        }),
+      ])
+    );
+  });
+
+  it("opens a preliminary structure from the canonical primary CCTP when lots are detected", () => {
+    const capability = resolveAffairePreliminaryStructureCapability({
+      briefDraft: null,
+      documents: [
+        {
+          documentId: "cctp-secondary",
+          fileName: "cctp-v2.pdf",
+          detectedCategory: "cctp",
+          documentPriority: "secondary",
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Plomberie"],
+            detectedVariants: [],
+          },
+        },
+        {
+          documentId: "cctp-primary",
+          fileName: "cctp-v3.pdf",
+          detectedCategory: "cctp",
+          documentPriority: "primary",
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Electricite", "CVC"],
+            detectedVariants: [],
+          },
+        },
+      ],
+    });
+
+    expect(capability).toMatchObject({
+      canOpen: true,
+      primarySourceKind: "primary_cctp",
+      availableLots: ["Electricite", "CVC"],
+    });
+    expect(capability.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "primary_cctp",
+          availability: "ready",
+          documentId: "cctp-primary",
+          fileName: "cctp-v3.pdf",
+        }),
+      ])
+    );
+  });
+
+  it("keeps the primary CCTP visible as a limited capability when no defendable lot is detected", () => {
+    const capability = resolveAffairePreliminaryStructureCapability({
+      briefDraft: null,
+      documents: [
+        {
+          documentId: "cctp-primary",
+          fileName: "cctp.pdf",
+          detectedCategory: "cctp",
+          documentPriority: "primary",
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: [],
+            detectedVariants: [],
+          },
+        },
+      ],
+    });
+
+    expect(capability).toMatchObject({
+      canOpen: false,
+      primarySourceKind: null,
+      availableLots: [],
+    });
+    expect(capability.sources).toEqual([
+      expect.objectContaining({
+        kind: "primary_cctp",
+        availability: "limited",
+      }),
+    ]);
   });
 
   it("treats queued and processing documents as still processing", () => {

@@ -396,6 +396,74 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("falls back to the preliminary structure preview from the primary CCTP when no V0 path is available", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        currentVersion: { id: "version-1", status: "draft" },
+        intakeWorkspace: makeIntakeWorkspace({
+          documents: [
+            {
+              documentId: "cctp-1",
+              fileName: "cctp-principal.pdf",
+              detectedCategory: "cctp",
+              documentPriority: "primary",
+              confidence: 0.91,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: ["Electricite", "CVC"],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+        }),
+        versionZeroSummary: makeVersionZeroSummary({ canGenerate: false }),
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toEqual(
+      expect.objectContaining({
+        label: "Ouvrir la structure preliminaire",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/estimates/version-1/edit?openStructureDraft=1",
+        },
+      }),
+    );
+  });
+
+  it("does not overstate the CCTP path when the primary document has no defendable lot", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        currentVersion: { id: "version-1", status: "draft" },
+        intakeWorkspace: makeIntakeWorkspace({
+          documents: [
+            {
+              documentId: "cctp-1",
+              fileName: "cctp-principal.pdf",
+              detectedCategory: "cctp",
+              documentPriority: "primary",
+              confidence: 0.91,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+        }),
+        versionZeroSummary: makeVersionZeroSummary({ canGenerate: false }),
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toBeUndefined();
+  });
+
   it("surfaces critical hypotheses before takeoff follow-up", () => {
     const result = computeCockpitSuggestions(
       makeInput({

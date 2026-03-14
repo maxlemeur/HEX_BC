@@ -13,6 +13,7 @@ export default async function EditEstimateRoutePage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const focusItemIdValue = resolvedSearchParams.focusItemId;
   const openVersionZeroValue = resolvedSearchParams.openVersionZero;
+  const openStructureDraftValue = resolvedSearchParams.openStructureDraft;
   const focusItemId =
     typeof focusItemIdValue === "string"
       ? focusItemIdValue
@@ -26,12 +27,20 @@ export default async function EditEstimateRoutePage({
         ? (openVersionZeroValue[0] ?? "") === "1" ||
           (openVersionZeroValue[0] ?? "") === "true"
         : false;
+  const autoOpenStructureDraft =
+    typeof openStructureDraftValue === "string"
+      ? openStructureDraftValue === "1" || openStructureDraftValue === "true"
+      : Array.isArray(openStructureDraftValue)
+        ? (openStructureDraftValue[0] ?? "") === "1" ||
+          (openStructureDraftValue[0] ?? "") === "true"
+        : false;
 
   return (
     <EstimateEditorPage
       versionId={versionId}
       focusItemId={focusItemId}
       autoOpenVersionZero={autoOpenVersionZero}
+      autoOpenStructureDraft={autoOpenStructureDraft}
     />
   );
 }

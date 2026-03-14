@@ -148,6 +148,7 @@ export type ImportEstimateSectionsResult = {
 
 export type EstimateStructureDraftSourceKind =
   | "linked_dpgf"
+  | "primary_cctp"
   | "historical_versions"
   | "template_library"
   | "assembly_library"
@@ -161,7 +162,7 @@ export type EstimateStructureDraftApplyMode =
   | "merge_existing";
 
 export type EstimateStructureDraftEvidenceEntry = {
-  type: "dpgf" | "history" | "template" | "assembly" | "brief";
+  type: "dpgf" | "cctp" | "history" | "template" | "assembly" | "brief";
   label: string;
   excerpt: string | null;
 };
@@ -2319,6 +2320,7 @@ function isEstimateStructureDraftSourceKind(
 ): value is EstimateStructureDraftSourceKind {
   return (
     value === "linked_dpgf" ||
+    value === "primary_cctp" ||
     value === "historical_versions" ||
     value === "template_library" ||
     value === "assembly_library" ||
@@ -2350,6 +2352,7 @@ function parseEstimateStructureDraftEvidenceEntry(
     !type ||
     !label ||
     (type !== "dpgf" &&
+      type !== "cctp" &&
       type !== "history" &&
       type !== "template" &&
       type !== "assembly" &&

@@ -23,6 +23,10 @@ import {
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import {
+  resolveAffairePreliminaryStructureCapability,
+  type AffairePreliminaryStructureCapability,
+} from "@/lib/affaires/intake";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
   getTakeoffFailureReasonLabel,
@@ -205,6 +209,7 @@ export type AffaireHubSummaryResult = {
   versionsCount: number;
   lineCount: number;
   hubReadiness?: AffaireHubReadinessResult | null;
+  structureContinuation?: AffairePreliminaryStructureCapability | null;
 };
 
 export type AffaireHubDpgfSourceResult = {
@@ -607,6 +612,7 @@ function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersio
 export function buildAffaireHubReadinessSnapshot(input: {
   lineCount: number;
   briefStatus?: "a_confirmer" | "confirme" | null;
+  preliminaryStructureCanOpen?: boolean;
   intakeReadiness?: {
     reviewDocumentsCount: number;
     confirmedMissingPiecesCount: number;
@@ -713,9 +719,13 @@ export function buildAffaireHubReadinessSnapshot(input: {
   }
 
   const workingBasisEstablished =
-    briefStatus === "confirme" || input.lineCount > 0 || continuedWithHypothesisCount > 0;
+    briefStatus === "confirme" ||
+    input.preliminaryStructureCanOpen === true ||
+    input.lineCount > 0 ||
+    continuedWithHypothesisCount > 0;
   const lacksWorkingBasis =
     briefStatus !== "confirme" &&
+    input.preliminaryStructureCanOpen !== true &&
     input.lineCount === 0 &&
     continuedWithHypothesisCount === 0;
   const hasCriticalRegisterReservations =
@@ -895,6 +905,7 @@ async function fetchAffaireHubSummaryWithContext(
 
   let lineCount = 0;
   let hubReadiness: AffaireHubReadinessResult | null = null;
+  let structureContinuation: AffairePreliminaryStructureCapability | null = null;
   if (currentVersion) {
     const [{ count, error }, intakeResult, registerGateSummaryResult] = await Promise.all([
       context.supabase
@@ -920,10 +931,18 @@ async function fetchAffaireHubSummaryWithContext(
 
     lineCount = count ?? 0;
 
+    if (intakeResult) {
+      structureContinuation = resolveAffairePreliminaryStructureCapability({
+        briefDraft: intakeResult.briefDraft,
+        documents: intakeResult.documents,
+      });
+    }
+
     if (intakeResult && registerGateSummaryResult) {
       hubReadiness = buildAffaireHubReadinessSnapshot({
         lineCount,
         briefStatus: intakeResult.briefDraft?.status ?? null,
+        preliminaryStructureCanOpen: structureContinuation?.canOpen ?? false,
         intakeReadiness: intakeResult.readiness
           ? {
               reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
@@ -948,10 +967,18 @@ async function fetchAffaireHubSummaryWithContext(
       ).catch(() => null),
     ]);
 
+    if (intakeResult) {
+      structureContinuation = resolveAffairePreliminaryStructureCapability({
+        briefDraft: intakeResult.briefDraft,
+        documents: intakeResult.documents,
+      });
+    }
+
     if (intakeResult && registerGateSummaryResult) {
       hubReadiness = buildAffaireHubReadinessSnapshot({
         lineCount: 0,
         briefStatus: intakeResult.briefDraft?.status ?? null,
+        preliminaryStructureCanOpen: structureContinuation?.canOpen ?? false,
         intakeReadiness: intakeResult.readiness
           ? {
               reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
@@ -978,6 +1005,7 @@ async function fetchAffaireHubSummaryWithContext(
     versionsCount: versionsCountResult.count ?? 0,
     lineCount,
     hubReadiness,
+    structureContinuation,
   };
 }
 

@@ -581,6 +581,25 @@ function createListBuilder<T>(rows: T[]) {
   return builder;
 }
 
+function createOrderedListBuilder<T>(rows: T[]) {
+  const builder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+  };
+
+  const resolved = Promise.resolve({
+    data: rows,
+    error: null,
+  });
+
+  builder.eq.mockReturnValue(builder);
+  builder.order
+    .mockReturnValueOnce(builder)
+    .mockReturnValueOnce(resolved);
+
+  return builder;
+}
+
 function createMaybeSingleBuilder<T>(row: T | null) {
   const builder = {
     eq: vi.fn(),
@@ -614,6 +633,18 @@ function createGenerateStructureSupabaseMock(options?: {
     id: string;
     name: string;
     description: string | null;
+  }>;
+  cctpDocuments?: Array<{
+    id: string;
+    file_name: string;
+    document_priority: "primary" | "secondary" | null;
+    extracted_metadata: {
+      projectName: string | null;
+      clientName: string | null;
+      deadlineAt: string | null;
+      detectedLots: string[];
+      detectedVariants: string[];
+    };
   }>;
   projectNotes?: string | null;
   existingItems?: ReturnType<typeof buildEstimateSectionRow>[];
@@ -682,6 +713,12 @@ function createGenerateStructureSupabaseMock(options?: {
     vigilance_points: unknown;
     missing_elements: unknown;
   }>(null);
+  const affaireIntakeDocumentsBuilder = createOrderedListBuilder(
+    (options?.cctpDocuments ?? []).map((document) => ({
+      ...document,
+      document_kind: "cctp",
+    }))
+  );
   const discardPendingBuilder = createEqChainBuilder();
   const draftStatusUpdate = vi.fn().mockReturnValue(discardPendingBuilder);
   const draftInsertSingle = vi.fn().mockResolvedValue({
@@ -764,6 +801,12 @@ function createGenerateStructureSupabaseMock(options?: {
         };
       }
 
+      if (table === "affaire_intake_documents") {
+        return {
+          select: vi.fn(() => affaireIntakeDocumentsBuilder),
+        };
+      }
+
       if (table === "estimate_structure_drafts") {
         return {
           update: draftStatusUpdate,
@@ -842,6 +885,65 @@ describe("generateEstimateStructureDraft", () => {
       used: true,
     });
     expect(draftNodesInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the canonical primary CCTP as a strong structure source when it exposes lots", async () => {
+    const { supabase } = createGenerateStructureSupabaseMock({
+      cctpDocuments: [
+        {
+          id: "cctp-secondary",
+          file_name: "cctp-secondaire.pdf",
+          document_priority: "secondary",
+          extracted_metadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Plomberie"],
+            detectedVariants: [],
+          },
+        },
+        {
+          id: "cctp-primary",
+          file_name: "cctp-principal.pdf",
+          document_priority: "primary",
+          extracted_metadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Electricite", "CVC"],
+            detectedVariants: [],
+          },
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(callGeminiStructured).mockRejectedValueOnce(
+      new Error("Generation Gemini indisponible.")
+    );
+
+    const result = await generateEstimateStructureDraft(VERSION_ID, {
+      strategy: "hybrid",
+    });
+
+    expect(result.sources.find((source) => source.kind === "primary_cctp")).toMatchObject({
+      available: true,
+      used: true,
+      detail: expect.stringContaining("cctp-principal.pdf"),
+    });
+    expect(result.nodes.map((node) => node.label)).toEqual(
+      expect.arrayContaining(["Electricite", "CVC"])
+    );
+    const electriciteNode = result.nodes.find((node) => node.label === "Electricite");
+    expect(electriciteNode?.provenance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "cctp",
+          label: "CCTP principal",
+          excerpt: "cctp-principal.pdf",
+        }),
+      ])
+    );
   });
 });
 

@@ -359,6 +359,30 @@ describe("affaires hub readiness contract", () => {
     );
   });
 
+  it("keeps CCTP-driven continuation under reservations until the brief is confirmed", () => {
+    const snapshot = buildAffaireHubReadinessSnapshot({
+      lineCount: 0,
+      briefStatus: "a_confirmer",
+      preliminaryStructureCanOpen: true,
+      intakeReadiness: {
+        reviewDocumentsCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+      },
+      registerGateSummary: {
+        criticalOpenEntries: [],
+        clarifyWithClientEntries: [],
+        continuedWithHypothesisEntries: [],
+        revalidationRequiredEntries: [],
+        criticalRevalidationRequiredEntries: [],
+      },
+    });
+
+    expect(snapshot.status).toBe("ready_with_reservations");
+    expect(snapshot.workingBasis).toBe("established");
+    expect(snapshot.allowsContinuation).toBe(true);
+  });
+
   it("keeps accepted continuation dossiers under reservations before structure exists", () => {
     const snapshot = buildAffaireHubReadinessSnapshot({
       lineCount: 0,
@@ -1181,6 +1205,143 @@ describe("affaires hub server", () => {
       id: "v2",
       versionNumber: 2,
       status: "accepted",
+    });
+    expect(summary.structureContinuation).toMatchObject({
+      canOpen: false,
+      primarySourceKind: null,
+      availableLots: [],
+    });
+  });
+
+  it("exposes the CCTP-based structure continuation contract in the hub summary", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Alpha",
+                reference: "AFF-001",
+                client_name: "Client Alpha",
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: null,
+              count: 1,
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: {
+                id: "v3",
+                project_id: PROJECT_ID,
+                version_number: 3,
+                status: "draft",
+                total_ht_cents: 250_000,
+                margin_multiplier: 1.18,
+                updated_at: "2026-03-04T12:00:00+00:00",
+              },
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+        estimate_items: [
+          {
+            limit: {
+              data: null,
+              count: 0,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchAffaireIntakeWorkspace).mockResolvedValue({
+      projectId: PROJECT_ID,
+      uploadId: "upload-1",
+      documents: [
+        {
+          documentId: "cctp-1",
+          fileName: "cctp-principal.pdf",
+          detectedCategory: "cctp",
+          documentPriority: "primary",
+          confidence: 0.88,
+          extractedMetadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Electricite", "CVC"],
+            detectedVariants: [],
+          },
+          issues: [],
+        },
+      ],
+      missingPieces: [],
+      readiness: {
+        reviewDocumentsCount: 0,
+        missingPiecesCount: 0,
+        criticalMissingPiecesCount: 0,
+        provisionalMissingPiecesCount: 0,
+        provisionalCriticalMissingPiecesCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+        reviewCouldLiftCriticalMissing: false,
+        reviewBeforeMissing: false,
+        dominantAction: "none",
+        hubReadinessImpact: "none",
+      },
+      briefDraft: {
+        status: "a_confirmer",
+        summary: "Brief en cours",
+        projectObject: "Objet",
+        scope: [],
+        lots: [],
+        receivedPieces: [],
+        assumptions: [],
+        vigilancePoints: [],
+        missingElements: [],
+        sources: [],
+        uploadId: "upload-1",
+        lastGeneratedAt: null,
+        confirmedAt: null,
+      },
+    } as never);
+
+    const summary = await fetchAffaireHubSummary(PROJECT_ID);
+
+    expect(summary.structureContinuation).toMatchObject({
+      canOpen: true,
+      primarySourceKind: "primary_cctp",
+      availableLots: ["Electricite", "CVC"],
+      sources: [
+        expect.objectContaining({
+          kind: "primary_cctp",
+          availability: "ready",
+          fileName: "cctp-principal.pdf",
+        }),
+      ],
+    });
+    expect(summary.hubReadiness).toMatchObject({
+      status: "ready_with_reservations",
+      workingBasis: "established",
     });
   });
 

@@ -1077,6 +1077,7 @@ export const importEstimateSectionsSchema = z.preprocess(
 export const estimateStructureDraftStrategySchema = z.enum(["hybrid"]);
 export const estimateStructureDraftSourceKindSchema = z.enum([
   "linked_dpgf",
+  "primary_cctp",
   "historical_versions",
   "template_library",
   "assembly_library",

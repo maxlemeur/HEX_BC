@@ -265,6 +265,40 @@ export type AffaireIntakeBriefDraft = z.infer<
   typeof affaireIntakeBriefDraftSchema
 >;
 
+export type AffairePreliminaryStructureSourceKind =
+  | "confirmed_brief"
+  | "primary_cctp";
+
+export type AffairePreliminaryStructureSource = {
+  kind: AffairePreliminaryStructureSourceKind;
+  availability: "ready" | "limited";
+  label: string;
+  detail: string;
+  availableLots: string[];
+  documentId: string | null;
+  fileName: string | null;
+};
+
+export type AffairePreliminaryStructureCapability = {
+  canOpen: boolean;
+  primarySourceKind: AffairePreliminaryStructureSourceKind | null;
+  availableLots: string[];
+  sources: AffairePreliminaryStructureSource[];
+};
+
+type AffairePreliminaryStructureWorkspaceDocument = {
+  documentId?: string | null;
+  fileName?: string | null;
+  detectedCategory?: AffaireIntakeDocumentKind | null;
+  documentPriority?: AffaireIntakeDocumentPriority | null;
+  extractedMetadata?: AffaireIntakeExtractedMetadata | null;
+};
+
+type AffairePreliminaryStructureBrief = Pick<
+  AffaireIntakeBriefDraft,
+  "status" | "lots"
+>;
+
 const DEFAULT_EXTRACTED_METADATA: AffaireIntakeExtractedMetadata = {
   projectName: null,
   clientName: null,
@@ -898,4 +932,83 @@ export function normalizeAffaireIntakeTextList(
   }
 
   return normalized;
+}
+
+export function resolveAffairePreliminaryStructureCapability(input: {
+  briefDraft?: AffairePreliminaryStructureBrief | null;
+  documents?: ReadonlyArray<AffairePreliminaryStructureWorkspaceDocument> | null;
+}): AffairePreliminaryStructureCapability {
+  const briefDraft = input.briefDraft ?? null;
+  const documents = [...(input.documents ?? [])];
+  const sources: AffairePreliminaryStructureSource[] = [];
+  const briefLots =
+    briefDraft?.status === "confirme"
+      ? normalizeAffaireIntakeTextList(briefDraft.lots, {
+          maxItems: 20,
+          maxLength: 160,
+        })
+      : [];
+
+  if (briefDraft?.status === "confirme") {
+    sources.push({
+      kind: "confirmed_brief",
+      availability: "ready",
+      label: "Brief confirme",
+      detail:
+        briefLots.length > 0
+          ? `${briefLots.length} lot(s) du brief restent reutilisables pour ouvrir une structure preliminaire.`
+          : "Le brief confirme reste la reference de travail, meme sans lot explicite.",
+      availableLots: briefLots,
+      documentId: null,
+      fileName: null,
+    });
+  }
+
+  const primaryCctp =
+    documents.find(
+      (document) =>
+        document.detectedCategory === "cctp" &&
+        document.documentPriority === "primary"
+    ) ??
+    documents.find((document) => document.detectedCategory === "cctp") ??
+    null;
+
+  if (primaryCctp) {
+    const cctpLots = normalizeAffaireIntakeTextList(
+      primaryCctp.extractedMetadata?.detectedLots ?? [],
+      {
+        maxItems: 20,
+        maxLength: 160,
+      }
+    );
+
+    sources.push({
+      kind: "primary_cctp",
+      availability: cctpLots.length > 0 ? "ready" : "limited",
+      label: "CCTP principal",
+      detail:
+        cctpLots.length > 0
+          ? `${primaryCctp.fileName ?? "CCTP principal"} expose ${cctpLots.length} lot(s) detecte(s) reutilisables pour une structure preliminaire.`
+          : `${primaryCctp.fileName ?? "CCTP principal"} est bien principal, mais ne remonte pas encore de lot defendable pour ouvrir la structure automatiquement.`,
+      availableLots: cctpLots,
+      documentId: primaryCctp.documentId ?? null,
+      fileName: primaryCctp.fileName ?? null,
+    });
+  }
+
+  const availableLots = normalizeAffaireIntakeTextList(
+    sources.flatMap((source) => source.availableLots),
+    {
+      maxItems: 20,
+      maxLength: 160,
+    }
+  );
+  const readySources = sources.filter((source) => source.availability === "ready");
+
+  return {
+    canOpen: readySources.length > 0,
+    primarySourceKind: readySources[0]?.kind ?? null,
+    availableLots,
+    sources,
+  };
 }

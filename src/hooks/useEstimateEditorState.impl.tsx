@@ -1631,10 +1631,12 @@ export function useEstimateEditorState({
   versionId,
   focusItemId = null,
   autoOpenVersionZero = false,
+  autoOpenStructureDraft = false,
 }: {
   versionId: string;
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
+  autoOpenStructureDraft?: boolean;
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
@@ -1975,6 +1977,9 @@ export function useEstimateEditorState({
         ) {
           setIsVersionZeroDialogOpen(true);
         }
+        if (autoOpenStructureDraft && versionRow.status === "draft") {
+          setIsEstimateStructureDraftDialogOpen(true);
+        }
 
         if (versionRow.status === "draft") {
           const originalById = new Map(
@@ -2075,6 +2080,7 @@ export function useEstimateEditorState({
       active = false;
     };
   }, [
+    autoOpenStructureDraft,
     autoOpenVersionZero,
     applyPendingBufferedUpdatesToItems,
     isLaborSplitEnabled,

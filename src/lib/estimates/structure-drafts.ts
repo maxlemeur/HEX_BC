@@ -7,6 +7,10 @@ import {
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
+import {
+  normalizeAffaireIntakeExtractedMetadata,
+  resolveAffairePreliminaryStructureCapability,
+} from "@/lib/affaires/intake";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
@@ -110,6 +114,14 @@ type AffaireBriefSourceLinkRow = {
   source_file_name: string;
 };
 
+type AffaireIntakeDocumentRow = {
+  id: string;
+  file_name: string;
+  document_kind: string;
+  document_priority: string | null;
+  extracted_metadata: Json | null;
+};
+
 type VersionAccessRow = Pick<
   EstimateVersionRow,
   | "id"
@@ -138,7 +150,7 @@ export type EstimateStructureDraftSourceSummary = {
 };
 
 export type EstimateStructureDraftEvidenceEntry = {
-  type: "dpgf" | "history" | "template" | "assembly" | "brief";
+  type: "dpgf" | "cctp" | "history" | "template" | "assembly" | "brief";
   label: string;
   excerpt: string | null;
 };
@@ -591,6 +603,7 @@ function normalizeEvidenceEntries(value: unknown): EstimateStructureDraftEvidenc
         !type ||
         !label ||
         (type !== "dpgf" &&
+          type !== "cctp" &&
           type !== "history" &&
           type !== "template" &&
           type !== "assembly" &&
@@ -916,6 +929,8 @@ function toEvidenceType(
   switch (kind) {
     case "linked_dpgf":
       return "dpgf";
+    case "primary_cctp":
+      return "cctp";
     case "historical_versions":
       return "history";
     case "template_library":
@@ -951,6 +966,7 @@ const ESTIMATE_STRUCTURE_STRONG_SIGNAL_SOURCE_KINDS = new Set<
   EstimateStructureDraftSourceKind
 >([
   "linked_dpgf",
+  "primary_cctp",
   "historical_versions",
   "template_library",
   "project_notes",
@@ -1737,26 +1753,106 @@ async function loadStructureDraftSourceBundle(input: {
     });
   }
 
-  const { data: confirmedBriefData, error: confirmedBriefError } = await supabase
-    .from("affaire_briefs" as never)
-    .select(
-      "id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements" as never
-    )
-    .eq("project_id", project.id)
-    .eq("status", "confirme")
-    .maybeSingle();
+  const [
+    confirmedBriefResult,
+    primaryCctpDocumentsResult,
+  ] = await Promise.all([
+    supabase
+      .from("affaire_briefs" as never)
+      .select(
+        "id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements" as never
+      )
+      .eq("project_id", project.id)
+      .eq("status", "confirme")
+      .maybeSingle(),
+    supabase
+      .from("affaire_intake_documents" as never)
+      .select(
+        "id, file_name, document_kind, document_priority, extracted_metadata" as never
+      )
+      .eq("tenant_id", tenantId)
+      .eq("project_id", project.id)
+      .eq("document_kind", "cctp")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }),
+  ]);
 
-  if (confirmedBriefError) {
+  if (confirmedBriefResult.error) {
     throw mapSupabaseError(
-      confirmedBriefError,
+      confirmedBriefResult.error,
       "Impossible de charger le brief affaire confirme."
+    );
+  }
+  if (primaryCctpDocumentsResult.error) {
+    throw mapSupabaseError(
+      primaryCctpDocumentsResult.error,
+      "Impossible de charger le CCTP principal de l'intake."
     );
   }
 
   const confirmedBrief =
-    (confirmedBriefData as AffaireBriefRow | null) && confirmedBriefData
-      ? (confirmedBriefData as AffaireBriefRow)
+    (confirmedBriefResult.data as AffaireBriefRow | null) && confirmedBriefResult.data
+      ? (confirmedBriefResult.data as AffaireBriefRow)
       : null;
+  const primaryCctpCapability = resolveAffairePreliminaryStructureCapability({
+    briefDraft: confirmedBrief
+      ? {
+          status: "confirme",
+          lots: pickAffaireBriefTextArray(confirmedBrief.lots, 20),
+        }
+      : null,
+    documents: ((primaryCctpDocumentsResult.data ?? []) as AffaireIntakeDocumentRow[]).map(
+      (document) => ({
+        documentId: document.id,
+        fileName: document.file_name,
+        detectedCategory: document.document_kind === "cctp" ? "cctp" : "a_classer",
+        documentPriority:
+          document.document_priority === "primary" ||
+          document.document_priority === "secondary"
+            ? document.document_priority
+            : null,
+        extractedMetadata: normalizeAffaireIntakeExtractedMetadata(
+          document.extracted_metadata
+        ),
+      })
+    ),
+  });
+  const primaryCctpSource =
+    primaryCctpCapability.sources.find((source) => source.kind === "primary_cctp") ??
+    null;
+
+  if (primaryCctpSource) {
+    primaryCctpSource.availableLots.forEach((lot, index) => {
+      sourceEntries.push({
+        id: `primary-cctp-${index}`,
+        kind: "primary_cctp",
+        type: "cctp",
+        label: "CCTP principal",
+        path: truncatePath([lot]),
+        excerpt: primaryCctpSource.fileName,
+        fact: `Lot detecte dans le CCTP principal: ${lot}`,
+        hypothesis: null,
+        inference: "Signal structurel issu du CCTP principal retenu par l'intake.",
+        weight: 1.3,
+      });
+    });
+
+    sourceSummaries.push({
+      kind: "primary_cctp",
+      label: "CCTP principal",
+      available: true,
+      used: primaryCctpSource.availability === "ready",
+      detail: primaryCctpSource.detail,
+    });
+  } else {
+    sourceSummaries.push({
+      kind: "primary_cctp",
+      label: "CCTP principal",
+      available: false,
+      used: false,
+      detail: "Aucun CCTP principal exploitable dans l'intake.",
+    });
+  }
 
   if (confirmedBrief?.id) {
     const { data: confirmedBriefSourceData, error: confirmedBriefSourceError } =

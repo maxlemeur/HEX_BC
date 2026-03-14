@@ -73,6 +73,7 @@ const STRONG_SIGNAL_SOURCE_KINDS = new Set<
   EstimateStructureDraft["sources"][number]["kind"]
 >([
   "linked_dpgf",
+  "primary_cctp",
   "historical_versions",
   "template_library",
   "project_notes",
@@ -85,6 +86,8 @@ export function sourceKindLabel(
   switch (kind) {
     case "linked_dpgf":
       return "DPGF lie";
+    case "primary_cctp":
+      return "CCTP principal";
     case "historical_versions":
       return "Historique";
     case "template_library":
@@ -210,6 +213,8 @@ export function evidenceTypeLabel(
   switch (type) {
     case "dpgf":
       return "DPGF";
+    case "cctp":
+      return "CCTP";
     case "history":
       return "Historique";
     case "template":

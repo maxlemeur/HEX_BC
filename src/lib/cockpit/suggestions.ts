@@ -1,5 +1,8 @@
 import type { AffaireHubPlansSummaryData } from "@/components/affaires/PlansMetresCard";
-import { isAffaireIntakeDocumentNeedingReview } from "@/lib/affaires/intake";
+import {
+  isAffaireIntakeDocumentNeedingReview,
+  resolveAffairePreliminaryStructureCapability,
+} from "@/lib/affaires/intake";
 import {
   AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
   buildAffaireRegisterHubHref,
@@ -204,12 +207,17 @@ export function computeCockpitSuggestions(
     intakeWorkspace,
     versionZeroSummary,
     currentVersion,
+    lineCount = 0,
     preferences = [],
   } = input;
   const reviewDocumentsCount = countDocumentsNeedingReview(intakeWorkspace);
   const missingPieces = describeMissingPieces(intakeWorkspace);
   const hasDocuments = (intakeWorkspace?.documents.length ?? 0) > 0;
   const briefDraft = intakeWorkspace?.briefDraft ?? null;
+  const preliminaryStructure = resolveAffairePreliminaryStructureCapability({
+    briefDraft,
+    documents: intakeWorkspace?.documents ?? [],
+  });
 
   // Only show "add files" when documents already exist (dropzone handles the empty state)
   if (!hasIntakeWorkspaceError && hasDocuments && !isReadOnlyReview) {
@@ -301,6 +309,38 @@ export function computeCockpitSuggestions(
         target: {
           kind: "navigate",
           href: `/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`,
+        },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 650,
+      }),
+    );
+  }
+
+  if (
+    currentVersion?.status === "draft" &&
+    lineCount === 0 &&
+    !versionZeroSummary?.activeDraft &&
+    !versionZeroSummary?.canGenerate &&
+    preliminaryStructure.canOpen &&
+    !isReadOnlyReview
+  ) {
+    const preview =
+      preliminaryStructure.primarySourceKind === "primary_cctp"
+        ? "Ouvrir une preview editable de structure a partir du CCTP principal, sans imposer un import DPGF."
+        : preliminaryStructure.sources.length > 1
+          ? "Ouvrir une preview editable de structure a partir du brief confirme et des signaux documentaires deja arbitres."
+          : "Ouvrir une preview editable de structure a partir du brief confirme.";
+
+    suggestions.push(
+      createSuggestion({
+        actionId: "generate-structure",
+        label: "Ouvrir la structure preliminaire",
+        intent: "generate_structure",
+        preview,
+        target: {
+          kind: "navigate",
+          href: `/dashboard/estimates/${currentVersion.id}/edit?openStructureDraft=1`,
         },
         requiresConfirmation: false,
         confirmTone: "info",
