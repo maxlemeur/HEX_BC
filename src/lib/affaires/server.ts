@@ -15,6 +15,10 @@ import {
   type ListEstimateProjectVersionsResult,
 } from "@/lib/estimates/server";
 import {
+  ESTIMATE_READINESS_CATEGORY_ORDER,
+  type EstimateReadinessCategory,
+} from "@/lib/estimates/readiness";
+import {
   classifyTakeoffPlanSetSource,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
@@ -277,8 +281,33 @@ export type AffaireHubMarginAnalysisResult = {
 type AffaireHubSendGating = Awaited<ReturnType<typeof getEstimateSendGating>>["gating"];
 type AffaireHubSendGatingFlag = AffaireHubSendGating["blockingFlags"][number];
 
+export type AffaireSubmissionReadinessStatus =
+  | "blocked"
+  | "warning"
+  | "ready"
+  | "unavailable";
+
+export type AffaireSubmissionReadinessGroup = {
+  category: EstimateReadinessCategory;
+  blockers: AffaireHubSendGatingFlag[];
+  alerts: AffaireHubSendGatingFlag[];
+  blockerCount: number;
+  alertCount: number;
+};
+
+export type AffaireSubmissionReadinessResult = {
+  status: AffaireSubmissionReadinessStatus;
+  blockers: AffaireHubSendGatingFlag[];
+  alerts: AffaireHubSendGatingFlag[];
+  groups: AffaireSubmissionReadinessGroup[];
+  checkedAt: string | null;
+  stalePriceDays: number | null;
+  errorMessage: string | null;
+};
+
 export type AffaireHubFinishLineSummaryResult = {
   versionId: string;
+  submissionReadiness?: AffaireSubmissionReadinessResult;
   readyToSend: {
     status: "ready" | "blocked" | "warning" | "waiting" | "unavailable";
     blockingFlags: AffaireHubSendGatingFlag[];
@@ -582,6 +611,45 @@ export function buildAffaireHubReadinessSnapshot(input: {
       revalidationRequiredCount,
       criticalRevalidationRequiredCount,
     },
+  };
+}
+
+export function buildAffaireSubmissionReadinessSnapshot(input: {
+  blockingFlags: AffaireHubSendGatingFlag[];
+  warningFlags: AffaireHubSendGatingFlag[];
+  checkedAt: string | null;
+  stalePriceDays: number | null;
+  errorMessage: string | null;
+}): AffaireSubmissionReadinessResult {
+  const groups = ESTIMATE_READINESS_CATEGORY_ORDER.map((category) => {
+    const blockers = input.blockingFlags.filter((flag) => flag.category === category);
+    const alerts = input.warningFlags.filter((flag) => flag.category === category);
+    return {
+      category,
+      blockers,
+      alerts,
+      blockerCount: blockers.length,
+      alertCount: alerts.length,
+    } satisfies AffaireSubmissionReadinessGroup;
+  }).filter((group) => group.blockerCount > 0 || group.alertCount > 0);
+
+  const status: AffaireSubmissionReadinessStatus =
+    input.errorMessage
+      ? "unavailable"
+      : input.blockingFlags.length > 0
+        ? "blocked"
+        : input.warningFlags.length > 0
+          ? "warning"
+          : "ready";
+
+  return {
+    status,
+    blockers: input.blockingFlags,
+    alerts: input.warningFlags,
+    groups,
+    checkedAt: input.checkedAt,
+    stalePriceDays: input.stalePriceDays,
+    errorMessage: input.errorMessage,
   };
 }
 
@@ -1535,8 +1603,17 @@ export const fetchAffaireHubFinishLineSummary = cache(
             errorMessage: "Impossible d'evaluer la preparation commandes pour le moment.",
           };
 
+    const submissionReadiness = buildAffaireSubmissionReadinessSnapshot({
+      blockingFlags: readyToSend.blockingFlags,
+      warningFlags: readyToSend.warningFlags,
+      checkedAt: readyToSend.checkedAt,
+      stalePriceDays: readyToSend.stalePriceDays,
+      errorMessage: readyToSend.errorMessage,
+    });
+
     return {
       versionId,
+      submissionReadiness,
       readyToSend,
       readyToOrder,
     };

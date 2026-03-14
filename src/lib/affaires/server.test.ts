@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/server", () => ({
   getAuthenticatedContext: vi.fn(),
+  getEstimateSendGating: vi.fn(),
+  getEstimateSupplierComparisons: vi.fn(),
+  listEstimateItems: vi.fn(),
   listEstimateProjectVersions: vi.fn(),
 }));
 
@@ -23,13 +26,18 @@ import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server"
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
   getAuthenticatedContext,
+  getEstimateSendGating,
+  getEstimateSupplierComparisons,
+  listEstimateItems,
   listEstimateProjectVersions,
 } from "@/lib/estimates/server";
 import { normalizeAffaireListQuery, parseAffaireListQuery } from "@/lib/affaires/schemas";
 import {
   buildAffaireHubReadinessSnapshot,
+  buildAffaireSubmissionReadinessSnapshot,
   fetchAffaireCounters,
   fetchAffaireHubDpgfSource,
+  fetchAffaireHubFinishLineSummary,
   fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPlansSummary,
   fetchAffaireHubPageData,
@@ -96,6 +104,26 @@ beforeEach(() => {
     revalidationRequiredEntries: [],
     criticalRevalidationRequiredEntries: [],
     revalidationImpactedStages: [],
+  } as never);
+  vi.mocked(getEstimateSendGating).mockResolvedValue({
+    gating: {
+      canSend: true,
+      blockingFlags: [],
+      warningFlags: [],
+      stalePriceDays: 30,
+      checkedAt: "2026-03-14T10:00:00.000Z",
+    },
+  } as never);
+  vi.mocked(listEstimateItems).mockResolvedValue({
+    items: [],
+  } as never);
+  vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
+    coverage_summary: {
+      covered_items: 0,
+      ambiguous_items: 0,
+      no_price_items: 0,
+      stale_items: 0,
+    },
   } as never);
 });
 
@@ -381,6 +409,103 @@ describe("affaires hub readiness contract", () => {
     expect(snapshot.status).toBe("ready_with_reservations");
     expect(snapshot.workingBasis).toBe("established");
     expect(snapshot.register.criticalOpenCount).toBe(1);
+  });
+});
+
+describe("affaires submission readiness contract", () => {
+  it("normalizes readyToSend flags into grouped submission readiness", () => {
+    const snapshot = buildAffaireSubmissionReadinessSnapshot({
+      blockingFlags: [
+        {
+          key: "critical_missing_pieces",
+          category: "documents",
+          severity: "blocking",
+          count: 2,
+          item_ids: [],
+          label: "Documents critiques manquants",
+          description: "Pieces critiques ouvertes.",
+        },
+      ],
+      warningFlags: [
+        {
+          key: "open_questions_pending",
+          category: "register",
+          severity: "warning",
+          count: 1,
+          item_ids: [],
+          label: "Questions ouvertes a traiter",
+          description: "Hypotheses ouvertes.",
+        },
+      ],
+      checkedAt: "2026-03-14T10:00:00.000Z",
+      stalePriceDays: 30,
+      errorMessage: null,
+    });
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.groups).toEqual([
+      expect.objectContaining({
+        category: "documents",
+        blockerCount: 1,
+        alertCount: 0,
+      }),
+      expect.objectContaining({
+        category: "register",
+        blockerCount: 0,
+        alertCount: 1,
+      }),
+    ]);
+  });
+
+  it("reuses the finish line gating as canonical submission readiness", async () => {
+    vi.mocked(getEstimateSendGating).mockResolvedValue({
+      gating: {
+        canSend: false,
+        blockingFlags: [
+          {
+            key: "critical_missing_pieces",
+            category: "documents",
+            severity: "blocking",
+            count: 1,
+            item_ids: [],
+            label: "Documents critiques manquants",
+            description: "Pieces critiques ouvertes.",
+          },
+        ],
+        warningFlags: [
+          {
+            key: "open_questions_pending",
+            category: "register",
+            severity: "warning",
+            count: 1,
+            item_ids: [],
+            label: "Questions ouvertes a traiter",
+            description: "Hypotheses ouvertes.",
+          },
+        ],
+        stalePriceDays: 21,
+        checkedAt: "2026-03-14T10:00:00.000Z",
+      },
+    } as never);
+
+    const summary = await fetchAffaireHubFinishLineSummary("version-1");
+
+    expect(summary.submissionReadiness).toMatchObject({
+      status: "blocked",
+      checkedAt: "2026-03-14T10:00:00.000Z",
+      stalePriceDays: 21,
+      groups: [
+        expect.objectContaining({
+          category: "documents",
+          blockerCount: 1,
+        }),
+        expect.objectContaining({
+          category: "register",
+          alertCount: 1,
+        }),
+      ],
+    });
+    expect(summary.readyToSend.status).toBe("blocked");
   });
 });
 
