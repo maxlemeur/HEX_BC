@@ -26,7 +26,11 @@ import type {
   PendingTransition,
   RegisterEntryFormState,
 } from "./registerTypes";
-import { buildDerivedSummary, getErrorMessage } from "./registerViewModel";
+import {
+  buildDerivedSummary,
+  getErrorMessage,
+  resolveStatusChangeFeedback,
+} from "./registerViewModel";
 
 const INITIAL_FORM_STATE: RegisterEntryFormState = {
   kind: "assumption",
@@ -247,14 +251,14 @@ export function useAffaireRegisterCardController({
             status,
             comment: comment.trim().length > 0 ? comment : null,
           });
+          const feedback = resolveStatusChangeFeedback(result.entry.status);
           setInlineFeedback({
             tone: "info",
-            message:
-              "Statut mis à jour. Le commentaire est conservé dans l'historique du registre.",
+            message: feedback.inlineMessage,
           });
           toast.success({
-            title: "Statut mis à jour",
-            description: `Entrée passée en ${AFFAIRE_REGISTER_STATUS_LABELS[result.entry.status].toLowerCase()}.`,
+            title: feedback.toastTitle,
+            description: feedback.toastDescription,
           });
           router.refresh();
         } catch (error) {

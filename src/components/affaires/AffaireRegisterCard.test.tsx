@@ -208,10 +208,32 @@ describe("AffaireRegisterCard", () => {
     expect(mockToast.success).toHaveBeenCalled();
   });
 
-  it("supports open -> clarify_with_client -> open -> validated transitions", async () => {
+  it("supports open -> clarify_with_client -> open -> validated transitions with explicit action copy", async () => {
     const user = userEvent.setup();
     const projectId = "11111111-1111-4111-8111-111111111111";
     const versionId = "22222222-2222-4222-8222-222222222222";
+    mockUpdateAffaireRegisterEntryStatusAction
+      .mockResolvedValueOnce({
+        ok: true,
+        entry: {
+          ...buildRegisterPage().items[0],
+          status: "clarify_with_client",
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        entry: {
+          ...buildRegisterPage().items[0],
+          status: "open",
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        entry: {
+          ...buildRegisterPage().items[0],
+          status: "validated",
+        },
+      });
     const { rerender } = render(
       <AffaireRegisterCard
         projectId={projectId}
@@ -223,13 +245,17 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "À clarifier avec client" }));
+    await user.click(screen.getByRole("button", { name: /Demander un retour client/i }));
+    expect(screen.getByText("Ce que cela change")).toBeInTheDocument();
+    expect(
+      screen.getByText("Le point remontera dans les clarifications client du registre.")
+    ).toBeInTheDocument();
     await user.type(
-      screen.getByRole("textbox", { name: "Commentaire de trace (facultatif)" }),
+      screen.getByRole("textbox", { name: "Message de suivi (facultatif)" }),
       "À confirmer avec le client."
     );
     await user.click(
-      screen.getByRole("button", { name: "Confirmer la clarification client" })
+      screen.getByRole("button", { name: /Confirmer l'attente client/i })
     );
 
     await waitFor(() => {
@@ -240,6 +266,11 @@ describe("AffaireRegisterCard", () => {
         status: "clarify_with_client",
         comment: "À confirmer avec le client.",
       });
+    });
+
+    expect(mockToast.success).toHaveBeenCalledWith({
+      title: "Retour client demandé",
+      description: "Le point remonte désormais dans les clarifications client.",
     });
 
     rerender(
@@ -260,8 +291,8 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Rouvrir" }));
-    await user.click(screen.getByRole("button", { name: "Confirmer la réouverture" }));
+    await user.click(screen.getByRole("button", { name: /Reprendre en interne/i }));
+    await user.click(screen.getByRole("button", { name: /Confirmer la réouverture/i }));
 
     await waitFor(() => {
       expect(mockUpdateAffaireRegisterEntryStatusAction).toHaveBeenCalledWith({
@@ -284,8 +315,15 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Valider" }));
-    await user.click(screen.getByRole("button", { name: "Confirmer la validation" }));
+    await user.click(screen.getByRole("button", { name: /Marquer comme traité/i }));
+    expect(
+      screen.getByText("Le point quitte les éléments ouverts du registre.")
+    ).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /Marquer comme traité/i,
+      })
+    );
 
     await waitFor(() => {
       expect(mockUpdateAffaireRegisterEntryStatusAction).toHaveBeenCalledWith({
@@ -295,6 +333,10 @@ describe("AffaireRegisterCard", () => {
         status: "validated",
         comment: null,
       });
+    });
+    expect(mockToast.success).toHaveBeenCalledWith({
+      title: "Point traité",
+      description: "La résolution a été enregistrée dans le registre.",
     });
   });
 
@@ -341,6 +383,10 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Hypotheses ouvertes")).toBeInTheDocument();
     expect(screen.getByText("Contexte métier")).toBeInTheDocument();
     expect(screen.getByText("Ce point concerne toute l'affaire Affaire test.")).toBeInTheDocument();
+    expect(screen.getByText("Décision à prendre")).toBeInTheDocument();
+    expect(
+      screen.getByText("Le point reste actif. Choisissez maintenant comment le traiter.")
+    ).toBeInTheDocument();
     expect(screen.getByText("Historique récent du registre")).toBeInTheDocument();
     expect(screen.getByText("Statut modifie")).toBeInTheDocument();
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
@@ -728,6 +774,8 @@ describe("AffaireRegisterCard", () => {
 
     expect(screen.getByText("Consultation uniquement")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ajouter un point" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Valider" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Marquer comme traité/i })
+    ).not.toBeInTheDocument();
   });
 });

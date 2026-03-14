@@ -1,7 +1,7 @@
 import { AFFAIRE_REGISTER_STATUS_LABELS } from "@/lib/affaires/register";
 
 import type { PendingTransition } from "./registerTypes";
-import { resolveTransitionPrompt } from "./registerViewModel";
+import { formatEntryStatusChange, resolveTransitionPrompt } from "./registerViewModel";
 
 type RegisterTransitionDialogProps = {
   pendingTransition: PendingTransition | null;
@@ -67,16 +67,33 @@ export function RegisterTransitionDialog({
             {pendingTransition.entry.scopeLabel} ·{" "}
             {AFFAIRE_REGISTER_STATUS_LABELS[pendingTransition.entry.status]}
           </p>
+          <div className="mt-3 inline-flex rounded-full border border-[var(--slate-200)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+            {formatEntryStatusChange(
+              pendingTransition.entry.status,
+              pendingTransition.nextStatus,
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-[var(--brand-blue)]/15 bg-[var(--brand-blue)]/5 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+            {prompt.impactTitle}
+          </p>
+          <div className="mt-2 space-y-1.5 text-sm text-[var(--slate-700)]">
+            {prompt.impactItems.map((item) => (
+              <p key={item}>{item}</p>
+            ))}
+          </div>
         </div>
 
         <label className="mt-4 flex flex-col gap-1 text-xs text-[var(--slate-600)]">
-          Commentaire de trace (facultatif)
+          {prompt.commentLabel}
           <textarea
             rows={4}
             className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
             value={transitionComment}
             onChange={(event) => onChangeComment(event.target.value)}
-            placeholder="Expliquez le contexte ou la prochaine action attendue."
+            placeholder={prompt.commentPlaceholder}
           />
         </label>
 

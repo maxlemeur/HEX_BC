@@ -10,6 +10,7 @@ import {
   formatDateTime,
   getEntryContextSummary,
   getEntryContextTags,
+  getEntryStatusPanel,
   getEntryStatusActions,
   SEVERITY_TONE,
   STATUS_TONE,
@@ -44,6 +45,7 @@ function RegisterEntryCard({
   ) => void;
 }>) {
   const isPendingEntry = isMutationPending && pendingEntryId === entry.id;
+  const statusPanel = getEntryStatusPanel(entry.status);
 
   return (
     <article className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
@@ -93,26 +95,35 @@ function RegisterEntryCard({
         </div>
         <div className="w-full max-w-sm rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-            Prochaine action
+            {statusPanel.title}
           </p>
           <p className="mt-1 text-xs text-[var(--slate-500)]">
-            {entry.status === "open"
-              ? "Choisissez l'issue du point ou marquez un retour client requis."
-              : entry.status === "clarify_with_client"
-                ? "Ce point reste en attente d'un retour client avant envoi."
-                : "Ce point est clos. Rouvrez-le si le contexte change."}
+            {statusPanel.description}
           </p>
           {!isReadOnly ? (
-            <div className="mt-3 flex flex-wrap gap-2" aria-label="Actions de statut">
+            <div className="mt-3 grid gap-2" aria-label="Actions de statut">
               {getEntryStatusActions(entry.status).map((action) => (
                 <button
                   key={action.nextStatus}
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className={`rounded-2xl border px-3 py-3 text-left transition ${
+                    action.tone === "success"
+                      ? "border-[var(--success)]/20 bg-[var(--success)]/5 hover:border-[var(--success)]/35"
+                      : action.tone === "danger"
+                        ? "border-[var(--danger)]/20 bg-[var(--danger)]/5 hover:border-[var(--danger)]/35"
+                        : action.tone === "brand"
+                          ? "border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 hover:border-[var(--brand-blue)]/35"
+                          : "border-[var(--slate-200)] bg-white hover:border-[var(--slate-300)]"
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                   disabled={isPendingEntry}
                   onClick={() => onOpenTransitionDialog(entry, action.nextStatus)}
                 >
-                  {action.label}
+                  <span className="block text-sm font-medium text-[var(--slate-800)]">
+                    {action.label}
+                  </span>
+                  <span className="mt-1 block text-xs text-[var(--slate-500)]">
+                    {action.description}
+                  </span>
                 </button>
               ))}
             </div>
