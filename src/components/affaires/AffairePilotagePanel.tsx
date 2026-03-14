@@ -251,7 +251,8 @@ export function AffairePilotagePanel({
         approvalSummary,
         allowSurfaceActions,
       }).filter((exception) => !hiddenExceptionIds.includes(exception.id));
-  const hasVisibleFinishLine = !ghost && currentVersion !== null && finishLineSummary != null;
+  const hasVisibleFinishLine =
+    !ghost && currentVersion !== null && finishLineSummary != null;
   const finishLineCards = ghost
     ? []
     : hasVisibleFinishLine

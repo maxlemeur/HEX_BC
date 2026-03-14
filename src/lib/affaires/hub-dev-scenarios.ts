@@ -11,6 +11,7 @@ import type {
   AffaireHubPlansSummaryResult,
   AffaireHubSummaryResult,
 } from "@/lib/affaires/server";
+import { buildAffaireHubReadinessSnapshot } from "@/lib/affaires/server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
@@ -220,6 +221,52 @@ function createPlansSummary(input: {
   };
 }
 
+function withScenarioHubReadiness(
+  summary: AffaireHubSummaryResult,
+  intakeWorkspace: AffaireIntakeWorkspace,
+  registerSummary: AffaireRegisterSummary | null,
+): AffaireHubSummaryResult {
+  const createEntries = (count: number) =>
+    Array.from({ length: count }, () => ({}));
+
+  return {
+    ...summary,
+    hubReadiness: buildAffaireHubReadinessSnapshot({
+      lineCount: summary.lineCount,
+      briefStatus:
+        intakeWorkspace.briefDraft?.status === "a_confirmer" ||
+        intakeWorkspace.briefDraft?.status === "confirme"
+          ? intakeWorkspace.briefDraft.status
+          : null,
+      intakeReadiness: {
+        reviewDocumentsCount: intakeWorkspace.documents.filter(
+          (document) =>
+            document.detectedCategory === "a_classer" ||
+            document.issues.length > 0 ||
+            document.confidence < 0.9,
+        ).length,
+        confirmedMissingPiecesCount: intakeWorkspace.missingPieces.length,
+        confirmedCriticalMissingPiecesCount: intakeWorkspace.missingPieces.filter(
+          (piece) => piece.severity === "critical",
+        ).length,
+      },
+      registerGateSummary: registerSummary
+        ? {
+            criticalOpenEntries: createEntries(registerSummary.criticalOpenCount),
+            clarifyWithClientEntries: createEntries(
+              registerSummary.clarifyWithClientCount,
+            ),
+            continuedWithHypothesisEntries: createEntries(
+              registerSummary.openAssumptionCount,
+            ),
+            revalidationRequiredEntries: [],
+            criticalRevalidationRequiredEntries: [],
+          }
+        : null,
+    }),
+  };
+}
+
 export function parseAffaireHubDevScenario(
   value: string | string[] | undefined,
 ): AffaireHubDevScenario | null {
@@ -265,27 +312,29 @@ export function applyAffaireHubDevScenario(
   }
 
   if (input.scenario === "review-and-missing") {
+    const intakeWorkspace: AffaireIntakeWorkspace = {
+      projectId: input.projectId,
+      uploadId: DEV_UPLOAD_ID,
+      documents: [
+        createDocument({
+          documentId: "78787878-7878-4787-8787-787878787878",
+          fileName: "piece-inconnue.pdf",
+          detectedCategory: "a_classer",
+          confidence: 0.42,
+          issues: ["Classification a confirmer"],
+        }),
+      ],
+      missingPieces: [
+        { code: "missing_dpgf", label: "DPGF manquant", severity: "critical" },
+        { code: "missing_plans", label: "Plans manquants", severity: "critical" },
+        { code: "missing_cctp", label: "CCTP manquant", severity: "warning" },
+      ],
+      briefDraft: null,
+    };
+
     return {
-      summary,
-      intakeWorkspace: {
-        projectId: input.projectId,
-        uploadId: DEV_UPLOAD_ID,
-        documents: [
-          createDocument({
-            documentId: "78787878-7878-4787-8787-787878787878",
-            fileName: "piece-inconnue.pdf",
-            detectedCategory: "a_classer",
-            confidence: 0.42,
-            issues: ["Classification a confirmer"],
-          }),
-        ],
-        missingPieces: [
-          { code: "missing_dpgf", label: "DPGF manquant", severity: "critical" },
-          { code: "missing_plans", label: "Plans manquants", severity: "critical" },
-          { code: "missing_cctp", label: "CCTP manquant", severity: "warning" },
-        ],
-        briefDraft: null,
-      },
+      summary: withScenarioHubReadiness(summary, intakeWorkspace, null),
+      intakeWorkspace,
       plansSummary: null,
       versionZeroSummary: null,
       registerSummary: null,
@@ -729,37 +778,39 @@ export function applyAffaireHubDevScenario(
   }
 
   if (input.scenario === "complete-brief") {
+    const intakeWorkspace: AffaireIntakeWorkspace = {
+      projectId: input.projectId,
+      uploadId: DEV_UPLOAD_ID,
+      documents: [
+        createDocument({
+          documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          fileName: "dpgf-electricite.xlsx",
+          detectedCategory: "dpgf",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          fileName: "plans-rdc.pdf",
+          detectedCategory: "plans",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          fileName: "cctp-lot-electricite.docx",
+          detectedCategory: "cctp",
+          confidence: 0.94,
+          detectedLots: ["Electricite"],
+        }),
+      ],
+      missingPieces: [],
+      briefDraft: createBriefDraft("a_confirmer"),
+    };
+
     return {
-      summary,
-      intakeWorkspace: {
-        projectId: input.projectId,
-        uploadId: DEV_UPLOAD_ID,
-        documents: [
-          createDocument({
-            documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            fileName: "dpgf-electricite.xlsx",
-            detectedCategory: "dpgf",
-            confidence: 0.99,
-            detectedLots: ["Electricite"],
-          }),
-          createDocument({
-            documentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-            fileName: "plans-rdc.pdf",
-            detectedCategory: "plans",
-            confidence: 0.99,
-            detectedLots: ["Electricite"],
-          }),
-          createDocument({
-            documentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-            fileName: "cctp-lot-electricite.docx",
-            detectedCategory: "cctp",
-            confidence: 0.94,
-            detectedLots: ["Electricite"],
-          }),
-        ],
-        missingPieces: [],
-        briefDraft: createBriefDraft("a_confirmer"),
-      },
+      summary: withScenarioHubReadiness(summary, intakeWorkspace, null),
+      intakeWorkspace,
       plansSummary: null,
       versionZeroSummary: null,
       registerSummary: null,
@@ -769,48 +820,51 @@ export function applyAffaireHubDevScenario(
   }
 
   if (input.scenario === "brief-confirmed") {
+    const intakeWorkspace: AffaireIntakeWorkspace = {
+      projectId: input.projectId,
+      uploadId: DEV_UPLOAD_ID,
+      documents: [
+        createDocument({
+          documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          fileName: "dpgf-electricite.xlsx",
+          detectedCategory: "dpgf",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          fileName: "plans-rdc.pdf",
+          detectedCategory: "plans",
+          confidence: 0.99,
+          detectedLots: ["Electricite"],
+        }),
+        createDocument({
+          documentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          fileName: "cctp-lot-electricite.docx",
+          detectedCategory: "cctp",
+          confidence: 0.94,
+          detectedLots: ["Electricite"],
+        }),
+      ],
+      missingPieces: [],
+      briefDraft: createBriefDraft("confirme"),
+    };
+    const registerSummary = createRegisterSummary({
+      openQuestionsCount: 2,
+      criticalOpenCount: 2,
+      nonCriticalOpenCount: 2,
+      openMissingPieceCount: 4,
+    });
+
     return {
-      summary,
-      intakeWorkspace: {
-        projectId: input.projectId,
-        uploadId: DEV_UPLOAD_ID,
-        documents: [
-          createDocument({
-            documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            fileName: "dpgf-electricite.xlsx",
-            detectedCategory: "dpgf",
-            confidence: 0.99,
-            detectedLots: ["Electricite"],
-          }),
-          createDocument({
-            documentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-            fileName: "plans-rdc.pdf",
-            detectedCategory: "plans",
-            confidence: 0.99,
-            detectedLots: ["Electricite"],
-          }),
-          createDocument({
-            documentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-            fileName: "cctp-lot-electricite.docx",
-            detectedCategory: "cctp",
-            confidence: 0.94,
-            detectedLots: ["Electricite"],
-          }),
-        ],
-        missingPieces: [],
-        briefDraft: createBriefDraft("confirme"),
-      },
+      summary: withScenarioHubReadiness(summary, intakeWorkspace, registerSummary),
+      intakeWorkspace,
       plansSummary: null,
       versionZeroSummary: createVersionZeroSummary({
         projectId: input.projectId,
         versionId,
       }),
-      registerSummary: createRegisterSummary({
-        openQuestionsCount: 2,
-        criticalOpenCount: 2,
-        nonCriticalOpenCount: 2,
-        openMissingPieceCount: 4,
-      }),
+      registerSummary,
       approvalSummary: null,
       finishLineSummary: null,
     };

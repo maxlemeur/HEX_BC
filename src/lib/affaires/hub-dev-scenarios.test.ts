@@ -100,6 +100,13 @@ describe("hub dev scenarios", () => {
     });
 
     expect(overrides.intakeWorkspace.documents[0]?.detectedCategory).toBe("a_classer");
+    expect(overrides.summary.hubReadiness).toMatchObject({
+      status: "not_ready",
+      intake: {
+        reviewDocumentsCount: 1,
+        confirmedCriticalMissingPiecesCount: 2,
+      },
+    });
     expect(overrides.intakeWorkspace.missingPieces).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "missing_dpgf", severity: "critical" }),
@@ -382,6 +389,14 @@ describe("hub dev scenarios", () => {
     });
 
     expect(overrides.intakeWorkspace.briefDraft?.status).toBe("confirme");
+    expect(overrides.summary.hubReadiness).toMatchObject({
+      status: "ready_with_reservations",
+      briefStatus: "confirme",
+      allowsContinuation: true,
+      register: {
+        criticalOpenCount: 2,
+      },
+    });
     expect(overrides.versionZeroSummary?.canGenerate).toBe(true);
     expect(overrides.registerSummary).toEqual(
       expect.objectContaining({

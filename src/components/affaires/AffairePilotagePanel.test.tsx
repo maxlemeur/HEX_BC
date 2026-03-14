@@ -832,7 +832,7 @@ describe("AffairePilotagePanel", () => {
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");
   });
 
-  it("keeps degraded finish-line cards and actions visible when readiness cannot be loaded", () => {
+  it("hides finish-line cards and actions when readiness cannot be loaded", () => {
     const { container } = render(
       <ToastProvider>
         <AffairePilotagePanel
@@ -856,17 +856,25 @@ describe("AffairePilotagePanel", () => {
     );
     const scope = within(container);
 
-    expect(scope.getAllByText("Indisponible").length).toBeGreaterThan(0);
+    expect(scope.queryByText("Indisponible")).not.toBeInTheDocument();
     expect(
-      scope.getByText("La verification de sortie devis est indisponible pour le moment.")
-    ).toBeInTheDocument();
+      scope.queryByText("La verification de sortie devis est indisponible pour le moment.")
+    ).not.toBeInTheDocument();
     expect(
-      scope.getByText("La verification achats est indisponible pour le moment.")
-    ).toBeInTheDocument();
-    expect(scope.getAllByText("PDF, email et BDC depuis le meme point").length).toBeGreaterThan(0);
-    expect(scope.getByRole("button", { name: /Telecharger le PDF/i })).toBeInTheDocument();
-    expect(scope.getByRole("button", { name: /Preparer l'envoi/i })).toBeDisabled();
-    expect(scope.getByRole("button", { name: /Exporter le BDC/i })).toBeInTheDocument();
+      scope.queryByText("La verification achats est indisponible pour le moment.")
+    ).not.toBeInTheDocument();
+    expect(
+      scope.queryByText("PDF, email et BDC depuis le meme point")
+    ).not.toBeInTheDocument();
+    expect(
+      scope.queryByRole("button", { name: /Telecharger le PDF/i })
+    ).not.toBeInTheDocument();
+    expect(
+      scope.queryByRole("button", { name: /Preparer l'envoi/i })
+    ).not.toBeInTheDocument();
+    expect(
+      scope.queryByRole("button", { name: /Exporter le BDC/i })
+    ).not.toBeInTheDocument();
   });
 
   it("keeps the finish line visible when canonical submission readiness exists on an immature dossier", () => {

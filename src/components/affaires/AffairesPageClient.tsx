@@ -44,6 +44,7 @@ const AffairesDenseTable = dynamic(
 const PAGE_SIZE_OPTIONS: AffairePageSize[] = [20, 50, 100];
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
 const PAGE_SIZE_STORAGE_KEY = "affaires-page-size";
+const MANAGER_QUEUE_FETCH_TIMEOUT_MS = 8_000;
 
 const SORT_OPTIONS: SortOption[] = [
   { key: "updatedAt", label: "Date MAJ", defaultDirection: "desc" },
@@ -173,6 +174,14 @@ export function AffairesPageClient({
     let cancelled = false;
     setManagerQueueSummary(null);
     setManagerQueueSummaryState("loading");
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setManagerQueueSummary(null);
+      setManagerQueueSummaryState("error");
+    }, MANAGER_QUEUE_FETCH_TIMEOUT_MS);
 
     fetchAffaireManagerQueueSummaryAction({
       q: initialQ,
@@ -184,6 +193,7 @@ export function AffairesPageClient({
           return;
         }
 
+        window.clearTimeout(timeoutId);
         setManagerQueueSummary(summary);
         setManagerQueueSummaryState("ready");
       })
@@ -192,12 +202,14 @@ export function AffairesPageClient({
           return;
         }
 
+        window.clearTimeout(timeoutId);
         setManagerQueueSummary(null);
         setManagerQueueSummaryState("error");
       });
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   }, [initialData.managerQueue, initialFavoritesOnly, initialQ, initialStatuses, isExpert]);
 

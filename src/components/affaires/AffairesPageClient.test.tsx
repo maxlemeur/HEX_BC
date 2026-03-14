@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -17,9 +18,11 @@ let isExpertValue = false;
 vi.mock("next/dynamic", () => ({
   default: () => function MockDynamic(props: {
     onManagerFilterChange?: (next: "follow_up") => void;
+    managerQueueSummaryState?: string;
   }) {
     return (
       <div data-testid="dense-table">
+        <span>{`manager-state:${props.managerQueueSummaryState ?? "missing"}`}</span>
         <button
           type="button"
           onClick={() => props.onManagerFilterChange?.("follow_up")}
@@ -104,6 +107,7 @@ vi.mock("./AffairesCardList", () => ({
 
 import { AffairesPageClient } from "./AffairesPageClient";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
+import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";
 
 const initialData: AffairePageDataResult = {
   list: {
@@ -156,6 +160,7 @@ function createDeferred<T>() {
 describe("AffairesPageClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     searchParamsValue = new URLSearchParams();
     isExpertValue = false;
     window.localStorage.clear();
@@ -352,5 +357,38 @@ describe("AffairesPageClient", () => {
         { scroll: false }
       );
     });
+  });
+
+  it("falls back to an error state when the manager queue fetch stalls", async () => {
+    vi.useFakeTimers();
+    isExpertValue = true;
+    const deferred = createDeferred<{
+      counts: { followUp: number; reservations: number; revalidation: number };
+      incompleteCount: number;
+    }>();
+    vi.mocked(fetchAffaireManagerQueueSummaryAction).mockReturnValueOnce(
+      deferred.promise
+    );
+
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    expect(screen.getByText("manager-state:loading")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+
+    expect(screen.getByText("manager-state:error")).toBeInTheDocument();
   });
 });
