@@ -541,14 +541,85 @@ describe("AffaireRegisterCard", () => {
 
     expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
     expect(screen.getAllByText("Le DPGF principal n'est pas arbitré.").length).toBeGreaterThan(0);
-    expect(screen.getByText("Retour client requis avant envoi.")).toBeInTheDocument();
-    expect(screen.getByText("Point critique ouvert à arbitrer avant remise.")).toBeInTheDocument();
+    expect(
+      screen.getByText("La suite dépend encore d'un retour client explicite.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ce point critique reste a arbitrer avant remise.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Voir les critiques" }));
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith(
         "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical",
+        { scroll: false }
+      );
+    });
+  });
+
+  it("distinguishes true submission blockers from client follow-ups and links to the exact slice", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-missing-piece",
+              kind: "missing_piece",
+              text: "Le DPGF principal reste manquant.",
+              severity: "critical",
+              status: "open",
+              sourceFileName: "dpgf-a.xlsx",
+              businessImpact: [
+                "affects_hub_readiness",
+                "blocks_submission",
+                "affects_structure_generation",
+              ],
+            },
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-client-follow-up",
+              kind: "assumption",
+              text: "Le phasage doit etre confirme avec le client.",
+              severity: "warning",
+              status: "clarify_with_client",
+              businessImpact: ["affects_hub_readiness", "requires_client_answer"],
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          criticalOpenCount: 1,
+          clarifyWithClientCount: 1,
+          openQuestionsCount: 1,
+          nonCriticalOpenCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 1,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    expect(screen.getByText("Bloque la remise")).toBeInTheDocument();
+    expect(screen.getByText("Réponse client attendue")).toBeInTheDocument();
+    expect(
+      screen.getByText("Ce point bloque la remise tant qu'il reste ouvert.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Pour debloquer: ajouter la piece attendue ou requalifier ce manque.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("La suite dépend encore d'un retour client explicite.")
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Voir les pièces manquantes" }));
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece",
         { scroll: false }
       );
     });
@@ -597,7 +668,9 @@ describe("AffaireRegisterCard", () => {
     );
 
     expect(screen.getByText("À traiter avant remise")).toBeInTheDocument();
-    expect(screen.getByText("Revalidation ciblee requise avant remise.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Une nouvelle revue ciblee est requise avant remise.")
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Blocages actifs: 0 critiques ouvertes · 0 clarifications client · 1 revalidation requise.")
     ).toBeInTheDocument();
