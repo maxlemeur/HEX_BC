@@ -369,6 +369,35 @@ function BackToListLink() {
   );
 }
 
+export function getAffaireHubHiddenPilotageExceptionIds(input: {
+  dominantIntent: CockpitIntent | null;
+  hasDominantClarificationSuggestion: boolean;
+  hasDominantRevalidationSuggestion: boolean;
+}) {
+  if (input.dominantIntent === "review_intake") {
+    return ["intake-review"];
+  }
+  if (input.dominantIntent === "add_missing_pieces") {
+    return ["missing-pieces"];
+  }
+  if (input.dominantIntent === "confirm_brief") {
+    return ["brief-confirm"];
+  }
+  if (input.dominantIntent === "analyze_plans") {
+    return ["takeoff-launch"];
+  }
+  if (input.dominantIntent === "list_hypotheses") {
+    if (input.hasDominantClarificationSuggestion) {
+      return ["register-clarify", "register-open", "takeoff-launch"];
+    }
+    if (input.hasDominantRevalidationSuggestion) {
+      return ["register-revalidation", "register-open", "takeoff-launch"];
+    }
+  }
+
+  return [];
+}
+
 /* ------------------------------------------------------------------ */
 /*  Section: Action Bar (filled state)                                 */
 /* ------------------------------------------------------------------ */
@@ -1244,27 +1273,11 @@ export function AffaireHub({
     [dominantFlowIntent, isReadOnlyReview],
   );
   const hiddenPilotageExceptionIds = useMemo(() => {
-    if (dominantFlowIntent === "review_intake") {
-      return ["intake-review"];
-    }
-    if (dominantFlowIntent === "add_missing_pieces") {
-      return ["missing-pieces"];
-    }
-    if (dominantFlowIntent === "confirm_brief") {
-      return ["brief-confirm"];
-    }
-    if (dominantFlowIntent === "analyze_plans") {
-      return ["takeoff-launch"];
-    }
-    if (dominantFlowIntent === "list_hypotheses") {
-      if (hasDominantClarificationSuggestion) {
-        return ["register-clarify", "register-open"];
-      }
-      if (hasDominantRevalidationSuggestion) {
-        return ["register-revalidation", "register-open"];
-      }
-    }
-    return [];
+    return getAffaireHubHiddenPilotageExceptionIds({
+      dominantIntent: dominantFlowIntent,
+      hasDominantClarificationSuggestion,
+      hasDominantRevalidationSuggestion,
+    });
   }, [dominantFlowIntent, hasDominantClarificationSuggestion, hasDominantRevalidationSuggestion]);
   const isFreshStartState = isAffaireFreshStartState({
     intakeWorkspace,
@@ -1916,7 +1929,11 @@ export function AffaireHub({
                     plans={plansSummary ?? null}
                     projectId={summary.project.id}
                     errorMessage={sectionErrors?.plansSummary}
-                    hideLaunchAction={dominantFlowIntent === "analyze_plans"}
+                    hideLaunchAction={
+                      dominantFlowIntent === "analyze_plans" ||
+                      hasDominantClarificationSuggestion ||
+                      hasDominantRevalidationSuggestion
+                    }
                     onLaunchMetre={
                       isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
                     }

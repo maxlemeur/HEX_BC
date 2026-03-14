@@ -5,7 +5,15 @@ import {
   isAffaireIntakePrimaryEligibleKind,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { AffaireRegisterSummary } from "@/lib/affaires/register";
+import type {
+  AffaireRegisterEntry,
+  AffaireRegisterEntryKind,
+  AffaireRegisterEntrySeverity,
+  AffaireRegisterEntryStatus,
+  AffaireRegisterPageResult,
+  AffaireRegisterSummary,
+  AffaireRegisterTimelineEvent,
+} from "@/lib/affaires/register";
 import type {
   AffaireHubFinishLineSummaryResult,
   AffaireHubPlansSummaryResult,
@@ -58,6 +66,14 @@ type AffaireHubDevScenarioOverrides = {
 
 const FIXED_NOW_ISO = "2026-03-11T09:00:00.000Z";
 const DEV_UPLOAD_ID = "11111111-1111-4111-8111-111111111111";
+const DEV_REGISTER_ACTOR_ID = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+
+type BuildAffaireHubDevScenarioRegisterPageInput = {
+  scenario: AffaireHubDevScenario;
+  versionId: string | null;
+  summary: AffaireRegisterSummary | null;
+  filters?: Partial<AffaireRegisterPageResult["filters"]>;
+};
 
 function createRegisterSummary(input?: Partial<AffaireRegisterSummary>): AffaireRegisterSummary {
   return {
@@ -77,6 +93,294 @@ function createRegisterSummary(input?: Partial<AffaireRegisterSummary>): Affaire
     revalidationBlocksSubmission: input?.revalidationBlocksSubmission ?? false,
     revalidationBlocksEstimation: input?.revalidationBlocksEstimation ?? false,
     revalidationImpactedStages: input?.revalidationImpactedStages ?? [],
+  };
+}
+
+function createRegisterEntry(input: {
+  id: string;
+  kind: AffaireRegisterEntryKind;
+  text: string;
+  severity: AffaireRegisterEntrySeverity;
+  status: AffaireRegisterEntryStatus;
+  versionId: string | null;
+  sourceFileName?: string | null;
+  businessImpact?: AffaireRegisterEntry["businessImpact"];
+  clientClarificationRequest?: AffaireRegisterEntry["clientClarificationRequest"];
+  continuationDecision?: AffaireRegisterEntry["continuationDecision"];
+  revalidationRequest?: AffaireRegisterEntry["revalidationRequest"];
+  history?: AffaireRegisterTimelineEvent[];
+}): AffaireRegisterEntry {
+  return {
+    id: input.id,
+    kind: input.kind,
+    code: null,
+    text: input.text,
+    severity: input.severity,
+    status: input.status,
+    originKind: "system",
+    scopeType: "project",
+    scopeId: null,
+    scopeRef: null,
+    scopeLabel: "Affaire scenario vNext2",
+    versionId: input.versionId,
+    sourceDocumentId: null,
+    sourceFileName: input.sourceFileName ?? null,
+    createdBy: DEV_REGISTER_ACTOR_ID,
+    createdByName: "Scenario hub",
+    updatedBy: DEV_REGISTER_ACTOR_ID,
+    updatedByName: "Scenario hub",
+    createdAt: FIXED_NOW_ISO,
+    updatedAt: FIXED_NOW_ISO,
+    businessImpact: input.businessImpact,
+    clientClarificationRequest: input.clientClarificationRequest ?? null,
+    continuationDecision: input.continuationDecision ?? null,
+    revalidationRequest: input.revalidationRequest ?? null,
+    history: input.history ?? [],
+  };
+}
+
+function createRegisterTimelineEvent(input: {
+  id: string;
+  entryId: string;
+  eventType: AffaireRegisterTimelineEvent["eventType"];
+  entryKind: AffaireRegisterEntryKind;
+  entryText: string;
+  beforeStatus?: AffaireRegisterEntryStatus | null;
+  afterStatus?: AffaireRegisterEntryStatus | null;
+  comment?: string | null;
+}): AffaireRegisterTimelineEvent {
+  return {
+    id: input.id,
+    entryId: input.entryId,
+    eventType: input.eventType,
+    entryKind: input.entryKind,
+    entryText: input.entryText,
+    scopeLabel: "Affaire scenario vNext2",
+    actorUserId: DEV_REGISTER_ACTOR_ID,
+    actorUserName: "Scenario hub",
+    comment: input.comment ?? null,
+    beforeStatus: input.beforeStatus ?? null,
+    afterStatus: input.afterStatus ?? null,
+    createdAt: FIXED_NOW_ISO,
+  };
+}
+
+function buildScenarioRegisterItems(input: {
+  scenario: AffaireHubDevScenario;
+  versionId: string | null;
+}): AffaireRegisterEntry[] {
+  if (input.scenario === "brief-confirmed") {
+    return [
+      createRegisterEntry({
+        id: "10101010-aaaa-4aaa-8aaa-101010101010",
+        kind: "missing_piece",
+        text: "DPGF principal encore manquant pour consolider la base devis.",
+        severity: "critical",
+        status: "open",
+        versionId: input.versionId,
+        sourceFileName: "dpgf-electricite.xlsx",
+        businessImpact: ["affects_hub_readiness", "affects_structure_generation"],
+        history: [
+          createRegisterTimelineEvent({
+            id: "timeline-brief-confirmed-dpgf",
+            entryId: "10101010-aaaa-4aaa-8aaa-101010101010",
+            eventType: "created",
+            entryKind: "missing_piece",
+            entryText: "DPGF principal encore manquant pour consolider la base devis.",
+            afterStatus: "open",
+            comment: "Le brief est confirme, mais le dossier reste incomplet.",
+          }),
+        ],
+      }),
+      createRegisterEntry({
+        id: "20202020-bbbb-4bbb-8bbb-202020202020",
+        kind: "missing_piece",
+        text: "Plans complementaires attendus pour couvrir tout le perimetre.",
+        severity: "critical",
+        status: "open",
+        versionId: input.versionId,
+        sourceFileName: "plans-rdc.pdf",
+        businessImpact: ["affects_hub_readiness", "affects_takeoff"],
+        history: [
+          createRegisterTimelineEvent({
+            id: "timeline-brief-confirmed-plans",
+            entryId: "20202020-bbbb-4bbb-8bbb-202020202020",
+            eventType: "created",
+            entryKind: "missing_piece",
+            entryText: "Plans complementaires attendus pour couvrir tout le perimetre.",
+            afterStatus: "open",
+            comment: "Le travail peut continuer sous reserves, pas en dossier complet.",
+          }),
+        ],
+      }),
+    ];
+  }
+
+  if (input.scenario === "accepted-with-hypothesis") {
+    return [
+      createRegisterEntry({
+        id: "30303030-cccc-4ccc-8ccc-303030303030",
+        kind: "assumption",
+        text: "Prix fournisseurs a confirmer apres la premiere passe de chiffrage.",
+        severity: "warning",
+        status: "open",
+        versionId: input.versionId,
+        sourceFileName: "note-prix-fournisseurs.pdf",
+        businessImpact: ["affects_hub_readiness", "affects_structure_generation"],
+        continuationDecision: {
+          status: "accepted_with_hypothesis",
+          hypothesisEntryId: "30303030-cccc-4ccc-8ccc-303030303030",
+          hypothesisText: "Prix fournisseurs a confirmer apres la premiere passe de chiffrage.",
+          acceptedAt: FIXED_NOW_ISO,
+          acceptedByUserId: DEV_REGISTER_ACTOR_ID,
+          comment: "La continuation reste explicite et tracée.",
+        },
+        history: [
+          createRegisterTimelineEvent({
+            id: "timeline-hypothesis-accepted",
+            entryId: "30303030-cccc-4ccc-8ccc-303030303030",
+            eventType: "continued_with_hypothesis",
+            entryKind: "assumption",
+            entryText: "Prix fournisseurs a confirmer apres la premiere passe de chiffrage.",
+            beforeStatus: "open",
+            afterStatus: "open",
+            comment: "Poursuite acceptee sous hypothese explicite.",
+          }),
+        ],
+      }),
+    ];
+  }
+
+  if (input.scenario === "clarify-client") {
+    return [
+      createRegisterEntry({
+        id: "40404040-dddd-4ddd-8ddd-404040404040",
+        kind: "assumption",
+        text: "Le client doit confirmer le phasage et la variante retenue avant remise.",
+        severity: "critical",
+        status: "clarify_with_client",
+        versionId: input.versionId,
+        sourceFileName: "courrier-client.eml",
+        businessImpact: ["affects_hub_readiness", "requires_client_answer"],
+        clientClarificationRequest: {
+          status: "clarify_with_client",
+          requestedAt: FIXED_NOW_ISO,
+          requestedByUserId: DEV_REGISTER_ACTOR_ID,
+          previousStatus: "open",
+          comment: "Clarification client explicite avant poursuite sereine.",
+        },
+        history: [
+          createRegisterTimelineEvent({
+            id: "timeline-client-clarification",
+            entryId: "40404040-dddd-4ddd-8ddd-404040404040",
+            eventType: "clarify_with_client_requested",
+            entryKind: "assumption",
+            entryText: "Le client doit confirmer le phasage et la variante retenue avant remise.",
+            beforeStatus: "open",
+            afterStatus: "clarify_with_client",
+            comment: "La demande client porte l'action dominante du hub.",
+          }),
+        ],
+      }),
+    ];
+  }
+
+  if (input.scenario === "revalidation-required") {
+    return [
+      createRegisterEntry({
+        id: "50505050-eeee-4eee-8eee-505050505050",
+        kind: "assumption",
+        text: "Le dossier a change; la revue documentaire et la pre-remise doivent etre rejouees.",
+        severity: "critical",
+        status: "open",
+        versionId: input.versionId,
+        sourceFileName: "additif-client.pdf",
+        businessImpact: ["affects_hub_readiness", "blocks_submission"],
+        revalidationRequest: {
+          status: "required",
+          requestedAt: FIXED_NOW_ISO,
+          requestedByUserId: DEV_REGISTER_ACTOR_ID,
+          previousStatus: "validated",
+          cause: "addendum_received",
+          triggerFileName: "additif-client.pdf",
+          impactedStages: ["document_review", "submission_readiness"],
+          comment: "La relance ciblee doit primer dans le pilotage manager.",
+        },
+        history: [
+          createRegisterTimelineEvent({
+            id: "timeline-revalidation-required",
+            entryId: "50505050-eeee-4eee-8eee-505050505050",
+            eventType: "revalidation_requested",
+            entryKind: "assumption",
+            entryText: "Le dossier a change; la revue documentaire et la pre-remise doivent etre rejouees.",
+            beforeStatus: "validated",
+            afterStatus: "open",
+            comment: "Revalidation requise sur les etapes impactees.",
+          }),
+        ],
+      }),
+    ];
+  }
+
+  return [];
+}
+
+function applyScenarioRegisterFilters(input: {
+  items: AffaireRegisterEntry[];
+  filters: AffaireRegisterPageResult["filters"];
+}) {
+  return input.items.filter((entry) => {
+    if (input.filters.status && entry.status !== input.filters.status) {
+      return false;
+    }
+
+    if (input.filters.severity && entry.severity !== input.filters.severity) {
+      return false;
+    }
+
+    if (input.filters.kind && entry.kind !== input.filters.kind) {
+      return false;
+    }
+
+    if (
+      input.filters.revalidationRequired &&
+      entry.revalidationRequest?.status !== "required"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function buildAffaireHubDevScenarioRegisterPage(
+  input: BuildAffaireHubDevScenarioRegisterPageInput,
+): AffaireRegisterPageResult {
+  const filters: AffaireRegisterPageResult["filters"] = {
+    status: input.filters?.status ?? null,
+    severity: input.filters?.severity ?? null,
+    kind: input.filters?.kind ?? null,
+    revalidationRequired: input.filters?.revalidationRequired ?? false,
+    cursor: null,
+    focusEntryId: input.filters?.focusEntryId ?? null,
+  };
+  const summary = input.summary ?? createRegisterSummary();
+  const allItems = buildScenarioRegisterItems({
+    scenario: input.scenario,
+    versionId: input.versionId,
+  });
+  const items = applyScenarioRegisterFilters({
+    items: allItems,
+    filters,
+  });
+  const timeline = allItems.flatMap((entry) => entry.history);
+
+  return {
+    items,
+    nextCursor: null,
+    summary,
+    timeline,
+    filters,
   };
 }
 
@@ -870,8 +1174,8 @@ export function applyAffaireHubDevScenario(
     const registerSummary = createRegisterSummary({
       openQuestionsCount: 2,
       criticalOpenCount: 2,
-      nonCriticalOpenCount: 2,
-      openMissingPieceCount: 4,
+      nonCriticalOpenCount: 0,
+      openMissingPieceCount: 2,
     });
 
     return {
@@ -956,6 +1260,7 @@ export function applyAffaireHubDevScenario(
       briefDraft: createBriefDraft("confirme"),
     };
     const registerSummary = createRegisterSummary({
+      openQuestionsCount: 1,
       clarifyWithClientCount: 1,
       criticalClarifyWithClientCount: 1,
     });
@@ -998,6 +1303,8 @@ export function applyAffaireHubDevScenario(
       briefDraft: createBriefDraft("confirme"),
     };
     const registerSummary = createRegisterSummary({
+      openQuestionsCount: 1,
+      criticalOpenCount: 1,
       revalidationRequired: true,
       revalidationRequiredCount: 1,
       criticalRevalidationRequiredCount: 1,

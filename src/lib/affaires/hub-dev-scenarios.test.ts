@@ -4,6 +4,7 @@ import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
 import {
   applyAffaireHubDevScenario,
+  buildAffaireHubDevScenarioRegisterPage,
   parseAffaireHubDevScenario,
 } from "./hub-dev-scenarios";
 
@@ -80,6 +81,89 @@ describe("hub dev scenarios", () => {
     expect(suggestions.some((suggestion) => suggestion.intent === "review_intake")).toBe(true);
     expect(overrides.intakeWorkspace.documents).toHaveLength(1);
     expect(overrides.intakeWorkspace.documents[0]?.detectedCategory).toBe("a_classer");
+  });
+
+  it("builds a synthetic register page for the accepted-with-hypothesis scenario", () => {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: "accepted-with-hypothesis",
+      projectId: "project-dev",
+      summary: baseSummary,
+    });
+
+    const registerPage = buildAffaireHubDevScenarioRegisterPage({
+      scenario: "accepted-with-hypothesis",
+      versionId: overrides.summary.currentVersion?.id ?? null,
+      summary: overrides.registerSummary,
+    });
+
+    expect(registerPage.summary).toEqual(overrides.registerSummary);
+    expect(registerPage.items).toHaveLength(1);
+    expect(registerPage.items[0]).toMatchObject({
+      kind: "assumption",
+      status: "open",
+      continuationDecision: {
+        status: "accepted_with_hypothesis",
+      },
+    });
+    expect(registerPage.timeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "continued_with_hypothesis",
+          entryId: registerPage.items[0]?.id,
+        }),
+      ]),
+    );
+  });
+
+  it("filters the synthetic register page for a clarification scenario", () => {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: "clarify-client",
+      projectId: "project-dev",
+      summary: baseSummary,
+    });
+
+    const filteredPage = buildAffaireHubDevScenarioRegisterPage({
+      scenario: "clarify-client",
+      versionId: overrides.summary.currentVersion?.id ?? null,
+      summary: overrides.registerSummary,
+      filters: {
+        status: "clarify_with_client",
+        kind: "assumption",
+      },
+    });
+
+    expect(filteredPage.items).toHaveLength(1);
+    expect(filteredPage.items[0]).toMatchObject({
+      status: "clarify_with_client",
+      clientClarificationRequest: {
+        status: "clarify_with_client",
+      },
+    });
+  });
+
+  it("keeps only revalidation entries when the revalidation filter is active", () => {
+    const overrides = applyAffaireHubDevScenario({
+      scenario: "revalidation-required",
+      projectId: "project-dev",
+      summary: baseSummary,
+    });
+
+    const filteredPage = buildAffaireHubDevScenarioRegisterPage({
+      scenario: "revalidation-required",
+      versionId: overrides.summary.currentVersion?.id ?? null,
+      summary: overrides.registerSummary,
+      filters: {
+        revalidationRequired: true,
+      },
+    });
+
+    expect(filteredPage.items).toHaveLength(1);
+    expect(filteredPage.items[0]).toMatchObject({
+      revalidationRequest: {
+        status: "required",
+        impactedStages: ["document_review", "submission_readiness"],
+      },
+    });
   });
 
   it("builds a review-and-missing scenario with both an ambiguous document and missing pieces", () => {
@@ -408,7 +492,7 @@ describe("hub dev scenarios", () => {
     expect(overrides.registerSummary).toEqual(
       expect.objectContaining({
         criticalOpenCount: 2,
-        openMissingPieceCount: 4,
+        openMissingPieceCount: 2,
       }),
     );
     expect(

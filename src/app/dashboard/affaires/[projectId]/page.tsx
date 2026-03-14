@@ -19,6 +19,7 @@ import {
 } from "@/lib/affaires/register-server";
 import {
   applyAffaireHubDevScenario,
+  buildAffaireHubDevScenarioRegisterPage,
   parseAffaireHubDevScenario,
 } from "@/lib/affaires/hub-dev-scenarios";
 import {
@@ -278,7 +279,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   let effectiveIntakeWorkspace = intakeWorkspace;
   let effectivePlansSummary = plansSummary;
   let effectiveVersionZeroSummary = versionZeroSummary;
+  let effectiveRegisterPage = registerPage;
   let effectiveRegisterSummary = registerSummary;
+  let effectiveRegisterTimeline = registerTimeline;
+  let effectiveRegisterScopeOptions = registerScopeOptions;
   let effectiveApprovalSummary = approvalSummary;
   let effectiveFinishLineSummary = finishLineSummary;
   let effectiveCockpitPreferences = cockpitPreferences;
@@ -295,6 +299,20 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     effectivePlansSummary = overrides.plansSummary;
     effectiveVersionZeroSummary = overrides.versionZeroSummary;
     effectiveRegisterSummary = overrides.registerSummary;
+    effectiveRegisterPage = buildAffaireHubDevScenarioRegisterPage({
+      scenario: devHubScenario,
+      versionId: currentVersionId,
+      summary: overrides.registerSummary,
+      filters: {
+        status: registerStatus,
+        severity: registerSeverity,
+        kind: registerKind,
+        revalidationRequired: registerRevalidationRequired,
+        focusEntryId: registerFocusEntryId,
+      },
+    });
+    effectiveRegisterTimeline = effectiveRegisterPage.timeline;
+    effectiveRegisterScopeOptions = { lots: [], lines: [] };
     effectiveApprovalSummary = overrides.approvalSummary;
     effectiveFinishLineSummary = overrides.finishLineSummary;
     effectiveCockpitPreferences = [];
@@ -339,10 +357,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       sectionErrors={sectionErrors}
       justCreated={justCreated}
       intakeWorkspace={effectiveIntakeWorkspace}
-      registerPage={registerPage}
-      registerScopeOptions={registerScopeOptions}
+      registerPage={effectiveRegisterPage}
+      registerScopeOptions={effectiveRegisterScopeOptions}
       registerSummary={effectiveRegisterSummary}
-      registerTimeline={registerTimeline}
+      registerTimeline={effectiveRegisterTimeline}
       versionZeroSummary={effectiveVersionZeroSummary}
       finishLineSummary={effectiveFinishLineSummary}
       cockpitSuggestions={cockpitSuggestions}

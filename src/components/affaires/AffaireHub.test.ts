@@ -5,6 +5,7 @@ import {
   filterAffaireHubCommandBarSuggestions,
   getAffaireHubIntakeWorkspacePresentation,
   getAffaireHubDominantIntent,
+  getAffaireHubHiddenPilotageExceptionIds,
   isAffaireFreshStartState,
   shouldShowAffaireCreatedOnboardingBanner,
 } from "./AffaireHub";
@@ -338,6 +339,28 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
         (suggestion) => suggestion.intent,
       ),
     ).toEqual(["view_exceptions"]);
+  });
+});
+
+describe("getAffaireHubHiddenPilotageExceptionIds", () => {
+  it("hides competing takeoff actions when clarification is dominant", () => {
+    expect(
+      getAffaireHubHiddenPilotageExceptionIds({
+        dominantIntent: "list_hypotheses",
+        hasDominantClarificationSuggestion: true,
+        hasDominantRevalidationSuggestion: false,
+      }),
+    ).toEqual(["register-clarify", "register-open", "takeoff-launch"]);
+  });
+
+  it("hides competing takeoff actions when revalidation is dominant", () => {
+    expect(
+      getAffaireHubHiddenPilotageExceptionIds({
+        dominantIntent: "list_hypotheses",
+        hasDominantClarificationSuggestion: false,
+        hasDominantRevalidationSuggestion: true,
+      }),
+    ).toEqual(["register-revalidation", "register-open", "takeoff-launch"]);
   });
 });
 
