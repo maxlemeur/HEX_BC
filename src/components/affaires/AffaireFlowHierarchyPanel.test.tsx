@@ -839,6 +839,108 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
   });
 
+  it("shows the canonical hub readiness even when the local next step looks ready", () => {
+    const analyzePlans = buildSuggestion({
+      actionId: "analyze-plans",
+      label: "Lancer le metre",
+      intent: "analyze_plans",
+      preview: "Analyser les plans pour extraire les quantites.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/affaires/project-hub-readiness/plans",
+      },
+      priority: 600,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-hub-readiness"
+        hubReadiness={{
+          status: "ready_with_reservations",
+          workingBasis: "established",
+          allowsContinuation: true,
+          briefStatus: "confirme",
+          drivers: [
+            {
+              code: "warning_missing_piece",
+              source: "register",
+              severity: "warning",
+              count: 1,
+            },
+          ],
+          intake: {
+            reviewDocumentsCount: 0,
+            confirmedMissingPiecesCount: 0,
+            confirmedCriticalMissingPiecesCount: 0,
+          },
+          register: {
+            criticalOpenCount: 0,
+            clarifyWithClientCount: 0,
+            continuedWithHypothesisCount: 1,
+            revalidationRequiredCount: 0,
+            criticalRevalidationRequiredCount: 0,
+          },
+        }}
+        currentVersion={{
+          id: "version-hub-readiness",
+          projectId: "project-hub-readiness",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[analyzePlans]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Lancer le metre" })).toBeInTheDocument();
+    expect(screen.getByText("Analyse sous reserves")).toBeInTheDocument();
+    expect(screen.getByText("Avancer sous reserves")).toBeInTheDocument();
+    expect(screen.queryByText("Base de travail prete")).not.toBeInTheDocument();
+    expect(screen.getByText("Base devis disponible sous reserves")).toBeInTheDocument();
+    expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
+  });
+
   it("prefers canonical submission readiness over the legacy ready-to-send alias", () => {
     render(
       <AffaireFlowHierarchyPanel

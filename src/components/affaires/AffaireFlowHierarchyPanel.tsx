@@ -27,6 +27,7 @@ import { IntakeDocumentCard } from "./IntakeDocumentCard";
 
 type AffaireFlowHierarchyPanelProps = {
   projectId: string;
+  hubReadiness?: AffaireHubSummaryResult["hubReadiness"];
   currentVersion: AffaireHubSummaryResult["currentVersion"] | null;
   versionZeroSummary?: VersionZeroDraftSummary | null;
   takeoffEnabled?: boolean;
@@ -146,6 +147,32 @@ function getActionClassName(variant: PanelAction["variant"]) {
   }
 
   return "btn btn-ghost btn-sm";
+}
+
+function getHubReadinessBadge(input: {
+  hubReadiness: AffaireHubSummaryResult["hubReadiness"];
+  fallback: PanelModel["readinessLevel"];
+}) {
+  const status = input.hubReadiness?.status ?? input.fallback ?? "not_ready";
+
+  if (status === "ready") {
+    return {
+      label: "Base de travail prete",
+      variant: "success" as const,
+    };
+  }
+
+  if (status === "ready_with_reservations") {
+    return {
+      label: "Avancer sous reserves",
+      variant: "warning" as const,
+    };
+  }
+
+  return {
+    label: "Base de travail insuffisante",
+    variant: "warning" as const,
+  };
 }
 
 function dedupe(values: string[]) {
@@ -513,6 +540,10 @@ function buildPanelModel(
   const hasDocumentReservations =
     documentReadinessFlags.length > 0 ||
     hasOpenCriticalRegisterDocumentRisk(input.registerSummary);
+  const hasCanonicalWorkReservations =
+    input.hubReadiness?.status === "ready_with_reservations" ||
+    input.hubReadiness?.status === "not_ready";
+  const hasWorkReservations = hasDocumentReservations || hasCanonicalWorkReservations;
   const documentReservationFacts = dedupe(
     documentReadinessFlags.map((flag) => flag.label).slice(0, 2),
   );
@@ -696,22 +727,24 @@ function buildPanelModel(
   } else if (analyzePlansSuggestion) {
     title = "Lancer le metre";
     summary = analyzePlansSuggestion.preview;
-    statusLabel = hasDocumentReservations ? "Analyse sous reserves" : "Pret pour analyse";
-    statusVariant = hasDocumentReservations ? "warning" : "success";
+    statusLabel = hasWorkReservations ? "Analyse sous reserves" : "Pret pour analyse";
+    statusVariant = hasWorkReservations ? "warning" : "success";
     heroState = "plans";
-    readinessLevel = hasDocumentReservations ? "ready_with_reservations" : "ready";
+    readinessLevel =
+      input.hubReadiness?.status ??
+      (hasDocumentReservations ? "ready_with_reservations" : "ready");
     primaryAction = toSuggestionAction(analyzePlansSuggestion);
     resultCard = {
       kind: "plans",
-      title: hasDocumentReservations ? "Structure disponible sous reserves" : "Structure prete",
-      message: hasDocumentReservations
+      title: hasWorkReservations ? "Structure disponible sous reserves" : "Structure prete",
+      message: hasWorkReservations
         ? "Lancez l'analyse des plans, mais le dossier reste incomplet."
         : "Lancez l'analyse des plans pour extraire les quantites.",
       action: primaryAction,
       facts: dedupe([
         hasPlans ? "Plans detectes" : "",
         hasDpgf
-          ? hasDocumentReservations
+          ? hasWorkReservations
             ? "Base devis disponible sous reserves"
             : "Base devis prete"
           : "",
@@ -725,29 +758,29 @@ function buildPanelModel(
     title = generateStructureSuggestion.label;
     summary = generateStructureSuggestion.preview;
     statusLabel = hasStructureDraft ? "Structure a reprendre" : "Structure a generer";
-    statusVariant = hasDocumentReservations ? "warning" : "success";
+    statusVariant = hasWorkReservations ? "warning" : "success";
     heroState = "structure";
-    readinessLevel = "ready_with_reservations";
+    readinessLevel = input.hubReadiness?.status ?? "ready_with_reservations";
     primaryAction = toSuggestionAction(generateStructureSuggestion);
     resultCard = {
       kind: "structure",
-      title: hasDocumentReservations ? "Structure generable sous reserves" : "Brief confirme",
+      title: hasWorkReservations ? "Structure generable sous reserves" : "Brief confirme",
       message: hasStructureDraft
-        ? hasDocumentReservations
+        ? hasWorkReservations
           ? "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
-        : hasDocumentReservations
+        : hasWorkReservations
           ? "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
       action: primaryAction,
       facts: dedupe([
         hasDpgf
-          ? hasDocumentReservations
+          ? hasWorkReservations
             ? "Base devis disponible sous reserves"
             : "Base devis prete"
           : "",
         hasPlans ? "Plans detectes" : "",
-        ...(hasDocumentReservations ? documentReservationFacts : ["Version brouillon disponible"]),
+        ...(hasWorkReservations ? documentReservationFacts : ["Version brouillon disponible"]),
       ]).filter(Boolean),
     };
   } else if (prepareValidationSuggestion) {
@@ -2079,6 +2112,10 @@ export function AffaireFlowHierarchyPanel(
   props: Readonly<AffaireFlowHierarchyPanelProps>,
 ) {
   const model = buildPanelModel(props);
+  const readinessBadge = getHubReadinessBadge({
+    hubReadiness: props.hubReadiness ?? null,
+    fallback: model.readinessLevel,
+  });
   const handleOpenIntakeUpload = () => {
     dispatchCockpitOpenSurface({
       projectId: props.projectId,
@@ -2104,9 +2141,14 @@ export function AffaireFlowHierarchyPanel(
             </>
           )}
         </div>
-        <Badge variant={model.statusVariant} size="sm" withDot>
-          {model.statusLabel}
-        </Badge>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge variant={model.statusVariant} size="sm" withDot>
+            {model.statusLabel}
+          </Badge>
+          <Badge variant={readinessBadge.variant} size="sm" withDot>
+            {readinessBadge.label}
+          </Badge>
+        </div>
       </div>
 
       {model.showEmptyUploadCard ? (

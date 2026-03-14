@@ -1688,6 +1688,7 @@ export function AffaireHub({
           <div className="mt-4">
             <AffaireFlowHierarchyPanel
               projectId={summary.project.id}
+              hubReadiness={summary.hubReadiness ?? null}
               currentVersion={summary.currentVersion ?? null}
               versionZeroSummary={versionZeroSummary}
               takeoffEnabled={takeoffEnabled}
