@@ -14,7 +14,10 @@ import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
-import { isPdfFinishLineFlag } from "./AffairePilotagePanel.logic";
+import {
+  isPdfFinishLineFlag,
+  resolveSubmissionReadiness,
+} from "./AffairePilotagePanel.logic";
 
 type AffaireFinishLineActionsProps = {
   projectId: string;
@@ -103,8 +106,8 @@ function getSendActionState(
     };
   }
 
-  const send = finishLineSummary?.readyToSend ?? null;
-  if (!send) {
+  const submissionReadiness = resolveSubmissionReadiness(finishLineSummary);
+  if (!submissionReadiness) {
     return {
       status: "waiting" as const,
       note: "Rechargez la page avant de lancer une sortie client.",
@@ -112,7 +115,7 @@ function getSendActionState(
     };
   }
 
-  if (send.status === "ready") {
+  if (submissionReadiness.status === "ready") {
     return {
       status: "ready" as const,
       note: "Le mail joint le PDF de la version visible ici. Une confirmation explicite reste demandee.",
@@ -120,24 +123,24 @@ function getSendActionState(
     };
   }
 
-  if (send.status === "warning") {
+  if (submissionReadiness.status === "warning") {
     return {
       status: "warning" as const,
-      note: `${send.warningFlags.length} vigilance${send.warningFlags.length > 1 ? "s" : ""} reste${send.warningFlags.length > 1 ? "nt" : ""} a assumer avant l'envoi final.`,
+      note: `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} reste${submissionReadiness.alerts.length > 1 ? "nt" : ""} a verifier avant l'envoi final.`,
       disabled: false,
     };
   }
 
-  if (send.status === "blocked") {
+  if (submissionReadiness.status === "blocked") {
     const hasOnlyPdfBlocker =
-      send.blockingFlags.length > 0 &&
-      send.blockingFlags.every((flag) => isPdfFinishLineFlag(flag));
+      submissionReadiness.blockers.length > 0 &&
+      submissionReadiness.blockers.every((flag) => isPdfFinishLineFlag(flag));
 
     return {
       status: "blocked" as const,
       note: hasOnlyPdfBlocker
         ? "Generez d'abord le PDF ici, puis preparez l'email depuis la meme zone."
-        : `${send.blockingFlags.length} blocage${send.blockingFlags.length > 1 ? "s" : ""} visible${send.blockingFlags.length > 1 ? "s" : ""} juste au-dessus avant l'envoi.`,
+        : `${submissionReadiness.blockers.length} blocage${submissionReadiness.blockers.length > 1 ? "s" : ""} visible${submissionReadiness.blockers.length > 1 ? "s" : ""} juste au-dessus avant l'envoi.`,
       disabled: true,
     };
   }
@@ -145,7 +148,7 @@ function getSendActionState(
   return {
     status: "unavailable" as const,
     note:
-      send.errorMessage ??
+      submissionReadiness.errorMessage ??
       "Les preconditions d'envoi sont indisponibles pour le moment.",
     disabled: true,
   };

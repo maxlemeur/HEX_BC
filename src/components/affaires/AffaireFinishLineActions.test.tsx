@@ -48,6 +48,43 @@ function makeFinishLineSummary(
 ): AffaireHubFinishLineSummaryResult {
   return {
     versionId: "version-1",
+    submissionReadiness: {
+      status: "warning",
+      blockers: [],
+      alerts: [
+        {
+          key: "supplier_price_outdated",
+          category: "estimate_quality",
+          severity: "warning",
+          count: 1,
+          item_ids: [],
+          label: "Prix a revalider",
+          description: "Certains prix datent.",
+        },
+      ],
+      groups: [
+        {
+          category: "estimate_quality",
+          blockers: [],
+          alerts: [
+            {
+              key: "supplier_price_outdated",
+              category: "estimate_quality",
+              severity: "warning",
+              count: 1,
+              item_ids: [],
+              label: "Prix a revalider",
+              description: "Certains prix datent.",
+            },
+          ],
+          blockerCount: 0,
+          alertCount: 1,
+        },
+      ],
+      checkedAt: "2026-03-11T09:00:00.000Z",
+      stalePriceDays: 30,
+      errorMessage: null,
+    },
     readyToSend: {
       status: "warning",
       blockingFlags: [],
@@ -174,6 +211,43 @@ describe("AffaireFinishLineActions", () => {
   it("keeps email preparation disabled while the finish line is blocked", () => {
     renderActions({
       finishLineSummary: makeFinishLineSummary({
+        submissionReadiness: {
+          status: "blocked",
+          blockers: [
+            {
+              key: "no_pdf_generated",
+              category: "pdf",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun PDF genere.",
+            },
+          ],
+          alerts: [],
+          groups: [
+            {
+              category: "pdf",
+              blockers: [
+                {
+                  key: "no_pdf_generated",
+                  category: "pdf",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "PDF absent",
+                  description: "Aucun PDF genere.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+          ],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
         readyToSend: {
           status: "blocked",
           blockingFlags: [
@@ -208,6 +282,43 @@ describe("AffaireFinishLineActions", () => {
   it("keeps non-pdf blockers out of the pdf-specific guidance", () => {
     renderActions({
       finishLineSummary: makeFinishLineSummary({
+        submissionReadiness: {
+          status: "blocked",
+          blockers: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pièces critiques restent manquantes.",
+            },
+          ],
+          alerts: [],
+          groups: [
+            {
+              category: "documents",
+              blockers: [
+                {
+                  key: "critical_missing_pieces",
+                  category: "documents",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "Documents critiques manquants",
+                  description: "Des pièces critiques restent manquantes.",
+                },
+              ],
+              alerts: [],
+              blockerCount: 1,
+              alertCount: 0,
+            },
+          ],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
         readyToSend: {
           status: "blocked",
           blockingFlags: [
@@ -241,6 +352,77 @@ describe("AffaireFinishLineActions", () => {
         /Generez d'abord le PDF ici, puis preparez l'email/i
       )
     ).not.toBeInTheDocument();
+  });
+
+  it("prioritizes submission readiness over the alias when email gating diverges", () => {
+    renderActions({
+      finishLineSummary: makeFinishLineSummary({
+        submissionReadiness: {
+          status: "warning",
+          blockers: [],
+          alerts: [
+            {
+              key: "supplier_price_outdated",
+              category: "estimate_quality",
+              severity: "warning",
+              count: 1,
+              item_ids: [],
+              label: "Prix a revalider",
+              description: "Certains prix datent.",
+            },
+          ],
+          groups: [
+            {
+              category: "estimate_quality",
+              blockers: [],
+              alerts: [
+                {
+                  key: "supplier_price_outdated",
+                  category: "estimate_quality",
+                  severity: "warning",
+                  count: 1,
+                  item_ids: [],
+                  label: "Prix a revalider",
+                  description: "Certains prix datent.",
+                },
+              ],
+              blockerCount: 0,
+              alertCount: 1,
+            },
+          ],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      }),
+    });
+
+    expect(
+      within(getLatestByTestId("affaire-finish-line-email")).getByRole("button", {
+        name: /Preparer l'envoi/i,
+      })
+    ).not.toBeDisabled();
+    expect(
+      screen.getAllByText(/1 point reste a verifier avant l'envoi final/i).length
+    ).toBeGreaterThan(0);
   });
 
   it("generates the PDF from the affaire finish line and refreshes the hub", async () => {

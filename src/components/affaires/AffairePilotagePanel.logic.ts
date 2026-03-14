@@ -74,6 +74,33 @@ export type FinishLineReadiness = {
 type ReadyToSendBlockingFlag =
   NonNullable<AffaireHubFinishLineSummaryResult>["readyToSend"]["blockingFlags"][number];
 
+type SubmissionReadinessSnapshot =
+  NonNullable<AffaireHubFinishLineSummaryResult["submissionReadiness"]>;
+
+export function resolveSubmissionReadiness(
+  finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined
+): SubmissionReadinessSnapshot | null {
+  if (!finishLineSummary) {
+    return null;
+  }
+
+  if (finishLineSummary.submissionReadiness) {
+    return finishLineSummary.submissionReadiness;
+  }
+
+  const readyToSend = finishLineSummary.readyToSend;
+
+  return {
+    status: readyToSend.status === "waiting" ? "unavailable" : readyToSend.status,
+    blockers: readyToSend.blockingFlags,
+    alerts: readyToSend.warningFlags,
+    groups: [],
+    checkedAt: readyToSend.checkedAt,
+    stalePriceDays: readyToSend.stalePriceDays,
+    errorMessage: readyToSend.errorMessage,
+  };
+}
+
 function isDocumentRegisterFlagKey(
   key: ReadyToSendBlockingFlag["key"],
 ) {
@@ -193,17 +220,18 @@ export function countPrioritizedFinishLineBlockers(input: {
   exceptions: PilotageException[];
 }) {
   const exceptionIds = new Set(input.exceptions.map((exception) => exception.id));
+  const submissionReadiness = resolveSubmissionReadiness(input.finishLineSummary);
 
   return input.finishLineCards.reduce((count, card) => {
     if (card.status !== "blocked") {
       return count;
     }
 
-    if (card.key !== "send" || !input.finishLineSummary) {
+    if (card.key !== "send" || !submissionReadiness) {
       return count + 1;
     }
 
-    const hasDistinctBlocker = input.finishLineSummary.readyToSend.blockingFlags.some(
+    const hasDistinctBlocker = submissionReadiness.blockers.some(
       (flag) => !isRegisterExceptionCoveringSendBlocker(flag, exceptionIds)
     );
 
@@ -268,7 +296,8 @@ export function buildReadyToSendAction(input: {
     };
   }
 
-  const blockingFlag = input.finishLineSummary?.readyToSend.blockingFlags[0] ?? null;
+  const submissionReadiness = resolveSubmissionReadiness(input.finishLineSummary);
+  const blockingFlag = submissionReadiness?.blockers[0] ?? null;
   const registerAction =
     blockingFlag === null
       ? null
@@ -290,9 +319,8 @@ export function buildReadyToSendAction(input: {
 
   if (
     input.currentVersion &&
-    input.finishLineSummary &&
-    (input.finishLineSummary.readyToSend.status === "ready" ||
-      input.finishLineSummary.readyToSend.status === "warning")
+    submissionReadiness &&
+    (submissionReadiness.status === "ready" || submissionReadiness.status === "warning")
   ) {
     return {
       kind: "href" as const,
@@ -416,24 +444,24 @@ export function buildFinishLineCards(input: {
     ] satisfies FinishLineCard[];
   }
 
-  const readyToSendDetails = [
-    ...input.finishLineSummary.readyToSend.blockingFlags.map((flag) => flag.label),
-    ...input.finishLineSummary.readyToSend.warningFlags.map((flag) => flag.label),
-  ].slice(0, 3);
+  const submissionReadiness = resolveSubmissionReadiness(input.finishLineSummary);
+  const readyToSendDetails = submissionReadiness
+    ? [...submissionReadiness.blockers.map((flag) => flag.label), ...submissionReadiness.alerts.map((flag) => flag.label)].slice(0, 3)
+    : [];
 
   const readyToSendCard: FinishLineCard = {
     key: "send",
     label: "Pret a envoyer",
-    status: input.finishLineSummary.readyToSend.status,
+    status: submissionReadiness?.status ?? "unavailable",
     summary:
-      input.finishLineSummary.readyToSend.status === "ready"
+      submissionReadiness?.status === "ready"
         ? "Le devis peut sortir sans etape cachee supplementaire."
-        : input.finishLineSummary.readyToSend.status === "warning"
-          ? `${input.finishLineSummary.readyToSend.warningFlags.length} vigilance${input.finishLineSummary.readyToSend.warningFlags.length > 1 ? "s" : ""} a assumer avant l'envoi.`
-          : input.finishLineSummary.readyToSend.status === "blocked"
-            ? `${input.finishLineSummary.readyToSend.blockingFlags.length} blocage${input.finishLineSummary.readyToSend.blockingFlags.length > 1 ? "s" : ""} metier a lever avant l'envoi.`
-            : input.finishLineSummary.readyToSend.errorMessage ??
-              "La sortie devis reste en attente.",
+        : submissionReadiness?.status === "warning"
+          ? `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} a verifier avant l'envoi.`
+          : submissionReadiness?.status === "blocked"
+            ? `${submissionReadiness.blockers.length} blocage${submissionReadiness.blockers.length > 1 ? "s" : ""} metier a lever avant l'envoi.`
+            : submissionReadiness?.errorMessage ??
+              "La verification de sortie devis est indisponible pour le moment.",
     details:
       readyToSendDetails.length > 0
         ? readyToSendDetails

@@ -85,6 +85,43 @@ function makeDpgfSource(
 function makeFinishLineSummary(): AffaireHubFinishLineSummaryResult {
   return {
     versionId: "version-1",
+    submissionReadiness: {
+      status: "blocked",
+      blockers: [
+        {
+          key: "no_pdf_generated",
+          category: "pdf",
+          severity: "blocking" as const,
+          count: 1,
+          item_ids: [],
+          label: "PDF absent",
+          description: "Aucun document PDF n'est genere pour cette version.",
+        },
+      ],
+      alerts: [],
+      groups: [
+        {
+          category: "pdf",
+          blockers: [
+            {
+              key: "no_pdf_generated",
+              category: "pdf",
+              severity: "blocking" as const,
+              count: 1,
+              item_ids: [],
+              label: "PDF absent",
+              description: "Aucun document PDF n'est genere pour cette version.",
+            },
+          ],
+          alerts: [],
+          blockerCount: 1,
+          alertCount: 0,
+        },
+      ],
+      checkedAt: "2026-03-11T08:00:00.000Z",
+      stalePriceDays: 30,
+      errorMessage: null,
+    },
     readyToSend: {
       status: "blocked" as const,
       blockingFlags: [
@@ -339,6 +376,82 @@ describe("AffairePilotagePanel", () => {
     expect(cards[1]?.details).toContain("1 ligne sans fournisseur retenu");
   });
 
+  it("prioritizes submission readiness over the ready-to-send alias in finish-line cards", () => {
+    const cards = buildFinishLineCards({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        ...makeFinishLineSummary(),
+        submissionReadiness: {
+          status: "warning",
+          blockers: [],
+          alerts: [
+            {
+              key: "supplier_price_outdated",
+              category: "estimate_quality",
+              severity: "warning",
+              count: 1,
+              item_ids: [],
+              label: "Prix a revalider",
+              description: "Certains prix datent.",
+            },
+          ],
+          groups: [
+            {
+              category: "estimate_quality",
+              blockers: [],
+              alerts: [
+                {
+                  key: "supplier_price_outdated",
+                  category: "estimate_quality",
+                  severity: "warning",
+                  count: 1,
+                  item_ids: [],
+                  label: "Prix a revalider",
+                  description: "Certains prix datent.",
+                },
+              ],
+              blockerCount: 0,
+              alertCount: 1,
+            },
+          ],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pieces critiques restent manquantes.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(cards[0]).toMatchObject({
+      key: "send",
+      status: "warning",
+      summary: "1 point a verifier avant l'envoi.",
+    });
+    expect(cards[0]?.details).toEqual(["Prix a revalider"]);
+  });
+
   it("exposes supplier price import from the affaire when no estimate exists yet", () => {
     const cards = buildFinishLineCards({
       projectId: "project-1",
@@ -451,7 +564,7 @@ describe("AffairePilotagePanel", () => {
       </ToastProvider>
     );
 
-    expect(screen.getByText("Pret a envoyer")).toBeInTheDocument();
+    expect(screen.getAllByText("Pret a envoyer").length).toBeGreaterThan(0);
     expect(screen.getByText("Pret a commander")).toBeInTheDocument();
     expect(screen.getByText("PDF absent")).toBeInTheDocument();
     expect(screen.getByText("1 ligne sans fournisseur retenu")).toBeInTheDocument();
@@ -464,6 +577,86 @@ describe("AffairePilotagePanel", () => {
     expect(
       screen.getByRole("link", { name: /Mettre a jour les prix fournisseurs/i })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");
+  });
+
+  it("keeps the finish line visible when canonical submission readiness exists on an immature dossier", () => {
+    render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet finish line"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={null}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={{
+            id: "version-1",
+            status: "draft",
+            versionNumber: 1,
+          }}
+          lineCount={0}
+          finishLineSummary={{
+            ...makeFinishLineSummary(),
+            submissionReadiness: {
+              status: "blocked",
+              blockers: [
+                {
+                  key: "critical_missing_pieces",
+                  category: "documents",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "Documents critiques manquants",
+                  description: "Des pieces critiques restent manquantes.",
+                },
+              ],
+              alerts: [],
+              groups: [
+                {
+                  category: "documents",
+                  blockers: [
+                    {
+                      key: "critical_missing_pieces",
+                      category: "documents",
+                      severity: "blocking",
+                      count: 1,
+                      item_ids: [],
+                      label: "Documents critiques manquants",
+                      description: "Des pieces critiques restent manquantes.",
+                    },
+                  ],
+                  alerts: [],
+                  blockerCount: 1,
+                  alertCount: 0,
+                },
+              ],
+              checkedAt: "2026-03-11T08:00:00.000Z",
+              stalePriceDays: 30,
+              errorMessage: null,
+            },
+            readyToSend: {
+              status: "ready",
+              blockingFlags: [],
+              warningFlags: [],
+              checkedAt: "2026-03-11T08:00:00.000Z",
+              stalePriceDays: 30,
+              errorMessage: null,
+            },
+          }}
+          takeoffEnabled
+        />
+      </ToastProvider>
+    );
+
+    expect(screen.getAllByText("Pret a envoyer").length).toBeGreaterThan(0);
+    expect(screen.getByText("Documents critiques manquants")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Ouvrir les documents manquants/i })
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece#register"
+    );
   });
 
   it("does not duplicate a hidden finish-line readiness note on immature dossiers", () => {
