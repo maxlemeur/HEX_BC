@@ -33,7 +33,7 @@ type Props = {
   favoritePendingIds: string[];
 };
 
-type ManagerQueueFilter = "all" | "follow_up";
+type ManagerQueueFilter = "all" | "follow_up" | "reservations";
 
 function hasManagerFollowUpSignal(data: AffaireDenseExpandData) {
   const hubReadiness = data.summary.hubReadiness ?? null;
@@ -45,6 +45,10 @@ function hasManagerFollowUpSignal(data: AffaireDenseExpandData) {
     hubReadiness.status === "not_ready" ||
     hubReadiness.drivers.some((driver) => driver.code === "critical_missing_piece")
   );
+}
+
+function hasManagerReservationSignal(data: AffaireDenseExpandData) {
+  return data.summary.hubReadiness?.status === "ready_with_reservations";
 }
 
 function formatDate(iso: string): string {
@@ -254,6 +258,24 @@ export function AffairesDenseTable({
     return ids;
   }, [expandCache, items]);
 
+  const managerReservationIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    items.forEach((item) => {
+      const cached = expandCache[item.projectId];
+      if (
+        cached &&
+        cached !== "loading" &&
+        cached !== "error" &&
+        hasManagerReservationSignal(cached)
+      ) {
+        ids.add(item.projectId);
+      }
+    });
+
+    return ids;
+  }, [expandCache, items]);
+
   const pendingManagerSignalsCount = useMemo(
     () =>
       items.filter((item) => {
@@ -268,8 +290,12 @@ export function AffairesDenseTable({
       return items;
     }
 
+    if (managerFilter === "reservations") {
+      return items.filter((item) => managerReservationIds.has(item.projectId));
+    }
+
     return items.filter((item) => managerFollowUpIds.has(item.projectId));
-  }, [items, managerFilter, managerFollowUpIds]);
+  }, [items, managerFilter, managerFollowUpIds, managerReservationIds]);
 
   return (
     <div className="dashboard-card overflow-hidden">
@@ -281,7 +307,7 @@ export function AffairesDenseTable({
               Relances manager
             </p>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Repere les affaires visibles soit non pretes, soit deja marquees par une piece critique manquante.
+              Repere les affaires visibles a relancer en priorite ou a revoir sous reserves.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -308,12 +334,26 @@ export function AffairesDenseTable({
             >
               A relancer en priorite ({managerFollowUpIds.size})
             </button>
+            <button
+              type="button"
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                managerFilter === "reservations"
+                  ? "bg-[var(--warning)] text-white"
+                  : "border border-[var(--warning)]/20 bg-[var(--warning)]/5 text-[var(--warning)] hover:bg-[var(--warning)]/10"
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+              disabled={pendingManagerSignalsCount > 0}
+              onClick={() => setManagerFilter("reservations")}
+            >
+              A revoir sous reserves ({managerReservationIds.size})
+            </button>
           </div>
         </div>
         <p className="mt-2 text-xs text-[var(--slate-500)]">
           {pendingManagerSignalsCount > 0
             ? `Qualification manager en cours sur ${pendingManagerSignalsCount} affaire${pendingManagerSignalsCount > 1 ? "s" : ""} visible${pendingManagerSignalsCount > 1 ? "s" : ""}.`
-            : `${managerFollowUpIds.size} affaire${managerFollowUpIds.size > 1 ? "s" : ""} a relancer en priorite sur cette page.`}
+            : managerFilter === "reservations"
+              ? `${managerReservationIds.size} affaire${managerReservationIds.size > 1 ? "s" : ""} a revoir sous reserves sur cette page.`
+              : `${managerFollowUpIds.size} affaire${managerFollowUpIds.size > 1 ? "s" : ""} a relancer en priorite sur cette page.`}
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -357,7 +397,7 @@ export function AffairesDenseTable({
           <tbody>
             {visibleItems.length === 0 ? (
               <AffairesEmptyState
-                emptyVariant={managerFilter === "follow_up" ? "filtered" : emptyVariant}
+                emptyVariant={managerFilter === "all" ? emptyVariant : "filtered"}
                 onCreateAffaire={onCreateAffaire}
               />
             ) : (
