@@ -10,9 +10,11 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
   buildAffaireRegisterSearchHref,
+  parseAffaireRegisterRevalidationSearchParam,
   type AffaireRegisterEntry,
   type AffaireRegisterEntryKind,
   type AffaireRegisterEntrySeverity,
@@ -75,12 +77,20 @@ export function useAffaireRegisterCardController({
   const filterStatus = registerPage?.filters.status ?? "";
   const filterSeverity = registerPage?.filters.severity ?? "";
   const filterKind = registerPage?.filters.kind ?? "";
-  const hasActiveFilters = Boolean(filterStatus || filterSeverity || filterKind);
+  const filterRevalidationRequired =
+    registerPage?.filters.revalidationRequired ??
+    parseAffaireRegisterRevalidationSearchParam(
+      searchParams.get(AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM) ?? undefined
+    );
+  const hasActiveFilters = Boolean(
+    filterStatus || filterSeverity || filterKind || filterRevalidationRequired
+  );
   const effectiveSummary = summary ?? buildDerivedSummary(items);
   const activeFiltersLabel = [
     filterStatus ? AFFAIRE_REGISTER_STATUS_LABELS[filterStatus] : null,
     filterSeverity ? AFFAIRE_REGISTER_SEVERITY_LABELS[filterSeverity] : null,
     filterKind ? AFFAIRE_REGISTER_KIND_LABELS[filterKind] : null,
+    filterRevalidationRequired ? "Revalidation requise" : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -89,6 +99,7 @@ export function useAffaireRegisterCardController({
     status?: AffaireRegisterEntryStatus | null;
     severity?: AffaireRegisterEntrySeverity | null;
     kind?: AffaireRegisterEntryKind | null;
+    revalidationRequired?: boolean;
     cursor?: string | null;
   }) {
     const nextStatus =
@@ -99,6 +110,10 @@ export function useAffaireRegisterCardController({
         : registerPage?.filters.severity ?? null;
     const nextKind =
       "kind" in next ? next.kind ?? null : registerPage?.filters.kind ?? null;
+    const nextRevalidationRequired =
+      "revalidationRequired" in next
+        ? next.revalidationRequired ?? false
+        : filterRevalidationRequired;
     const nextCursor =
       "cursor" in next ? next.cursor ?? null : registerPage?.filters.cursor ?? null;
     const href = buildAffaireRegisterSearchHref({
@@ -107,6 +122,7 @@ export function useAffaireRegisterCardController({
       status: nextStatus,
       severity: nextSeverity,
       kind: nextKind,
+      revalidationRequired: nextRevalidationRequired,
       cursor: nextCursor,
     });
 
@@ -120,6 +136,7 @@ export function useAffaireRegisterCardController({
       status: null,
       severity: null,
       kind: null,
+      revalidationRequired: false,
       cursor: null,
     });
   }
@@ -316,6 +333,7 @@ export function useAffaireRegisterCardController({
     filterStatus,
     filterSeverity,
     filterKind,
+    filterRevalidationRequired,
     hasActiveFilters,
     effectiveSummary,
     activeFiltersLabel,

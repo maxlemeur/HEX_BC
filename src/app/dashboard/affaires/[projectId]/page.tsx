@@ -9,6 +9,7 @@ import {
   parseAffaireRegisterCursorSearchParam,
   parseAffaireRegisterFocusSearchParam,
   parseAffaireRegisterKindSearchParam,
+  parseAffaireRegisterRevalidationSearchParam,
   parseAffaireRegisterSeveritySearchParam,
   parseAffaireRegisterStatusSearchParam,
 } from "@/lib/affaires/register";
@@ -80,6 +81,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     search.registerSeverity
   );
   const registerKind = parseAffaireRegisterKindSearchParam(search.registerKind);
+  const registerRevalidationRequired = parseAffaireRegisterRevalidationSearchParam(
+    search.registerRevalidation
+  );
   const registerCursor = parseAffaireRegisterCursorSearchParam(search.registerCursor);
   const registerFocusEntryId = parseAffaireRegisterFocusSearchParam(
     search.registerFocus
@@ -150,6 +154,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       status: registerStatus,
       severity: registerSeverity,
       kind: registerKind,
+      revalidationRequired: registerRevalidationRequired,
       cursor: registerCursor,
       focusEntryId: registerFocusEntryId,
     }),

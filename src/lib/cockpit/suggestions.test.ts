@@ -475,6 +475,9 @@ describe("computeCockpitSuggestions", () => {
       makeInput({
         intakeWorkspace: makeIntakeWorkspace(),
         registerSummary: makeRegisterSummary({
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
           revalidationRequired: true,
           revalidationRequiredCount: 2,
           criticalRevalidationRequiredCount: 1,
@@ -487,15 +490,16 @@ describe("computeCockpitSuggestions", () => {
     expect(result.find((s) => s.actionId === "review-revalidation")).toEqual(
       expect.objectContaining({
         intent: "list_hypotheses",
-        label: "Relancer 2 revalidations critiques",
+        label: "Relancer 1 revalidation critique",
         preview:
           "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pre-remise.",
         target: {
           kind: "navigate",
-          href: "/dashboard/affaires/proj-42?registerStatus=open&registerSeverity=critical#register",
+          href: "/dashboard/affaires/proj-42?registerSeverity=critical&registerRevalidation=required#register",
         },
       }),
     );
+    expect(result.find((s) => s.actionId === "list-hypotheses")).toBeUndefined();
   });
 
   it("keeps analyze plans and prepare validation on open surfaces", () => {

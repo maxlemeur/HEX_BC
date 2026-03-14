@@ -158,6 +158,7 @@ export const AFFAIRE_REGISTER_SEVERITY_QUERY_PARAM = "registerSeverity";
 export const AFFAIRE_REGISTER_KIND_QUERY_PARAM = "registerKind";
 export const AFFAIRE_REGISTER_CURSOR_QUERY_PARAM = "registerCursor";
 export const AFFAIRE_REGISTER_FOCUS_QUERY_PARAM = "registerFocus";
+export const AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM = "registerRevalidation";
 
 const affaireRegisterCursorSchema = z.object({
   updatedAt: z.string().datetime({ offset: true }),
@@ -220,6 +221,7 @@ export type AffaireRegisterPageResult = {
     status: AffaireRegisterEntryStatus | null;
     severity: AffaireRegisterEntrySeverity | null;
     kind: AffaireRegisterEntryKind | null;
+    revalidationRequired: boolean;
     cursor: string | null;
     focusEntryId: string | null;
   };
@@ -336,6 +338,8 @@ function decodeBase64Url(value: string) {
   return UTF8_DECODER.decode(binaryToBytes(decodeBase64(`${normalized}${padding}`)));
 }
 
+const affaireRegisterRevalidationSearchParamSchema = z.literal("required");
+
 export function parseAffaireRegisterStatusSearchParam(
   value: string | string[] | undefined
 ) {
@@ -433,12 +437,21 @@ export function canAffaireRegisterEntryClarifyWithClient(
   );
 }
 
+export function isAffaireRegisterEntryRevalidationRequired(
+  entry: Pick<AffaireRegisterEntry, "status" | "revalidationRequest">
+) {
+  return (
+    entry.revalidationRequest?.status === "required" &&
+    (entry.status === "open" || entry.status === "clarify_with_client")
+  );
+}
+
 export function canAffaireRegisterEntryRequestRevalidation(
   entry: Pick<AffaireRegisterEntry, "status" | "revalidationRequest">
 ) {
   return (
-    entry.status !== "open" ||
-    entry.revalidationRequest?.status !== "required"
+    isAffaireRegisterEntryResolved(entry.status) &&
+    !isAffaireRegisterEntryRevalidationRequired(entry)
   );
 }
 
@@ -478,6 +491,16 @@ export function parseAffaireRegisterFocusSearchParam(
   return parsed.success ? parsed.data : null;
 }
 
+export function parseAffaireRegisterRevalidationSearchParam(
+  value: string | string[] | undefined
+) {
+  const normalized = Array.isArray(value) ? value[0] : value;
+  const parsed = affaireRegisterRevalidationSearchParamSchema.safeParse(
+    normalized?.trim()
+  );
+  return parsed.success;
+}
+
 export function encodeAffaireRegisterCursor(cursor: AffaireRegisterCursor) {
   return encodeBase64Url(JSON.stringify(cursor));
 }
@@ -499,6 +522,7 @@ export function buildAffaireRegisterSearchHref(input: {
   status?: AffaireRegisterEntryStatus | null;
   severity?: AffaireRegisterEntrySeverity | null;
   kind?: AffaireRegisterEntryKind | null;
+  revalidationRequired?: boolean;
   cursor?: string | null;
   focusEntryId?: string | null;
 }) {
@@ -522,6 +546,12 @@ export function buildAffaireRegisterSearchHref(input: {
     params.delete(AFFAIRE_REGISTER_KIND_QUERY_PARAM);
   }
 
+  if (input.revalidationRequired) {
+    params.set(AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM, "required");
+  } else {
+    params.delete(AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM);
+  }
+
   if (input.cursor) {
     params.set(AFFAIRE_REGISTER_CURSOR_QUERY_PARAM, input.cursor);
   } else {
@@ -543,6 +573,7 @@ export function buildAffaireRegisterHubHref(input: {
   status?: AffaireRegisterEntryStatus | null;
   severity?: AffaireRegisterEntrySeverity | null;
   kind?: AffaireRegisterEntryKind | null;
+  revalidationRequired?: boolean;
   focusEntryId?: string | null;
 }) {
   return buildAffaireRegisterSearchHref({
@@ -551,6 +582,7 @@ export function buildAffaireRegisterHubHref(input: {
     status: input.status ?? null,
     severity: input.severity ?? null,
     kind: input.kind ?? null,
+    revalidationRequired: input.revalidationRequired ?? false,
     cursor: null,
     focusEntryId: input.focusEntryId ?? null,
   });

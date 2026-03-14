@@ -363,8 +363,10 @@ export function computeCockpitSuggestions(
     (registerSummary.revalidationRequiredCount ?? 0) > 0 &&
     !isReadOnlyReview
   ) {
-    const count = registerSummary.revalidationRequiredCount ?? 0;
     const isCritical = (registerSummary.criticalRevalidationRequiredCount ?? 0) > 0;
+    const count = isCritical
+      ? registerSummary.criticalRevalidationRequiredCount ?? 0
+      : registerSummary.revalidationRequiredCount ?? 0;
     const impactedStages = describeRevalidationImpactedStages(registerSummary);
     suggestions.push(
       createSuggestion({
@@ -380,8 +382,8 @@ export function computeCockpitSuggestions(
           kind: "navigate",
           href: `${buildAffaireRegisterHubHref({
             projectId,
-            status: "open",
             severity: isCritical ? "critical" : null,
+            revalidationRequired: true,
           })}#register`,
         },
         requiresConfirmation: false,

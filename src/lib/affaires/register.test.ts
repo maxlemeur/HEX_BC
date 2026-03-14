@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAffaireRegisterHubHref,
   canAffaireRegisterEntryClarifyWithClient,
   buildAffaireRegisterContinuationHypothesisText,
   canAffaireRegisterEntryContinueWithHypothesis,
@@ -8,6 +9,8 @@ import {
   extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterContinuationDecision,
   extractAffaireRegisterRevalidationRequest,
+  isAffaireRegisterEntryRevalidationRequired,
+  parseAffaireRegisterRevalidationSearchParam,
 } from "@/lib/affaires/register";
 
 describe("affaire register continuation contract", () => {
@@ -152,5 +155,63 @@ describe("affaire register continuation contract", () => {
         },
       })
     ).toBe(false);
+
+    expect(
+      canAffaireRegisterEntryRequestRevalidation({
+        status: "open",
+        revalidationRequest: null,
+      })
+    ).toBe(false);
+  });
+
+  it("recognizes blocking revalidation entries", () => {
+    expect(
+      isAffaireRegisterEntryRevalidationRequired({
+        status: "clarify_with_client",
+        revalidationRequest: {
+          status: "required",
+          requestedAt: "2026-03-13T11:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "validated",
+          cause: "late_critical_piece",
+          triggerDocumentId: null,
+          triggerFileName: null,
+          impactedStages: ["submission_readiness"],
+          comment: null,
+        },
+      })
+    ).toBe(true);
+
+    expect(
+      isAffaireRegisterEntryRevalidationRequired({
+        status: "validated",
+        revalidationRequest: {
+          status: "required",
+          requestedAt: "2026-03-13T11:00:00.000Z",
+          requestedByUserId: "22222222-2222-4222-8222-222222222222",
+          previousStatus: "validated",
+          cause: "late_critical_piece",
+          triggerDocumentId: null,
+          triggerFileName: null,
+          impactedStages: ["submission_readiness"],
+          comment: null,
+        },
+      })
+    ).toBe(false);
+  });
+
+  it("parses and builds revalidation-focused register links", () => {
+    expect(parseAffaireRegisterRevalidationSearchParam("required")).toBe(true);
+    expect(parseAffaireRegisterRevalidationSearchParam("open")).toBe(false);
+
+    expect(
+      buildAffaireRegisterHubHref({
+        projectId: "proj-42",
+        severity: "critical",
+        revalidationRequired: true,
+      })
+    ).toBe(
+      "/dashboard/affaires/proj-42?registerSeverity=critical&registerRevalidation=required"
+    );
   });
 });

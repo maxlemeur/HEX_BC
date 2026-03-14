@@ -76,7 +76,18 @@ function createRevalidatedEntryRow() {
   };
 }
 
-function createSupabaseMock() {
+function createOpenEntryRow() {
+  return {
+    ...createValidatedEntryRow(),
+    status: "open" as const,
+  };
+}
+
+function createSupabaseMock(
+  entryFactory:
+    | typeof createValidatedEntryRow
+    | typeof createOpenEntryRow = createValidatedEntryRow
+) {
   const eventPayloads: unknown[] = [];
   const updatePayloads: unknown[] = [];
   let registerEntriesCall = 0;
@@ -154,7 +165,7 @@ function createSupabaseMock() {
             throw new Error(`Unexpected maybeSingle call #${currentCall}`);
           }
           return {
-            data: createValidatedEntryRow(),
+            data: entryFactory(),
             error: null,
           };
         });
@@ -235,5 +246,26 @@ describe("requestAffaireRegisterRevalidation", () => {
       previousStatus: "validated",
       impactedStages: ["document_review", "submission_readiness"],
     });
+  });
+
+  it("rejects revalidation requests for unresolved entries", async () => {
+    const { supabase, eventPayloads, updatePayloads } = createSupabaseMock(
+      createOpenEntryRow
+    );
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      requestAffaireRegisterRevalidation({
+        projectId: PROJECT_ID,
+        entryId: ENTRY_ID,
+        cause: "manual_reopen",
+        impactedStages: ["document_review"],
+      })
+    ).rejects.toThrow(
+      "Seules les entrees deja resolues peuvent etre relancees en revalidation."
+    );
+
+    expect(updatePayloads).toHaveLength(0);
+    expect(eventPayloads).toHaveLength(0);
   });
 });

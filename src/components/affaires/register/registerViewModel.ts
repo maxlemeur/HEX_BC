@@ -1,6 +1,7 @@
 import {
   AFFAIRE_REGISTER_ORIGIN_LABELS,
   AFFAIRE_REGISTER_SCOPE_LABELS,
+  isAffaireRegisterEntryRevalidationRequired,
   type AffaireRegisterEntry,
   type AffaireRegisterEntrySeverity,
   type AffaireRegisterEntryStatus,
@@ -48,27 +49,30 @@ export function getErrorMessage(error: unknown) {
 export function buildDerivedSummary(
   items: AffaireRegisterEntry[]
 ): AffaireRegisterSummary {
-  const openQuestionsCount = items.filter((entry) => entry.status === "open").length;
-  const criticalOpenCount = items.filter(
+  const standardWorkflowEntries = items.filter(
+    (entry) => !isAffaireRegisterEntryRevalidationRequired(entry)
+  );
+  const openQuestionsCount = standardWorkflowEntries.filter(
+    (entry) => entry.status === "open"
+  ).length;
+  const criticalOpenCount = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.severity === "critical"
   ).length;
-  const clarifyWithClientCount = items.filter(
+  const clarifyWithClientCount = standardWorkflowEntries.filter(
     (entry) => entry.status === "clarify_with_client"
   ).length;
-  const criticalClarifyWithClientCount = items.filter(
+  const criticalClarifyWithClientCount = standardWorkflowEntries.filter(
     (entry) =>
       entry.status === "clarify_with_client" && entry.severity === "critical"
   ).length;
-  const openAssumptionCount = items.filter(
+  const openAssumptionCount = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.kind === "assumption"
   ).length;
-  const openMissingPieceCount = items.filter(
+  const openMissingPieceCount = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.kind === "missing_piece"
   ).length;
   const revalidationRequiredEntries = items.filter(
-    (entry) =>
-      entry.revalidationRequest?.status === "required" &&
-      (entry.status === "open" || entry.status === "clarify_with_client")
+    (entry) => isAffaireRegisterEntryRevalidationRequired(entry)
   );
 
   return {

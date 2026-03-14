@@ -27,6 +27,8 @@ import {
   extractAffaireRegisterContinuationDecision,
   extractAffaireRegisterRevalidationRequest,
   encodeAffaireRegisterCursor,
+  isAffaireRegisterEntryRevalidationRequired,
+  isAffaireRegisterEntryResolved,
   normalizeAffaireRegisterText,
   type AffaireRegisterEntry,
   type AffaireRegisterClientClarificationRequest,
@@ -158,6 +160,7 @@ type ListAffaireRegisterPageInput = {
   status?: AffaireRegisterEntryStatus | null;
   severity?: AffaireRegisterEntrySeverity | null;
   kind?: AffaireRegisterEntryKind | null;
+  revalidationRequired?: boolean;
   cursor?: {
     id: string;
     updatedAt: string;
@@ -1123,23 +1126,26 @@ export async function fetchAffaireRegisterGateSummary(input: {
         : null,
     }))
     .filter((row) => row.id.length > 0 && row.text.length > 0);
+  const standardWorkflowEntries = normalized.filter(
+    (entry) => !isAffaireRegisterEntryRevalidationRequired(entry)
+  );
 
-  const criticalOpenEntries = normalized.filter(
+  const criticalOpenEntries = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.severity === "critical"
   );
-  const nonCriticalOpenEntries = normalized.filter(
+  const nonCriticalOpenEntries = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.severity !== "critical"
   );
-  const clarifyWithClientEntries = normalized.filter(
+  const clarifyWithClientEntries = standardWorkflowEntries.filter(
     (entry) => entry.status === "clarify_with_client"
   );
   const criticalClarifyWithClientEntries = clarifyWithClientEntries.filter(
     (entry) => entry.severity === "critical"
   );
-  const openAssumptionEntries = normalized.filter(
+  const openAssumptionEntries = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.kind === "assumption"
   );
-  const openMissingPieceEntries = normalized.filter(
+  const openMissingPieceEntries = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.kind === "missing_piece"
   );
   const continuedWithHypothesisEntries = openMissingPieceEntries.filter(
@@ -1148,10 +1154,8 @@ export async function fetchAffaireRegisterGateSummary(input: {
   const continuedCriticalMissingPieceEntries = continuedWithHypothesisEntries.filter(
     (entry) => entry.severity === "critical"
   );
-  const revalidationRequiredEntries = normalized.filter(
-    (entry) =>
-      entry.revalidationRequest?.status === "required" &&
-      (entry.status === "open" || entry.status === "clarify_with_client")
+  const revalidationRequiredEntries = normalized.filter((entry) =>
+    isAffaireRegisterEntryRevalidationRequired(entry)
   );
   const criticalRevalidationRequiredEntries = revalidationRequiredEntries.filter(
     (entry) => entry.severity === "critical"
@@ -1306,6 +1310,15 @@ export async function fetchAffaireRegisterPage(
       focusedQuery = focusedQuery.eq("kind", input.kind as never);
     }
   }
+  if (input.revalidationRequired) {
+    query = query.eq("metadata->revalidationRequest->>status", "required");
+    if (focusedQuery) {
+      focusedQuery = focusedQuery.eq(
+        "metadata->revalidationRequest->>status",
+        "required"
+      );
+    }
+  }
 
   const [
     { data, error },
@@ -1382,6 +1395,7 @@ export async function fetchAffaireRegisterPage(
       status: input.status ?? null,
       severity: input.severity ?? null,
       kind: input.kind ?? null,
+      revalidationRequired: input.revalidationRequired ?? false,
       cursor: input.cursor ? encodeAffaireRegisterCursor(input.cursor) : null,
       focusEntryId: input.focusEntryId ?? null,
     },
@@ -1732,6 +1746,11 @@ export async function requestAffaireRegisterRevalidation(
   const entry = normalizeAffaireRegisterEntryRow(data);
   if (!entry) {
     throw notFound("Entree du registre introuvable.");
+  }
+  if (!isAffaireRegisterEntryResolved(entry.status)) {
+    throw badRequest(
+      "Seules les entrees deja resolues peuvent etre relancees en revalidation."
+    );
   }
 
   const impactedStages = dedupeRevalidationImpactedStages(parsed.impactedStages);
