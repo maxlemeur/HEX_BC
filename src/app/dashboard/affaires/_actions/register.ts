@@ -15,6 +15,7 @@ import {
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
+  fetchAffaireRegisterReviewExport,
   updateAffaireRegisterEntryFollowUp,
   requestAffaireRegisterRevalidation,
   updateAffaireRegisterEntryStatus,
@@ -87,6 +88,11 @@ const continueAffaireRegisterWithHypothesisActionInputSchema = z.object({
   comment: z.string().trim().max(320).nullable().optional(),
 });
 
+const fetchAffaireRegisterReviewExportActionInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+  versionId: z.string().uuid("versionId invalide.").nullable().optional(),
+});
+
 export type CreateAffaireRegisterEntryActionInput = z.infer<
   typeof createAffaireRegisterEntryActionInputSchema
 >;
@@ -105,6 +111,10 @@ export type RequestAffaireRegisterRevalidationActionInput = z.infer<
 
 export type ContinueAffaireRegisterWithHypothesisActionInput = z.infer<
   typeof continueAffaireRegisterWithHypothesisActionInputSchema
+>;
+
+export type FetchAffaireRegisterReviewExportActionInput = z.infer<
+  typeof fetchAffaireRegisterReviewExportActionInputSchema
 >;
 
 function revalidateAffaireRegisterPaths(projectId: string, versionId?: string | null) {
@@ -218,4 +228,15 @@ export async function continueAffaireRegisterWithHypothesisAction(
   revalidateAffaireRegisterPaths(parsed.projectId, parsed.versionId ?? result.entry.versionId);
 
   return result;
+}
+
+export async function fetchAffaireRegisterReviewExportAction(
+  input: FetchAffaireRegisterReviewExportActionInput
+) {
+  const parsed = fetchAffaireRegisterReviewExportActionInputSchema.parse(input);
+
+  return fetchAffaireRegisterReviewExport({
+    projectId: parsed.projectId,
+    versionId: parsed.versionId ?? null,
+  });
 }

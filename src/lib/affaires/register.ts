@@ -57,6 +57,12 @@ export const affaireRegisterBusinessImpactSchema = z.enum([
   "affects_takeoff",
   "requires_client_answer",
 ]);
+export const affaireRegisterReviewExportSectionSchema = z.enum([
+  "hypothesis",
+  "missing_piece",
+  "clarification",
+  "revalidation",
+]);
 
 export type AffaireRegisterEntryKind = z.infer<
   typeof affaireRegisterEntryKindSchema
@@ -84,6 +90,9 @@ export type AffaireRegisterRevalidationImpactedStage = z.infer<
 >;
 export type AffaireRegisterBusinessImpact = z.infer<
   typeof affaireRegisterBusinessImpactSchema
+>;
+export type AffaireRegisterReviewExportSection = z.infer<
+  typeof affaireRegisterReviewExportSectionSchema
 >;
 
 export const AFFAIRE_REGISTER_KIND_LABELS: Record<
@@ -163,6 +172,34 @@ export const AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS: Record<
   plans_replay: "Relance plans",
   exceptions_review: "Revue des exceptions",
   submission_readiness: "Readiness pre-remise",
+};
+export const AFFAIRE_REGISTER_BUSINESS_IMPACT_LABELS: Record<
+  AffaireRegisterBusinessImpact,
+  string
+> = {
+  affects_hub_readiness: "Impacte la readiness hub",
+  blocks_submission: "Bloque la pre-remise",
+  affects_structure_generation: "Impacte la structure du devis",
+  affects_takeoff: "Impacte les plans et le metre",
+  requires_client_answer: "Necessite une reponse client",
+};
+export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_LABELS: Record<
+  AffaireRegisterReviewExportSection,
+  string
+> = {
+  hypothesis: "Hypotheses",
+  missing_piece: "Pieces manquantes",
+  clarification: "Clarifications client",
+  revalidation: "Revalidations",
+};
+export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_DESCRIPTIONS: Record<
+  AffaireRegisterReviewExportSection,
+  string
+> = {
+  hypothesis: "Hypotheses ouvertes ou acceptees sous reserve pour poursuivre l'etude.",
+  missing_piece: "Pieces manquantes encore ouvertes a rendre visibles avant remise.",
+  clarification: "Points qui attendent explicitement un retour client.",
+  revalidation: "Points deja resolus puis rouverts apres additif ou piece tardive.",
 };
 
 export const AFFAIRE_REGISTER_STATUS_QUERY_PARAM = "registerStatus";
@@ -327,6 +364,61 @@ export type AffaireRegisterOwnerOption = {
   userId: string;
   label: string;
   role: "admin" | "director" | "engineer";
+};
+
+export type AffaireRegisterReviewExportRow = {
+  entryId: string;
+  section: AffaireRegisterReviewExportSection;
+  sectionLabel: string;
+  kind: AffaireRegisterEntryKind;
+  kindLabel: string;
+  severity: AffaireRegisterEntrySeverity;
+  severityLabel: string;
+  status: AffaireRegisterEntryStatus;
+  statusLabel: string;
+  text: string;
+  scopeLabel: string;
+  sourceLabel: string | null;
+  ownerName: string | null;
+  dueDate: string | null;
+  businessImpacts: AffaireRegisterBusinessImpact[];
+  businessImpactLabels: string[];
+  rationale: string | null;
+  location: AffaireRegisterBusinessLocation | null;
+};
+
+export type AffaireRegisterReviewExportGroup = {
+  key: AffaireRegisterReviewExportSection;
+  title: string;
+  description: string;
+  count: number;
+  rows: AffaireRegisterReviewExportRow[];
+};
+
+export type AffaireRegisterReviewExport = {
+  generatedAt: string;
+  projectId: string;
+  projectLabel: string;
+  projectReference: string | null;
+  clientName: string | null;
+  versionId: string | null;
+  capabilities: {
+    explicitExclusions: "not_supported";
+    supportedEntryKinds: AffaireRegisterEntryKind[];
+  };
+  summary: {
+    rowCount: number;
+    criticalCount: number;
+    blockingCount: number;
+    clarificationCount: number;
+    revalidationCount: number;
+    hypothesisCount: number;
+    missingPieceCount: number;
+  };
+  groups: AffaireRegisterReviewExportGroup[];
+  reviewNote: string;
+  csvFilename: string;
+  csvContent: string;
 };
 
 export const affaireRegisterClientClarificationRequestSchema = z
@@ -875,4 +967,258 @@ export function buildAffaireRegisterHubHref(input: {
     cursor: null,
     focusEntryId: input.focusEntryId ?? null,
   });
+}
+
+function escapeAffaireRegisterCsvCell(value: string) {
+  const safeValue = /^[=+\-@]/.test(value) ? `'${value}` : value;
+
+  if (!/[;"\n\r]/.test(safeValue)) {
+    return safeValue;
+  }
+
+  return `"${safeValue.replace(/"/g, "\"\"")}"`;
+}
+
+function toAffaireRegisterCsvLine(values: string[]) {
+  return values.map((value) => escapeAffaireRegisterCsvCell(value)).join(";");
+}
+
+function resolveAffaireRegisterReviewExportSection(
+  entry: Pick<
+    AffaireRegisterEntry,
+    "kind" | "status" | "revalidationRequest"
+  >
+): AffaireRegisterReviewExportSection {
+  if (isAffaireRegisterEntryRevalidationRequired(entry)) {
+    return "revalidation";
+  }
+
+  if (entry.status === "clarify_with_client") {
+    return "clarification";
+  }
+
+  return entry.kind === "assumption" ? "hypothesis" : "missing_piece";
+}
+
+function resolveAffaireRegisterReviewExportRationale(
+  entry: Pick<
+    AffaireRegisterEntry,
+    | "status"
+    | "clientClarificationRequest"
+    | "revalidationRequest"
+    | "continuationDecision"
+    | "severityDecision"
+    | "followUp"
+  >
+) {
+  if (isAffaireRegisterEntryRevalidationRequired(entry)) {
+    const cause = entry.revalidationRequest?.cause
+      ? AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS[entry.revalidationRequest.cause]
+      : null;
+    const comment = entry.revalidationRequest?.comment?.trim() || null;
+    return [cause, comment].filter(Boolean).join(" - ") || null;
+  }
+
+  if (entry.status === "clarify_with_client") {
+    return entry.clientClarificationRequest?.comment?.trim() || "Retour client attendu";
+  }
+
+  if (entry.continuationDecision?.comment?.trim()) {
+    return entry.continuationDecision.comment.trim();
+  }
+
+  if (entry.followUp?.comment?.trim()) {
+    return entry.followUp.comment.trim();
+  }
+
+  if (entry.severityDecision?.comment?.trim()) {
+    return entry.severityDecision.comment.trim();
+  }
+
+  return null;
+}
+
+function compareAffaireRegisterReviewExportRows(
+  left: AffaireRegisterReviewExportRow,
+  right: AffaireRegisterReviewExportRow
+) {
+  if (left.severity !== right.severity) {
+    if (left.severity === "critical") return -1;
+    if (right.severity === "critical") return 1;
+    if (left.severity === "warning") return -1;
+    if (right.severity === "warning") return 1;
+  }
+
+  const leftDue = left.dueDate ?? "9999-12-31";
+  const rightDue = right.dueDate ?? "9999-12-31";
+  if (leftDue !== rightDue) {
+    return leftDue.localeCompare(rightDue);
+  }
+
+  return left.text.localeCompare(right.text, "fr-FR");
+}
+
+export function buildAffaireRegisterReviewExport(input: {
+  generatedAt?: string;
+  projectId: string;
+  projectLabel: string;
+  projectReference?: string | null;
+  clientName?: string | null;
+  versionId?: string | null;
+  entries: AffaireRegisterEntry[];
+}) {
+  const generatedAt = input.generatedAt ?? new Date().toISOString();
+  const includedEntries = input.entries.filter(
+    (entry) =>
+      entry.status === "open" ||
+      entry.status === "clarify_with_client" ||
+      isAffaireRegisterEntryRevalidationRequired(entry)
+  );
+
+  const rows = includedEntries
+    .map((entry) => {
+      const section = resolveAffaireRegisterReviewExportSection(entry);
+      const sourceLabel =
+        entry.sourceFileName?.trim() ||
+        entry.location?.sourceFileName?.trim() ||
+        null;
+
+      return {
+        entryId: entry.id,
+        section,
+        sectionLabel: AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_LABELS[section],
+        kind: entry.kind,
+        kindLabel: AFFAIRE_REGISTER_KIND_LABELS[entry.kind],
+        severity: entry.severity,
+        severityLabel: AFFAIRE_REGISTER_SEVERITY_LABELS[entry.severity],
+        status: entry.status,
+        statusLabel: AFFAIRE_REGISTER_STATUS_LABELS[entry.status],
+        text: entry.text,
+        scopeLabel: entry.scopeLabel,
+        sourceLabel,
+        ownerName: entry.followUp?.ownerName ?? null,
+        dueDate: entry.followUp?.dueDate ?? null,
+        businessImpacts: entry.businessImpact ?? [],
+        businessImpactLabels: (entry.businessImpact ?? []).map(
+          (impact) => AFFAIRE_REGISTER_BUSINESS_IMPACT_LABELS[impact]
+        ),
+        rationale: resolveAffaireRegisterReviewExportRationale(entry),
+        location: entry.location ?? null,
+      } satisfies AffaireRegisterReviewExportRow;
+    })
+    .sort(compareAffaireRegisterReviewExportRows);
+
+  const sectionOrder = affaireRegisterReviewExportSectionSchema.options;
+  const groups = sectionOrder
+    .map((key) => {
+      const groupRows = rows.filter((row) => row.section === key);
+      return {
+        key,
+        title: AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_LABELS[key],
+        description: AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_DESCRIPTIONS[key],
+        count: groupRows.length,
+        rows: groupRows,
+      } satisfies AffaireRegisterReviewExportGroup;
+    })
+    .filter((group) => group.count > 0);
+
+  const criticalRows = rows.filter((row) => row.severity === "critical");
+  const blockingRows = rows.filter((row) =>
+    row.businessImpacts.includes("blocks_submission")
+  );
+  const clarificationCount = rows.filter(
+    (row) => row.section === "clarification"
+  ).length;
+  const revalidationCount = rows.filter(
+    (row) => row.section === "revalidation"
+  ).length;
+  const hypothesisCount = rows.filter(
+    (row) => row.section === "hypothesis"
+  ).length;
+  const missingPieceCount = rows.filter(
+    (row) => row.section === "missing_piece"
+  ).length;
+  const reviewNoteLines = [
+    `Revue interne registre - ${input.projectLabel}`,
+    [
+      input.projectReference ? `Ref ${input.projectReference}` : null,
+      input.clientName ? `Client ${input.clientName}` : null,
+    ]
+      .filter(Boolean)
+      .join(" - "),
+    `Points ouverts exportes: ${rows.length}`,
+    `Critiques: ${criticalRows.length} - Bloquants pre-remise: ${blockingRows.length}`,
+    `Hypotheses: ${hypothesisCount} - Pieces manquantes: ${missingPieceCount} - Clarifications: ${clarificationCount} - Revalidations: ${revalidationCount}`,
+    "Exclusions explicites: non supportees dans ce slice registre.",
+    ...criticalRows.slice(0, 5).map((row) => {
+      const dueLabel = row.dueDate ? ` - echeance ${row.dueDate}` : "";
+      const ownerLabel = row.ownerName ? ` - responsable ${row.ownerName}` : "";
+      return `- ${row.sectionLabel} / ${row.scopeLabel}: ${row.text}${ownerLabel}${dueLabel}`;
+    }),
+  ].filter((line) => line && line.trim().length > 0);
+
+  const csvLines = [
+    toAffaireRegisterCsvLine([
+      "section",
+      "type",
+      "severite",
+      "statut",
+      "texte",
+      "scope",
+      "source",
+      "responsable",
+      "echeance",
+      "impacts",
+      "rationale",
+    ]),
+    ...rows.map((row) =>
+      toAffaireRegisterCsvLine([
+        row.sectionLabel,
+        row.kindLabel,
+        row.severityLabel,
+        row.statusLabel,
+        row.text,
+        row.scopeLabel,
+        row.sourceLabel ?? "",
+        row.ownerName ?? "",
+        row.dueDate ?? "",
+        row.businessImpactLabels.join(" | "),
+        row.rationale ?? "",
+      ])
+    ),
+  ];
+  const filenameSeed = normalizeAffaireRegisterText(
+    [input.projectReference, input.projectLabel].filter(Boolean).join(" ") ||
+      input.projectId,
+    80
+  )
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return {
+    generatedAt,
+    projectId: input.projectId,
+    projectLabel: input.projectLabel,
+    projectReference: input.projectReference ?? null,
+    clientName: input.clientName ?? null,
+    versionId: input.versionId ?? null,
+    capabilities: {
+      explicitExclusions: "not_supported" as const,
+      supportedEntryKinds: ["assumption", "missing_piece"] satisfies AffaireRegisterEntryKind[],
+    },
+    summary: {
+      rowCount: rows.length,
+      criticalCount: criticalRows.length,
+      blockingCount: blockingRows.length,
+      clarificationCount,
+      revalidationCount,
+      hypothesisCount,
+      missingPieceCount,
+    },
+    groups,
+    reviewNote: `${reviewNoteLines.join("\n")}\n`,
+    csvFilename: `registre-revue-${filenameSeed || input.projectId}.csv`,
+    csvContent: `${csvLines.join("\n")}\n`,
+  } satisfies AffaireRegisterReviewExport;
 }

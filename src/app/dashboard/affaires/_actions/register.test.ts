@@ -7,6 +7,7 @@ vi.mock("next/cache", () => ({
 vi.mock("@/lib/affaires/register-server", () => ({
   continueAffaireRegisterWithHypothesis: vi.fn(),
   createAffaireRegisterEntry: vi.fn(),
+  fetchAffaireRegisterReviewExport: vi.fn(),
   requestAffaireRegisterRevalidation: vi.fn(),
   updateAffaireRegisterEntryFollowUp: vi.fn(),
   updateAffaireRegisterEntryStatus: vi.fn(),
@@ -17,6 +18,7 @@ import { revalidatePath } from "next/cache";
 import {
   continueAffaireRegisterWithHypothesisAction,
   createAffaireRegisterEntryAction,
+  fetchAffaireRegisterReviewExportAction,
   requestAffaireRegisterRevalidationAction,
   updateAffaireRegisterEntryFollowUpAction,
   updateAffaireRegisterEntryStatusAction,
@@ -24,6 +26,7 @@ import {
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
+  fetchAffaireRegisterReviewExport,
   requestAffaireRegisterRevalidation,
   updateAffaireRegisterEntryFollowUp,
   updateAffaireRegisterEntryStatus,
@@ -223,6 +226,46 @@ describe("affaire register server actions", () => {
       `/dashboard/estimates/${VERSION_ID}`
     );
     expect(result.ok).toBe(true);
+  });
+
+  it("fetches the review export snapshot without mutating cache", async () => {
+    vi.mocked(fetchAffaireRegisterReviewExport).mockResolvedValue({
+      generatedAt: "2026-03-14T11:00:00.000Z",
+      projectId: PROJECT_ID,
+      projectLabel: "Affaire test",
+      projectReference: "AFF-TEST",
+      clientName: "Client test",
+      versionId: VERSION_ID,
+      capabilities: {
+        explicitExclusions: "not_supported",
+        supportedEntryKinds: ["assumption", "missing_piece"],
+      },
+      summary: {
+        rowCount: 2,
+        criticalCount: 1,
+        blockingCount: 1,
+        clarificationCount: 1,
+        revalidationCount: 0,
+        hypothesisCount: 1,
+        missingPieceCount: 0,
+      },
+      groups: [],
+      reviewNote: "Revue interne registre - Affaire test\n",
+      csvFilename: "registre-revue-aff-test-affaire-test.csv",
+      csvContent: "section;type\n",
+    });
+
+    const result = await fetchAffaireRegisterReviewExportAction({
+      projectId: PROJECT_ID,
+      versionId: VERSION_ID,
+    });
+
+    expect(vi.mocked(fetchAffaireRegisterReviewExport)).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      versionId: VERSION_ID,
+    });
+    expect(vi.mocked(revalidatePath)).not.toHaveBeenCalled();
+    expect(result.csvFilename).toBe("registre-revue-aff-test-affaire-test.csv");
   });
 
   it("continues with hypothesis and revalidates affaire and estimate paths", async () => {

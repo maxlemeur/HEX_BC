@@ -14,6 +14,7 @@ import type { Database, Json } from "@/types/database";
 
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  buildAffaireRegisterReviewExport,
   buildAffaireRegisterDerivedMetadata,
   buildAffaireRegisterBusinessLocation,
   buildAffaireRegisterContinuationHypothesisText,
@@ -49,6 +50,7 @@ import {
   type AffaireRegisterFollowUp,
   type AffaireRegisterOwnerOption,
   type AffaireRegisterPageResult,
+  type AffaireRegisterReviewExport,
   type AffaireRegisterRevalidationRequest,
   type AffaireRegisterScopeOption,
   type AffaireRegisterScopeOptions,
@@ -1783,6 +1785,50 @@ export async function fetchAffaireRegisterOwnerOptions(input: {
   return listAssignableRegisterOwners({
     supabase: context.supabase,
     tenantId: context.tenantId,
+  });
+}
+
+export async function fetchAffaireRegisterReviewExport(input: {
+  projectId: string;
+  versionId?: string | null;
+}): Promise<AffaireRegisterReviewExport> {
+  const { context, project } = await requireAffaireRegisterProjectAccess(
+    input.projectId,
+    "reader"
+  );
+
+  let query = context.supabase
+    .from("affaire_register_entries" as never)
+    .select(ENTRY_SELECT as never)
+    .eq("project_id", project.id as never)
+    .eq("is_active", true as never);
+
+  query = applyVersionScopeFilter(query as never, input.versionId ?? null) as never;
+
+  const { data, error } = await query
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: false });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger l'export de revue du registre."
+    );
+  }
+
+  const entries = ((data ?? []) as unknown[])
+    .map((row) => normalizeAffaireRegisterEntryRow(row))
+    .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null)
+    .map(toAffaireRegisterEntry);
+
+  return buildAffaireRegisterReviewExport({
+    generatedAt: new Date().toISOString(),
+    projectId: project.id,
+    projectLabel: project.name,
+    projectReference: project.reference ?? null,
+    clientName: project.client_name ?? null,
+    versionId: input.versionId ?? null,
+    entries,
   });
 }
 
