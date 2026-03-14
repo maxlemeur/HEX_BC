@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorRow } from "@/components/estimates/components/EstimateEditorRow";
@@ -161,6 +161,44 @@ function renderRow(isLaborSplitEnabled: boolean) {
   );
 }
 
+function renderRowWithItem(item: EstimateItem) {
+  return render(
+    <EstimateEditorRow
+      versionId="version-1"
+      estimateCurrency="EUR"
+      item={item}
+      depth={1}
+      unitValue="m2"
+      supplyTypeValue="Acier"
+      qualityFlags={[]}
+      detectedOutlierFlags={[]}
+      dismissedOutlierFlags={[]}
+      supplyTypeById={new Map()}
+      laborRoles={[
+        {
+          id: "role-1",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          name: "Poseur",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          hourly_rate_cents: 4500,
+          is_active: true,
+          position: 1,
+        },
+      ] as Database["public"]["Tables"]["labor_roles"]["Row"][]}
+      isLineSelected={false}
+      hasSupplierComparisonMismatch={false}
+      sectionTotals={null}
+      isDragDisabled
+      isOutlierActionPending={false}
+      isReadOnly={false}
+      hideEditingActions
+      isLaborSplitEnabled={false}
+    />
+  );
+}
+
 describe("EstimateEditorRow line cells", () => {
   it("renders the standard labor cells when labor split is disabled", () => {
     const { container } = renderRow(false);
@@ -177,5 +215,20 @@ describe("EstimateEditorRow line cells", () => {
     expect(container.querySelector('[data-cell-id="line-1::h_mo_atelier"]')).not.toBeNull();
     expect(container.querySelector('[data-cell-id="line-1::h_mo_chantier"]')).not.toBeNull();
     expect(container.querySelectorAll("select.estimate-select")).toHaveLength(2);
+  });
+
+  it("renders source, qty status and confidence badges for each line", () => {
+    const view = renderRowWithItem(
+      createItem({
+        source_provider: "dpgf",
+        source_file_name: "client-dpgf.xlsx",
+        quantity: 12,
+      } as Partial<EstimateItem>)
+    );
+
+    const row = within(view.container);
+    expect(row.getByText("DPGF importee")).toBeInTheDocument();
+    expect(row.getByText("Qte importee non verifiee")).toBeInTheDocument();
+    expect(row.getByText("Confiance moyenne")).toBeInTheDocument();
   });
 });

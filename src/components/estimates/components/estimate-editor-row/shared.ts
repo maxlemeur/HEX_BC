@@ -8,6 +8,7 @@ import {
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
+import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
 import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
@@ -29,6 +30,7 @@ export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"]
   extraction_date?: string | null;
   extracted_at?: string | null;
   source_metadata?: unknown;
+  line_truth?: EstimateLineTruth | null;
 };
 
 export type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];

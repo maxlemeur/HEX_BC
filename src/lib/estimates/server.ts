@@ -66,6 +66,10 @@ import {
   enrichEstimateItemsWithVersionZeroProvenance,
   fetchVersionZeroDraftSummary,
 } from "./version-zero-drafts";
+import {
+  resolveEstimateLineTruth,
+  type EstimateLineTruth,
+} from "./line-truth";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -133,6 +137,9 @@ type EstimateItemProvenanceFields = {
   source_metadata?: Json | null;
 };
 type EstimateItemWithProvenanceRow = EstimateItemRow & EstimateItemProvenanceFields;
+type EstimateItemWithTruthRow = EstimateItemWithProvenanceRow & {
+  line_truth?: EstimateLineTruth | null;
+};
 type TakeoffJobProvenanceRow = {
   id: string;
   level: string | null;
@@ -3018,7 +3025,7 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
   tenantId: string;
   targetVersionId: string;
   items: EstimateItemRow[];
-}): Promise<EstimateItemWithProvenanceRow[]> {
+}): Promise<EstimateItemWithTruthRow[]> {
   const withTakeoff = await enrichEstimateItemsWithTakeoffProvenance(input);
   const withAiStructure = await enrichEstimateItemsWithAiStructureProvenance({
     supabase: input.supabase,
@@ -3036,7 +3043,10 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
     items: withGeneratedOuvrage,
   });
 
-  return withVersionZero as EstimateItemWithProvenanceRow[];
+  return (withVersionZero as EstimateItemWithProvenanceRow[]).map((item) => ({
+    ...item,
+    line_truth: resolveEstimateLineTruth(item),
+  }));
 }
 
 function escapeIlikeToken(value: string) {

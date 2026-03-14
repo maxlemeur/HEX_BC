@@ -13,6 +13,7 @@ import type {
   EstimateOutlierFlagsByItemId,
 } from "@/lib/estimates/outlier-detection";
 import type { MoveEstimateItemInput } from "@/lib/estimates/schemas";
+import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
 
 type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -27,6 +28,7 @@ type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_version_number?: number | null;
   source_extracted_at?: string | null;
   source_metadata?: unknown;
+  line_truth?: EstimateLineTruth | null;
 };
 type EstimateTemplateItem =
   Database["public"]["Tables"]["estimate_template_items"]["Row"];

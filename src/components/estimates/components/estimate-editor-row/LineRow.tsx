@@ -11,6 +11,7 @@ import {
 
 import { EditableCell } from "@/components/estimates/EditableCell";
 import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
+import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
 import {
   ESTIMATE_QUALITY_FLAG_META,
   type EstimateQualityFlagKey,
@@ -472,6 +473,7 @@ export function LineRow({
                     : undefined
                 }
               />
+              <EstimateLineTruthBadges item={item} />
               <TakeoffSourceBadge
                 versionId={versionId}
                 estimateItemId={item.id}

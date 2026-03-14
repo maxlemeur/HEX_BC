@@ -1857,16 +1857,22 @@ function createListEstimateItemsSupabaseMock() {
     data: [
       {
         id: ITEM_ID_1,
+        item_type: "line",
+        quantity: 12,
         source_provider: "takeoff",
         source_job_id: ITEM_ID_1,
       },
       {
         id: ITEM_ID_2,
+        item_type: "line",
+        quantity: 5,
         source_provider: "takeoff",
         source_job_id: ITEM_ID_2,
       },
       {
         id: INSERTED_LINE_ID,
+        item_type: "line",
+        quantity: 3,
         source_provider: "manual",
         source_job_id: null,
       },
@@ -1924,6 +1930,28 @@ function createListEstimateItemsSupabaseMock() {
     error: null,
   });
 
+  const generatedOuvrageApplicationsBuilder = {
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  generatedOuvrageApplicationsBuilder.eq.mockReturnValue(
+    generatedOuvrageApplicationsBuilder
+  );
+  generatedOuvrageApplicationsBuilder.in.mockResolvedValue({
+    data: [],
+    error: null,
+  });
+
+  const versionZeroApplicationsBuilder = {
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  versionZeroApplicationsBuilder.eq.mockReturnValue(versionZeroApplicationsBuilder);
+  versionZeroApplicationsBuilder.in.mockResolvedValue({
+    data: [],
+    error: null,
+  });
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -1975,6 +2003,18 @@ function createListEstimateItemsSupabaseMock() {
       if (table === "estimate_structure_draft_applications") {
         return {
           select: vi.fn(() => draftApplicationsBuilder),
+        };
+      }
+
+      if (table === "estimate_generated_ouvrage_applications") {
+        return {
+          select: vi.fn(() => generatedOuvrageApplicationsBuilder),
+        };
+      }
+
+      if (table === "estimate_version_zero_applications") {
+        return {
+          select: vi.fn(() => versionZeroApplicationsBuilder),
         };
       }
 
@@ -2055,12 +2095,39 @@ describe("estimate item source provenance", () => {
           source_level: "A",
           source_extracted_at: "2026-02-25T09:45:00.000Z",
           source_version_number: 1,
+          line_truth: expect.objectContaining({
+            source: expect.objectContaining({
+              label: "Plan / metre",
+            }),
+            qtyStatus: expect.objectContaining({
+              code: "measured",
+            }),
+            confidence: expect.objectContaining({
+              label: "forte",
+            }),
+          }),
         }),
         expect.objectContaining({
           id: ITEM_ID_2,
           source_level: "B",
           source_extracted_at: "2026-02-24T08:00:00.000Z",
           source_version_number: null,
+          line_truth: expect.objectContaining({
+            confidence: expect.objectContaining({
+              label: "moyenne",
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          id: INSERTED_LINE_ID,
+          line_truth: expect.objectContaining({
+            source: expect.objectContaining({
+              label: "Saisie manuelle",
+            }),
+            qtyStatus: expect.objectContaining({
+              code: "assumed",
+            }),
+          }),
         }),
       ])
     );
