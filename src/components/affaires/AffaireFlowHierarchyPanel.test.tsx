@@ -839,6 +839,105 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
   });
 
+  it("prefers canonical submission readiness over the legacy ready-to-send alias", () => {
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-finish-line-canonical"
+        currentVersion={{
+          id: "version-finish-line-canonical",
+          projectId: "project-finish-line-canonical",
+          versionNumber: 2,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+        finishLineSummary={{
+          versionId: "version-finish-line-canonical",
+          submissionReadiness: {
+            status: "warning",
+            blockers: [],
+            alerts: [
+              {
+                key: "supplier_price_outdated",
+                severity: "warning",
+                count: 2,
+                item_ids: ["line-1", "line-2"],
+                label: "2 prix a verifier avant envoi",
+                description: "Les prix doivent etre rafraichis avant validation finale.",
+                category: "estimate_quality",
+              },
+            ],
+            groups: [],
+            checkedAt: "2026-03-11T12:00:00.000Z",
+            stalePriceDays: 45,
+            errorMessage: null,
+          },
+          readyToSend: {
+            status: "blocked",
+            blockingFlags: [
+              {
+                key: "no_pdf_generated",
+                severity: "blocking",
+                count: 1,
+                item_ids: ["version-finish-line-canonical"],
+                label: "PDF absent",
+                description: "Le PDF doit etre genere avant envoi.",
+                category: "pdf",
+              },
+            ],
+            warningFlags: [],
+            checkedAt: "2026-03-11T12:00:00.000Z",
+            stalePriceDays: 45,
+            errorMessage: null,
+          },
+          readyToOrder: {
+            status: "waiting",
+            orderableLinesCount: 0,
+            coveredLinesCount: 0,
+            ambiguousLinesCount: 0,
+            missingPriceLinesCount: 0,
+            staleLinesCount: 0,
+            errorMessage: null,
+          },
+        }}
+        cockpitSuggestions={[]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Verifier la sortie devis" })).toBeInTheDocument();
+    expect(screen.getByText("Sortie a finaliser")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir la sortie devis" })).toHaveAttribute(
+      "href",
+      "#finish-line-output",
+    );
+    expect(screen.queryByText("PDF absent")).not.toBeInTheDocument();
+  });
+
   it("keeps the structure hero in review mode when a V0 draft already exists", async () => {
     const user = userEvent.setup();
     const reviewStructure = buildSuggestion({

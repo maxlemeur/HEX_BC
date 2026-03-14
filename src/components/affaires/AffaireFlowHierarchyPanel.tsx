@@ -21,6 +21,7 @@ import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
 
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 
@@ -465,13 +466,13 @@ function buildPanelModel(
     input.intakeWorkspace?.missingPieces.filter((piece) => piece.severity === "critical") ?? [];
   const missingPieces = input.intakeWorkspace?.missingPieces ?? [];
   const planExceptionCount = input.plansSummary?.exceptionCount ?? 0;
-  const finishLineBlockers =
-    input.finishLineSummary?.readyToSend.blockingFlags.map((flag) => flag.label) ?? [];
+  const submissionReadiness = resolveSubmissionReadiness(input.finishLineSummary);
+  const finishLineBlockers = submissionReadiness?.blockers.map((flag) => flag.label) ?? [];
   const documentReadinessFlags = [
-    ...(input.finishLineSummary?.readyToSend.blockingFlags.filter(
+    ...(submissionReadiness?.blockers.filter(
       (flag) => flag.category === "documents",
     ) ?? []),
-    ...(input.finishLineSummary?.readyToSend.warningFlags.filter(
+    ...(submissionReadiness?.alerts.filter(
       (flag) => flag.category === "documents",
     ) ?? []),
   ];
@@ -758,17 +759,15 @@ function buildPanelModel(
     readinessLevel = "ready_with_reservations";
     primaryAction = toSuggestionAction(prepareValidationSuggestion);
   } else if (
-    input.finishLineSummary &&
-    (input.finishLineSummary.readyToSend.status === "ready" ||
-      input.finishLineSummary.readyToSend.status === "warning")
+    submissionReadiness &&
+    (submissionReadiness.status === "ready" || submissionReadiness.status === "warning")
   ) {
     title = "Verifier la sortie devis";
     summary = "Le chiffrage est assez stable pour verifier le PDF, l'email et la sortie client.";
     statusLabel = "Sortie a finaliser";
     statusVariant = "success";
     heroState = "ready_to_continue";
-    readinessLevel =
-      input.finishLineSummary.readyToSend.status === "ready" ? "ready" : "ready_with_reservations";
+    readinessLevel = submissionReadiness.status === "ready" ? "ready" : "ready_with_reservations";
     primaryAction = toHrefAction({
       key: "finish-line-output",
       label: "Ouvrir la sortie devis",
