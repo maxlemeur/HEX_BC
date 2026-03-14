@@ -928,6 +928,110 @@ describe("affaires server (list + counters)", () => {
     });
   });
 
+  it("keeps revalidation dossiers out of the reservations bucket", async () => {
+    const rows = [
+      buildAffaireRow(1, {
+        project_id: "00000000-0000-4000-8000-000000000101",
+        project_name: "Projet revalidation",
+      }),
+      buildAffaireRow(2, {
+        project_id: "00000000-0000-4000-8000-000000000102",
+        project_name: "Projet reserve",
+      }),
+    ];
+    const context = {
+      supabase: {
+        rpc: vi.fn(async (fnName: string) => ({
+          data:
+            fnName === "get_affaires_counters"
+              ? [
+                  {
+                    total_count: 2,
+                    filtered_count: 2,
+                    draft_count: 2,
+                    sent_count: 0,
+                    accepted_count: 0,
+                    archived_count: 0,
+                  },
+                ]
+              : rows,
+          error: null,
+        })),
+        from: createFromMock({
+          estimate_items: Array.from({ length: 2 }, () => ({
+            limit: {
+              data: null,
+              count: 0,
+              error: null,
+            },
+          })),
+        }),
+      },
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer" as const,
+    };
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchAffaireIntakeWorkspace).mockImplementation(async (projectId: string) => ({
+      projectId,
+      uploadId: null,
+      documents: [],
+      missingPieces: [],
+      readiness: {
+        reviewDocumentsCount: 0,
+        missingPiecesCount: 0,
+        criticalMissingPiecesCount: 0,
+        provisionalMissingPiecesCount: 0,
+        provisionalCriticalMissingPiecesCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+        reviewCouldLiftCriticalMissing: false,
+        reviewBeforeMissing: false,
+        dominantAction: "none",
+        hubReadinessImpact: "none",
+      },
+      briefDraft: { status: "confirme" },
+    }) as never);
+    vi.mocked(fetchAffaireRegisterGateSummary).mockImplementation(async ({ projectId }) => ({
+      openQuestionsCount: 0,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries:
+        projectId === "00000000-0000-4000-8000-000000000102" ? [{ id: "clarify-1" }] : [],
+      criticalClarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
+      continuedWithHypothesisEntries: [],
+      continuedCriticalMissingPieceEntries: [],
+      revalidationRequiredEntries:
+        projectId === "00000000-0000-4000-8000-000000000101"
+          ? [{ id: "revalidation-1" }]
+          : [],
+      criticalRevalidationRequiredEntries: [],
+      revalidationImpactedStages: [],
+    }) as never);
+
+    const reservationsResult = await fetchAffairePageData({
+      manager: "reservations",
+      size: 20,
+    });
+
+    expect(reservationsResult.list.items).toHaveLength(1);
+    expect(reservationsResult.list.items[0]?.projectId).toBe(
+      "00000000-0000-4000-8000-000000000102"
+    );
+    expect(reservationsResult.counters.filteredCount).toBe(1);
+    expect(reservationsResult.managerQueue).toEqual({
+      counts: {
+        followUp: 0,
+        reservations: 1,
+        revalidation: 1,
+      },
+      incompleteCount: 0,
+    });
+  });
+
   it("treats manager classification failures as incomplete instead of silently dropping dossiers", async () => {
     const row = buildAffaireRow(1, {
       project_id: "00000000-0000-4000-8000-000000000010",
