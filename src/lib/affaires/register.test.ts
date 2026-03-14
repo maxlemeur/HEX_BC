@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAffaireRegisterBusinessLocation,
+  buildAffaireRegisterDerivedMetadata,
   buildAffaireRegisterHubHref,
   canAffaireRegisterEntryClarifyWithClient,
   buildAffaireRegisterContinuationHypothesisText,
   canAffaireRegisterEntryContinueWithHypothesis,
   canAffaireRegisterEntryRequestRevalidation,
   deriveAffaireRegisterBusinessImpact,
+  extractAffaireRegisterBusinessImpact,
+  extractAffaireRegisterBusinessLocation,
   extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterContinuationDecision,
   extractAffaireRegisterRevalidationRequest,
@@ -257,6 +260,75 @@ describe("affaire register continuation contract", () => {
       versionId: "22222222-2222-4222-8222-222222222222",
       sourceDocumentId: "33333333-3333-4333-8333-333333333333",
       sourceFileName: "dpgf-hall.xlsx",
+    });
+  });
+
+  it("extracts persisted business impact and structured location from metadata", () => {
+    const metadata = {
+      businessImpact: ["affects_hub_readiness", "blocks_submission"],
+      structuredLocation: {
+        scopeType: "project",
+        scopeId: null,
+        scopeRef: null,
+        scopeLabel: "Affaire test",
+        versionId: null,
+        sourceDocumentId: null,
+        sourceFileName: "plans.pdf",
+      },
+    };
+
+    expect(extractAffaireRegisterBusinessImpact(metadata)).toEqual([
+      "affects_hub_readiness",
+      "blocks_submission",
+    ]);
+    expect(extractAffaireRegisterBusinessLocation(metadata)).toEqual({
+      scopeType: "project",
+      scopeId: null,
+      scopeRef: null,
+      scopeLabel: "Affaire test",
+      versionId: null,
+      sourceDocumentId: null,
+      sourceFileName: "plans.pdf",
+    });
+  });
+
+  it("persists derived register metadata in a stable shape", () => {
+    expect(
+      buildAffaireRegisterDerivedMetadata({
+        metadata: {
+          existing: true,
+        },
+        kind: "missing_piece",
+        code: "missing_plans",
+        severity: "critical",
+        status: "open",
+        scopeType: "project",
+        scopeId: null,
+        scopeRef: null,
+        scopeLabel: "Affaire test",
+        versionId: null,
+        sourceDocumentId: null,
+        sourceFileName: "plans.pdf",
+        clientClarificationRequest: null,
+        continuationDecision: null,
+        revalidationRequest: null,
+      })
+    ).toEqual({
+      existing: true,
+      businessImpact: [
+        "affects_hub_readiness",
+        "blocks_submission",
+        "affects_takeoff",
+      ],
+      structuredLocation: {
+        scopeType: "project",
+        scopeId: null,
+        scopeRef: null,
+        scopeLabel: "Affaire test",
+        versionId: null,
+        sourceDocumentId: null,
+        sourceFileName: "plans.pdf",
+      },
     });
   });
 

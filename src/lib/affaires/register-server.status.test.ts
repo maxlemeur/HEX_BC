@@ -232,6 +232,21 @@ describe("updateAffaireRegisterEntryStatus", () => {
       status: "clarify_with_client",
       updated_by: USER_ID,
       metadata: expect.objectContaining({
+        businessImpact: [
+          "affects_hub_readiness",
+          "blocks_submission",
+          "affects_takeoff",
+          "requires_client_answer",
+        ],
+        structuredLocation: {
+          scopeType: "project",
+          scopeId: null,
+          scopeRef: null,
+          scopeLabel: "Affaire test",
+          versionId: null,
+          sourceDocumentId: null,
+          sourceFileName: "plans.pdf",
+        },
         clientClarificationRequest: expect.objectContaining({
           status: "clarify_with_client",
           requestedByUserId: USER_ID,

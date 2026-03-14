@@ -14,11 +14,14 @@ import type { Database, Json } from "@/types/database";
 
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  buildAffaireRegisterDerivedMetadata,
   buildAffaireRegisterBusinessLocation,
   buildAffaireRegisterContinuationHypothesisText,
   deriveAffaireRegisterBusinessImpact,
   affaireRegisterEventTypeSchema,
   extractAffaireRegisterClientClarificationRequest,
+  extractAffaireRegisterBusinessImpact,
+  extractAffaireRegisterBusinessLocation,
   affaireRegisterEntryKindSchema,
   affaireRegisterEntryOriginKindSchema,
   affaireRegisterRevalidationCauseSchema,
@@ -438,6 +441,24 @@ function toAffaireRegisterEntry(
     row.metadata
   );
   const revalidationRequest = extractAffaireRegisterRevalidationRequest(row.metadata);
+  const derivedBusinessImpact = deriveAffaireRegisterBusinessImpact({
+    kind: row.kind,
+    code: row.code,
+    severity: row.severity,
+    status: row.status,
+    clientClarificationRequest,
+    continuationDecision,
+    revalidationRequest,
+  });
+  const derivedLocation = buildAffaireRegisterBusinessLocation({
+    scopeType: row.scope_type,
+    scopeId: row.scope_id,
+    scopeRef: row.scope_ref,
+    scopeLabel: row.scope_label,
+    versionId: row.version_id,
+    sourceDocumentId: row.source_document_id,
+    sourceFileName: row.source_file_name,
+  });
 
   return {
     id: row.id,
@@ -460,24 +481,9 @@ function toAffaireRegisterEntry(
     updatedByName: row.updated_by_profile?.full_name?.trim() || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    businessImpact: deriveAffaireRegisterBusinessImpact({
-      kind: row.kind,
-      code: row.code,
-      severity: row.severity,
-      status: row.status,
-      clientClarificationRequest,
-      continuationDecision,
-      revalidationRequest,
-    }),
-    location: buildAffaireRegisterBusinessLocation({
-      scopeType: row.scope_type,
-      scopeId: row.scope_id,
-      scopeRef: row.scope_ref,
-      scopeLabel: row.scope_label,
-      versionId: row.version_id,
-      sourceDocumentId: row.source_document_id,
-      sourceFileName: row.source_file_name,
-    }),
+    businessImpact:
+      extractAffaireRegisterBusinessImpact(row.metadata) ?? derivedBusinessImpact,
+    location: extractAffaireRegisterBusinessLocation(row.metadata) ?? derivedLocation,
     clientClarificationRequest,
     continuationDecision,
     revalidationRequest,
@@ -964,7 +970,26 @@ async function upsertSyncedEntries(input: {
         source_file_name: row.sourceFileName ?? null,
         sync_key: row.syncKey,
         is_active: true,
-        metadata: {},
+        metadata: buildAffaireRegisterDerivedMetadata({
+          metadata: existing?.metadata ?? {},
+          kind: row.kind,
+          code: row.code ?? null,
+          severity: row.severity,
+          status: nextStatus,
+          scopeType: row.scopeType,
+          scopeId: row.scopeId ?? null,
+          scopeRef: row.scopeRef ?? null,
+          scopeLabel: row.scopeLabel,
+          versionId: row.versionId ?? null,
+          sourceDocumentId: row.sourceDocumentId ?? null,
+          sourceFileName: row.sourceFileName ?? null,
+          clientClarificationRequest:
+            extractAffaireRegisterClientClarificationRequest(existing?.metadata ?? null),
+          continuationDecision:
+            extractAffaireRegisterContinuationDecision(existing?.metadata ?? null),
+          revalidationRequest:
+            extractAffaireRegisterRevalidationRequest(existing?.metadata ?? null),
+        }),
         created_by: existing?.created_by ?? input.actorUserId ?? null,
         updated_by: input.actorUserId ?? null,
       };
@@ -1186,26 +1211,48 @@ export async function fetchAffaireRegisterGateSummary(input: {
         ? extractAffaireRegisterRevalidationRequest(row.metadata)
         : null,
       get businessImpact() {
-        return deriveAffaireRegisterBusinessImpact({
-          kind: this.kind,
-          code: this.code,
-          severity: this.severity,
-          status: this.status,
-          clientClarificationRequest: this.clientClarificationRequest,
-          continuationDecision: this.continuationDecision,
-          revalidationRequest: this.revalidationRequest,
-        });
+        return isRecord(row.metadata)
+          ? extractAffaireRegisterBusinessImpact(row.metadata) ??
+              deriveAffaireRegisterBusinessImpact({
+                kind: this.kind,
+                code: this.code ?? null,
+                severity: this.severity,
+                status: this.status,
+                clientClarificationRequest: this.clientClarificationRequest,
+                continuationDecision: this.continuationDecision,
+                revalidationRequest: this.revalidationRequest,
+              })
+          : deriveAffaireRegisterBusinessImpact({
+              kind: this.kind,
+              code: this.code ?? null,
+              severity: this.severity,
+              status: this.status,
+              clientClarificationRequest: this.clientClarificationRequest,
+              continuationDecision: this.continuationDecision,
+              revalidationRequest: this.revalidationRequest,
+            });
       },
       get location() {
-        return buildAffaireRegisterBusinessLocation({
-          scopeType: this.scopeType,
-          scopeId: this.scopeId,
-          scopeRef: this.scopeRef,
-          scopeLabel: this.scopeLabel,
-          versionId: this.versionId,
-          sourceDocumentId: this.sourceDocumentId,
-          sourceFileName: this.sourceFileName,
-        });
+        return isRecord(row.metadata)
+          ? extractAffaireRegisterBusinessLocation(row.metadata) ??
+              buildAffaireRegisterBusinessLocation({
+                scopeType: this.scopeType ?? "project",
+                scopeId: this.scopeId ?? null,
+                scopeRef: this.scopeRef ?? null,
+                scopeLabel: this.scopeLabel,
+                versionId: this.versionId ?? null,
+                sourceDocumentId: this.sourceDocumentId ?? null,
+                sourceFileName: this.sourceFileName ?? null,
+              })
+          : buildAffaireRegisterBusinessLocation({
+              scopeType: this.scopeType ?? "project",
+              scopeId: this.scopeId ?? null,
+              scopeRef: this.scopeRef ?? null,
+              scopeLabel: this.scopeLabel,
+              versionId: this.versionId ?? null,
+              sourceDocumentId: this.sourceDocumentId ?? null,
+              sourceFileName: this.sourceFileName ?? null,
+            });
       },
     }))
     .filter((row) => row.id.length > 0 && row.text.length > 0);
@@ -1652,7 +1699,21 @@ export async function createAffaireRegisterEntry(input: z.infer<typeof createAff
       normalizeAffaireRegisterText(parsed.sourceFileName ?? "", 255) || null,
     sync_key: null,
     is_active: true,
-    metadata: {},
+    metadata: buildAffaireRegisterDerivedMetadata({
+      metadata: {},
+      kind: parsed.kind,
+      code: normalizeAffaireRegisterText(parsed.code ?? "", 120) || null,
+      severity: parsed.severity,
+      status: "open",
+      scopeType: parsed.scopeType,
+      scopeId: scope.scopeId,
+      scopeRef: scope.scopeRef,
+      scopeLabel: scope.scopeLabel,
+      versionId: scope.versionId,
+      sourceDocumentId: parsed.sourceDocumentId ?? null,
+      sourceFileName:
+        normalizeAffaireRegisterText(parsed.sourceFileName ?? "", 255) || null,
+    }),
     created_by: context.userId,
     updated_by: context.userId,
   } as const;
@@ -1751,12 +1812,29 @@ export async function updateAffaireRegisterEntryStatus(
   if (parsed.status !== "open" && "revalidationRequest" in nextMetadata) {
     delete nextMetadata.revalidationRequest;
   }
+  const derivedMetadata = buildAffaireRegisterDerivedMetadata({
+    metadata: nextMetadata,
+    kind: entry.kind,
+    code: entry.code,
+    severity: entry.severity,
+    status: parsed.status,
+    scopeType: entry.scope_type,
+    scopeId: entry.scope_id,
+    scopeRef: entry.scope_ref,
+    scopeLabel: entry.scope_label,
+    versionId: entry.version_id,
+    sourceDocumentId: entry.source_document_id,
+    sourceFileName: entry.source_file_name,
+    clientClarificationRequest: clarificationRequest,
+    continuationDecision: extractAffaireRegisterContinuationDecision(nextMetadata),
+    revalidationRequest: extractAffaireRegisterRevalidationRequest(nextMetadata),
+  });
 
   const { data: updatedData, error: updateError } = await context.supabase
     .from("affaire_register_entries" as never)
     .update({
       status: parsed.status,
-      metadata: nextMetadata,
+      metadata: derivedMetadata,
       updated_by: context.userId,
     } as never)
     .eq("id", entry.id as never)
@@ -1857,12 +1935,29 @@ export async function requestAffaireRegisterRevalidation(
   if ("clientClarificationRequest" in nextMetadata) {
     delete nextMetadata.clientClarificationRequest;
   }
+  const derivedMetadata = buildAffaireRegisterDerivedMetadata({
+    metadata: nextMetadata,
+    kind: entry.kind,
+    code: entry.code,
+    severity: entry.severity,
+    status: "open",
+    scopeType: entry.scope_type,
+    scopeId: entry.scope_id,
+    scopeRef: entry.scope_ref,
+    scopeLabel: entry.scope_label,
+    versionId: entry.version_id,
+    sourceDocumentId: entry.source_document_id,
+    sourceFileName: entry.source_file_name,
+    clientClarificationRequest: null,
+    continuationDecision: extractAffaireRegisterContinuationDecision(nextMetadata),
+    revalidationRequest,
+  });
 
   const { data: updatedData, error: updateError } = await context.supabase
     .from("affaire_register_entries" as never)
     .update({
       status: "open",
-      metadata: nextMetadata,
+      metadata: derivedMetadata,
       updated_by: context.userId,
     } as never)
     .eq("id", entry.id as never)
@@ -2013,7 +2108,20 @@ export async function continueAffaireRegisterWithHypothesis(
         source_file_name: sourceEntry.source_file_name,
         sync_key: null,
         is_active: true,
-        metadata: continuationMetadata,
+        metadata: buildAffaireRegisterDerivedMetadata({
+          metadata: continuationMetadata,
+          kind: "assumption",
+          code: sourceEntry.code,
+          severity: sourceEntry.severity,
+          status: "open",
+          scopeType: sourceEntry.scope_type,
+          scopeId: sourceEntry.scope_id,
+          scopeRef: sourceEntry.scope_ref,
+          scopeLabel: sourceEntry.scope_label,
+          versionId: sourceEntry.version_id,
+          sourceDocumentId: sourceEntry.source_document_id,
+          sourceFileName: sourceEntry.source_file_name,
+        }),
         created_by: context.userId,
         updated_by: context.userId,
       } as never)
@@ -2060,10 +2168,28 @@ export async function continueAffaireRegisterWithHypothesis(
   const { data: updatedData, error: updateError } = await context.supabase
     .from("affaire_register_entries" as never)
     .update({
-      metadata: {
-        ...sourceEntry.metadata,
+      metadata: buildAffaireRegisterDerivedMetadata({
+        metadata: {
+          ...sourceEntry.metadata,
+          continuationDecision: decision,
+        },
+        kind: sourceEntry.kind,
+        code: sourceEntry.code,
+        severity: sourceEntry.severity,
+        status: sourceEntry.status,
+        scopeType: sourceEntry.scope_type,
+        scopeId: sourceEntry.scope_id,
+        scopeRef: sourceEntry.scope_ref,
+        scopeLabel: sourceEntry.scope_label,
+        versionId: sourceEntry.version_id,
+        sourceDocumentId: sourceEntry.source_document_id,
+        sourceFileName: sourceEntry.source_file_name,
+        clientClarificationRequest:
+          extractAffaireRegisterClientClarificationRequest(sourceEntry.metadata),
         continuationDecision: decision,
-      },
+        revalidationRequest:
+          extractAffaireRegisterRevalidationRequest(sourceEntry.metadata),
+      }),
       updated_by: context.userId,
     } as never)
     .eq("id", sourceEntry.id as never)

@@ -260,10 +260,39 @@ describe("continueAffaireRegisterWithHypothesis", () => {
       kind: "assumption",
       text: "Continuation acceptee sans dpgf manquant. Hypothese documentaire a confirmer avant remise.",
       severity: "critical",
+      metadata: expect.objectContaining({
+        businessImpact: [
+          "affects_hub_readiness",
+          "blocks_submission",
+        ],
+        structuredLocation: {
+          scopeType: "project",
+          scopeId: null,
+          scopeRef: null,
+          scopeLabel: "Affaire test",
+          versionId: null,
+          sourceDocumentId: null,
+          sourceFileName: null,
+        },
+      }),
     });
     expect(sourceUpdatePayloads[0]).toMatchObject({
       updated_by: USER_ID,
       metadata: expect.objectContaining({
+        businessImpact: [
+          "affects_hub_readiness",
+          "blocks_submission",
+          "affects_structure_generation",
+        ],
+        structuredLocation: {
+          scopeType: "project",
+          scopeId: null,
+          scopeRef: null,
+          scopeLabel: "Affaire test",
+          versionId: null,
+          sourceDocumentId: null,
+          sourceFileName: null,
+        },
         continuationDecision: expect.objectContaining({
           status: "accepted_with_hypothesis",
           hypothesisEntryId: HYPOTHESIS_ID,

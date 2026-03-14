@@ -219,6 +219,18 @@ export type AffaireRegisterBusinessLocation = {
   sourceFileName: string | null;
 };
 
+const affaireRegisterBusinessLocationSchema = z
+  .object({
+    scopeType: affaireRegisterScopeTypeSchema,
+    scopeId: z.string().uuid().nullable(),
+    scopeRef: z.string().trim().max(120).nullable(),
+    scopeLabel: z.string().trim().min(1).max(180),
+    versionId: z.string().uuid().nullable(),
+    sourceDocumentId: z.string().uuid().nullable(),
+    sourceFileName: z.string().trim().min(1).max(255).nullable(),
+  })
+  .strict();
+
 export type AffaireRegisterTimelineEvent = {
   id: string;
   entryId: string;
@@ -506,6 +518,83 @@ export function buildAffaireRegisterBusinessLocation(input: {
     sourceDocumentId: input.sourceDocumentId,
     sourceFileName: input.sourceFileName,
   };
+}
+
+export function extractAffaireRegisterBusinessImpact(
+  metadata: unknown
+): AffaireRegisterBusinessImpact[] | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("businessImpact" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = z
+    .array(affaireRegisterBusinessImpactSchema)
+    .max(8)
+    .safeParse((metadata as Record<string, unknown>).businessImpact);
+  return parsed.success ? parsed.data : null;
+}
+
+export function extractAffaireRegisterBusinessLocation(
+  metadata: unknown
+): AffaireRegisterBusinessLocation | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    !("structuredLocation" in metadata)
+  ) {
+    return null;
+  }
+
+  const parsed = affaireRegisterBusinessLocationSchema.safeParse(
+    (metadata as Record<string, unknown>).structuredLocation
+  );
+  return parsed.success ? parsed.data : null;
+}
+
+export function buildAffaireRegisterDerivedMetadata(input: {
+  metadata: Record<string, unknown>;
+  kind: AffaireRegisterEntryKind;
+  code: string | null;
+  severity: AffaireRegisterEntrySeverity;
+  status: AffaireRegisterEntryStatus;
+  scopeType: AffaireRegisterScopeType;
+  scopeId: string | null;
+  scopeRef: string | null;
+  scopeLabel: string;
+  versionId: string | null;
+  sourceDocumentId: string | null;
+  sourceFileName: string | null;
+  clientClarificationRequest?: AffaireRegisterClientClarificationRequest | null;
+  continuationDecision?: AffaireRegisterContinuationDecision | null;
+  revalidationRequest?: AffaireRegisterRevalidationRequest | null;
+}) {
+  return {
+    ...input.metadata,
+    businessImpact: deriveAffaireRegisterBusinessImpact({
+      kind: input.kind,
+      code: input.code,
+      severity: input.severity,
+      status: input.status,
+      clientClarificationRequest: input.clientClarificationRequest,
+      continuationDecision: input.continuationDecision,
+      revalidationRequest: input.revalidationRequest,
+    }),
+    structuredLocation: buildAffaireRegisterBusinessLocation({
+      scopeType: input.scopeType,
+      scopeId: input.scopeId,
+      scopeRef: input.scopeRef,
+      scopeLabel: input.scopeLabel,
+      versionId: input.versionId,
+      sourceDocumentId: input.sourceDocumentId,
+      sourceFileName: input.sourceFileName,
+    }),
+  } satisfies Record<string, unknown>;
 }
 
 export function deriveAffaireRegisterBusinessImpact(input: {

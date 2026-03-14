@@ -215,6 +215,20 @@ describe("requestAffaireRegisterRevalidation", () => {
       status: "open",
       updated_by: USER_ID,
       metadata: expect.objectContaining({
+        businessImpact: [
+          "affects_hub_readiness",
+          "blocks_submission",
+          "affects_structure_generation",
+        ],
+        structuredLocation: {
+          scopeType: "project",
+          scopeId: null,
+          scopeRef: null,
+          scopeLabel: "Affaire test",
+          versionId: null,
+          sourceDocumentId: null,
+          sourceFileName: "dpgf.pdf",
+        },
         revalidationRequest: expect.objectContaining({
           status: "required",
           previousStatus: "validated",
