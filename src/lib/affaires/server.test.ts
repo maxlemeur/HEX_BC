@@ -44,6 +44,7 @@ import {
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
   fetchAffaireList,
+  fetchAffaireManagerQueueSummary,
   fetchAffairePageData,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
@@ -250,6 +251,7 @@ describe("affaires query schemas", () => {
     params.set("dir", "asc");
     params.set("cursor", "  cursor-value  ");
     params.set("favorites", "1");
+    params.set("manager", "revalidation");
     params.append("status", "draft,accepted");
     params.append("status", " sent ");
     params.append("status", "INVALID");
@@ -260,6 +262,7 @@ describe("affaires query schemas", () => {
       q: "chantier alpha",
       status: ["draft", "accepted", "sent"],
       favoritesOnly: true,
+      manager: "revalidation",
       size: 50,
       cursor: "cursor-value",
       sort: "updatedAt",
@@ -282,6 +285,7 @@ describe("affaires query schemas", () => {
       q: null,
       status: ["draft", "archived"],
       favoritesOnly: false,
+      manager: "all",
       size: 20,
       cursor: null,
       sort: "updatedAt",
@@ -805,6 +809,167 @@ describe("affaires server (list + counters)", () => {
       })
     );
     expect(result.list.items[0]?.isFavorite).toBe(true);
+  });
+
+  it("applies the manager queue filter before pagination and counters", async () => {
+    const rows = Array.from({ length: 21 }, (_, index) =>
+      buildAffaireRow(index + 1, {
+        project_id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        project_name:
+          index === 20 ? "Projet relance portefeuille" : `Projet visible ${index + 1}`,
+        current_updated_at: `2026-03-${String(21 - index).padStart(2, "0")}T10:00:00+00:00`,
+      })
+    );
+    const rpc = vi.fn(async (fnName: string): Promise<RpcResult> => {
+      if (fnName === "list_affaires_page") {
+        return {
+          data: rows,
+          error: null,
+        };
+      }
+
+      if (fnName === "get_affaires_counters") {
+        return {
+          data: [
+            {
+              total_count: 5,
+              filtered_count: 3,
+              draft_count: 3,
+              sent_count: 0,
+              accepted_count: 0,
+              archived_count: 0,
+            },
+          ],
+          error: null,
+        };
+      }
+
+      return { data: [], error: null };
+    });
+    const context = {
+      supabase: {
+        rpc,
+        from: createFromMock({
+          estimate_items: Array.from({ length: 21 }, () => ({
+            limit: {
+              data: null,
+              count: 0,
+              error: null,
+            },
+          })),
+        }),
+      },
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer" as const,
+    };
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchAffaireIntakeWorkspace).mockImplementation(async (projectId: string) => ({
+      projectId,
+      uploadId: null,
+      documents: [],
+      missingPieces: [],
+      readiness: {
+        reviewDocumentsCount: 0,
+        missingPiecesCount: 0,
+        criticalMissingPiecesCount: 0,
+        provisionalMissingPiecesCount: 0,
+        provisionalCriticalMissingPiecesCount: 0,
+        confirmedMissingPiecesCount: 0,
+        confirmedCriticalMissingPiecesCount: 0,
+        reviewCouldLiftCriticalMissing: false,
+        reviewBeforeMissing: false,
+        dominantAction: "none",
+        hubReadinessImpact: "none",
+      },
+      briefDraft:
+        projectId === "00000000-0000-4000-8000-000000000021"
+          ? { status: "a_confirmer" }
+          : { status: "confirme" },
+    } as never));
+    vi.mocked(fetchAffaireRegisterGateSummary).mockImplementation(async ({ projectId }) => ({
+      openQuestionsCount: 0,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries: [],
+      criticalClarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
+      continuedWithHypothesisEntries: [],
+      continuedCriticalMissingPieceEntries: [],
+      revalidationRequiredEntries: [],
+      criticalRevalidationRequiredEntries: [],
+      revalidationImpactedStages: [],
+      ...(projectId === "00000000-0000-4000-8000-000000000021"
+        ? {
+            criticalOpenEntries: [{ id: `critical-${projectId}` }],
+          }
+        : {}),
+    }) as never);
+
+    const result = await fetchAffairePageData({
+      manager: "follow_up",
+      size: 20,
+    });
+
+    expect(result.list.items).toHaveLength(1);
+    expect(result.list.items[0]?.projectId).toBe("00000000-0000-4000-8000-000000000021");
+    expect(result.counters.totalCount).toBe(5);
+    expect(result.counters.filteredCount).toBe(1);
+    expect(result.counters.statusCounts.draft).toBe(1);
+    expect(result.managerQueue).toEqual({
+      counts: {
+        followUp: 1,
+        reservations: 0,
+        revalidation: 0,
+      },
+      incompleteCount: 0,
+    });
+  });
+
+  it("treats manager classification failures as incomplete instead of silently dropping dossiers", async () => {
+    const row = buildAffaireRow(1, {
+      project_id: "00000000-0000-4000-8000-000000000010",
+    });
+    const context = {
+      supabase: {
+        rpc: vi.fn(async () => ({
+          data: [row],
+          error: null,
+        })),
+        from: createFromMock({
+          estimate_items: [
+            {
+              limit: {
+                data: null,
+                count: 0,
+                error: null,
+              },
+            },
+          ],
+        }),
+      },
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer" as const,
+    };
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchAffaireIntakeWorkspace).mockRejectedValueOnce(
+      new Error("temporary")
+    );
+
+    const summary = await fetchAffaireManagerQueueSummary();
+
+    expect(summary).toEqual({
+      counts: {
+        followUp: 0,
+        reservations: 0,
+        revalidation: 0,
+      },
+      incompleteCount: 1,
+    });
   });
 });
 

@@ -12,10 +12,22 @@ import type { AffairePageDataResult } from "./types";
 const replaceMock = vi.fn();
 const refreshMock = vi.fn();
 let searchParamsValue = new URLSearchParams();
+let isExpertValue = false;
 
 vi.mock("next/dynamic", () => ({
-  default: () => function MockDynamic() {
-    return <div data-testid="dense-table" />;
+  default: () => function MockDynamic(props: {
+    onManagerFilterChange?: (next: "follow_up") => void;
+  }) {
+    return (
+      <div data-testid="dense-table">
+        <button
+          type="button"
+          onClick={() => props.onManagerFilterChange?.("follow_up")}
+        >
+          manager-follow-up
+        </button>
+      </div>
+    );
   },
 }));
 
@@ -30,7 +42,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/useUiMode", () => ({
   useUiMode: () => ({
-    isExpert: false,
+    isExpert: isExpertValue,
   }),
 }));
 
@@ -42,6 +54,17 @@ vi.mock("@/components/ui/Toast", () => ({
 
 vi.mock("@/app/dashboard/affaires/_actions/favorites", () => ({
   toggleAffaireFavoriteAction: vi.fn(),
+}));
+
+vi.mock("@/app/dashboard/affaires/_actions/manager-queue", () => ({
+  fetchAffaireManagerQueueSummaryAction: vi.fn().mockResolvedValue({
+    counts: {
+      followUp: 1,
+      reservations: 0,
+      revalidation: 0,
+    },
+    incompleteCount: 0,
+  }),
 }));
 
 vi.mock("./QuickCreateAffaireDialog", () => ({
@@ -134,6 +157,7 @@ describe("AffairesPageClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsValue = new URLSearchParams();
+    isExpertValue = false;
     window.localStorage.clear();
   });
 
@@ -148,6 +172,7 @@ describe("AffairesPageClient", () => {
         initialQ=""
         initialStatuses={[]}
         initialFavoritesOnly={false}
+        initialManager="all"
         initialCursor={null}
         initialSize={20}
         initialDir="desc"
@@ -169,10 +194,12 @@ describe("AffairesPageClient", () => {
 
     const { rerender } = render(
       <AffairesPageClient
+        key="favorites-on"
         initialData={initialData}
         initialQ=""
         initialStatuses={[]}
         initialFavoritesOnly={true}
+        initialManager="all"
         initialCursor={null}
         initialSize={20}
         initialDir="desc"
@@ -187,10 +214,12 @@ describe("AffairesPageClient", () => {
 
     rerender(
       <AffairesPageClient
+        key="favorites-off"
         initialData={initialData}
         initialQ=""
         initialStatuses={[]}
         initialFavoritesOnly={false}
+        initialManager="all"
         initialCursor={null}
         initialSize={20}
         initialDir="desc"
@@ -198,7 +227,10 @@ describe("AffairesPageClient", () => {
     );
 
     await waitFor(() => {
-      expect(favoritesButton.getAttribute("aria-pressed")).toBe("false");
+      expect(screen.getByRole("button", { name: /favoris/i })).toHaveAttribute(
+        "aria-pressed",
+        "false"
+      );
     });
     expect(replaceMock).not.toHaveBeenCalled();
   });
@@ -241,6 +273,7 @@ describe("AffairesPageClient", () => {
         initialQ=""
         initialStatuses={[]}
         initialFavoritesOnly={false}
+        initialManager="all"
         initialCursor={null}
         initialSize={20}
         initialDir="desc"
@@ -280,6 +313,7 @@ describe("AffairesPageClient", () => {
         initialQ=""
         initialStatuses={[]}
         initialFavoritesOnly={false}
+        initialManager="all"
         initialCursor={null}
         initialSize={20}
         initialDir="desc"
@@ -291,6 +325,32 @@ describe("AffairesPageClient", () => {
       expect(screen.getByText("Affaire Beta:favorite")).toBeTruthy();
       expect(screen.getByText("pending")).toBeTruthy();
       expect(screen.getByText("idle")).toBeTruthy();
+    });
+  });
+
+  it("syncs the manager queue filter to the URL", async () => {
+    isExpertValue = true;
+
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "manager-follow-up" }));
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith(
+        "/dashboard/affaires?manager=follow_up",
+        { scroll: false }
+      );
     });
   });
 });

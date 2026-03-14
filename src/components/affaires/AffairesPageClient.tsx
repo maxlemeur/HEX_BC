@@ -14,6 +14,7 @@ import {
 import { useUiMode } from "@/hooks/useUiMode";
 import { useToast } from "@/components/ui/Toast";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
+import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
@@ -21,6 +22,7 @@ import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips"
 import { Badge } from "@/components/ui/Badge";
 import { AffairesCardList } from "./AffairesCardList";
 import type {
+  AffaireManagerQueueFilter,
   AffairePageDataResult,
   AffairePageSize,
   AffaireSortDirection,
@@ -80,16 +82,20 @@ type Props = {
   initialQ: string;
   initialStatuses: AffaireStatus[];
   initialFavoritesOnly: boolean;
+  initialManager: AffaireManagerQueueFilter;
   initialCursor: string | null;
   initialSize: AffairePageSize;
   initialDir: AffaireSortDirection;
 };
+
+type ManagerQueueSummaryState = "idle" | "loading" | "ready" | "error";
 
 export function AffairesPageClient({
   initialData,
   initialQ,
   initialStatuses,
   initialFavoritesOnly,
+  initialManager,
   initialCursor,
   initialSize,
   initialDir,
@@ -109,6 +115,8 @@ export function AffairesPageClient({
   const [selectedStatuses, setSelectedStatuses] =
     useState<AffaireStatus[]>(initialStatuses);
   const [favoritesOnly, setFavoritesOnly] = useState(initialFavoritesOnly);
+  const [managerFilter, setManagerFilter] =
+    useState<AffaireManagerQueueFilter>(initialManager);
 
   const [pageSize, setPageSize] = useState<AffairePageSize>(initialSize);
   const [cursorStack, setCursorStack] = useState<string[]>(
@@ -126,6 +134,13 @@ export function AffairesPageClient({
     Record<string, boolean>
   >({});
   const [favoritePendingIds, setFavoritePendingIds] = useState<string[]>([]);
+  const [managerQueueSummary, setManagerQueueSummary] = useState(
+    initialData.managerQueue ?? null
+  );
+  const [managerQueueSummaryState, setManagerQueueSummaryState] =
+    useState<ManagerQueueSummaryState>(
+      initialData.managerQueue ? "ready" : "idle"
+    );
 
   // Use server-passed data directly (page.tsx refetches on navigation)
   const data = useMemo<AffairePageDataResult>(
@@ -143,8 +158,48 @@ export function AffairesPageClient({
   );
 
   useEffect(() => {
-    setFavoritesOnly(initialFavoritesOnly);
-  }, [initialFavoritesOnly]);
+    if (!isExpert) {
+      setManagerQueueSummary(initialData.managerQueue ?? null);
+      setManagerQueueSummaryState(initialData.managerQueue ? "ready" : "idle");
+      return;
+    }
+
+    if (initialData.managerQueue) {
+      setManagerQueueSummary(initialData.managerQueue);
+      setManagerQueueSummaryState("ready");
+      return;
+    }
+
+    let cancelled = false;
+    setManagerQueueSummary(null);
+    setManagerQueueSummaryState("loading");
+
+    fetchAffaireManagerQueueSummaryAction({
+      q: initialQ,
+      status: initialStatuses,
+      favorites: initialFavoritesOnly,
+    })
+      .then((summary) => {
+        if (cancelled) {
+          return;
+        }
+
+        setManagerQueueSummary(summary);
+        setManagerQueueSummaryState("ready");
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setManagerQueueSummary(null);
+        setManagerQueueSummaryState("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialData.managerQueue, initialFavoritesOnly, initialQ, initialStatuses, isExpert]);
 
   useEffect(() => {
     setFavoriteOverrides((current) => {
@@ -187,6 +242,7 @@ export function AffairesPageClient({
   const prevSearchRef = useRef(deferredSearch);
   const prevStatusRef = useRef(selectedStatuses);
   const prevFavoritesRef = useRef(favoritesOnly);
+  const prevManagerRef = useRef(managerFilter);
   const prevSortRef = useRef(sortState);
   const prevSizeRef = useRef(pageSize);
   const prevCursorRef = useRef(currentCursor);
@@ -195,6 +251,7 @@ export function AffairesPageClient({
     const searchChanged = prevSearchRef.current !== deferredSearch;
     const statusChanged = prevStatusRef.current !== selectedStatuses;
     const favoritesChanged = prevFavoritesRef.current !== favoritesOnly;
+    const managerChanged = prevManagerRef.current !== managerFilter;
     const sortChanged = prevSortRef.current !== sortState;
     const sizeChanged = prevSizeRef.current !== pageSize;
     const cursorChanged = prevCursorRef.current !== currentCursor;
@@ -202,6 +259,7 @@ export function AffairesPageClient({
     prevSearchRef.current = deferredSearch;
     prevStatusRef.current = selectedStatuses;
     prevFavoritesRef.current = favoritesOnly;
+    prevManagerRef.current = managerFilter;
     prevSortRef.current = sortState;
     prevSizeRef.current = pageSize;
     prevCursorRef.current = currentCursor;
@@ -210,6 +268,7 @@ export function AffairesPageClient({
       !searchChanged &&
       !statusChanged &&
       !favoritesChanged &&
+      !managerChanged &&
       !sortChanged &&
       !sizeChanged &&
       !cursorChanged
@@ -218,7 +277,7 @@ export function AffairesPageClient({
     }
 
     // Reset cursor when filters change
-    if (searchChanged || statusChanged || favoritesChanged || sizeChanged) {
+    if (searchChanged || statusChanged || favoritesChanged || managerChanged || sizeChanged) {
       setCursorStack([]);
       setCurrentCursor(null);
     }
@@ -228,13 +287,14 @@ export function AffairesPageClient({
     if (selectedStatuses.length > 0)
       params.set("status", selectedStatuses.join(","));
     if (favoritesOnly) params.set("favorites", "1");
+    if (managerFilter !== "all") params.set("manager", managerFilter);
     if (sortState && sortState.direction !== "desc")
       params.set("dir", sortState.direction);
     if (pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(pageSize));
 
     // Only set cursor if not resetting
     const effectiveCursor =
-      searchChanged || statusChanged || favoritesChanged || sizeChanged
+      searchChanged || statusChanged || favoritesChanged || managerChanged || sizeChanged
         ? null
         : currentCursor;
     if (effectiveCursor) params.set("cursor", effectiveCursor);
@@ -249,6 +309,7 @@ export function AffairesPageClient({
     deferredSearch,
     selectedStatuses,
     favoritesOnly,
+    managerFilter,
     sortState,
     pageSize,
     currentCursor,
@@ -295,6 +356,7 @@ export function AffairesPageClient({
     setSearchValue("");
     setSelectedStatuses([]);
     setFavoritesOnly(false);
+    setManagerFilter("all");
     setCursorStack([]);
     setCurrentCursor(null);
   }, []);
@@ -302,6 +364,15 @@ export function AffairesPageClient({
   const handleToggleFavoritesOnly = useCallback(() => {
     setFavoritesOnly((current) => !current);
   }, []);
+
+  const handleManagerFilterChange = useCallback(
+    (nextFilter: AffaireManagerQueueFilter) => {
+      setManagerFilter(nextFilter);
+      setCursorStack([]);
+      setCurrentCursor(null);
+    },
+    []
+  );
 
   const handleSortChange = useCallback(
     (key: string, direction?: "asc" | "desc") => {
@@ -368,8 +439,9 @@ export function AffairesPageClient({
     let count = 0;
     if (selectedStatuses.length > 0) count += selectedStatuses.length;
     if (favoritesOnly) count += 1;
+    if (managerFilter !== "all") count += 1;
     return count;
-  }, [favoritesOnly, selectedStatuses]);
+  }, [favoritesOnly, managerFilter, selectedStatuses]);
 
   const hasPrevPage = cursorStack.length > 0;
   const hasNextPage = data.list.hasNextPage;
@@ -473,6 +545,10 @@ export function AffairesPageClient({
             onCreateAffaire={handleCreateAffaire}
             onToggleFavorite={handleToggleFavorite}
             favoritePendingIds={favoritePendingIds}
+            managerFilter={managerFilter}
+            onManagerFilterChange={handleManagerFilterChange}
+            managerQueueSummary={managerQueueSummary}
+            managerQueueSummaryState={managerQueueSummaryState}
           />
         ) : (
           <AffairesCardList

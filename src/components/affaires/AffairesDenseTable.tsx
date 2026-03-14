@@ -14,7 +14,11 @@ import {
   fetchAffaireDenseExpandData,
   type AffaireDenseExpandData,
 } from "@/app/dashboard/affaires/_actions/dense-table-expand";
-import type { AffaireListItem } from "./types";
+import type {
+  AffaireListItem,
+  AffaireManagerQueueFilter,
+  AffaireManagerQueueSummary,
+} from "./types";
 
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
   required: { label: "A valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
@@ -31,37 +35,11 @@ type Props = {
   onCreateAffaire?: () => void;
   onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
   favoritePendingIds: string[];
+  managerFilter: AffaireManagerQueueFilter;
+  onManagerFilterChange: (nextFilter: AffaireManagerQueueFilter) => void;
+  managerQueueSummary: AffaireManagerQueueSummary | null;
+  managerQueueSummaryState: "idle" | "loading" | "ready" | "error";
 };
-
-type ManagerQueueFilter = "all" | "follow_up" | "reservations" | "revalidation";
-
-function hasManagerFollowUpSignal(data: AffaireDenseExpandData) {
-  const hubReadiness = data.summary.hubReadiness ?? null;
-  if (!hubReadiness) {
-    return false;
-  }
-
-  return (
-    hubReadiness.status === "not_ready" ||
-    hubReadiness.drivers.some((driver) => driver.code === "critical_missing_piece")
-  );
-}
-
-function hasManagerReservationSignal(data: AffaireDenseExpandData) {
-  return data.summary.hubReadiness?.status === "ready_with_reservations";
-}
-
-function hasManagerRevalidationSignal(data: AffaireDenseExpandData) {
-  const hubReadiness = data.summary.hubReadiness ?? null;
-  if (!hubReadiness) {
-    return false;
-  }
-
-  return (
-    hubReadiness.register.revalidationRequiredCount > 0 ||
-    hubReadiness.drivers.some((driver) => driver.code === "revalidation_required")
-  );
-}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-FR", {
@@ -74,6 +52,10 @@ function formatDate(iso: string): string {
 function formatAmount(cents: number): string {
   const currency = normalizeEstimateCurrency("EUR") ?? "EUR";
   return formatCurrency(cents, currency);
+}
+
+function formatManagerQueueCount(count: number, label: string): string {
+  return `${count} affaire${count > 1 ? "s" : ""} ${label}`;
 }
 
 function AffairesEmptyState({
@@ -185,11 +167,14 @@ export function AffairesDenseTable({
   onCreateAffaire,
   onToggleFavorite,
   favoritePendingIds,
+  managerFilter,
+  onManagerFilterChange,
+  managerQueueSummary,
+  managerQueueSummaryState,
 }: Readonly<Props>) {
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
 
-  const [managerFilter, setManagerFilter] = useState<ManagerQueueFilter>("all");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandCache, setExpandCache] = useState<
     Record<string, AffaireDenseExpandData | "loading" | "error">
@@ -223,12 +208,6 @@ export function AffairesDenseTable({
       );
   }, []);
 
-  useEffect(() => {
-    items.forEach((item) => {
-      ensureExpandData(item.projectId);
-    });
-  }, [ensureExpandData, items]);
-
   // Only consider expanded IDs that are in the current items (auto-reset on pagination/filter)
   const currentItemIds = useMemo(() => new Set(items.map((i) => i.projectId)), [items]);
   const isExpanded = useCallback(
@@ -252,84 +231,14 @@ export function AffairesDenseTable({
     [ensureExpandData]
   );
 
-  const managerFollowUpIds = useMemo(() => {
-    const ids = new Set<string>();
-
-    items.forEach((item) => {
-      const cached = expandCache[item.projectId];
-      if (
-        cached &&
-        cached !== "loading" &&
-        cached !== "error" &&
-        hasManagerFollowUpSignal(cached)
-      ) {
-        ids.add(item.projectId);
-      }
-    });
-
-    return ids;
-  }, [expandCache, items]);
-
-  const managerReservationIds = useMemo(() => {
-    const ids = new Set<string>();
-
-    items.forEach((item) => {
-      const cached = expandCache[item.projectId];
-      if (
-        cached &&
-        cached !== "loading" &&
-        cached !== "error" &&
-        hasManagerReservationSignal(cached)
-      ) {
-        ids.add(item.projectId);
-      }
-    });
-
-    return ids;
-  }, [expandCache, items]);
-
-  const managerRevalidationIds = useMemo(() => {
-    const ids = new Set<string>();
-
-    items.forEach((item) => {
-      const cached = expandCache[item.projectId];
-      if (
-        cached &&
-        cached !== "loading" &&
-        cached !== "error" &&
-        hasManagerRevalidationSignal(cached)
-      ) {
-        ids.add(item.projectId);
-      }
-    });
-
-    return ids;
-  }, [expandCache, items]);
-
-  const pendingManagerSignalsCount = useMemo(
-    () =>
-      items.filter((item) => {
-        const cached = expandCache[item.projectId];
-        return !cached || cached === "loading";
-      }).length,
-    [expandCache, items]
-  );
-
-  const visibleItems = useMemo(() => {
-    if (managerFilter === "all") {
-      return items;
-    }
-
-    if (managerFilter === "reservations") {
-      return items.filter((item) => managerReservationIds.has(item.projectId));
-    }
-
-    if (managerFilter === "revalidation") {
-      return items.filter((item) => managerRevalidationIds.has(item.projectId));
-    }
-
-    return items.filter((item) => managerFollowUpIds.has(item.projectId));
-  }, [items, managerFilter, managerFollowUpIds, managerReservationIds, managerRevalidationIds]);
+  const managerCounts = managerQueueSummary?.counts ?? {
+    followUp: 0,
+    reservations: 0,
+    revalidation: 0,
+  };
+  const managerQualificationIncomplete = (managerQueueSummary?.incompleteCount ?? 0) > 0;
+  const managerFilterDisabled =
+    managerQueueSummaryState !== "ready" || managerQualificationIncomplete;
 
   return (
     <div className="dashboard-card overflow-hidden">
@@ -352,9 +261,9 @@ export function AffairesDenseTable({
                   ? "bg-[var(--slate-900)] text-white"
                   : "border border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)]"
               }`}
-              onClick={() => setManagerFilter("all")}
+              onClick={() => onManagerFilterChange("all")}
             >
-              Toutes ({items.length})
+              Toutes
             </button>
             <button
               type="button"
@@ -363,10 +272,10 @@ export function AffairesDenseTable({
                   ? "bg-[var(--danger)] text-white"
                   : "border border-[var(--danger)]/20 bg-[var(--danger)]/5 text-[var(--danger)] hover:bg-[var(--danger)]/10"
               } disabled:cursor-not-allowed disabled:opacity-60`}
-              disabled={pendingManagerSignalsCount > 0}
-              onClick={() => setManagerFilter("follow_up")}
+              disabled={managerFilterDisabled}
+              onClick={() => onManagerFilterChange("follow_up")}
             >
-              A relancer en priorite ({managerFollowUpIds.size})
+              A relancer en priorite ({managerCounts.followUp})
             </button>
             <button
               type="button"
@@ -375,10 +284,10 @@ export function AffairesDenseTable({
                   ? "bg-[var(--warning)] text-white"
                   : "border border-[var(--warning)]/20 bg-[var(--warning)]/5 text-[var(--warning)] hover:bg-[var(--warning)]/10"
               } disabled:cursor-not-allowed disabled:opacity-60`}
-              disabled={pendingManagerSignalsCount > 0}
-              onClick={() => setManagerFilter("reservations")}
+              disabled={managerFilterDisabled}
+              onClick={() => onManagerFilterChange("reservations")}
             >
-              A revoir sous reserves ({managerReservationIds.size})
+              A revoir sous reserves ({managerCounts.reservations})
             </button>
             <button
               type="button"
@@ -387,21 +296,27 @@ export function AffairesDenseTable({
                   ? "bg-[var(--brand-blue-dark)] text-white"
                   : "border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/10 text-[var(--brand-blue-dark)] hover:bg-[var(--brand-blue)]/15"
               } disabled:cursor-not-allowed disabled:opacity-60`}
-              disabled={pendingManagerSignalsCount > 0}
-              onClick={() => setManagerFilter("revalidation")}
+              disabled={managerFilterDisabled}
+              onClick={() => onManagerFilterChange("revalidation")}
             >
-              A rouvrir en revalidation ({managerRevalidationIds.size})
+              A rouvrir en revalidation ({managerCounts.revalidation})
             </button>
           </div>
         </div>
         <p className="mt-2 text-xs text-[var(--slate-500)]">
-          {pendingManagerSignalsCount > 0
-            ? `Qualification manager en cours sur ${pendingManagerSignalsCount} affaire${pendingManagerSignalsCount > 1 ? "s" : ""} visible${pendingManagerSignalsCount > 1 ? "s" : ""}.`
+          {managerQueueSummaryState === "loading" || managerQueueSummaryState === "idle"
+            ? "Qualification manager en cours sur le portefeuille."
+            : managerQueueSummaryState === "error"
+              ? "Qualification manager indisponible pour le portefeuille. Rechargez la page pour reessayer."
+              : managerQualificationIncomplete
+                ? `Qualification manager incomplete sur ${managerQueueSummary?.incompleteCount ?? 0} affaire${(managerQueueSummary?.incompleteCount ?? 0) > 1 ? "s" : ""} du portefeuille.`
+            : managerFilter === "all"
+              ? `${formatManagerQueueCount(managerCounts.followUp, "a relancer en priorite")}, ${formatManagerQueueCount(managerCounts.reservations, "a revoir sous reserves")} et ${formatManagerQueueCount(managerCounts.revalidation, "a rouvrir en revalidation")} dans le portefeuille.`
             : managerFilter === "reservations"
-              ? `${managerReservationIds.size} affaire${managerReservationIds.size > 1 ? "s" : ""} a revoir sous reserves sur cette page.`
+              ? `${formatManagerQueueCount(managerCounts.reservations, "a revoir sous reserves")} dans le portefeuille.`
               : managerFilter === "revalidation"
-                ? `${managerRevalidationIds.size} affaire${managerRevalidationIds.size > 1 ? "s" : ""} a rouvrir en revalidation sur cette page.`
-                : `${managerFollowUpIds.size} affaire${managerFollowUpIds.size > 1 ? "s" : ""} a relancer en priorite sur cette page.`}
+                ? `${formatManagerQueueCount(managerCounts.revalidation, "a rouvrir en revalidation")} dans le portefeuille.`
+                : `${formatManagerQueueCount(managerCounts.followUp, "a relancer en priorite")} dans le portefeuille.`}
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -443,13 +358,13 @@ export function AffairesDenseTable({
             </tr>
           </thead>
           <tbody>
-            {visibleItems.length === 0 ? (
+            {items.length === 0 ? (
               <AffairesEmptyState
-                emptyVariant={managerFilter === "all" ? emptyVariant : "filtered"}
+                emptyVariant={emptyVariant}
                 onCreateAffaire={onCreateAffaire}
               />
             ) : (
-              visibleItems.map((item) => {
+              items.map((item) => {
                 const hasCurrentVersion =
                   item.hasCurrentVersion &&
                   item.currentVersionId !== null &&

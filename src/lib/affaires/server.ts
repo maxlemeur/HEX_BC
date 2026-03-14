@@ -34,6 +34,7 @@ import type { Database } from "@/types/database";
 import {
   affaireCursorPayloadSchema,
   normalizeAffaireListQuery,
+  type AffaireManagerQueueFilter,
   type AffaireCursorPayload,
   type AffaireListQuery,
   type AffairePageSize,
@@ -86,9 +87,21 @@ export type AffaireCountersResult = {
   statusCounts: Record<AffaireStatus, number>;
 };
 
+export type AffaireManagerQueueCounts = {
+  followUp: number;
+  reservations: number;
+  revalidation: number;
+};
+
+export type AffaireManagerQueueSummary = {
+  counts: AffaireManagerQueueCounts;
+  incompleteCount: number;
+};
+
 export type AffairePageDataResult = {
   list: AffaireListPageResult;
   counters: AffaireCountersResult;
+  managerQueue?: AffaireManagerQueueSummary | null;
 };
 
 type AffaireHubProjectRow = Pick<
@@ -427,6 +440,141 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
         : toSafeInteger(row.accepted_version_number),
     hasDpgf: row.has_dpgf ?? false,
     currentApprovalStatus: (row as Record<string, unknown>).current_approval_status as string | null ?? null,
+  };
+}
+
+function hasManagerFollowUpSignal(readiness: AffaireHubReadinessResult | null): boolean {
+  if (!readiness) {
+    return false;
+  }
+
+  return (
+    readiness.status === "not_ready" ||
+    readiness.drivers.some((driver) => driver.code === "critical_missing_piece")
+  );
+}
+
+function hasManagerReservationSignal(readiness: AffaireHubReadinessResult | null): boolean {
+  return readiness?.status === "ready_with_reservations" && !hasManagerRevalidationSignal(readiness);
+}
+
+function hasManagerRevalidationSignal(readiness: AffaireHubReadinessResult | null): boolean {
+  if (!readiness) {
+    return false;
+  }
+
+  return (
+    readiness.register.revalidationRequiredCount > 0 ||
+    readiness.drivers.some((driver) => driver.code === "revalidation_required")
+  );
+}
+
+function matchesManagerQueueFilter(
+  readiness: AffaireHubReadinessResult | null,
+  filter: AffaireManagerQueueFilter
+): boolean {
+  switch (filter) {
+    case "follow_up":
+      return hasManagerFollowUpSignal(readiness);
+    case "reservations":
+      return hasManagerReservationSignal(readiness);
+    case "revalidation":
+      return hasManagerRevalidationSignal(readiness);
+    default:
+      return true;
+  }
+}
+
+function buildManagerQueueCounts(
+  readinessByProjectId: Map<string, AffaireHubReadinessResult | null>
+): AffaireManagerQueueCounts {
+  let followUp = 0;
+  let reservations = 0;
+  let revalidation = 0;
+
+  readinessByProjectId.forEach((readiness) => {
+    if (hasManagerFollowUpSignal(readiness)) {
+      followUp += 1;
+    }
+    if (hasManagerReservationSignal(readiness)) {
+      reservations += 1;
+    }
+    if (hasManagerRevalidationSignal(readiness)) {
+      revalidation += 1;
+    }
+  });
+
+  return {
+    followUp,
+    reservations,
+    revalidation,
+  };
+}
+
+function buildStatusCounts(items: AffaireListItem[]): Record<AffaireStatus, number> {
+  const counts: Record<AffaireStatus, number> = {
+    draft: 0,
+    sent: 0,
+    accepted: 0,
+    archived: 0,
+  };
+
+  items.forEach((item) => {
+    if (item.hasCurrentVersion && item.currentStatus) {
+      counts[item.currentStatus] += 1;
+      return;
+    }
+
+    counts.draft += 1;
+  });
+
+  return counts;
+}
+
+function isAffaireAfterCursor(
+  item: AffaireListItem,
+  cursor: AffaireCursorPayload,
+  direction: NormalizedAffaireListQuery["dir"]
+): boolean {
+  if (direction === "desc") {
+    return (
+      item.currentUpdatedAt.localeCompare(cursor.updatedAt) < 0 ||
+      (item.currentUpdatedAt === cursor.updatedAt &&
+        item.projectId.localeCompare(cursor.projectId) < 0)
+    );
+  }
+
+  return (
+    item.currentUpdatedAt.localeCompare(cursor.updatedAt) > 0 ||
+    (item.currentUpdatedAt === cursor.updatedAt &&
+      item.projectId.localeCompare(cursor.projectId) > 0)
+  );
+}
+
+function paginateAffaireItems(
+  items: AffaireListItem[],
+  query: NormalizedAffaireListQuery
+): AffaireListPageResult {
+  const decodedCursor = query.cursor ? decodeAffaireCursor(query.cursor) : null;
+  const cursorFilteredItems = decodedCursor
+    ? items.filter((item) => isAffaireAfterCursor(item, decodedCursor, query.dir))
+    : items;
+  const pageItems = cursorFilteredItems.slice(0, query.size);
+  const lastItem = pageItems[pageItems.length - 1] ?? null;
+  const hasNextPage = cursorFilteredItems.length > query.size;
+  const nextCursor =
+    hasNextPage && lastItem
+      ? encodeAffaireCursor({
+          updatedAt: lastItem.currentUpdatedAt,
+          projectId: lastItem.projectId,
+        })
+      : null;
+
+  return {
+    items: pageItems,
+    pageSize: query.size,
+    nextCursor,
+    hasNextPage,
   };
 }
 
@@ -1355,6 +1503,181 @@ async function fetchAffaireListWithContext(
   };
 }
 
+const MANAGER_QUEUE_BATCH_SIZE = 10;
+const MANAGER_QUEUE_LIST_PAGE_SIZE: AffairePageSize = 100;
+
+async function fetchAllAffaireListItemsWithContext(
+  context: AffaireContext,
+  query: NormalizedAffaireListQuery
+): Promise<AffaireListItem[]> {
+  const items: AffaireListItem[] = [];
+  let cursor: string | null = null;
+
+  while (true) {
+    const page = await fetchAffaireListWithContext(context, {
+      ...query,
+      manager: "all",
+      size: MANAGER_QUEUE_LIST_PAGE_SIZE,
+      cursor,
+    });
+    items.push(...page.items);
+
+    if (!page.hasNextPage || !page.nextCursor) {
+      return items;
+    }
+
+    cursor = page.nextCursor;
+  }
+}
+
+async function fetchAffaireManagerReadinessWithContext(
+  context: AffaireContext,
+  item: AffaireListItem
+): Promise<AffaireHubReadinessResult | null> {
+  const projectRow = {
+    id: item.projectId,
+    tenant_id: context.tenantId,
+    user_id: getOwnerScopeUserId(context) ?? context.userId,
+    name: item.projectName,
+    reference: item.projectReference,
+    client_name: item.projectClient,
+    is_archived: false,
+  } satisfies AffaireHubProjectRow;
+
+  if (item.currentVersionId) {
+    const [{ count, error }, intakeResult, registerGateSummaryResult] = await Promise.all([
+      context.supabase
+        .from("estimate_items")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", context.tenantId)
+        .eq("version_id", item.currentVersionId)
+        .eq("item_type", "line")
+        .limit(1),
+      Promise.resolve(fetchAffaireIntakeWorkspace(projectRow.id)).catch(() => null),
+      Promise.resolve(
+        fetchAffaireRegisterGateSummary({
+          supabase: context.supabase as never,
+          projectId: projectRow.id,
+          versionId: item.currentVersionId,
+        })
+      ).catch(() => null),
+    ]);
+
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible de qualifier la readiness manager de l'affaire."
+      );
+    }
+
+    if (!intakeResult || !registerGateSummaryResult) {
+      throw new Error("MANAGER_QUEUE_SIGNAL_UNAVAILABLE");
+    }
+
+    return buildAffaireHubReadinessSnapshot({
+      lineCount: count ?? 0,
+      briefStatus: intakeResult.briefDraft?.status ?? null,
+      intakeReadiness: intakeResult.readiness
+        ? {
+            reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
+            confirmedMissingPiecesCount:
+              intakeResult.readiness.confirmedMissingPiecesCount,
+            confirmedCriticalMissingPiecesCount:
+              intakeResult.readiness.confirmedCriticalMissingPiecesCount,
+          }
+        : null,
+      registerGateSummary: registerGateSummaryResult,
+    });
+  }
+
+  const [intakeResult, registerGateSummaryResult] = await Promise.all([
+    Promise.resolve(fetchAffaireIntakeWorkspace(projectRow.id)).catch(() => null),
+    Promise.resolve(
+      fetchAffaireRegisterGateSummary({
+        supabase: context.supabase as never,
+        projectId: projectRow.id,
+        versionId: null,
+      })
+    ).catch(() => null),
+  ]);
+
+  if (!intakeResult || !registerGateSummaryResult) {
+    throw new Error("MANAGER_QUEUE_SIGNAL_UNAVAILABLE");
+  }
+
+  return buildAffaireHubReadinessSnapshot({
+    lineCount: 0,
+    briefStatus: intakeResult.briefDraft?.status ?? null,
+    intakeReadiness: intakeResult.readiness
+      ? {
+          reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
+          confirmedMissingPiecesCount:
+            intakeResult.readiness.confirmedMissingPiecesCount,
+          confirmedCriticalMissingPiecesCount:
+            intakeResult.readiness.confirmedCriticalMissingPiecesCount,
+        }
+      : null,
+    registerGateSummary: registerGateSummaryResult,
+  });
+}
+
+async function classifyAffaireManagerQueueWithContext(
+  context: AffaireContext,
+  items: AffaireListItem[]
+): Promise<{
+  readinessByProjectId: Map<string, AffaireHubReadinessResult | null>;
+  incompleteCount: number;
+}> {
+  const readinessByProjectId = new Map<string, AffaireHubReadinessResult | null>();
+  let incompleteCount = 0;
+
+  for (let startIndex = 0; startIndex < items.length; startIndex += MANAGER_QUEUE_BATCH_SIZE) {
+    const batch = items.slice(startIndex, startIndex + MANAGER_QUEUE_BATCH_SIZE);
+    const settled = await Promise.allSettled(
+      batch.map(async (item) => ({
+        projectId: item.projectId,
+        readiness: await fetchAffaireManagerReadinessWithContext(context, item),
+      }))
+    );
+
+    settled.forEach((result) => {
+      if (result.status === "fulfilled") {
+        readinessByProjectId.set(result.value.projectId, result.value.readiness);
+        return;
+      }
+
+      incompleteCount += 1;
+    });
+  }
+
+  return {
+    readinessByProjectId,
+    incompleteCount,
+  };
+}
+
+async function buildAffaireManagerQueueSummaryWithContext(
+  context: AffaireContext,
+  query: NormalizedAffaireListQuery
+): Promise<{
+  items: AffaireListItem[];
+  summary: AffaireManagerQueueSummary;
+  readinessByProjectId: Map<string, AffaireHubReadinessResult | null>;
+}> {
+  const items = await fetchAllAffaireListItemsWithContext(context, query);
+  const { readinessByProjectId, incompleteCount } =
+    await classifyAffaireManagerQueueWithContext(context, items);
+
+  return {
+    items,
+    summary: {
+      counts: buildManagerQueueCounts(readinessByProjectId),
+      incompleteCount,
+    },
+    readinessByProjectId,
+  };
+}
+
 async function fetchAffaireCountersWithContext(
   context: AffaireContext,
   query: Pick<NormalizedAffaireListQuery, "q" | "status" | "favoritesOnly">
@@ -1392,20 +1715,76 @@ async function fetchAffaireCountersWithContext(
   };
 }
 
+async function fetchAffaireManagerFilteredPageDataWithContext(
+  context: AffaireContext,
+  query: NormalizedAffaireListQuery
+): Promise<AffairePageDataResult> {
+  const baseQuery = {
+    ...query,
+    manager: "all" as const,
+    cursor: null,
+  };
+
+  const [baseCounters, managerQueueData] = await Promise.all([
+    fetchAffaireCountersWithContext(context, baseQuery),
+    buildAffaireManagerQueueSummaryWithContext(context, baseQuery),
+  ]);
+
+  if (managerQueueData.summary.incompleteCount > 0) {
+    throw new Error("MANAGER_QUEUE_CLASSIFICATION_INCOMPLETE");
+  }
+
+  const filteredItems = managerQueueData.items.filter((item) =>
+    matchesManagerQueueFilter(
+      managerQueueData.readinessByProjectId.get(item.projectId) ?? null,
+      query.manager
+    )
+  );
+
+  return {
+    list: paginateAffaireItems(filteredItems, query),
+    counters: {
+      totalCount: baseCounters.totalCount,
+      filteredCount: filteredItems.length,
+      statusCounts: buildStatusCounts(filteredItems),
+    },
+    managerQueue: managerQueueData.summary,
+  };
+}
+
 export async function fetchAffaireList(
   input: AffaireListQuery = {}
 ): Promise<AffaireListPageResult> {
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery(input);
+  if (query.manager !== "all") {
+    return (await fetchAffaireManagerFilteredPageDataWithContext(context, query)).list;
+  }
   return fetchAffaireListWithContext(context, query);
 }
 
 export async function fetchAffaireCounters(
-  input: Pick<AffaireListQuery, "q" | "status" | "favorites"> = {}
+  input: Pick<AffaireListQuery, "q" | "status" | "favorites" | "manager"> = {}
 ): Promise<AffaireCountersResult> {
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery(input);
+  if (query.manager !== "all") {
+    return (await fetchAffaireManagerFilteredPageDataWithContext(context, query)).counters;
+  }
   return fetchAffaireCountersWithContext(context, query);
+}
+
+export async function fetchAffaireManagerQueueSummary(
+  input: Pick<AffaireListQuery, "q" | "status" | "favorites"> = {}
+): Promise<AffaireManagerQueueSummary> {
+  const context = await getAuthenticatedContext();
+  const query = normalizeAffaireListQuery(input);
+  const result = await buildAffaireManagerQueueSummaryWithContext(context, {
+    ...query,
+    manager: "all",
+    cursor: null,
+  });
+  return result.summary;
 }
 
 export async function fetchAffairePageData(
@@ -1413,6 +1792,10 @@ export async function fetchAffairePageData(
 ): Promise<AffairePageDataResult> {
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery(input);
+
+  if (query.manager !== "all") {
+    return fetchAffaireManagerFilteredPageDataWithContext(context, query);
+  }
 
   const [list, counters] = await Promise.all([
     fetchAffaireListWithContext(context, query),
@@ -1422,6 +1805,7 @@ export async function fetchAffairePageData(
   return {
     list,
     counters,
+    managerQueue: null,
   };
 }
 

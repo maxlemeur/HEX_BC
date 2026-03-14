@@ -9,6 +9,14 @@ export const AFFAIRE_SORT_VALUES = ["updatedAt"] as const;
 export type AffaireSort = (typeof AFFAIRE_SORT_VALUES)[number];
 export const AFFAIRE_SORT_DIRECTION_VALUES = ["asc", "desc"] as const;
 export type AffaireSortDirection = (typeof AFFAIRE_SORT_DIRECTION_VALUES)[number];
+export const AFFAIRE_MANAGER_QUEUE_FILTER_VALUES = [
+  "all",
+  "follow_up",
+  "reservations",
+  "revalidation",
+] as const;
+export type AffaireManagerQueueFilter =
+  (typeof AFFAIRE_MANAGER_QUEUE_FILTER_VALUES)[number];
 
 export const AFFAIRE_STATUS_VALUES = [
   "draft",
@@ -22,6 +30,7 @@ const AFFAIRE_STATUS_SET = new Set<AffaireStatus>(AFFAIRE_STATUS_VALUES);
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
 const DEFAULT_SORT: AffaireSort = "updatedAt";
 const DEFAULT_SORT_DIRECTION: AffaireSortDirection = "desc";
+const DEFAULT_MANAGER_QUEUE_FILTER: AffaireManagerQueueFilter = "all";
 
 export type AffaireCursorPayload = {
   updatedAt: string;
@@ -32,6 +41,7 @@ export type AffaireListQuery = {
   q?: string | null;
   status?: AffaireStatus[] | null;
   favorites?: boolean | string | null;
+  manager?: string | null;
   size?: number | string | null;
   cursor?: string | null;
   sort?: string | null;
@@ -42,6 +52,7 @@ export type NormalizedAffaireListQuery = {
   q: string | null;
   status: AffaireStatus[] | null;
   favoritesOnly: boolean;
+  manager: AffaireManagerQueueFilter;
   size: AffairePageSize;
   cursor: string | null;
   sort: AffaireSort;
@@ -86,6 +97,9 @@ const sortSchema = z
 const sortDirectionSchema = z
   .enum(AFFAIRE_SORT_DIRECTION_VALUES)
   .catch(DEFAULT_SORT_DIRECTION);
+const managerQueueFilterSchema = z
+  .enum(AFFAIRE_MANAGER_QUEUE_FILTER_VALUES)
+  .catch(DEFAULT_MANAGER_QUEUE_FILTER);
 
 export const affaireCursorPayloadSchema = z.object({
   updatedAt: z.string().datetime({ offset: true }),
@@ -230,6 +244,17 @@ function parseFavoritesOnly(
   return candidate === "1" || candidate.toLowerCase() === "true";
 }
 
+function parseManagerQueueFilter(
+  value: string | string[] | null | undefined
+): AffaireManagerQueueFilter {
+  const candidate = toNullableFirstString(value);
+  if (!candidate) {
+    return DEFAULT_MANAGER_QUEUE_FILTER;
+  }
+
+  return managerQueueFilterSchema.parse(candidate);
+}
+
 export function normalizeAffaireListQuery(
   input: AffaireListQuery | undefined
 ): NormalizedAffaireListQuery {
@@ -237,6 +262,7 @@ export function normalizeAffaireListQuery(
     q: parseSearch(input?.q),
     status: normalizeStatusList(toStatusTokens(input?.status)),
     favoritesOnly: parseFavoritesOnly(input?.favorites),
+    manager: parseManagerQueueFilter(input?.manager),
     size: parseSize(input?.size),
     cursor: parseCursor(input?.cursor),
     sort: parseSort(input?.sort),
@@ -252,6 +278,7 @@ export function parseAffaireListQuery(
       q: parseSearch(input.get("q")),
       status: normalizeStatusList(toStatusTokens(input.getAll("status"))),
       favoritesOnly: parseFavoritesOnly(input.get("favorites")),
+      manager: parseManagerQueueFilter(input.get("manager")),
       size: parseSize(input.get("size")),
       cursor: parseCursor(input.get("cursor")),
       sort: parseSort(input.get("sort")),
@@ -263,6 +290,7 @@ export function parseAffaireListQuery(
     q: parseSearch(input.q),
     status: normalizeStatusList(toStatusTokens(input.status)),
     favoritesOnly: parseFavoritesOnly(input.favorites),
+    manager: parseManagerQueueFilter(input.manager),
     size: parseSize(input.size),
     cursor: parseCursor(input.cursor),
     sort: parseSort(input.sort),
