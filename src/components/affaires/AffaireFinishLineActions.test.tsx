@@ -179,6 +179,7 @@ describe("AffaireFinishLineActions", () => {
           blockingFlags: [
             {
               key: "no_pdf_generated",
+              category: "pdf",
               severity: "blocking",
               count: 1,
               item_ids: [],
@@ -202,6 +203,44 @@ describe("AffaireFinishLineActions", () => {
     expect(
       screen.getAllByText(/Generez d'abord le PDF ici, puis preparez l'email/i).length
     ).toBeGreaterThan(0);
+  });
+
+  it("keeps non-pdf blockers out of the pdf-specific guidance", () => {
+    renderActions({
+      finishLineSummary: makeFinishLineSummary({
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "critical_missing_pieces",
+              category: "documents",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents critiques manquants",
+              description: "Des pièces critiques restent manquantes.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      }),
+    });
+    const emailCard = getLatestByTestId("affaire-finish-line-email").closest("article");
+
+    expect(emailCard).not.toBeNull();
+    expect(
+      within(emailCard as HTMLElement).getByText(
+        /1 blocage visible juste au-dessus avant l'envoi/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(emailCard as HTMLElement).queryByText(
+        /Generez d'abord le PDF ici, puis preparez l'email/i
+      )
+    ).not.toBeInTheDocument();
   });
 
   it("generates the PDF from the affaire finish line and refreshes the hub", async () => {

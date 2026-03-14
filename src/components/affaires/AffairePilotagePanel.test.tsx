@@ -7,7 +7,9 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { AffairePilotagePanel } from "./AffairePilotagePanel";
 import {
   buildFinishLineCards,
+  buildFinishLineReadiness,
   buildPilotageExceptions,
+  buildReadyToSendAction,
   buildPilotageSteps,
 } from "./AffairePilotagePanel.logic";
 
@@ -388,6 +390,44 @@ describe("AffairePilotagePanel", () => {
     });
   });
 
+  it("keeps finish-line outputs hidden until the dossier is mature enough", () => {
+    const readiness = buildFinishLineReadiness({
+      intakeWorkspace: makeIntakeWorkspace({
+        documents: [
+          {
+            documentId: "doc-review",
+            fileName: "douteux.pdf",
+            detectedCategory: "a_classer",
+            confidence: 0.42,
+            extractedMetadata: {
+              projectName: null,
+              clientName: null,
+              deadlineAt: null,
+              detectedLots: [],
+              detectedVariants: [],
+            },
+            issues: ["Faible confiance"],
+          },
+        ],
+      }),
+      dpgfSource: null,
+      currentVersion: null,
+      lineCount: 0,
+    });
+
+    expect(readiness).toMatchObject({
+      reveal: false,
+      title: "Sortie devis masquee pour l'instant",
+    });
+    expect(readiness.blockers).toEqual(
+      expect.arrayContaining([
+        "1 piece reste a confirmer dans le dossier.",
+        "Importez puis validez le DPGF avant de preparer la sortie.",
+        "Creez un premier devis brouillon pour materialiser la sortie.",
+      ])
+    );
+  });
+
   it("renders finish-line cards ahead of the exception queue", () => {
     render(
       <ToastProvider>
@@ -426,8 +466,39 @@ describe("AffairePilotagePanel", () => {
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");
   });
 
-  it("counts blocked finish-line cards in the cockpit summary badge", () => {
-    render(
+  it("does not duplicate a hidden finish-line readiness note on immature dossiers", () => {
+    const { container } = render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet immature"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={null}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={null}
+          lineCount={0}
+          finishLineSummary={null}
+          takeoffEnabled
+        />
+      </ToastProvider>
+    );
+    const scope = within(container);
+
+    expect(scope.queryByText("Sortie devis masquee pour l'instant")).not.toBeInTheDocument();
+    expect(scope.queryByText("Pas encore pertinent")).not.toBeInTheDocument();
+    expect(
+      scope.queryByText("Importez puis validez le DPGF avant de preparer la sortie.")
+    ).not.toBeInTheDocument();
+    expect(scope.queryByText("Pret a envoyer")).not.toBeInTheDocument();
+    expect(
+      scope.queryByText("PDF, email et BDC depuis le meme point")
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders finish-line cards without adding a competing summary badge", () => {
+    const { container } = render(
       <ToastProvider>
         <AffairePilotagePanel
           projectId="project-1"
@@ -448,12 +519,15 @@ describe("AffairePilotagePanel", () => {
         />
       </ToastProvider>
     );
+    const scope = within(container);
 
-    expect(screen.getAllByText("2 points a traiter").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Aucun blocage prioritaire")).not.toBeInTheDocument();
+    expect(scope.getByText("Pret a envoyer")).toBeInTheDocument();
+    expect(scope.getByText("Pret a commander")).toBeInTheDocument();
+    expect(scope.queryByText("2 points a traiter")).not.toBeInTheDocument();
+    expect(scope.queryByText("Aucun blocage prioritaire")).not.toBeInTheDocument();
   });
 
-  it("does not double-count register blockers already surfaced in exceptions", () => {
+  it("does not reintroduce a competing summary badge when register blockers are already surfaced", () => {
     render(
       <ToastProvider>
         <AffairePilotagePanel
@@ -511,7 +585,103 @@ describe("AffairePilotagePanel", () => {
       </ToastProvider>
     );
 
-    expect(screen.getAllByText("1 point a traiter").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Exceptions a traiter").length).toBeGreaterThan(0);
+    expect(screen.queryByText("1 point a traiter")).not.toBeInTheDocument();
+  });
+
+  it("routes missing client documents to the document-filtered register view", () => {
+    const action = buildReadyToSendAction({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        versionId: "version-1",
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "client_missing_documents_required",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Documents attendus du client",
+              description: "Un document client reste attendu.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToOrder: {
+          status: "waiting",
+          orderableLinesCount: 0,
+          coveredLinesCount: 0,
+          ambiguousLinesCount: 0,
+          missingPriceLinesCount: 0,
+          staleLinesCount: 0,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(action).toEqual({
+      kind: "href",
+      label: "Ouvrir les documents attendus",
+      href:
+        "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=missing_piece#register",
+    });
+  });
+
+  it("routes client clarifications to the register wording carried by the backend category", () => {
+    const action = buildReadyToSendAction({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        versionId: "version-1",
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "client_clarification_required",
+              category: "register",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Clarification client requise",
+              description: "Une hypothèse reste à clarifier avec le client.",
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToOrder: {
+          status: "waiting",
+          orderableLinesCount: 0,
+          coveredLinesCount: 0,
+          ambiguousLinesCount: 0,
+          missingPriceLinesCount: 0,
+          staleLinesCount: 0,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(action).toEqual({
+      kind: "href",
+      label: "Ouvrir les clarifications client",
+      href:
+        "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption#register",
+    });
   });
 
   it("does not expose finish-line actions when the panel is rendered in ghost mode", () => {
@@ -573,6 +743,39 @@ describe("AffairePilotagePanel", () => {
     await user.click(screen.getByRole("button", { name: /Ajouter des pieces/i }));
 
     expect(onOpenSurface).toHaveBeenCalledWith("intake-upload");
+  });
+
+  it("can hide exceptions already carried by the flow hero", () => {
+    render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet test"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={makeDpgfSource()}
+          plansSummary={{
+            defaultPlanSetId: "plan-set-1",
+            planSetCount: 1,
+            planFileCount: 1,
+            totalSizeBytes: 1024,
+            latestJob: null,
+            coveragePercent: null,
+            exceptionCount: null,
+            openQuestionsCount: 0,
+            failureReasonLabel: null,
+          }}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={null}
+          lineCount={0}
+          takeoffEnabled
+          hiddenExceptionIds={["takeoff-launch"]}
+          onOpenSurface={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: /Demarrer l'analyse/i })).not.toBeInTheDocument();
   });
 
   it("omits surface-based exceptions when no surface opener is available", () => {

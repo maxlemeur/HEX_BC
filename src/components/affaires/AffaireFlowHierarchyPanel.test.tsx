@@ -732,6 +732,113 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(onExecuteSuggestion).toHaveBeenCalledWith(generateStructure);
   });
 
+  it("keeps the structure wording under reservations when critical register documents remain open", () => {
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-brief-confirmed-reserved"
+        currentVersion={{
+          id: "version-brief-confirmed-reserved",
+          projectId: "project-brief-confirmed-reserved",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-brief-confirmed-reserved",
+          projectId: "project-brief-confirmed-reserved",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-1",
+          isVersionEmpty: true,
+          canGenerate: true,
+          availableLots: [],
+          activeDraft: null,
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Consultation electricite avec plans et DPGF recus.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts", "Courants faibles"],
+            lots: ["Electricite", "SSI"],
+            receivedPieces: ["DPGF", "Plans"],
+            assumptions: ["Tarifs a confirmer."],
+            vigilancePoints: ["Verifier la variante SSI en option."],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        registerSummary={{
+          openQuestionsCount: 2,
+          criticalOpenCount: 1,
+          nonCriticalOpenCount: 1,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 1,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[
+          buildSuggestion({
+            actionId: "generate-structure-reserved",
+            label: "Generer la structure du devis",
+            intent: "generate_structure",
+            preview: "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+            target: {
+              kind: "navigate",
+              href: "/dashboard/estimates/version-brief-confirmed-reserved/edit?openVersionZero=1",
+            },
+          }),
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Base devis disponible sous reserves")).toBeInTheDocument();
+    expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
+  });
+
   it("keeps the structure hero in review mode when a V0 draft already exists", async () => {
     const user = userEvent.setup();
     const reviewStructure = buildSuggestion({

@@ -1693,6 +1693,7 @@ export function AffaireHub({
               takeoffEnabled={takeoffEnabled}
               plansSummary={plansSummary ?? null}
               intakeWorkspace={intakeWorkspace ?? null}
+              registerSummary={registerSummary ?? null}
               finishLineSummary={finishLineSummary ?? null}
               cockpitSuggestions={visibleCockpitSuggestions}
               onExecuteSuggestion={handleExecuteCockpitSuggestion}

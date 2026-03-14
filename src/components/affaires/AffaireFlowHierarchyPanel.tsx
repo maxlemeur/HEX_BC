@@ -14,6 +14,7 @@ import {
   isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireRegisterSummary } from "@/lib/affaires/register";
 import type { AffaireHubFinishLineSummaryResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
@@ -32,6 +33,7 @@ type AffaireFlowHierarchyPanelProps = {
   intakeWorkspace?: (Pick<AffaireIntakeWorkspace, "missingPieces" | "documents"> & {
     briefDraft?: AffaireIntakeWorkspace["briefDraft"];
   }) | null;
+  registerSummary?: AffaireRegisterSummary | null;
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   cockpitSuggestions?: CockpitSuggestion[];
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
@@ -186,6 +188,19 @@ function isDocumentNeedingReview(
   document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number],
 ) {
   return isAffaireIntakeDocumentNeedingReview(document);
+}
+
+function hasOpenCriticalRegisterDocumentRisk(
+  registerSummary: AffaireFlowHierarchyPanelProps["registerSummary"],
+) {
+  if (!registerSummary) {
+    return false;
+  }
+
+  return (
+    registerSummary.criticalOpenCount > 0 &&
+    registerSummary.openMissingPieceCount > 0
+  );
 }
 
 function hasExplicitMissingPrimary(
@@ -452,6 +467,14 @@ function buildPanelModel(
   const planExceptionCount = input.plansSummary?.exceptionCount ?? 0;
   const finishLineBlockers =
     input.finishLineSummary?.readyToSend.blockingFlags.map((flag) => flag.label) ?? [];
+  const documentReadinessFlags = [
+    ...(input.finishLineSummary?.readyToSend.blockingFlags.filter(
+      (flag) => flag.category === "documents",
+    ) ?? []),
+    ...(input.finishLineSummary?.readyToSend.warningFlags.filter(
+      (flag) => flag.category === "documents",
+    ) ?? []),
+  ];
   const documentsCount = documents.length;
   const hasLegacyEntry =
     input.takeoffEnabled &&
@@ -486,6 +509,12 @@ function buildPanelModel(
   const briefDraft = input.intakeWorkspace?.briefDraft ?? null;
   const hasMissingPrimaryDpgf = hasExplicitMissingPrimary(documents, "dpgf");
   const hasMissingPrimaryCctp = hasExplicitMissingPrimary(documents, "cctp");
+  const hasDocumentReservations =
+    documentReadinessFlags.length > 0 ||
+    hasOpenCriticalRegisterDocumentRisk(input.registerSummary);
+  const documentReservationFacts = dedupe(
+    documentReadinessFlags.map((flag) => flag.label).slice(0, 2),
+  );
   const reviewCouldResolveCriticalMissing =
     reviewDocument !== null &&
     getReviewProbableCategories(reviewDocument).some((category) =>
@@ -666,19 +695,26 @@ function buildPanelModel(
   } else if (analyzePlansSuggestion) {
     title = "Lancer le metre";
     summary = analyzePlansSuggestion.preview;
-    statusLabel = "Pret pour analyse";
-    statusVariant = "success";
+    statusLabel = hasDocumentReservations ? "Analyse sous reserves" : "Pret pour analyse";
+    statusVariant = hasDocumentReservations ? "warning" : "success";
     heroState = "plans";
-    readinessLevel = "ready";
+    readinessLevel = hasDocumentReservations ? "ready_with_reservations" : "ready";
     primaryAction = toSuggestionAction(analyzePlansSuggestion);
     resultCard = {
       kind: "plans",
-      title: "Structure prete",
-      message: "Lancez l'analyse des plans pour extraire les quantites.",
+      title: hasDocumentReservations ? "Structure disponible sous reserves" : "Structure prete",
+      message: hasDocumentReservations
+        ? "Lancez l'analyse des plans, mais le dossier reste incomplet."
+        : "Lancez l'analyse des plans pour extraire les quantites.",
       action: primaryAction,
       facts: dedupe([
         hasPlans ? "Plans detectes" : "",
-        hasDpgf ? "Base devis prete" : "",
+        hasDpgf
+          ? hasDocumentReservations
+            ? "Base devis disponible sous reserves"
+            : "Base devis prete"
+          : "",
+        ...documentReservationFacts,
       ]).filter(Boolean),
     };
   } else if (generateStructureSuggestion) {
@@ -688,21 +724,29 @@ function buildPanelModel(
     title = generateStructureSuggestion.label;
     summary = generateStructureSuggestion.preview;
     statusLabel = hasStructureDraft ? "Structure a reprendre" : "Structure a generer";
-    statusVariant = "success";
+    statusVariant = hasDocumentReservations ? "warning" : "success";
     heroState = "structure";
     readinessLevel = "ready_with_reservations";
     primaryAction = toSuggestionAction(generateStructureSuggestion);
     resultCard = {
       kind: "structure",
-      title: "Brief confirme",
+      title: hasDocumentReservations ? "Structure generable sous reserves" : "Brief confirme",
       message: hasStructureDraft
-        ? "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
-        : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
+        ? hasDocumentReservations
+          ? "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
+          : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+        : hasDocumentReservations
+          ? "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
+          : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
       action: primaryAction,
       facts: dedupe([
-        hasDpgf ? "Base devis prete" : "",
+        hasDpgf
+          ? hasDocumentReservations
+            ? "Base devis disponible sous reserves"
+            : "Base devis prete"
+          : "",
         hasPlans ? "Plans detectes" : "",
-        "Version brouillon disponible",
+        ...(hasDocumentReservations ? documentReservationFacts : ["Version brouillon disponible"]),
       ]).filter(Boolean),
     };
   } else if (prepareValidationSuggestion) {

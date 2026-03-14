@@ -14,6 +14,7 @@ import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
+import { isPdfFinishLineFlag } from "./AffairePilotagePanel.logic";
 
 type AffaireFinishLineActionsProps = {
   projectId: string;
@@ -130,7 +131,7 @@ function getSendActionState(
   if (send.status === "blocked") {
     const hasOnlyPdfBlocker =
       send.blockingFlags.length > 0 &&
-      send.blockingFlags.every((flag) => flag.key === "no_pdf_generated");
+      send.blockingFlags.every((flag) => isPdfFinishLineFlag(flag));
 
     return {
       status: "blocked" as const,

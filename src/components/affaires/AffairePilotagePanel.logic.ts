@@ -71,19 +71,120 @@ export type FinishLineReadiness = {
   blockers: string[];
 };
 
+type ReadyToSendBlockingFlag =
+  NonNullable<AffaireHubFinishLineSummaryResult>["readyToSend"]["blockingFlags"][number];
+
+function isDocumentRegisterFlagKey(
+  key: ReadyToSendBlockingFlag["key"],
+) {
+  return (
+    key === "critical_missing_pieces" ||
+    key === "client_missing_documents_required" ||
+    key === "missing_pieces_pending"
+  );
+}
+
+function isClarificationRegisterFlagKey(
+  key: ReadyToSendBlockingFlag["key"],
+) {
+  return (
+    key === "critical_open_questions" ||
+    key === "client_clarification_required" ||
+    key === "open_questions_pending"
+  );
+}
+
+function resolveBlockingFlagRegisterStatus(
+  key: ReadyToSendBlockingFlag["key"],
+) {
+  return key === "client_missing_documents_required" ||
+    key === "client_clarification_required"
+    ? "clarify_with_client"
+    : "open";
+}
+
+function resolveBlockingFlagRegisterSeverity(
+  key: ReadyToSendBlockingFlag["key"],
+) {
+  return key === "critical_missing_pieces" || key === "critical_open_questions"
+    ? "critical"
+    : null;
+}
+
+export function isPdfFinishLineFlag(flag: ReadyToSendBlockingFlag) {
+  return flag.category === "pdf" || flag.key === "no_pdf_generated";
+}
+
+function buildRegisterActionFromBlockingFlag(input: {
+  projectId: string;
+  flag: ReadyToSendBlockingFlag;
+}) {
+  const { flag, projectId } = input;
+  const status = resolveBlockingFlagRegisterStatus(flag.key);
+  const severity = resolveBlockingFlagRegisterSeverity(flag.key);
+
+  if (flag.category === "documents" || (!flag.category && isDocumentRegisterFlagKey(flag.key))) {
+    return {
+      kind: "href" as const,
+      label:
+        status === "clarify_with_client"
+          ? "Ouvrir les documents attendus"
+          : "Ouvrir les documents manquants",
+      href: `${buildAffaireRegisterHubHref({
+        projectId,
+        status,
+        severity,
+        kind: "missing_piece",
+      })}#register`,
+    };
+  }
+
+  if (
+    flag.category === "register" ||
+    (!flag.category && isClarificationRegisterFlagKey(flag.key))
+  ) {
+    return {
+      kind: "href" as const,
+      label:
+        status === "clarify_with_client"
+          ? "Ouvrir les clarifications client"
+          : "Ouvrir le registre",
+      href: `${buildAffaireRegisterHubHref({
+        projectId,
+        status,
+        severity,
+        kind: "assumption",
+      })}#register`,
+    };
+  }
+
+  return null;
+}
+
 function isRegisterExceptionCoveringSendBlocker(
-  flagKey: NonNullable<AffaireHubFinishLineSummaryResult>["readyToSend"]["blockingFlags"][number]["key"],
+  flag: ReadyToSendBlockingFlag,
   exceptionIds: ReadonlySet<string>,
 ) {
-  switch (flagKey) {
-    case "critical_open_questions":
-      return exceptionIds.has("register-critical");
-    case "client_clarification_required":
-    case "open_questions_pending":
-      return exceptionIds.has("register-open") || exceptionIds.has("register-critical");
-    default:
-      return false;
+  if (flag.category === "documents" || (!flag.category && isDocumentRegisterFlagKey(flag.key))) {
+    if (flag.key === "critical_missing_pieces") {
+      return exceptionIds.has("missing-pieces") || exceptionIds.has("register-critical");
+    }
+
+    return exceptionIds.has("missing-pieces") || exceptionIds.has("register-open");
   }
+
+  if (
+    flag.category === "register" ||
+    (!flag.category && isClarificationRegisterFlagKey(flag.key))
+  ) {
+    if (flag.key === "critical_open_questions") {
+      return exceptionIds.has("register-critical");
+    }
+
+    return exceptionIds.has("register-open") || exceptionIds.has("register-critical");
+  }
+
+  return false;
 }
 
 export function countPrioritizedFinishLineBlockers(input: {
@@ -103,7 +204,7 @@ export function countPrioritizedFinishLineBlockers(input: {
     }
 
     const hasDistinctBlocker = input.finishLineSummary.readyToSend.blockingFlags.some(
-      (flag) => !isRegisterExceptionCoveringSendBlocker(flag.key, exceptionIds)
+      (flag) => !isRegisterExceptionCoveringSendBlocker(flag, exceptionIds)
     );
 
     return count + (hasDistinctBlocker ? 1 : 0);
@@ -168,43 +269,18 @@ export function buildReadyToSendAction(input: {
   }
 
   const blockingFlag = input.finishLineSummary?.readyToSend.blockingFlags[0] ?? null;
-  if (blockingFlag?.key === "critical_open_questions") {
-    return {
-      kind: "href" as const,
-      label: "Ouvrir le registre",
-      href: `${buildAffaireRegisterHubHref({
-        projectId: input.projectId,
-        status: "open",
-        severity: "critical",
-      })}#register`,
-    };
+  const registerAction =
+    blockingFlag === null
+      ? null
+      : buildRegisterActionFromBlockingFlag({
+          projectId: input.projectId,
+          flag: blockingFlag,
+        });
+  if (registerAction) {
+    return registerAction;
   }
 
-  if (blockingFlag?.key === "client_clarification_required") {
-    return {
-      kind: "href" as const,
-      label: "Ouvrir le registre",
-      href: `${buildAffaireRegisterHubHref({
-        projectId: input.projectId,
-        status: "clarify_with_client",
-        severity: null,
-      })}#register`,
-    };
-  }
-
-  if (blockingFlag?.key === "open_questions_pending") {
-    return {
-      kind: "href" as const,
-      label: "Ouvrir le registre",
-      href: `${buildAffaireRegisterHubHref({
-        projectId: input.projectId,
-        status: "open",
-        severity: null,
-      })}#register`,
-    };
-  }
-
-  if (blockingFlag?.key === "no_pdf_generated" && input.currentVersion) {
+  if (blockingFlag && isPdfFinishLineFlag(blockingFlag) && input.currentVersion) {
     return {
       kind: "href" as const,
       label: "Ouvrir la sortie devis",
