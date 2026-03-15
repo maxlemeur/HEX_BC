@@ -107,17 +107,17 @@ export function AffaireCreatedOnboardingBanner({
         <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
           <p className="text-xs font-semibold text-[var(--brand-blue)]">3</p>
           <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
-            Ou importer un DPGF
+            Importer la DPGF
           </p>
           <p className="mt-1 text-xs text-[var(--slate-500)]">
-            Le flux expert pre-remplit la structure si le bordereau est exploitable.
+            Pre-remplissez la structure du devis si le bordereau principal est exploitable.
           </p>
           <button
             type="button"
             onClick={onOpenImportFlow}
             className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[var(--brand-blue)] transition-colors hover:text-[var(--brand-blue-dark)]"
           >
-            Importer
+            Importer la DPGF
             <svg
               width="14"
               height="14"

@@ -20,6 +20,7 @@ describe("AffaireCreatedOnboardingBanner", () => {
       "href",
       "/dashboard/estimates/version-1/edit?entry=manual",
     );
-    expect(screen.getByText("Ou importer un DPGF")).toBeInTheDocument();
+    expect(screen.getAllByText("Importer la DPGF").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Importer la DPGF" })).toBeInTheDocument();
   });
 });

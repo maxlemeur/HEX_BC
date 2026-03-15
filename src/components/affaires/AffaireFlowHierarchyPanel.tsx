@@ -19,7 +19,11 @@ import {
   AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
   type AffaireRegisterSummary,
 } from "@/lib/affaires/register";
-import type { AffaireHubFinishLineSummaryResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
+import type {
+  AffaireHubDpgfSourceResult,
+  AffaireHubFinishLineSummaryResult,
+  AffaireHubSummaryResult,
+} from "@/lib/affaires/server";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
@@ -32,6 +36,7 @@ import { IntakeDocumentCard } from "./IntakeDocumentCard";
 type AffaireFlowHierarchyPanelProps = {
   projectId: string;
   hubReadiness?: AffaireHubSummaryResult["hubReadiness"];
+  dpgfSource?: AffaireHubDpgfSourceResult;
   currentVersion: AffaireHubSummaryResult["currentVersion"] | null;
   versionZeroSummary?: VersionZeroDraftSummary | null;
   takeoffEnabled?: boolean;
@@ -195,6 +200,10 @@ function isStructureResumeAction(action: PanelAction) {
 
 function isHybridStructureAction(action: PanelAction) {
   return action.label.toLowerCase().includes("hybride");
+}
+
+function isDpgfImportStructureAction(action: PanelAction) {
+  return action.label.toLowerCase().includes("dpgf");
 }
 
 function hasCriticalMissingCategory(
@@ -538,6 +547,17 @@ function isContinueHybridSuggestion(suggestion: CockpitSuggestion | null) {
   return suggestion.intent === "continue_hybrid" || suggestion.label.toLowerCase().includes("hybride");
 }
 
+function isReadyLinkedDpgfSource(
+  dpgfSource: AffaireFlowHierarchyPanelProps["dpgfSource"],
+) {
+  return Boolean(
+    dpgfSource &&
+      dpgfSource.importStatus === "completed" &&
+      (dpgfSource.mappingStatus === "validated" || dpgfSource.mappingStatus === "applied") &&
+      dpgfSource.mappedRowCount > 0,
+  );
+}
+
 function describePreliminaryStructureContext(
   intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"],
 ) {
@@ -710,6 +730,11 @@ function buildPanelModel(
     suggestions,
     "review-revalidation",
   );
+  const linkedDpgfReady = isReadyLinkedDpgfSource(input.dpgfSource);
+  const shouldOpenLinkedDpgfAsBase =
+    linkedDpgfReady &&
+    input.currentVersion?.status === "draft" &&
+    (input.structureMode?.mode === "not_started" || input.structureMode == null);
   const canonicalHubReadiness = input.hubReadiness ?? null;
   const canonicalReadinessStatus = canonicalHubReadiness?.status ?? null;
   const allowsCanonicalContinuation = canonicalHubReadiness?.allowsContinuation ?? false;
@@ -1125,6 +1150,49 @@ function buildPanelModel(
         ...(hasWorkReservations ? documentReservationFacts : []),
       ]).filter(Boolean),
       evidence: ["La structure actuelle sera enrichie sans perdre les lignes deja saisies."],
+    };
+  } else if (shouldOpenLinkedDpgfAsBase && input.currentVersion && input.dpgfSource) {
+    title = "Importer la DPGF";
+    summary =
+      "Le DPGF principal est pret. Utilisez-le comme base du devis avant d'ajouter vos completements manuels.";
+    statusLabel = "Base importable";
+    statusVariant = "info";
+    heroState = "structure";
+    readinessLevel = input.hubReadiness?.status ?? "ready_with_reservations";
+    primaryAction = toHrefAction({
+      key: "import-dpgf-base",
+      label: "Importer la DPGF",
+      description: "Ouvrir le devis pour importer la DPGF liee et materialiser la structure.",
+      href: `/dashboard/estimates/${input.currentVersion.id}/edit`,
+      variant: "primary",
+    });
+    resultCard = {
+      kind: "structure",
+      title: hasWorkReservations
+        ? "Base DPGF importable sous reserves"
+        : "Base DPGF prete a importer",
+      message: hasWorkReservations
+        ? "La DPGF principale est validee. Importez-la comme base du devis, mais gardez en tete que le dossier reste encore sous reserves."
+        : "La DPGF principale est validee. Importez-la comme base du devis pour pre-remplir la structure avant les ajustements manuels.",
+      readinessStatus: readinessLevel,
+      action: primaryAction,
+      facts: dedupe([
+        "DPGF principal valide",
+        input.dpgfSource.mappedRowCount > 0
+          ? `${formatCountLabel(
+              input.dpgfSource.mappedRowCount,
+              "ligne importable",
+              "lignes importables",
+            )}`
+          : "",
+        ...(hasWorkReservations ? documentReservationFacts : []),
+      ]).filter(Boolean),
+      evidence: dedupe([
+        input.dpgfSource.filename,
+        input.dpgfSource.mappingStatus === "applied"
+          ? "Mapping deja applique"
+          : "Mapping valide",
+      ]).filter(Boolean),
     };
   } else if (planExceptionCount > 0 && viewExceptionsSuggestion) {
     title = "Traiter les ecarts de preuves";
@@ -1681,6 +1749,8 @@ function getStateWhyContent(card: PanelResultCard) {
     card.action.label.toLowerCase().includes("structure preliminaire");
   const isHybridStructureCard =
     card.kind === "structure" && isHybridStructureAction(card.action);
+  const isDpgfImportStructureCard =
+    card.kind === "structure" && isDpgfImportStructureAction(card.action);
 
   if (card.kind === "primary") {
     return {
@@ -1710,7 +1780,9 @@ function getStateWhyContent(card: PanelResultCard) {
   }
   if (card.kind === "structure") {
     return {
-      title: isHybridStructureCard
+      title: isDpgfImportStructureCard
+        ? "La DPGF principale est deja validee. La prochaine action est de l'utiliser comme base du devis."
+        : isHybridStructureCard
         ? "Le devis existe deja. La prochaine action est d'enrichir cette meme structure en mode hybride."
         : isPreliminaryStructureCard
         ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
@@ -1733,6 +1805,9 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
     return card.readinessStatus === "not_ready" ? "Brief a confirmer" : "Dossier exploitable";
   }
   if (card.kind === "structure") {
+    if (isDpgfImportStructureAction(card.action)) {
+      return "Base DPGF";
+    }
     if (isHybridStructureAction(card.action)) {
       return "Mode hybride";
     }

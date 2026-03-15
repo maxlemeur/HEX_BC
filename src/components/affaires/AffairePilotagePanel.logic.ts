@@ -233,16 +233,21 @@ function buildSubmissionReadinessDetails(
   return [...groupDetails.slice(0, 2), ...concreteDetails.slice(0, 1)];
 }
 
-function describePilotageStructureMode(
-  structureMode: AffairePilotageStructureMode,
-) {
+function describePilotageStructureMode(input: {
+  structureMode: AffairePilotageStructureMode;
+  isCurrentVersionEditable: boolean;
+}) {
+  const { structureMode, isCurrentVersionEditable } = input;
   if (!structureMode || structureMode.mode === "not_started") {
     return null;
   }
 
   if (structureMode.mode === "manual") {
     const baseSummary = `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} de devis disponible${structureMode.manualLineCount > 1 ? "s" : ""} en mode manuel.`;
-    if (!structureMode.canImportLinkedDpgfIntoCurrentStructure) {
+    if (
+      !structureMode.canImportLinkedDpgfIntoCurrentStructure ||
+      !isCurrentVersionEditable
+    ) {
       return {
         status: "done" as const,
         summary: baseSummary,
@@ -818,7 +823,10 @@ export function buildPilotageSteps(input: {
   const hasReadyPrimaryCctp = preliminaryStructure.sources.some(
     (source) => source.kind === "primary_cctp" && source.availability === "ready",
   );
-  const structureModeSummary = describePilotageStructureMode(input.structureMode ?? null);
+  const structureModeSummary = describePilotageStructureMode({
+    structureMode: input.structureMode ?? null,
+    isCurrentVersionEditable: input.currentVersion?.status === "draft",
+  });
   if (input.currentVersion === null) {
     devisStep = {
       key: "devis",
@@ -872,7 +880,8 @@ export function buildPilotageSteps(input: {
       key: "devis",
       label: "Structure devis",
       status: "in_progress",
-      summary: "La structure est prete, il reste a materialiser les lignes utiles.",
+      summary:
+        "La DPGF est validee. Importez-la comme base du devis pour materialiser les lignes utiles.",
     };
   } else {
     devisStep = {

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 
 import {
+  filterAffaireHubCommandBarSuggestionsForLinkedDpgf,
   filterAffaireHubCommandBarSuggestions,
   getAffaireHubIntakeWorkspacePresentation,
   getAffaireHubDominantIntent,
   getAffaireHubHiddenPilotageExceptionIds,
   isAffaireFreshStartState,
+  shouldPreferLinkedDpgfImportAction,
+  shouldHideAffaireHubTakeoffLaunchAction,
   shouldShowAffaireCreatedOnboardingBanner,
 } from "./AffaireHub";
 
@@ -477,7 +480,116 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
   });
 });
 
+describe("linked DPGF import preference", () => {
+  it("prefers the linked DPGF import path when the draft has no line yet", () => {
+    expect(
+      shouldPreferLinkedDpgfImportAction({
+        summary: {
+          project: {
+            id: "project-1",
+            name: "Affaire",
+            clientName: null,
+            reference: null,
+          },
+          currentVersion: {
+            id: "version-1",
+            projectId: "project-1",
+            status: "draft",
+            versionNumber: 1,
+            totalHtCents: 0,
+            marginMultiplier: 1,
+            marginPercent: 0,
+            updatedAt: "2026-03-11T08:00:00.000Z",
+          },
+          acceptedVersion: null,
+          versionsCount: 1,
+          lineCount: 0,
+          structureMode: {
+            mode: "not_started",
+            lineCount: 0,
+            importedLineCount: 0,
+            manualLineCount: 0,
+            unsupportedLineCount: 0,
+            hasImportableLinkedDpgfSource: true,
+            canImportLinkedDpgfIntoCurrentStructure: false,
+            linkedDpgfMappedRowCount: 42,
+          },
+        },
+        dpgfSource: {
+          importId: "import-1",
+          filename: "dpgf.xlsx",
+          sourceFormat: "xlsx",
+          importStatus: "completed",
+          mappingStatus: "validated",
+          importedAt: "2026-03-11T08:00:00.000Z",
+          mappingUpdatedAt: "2026-03-11T08:05:00.000Z",
+          parseMode: "spreadsheet",
+          rowCount: 42,
+          mappedRowCount: 42,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("hides competing structure and plans suggestions when linked DPGF import should dominate", () => {
+    const suggestions: CockpitSuggestion[] = [
+      {
+        actionId: "generate-structure",
+        label: "Generer la structure du devis",
+        intent: "generate_structure",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit?openVersionZero=1" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 200,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "analyze-plans",
+        label: "Analyser les plans",
+        intent: "analyze_plans",
+        preview: "",
+        target: { kind: "open_surface", surfaceId: "launch-metre" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 180,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "legacy",
+        label: "Ouvrir le fallback legacy",
+        intent: "view_exceptions",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 50,
+        isPinned: false,
+        isHidden: false,
+      },
+    ];
+
+    expect(
+      filterAffaireHubCommandBarSuggestionsForLinkedDpgf(suggestions, true).map(
+        (suggestion) => suggestion.intent,
+      ),
+    ).toEqual(["view_exceptions"]);
+  });
+});
+
 describe("getAffaireHubHiddenPilotageExceptionIds", () => {
+  it("hides the takeoff launch exception when hybrid continuation is dominant", () => {
+    expect(
+      getAffaireHubHiddenPilotageExceptionIds({
+        dominantIntent: "continue_hybrid",
+        hasDominantClarificationSuggestion: false,
+        hasDominantRevalidationSuggestion: false,
+      }),
+    ).toEqual(["takeoff-launch"]);
+  });
+
   it("hides competing takeoff actions when clarification is dominant", () => {
     expect(
       getAffaireHubHiddenPilotageExceptionIds({
@@ -496,6 +608,28 @@ describe("getAffaireHubHiddenPilotageExceptionIds", () => {
         hasDominantRevalidationSuggestion: true,
       }),
     ).toEqual(["register-revalidation", "register-open", "takeoff-launch"]);
+  });
+});
+
+describe("shouldHideAffaireHubTakeoffLaunchAction", () => {
+  it("hides the plans launch CTA when hybrid continuation is dominant", () => {
+    expect(
+      shouldHideAffaireHubTakeoffLaunchAction({
+        dominantIntent: "continue_hybrid",
+        hasDominantClarificationSuggestion: false,
+        hasDominantRevalidationSuggestion: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the plans launch CTA available when no competing dominant action exists", () => {
+    expect(
+      shouldHideAffaireHubTakeoffLaunchAction({
+        dominantIntent: "generate_structure",
+        hasDominantClarificationSuggestion: false,
+        hasDominantRevalidationSuggestion: false,
+      }),
+    ).toBe(false);
   });
 });
 

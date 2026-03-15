@@ -350,6 +350,46 @@ export function getAffaireHubIntakeWorkspacePresentation(input: {
   };
 }
 
+function isReadyLinkedDpgfSource(
+  dpgfSource: AffaireHubDpgfSourceResult,
+) {
+  return Boolean(
+    dpgfSource &&
+      dpgfSource.importStatus === "completed" &&
+      (dpgfSource.mappingStatus === "validated" || dpgfSource.mappingStatus === "applied") &&
+      dpgfSource.mappedRowCount > 0,
+  );
+}
+
+export function shouldPreferLinkedDpgfImportAction(input: {
+  summary: AffaireHubSummaryResult;
+  dpgfSource: AffaireHubDpgfSourceResult;
+}) {
+  return Boolean(
+    input.summary.currentVersion?.status === "draft" &&
+      input.summary.lineCount === 0 &&
+      (input.summary.structureMode?.mode === "not_started" ||
+        input.summary.structureMode == null) &&
+      isReadyLinkedDpgfSource(input.dpgfSource),
+  );
+}
+
+export function filterAffaireHubCommandBarSuggestionsForLinkedDpgf(
+  suggestions: CockpitSuggestion[],
+  preferLinkedDpgfImportAction: boolean,
+) {
+  if (!preferLinkedDpgfImportAction) {
+    return suggestions;
+  }
+
+  return suggestions.filter(
+    (suggestion) =>
+      suggestion.intent !== "generate_structure" &&
+      suggestion.intent !== "continue_hybrid" &&
+      suggestion.intent !== "analyze_plans",
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Section: Back to list                                              */
 /* ------------------------------------------------------------------ */
@@ -391,7 +431,10 @@ export function getAffaireHubHiddenPilotageExceptionIds(input: {
   if (input.dominantIntent === "confirm_brief") {
     return ["brief-confirm"];
   }
-  if (input.dominantIntent === "analyze_plans") {
+  if (
+    input.dominantIntent === "continue_hybrid" ||
+    input.dominantIntent === "analyze_plans"
+  ) {
     return ["takeoff-launch"];
   }
   if (input.dominantIntent === "list_hypotheses") {
@@ -404,6 +447,19 @@ export function getAffaireHubHiddenPilotageExceptionIds(input: {
   }
 
   return [];
+}
+
+export function shouldHideAffaireHubTakeoffLaunchAction(input: {
+  dominantIntent: CockpitIntent | null;
+  hasDominantClarificationSuggestion: boolean;
+  hasDominantRevalidationSuggestion: boolean;
+}) {
+  return (
+    input.dominantIntent === "continue_hybrid" ||
+    input.dominantIntent === "analyze_plans" ||
+    input.hasDominantClarificationSuggestion ||
+    input.hasDominantRevalidationSuggestion
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -662,6 +718,29 @@ function AffaireProgressStrip({
     items.push({ color: "bg-[var(--success)]", label: "DPGF importé" });
   } else {
     items.push({ color: "bg-[var(--brand-orange)]", label: "Pas de DPGF" });
+  }
+
+  if (summary.structureMode) {
+    const structureModeLabel =
+      summary.structureMode.mode === "manual"
+        ? "Structure manuelle"
+        : summary.structureMode.mode === "imported"
+          ? "Structure importee"
+          : summary.structureMode.mode === "hybrid"
+            ? "Mode hybride"
+            : summary.structureMode.mode === "needs_update"
+              ? "Structure a remettre a jour"
+              : null;
+
+    if (structureModeLabel) {
+      items.push({
+        color:
+          summary.structureMode.mode === "needs_update"
+            ? "bg-[var(--brand-orange)]"
+            : "bg-[var(--brand-blue)]",
+        label: structureModeLabel,
+      });
+    }
   }
 
   // Current version
@@ -1047,7 +1126,7 @@ function DpgfSourceCard({
             <polyline points="14 2 14 8 20 8" />
           </svg>
           <p className="text-sm text-[var(--slate-500)]">
-            Importez le bordereau de prix (DPGF) pour pré-remplir les lignes du devis.
+            Importez le bordereau de prix (DPGF) comme base pour pre-remplir la structure du devis.
           </p>
           {onStartImport ? (
             <button
@@ -1055,7 +1134,7 @@ function DpgfSourceCard({
               className="btn btn-primary btn-sm mt-3 inline-flex"
               onClick={onStartImport}
             >
-              Importer un DPGF
+              Importer la DPGF
             </button>
           ) : null}
         </div>
@@ -1235,7 +1314,7 @@ export function AffaireHub({
     toast.success({
       title: "Affaire créée !",
       description: dpgfSource
-        ? "DPGF lié — importez les lignes depuis l'éditeur."
+        ? "DPGF lie — importez-la depuis l'editeur pour pre-remplir le devis."
         : undefined,
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource, intakeWorkspace]);
@@ -1268,9 +1347,21 @@ export function AffaireHub({
     () => getAffaireHubDominantIntent(visibleCockpitSuggestions),
     [visibleCockpitSuggestions],
   );
+  const preferLinkedDpgfImportAction = useMemo(
+    () =>
+      shouldPreferLinkedDpgfImportAction({
+        summary,
+        dpgfSource,
+      }),
+    [summary, dpgfSource],
+  );
   const commandBarSuggestions = useMemo(
-    () => filterAffaireHubCommandBarSuggestions(cockpitState, dominantFlowIntent),
-    [cockpitState, dominantFlowIntent],
+    () =>
+      filterAffaireHubCommandBarSuggestionsForLinkedDpgf(
+        filterAffaireHubCommandBarSuggestions(cockpitState, dominantFlowIntent),
+        preferLinkedDpgfImportAction,
+      ),
+    [cockpitState, dominantFlowIntent, preferLinkedDpgfImportAction],
   );
   const intakeWorkspacePresentation = useMemo(
     () =>
@@ -1767,6 +1858,7 @@ export function AffaireHub({
               takeoffEnabled={takeoffEnabled}
               plansSummary={plansSummary ?? null}
               intakeWorkspace={intakeWorkspace ?? null}
+              dpgfSource={dpgfSource}
               registerSummary={registerSummary ?? null}
               finishLineSummary={finishLineSummary ?? null}
               structureMode={summary.structureMode ?? null}
@@ -1945,9 +2037,11 @@ export function AffaireHub({
                     projectId={summary.project.id}
                     errorMessage={sectionErrors?.plansSummary}
                     hideLaunchAction={
-                      dominantFlowIntent === "analyze_plans" ||
-                      hasDominantClarificationSuggestion ||
-                      hasDominantRevalidationSuggestion
+                      shouldHideAffaireHubTakeoffLaunchAction({
+                        dominantIntent: dominantFlowIntent,
+                        hasDominantClarificationSuggestion,
+                        hasDominantRevalidationSuggestion,
+                      })
                     }
                     onLaunchMetre={
                       isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)

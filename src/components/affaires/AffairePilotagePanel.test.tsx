@@ -306,6 +306,37 @@ describe("AffairePilotagePanel", () => {
     });
   });
 
+  it("makes the linked DPGF import explicit before any lines exist", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-dpgf-base",
+        status: "draft",
+        versionNumber: 1,
+      },
+      lineCount: 0,
+      structureMode: {
+        mode: "not_started",
+        lineCount: 0,
+        importedLineCount: 0,
+        manualLineCount: 0,
+        canImportLinkedDpgfIntoCurrentStructure: false,
+        linkedDpgfMappedRowCount: 42,
+      },
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "in_progress",
+      summary:
+        "La DPGF est validee. Importez-la comme base du devis pour materialiser les lignes utiles.",
+    });
+  });
+
   it("recognises a manual devis structure even without linked DPGF", () => {
     const steps = buildPilotageSteps({
       intakeWorkspace: makeIntakeWorkspace(),
@@ -364,6 +395,36 @@ describe("AffairePilotagePanel", () => {
       status: "in_progress",
       summary:
         "4 lignes de devis disponibles en mode manuel. Vous pouvez y ajouter 18 lignes DPGF en mode hybride.",
+    });
+  });
+
+  it("keeps the devis step done on locked versions even when hybrid import remains technically possible", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-manual-sent",
+        status: "sent",
+        versionNumber: 2,
+      },
+      lineCount: 4,
+      structureMode: {
+        mode: "manual",
+        lineCount: 4,
+        importedLineCount: 0,
+        manualLineCount: 4,
+        canImportLinkedDpgfIntoCurrentStructure: true,
+        linkedDpgfMappedRowCount: 18,
+      },
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "done",
+      summary: "4 lignes de devis disponibles en mode manuel.",
     });
   });
 
