@@ -182,10 +182,15 @@ export function AffaireRegisterCard({
       <RegisterTransitionDialog
         pendingTransition={controller.pendingTransition}
         transitionComment={controller.transitionComment}
+        revalidationForm={controller.revalidationForm}
         isMutationPending={controller.isMutationPending}
+        isConfirmDisabled={controller.isTransitionConfirmDisabled}
         onClose={controller.closeTransitionDialog}
         onConfirm={() => void controller.handleConfirmTransition()}
         onChangeComment={controller.setTransitionComment}
+        onChangeRevalidationCause={controller.setRevalidationCause}
+        onToggleRevalidationStage={controller.toggleRevalidationStage}
+        onChangeRevalidationTriggerFileName={controller.setRevalidationTriggerFileName}
       />
     </section>
   );

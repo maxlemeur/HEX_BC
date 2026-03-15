@@ -6,11 +6,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   continueAffaireRegisterWithHypothesisAction,
   createAffaireRegisterEntryAction,
+  requestAffaireRegisterRevalidationAction,
   updateAffaireRegisterEntryStatusAction,
 } from "@/app/dashboard/affaires/_actions/register";
 import { useToast } from "@/components/ui/Toast";
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  type AffaireRegisterRevalidationImpactedStage,
   AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
@@ -26,6 +28,7 @@ import type {
   AffaireRegisterCardProps,
   PendingTransition,
   RegisterEntryFormState,
+  RegisterRevalidationFormState,
 } from "./registerTypes";
 import {
   buildDerivedSummary,
@@ -43,6 +46,29 @@ const INITIAL_FORM_STATE: RegisterEntryFormState = {
   scopeLabel: "",
   sourceFileName: "",
 };
+
+const INITIAL_REVALIDATION_FORM_STATE: RegisterRevalidationFormState = {
+  cause: "addendum_received",
+  impactedStages: ["submission_readiness"],
+  triggerFileName: "",
+};
+
+function buildDefaultRevalidationFormState(
+  entry: Pick<AffaireRegisterEntry, "code" | "sourceFileName">
+): RegisterRevalidationFormState {
+  const impactedStages: AffaireRegisterRevalidationImpactedStage[] =
+    entry.code === "missing_plans"
+      ? ["plans_replay", "submission_readiness"]
+      : entry.code === "missing_dpgf" || entry.code === "missing_bpu_dqe"
+        ? ["document_review", "submission_readiness"]
+        : ["submission_readiness"];
+
+  return {
+    cause: entry.sourceFileName ? "document_replaced" : "addendum_received",
+    impactedStages,
+    triggerFileName: entry.sourceFileName ?? "",
+  };
+}
 
 export function useAffaireRegisterCardController({
   projectId,
@@ -64,6 +90,9 @@ export function useAffaireRegisterCardController({
     null
   );
   const [transitionComment, setTransitionComment] = useState("");
+  const [revalidationForm, setRevalidationForm] = useState<RegisterRevalidationFormState>(
+    INITIAL_REVALIDATION_FORM_STATE
+  );
   const [inlineFeedback, setInlineFeedback] = useState<{
     tone: "success" | "info";
     message: string;
@@ -251,6 +280,20 @@ export function useAffaireRegisterCardController({
               entryId: transition.entry.id,
               comment: comment.trim().length > 0 ? comment : null,
             });
+          } else if (transition.kind === "request_revalidation") {
+            await requestAffaireRegisterRevalidationAction({
+              projectId,
+              versionId,
+              entryId: transition.entry.id,
+              cause: revalidationForm.cause,
+              impactedStages: revalidationForm.impactedStages,
+              triggerDocumentId: null,
+              triggerFileName:
+                revalidationForm.triggerFileName.trim().length > 0
+                  ? revalidationForm.triggerFileName
+                  : null,
+              comment: comment.trim().length > 0 ? comment : null,
+            });
           } else {
             await updateAffaireRegisterEntryStatusAction({
               projectId,
@@ -285,6 +328,11 @@ export function useAffaireRegisterCardController({
   function openTransitionDialog(transition: PendingTransition) {
     setInlineFeedback(null);
     setTransitionComment("");
+    setRevalidationForm(
+      transition.kind === "request_revalidation"
+        ? buildDefaultRevalidationFormState(transition.entry)
+        : INITIAL_REVALIDATION_FORM_STATE
+    );
     setPendingTransition(transition);
   }
 
@@ -295,6 +343,7 @@ export function useAffaireRegisterCardController({
 
     setPendingTransition(null);
     setTransitionComment("");
+    setRevalidationForm(INITIAL_REVALIDATION_FORM_STATE);
   }
 
   async function handleConfirmTransition() {
@@ -305,6 +354,7 @@ export function useAffaireRegisterCardController({
     await handleConfirmTransitionRequest(pendingTransition, transitionComment);
     setPendingTransition(null);
     setTransitionComment("");
+    setRevalidationForm(INITIAL_REVALIDATION_FORM_STATE);
   }
 
   function updateForm<K extends keyof RegisterEntryFormState>(
@@ -327,6 +377,33 @@ export function useAffaireRegisterCardController({
     }));
   }
 
+  function setRevalidationCause(value: RegisterRevalidationFormState["cause"]) {
+    setRevalidationForm((current) => ({
+      ...current,
+      cause: value,
+    }));
+  }
+
+  function toggleRevalidationStage(value: AffaireRegisterRevalidationImpactedStage) {
+    setRevalidationForm((current) => ({
+      ...current,
+      impactedStages: current.impactedStages.includes(value)
+        ? current.impactedStages.filter((stage) => stage !== value)
+        : [...current.impactedStages, value],
+    }));
+  }
+
+  function setRevalidationTriggerFileName(value: string) {
+    setRevalidationForm((current) => ({
+      ...current,
+      triggerFileName: value,
+    }));
+  }
+
+  const isTransitionConfirmDisabled =
+    pendingTransition?.kind === "request_revalidation" &&
+    revalidationForm.impactedStages.length === 0;
+
   return {
     items,
     isLoading,
@@ -345,6 +422,7 @@ export function useAffaireRegisterCardController({
     pendingEntryId,
     pendingTransition,
     transitionComment,
+    revalidationForm,
     inlineFeedback,
     form,
     isFormExpanded,
@@ -359,6 +437,10 @@ export function useAffaireRegisterCardController({
     closeTransitionDialog,
     handleConfirmTransition,
     setTransitionComment,
+    setRevalidationCause,
+    toggleRevalidationStage,
+    setRevalidationTriggerFileName,
+    isTransitionConfirmDisabled,
     setIsFormExpanded,
     updateForm,
     handleScopeTypeChange,

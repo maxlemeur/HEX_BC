@@ -13,6 +13,7 @@ const mockToast = {
 const mockContinueAffaireRegisterWithHypothesisAction = vi.fn();
 const mockCreateAffaireRegisterEntryAction = vi.fn();
 const mockFetchAffaireRegisterReviewExportAction = vi.fn();
+const mockRequestAffaireRegisterRevalidationAction = vi.fn();
 const mockUpdateAffaireRegisterEntryStatusAction = vi.fn();
 let mockSearchParams = new URLSearchParams();
 
@@ -36,6 +37,8 @@ vi.mock("@/app/dashboard/affaires/_actions/register", () => ({
     mockCreateAffaireRegisterEntryAction(...args),
   fetchAffaireRegisterReviewExportAction: (...args: unknown[]) =>
     mockFetchAffaireRegisterReviewExportAction(...args),
+  requestAffaireRegisterRevalidationAction: (...args: unknown[]) =>
+    mockRequestAffaireRegisterRevalidationAction(...args),
   updateAffaireRegisterEntryStatusAction: (...args: unknown[]) =>
     mockUpdateAffaireRegisterEntryStatusAction(...args),
 }));
@@ -145,6 +148,24 @@ describe("AffaireRegisterCard", () => {
           comment: "Budget provisoire maintenu.",
           decidedAt: "2026-03-06T09:20:00.000Z",
           decidedByUserId: "user-1",
+        },
+      },
+    });
+    mockRequestAffaireRegisterRevalidationAction.mockResolvedValue({
+      ok: true,
+      entry: {
+        ...buildRegisterPage().items[0],
+        status: "open",
+        revalidationRequest: {
+          status: "required",
+          requestedAt: "2026-03-06T09:30:00.000Z",
+          requestedByUserId: "user-1",
+          previousStatus: "validated",
+          cause: "addendum_received",
+          triggerDocumentId: null,
+          triggerFileName: "additif-cfo.pdf",
+          impactedStages: ["document_review", "submission_readiness"],
+          comment: "Revoir le lot CFO apres additif.",
         },
       },
     });
@@ -516,6 +537,93 @@ describe("AffaireRegisterCard", () => {
       title: "Continuation tracee",
       description:
         "Une hypothese de continuation a ete ajoutee sans masquer le point manquant.",
+    });
+  });
+
+  it("requests a targeted revalidation from a resolved entry", async () => {
+    const user = userEvent.setup();
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    const versionId = "22222222-2222-4222-8222-222222222222";
+
+    render(
+      <AffaireRegisterCard
+        projectId={projectId}
+        versionId={versionId}
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-resolved",
+              kind: "missing_piece",
+              text: "Le lot CFO etait considere comme boucle.",
+              status: "validated",
+              severity: "critical",
+              code: "missing_dpgf",
+              sourceFileName: "dpgf-cfo.pdf",
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 0,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 0,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Demander une revalidation/i }));
+
+    expect(screen.getByText("Ce que cela change")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Utilisez cette action quand un additif ou une piece critique recue tardivement rouvre ce point. La revalidation reste ciblee sur les etapes declarees."
+      )
+    ).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Cause de revalidation"), "late_critical_piece");
+    await user.clear(
+      screen.getByLabelText("Piece ou additif declenchant (facultatif)")
+    );
+    await user.type(
+      screen.getByLabelText("Piece ou additif declenchant (facultatif)"),
+      "additif-cfo.pdf"
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Consigne de reprise (facultative)" }),
+      "Relancer uniquement la revue documentaire et la readiness."
+    );
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /Confirmer la revalidation/i,
+      })
+    );
+
+    await waitFor(() => {
+      expect(mockRequestAffaireRegisterRevalidationAction).toHaveBeenCalledWith({
+        projectId,
+        versionId,
+        entryId: "entry-resolved",
+        cause: "late_critical_piece",
+        impactedStages: ["document_review", "submission_readiness"],
+        triggerDocumentId: null,
+        triggerFileName: "additif-cfo.pdf",
+        comment: "Relancer uniquement la revue documentaire et la readiness.",
+      });
+    });
+    expect(mockUpdateAffaireRegisterEntryStatusAction).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryId: "entry-resolved",
+      })
+    );
+    expect(mockToast.success).toHaveBeenCalledWith({
+      title: "Revalidation tracee",
+      description:
+        "La reouverture ciblee a ete enregistree sans reset global du dossier.",
     });
   });
 
@@ -902,6 +1010,13 @@ describe("AffaireRegisterCard", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("Blocages actifs: 0 critiques ouvertes · 0 clarifications client · 1 revalidation requise.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ouverte · revalidation requise")).toBeInTheDocument();
+    expect(screen.getByText("Trace de revalidation")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Cause: Additif recu · Etapes a revoir: Readiness pre-remise · Piece declenchante: additif-cfo.pdf"
+      )
     ).toBeInTheDocument();
   });
 

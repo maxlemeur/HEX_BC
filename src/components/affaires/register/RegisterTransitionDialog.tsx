@@ -1,24 +1,40 @@
-import { AFFAIRE_REGISTER_STATUS_LABELS } from "@/lib/affaires/register";
+import {
+  AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS,
+  AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
+  AFFAIRE_REGISTER_STATUS_LABELS,
+  type AffaireRegisterRevalidationCause,
+  type AffaireRegisterRevalidationImpactedStage,
+} from "@/lib/affaires/register";
 
-import type { PendingTransition } from "./registerTypes";
+import type { PendingTransition, RegisterRevalidationFormState } from "./registerTypes";
 import { resolveTransitionPrompt } from "./registerViewModel";
 
 type RegisterTransitionDialogProps = {
   pendingTransition: PendingTransition | null;
   transitionComment: string;
+  revalidationForm: RegisterRevalidationFormState;
   isMutationPending: boolean;
+  isConfirmDisabled: boolean;
   onClose: () => void;
   onConfirm: () => void;
   onChangeComment: (value: string) => void;
+  onChangeRevalidationCause: (value: AffaireRegisterRevalidationCause) => void;
+  onToggleRevalidationStage: (value: AffaireRegisterRevalidationImpactedStage) => void;
+  onChangeRevalidationTriggerFileName: (value: string) => void;
 };
 
 export function RegisterTransitionDialog({
   pendingTransition,
   transitionComment,
+  revalidationForm,
   isMutationPending,
+  isConfirmDisabled,
   onClose,
   onConfirm,
   onChangeComment,
+  onChangeRevalidationCause,
+  onToggleRevalidationStage,
+  onChangeRevalidationTriggerFileName,
 }: Readonly<RegisterTransitionDialogProps>) {
   if (!pendingTransition) {
     return null;
@@ -94,6 +110,73 @@ export function RegisterTransitionDialog({
           />
         </label>
 
+        {pendingTransition.kind === "request_revalidation" ? (
+          <div className="mt-4 grid gap-4 rounded-xl border border-[var(--danger)]/15 bg-[var(--danger)]/5 px-4 py-4">
+            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)]">
+              Cause de revalidation
+              <select
+                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-sm text-[var(--slate-700)]"
+                value={revalidationForm.cause}
+                onChange={(event) =>
+                  onChangeRevalidationCause(
+                    event.target.value as AffaireRegisterRevalidationCause
+                  )
+                }
+              >
+                {Object.entries(AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS).map(
+                  ([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  )
+                )}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)]">
+              Piece ou additif declenchant (facultatif)
+              <input
+                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-sm text-[var(--slate-700)]"
+                value={revalidationForm.triggerFileName}
+                onChange={(event) =>
+                  onChangeRevalidationTriggerFileName(event.target.value)
+                }
+                placeholder="Ex. additif-lot-c.pdf"
+              />
+            </label>
+
+            <fieldset className="grid gap-2 text-xs text-[var(--slate-600)]">
+              <legend className="text-xs font-medium text-[var(--slate-700)]">
+                Etapes impactees a relancer
+              </legend>
+              <p className="text-[11px] text-[var(--slate-500)]">
+                Ciblez uniquement les etapes reellement rouvertes.
+              </p>
+              {Object.entries(AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS).map(
+                ([value, label]) => (
+                  <label
+                    key={value}
+                    className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={revalidationForm.impactedStages.includes(
+                        value as AffaireRegisterRevalidationImpactedStage
+                      )}
+                      onChange={() =>
+                        onToggleRevalidationStage(
+                          value as AffaireRegisterRevalidationImpactedStage
+                        )
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                )
+              )}
+            </fieldset>
+          </div>
+        ) : null}
+
         <div className="mt-6 flex flex-wrap justify-end gap-2">
           <button
             type="button"
@@ -106,7 +189,7 @@ export function RegisterTransitionDialog({
           <button
             type="button"
             className="btn btn-primary"
-            disabled={isMutationPending}
+            disabled={isMutationPending || isConfirmDisabled}
             onClick={onConfirm}
           >
             {prompt.actionLabel}

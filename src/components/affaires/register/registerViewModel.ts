@@ -1,6 +1,9 @@
 import {
+  AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS,
+  AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
   canAffaireRegisterEntryClarifyWithClient,
   canAffaireRegisterEntryContinueWithHypothesis,
+  canAffaireRegisterEntryRequestRevalidation,
   AFFAIRE_REGISTER_ORIGIN_LABELS,
   AFFAIRE_REGISTER_SCOPE_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
@@ -68,6 +71,48 @@ function hasAcceptedContinuationDecision(
   );
 }
 
+function hasRequiredRevalidation(
+  entry: Pick<AffaireRegisterEntry, "status" | "revalidationRequest">
+) {
+  return isAffaireRegisterEntryRevalidationRequired(entry);
+}
+
+function formatRevalidationImpactedStages(entry: Pick<AffaireRegisterEntry, "revalidationRequest">) {
+  const labels = (entry.revalidationRequest?.impactedStages ?? [])
+    .map((stage) => AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS[stage])
+    .filter(Boolean);
+
+  return labels.join(" + ");
+}
+
+function buildRevalidationNote(entry: AffaireRegisterEntry) {
+  if (!hasRequiredRevalidation(entry)) {
+    return null;
+  }
+
+  const cause = entry.revalidationRequest?.cause
+    ? AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS[entry.revalidationRequest.cause]
+    : null;
+  const impactedStages = formatRevalidationImpactedStages(entry);
+  const details = [
+    cause ? `Cause: ${cause}` : null,
+    impactedStages ? `Etapes a revoir: ${impactedStages}` : null,
+    entry.revalidationRequest?.triggerFileName
+      ? `Piece declenchante: ${entry.revalidationRequest.triggerFileName}`
+      : null,
+    entry.revalidationRequest?.comment?.trim() || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return details.length > 0
+    ? {
+        label: "Trace de revalidation",
+        value: details,
+      }
+    : null;
+}
+
 type RegisterEntryStatusPanel = {
   title: string;
   description: string;
@@ -82,12 +127,20 @@ export function getEntryStatusLabel(entry: AffaireRegisterEntry) {
     return "Ouverte · continuation sous hypothese";
   }
 
+  if (hasRequiredRevalidation(entry)) {
+    return `${AFFAIRE_REGISTER_STATUS_LABELS[entry.status]} · revalidation requise`;
+  }
+
   return AFFAIRE_REGISTER_STATUS_LABELS[entry.status];
 }
 
 export function getEntryStatusTone(entry: AffaireRegisterEntry) {
   if (hasAcceptedContinuationDecision(entry)) {
     return "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]";
+  }
+
+  if (hasRequiredRevalidation(entry)) {
+    return "bg-[var(--danger)]/10 text-[var(--danger)]";
   }
 
   return STATUS_TONE[entry.status];
@@ -171,6 +224,25 @@ export function resolveTransitionPrompt(transition: PendingTransition) {
         "Aucun hard-block n'est ajoute tant que l'affaire reste en etude.",
       ],
       changeLabel: "Ouverte · continuation sous hypothese",
+    };
+  }
+
+  if (transition.kind === "request_revalidation") {
+    return {
+      title: "Demander une revalidation",
+      description:
+        "Utilisez cette action quand un additif ou une piece critique recue tardivement rouvre ce point. La revalidation reste ciblee sur les etapes declarees.",
+      actionLabel: "Confirmer la revalidation",
+      commentLabel: "Consigne de reprise (facultative)",
+      commentPlaceholder:
+        "Ex. Revoir le lot C avant remise apres integration de l'additif.",
+      impactTitle: "Ce que cela change",
+      impactItems: [
+        "Le point revient ouvert dans le registre avec une trace explicite de revalidation.",
+        "La remise repasse sous blocage tant que les etapes impactees ne sont pas revues.",
+        "Le dossier n'est pas reset globalement: seules les etapes cochees sont a rejouer.",
+      ],
+      changeLabel: `${AFFAIRE_REGISTER_STATUS_LABELS[transition.entry.status]} → Ouverte · revalidation requise`,
     };
   }
 
@@ -276,6 +348,15 @@ export function getEntryStatusPanel(
     };
   }
 
+  if (hasRequiredRevalidation(entry)) {
+    return {
+      title: "Revalidation requise",
+      description:
+        "Le point a ete rouvert apres evolution du dossier. Reprenez seulement les etapes impactees avant remise.",
+      note: buildRevalidationNote(entry),
+    };
+  }
+
   switch (entry.status) {
     case "open":
       return {
@@ -312,7 +393,7 @@ export function getEntryStatusActions(
   entry: AffaireRegisterEntry
 ): RegisterEntryWorkflowAction[] {
   if (entry.status === "validated" || entry.status === "rejected") {
-    return [
+    const actions: RegisterEntryWorkflowAction[] = [
       {
         key: "reopen",
         label: "Rouvrir le point",
@@ -325,6 +406,22 @@ export function getEntryStatusActions(
         tone: "neutral" as const,
       },
     ];
+
+    if (canAffaireRegisterEntryRequestRevalidation(entry)) {
+      actions.push({
+        key: "request_revalidation",
+        label: "Demander une revalidation",
+        description:
+          "Rouvre ce point apres additif ou piece critique recue tardivement.",
+        transition: {
+          kind: "request_revalidation",
+          entry,
+        },
+        tone: "brand",
+      });
+    }
+
+    return actions;
   }
 
   if (entry.status === "clarify_with_client") {
@@ -462,6 +559,16 @@ export function resolveTransitionFeedback(transition: PendingTransition) {
       toastTitle: "Continuation tracee",
       toastDescription:
         "Une hypothese de continuation a ete ajoutee sans masquer le point manquant.",
+    };
+  }
+
+  if (transition.kind === "request_revalidation") {
+    return {
+      inlineMessage:
+        "Revalidation demandee. Le point est rouvert avec une reprise ciblee des etapes impactees.",
+      toastTitle: "Revalidation tracee",
+      toastDescription:
+        "La reouverture ciblee a ete enregistree sans reset global du dossier.",
     };
   }
 

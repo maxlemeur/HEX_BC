@@ -1,6 +1,8 @@
 import type {
   AffaireRegisterEntry,
   AffaireRegisterEntryKind,
+  AffaireRegisterRevalidationCause,
+  AffaireRegisterRevalidationImpactedStage,
   AffaireRegisterEntrySeverity,
   AffaireRegisterEntryStatus,
   AffaireRegisterPageResult,
@@ -33,6 +35,12 @@ export type RegisterEntryFormState = {
   sourceFileName: string;
 };
 
+export type RegisterRevalidationFormState = {
+  cause: AffaireRegisterRevalidationCause;
+  impactedStages: AffaireRegisterRevalidationImpactedStage[];
+  triggerFileName: string;
+};
+
 export type PendingTransition =
   | {
       kind: "status";
@@ -41,5 +49,9 @@ export type PendingTransition =
     }
   | {
       kind: "continue_with_hypothesis";
+      entry: AffaireRegisterEntry;
+    }
+  | {
+      kind: "request_revalidation";
       entry: AffaireRegisterEntry;
     };
