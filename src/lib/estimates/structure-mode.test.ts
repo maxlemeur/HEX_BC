@@ -66,6 +66,30 @@ describe("resolveEstimateStructureModeSummary", () => {
     });
   });
 
+  it("treats a section-only manual scaffold as eligible for hybrid continuation", () => {
+    const result = resolve({
+      items: [
+        { item_type: "section", source_provider: "manual" },
+        { item_type: "section", source_provider: "ai_structure" },
+      ],
+      linkedDpgfSource: {
+        importStatus: "completed",
+        mappedRowCount: 8,
+      },
+    });
+
+    expect(result).toMatchObject({
+      mode: "manual",
+      lineCount: 0,
+      importedLineCount: 0,
+      manualLineCount: 0,
+      unsupportedLineCount: 0,
+      hasImportableLinkedDpgfSource: true,
+      canImportLinkedDpgfIntoCurrentStructure: true,
+      linkedDpgfMappedRowCount: 8,
+    });
+  });
+
   it("returns hybrid when imported and manual lines already coexist", () => {
     const result = resolve({
       items: [

@@ -58,6 +58,41 @@ export function getErrorMessage(error: unknown) {
   return "Une erreur est survenue sur le registre affaire.";
 }
 
+function hasAcceptedContinuationDecision(
+  entry: Pick<AffaireRegisterEntry, "kind" | "status" | "continuationDecision">
+) {
+  return (
+    entry.kind === "missing_piece" &&
+    entry.status === "open" &&
+    entry.continuationDecision?.status === "accepted_with_hypothesis"
+  );
+}
+
+type RegisterEntryStatusPanel = {
+  title: string;
+  description: string;
+  note: {
+    label: string;
+    value: string;
+  } | null;
+};
+
+export function getEntryStatusLabel(entry: AffaireRegisterEntry) {
+  if (hasAcceptedContinuationDecision(entry)) {
+    return "Ouverte · continuation sous hypothese";
+  }
+
+  return AFFAIRE_REGISTER_STATUS_LABELS[entry.status];
+}
+
+export function getEntryStatusTone(entry: AffaireRegisterEntry) {
+  if (hasAcceptedContinuationDecision(entry)) {
+    return "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]";
+  }
+
+  return STATUS_TONE[entry.status];
+}
+
 export function buildDerivedSummary(
   items: AffaireRegisterEntry[]
 ): AffaireRegisterSummary {
@@ -219,31 +254,56 @@ export function resolveTransitionPrompt(transition: PendingTransition) {
   }
 }
 
-export function getEntryStatusPanel(status: AffaireRegisterEntryStatus) {
-  switch (status) {
+export function getEntryStatusPanel(
+  entry: AffaireRegisterEntry
+): RegisterEntryStatusPanel {
+  if (hasAcceptedContinuationDecision(entry)) {
+    return {
+      title: "Continuation acceptee sous hypothese",
+      description:
+        "Le manque reste ouvert pour suivi, mais l'etude peut continuer sous reserve jusqu'a confirmation avant remise.",
+      note: entry.continuationDecision?.hypothesisText
+        ? {
+            label: "Hypothese active",
+            value: entry.continuationDecision.hypothesisText,
+          }
+        : entry.continuationDecision?.comment
+          ? {
+              label: "Trace de decision",
+              value: entry.continuationDecision.comment,
+            }
+          : null,
+    };
+  }
+
+  switch (entry.status) {
     case "open":
       return {
         title: "Décision à prendre",
         description:
           "Le point reste actif. Choisissez maintenant comment le traiter.",
+        note: null,
       };
     case "clarify_with_client":
       return {
         title: "En attente client",
         description:
           "Le point dépend d'un retour client. Gardez-le visible jusqu'à l'arbitrage.",
+        note: null,
       };
     case "validated":
       return {
         title: "Point traité",
         description:
           "Le sujet est considéré comme résolu ou assumé pour cette affaire. Rouvrez seulement si le contexte change.",
+        note: null,
       };
     case "rejected":
       return {
         title: "Point écarté",
         description:
           "Le sujet n'est pas retenu pour cette affaire. La trace d'écart reste consultable.",
+        note: null,
       };
   }
 }

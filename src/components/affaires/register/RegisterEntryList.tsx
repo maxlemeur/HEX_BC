@@ -1,7 +1,6 @@
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
-  AFFAIRE_REGISTER_STATUS_LABELS,
   type AffaireRegisterEntry,
 } from "@/lib/affaires/register";
 
@@ -10,10 +9,11 @@ import {
   formatDateTime,
   getEntryContextSummary,
   getEntryContextTags,
+  getEntryStatusLabel,
   getEntryStatusPanel,
   getEntryStatusActions,
+  getEntryStatusTone,
   SEVERITY_TONE,
-  STATUS_TONE,
 } from "./registerViewModel";
 
 type RegisterEntryListProps = {
@@ -39,7 +39,7 @@ function RegisterEntryCard({
   onOpenTransitionDialog: (transition: PendingTransition) => void;
 }>) {
   const isPendingEntry = isMutationPending && pendingEntryId === entry.id;
-  const statusPanel = getEntryStatusPanel(entry.status);
+  const statusPanel = getEntryStatusPanel(entry);
 
   return (
     <article className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
@@ -55,9 +55,9 @@ function RegisterEntryCard({
               {AFFAIRE_REGISTER_SEVERITY_LABELS[entry.severity]}
             </span>
             <span
-              className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_TONE[entry.status]}`}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${getEntryStatusTone(entry)}`}
             >
-              {AFFAIRE_REGISTER_STATUS_LABELS[entry.status]}
+              {getEntryStatusLabel(entry)}
             </span>
           </div>
           <p className="mt-3 text-sm text-[var(--slate-800)]">{entry.text}</p>
@@ -94,6 +94,14 @@ function RegisterEntryCard({
           <p className="mt-1 text-xs text-[var(--slate-500)]">
             {statusPanel.description}
           </p>
+          {statusPanel.note ? (
+            <div className="mt-3 rounded-xl border border-[var(--brand-blue)]/15 bg-white/80 px-3 py-2 text-xs text-[var(--slate-600)]">
+              <p className="font-medium text-[var(--slate-700)]">
+                {statusPanel.note.label}
+              </p>
+              <p className="mt-1">{statusPanel.note.value}</p>
+            </div>
+          ) : null}
           {!isReadOnly ? (
             <div className="mt-3 grid gap-2" aria-label="Actions de statut">
               {getEntryStatusActions(entry).map((action) => (

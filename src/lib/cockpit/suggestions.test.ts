@@ -422,9 +422,34 @@ describe("computeCockpitSuggestions", () => {
         label: "Passer le devis en hybride",
         target: {
           kind: "navigate",
-          href: "/dashboard/estimates/version-1/edit?importLinkedDpgf=1",
+          href: "/dashboard/estimates/version-1/edit",
         },
         preview: expect.stringContaining("18 ligne"),
+      }),
+    );
+  });
+
+  it("keeps the hybrid continuation available for a section-only manual scaffold", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        currentVersion: { id: "version-1", status: "draft" },
+        structureMode: {
+          mode: "manual",
+          manualLineCount: 0,
+          linkedDpgfMappedRowCount: 9,
+          canImportLinkedDpgfIntoCurrentStructure: true,
+        },
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "continue_hybrid")).toEqual(
+      expect.objectContaining({
+        label: "Passer le devis en hybride",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/estimates/version-1/edit",
+        },
+        preview: expect.stringContaining("Conserver la structure deja saisie"),
       }),
     );
   });

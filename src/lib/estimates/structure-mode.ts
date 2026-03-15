@@ -66,24 +66,32 @@ export function resolveEstimateStructureModeSummary(input: {
   let importedLineCount = 0;
   let manualLineCount = 0;
   let unsupportedLineCount = 0;
+  let hasImportedStructure = false;
+  let hasManualStructure = false;
+  let hasUnsupportedStructure = false;
 
   input.items.forEach((item) => {
-    if (item.item_type === "section") {
-      return;
-    }
-
     const provider = normalizeProvider(item.source_provider);
     if (isImportedStructureProvider(provider)) {
-      importedLineCount += 1;
+      hasImportedStructure = true;
+      if (item.item_type !== "section") {
+        importedLineCount += 1;
+      }
       return;
     }
 
     if (isManualStructureProvider(provider)) {
-      manualLineCount += 1;
+      hasManualStructure = true;
+      if (item.item_type !== "section") {
+        manualLineCount += 1;
+      }
       return;
     }
 
-    unsupportedLineCount += 1;
+    hasUnsupportedStructure = true;
+    if (item.item_type !== "section") {
+      unsupportedLineCount += 1;
+    }
   });
 
   const lineCount = importedLineCount + manualLineCount + unsupportedLineCount;
@@ -95,15 +103,15 @@ export function resolveEstimateStructureModeSummary(input: {
       : 0;
 
   const mode: EstimateStructureMode =
-    lineCount === 0
+    !hasImportedStructure && !hasManualStructure && !hasUnsupportedStructure
       ? "not_started"
-      : unsupportedLineCount > 0
+      : hasUnsupportedStructure
         ? "needs_update"
-        : importedLineCount > 0 && manualLineCount > 0
+        : hasImportedStructure && hasManualStructure
           ? "hybrid"
-          : importedLineCount > 0
+          : hasImportedStructure
             ? "imported"
-            : manualLineCount > 0
+            : hasManualStructure
               ? "manual"
               : "needs_update";
 
@@ -115,7 +123,7 @@ export function resolveEstimateStructureModeSummary(input: {
     unsupportedLineCount,
     hasImportableLinkedDpgfSource: hasImportableSource,
     canImportLinkedDpgfIntoCurrentStructure:
-      mode === "manual" && manualLineCount > 0 && hasImportableSource,
+      mode === "manual" && hasManualStructure && hasImportableSource,
     linkedDpgfMappedRowCount,
   };
 }

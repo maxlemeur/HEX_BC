@@ -304,9 +304,13 @@ export function computeCockpitSuggestions(
     structureMode?.canImportLinkedDpgfIntoCurrentStructure &&
     !isReadOnlyReview
   ) {
+    const preservePreview =
+      structureMode.manualLineCount > 0
+        ? `Conserver les ${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} deja saisie${structureMode.manualLineCount > 1 ? "s" : ""}`
+        : "Conserver la structure deja saisie";
     const preview =
       structureMode.linkedDpgfMappedRowCount > 0
-        ? `Conserver les ${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} deja saisie${structureMode.manualLineCount > 1 ? "s" : ""} et importer explicitement ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF dans la meme version.`
+        ? `${preservePreview} et importer explicitement ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF dans la meme version.`
         : "Conserver les lignes deja saisies et importer explicitement la DPGF source dans la meme version.";
 
     suggestions.push(
@@ -317,7 +321,7 @@ export function computeCockpitSuggestions(
         preview,
         target: {
           kind: "navigate",
-          href: `/dashboard/estimates/${currentVersion.id}/edit?importLinkedDpgf=1`,
+          href: `/dashboard/estimates/${currentVersion.id}/edit`,
         },
         requiresConfirmation: false,
         confirmTone: "info",

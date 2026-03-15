@@ -571,6 +571,56 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
   });
 
+  it("surfaces continued-under-hypothesis state on missing-piece cards after refresh", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-missing-piece-continued",
+              kind: "missing_piece",
+              text: "Le CCTP CFO reste manquant pour verifier les quantites finales.",
+              severity: "critical",
+              sourceFileName: "brief-client.pdf",
+              continuationDecision: {
+                status: "accepted_with_hypothesis",
+                hypothesisEntryId: "33333333-3333-4333-8333-333333333333",
+                hypothesisText:
+                  "Continuation acceptee sans CCTP CFO. Hypothese documentaire a confirmer avant remise.",
+                acceptedAt: "2026-03-06T09:20:00.000Z",
+                acceptedByUserId: "11111111-1111-4111-8111-111111111111",
+                comment: "Budget provisoire maintenu jusqu'a reception du CCTP.",
+              },
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 1,
+          criticalOpenCount: 1,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 1,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    expect(screen.getByText("Ouverte · continuation sous hypothese")).toBeInTheDocument();
+    expect(screen.getByText("Continuation acceptee sous hypothese")).toBeInTheDocument();
+    expect(screen.getByText("Hypothese active")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Continuation acceptee sans CCTP CFO. Hypothese documentaire a confirmer avant remise."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continuer avec hypothese/i })).not.toBeInTheDocument();
+  });
+
   it("renders business context tags for line and exception register entries", () => {
     render(
       <AffaireRegisterCard

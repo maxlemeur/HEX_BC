@@ -14,7 +14,6 @@ export default async function EditEstimateRoutePage({
   const focusItemIdValue = resolvedSearchParams.focusItemId;
   const openVersionZeroValue = resolvedSearchParams.openVersionZero;
   const openStructureDraftValue = resolvedSearchParams.openStructureDraft;
-  const importLinkedDpgfValue = resolvedSearchParams.importLinkedDpgf;
   const focusItemId =
     typeof focusItemIdValue === "string"
       ? focusItemIdValue
@@ -35,13 +34,6 @@ export default async function EditEstimateRoutePage({
         ? (openStructureDraftValue[0] ?? "") === "1" ||
           (openStructureDraftValue[0] ?? "") === "true"
         : false;
-  const autoImportLinkedDpgf =
-    typeof importLinkedDpgfValue === "string"
-      ? importLinkedDpgfValue === "1" || importLinkedDpgfValue === "true"
-      : Array.isArray(importLinkedDpgfValue)
-        ? (importLinkedDpgfValue[0] ?? "") === "1" ||
-          (importLinkedDpgfValue[0] ?? "") === "true"
-        : false;
 
   return (
     <EstimateEditorPage
@@ -49,7 +41,6 @@ export default async function EditEstimateRoutePage({
       focusItemId={focusItemId}
       autoOpenVersionZero={autoOpenVersionZero}
       autoOpenStructureDraft={autoOpenStructureDraft}
-      autoImportLinkedDpgf={autoImportLinkedDpgf}
     />
   );
 }
