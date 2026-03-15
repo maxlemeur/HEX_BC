@@ -658,13 +658,24 @@ async function expectPilotageSection(page: Page) {
 }
 
 async function openAffaireHub(page: Page, projectId: string) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
+  const hubUrl = `/dashboard/affaires/${projectId}`;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (attempt === 1) {
+      await page.goto(hubUrl, { waitUntil: "domcontentloaded" });
+    } else if (attempt === 2) {
+      await page.reload({ waitUntil: "domcontentloaded" });
+    } else {
+      await page.goto(hubUrl, { waitUntil: "networkidle" });
+    }
 
     try {
+      await page.waitForURL(new RegExp(`/dashboard/affaires/${projectId}(?:$|[?#])`), {
+        timeout: 15_000,
+      });
       return await expectPilotageSection(page);
     } catch (error) {
-      if (attempt === 2) {
+      if (attempt === 3) {
         throw error;
       }
     }

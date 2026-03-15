@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { buildEstimateName, loginWithUi } from "./helpers";
 
+const DEV_HUB_SCENARIOS_ENABLED = process.env.E2E_ALLOW_DEV_HUB_SCENARIOS === "1";
+
 async function createEstimateViaApi(page: Page, input: {
   projectName: string;
   title: string;
@@ -103,9 +105,15 @@ test.describe("Team A vNext2 hub scenarios", () => {
     ).toBeVisible();
   });
 
-  test("accepted-with-hypothesis keeps a readable under-reservations path with explicit register trace", async ({
-    page,
-  }) => {
+  test.describe("dev-only synthetic hub scenarios", () => {
+    test.skip(
+      !DEV_HUB_SCENARIOS_ENABLED,
+      "devHubScenario is not available on production builds."
+    );
+
+    test("accepted-with-hypothesis keeps a readable under-reservations path with explicit register trace", async ({
+      page,
+    }) => {
     const { projectId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("TEAMA-HYP"),
       title: "Team A accepted with hypothesis",
@@ -129,11 +137,11 @@ test.describe("Team A vNext2 hub scenarios", () => {
     ).toBeVisible();
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
-  });
+    });
 
-  test("clarify-client prioritises the clarification CTA and removes competing plan launch actions", async ({
-    page,
-  }) => {
+    test("clarify-client prioritises the clarification CTA and removes competing plan launch actions", async ({
+      page,
+    }) => {
     const { projectId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("TEAMA-CLARIFY"),
       title: "Team A clarify with client",
@@ -159,11 +167,11 @@ test.describe("Team A vNext2 hub scenarios", () => {
     await expect(page.getByRole("button", { name: "Demarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
-  });
+    });
 
-  test("revalidation-required keeps the revalidation CTA dominant and removes competing plan launch actions", async ({
-    page,
-  }) => {
+    test("revalidation-required keeps the revalidation CTA dominant and removes competing plan launch actions", async ({
+      page,
+    }) => {
     const { projectId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("TEAMA-REVAL"),
       title: "Team A revalidation required",
@@ -189,5 +197,6 @@ test.describe("Team A vNext2 hub scenarios", () => {
     await expect(page.getByRole("button", { name: "Demarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
+  });
   });
 });
