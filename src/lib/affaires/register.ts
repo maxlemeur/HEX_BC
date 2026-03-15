@@ -320,6 +320,7 @@ export type AffaireRegisterSummary = {
   openQuestionsCount: number;
   criticalOpenCount: number;
   nonCriticalOpenCount: number;
+  openQuestionsFocusEntryId?: string | null;
   clarifyWithClientCount: number;
   criticalClarifyWithClientCount?: number;
   clarifyWithClientFocusEntryId?: string | null;
@@ -330,6 +331,7 @@ export type AffaireRegisterSummary = {
   revalidationRequired?: boolean;
   revalidationRequiredCount?: number;
   criticalRevalidationRequiredCount?: number;
+  revalidationFocusEntryId?: string | null;
   revalidationBlocksSubmission?: boolean;
   revalidationBlocksEstimation?: boolean;
   revalidationImpactedStages?: AffaireRegisterRevalidationImpactedStage[];

@@ -449,6 +449,7 @@ export function computeCockpitSuggestions(
       ? registerSummary.criticalRevalidationRequiredCount ?? 0
       : registerSummary.revalidationRequiredCount ?? 0;
     const impactedStages = describeRevalidationImpactedStages(registerSummary);
+    const focusEntryId = registerSummary.revalidationFocusEntryId ?? null;
     suggestions.push(
       createSuggestion({
         actionId: "review-revalidation",
@@ -465,6 +466,7 @@ export function computeCockpitSuggestions(
             projectId,
             severity: isCritical ? "critical" : null,
             revalidationRequired: true,
+            focusEntryId,
           })}#register`,
         },
         requiresConfirmation: false,
@@ -514,6 +516,7 @@ export function computeCockpitSuggestions(
       ? registerSummary.criticalOpenCount
       : openRegisterCount;
     const isCritical = registerSummary.criticalOpenCount > 0;
+    const focusEntryId = registerSummary.openQuestionsFocusEntryId ?? null;
     suggestions.push(
       createSuggestion({
         actionId: "list-hypotheses",
@@ -530,6 +533,7 @@ export function computeCockpitSuggestions(
             projectId,
             status: "open",
             severity: isCritical ? "critical" : null,
+            focusEntryId,
           })}#register`,
         },
         requiresConfirmation: false,

@@ -1517,11 +1517,20 @@ export async function fetchAffaireRegisterSummary(input: {
     gateSummary.criticalClarifyWithClientEntries?.[0] ??
     gateSummary.clarifyWithClientEntries[0] ??
     null;
+  const focusOpenQuestionEntry =
+    gateSummary.criticalOpenEntries[0] ??
+    gateSummary.nonCriticalOpenEntries[0] ??
+    null;
+  const focusRevalidationEntry =
+    gateSummary.criticalRevalidationRequiredEntries?.[0] ??
+    gateSummary.revalidationRequiredEntries?.[0] ??
+    null;
 
   return {
     openQuestionsCount: gateSummary.openQuestionsCount,
     criticalOpenCount: gateSummary.criticalOpenEntries.length,
     nonCriticalOpenCount: gateSummary.nonCriticalOpenEntries.length,
+    openQuestionsFocusEntryId: focusOpenQuestionEntry?.id ?? null,
     clarifyWithClientCount: gateSummary.clarifyWithClientEntries.length,
     criticalClarifyWithClientCount:
       gateSummary.criticalClarifyWithClientEntries?.length ?? 0,
@@ -1538,6 +1547,7 @@ export async function fetchAffaireRegisterSummary(input: {
       gateSummary.revalidationRequiredEntries?.length ?? 0,
     criticalRevalidationRequiredCount:
       gateSummary.criticalRevalidationRequiredEntries?.length ?? 0,
+    revalidationFocusEntryId: focusRevalidationEntry?.id ?? null,
     revalidationBlocksSubmission:
       (gateSummary.revalidationRequiredEntries?.length ?? 0) > 0,
     revalidationBlocksEstimation: false,

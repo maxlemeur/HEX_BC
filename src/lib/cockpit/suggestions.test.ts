@@ -571,6 +571,30 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("focuses the canonical open register entry when the summary exposes one", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+        registerSummary: makeRegisterSummary({
+          openQuestionsCount: 3,
+          criticalOpenCount: 1,
+          nonCriticalOpenCount: 2,
+          openQuestionsFocusEntryId: "open-entry-1",
+        }),
+      }),
+    );
+
+    expect(result.find((s) => s.actionId === "list-hypotheses")).toEqual(
+      expect.objectContaining({
+        target: {
+          kind: "navigate",
+          href:
+            "/dashboard/affaires/proj-42?registerStatus=open&registerSeverity=critical&registerFocus=open-entry-1#register",
+        },
+      }),
+    );
+  });
+
   it("focuses the canonical client clarification entry when the summary exposes one", () => {
     const result = computeCockpitSuggestions(
       makeInput({
@@ -633,6 +657,7 @@ describe("computeCockpitSuggestions", () => {
           revalidationRequired: true,
           revalidationRequiredCount: 2,
           criticalRevalidationRequiredCount: 1,
+          revalidationFocusEntryId: "revalidation-entry-1",
           revalidationBlocksSubmission: true,
           revalidationImpactedStages: ["document_review", "submission_readiness"],
         }),
@@ -647,7 +672,8 @@ describe("computeCockpitSuggestions", () => {
           "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pre-remise.",
         target: {
           kind: "navigate",
-          href: "/dashboard/affaires/proj-42?registerSeverity=critical&registerRevalidation=required#register",
+          href:
+            "/dashboard/affaires/proj-42?registerSeverity=critical&registerRevalidation=required&registerFocus=revalidation-entry-1#register",
         },
       }),
     );
