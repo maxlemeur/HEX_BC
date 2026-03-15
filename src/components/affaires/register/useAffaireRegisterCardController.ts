@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
+  continueAffaireRegisterWithHypothesisAction,
   createAffaireRegisterEntryAction,
   updateAffaireRegisterEntryStatusAction,
 } from "@/app/dashboard/affaires/_actions/register";
@@ -29,7 +30,7 @@ import type {
 import {
   buildDerivedSummary,
   getErrorMessage,
-  resolveStatusChangeFeedback,
+  resolveTransitionFeedback,
 } from "./registerViewModel";
 
 const INITIAL_FORM_STATE: RegisterEntryFormState = {
@@ -235,23 +236,31 @@ export function useAffaireRegisterCardController({
     });
   }
 
-  async function handleStatusChange(
-    entryId: string,
-    status: AffaireRegisterEntryStatus,
+  async function handleConfirmTransitionRequest(
+    transition: PendingTransition,
     comment: string
   ) {
-    setPendingEntryId(entryId);
+    setPendingEntryId(transition.entry.id);
     startMutationTransition(() => {
       void (async () => {
         try {
-          const result = await updateAffaireRegisterEntryStatusAction({
-            projectId,
-            versionId,
-            entryId,
-            status,
-            comment: comment.trim().length > 0 ? comment : null,
-          });
-          const feedback = resolveStatusChangeFeedback(result.entry.status);
+          if (transition.kind === "continue_with_hypothesis") {
+            await continueAffaireRegisterWithHypothesisAction({
+              projectId,
+              versionId,
+              entryId: transition.entry.id,
+              comment: comment.trim().length > 0 ? comment : null,
+            });
+          } else {
+            await updateAffaireRegisterEntryStatusAction({
+              projectId,
+              versionId,
+              entryId: transition.entry.id,
+              status: transition.nextStatus,
+              comment: comment.trim().length > 0 ? comment : null,
+            });
+          }
+          const feedback = resolveTransitionFeedback(transition);
           setInlineFeedback({
             tone: "info",
             message: feedback.inlineMessage,
@@ -273,16 +282,10 @@ export function useAffaireRegisterCardController({
     });
   }
 
-  function openTransitionDialog(
-    entry: AffaireRegisterEntry,
-    status: AffaireRegisterEntryStatus
-  ) {
+  function openTransitionDialog(transition: PendingTransition) {
     setInlineFeedback(null);
     setTransitionComment("");
-    setPendingTransition({
-      entry,
-      nextStatus: status,
-    });
+    setPendingTransition(transition);
   }
 
   function closeTransitionDialog() {
@@ -299,11 +302,7 @@ export function useAffaireRegisterCardController({
       return;
     }
 
-    await handleStatusChange(
-      pendingTransition.entry.id,
-      pendingTransition.nextStatus,
-      transitionComment
-    );
+    await handleConfirmTransitionRequest(pendingTransition, transitionComment);
     setPendingTransition(null);
     setTransitionComment("");
   }

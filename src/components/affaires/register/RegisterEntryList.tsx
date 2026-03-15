@@ -3,9 +3,9 @@ import {
   AFFAIRE_REGISTER_SEVERITY_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
   type AffaireRegisterEntry,
-  type AffaireRegisterEntryStatus,
 } from "@/lib/affaires/register";
 
+import type { PendingTransition } from "./registerTypes";
 import {
   formatDateTime,
   getEntryContextSummary,
@@ -22,10 +22,7 @@ type RegisterEntryListProps = {
   isReadOnly: boolean;
   isMutationPending: boolean;
   pendingEntryId: string | null;
-  onOpenTransitionDialog: (
-    entry: AffaireRegisterEntry,
-    status: AffaireRegisterEntryStatus
-  ) => void;
+  onOpenTransitionDialog: (transition: PendingTransition) => void;
 };
 
 function RegisterEntryCard({
@@ -39,10 +36,7 @@ function RegisterEntryCard({
   isReadOnly: boolean;
   isMutationPending: boolean;
   pendingEntryId: string | null;
-  onOpenTransitionDialog: (
-    targetEntry: AffaireRegisterEntry,
-    status: AffaireRegisterEntryStatus
-  ) => void;
+  onOpenTransitionDialog: (transition: PendingTransition) => void;
 }>) {
   const isPendingEntry = isMutationPending && pendingEntryId === entry.id;
   const statusPanel = getEntryStatusPanel(entry.status);
@@ -102,9 +96,9 @@ function RegisterEntryCard({
           </p>
           {!isReadOnly ? (
             <div className="mt-3 grid gap-2" aria-label="Actions de statut">
-              {getEntryStatusActions(entry.status).map((action) => (
+              {getEntryStatusActions(entry).map((action) => (
                 <button
-                  key={action.nextStatus}
+                  key={action.key}
                   type="button"
                   className={`rounded-2xl border px-3 py-3 text-left transition ${
                     action.tone === "success"
@@ -116,7 +110,7 @@ function RegisterEntryCard({
                           : "border-[var(--slate-200)] bg-white hover:border-[var(--slate-300)]"
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                   disabled={isPendingEntry}
-                  onClick={() => onOpenTransitionDialog(entry, action.nextStatus)}
+                  onClick={() => onOpenTransitionDialog(action.transition)}
                 >
                   <span className="block text-sm font-medium text-[var(--slate-800)]">
                     {action.label}

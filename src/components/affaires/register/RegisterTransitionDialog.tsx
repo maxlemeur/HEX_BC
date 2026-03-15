@@ -1,7 +1,7 @@
 import { AFFAIRE_REGISTER_STATUS_LABELS } from "@/lib/affaires/register";
 
 import type { PendingTransition } from "./registerTypes";
-import { formatEntryStatusChange, resolveTransitionPrompt } from "./registerViewModel";
+import { resolveTransitionPrompt } from "./registerViewModel";
 
 type RegisterTransitionDialogProps = {
   pendingTransition: PendingTransition | null;
@@ -24,7 +24,7 @@ export function RegisterTransitionDialog({
     return null;
   }
 
-  const prompt = resolveTransitionPrompt(pendingTransition.nextStatus);
+  const prompt = resolveTransitionPrompt(pendingTransition);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
@@ -68,10 +68,7 @@ export function RegisterTransitionDialog({
             {AFFAIRE_REGISTER_STATUS_LABELS[pendingTransition.entry.status]}
           </p>
           <div className="mt-3 inline-flex rounded-full border border-[var(--slate-200)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
-            {formatEntryStatusChange(
-              pendingTransition.entry.status,
-              pendingTransition.nextStatus,
-            )}
+            {prompt.changeLabel}
           </div>
         </div>
 

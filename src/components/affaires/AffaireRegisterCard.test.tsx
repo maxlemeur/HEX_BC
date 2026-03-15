@@ -10,6 +10,7 @@ const mockToast = {
   warning: vi.fn(),
   info: vi.fn(),
 };
+const mockContinueAffaireRegisterWithHypothesisAction = vi.fn();
 const mockCreateAffaireRegisterEntryAction = vi.fn();
 const mockFetchAffaireRegisterReviewExportAction = vi.fn();
 const mockUpdateAffaireRegisterEntryStatusAction = vi.fn();
@@ -29,6 +30,8 @@ vi.mock("@/components/ui/Toast", () => ({
 }));
 
 vi.mock("@/app/dashboard/affaires/_actions/register", () => ({
+  continueAffaireRegisterWithHypothesisAction: (...args: unknown[]) =>
+    mockContinueAffaireRegisterWithHypothesisAction(...args),
   createAffaireRegisterEntryAction: (...args: unknown[]) =>
     mockCreateAffaireRegisterEntryAction(...args),
   fetchAffaireRegisterReviewExportAction: (...args: unknown[]) =>
@@ -131,6 +134,19 @@ describe("AffaireRegisterCard", () => {
     mockCreateAffaireRegisterEntryAction.mockResolvedValue({
       ok: true,
       entry: buildRegisterPage().items[0],
+    });
+    mockContinueAffaireRegisterWithHypothesisAction.mockResolvedValue({
+      ok: true,
+      entry: {
+        ...buildRegisterPage().items[0],
+        kind: "missing_piece",
+        continuationDecision: {
+          status: "accepted_with_hypothesis",
+          comment: "Budget provisoire maintenu.",
+          decidedAt: "2026-03-06T09:20:00.000Z",
+          decidedByUserId: "user-1",
+        },
+      },
     });
     mockFetchAffaireRegisterReviewExportAction.mockResolvedValue({
       generatedAt: "2026-03-14T11:00:00.000Z",
@@ -427,6 +443,79 @@ describe("AffaireRegisterCard", () => {
     expect(mockToast.success).toHaveBeenCalledWith({
       title: "Point traité",
       description: "La résolution a été enregistrée dans le registre.",
+    });
+  });
+
+  it("continues an open missing piece with hypothesis without hiding the missing point", async () => {
+    const user = userEvent.setup();
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    const versionId = "22222222-2222-4222-8222-222222222222";
+
+    render(
+      <AffaireRegisterCard
+        projectId={projectId}
+        versionId={versionId}
+        registerPage={buildRegisterPage({
+          items: [
+            {
+              ...buildRegisterPage().items[0],
+              id: "entry-missing-piece",
+              kind: "missing_piece",
+              text: "Le CCTP lot CFO manque encore pour finaliser les quantites.",
+              severity: "critical",
+              sourceFileName: "brief-client.pdf",
+            },
+          ],
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary({
+          openQuestionsCount: 1,
+          criticalOpenCount: 1,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 0,
+          openAssumptionCount: 0,
+          openMissingPieceCount: 1,
+        })}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Continuer avec hypothese/i }));
+
+    expect(screen.getByText("Ce que cela change")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Utilisez cette action pour poursuivre l'etude sans lever le manque. Le point reste ouvert et une hypothese formelle est tracee dans le registre."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Le manque reste visible dans le registre et dans la readiness hub.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ouverte · continuation sous hypothese")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Commentaire de continuation (facultatif)" }),
+      "On maintient un budget provisoire en attendant le CCTP."
+    );
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /Confirmer la continuation/i,
+      })
+    );
+
+    await waitFor(() => {
+      expect(mockContinueAffaireRegisterWithHypothesisAction).toHaveBeenCalledWith({
+        projectId,
+        versionId,
+        entryId: "entry-missing-piece",
+        comment: "On maintient un budget provisoire en attendant le CCTP.",
+      });
+    });
+    expect(mockUpdateAffaireRegisterEntryStatusAction).not.toHaveBeenCalled();
+    expect(mockToast.success).toHaveBeenCalledWith({
+      title: "Continuation tracee",
+      description:
+        "Une hypothese de continuation a ete ajoutee sans masquer le point manquant.",
     });
   });
 

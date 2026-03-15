@@ -1,4 +1,6 @@
 import {
+  canAffaireRegisterEntryClarifyWithClient,
+  canAffaireRegisterEntryContinueWithHypothesis,
   AFFAIRE_REGISTER_ORIGIN_LABELS,
   AFFAIRE_REGISTER_SCOPE_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
@@ -8,6 +10,7 @@ import {
   type AffaireRegisterEntryStatus,
   type AffaireRegisterSummary,
 } from "@/lib/affaires/register";
+import type { PendingTransition } from "./registerTypes";
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -28,6 +31,14 @@ export const SEVERITY_TONE: Record<AffaireRegisterEntrySeverity, string> = {
   info: "bg-[var(--slate-100)] text-[var(--slate-600)]",
   warning: "bg-[var(--warning)]/10 text-[var(--warning)]",
   critical: "bg-[var(--danger)]/10 text-[var(--danger)]",
+};
+
+export type RegisterEntryWorkflowAction = {
+  key: string;
+  label: string;
+  description: string;
+  tone: "success" | "danger" | "brand" | "neutral";
+  transition: PendingTransition;
 };
 
 export function formatDateTime(value: string) {
@@ -72,6 +83,19 @@ export function buildDerivedSummary(
   const openMissingPieceCount = standardWorkflowEntries.filter(
     (entry) => entry.status === "open" && entry.kind === "missing_piece"
   ).length;
+  const continuedWithHypothesisCount = standardWorkflowEntries.filter(
+    (entry) =>
+      entry.status === "open" &&
+      entry.kind === "missing_piece" &&
+      entry.continuationDecision?.status === "accepted_with_hypothesis"
+  ).length;
+  const continuedCriticalMissingPieceCount = standardWorkflowEntries.filter(
+    (entry) =>
+      entry.status === "open" &&
+      entry.kind === "missing_piece" &&
+      entry.severity === "critical" &&
+      entry.continuationDecision?.status === "accepted_with_hypothesis"
+  ).length;
   const revalidationRequiredEntries = items.filter(
     (entry) => isAffaireRegisterEntryRevalidationRequired(entry)
   );
@@ -84,6 +108,8 @@ export function buildDerivedSummary(
     criticalClarifyWithClientCount,
     openAssumptionCount,
     openMissingPieceCount,
+    continuedWithHypothesisCount,
+    continuedCriticalMissingPieceCount,
     revalidationRequired: revalidationRequiredEntries.length > 0,
     revalidationRequiredCount: revalidationRequiredEntries.length,
     criticalRevalidationRequiredCount: revalidationRequiredEntries.filter(
@@ -93,8 +119,27 @@ export function buildDerivedSummary(
   };
 }
 
-export function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
-  switch (status) {
+export function resolveTransitionPrompt(transition: PendingTransition) {
+  if (transition.kind === "continue_with_hypothesis") {
+    return {
+      title: "Continuer avec hypothese",
+      description:
+        "Utilisez cette action pour poursuivre l'etude sans lever le manque. Le point reste ouvert et une hypothese formelle est tracee dans le registre.",
+      actionLabel: "Confirmer la continuation",
+      commentLabel: "Commentaire de continuation (facultatif)",
+      commentPlaceholder:
+        "Ex. Budget exploratoire maintenu dans l'attente de la piece definitive.",
+      impactTitle: "Ce que cela change",
+      impactItems: [
+        "Le manque reste visible dans le registre et dans la readiness hub.",
+        "Une hypothese de continuation est creee ou mise a jour pour tracer la decision.",
+        "Aucun hard-block n'est ajoute tant que l'affaire reste en etude.",
+      ],
+      changeLabel: "Ouverte · continuation sous hypothese",
+    };
+  }
+
+  switch (transition.nextStatus) {
     case "validated":
       return {
         title: "Marquer ce point comme traité",
@@ -109,6 +154,10 @@ export function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
           "Le point quitte les éléments ouverts du registre.",
           "La décision reste visible dans l'historique récent.",
         ],
+        changeLabel: formatEntryStatusChange(
+          transition.entry.status,
+          transition.nextStatus,
+        ),
       };
     case "rejected":
       return {
@@ -124,6 +173,10 @@ export function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
           "Le point sort du traitement actif.",
           "La trace d'écart reste consultable dans l'historique.",
         ],
+        changeLabel: formatEntryStatusChange(
+          transition.entry.status,
+          transition.nextStatus,
+        ),
       };
     case "clarify_with_client":
       return {
@@ -139,6 +192,10 @@ export function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
           "Le point remontera dans les clarifications client du registre.",
           "Il restera visible avant remise tant que la réponse manque.",
         ],
+        changeLabel: formatEntryStatusChange(
+          transition.entry.status,
+          transition.nextStatus,
+        ),
       };
     case "open":
       return {
@@ -154,6 +211,10 @@ export function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
           "Le point revient dans les éléments à traiter.",
           "La réouverture reste historisée dans le registre.",
         ],
+        changeLabel: formatEntryStatusChange(
+          transition.entry.status,
+          transition.nextStatus,
+        ),
       };
   }
 }
@@ -187,61 +248,117 @@ export function getEntryStatusPanel(status: AffaireRegisterEntryStatus) {
   }
 }
 
-export function getEntryStatusActions(status: AffaireRegisterEntryStatus) {
-  if (status === "validated" || status === "rejected") {
+export function getEntryStatusActions(
+  entry: AffaireRegisterEntry
+): RegisterEntryWorkflowAction[] {
+  if (entry.status === "validated" || entry.status === "rejected") {
     return [
       {
+        key: "reopen",
         label: "Rouvrir le point",
         description: "Le point redevient actif dans le registre.",
-        nextStatus: "open" as const,
+        transition: {
+          kind: "status",
+          entry,
+          nextStatus: "open",
+        },
         tone: "neutral" as const,
       },
     ];
   }
 
-  if (status === "clarify_with_client") {
+  if (entry.status === "clarify_with_client") {
     return [
       {
+        key: "resume_internal",
         label: "Reprendre en interne",
         description: "Le point revient dans les ouverts à traiter.",
-        nextStatus: "open" as const,
+        transition: {
+          kind: "status",
+          entry,
+          nextStatus: "open",
+        },
         tone: "neutral" as const,
       },
       {
+        key: "validate",
         label: "Marquer comme traité",
         description: "La résolution est actée et historisée.",
-        nextStatus: "validated" as const,
+        transition: {
+          kind: "status",
+          entry,
+          nextStatus: "validated",
+        },
         tone: "success" as const,
       },
       {
+        key: "reject",
         label: "Écarter ce point",
         description: "Le point sort du flux actif mais reste traçable.",
-        nextStatus: "rejected" as const,
+        transition: {
+          kind: "status",
+          entry,
+          nextStatus: "rejected",
+        },
         tone: "danger" as const,
       },
     ];
   }
 
-  return [
+  const actions: RegisterEntryWorkflowAction[] = [
     {
+      key: "validate",
       label: "Marquer comme traité",
       description: "Le point est considéré comme levé ou accepté.",
-      nextStatus: "validated" as const,
+      transition: {
+        kind: "status",
+        entry,
+        nextStatus: "validated",
+      },
       tone: "success" as const,
     },
     {
+      key: "reject",
       label: "Écarter ce point",
       description: "Le sujet n'est pas retenu dans ce flux et reste tracé.",
-      nextStatus: "rejected" as const,
+      transition: {
+        kind: "status",
+        entry,
+        nextStatus: "rejected",
+      },
       tone: "danger" as const,
     },
-    {
+  ];
+
+  if (canAffaireRegisterEntryContinueWithHypothesis(entry)) {
+    actions.push({
+      key: "continue_with_hypothesis",
+      label: "Continuer avec hypothese",
+      description:
+        "Le manque reste ouvert mais l'etude peut continuer sous reserve.",
+      transition: {
+        kind: "continue_with_hypothesis",
+        entry,
+      },
+      tone: "brand",
+    });
+  }
+
+  if (canAffaireRegisterEntryClarifyWithClient(entry)) {
+    actions.push({
+      key: "clarify_with_client",
       label: "Demander un retour client",
       description: "Le point reste visible jusqu'à la réponse attendue.",
-      nextStatus: "clarify_with_client" as const,
+      transition: {
+        kind: "status",
+        entry,
+        nextStatus: "clarify_with_client",
+      },
       tone: "brand" as const,
-    },
-  ];
+    });
+  }
+
+  return actions;
 }
 
 export function resolveStatusChangeFeedback(status: AffaireRegisterEntryStatus) {
@@ -275,6 +392,20 @@ export function resolveStatusChangeFeedback(status: AffaireRegisterEntryStatus) 
         toastDescription: "La reprise du traitement a été enregistrée.",
       };
   }
+}
+
+export function resolveTransitionFeedback(transition: PendingTransition) {
+  if (transition.kind === "continue_with_hypothesis") {
+    return {
+      inlineMessage:
+        "Continuation sous hypothese enregistree. Le manque reste ouvert et la trace est visible dans le registre.",
+      toastTitle: "Continuation tracee",
+      toastDescription:
+        "Une hypothese de continuation a ete ajoutee sans masquer le point manquant.",
+    };
+  }
+
+  return resolveStatusChangeFeedback(transition.nextStatus);
 }
 
 export function formatEntryStatusChange(

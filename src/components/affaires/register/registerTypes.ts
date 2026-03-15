@@ -33,7 +33,13 @@ export type RegisterEntryFormState = {
   sourceFileName: string;
 };
 
-export type PendingTransition = {
-  entry: AffaireRegisterEntry;
-  nextStatus: AffaireRegisterEntryStatus;
-};
+export type PendingTransition =
+  | {
+      kind: "status";
+      entry: AffaireRegisterEntry;
+      nextStatus: AffaireRegisterEntryStatus;
+    }
+  | {
+      kind: "continue_with_hypothesis";
+      entry: AffaireRegisterEntry;
+    };
