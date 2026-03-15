@@ -295,6 +295,20 @@ function buildRegisterActionFromBlockingFlag(input: {
   flag: ReadyToSendBlockingFlag;
 }) {
   const { flag, projectId } = input;
+  const focusedRegisterHref =
+    typeof flag.details === "object" &&
+    flag.details !== null &&
+    "register_entries" in flag.details &&
+    Array.isArray(flag.details.register_entries)
+      ? flag.details.register_entries.find(
+          (entry): entry is { href: string } =>
+            typeof entry === "object" &&
+            entry !== null &&
+            "href" in entry &&
+            typeof entry.href === "string" &&
+            entry.href.length > 0,
+        )?.href ?? null
+      : null;
   const status = resolveBlockingFlagRegisterStatus(flag.key);
   const severity = resolveBlockingFlagRegisterSeverity(flag.key);
 
@@ -305,12 +319,15 @@ function buildRegisterActionFromBlockingFlag(input: {
         status === "clarify_with_client"
           ? "Ouvrir les documents attendus"
           : "Ouvrir les documents manquants",
-      href: `${buildAffaireRegisterHubHref({
-        projectId,
-        status,
-        severity,
-        kind: "missing_piece",
-      })}#register`,
+      href:
+        focusedRegisterHref !== null
+          ? `${focusedRegisterHref}#register`
+          : `${buildAffaireRegisterHubHref({
+              projectId,
+              status,
+              severity,
+              kind: "missing_piece",
+            })}#register`,
     };
   }
 
@@ -324,12 +341,15 @@ function buildRegisterActionFromBlockingFlag(input: {
         status === "clarify_with_client"
           ? "Ouvrir les clarifications client"
           : "Ouvrir le registre",
-      href: `${buildAffaireRegisterHubHref({
-        projectId,
-        status,
-        severity,
-        kind: "assumption",
-      })}#register`,
+      href:
+        focusedRegisterHref !== null
+          ? `${focusedRegisterHref}#register`
+          : `${buildAffaireRegisterHubHref({
+              projectId,
+              status,
+              severity,
+              kind: "assumption",
+            })}#register`,
     };
   }
 

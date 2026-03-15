@@ -1530,6 +1530,65 @@ describe("AffairePilotagePanel", () => {
     });
   });
 
+  it("reuses the focused register href from gating details when available", () => {
+    const action = buildReadyToSendAction({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        versionId: "version-1",
+        readyToSend: {
+          status: "blocked",
+          blockingFlags: [
+            {
+              key: "client_clarification_required",
+              category: "register",
+              severity: "blocking",
+              count: 1,
+              item_ids: [],
+              label: "Clarification client requise",
+              description: "Une hypothèse reste à clarifier avec le client.",
+              details: {
+                register_entries: [
+                  {
+                    id: "reg-clarify-1",
+                    text: "Clarifier la variante retenue",
+                    scope_label: "Dossier",
+                    source_file_name: "courrier-client.eml",
+                    href: "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=reg-clarify-1",
+                  },
+                ],
+              },
+            },
+          ],
+          warningFlags: [],
+          checkedAt: "2026-03-11T08:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+        readyToOrder: {
+          status: "waiting",
+          orderableLinesCount: 0,
+          coveredLinesCount: 0,
+          ambiguousLinesCount: 0,
+          missingPriceLinesCount: 0,
+          staleLinesCount: 0,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(action).toEqual({
+      kind: "href",
+      label: "Ouvrir les clarifications client",
+      href:
+        "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=reg-clarify-1#register",
+    });
+  });
+
   it("routes approval blockers to the validation section", () => {
     const action = buildReadyToSendAction({
       projectId: "project-1",
