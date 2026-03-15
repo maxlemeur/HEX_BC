@@ -53,20 +53,37 @@ const INITIAL_REVALIDATION_FORM_STATE: RegisterRevalidationFormState = {
   triggerFileName: "",
 };
 
-function buildDefaultRevalidationFormState(
-  entry: Pick<AffaireRegisterEntry, "code" | "sourceFileName">
-): RegisterRevalidationFormState {
-  const impactedStages: AffaireRegisterRevalidationImpactedStage[] =
-    entry.code === "missing_plans"
-      ? ["plans_replay", "submission_readiness"]
-      : entry.code === "missing_dpgf" || entry.code === "missing_bpu_dqe"
-        ? ["document_review", "submission_readiness"]
-        : ["submission_readiness"];
+const DOCUMENT_REVALIDATION_CODES = new Set([
+  "missing_dpgf",
+  "missing_bpu_dqe",
+  "missing_cctp",
+]);
 
+function resolveDefaultRevalidationImpactedStages(
+  entry: Pick<AffaireRegisterEntry, "code" | "scopeType">
+): AffaireRegisterRevalidationImpactedStage[] {
+  if (entry.scopeType === "exception") {
+    return ["exceptions_review", "submission_readiness"];
+  }
+
+  if (entry.code === "missing_plans") {
+    return ["plans_replay", "submission_readiness"];
+  }
+
+  if (entry.code && DOCUMENT_REVALIDATION_CODES.has(entry.code)) {
+    return ["document_review", "submission_readiness"];
+  }
+
+  return ["submission_readiness"];
+}
+
+function buildDefaultRevalidationFormState(
+  entry: Pick<AffaireRegisterEntry, "code" | "scopeType">
+): RegisterRevalidationFormState {
   return {
-    cause: entry.sourceFileName ? "document_replaced" : "addendum_received",
-    impactedStages,
-    triggerFileName: entry.sourceFileName ?? "",
+    cause: "addendum_received",
+    impactedStages: resolveDefaultRevalidationImpactedStages(entry),
+    triggerFileName: "",
   };
 }
 
