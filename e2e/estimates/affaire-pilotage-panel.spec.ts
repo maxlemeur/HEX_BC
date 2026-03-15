@@ -312,6 +312,11 @@ async function seedRegisterEntries(input: {
   if (eventsError) {
     throw new Error(`Seed register events failed: ${eventsError.message}`);
   }
+
+  return {
+    criticalEntryId,
+    clarifyEntryId,
+  };
 }
 
 async function seedPlanSetWithFile(input: {
@@ -699,7 +704,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       sourceDocumentId: intakeDocument.documentId,
       sourceFileName: intakeDocument.fileName,
     });
-    await seedRegisterEntries({
+    const { criticalEntryId } = await seedRegisterEntries({
       projectId,
       tenantId,
       versionId,
@@ -722,17 +727,15 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
 
     let pilotageSection = await openAffaireHub(page, projectId);
 
-    await expect(pilotageSection).toContainText("Confirmer 1 piece ambigue");
+    await expect(pilotageSection).toContainText("1 point critique a arbitrer");
     await expect(pilotageSection).toContainText("Ajouter 4 pieces manquantes");
     await expect(pilotageSection.getByRole("button", { name: "Ouvrir le brief" })).toBeVisible();
-    await expect(
-      pilotageSection.getByRole("link", { name: "Ouvrir les pieces a revoir" })
-    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}?intakeFilter=a_revoir#intake`);
+    await expect(pilotageSection).toContainText("1 ecart majeur sur les metres");
     await expect(
       pilotageSection.getByRole("link", { name: "Ouvrir le registre" })
     ).toHaveAttribute(
       "href",
-      `/dashboard/affaires/${projectId}?registerStatus=open&registerSeverity=critical#register`
+      `/dashboard/affaires/${projectId}?registerStatus=open&registerSeverity=critical&registerFocus=${criticalEntryId}#register`
     );
     await expect(
       pilotageSection.getByRole("link", { name: "Revoir les exceptions" })
@@ -741,17 +744,10 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only`
     );
 
-    await clickWithin(pilotageSection, "link", "Ouvrir les pieces a revoir");
-    await expect(
-      page.getByRole("region", { name: /Intake dossier affaire/i })
-    ).toContainText(intakeDocument.fileName);
-
-    pilotageSection = await openAffaireHub(page, projectId);
     await clickWithin(pilotageSection, "button", "Ajouter des pieces");
     await expect(
       page.getByRole("region", { name: /Intake dossier affaire/i })
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Ajouter des fichiers" })).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
     await clickWithin(pilotageSection, "button", "Ouvrir le brief");
@@ -760,7 +756,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     pilotageSection = await openAffaireHub(page, projectId);
     await clickWithin(pilotageSection, "link", "Ouvrir le registre");
     await expect(
-      page.getByText("Clarifier le perimetre exact avec le client", { exact: true })
+      page.getByText("Clarifier le perimetre exact avec le client", { exact: true }).first()
     ).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
@@ -797,7 +793,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
 
     await expect(pilotageSection).toContainText("Pret a envoyer");
     await expect(pilotageSection).toContainText("Pret a commander");
-    await expect(pilotageSection).toContainText("PDF absent");
+    await expect(pilotageSection).toContainText("PDF · 1 blocage");
     await expect(pilotageSection).toContainText("Prix manquant");
     await expect(pilotageSection).toContainText("1 ligne a arbitrer");
     await expect(

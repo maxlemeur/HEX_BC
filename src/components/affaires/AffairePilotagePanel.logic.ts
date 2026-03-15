@@ -1143,6 +1143,7 @@ export function buildPilotageExceptions(input: {
           projectId: input.projectId,
           status: "open",
           severity: "critical",
+          focusEntryId: input.registerSummary?.openQuestionsFocusEntryId ?? null,
         })}#register`,
       },
     });
@@ -1167,6 +1168,7 @@ export function buildPilotageExceptions(input: {
           projectId: input.projectId,
           severity: criticalCount > 0 ? "critical" : null,
           revalidationRequired: true,
+          focusEntryId: input.registerSummary?.revalidationFocusEntryId ?? null,
         })}#register`,
       },
     });
@@ -1187,6 +1189,7 @@ export function buildPilotageExceptions(input: {
         href: `${buildAffaireRegisterHubHref({
           projectId: input.projectId,
           status: "clarify_with_client",
+          focusEntryId: input.registerSummary?.clarifyWithClientFocusEntryId ?? null,
         })}#register`,
       },
     });
@@ -1205,6 +1208,7 @@ export function buildPilotageExceptions(input: {
           projectId: input.projectId,
           status: "open",
           severity: null,
+          focusEntryId: input.registerSummary?.openQuestionsFocusEntryId ?? null,
         })}#register`,
       },
     });
