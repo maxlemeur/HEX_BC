@@ -322,6 +322,7 @@ export type AffaireRegisterSummary = {
   nonCriticalOpenCount: number;
   clarifyWithClientCount: number;
   criticalClarifyWithClientCount?: number;
+  clarifyWithClientFocusEntryId?: string | null;
   openAssumptionCount: number;
   openMissingPieceCount: number;
   continuedWithHypothesisCount?: number;

@@ -1513,6 +1513,10 @@ export async function fetchAffaireRegisterSummary(input: {
     projectId: project.id,
     versionId: input.versionId ?? null,
   });
+  const focusClarificationEntry =
+    gateSummary.criticalClarifyWithClientEntries?.[0] ??
+    gateSummary.clarifyWithClientEntries[0] ??
+    null;
 
   return {
     openQuestionsCount: gateSummary.openQuestionsCount,
@@ -1521,6 +1525,7 @@ export async function fetchAffaireRegisterSummary(input: {
     clarifyWithClientCount: gateSummary.clarifyWithClientEntries.length,
     criticalClarifyWithClientCount:
       gateSummary.criticalClarifyWithClientEntries?.length ?? 0,
+    clarifyWithClientFocusEntryId: focusClarificationEntry?.id ?? null,
     openAssumptionCount: gateSummary.openAssumptionEntries.length,
     openMissingPieceCount: gateSummary.openMissingPieceEntries.length,
     continuedWithHypothesisCount:

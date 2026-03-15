@@ -481,6 +481,7 @@ export function computeCockpitSuggestions(
   ) {
     const count = registerSummary.clarifyWithClientCount;
     const isCritical = (registerSummary.criticalClarifyWithClientCount ?? 0) > 0;
+    const focusEntryId = registerSummary.clarifyWithClientFocusEntryId ?? null;
     suggestions.push(
       createSuggestion({
         actionId: "list-clarifications",
@@ -494,6 +495,7 @@ export function computeCockpitSuggestions(
           href: `${buildAffaireRegisterHubHref({
             projectId,
             status: "clarify_with_client",
+            focusEntryId,
           })}#register`,
         },
         requiresConfirmation: false,

@@ -571,6 +571,32 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("focuses the canonical client clarification entry when the summary exposes one", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+        registerSummary: makeRegisterSummary({
+          openQuestionsCount: 2,
+          criticalOpenCount: 0,
+          nonCriticalOpenCount: 0,
+          clarifyWithClientCount: 1,
+          criticalClarifyWithClientCount: 1,
+          clarifyWithClientFocusEntryId: "clarify-entry-1",
+        }),
+      }),
+    );
+
+    expect(result.find((s) => s.actionId === "list-clarifications")).toEqual(
+      expect.objectContaining({
+        target: {
+          kind: "navigate",
+          href:
+            "/dashboard/affaires/proj-42?registerStatus=clarify_with_client&registerFocus=clarify-entry-1#register",
+        },
+      }),
+    );
+  });
+
   it("does not add the generic open-register suggestion when only client clarifications remain", () => {
     const result = computeCockpitSuggestions(
       makeInput({
