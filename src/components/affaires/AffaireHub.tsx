@@ -263,6 +263,10 @@ export function getAffaireHubDominantIntent(suggestions: CockpitSuggestion[]) {
     return "confirm_brief" as const;
   }
 
+  if (findCockpitIntent(suggestions, "continue_hybrid")) {
+    return "continue_hybrid" as const;
+  }
+
   if (findCockpitIntent(suggestions, "analyze_plans")) {
     return "analyze_plans" as const;
   }
@@ -290,16 +294,19 @@ export function filterAffaireHubCommandBarSuggestions(
     review_intake: [
       "add_missing_pieces",
       "confirm_brief",
+      "continue_hybrid",
       "generate_structure",
       "analyze_plans",
     ],
-    add_missing_pieces: ["confirm_brief", "generate_structure", "analyze_plans"],
-    confirm_brief: ["generate_structure", "analyze_plans"],
-    generate_structure: ["analyze_plans"],
-    analyze_plans: ["generate_structure"],
+    add_missing_pieces: ["confirm_brief", "continue_hybrid", "generate_structure", "analyze_plans"],
+    confirm_brief: ["continue_hybrid", "generate_structure", "analyze_plans"],
+    continue_hybrid: ["generate_structure", "analyze_plans"],
+    generate_structure: ["continue_hybrid", "analyze_plans"],
+    analyze_plans: ["continue_hybrid", "generate_structure"],
     list_hypotheses: [
       "add_missing_pieces",
       "confirm_brief",
+      "continue_hybrid",
       "generate_structure",
       "analyze_plans",
       "prepare_validation",
@@ -1762,6 +1769,7 @@ export function AffaireHub({
               intakeWorkspace={intakeWorkspace ?? null}
               registerSummary={registerSummary ?? null}
               finishLineSummary={finishLineSummary ?? null}
+              structureMode={summary.structureMode ?? null}
               cockpitSuggestions={visibleCockpitSuggestions}
               onExecuteSuggestion={handleExecuteCockpitSuggestion}
             />
@@ -1787,6 +1795,7 @@ export function AffaireHub({
                     : null
                 }
                 lineCount={summary.lineCount}
+                structureMode={summary.structureMode ?? null}
                 finishLineSummary={finishLineSummary ?? null}
                 takeoffEnabled={takeoffEnabled}
                 hiddenExceptionIds={hiddenPilotageExceptionIds}

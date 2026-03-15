@@ -837,6 +837,99 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(onExecuteSuggestion).toHaveBeenCalledWith(preliminaryStructure);
   });
 
+  it("makes hybrid continuation the dominant structure action without keeping a competing manual CTA", () => {
+    const onExecuteSuggestion = vi.fn();
+    const continueHybrid = buildSuggestion({
+      actionId: "continue-hybrid",
+      label: "Passer le devis en hybride",
+      intent: "continue_hybrid",
+      preview:
+        "Conserver les lignes deja saisies et importer explicitement 18 lignes DPGF dans la meme version.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-hybrid/edit",
+      },
+      priority: 645,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-hybrid"
+        currentVersion={{
+          id: "version-hybrid",
+          projectId: "project-hybrid",
+          versionNumber: 2,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-plans",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Affaire deja structuree en manuel.",
+            projectObject: "Restructuration tertiaire.",
+            scope: ["Electricite"],
+            lots: ["Electricite"],
+            receivedPieces: ["Plans", "DPGF"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111113",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        structureMode={{
+          mode: "manual",
+          lineCount: 4,
+          importedLineCount: 0,
+          manualLineCount: 4,
+          unsupportedLineCount: 0,
+          hasImportableLinkedDpgfSource: true,
+          canImportLinkedDpgfIntoCurrentStructure: true,
+          linkedDpgfMappedRowCount: 18,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[continueHybrid]}
+        onExecuteSuggestion={onExecuteSuggestion}
+      />,
+    );
+
+    expect(screen.getAllByText("Passer le devis en hybride").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Mode hybride").length).toBeGreaterThan(0);
+    expect(screen.getByText("Passage en hybride recommande")).toBeInTheDocument();
+    expect(screen.getByText("Mode manuel actif")).toBeInTheDocument();
+    expect(screen.getByText("4 lignes manuelles deja saisies")).toBeInTheDocument();
+    expect(screen.getByText("18 lignes DPGF importables")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Continuer en manuel" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Passer le devis en hybride" }));
+    expect(onExecuteSuggestion).toHaveBeenCalledWith(continueHybrid);
+  });
+
   it("falls back to brief-only preliminary structure copy when the primary CCTP has no defendable lots", () => {
     const preliminaryStructure = buildSuggestion({
       actionId: "open-structure-draft",

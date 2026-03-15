@@ -15,6 +15,7 @@ import {
   buildPilotageExceptions,
   buildPilotageSteps,
   type AffairePilotageCurrentVersion,
+  type AffairePilotageStructureMode,
   type AffairePilotageWorkspace,
   type FinishLineCard,
   type PilotageAction,
@@ -34,6 +35,7 @@ type AffairePilotagePanelProps = {
   approvalSummary: EstimateApprovalSummary | null;
   currentVersion: AffairePilotageCurrentVersion;
   lineCount: number;
+  structureMode?: AffairePilotageStructureMode;
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   takeoffEnabled?: boolean;
   onOpenSurface?: (surfaceId: CockpitSurfaceId) => void;
@@ -222,6 +224,7 @@ export function AffairePilotagePanel({
   approvalSummary,
   currentVersion,
   lineCount,
+  structureMode = null,
   finishLineSummary,
   takeoffEnabled = false,
   onOpenSurface,
@@ -238,6 +241,7 @@ export function AffairePilotagePanel({
         approvalSummary,
         currentVersion,
         lineCount,
+        structureMode,
         takeoffEnabled,
       });
   const exceptions = ghost

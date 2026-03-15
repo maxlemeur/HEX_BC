@@ -18,6 +18,7 @@ import {
   ESTIMATE_READINESS_CATEGORY_LABELS,
   type EstimateReadinessCategory,
 } from "@/lib/estimates/readiness";
+import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 
@@ -63,6 +64,16 @@ export type AffairePilotageCurrentVersion =
       versionNumber: number;
     }
   | null;
+
+export type AffairePilotageStructureMode = Pick<
+  EstimateStructureModeSummary,
+  | "mode"
+  | "lineCount"
+  | "importedLineCount"
+  | "manualLineCount"
+  | "canImportLinkedDpgfIntoCurrentStructure"
+  | "linkedDpgfMappedRowCount"
+> | null;
 
 export type FinishLineCard = {
   key: "send" | "order";
@@ -220,6 +231,52 @@ function buildSubmissionReadinessDetails(
   }
 
   return [...groupDetails.slice(0, 2), ...concreteDetails.slice(0, 1)];
+}
+
+function describePilotageStructureMode(
+  structureMode: AffairePilotageStructureMode,
+) {
+  if (!structureMode || structureMode.mode === "not_started") {
+    return null;
+  }
+
+  if (structureMode.mode === "manual") {
+    const baseSummary = `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} de devis disponible${structureMode.manualLineCount > 1 ? "s" : ""} en mode manuel.`;
+    if (!structureMode.canImportLinkedDpgfIntoCurrentStructure) {
+      return {
+        status: "done" as const,
+        summary: baseSummary,
+      };
+    }
+
+    return {
+      status: "in_progress" as const,
+      summary:
+        `${baseSummary} Vous pouvez y ajouter ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF en mode hybride.`,
+    };
+  }
+
+  if (structureMode.mode === "imported") {
+    return {
+      status: "done" as const,
+      summary:
+        `${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} de devis disponible${structureMode.importedLineCount > 1 ? "s" : ""} depuis la DPGF importee.`,
+    };
+  }
+
+  if (structureMode.mode === "hybrid") {
+    return {
+      status: "done" as const,
+      summary:
+        `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} manuelle${structureMode.manualLineCount > 1 ? "s" : ""} et ${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} importee${structureMode.importedLineCount > 1 ? "s" : ""} coexistent deja dans la structure hybride.`,
+    };
+  }
+
+  return {
+    status: "in_progress" as const,
+    summary:
+      `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} existe${structureMode.lineCount > 1 ? "nt" : ""}, mais le mode de structure doit encore etre remis a plat.`,
+  };
 }
 
 function buildRegisterActionFromBlockingFlag(input: {
@@ -674,6 +731,7 @@ export function buildPilotageSteps(input: {
   approvalSummary: EstimateApprovalSummary | null;
   currentVersion: AffairePilotageCurrentVersion;
   lineCount: number;
+  structureMode?: AffairePilotageStructureMode;
   takeoffEnabled: boolean;
 }) {
   const documentsCount = input.intakeWorkspace?.documents.length ?? 0;
@@ -760,6 +818,7 @@ export function buildPilotageSteps(input: {
   const hasReadyPrimaryCctp = preliminaryStructure.sources.some(
     (source) => source.kind === "primary_cctp" && source.availability === "ready",
   );
+  const structureModeSummary = describePilotageStructureMode(input.structureMode ?? null);
   if (input.currentVersion === null) {
     devisStep = {
       key: "devis",
@@ -771,11 +830,12 @@ export function buildPilotageSteps(input: {
     devisStep = {
       key: "devis",
       label: "Structure devis",
-      status: "done",
+      status: structureModeSummary?.status ?? "done",
       summary:
-        input.dpgfSource === null
+        structureModeSummary?.summary ??
+        (input.dpgfSource === null
           ? `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""} en mode manuel.`
-          : `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""}.`,
+          : `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""}.`),
     };
   } else if (input.dpgfSource === null) {
     devisStep = {

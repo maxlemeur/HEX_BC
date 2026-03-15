@@ -41,6 +41,7 @@ type AffaireFlowHierarchyPanelProps = {
   }) | null;
   registerSummary?: AffaireRegisterSummary | null;
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
+  structureMode?: AffaireHubSummaryResult["structureMode"];
   cockpitSuggestions?: CockpitSuggestion[];
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
 };
@@ -190,6 +191,10 @@ function dedupe(values: string[]) {
 function isStructureResumeAction(action: PanelAction) {
   const label = action.label.toLowerCase();
   return label.includes("revoir") || label.includes("reprendre");
+}
+
+function isHybridStructureAction(action: PanelAction) {
+  return action.label.toLowerCase().includes("hybride");
 }
 
 function hasCriticalMissingCategory(
@@ -525,6 +530,14 @@ function isPreliminaryStructureSuggestion(suggestion: CockpitSuggestion | null) 
   );
 }
 
+function isContinueHybridSuggestion(suggestion: CockpitSuggestion | null) {
+  if (!suggestion) {
+    return false;
+  }
+
+  return suggestion.intent === "continue_hybrid" || suggestion.label.toLowerCase().includes("hybride");
+}
+
 function describePreliminaryStructureContext(
   intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"],
 ) {
@@ -550,7 +563,7 @@ function describePreliminaryStructureContext(
         "Sans import DPGF obligatoire",
       ]),
       evidence: dedupe([
-        readyPrimaryCctp.fileName,
+        readyPrimaryCctp.fileName ?? "",
         readyPrimaryCctp.availableLots.length > 0
           ? `Lots CCTP: ${readyPrimaryCctp.availableLots.slice(0, 2).join(", ")}`
           : "",
@@ -566,7 +579,7 @@ function describePreliminaryStructureContext(
         "Ouvrez une trame editable du devis a partir du CCTP principal, sans import DPGF obligatoire.",
       facts: dedupe(["CCTP principal detecte", "Sans import DPGF obligatoire"]),
       evidence: dedupe([
-        readyPrimaryCctp.fileName,
+        readyPrimaryCctp.fileName ?? "",
         readyPrimaryCctp.availableLots.length > 0
           ? `Lots CCTP: ${readyPrimaryCctp.availableLots.slice(0, 2).join(", ")}`
           : "",
@@ -582,6 +595,66 @@ function describePreliminaryStructureContext(
     evidence: dedupe([
       briefLots.length > 0 ? `Lots brief: ${briefLots.slice(0, 2).join(", ")}` : "",
     ]).filter(Boolean),
+  };
+}
+
+function describeStructureMode(
+  structureMode: AffaireFlowHierarchyPanelProps["structureMode"],
+) {
+  if (!structureMode || structureMode.mode === "not_started") {
+    return null;
+  }
+
+  if (structureMode.mode === "manual") {
+    return {
+      badgeLabel: "Mode manuel actif",
+      facts: [
+        `${formatCountLabel(
+          structureMode.manualLineCount,
+          "ligne manuelle",
+          "lignes manuelles",
+        )} deja saisie${structureMode.manualLineCount > 1 ? "s" : ""}`,
+      ],
+    };
+  }
+
+  if (structureMode.mode === "imported") {
+    return {
+      badgeLabel: "Structure importee",
+      facts: [
+        `${formatCountLabel(
+          structureMode.importedLineCount,
+          "ligne importee",
+          "lignes importees",
+        )} depuis la DPGF`,
+      ],
+    };
+  }
+
+  if (structureMode.mode === "hybrid") {
+    return {
+      badgeLabel: "Mode hybride actif",
+      facts: [
+        `${formatCountLabel(
+          structureMode.manualLineCount,
+          "ligne manuelle",
+          "lignes manuelles",
+        )}`,
+        `${formatCountLabel(
+          structureMode.importedLineCount,
+          "ligne importee",
+          "lignes importees",
+        )}`,
+      ],
+    };
+  }
+
+  return {
+    badgeLabel: "Structure a remettre a jour",
+    facts: [
+      `${formatCountLabel(structureMode.lineCount, "ligne", "lignes")} deja materialisee${structureMode.lineCount > 1 ? "s" : ""}`,
+      "Mode de structure a clarifier",
+    ],
   };
 }
 
@@ -626,6 +699,7 @@ function buildPanelModel(
   const confirmBriefSuggestion = findSuggestion(suggestions, "confirm_brief");
   const analyzePlansSuggestion = findSuggestion(suggestions, "analyze_plans");
   const generateStructureSuggestion = findSuggestion(suggestions, "generate_structure");
+  const continueHybridSuggestion = findSuggestion(suggestions, "continue_hybrid");
   const viewExceptionsSuggestion = findSuggestion(suggestions, "view_exceptions");
   const prepareValidationSuggestion = findSuggestion(suggestions, "prepare_validation");
   const clarificationSuggestion = findSuggestionByActionId(
@@ -719,6 +793,7 @@ function buildPanelModel(
     getReviewProbableCategories(reviewDocument).some((category) =>
       hasCriticalMissingCategory(missingPieces, category),
     );
+  const structureModeDescription = describeStructureMode(input.structureMode);
 
   if (showEmptyUploadCard) {
     title = "Deposez les pieces pour lancer l'analyse";
@@ -1016,6 +1091,41 @@ function buildPanelModel(
       facts: dedupe([clarificationFact, continuationHypothesisFact]).filter(Boolean),
       evidence: ["Tracee dans le registre affaire"],
     };
+  } else if (continueHybridSuggestion && isContinueHybridSuggestion(continueHybridSuggestion)) {
+    const hybridSuggestion = continueHybridSuggestion;
+    title = hybridSuggestion.label;
+    summary = hybridSuggestion.preview;
+    statusLabel = "Mode hybride recommande";
+    statusVariant = hasWorkReservations ? "warning" : "info";
+    heroState = "structure";
+    readinessLevel = input.hubReadiness?.status ?? "ready_with_reservations";
+    primaryAction = toSuggestionAction(hybridSuggestion);
+    resultCard = {
+      kind: "structure",
+      title: hasWorkReservations
+        ? "Passage en hybride sous reserves"
+        : "Passage en hybride recommande",
+      message: hasWorkReservations
+        ? "Le devis existe deja en mode manuel. Importez la DPGF dans cette meme structure pour converger vers un mode hybride, mais le dossier reste sous reserves."
+        : "Le devis existe deja en mode manuel. Importez la DPGF dans cette meme structure pour converger vers un mode hybride sans repartir de zero.",
+      readinessStatus: readinessLevel,
+      action: primaryAction,
+      facts: dedupe([
+        structureModeDescription?.badgeLabel ?? "",
+        ...(structureModeDescription?.facts ?? []),
+        input.structureMode?.linkedDpgfMappedRowCount
+          ? `${formatCountLabel(
+              input.structureMode.linkedDpgfMappedRowCount,
+              "ligne DPGF importable",
+              "lignes DPGF importables",
+            )}`
+          : "",
+        clarificationFact,
+        continuationHypothesisFact,
+        ...(hasWorkReservations ? documentReservationFacts : []),
+      ]).filter(Boolean),
+      evidence: ["La structure actuelle sera enrichie sans perdre les lignes deja saisies."],
+    };
   } else if (planExceptionCount > 0 && viewExceptionsSuggestion) {
     title = "Traiter les ecarts de preuves";
     summary = viewExceptionsSuggestion.preview;
@@ -1045,6 +1155,7 @@ function buildPanelModel(
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
+        structureModeDescription?.badgeLabel ?? "",
         clarificationFact,
         continuationHypothesisFact,
         hasPlans ? "Plans detectes" : "",
@@ -1106,12 +1217,14 @@ function buildPanelModel(
       action: primaryAction,
       facts: isPreliminaryStructure
         ? dedupe([
+            structureModeDescription?.badgeLabel ?? "",
             clarificationFact,
             continuationHypothesisFact,
             ...(preliminaryContext?.facts ?? []),
             ...(hasWorkReservations ? documentReservationFacts : []),
           ]).filter(Boolean)
         : dedupe([
+            structureModeDescription?.badgeLabel ?? "",
             clarificationFact,
             continuationHypothesisFact,
             hasDpgf
@@ -1183,13 +1296,15 @@ function buildPanelModel(
     primaryAction?.kind === "suggestion" &&
     (primaryAction.key === "review-revalidation" ||
       primaryAction.key === "list-clarifications");
+  const hasHybridPrimaryAction = primaryAction ? isHybridStructureAction(primaryAction) : false;
   const allowSecondaryAides =
     heroState === "ready_to_continue" && !hasDominantRegisterAction;
   const aides: PanelAction[] = [];
   if (
     (allowSecondaryAides || heroState === "structure") &&
     manualEstimateHref &&
-    primaryAction?.key !== "manual-estimate"
+    primaryAction?.key !== "manual-estimate" &&
+    !hasHybridPrimaryAction
   ) {
     aides.push(
       toHrefAction({
@@ -1564,6 +1679,8 @@ function getStateWhyContent(card: PanelResultCard) {
   const isPreliminaryStructureCard =
     card.kind === "structure" &&
     card.action.label.toLowerCase().includes("structure preliminaire");
+  const isHybridStructureCard =
+    card.kind === "structure" && isHybridStructureAction(card.action);
 
   if (card.kind === "primary") {
     return {
@@ -1593,7 +1710,9 @@ function getStateWhyContent(card: PanelResultCard) {
   }
   if (card.kind === "structure") {
     return {
-      title: isPreliminaryStructureCard
+      title: isHybridStructureCard
+        ? "Le devis existe deja. La prochaine action est d'enrichir cette meme structure en mode hybride."
+        : isPreliminaryStructureCard
         ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
         : isStructureResumeCard
           ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
@@ -1614,6 +1733,9 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
     return card.readinessStatus === "not_ready" ? "Brief a confirmer" : "Dossier exploitable";
   }
   if (card.kind === "structure") {
+    if (isHybridStructureAction(card.action)) {
+      return "Mode hybride";
+    }
     if (card.action.label.toLowerCase().includes("structure preliminaire")) {
       return "Structure preliminaire";
     }

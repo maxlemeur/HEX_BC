@@ -318,6 +318,14 @@ describe("AffairePilotagePanel", () => {
         versionNumber: 2,
       },
       lineCount: 4,
+      structureMode: {
+        mode: "manual",
+        lineCount: 4,
+        importedLineCount: 0,
+        manualLineCount: 4,
+        canImportLinkedDpgfIntoCurrentStructure: false,
+        linkedDpgfMappedRowCount: 0,
+      },
       takeoffEnabled: true,
     });
 
@@ -325,6 +333,68 @@ describe("AffairePilotagePanel", () => {
       key: "devis",
       status: "done",
       summary: "4 lignes de devis disponibles en mode manuel.",
+    });
+  });
+
+  it("keeps the devis step active when a manual structure can be enriched in hybrid mode", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-manual-hybrid",
+        status: "draft",
+        versionNumber: 2,
+      },
+      lineCount: 4,
+      structureMode: {
+        mode: "manual",
+        lineCount: 4,
+        importedLineCount: 0,
+        manualLineCount: 4,
+        canImportLinkedDpgfIntoCurrentStructure: true,
+        linkedDpgfMappedRowCount: 18,
+      },
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "in_progress",
+      summary:
+        "4 lignes de devis disponibles en mode manuel. Vous pouvez y ajouter 18 lignes DPGF en mode hybride.",
+    });
+  });
+
+  it("surfaces the hybrid structure mode once manual and imported lines coexist", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-hybrid",
+        status: "draft",
+        versionNumber: 3,
+      },
+      lineCount: 22,
+      structureMode: {
+        mode: "hybrid",
+        lineCount: 22,
+        importedLineCount: 18,
+        manualLineCount: 4,
+        canImportLinkedDpgfIntoCurrentStructure: false,
+        linkedDpgfMappedRowCount: 18,
+      },
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "done",
+      summary:
+        "4 lignes manuelles et 18 lignes importees coexistent deja dans la structure hybride.",
     });
   });
 

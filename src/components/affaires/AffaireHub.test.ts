@@ -176,6 +176,49 @@ describe("getAffaireHubDominantIntent", () => {
     ).toBe("generate_structure");
   });
 
+  it("prioritises hybrid continuation ahead of plans and alternative structure actions", () => {
+    expect(
+      getAffaireHubDominantIntent([
+        {
+          actionId: "continue-hybrid",
+          label: "Passer le devis en hybride",
+          intent: "continue_hybrid",
+          preview: "",
+          target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit" },
+          requiresConfirmation: false,
+          confirmTone: "info",
+          priority: 220,
+          isPinned: false,
+          isHidden: false,
+        },
+        {
+          actionId: "generate-structure",
+          label: "Generer la structure du devis",
+          intent: "generate_structure",
+          preview: "",
+          target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit?openVersionZero=1" },
+          requiresConfirmation: false,
+          confirmTone: "info",
+          priority: 200,
+          isPinned: false,
+          isHidden: false,
+        },
+        {
+          actionId: "analyze-plans",
+          label: "Analyser les plans",
+          intent: "analyze_plans",
+          preview: "",
+          target: { kind: "open_surface", surfaceId: "launch-metre" },
+          requiresConfirmation: false,
+          confirmTone: "info",
+          priority: 180,
+          isPinned: false,
+          isHidden: false,
+        },
+      ]),
+    ).toBe("continue_hybrid");
+  });
+
   it("still prioritises client clarifications when no progression CTA remains", () => {
     expect(
       getAffaireHubDominantIntent([
@@ -369,6 +412,65 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
 
     expect(
       filterAffaireHubCommandBarSuggestions(suggestions, "list_hypotheses").map(
+        (suggestion) => suggestion.intent,
+      ),
+    ).toEqual(["view_exceptions"]);
+  });
+
+  it("removes competing structure actions when hybrid continuation is dominant", () => {
+    const suggestions: CockpitSuggestion[] = [
+      {
+        actionId: "continue-hybrid",
+        label: "Passer le devis en hybride",
+        intent: "continue_hybrid",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 220,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "generate-structure",
+        label: "Generer la structure du devis",
+        intent: "generate_structure",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/edit?openVersionZero=1" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 200,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "analyze-plans",
+        label: "Analyser les plans",
+        intent: "analyze_plans",
+        preview: "",
+        target: { kind: "open_surface", surfaceId: "launch-metre" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 180,
+        isPinned: false,
+        isHidden: false,
+      },
+      {
+        actionId: "legacy",
+        label: "Ouvrir le fallback legacy",
+        intent: "view_exceptions",
+        preview: "",
+        target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
+        requiresConfirmation: false,
+        confirmTone: "info",
+        priority: 50,
+        isPinned: false,
+        isHidden: false,
+      },
+    ];
+
+    expect(
+      filterAffaireHubCommandBarSuggestions(suggestions, "continue_hybrid").map(
         (suggestion) => suggestion.intent,
       ),
     ).toEqual(["view_exceptions"]);
