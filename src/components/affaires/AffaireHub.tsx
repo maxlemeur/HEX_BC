@@ -628,7 +628,7 @@ function FirstVersionActionBar({ projectId }: { projectId: string }) {
           <line x1="12" x2="12" y1="5" y2="19" />
           <line x1="5" x2="19" y1="12" y2="12" />
         </svg>
-        Créer une première version
+        Creer un premier devis manuel
       </Link>
     </div>
   );
@@ -1543,6 +1543,11 @@ export function AffaireHub({
         dpgfSource,
       }) && (
         <AffaireCreatedOnboardingBanner
+          manualEstimateHref={
+            summary.currentVersion?.status === "draft"
+              ? `/dashboard/estimates/${summary.currentVersion.id}/edit?entry=manual`
+              : `/dashboard/estimates/new?projectId=${summary.project.id}`
+          }
           onDismiss={() => setShowOnboardingBanner(false)}
           onScrollToIntake={() => {
             setShowOnboardingBanner(false);

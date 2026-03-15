@@ -752,12 +752,31 @@ export function buildPilotageSteps(input: {
   }
 
   let devisStep: PilotageStep;
-  if (input.dpgfSource === null) {
+  if (input.currentVersion === null) {
     devisStep = {
       key: "devis",
       label: "Structure devis",
-      status: hasConfirmedBrief ? "waiting" : "waiting",
-      summary: "Importez le DPGF pour materialiser une base de devis.",
+      status: "waiting",
+      summary: "Creez un premier devis manuel ou importez un DPGF pour lancer la structure.",
+    };
+  } else if (input.lineCount > 0) {
+    devisStep = {
+      key: "devis",
+      label: "Structure devis",
+      status: "done",
+      summary:
+        input.dpgfSource === null
+          ? `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""} en mode manuel.`
+          : `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""}.`,
+    };
+  } else if (input.dpgfSource === null) {
+    devisStep = {
+      key: "devis",
+      label: "Structure devis",
+      status: hasConfirmedBrief ? "in_progress" : "waiting",
+      summary: hasConfirmedBrief
+        ? "Le devis peut demarrer en manuel ou via une structure preliminaire, sans DPGF obligatoire."
+        : "Confirmez le brief, puis demarrez en manuel ou importez un DPGF selon le dossier.",
     };
   } else if (input.dpgfSource.importStatus === "failed") {
     devisStep = {
@@ -789,8 +808,8 @@ export function buildPilotageSteps(input: {
     devisStep = {
       key: "devis",
       label: "Structure devis",
-      status: "done",
-      summary: `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""}.`,
+      status: "waiting",
+      summary: "Le devis peut repartir en manuel ou via l'import selon le contexte retenu.",
     };
   }
 

@@ -484,6 +484,17 @@ function toHrefAction(input: {
   };
 }
 
+function buildManualEstimateHref(input: {
+  projectId: string;
+  currentVersion: AffaireFlowHierarchyPanelProps["currentVersion"];
+}) {
+  if (input.currentVersion?.status === "draft") {
+    return `/dashboard/estimates/${input.currentVersion.id}/edit?entry=manual`;
+  }
+
+  return `/dashboard/estimates/new?projectId=${input.projectId}`;
+}
+
 function findSuggestion(
   suggestions: CockpitSuggestion[],
   intent: CockpitSuggestion["intent"],
@@ -623,6 +634,10 @@ function buildPanelModel(
     (planExceptionCount > 0 && viewExceptionsSuggestion !== null) ||
     analyzePlansSuggestion !== null ||
     generateStructureSuggestion !== null;
+  const manualEstimateHref = buildManualEstimateHref({
+    projectId: input.projectId,
+    currentVersion: input.currentVersion,
+  });
   const reviewCouldResolveCriticalMissing =
     reviewDocument !== null &&
     getReviewProbableCategories(reviewDocument).some((category) =>
@@ -1066,6 +1081,22 @@ function buildPanelModel(
   const allowSecondaryAides =
     heroState === "ready_to_continue" && !hasDominantRegisterAction;
   const aides: PanelAction[] = [];
+  if (
+    (allowSecondaryAides || heroState === "structure") &&
+    manualEstimateHref &&
+    primaryAction?.key !== "manual-estimate"
+  ) {
+    aides.push(
+      toHrefAction({
+        key: "manual-estimate",
+        label: "Continuer en manuel",
+        description:
+          "Ouvrir le devis sans attendre un import DPGF. Vous pourrez completer ou hybrider plus tard.",
+        href: manualEstimateHref,
+        variant: "ghost",
+      }),
+    );
+  }
   if (
     allowSecondaryAides &&
     clarificationSuggestion &&
@@ -2357,6 +2388,10 @@ export function AffaireFlowHierarchyPanel(
   props: Readonly<AffaireFlowHierarchyPanelProps>,
 ) {
   const model = buildPanelModel(props);
+  const manualEstimateHref = buildManualEstimateHref({
+    projectId: props.projectId,
+    currentVersion: props.currentVersion,
+  });
   const readinessBadge = getHubReadinessBadge({
     hubReadiness: props.hubReadiness ?? null,
     fallback: model.readinessLevel,
@@ -2397,7 +2432,7 @@ export function AffaireFlowHierarchyPanel(
       </div>
 
       {model.showEmptyUploadCard ? (
-        <div className="mt-4">
+        <div className="mt-4 space-y-4">
           <button
             type="button"
             onClick={handleOpenIntakeUpload}
@@ -2491,6 +2526,21 @@ export function AffaireFlowHierarchyPanel(
               </div>
             </div>
           </button>
+          <div className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                  Le mode manuel reste disponible
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-[var(--slate-600)]">
+                  Vous pouvez ouvrir le devis sans DPGF et completer la structure plus tard.
+                </p>
+              </div>
+              <Link href={manualEstimateHref} className="btn btn-secondary btn-sm shrink-0">
+                Continuer en manuel
+              </Link>
+            </div>
+          </div>
         </div>
       ) : null}
 

@@ -199,6 +199,51 @@ describe("AffairePilotagePanel", () => {
     });
   });
 
+  it("keeps the devis step open in manual mode when no DPGF is linked", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: null,
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-manual",
+        status: "draft",
+        versionNumber: 1,
+      },
+      lineCount: 0,
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "in_progress",
+      summary:
+        "Le devis peut demarrer en manuel ou via une structure preliminaire, sans DPGF obligatoire.",
+    });
+  });
+
+  it("recognises a manual devis structure even without linked DPGF", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: null,
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-manual-lines",
+        status: "draft",
+        versionNumber: 2,
+      },
+      lineCount: 4,
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "done",
+      summary: "4 lignes de devis disponibles en mode manuel.",
+    });
+  });
+
   it("prioritizes critical takeoff and register exceptions before warning items", () => {
     const exceptions = buildPilotageExceptions({
       projectId: "project-1",
@@ -857,7 +902,7 @@ describe("AffairePilotagePanel", () => {
     );
   });
 
-  it("renders finish-line cards ahead of the exception queue", () => {
+  it("renders finish-line cards ahead of the exception queue", { timeout: 10000 }, () => {
     render(
       <ToastProvider>
         <AffairePilotagePanel

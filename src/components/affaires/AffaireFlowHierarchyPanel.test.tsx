@@ -73,6 +73,10 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByText("CCTP, DPGF, plans, courriers.")).not.toBeInTheDocument();
     expect(screen.getByText("Deposez vos pieces ici")).toBeInTheDocument();
     expect(screen.getByText("Selectionner les fichiers")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continuer en manuel" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/new?projectId=project-empty",
+    );
     expect(screen.queryByText("Blocages a traiter")).not.toBeInTheDocument();
     expect(screen.queryByText("Outils utiles si besoin")).not.toBeInTheDocument();
 
@@ -323,7 +327,11 @@ describe("AffaireFlowHierarchyPanel", () => {
       "/dashboard/affaires/project-2/plans",
     );
     expect(screen.queryByText("Blocages a traiter")).not.toBeInTheDocument();
-    expect(screen.queryByText("Outils utiles si besoin")).not.toBeInTheDocument();
+    expect(screen.getByText("Outils utiles si besoin")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continuer en manuel" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/version-2/edit?entry=manual",
+    );
     expect(screen.queryByText("Reprise legacy")).not.toBeInTheDocument();
   });
 
@@ -724,7 +732,11 @@ describe("AffaireFlowHierarchyPanel", () => {
       screen.getAllByText("Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.").length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText("Aide disponible")).not.toBeInTheDocument();
-    expect(screen.queryByText("Outils utiles si besoin")).not.toBeInTheDocument();
+    expect(screen.getByText("Outils utiles si besoin")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continuer en manuel" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/version-brief-confirmed/edit?entry=manual",
+    );
     expect(screen.queryByRole("link", { name: "Ouvrir V0 IA" })).not.toBeInTheDocument();
     expect(screen.queryByText("Dossier de consultation")).not.toBeInTheDocument();
 

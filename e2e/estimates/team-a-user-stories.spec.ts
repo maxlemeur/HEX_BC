@@ -79,6 +79,30 @@ test.describe("Team A vNext2 hub scenarios", () => {
     await loginWithUi(page);
   });
 
+  test("fresh empty affaire keeps the manual path visible without requiring a DPGF", async ({
+    page,
+  }) => {
+    const { projectId, versionId } = await createEstimateViaApi(page, {
+      projectName: buildEstimateName("TEAMA-MANUAL"),
+      title: "Team A manual first",
+    });
+
+    await page.goto(`/dashboard/affaires/${projectId}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByText("Deposez vos pieces ici")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Continuer en manuel" }),
+    ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit?entry=manual`);
+    await expect(
+      page.getByText("Le mode manuel reste disponible"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Vous pouvez ouvrir le devis sans DPGF et completer la structure plus tard."),
+    ).toBeVisible();
+  });
+
   test("accepted-with-hypothesis keeps a readable under-reservations path with explicit register trace", async ({
     page,
   }) => {
