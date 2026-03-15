@@ -509,6 +509,88 @@ function findSuggestionByActionId(
   return suggestions.find((suggestion) => suggestion.actionId === actionId) ?? null;
 }
 
+function isPreliminaryStructureSuggestion(suggestion: CockpitSuggestion | null) {
+  if (!suggestion) {
+    return false;
+  }
+
+  if (suggestion.label.toLowerCase().includes("structure preliminaire")) {
+    return true;
+  }
+
+  return (
+    suggestion.target.kind === "navigate" &&
+    suggestion.target.href.includes("openStructureDraft=1")
+  );
+}
+
+function resolvePrimaryCctpDocument(
+  intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"],
+) {
+  const cctpDocuments = (intakeWorkspace?.documents ?? []).filter(
+    (document) => document.detectedCategory === "cctp",
+  );
+
+  if (cctpDocuments.length === 0) {
+    return null;
+  }
+
+  return (
+    cctpDocuments.find((document) => document.documentPriority === "primary") ??
+    (cctpDocuments.length === 1 ? cctpDocuments[0] : null)
+  );
+}
+
+function describePreliminaryStructureContext(
+  intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"],
+) {
+  const briefDraft = intakeWorkspace?.briefDraft ?? null;
+  const primaryCctp = resolvePrimaryCctpDocument(intakeWorkspace);
+  const cctpLots = primaryCctp?.extractedMetadata.detectedLots.filter(Boolean) ?? [];
+  const briefLots = briefDraft?.lots.filter(Boolean) ?? [];
+
+  if (primaryCctp && briefDraft?.status === "confirme") {
+    return {
+      title: "Structure preliminaire editable",
+      message:
+        "Le brief est confirme. Ouvrez une trame editable du devis a partir du brief et du CCTP principal, sans import DPGF obligatoire.",
+      facts: dedupe([
+        "Brief confirme",
+        "CCTP principal detecte",
+        "Sans import DPGF obligatoire",
+      ]),
+      evidence: dedupe([
+        primaryCctp.fileName,
+        cctpLots.length > 0 ? `Lots CCTP: ${cctpLots.slice(0, 2).join(", ")}` : "",
+        briefLots.length > 0 ? `Lots brief: ${briefLots.slice(0, 2).join(", ")}` : "",
+      ]).filter(Boolean),
+    };
+  }
+
+  if (primaryCctp) {
+    return {
+      title: "Structure preliminaire editable",
+      message:
+        "Ouvrez une trame editable du devis a partir du CCTP principal, sans import DPGF obligatoire.",
+      facts: dedupe(["CCTP principal detecte", "Sans import DPGF obligatoire"]),
+      evidence: dedupe([
+        primaryCctp.fileName,
+        cctpLots.length > 0 ? `Lots CCTP: ${cctpLots.slice(0, 2).join(", ")}` : "",
+      ]).filter(Boolean),
+    };
+  }
+
+  return {
+    title: "Structure preliminaire editable",
+    message:
+      "Le brief confirme permet d'ouvrir une trame editable du devis, sans import DPGF obligatoire.",
+    facts: dedupe(["Brief confirme", "Sans import DPGF obligatoire"]),
+    evidence: dedupe([
+      briefLots.length > 0 ? `Lots brief: ${briefLots.slice(0, 2).join(", ")}` : "",
+    ]).filter(Boolean),
+  };
+}
+
 function formatCountLabel(
   count: number,
   singular: string,
@@ -984,22 +1066,43 @@ function buildPanelModel(
     const hasStructureDraft = generateStructureSuggestion.label
       .toLowerCase()
       .includes("revoir");
+    const isPreliminaryStructure = isPreliminaryStructureSuggestion(
+      generateStructureSuggestion,
+    );
+    const preliminaryContext = isPreliminaryStructure
+      ? describePreliminaryStructureContext(input.intakeWorkspace)
+      : null;
     title = generateStructureSuggestion.label;
     summary = generateStructureSuggestion.preview;
-    statusLabel = hasStructureDraft ? "Structure a reprendre" : "Structure a generer";
+    statusLabel = hasStructureDraft
+      ? "Structure a reprendre"
+      : isPreliminaryStructure
+        ? "Structure preliminaire"
+        : "Structure a generer";
     statusVariant = hasWorkReservations ? "warning" : "success";
     heroState = "structure";
     readinessLevel = input.hubReadiness?.status ?? "ready_with_reservations";
     primaryAction = toSuggestionAction(generateStructureSuggestion);
     resultCard = {
       kind: "structure",
-      title: hasWorkReservations ? "Structure generable sous reserves" : "Brief confirme",
+      title: isPreliminaryStructure
+        ? hasWorkReservations
+          ? "Structure preliminaire sous reserves"
+          : preliminaryContext?.title ?? "Structure preliminaire editable"
+        : hasWorkReservations
+          ? "Structure generable sous reserves"
+          : "Brief confirme",
       message: hasStructureDraft
         ? hasWorkReservations
           ? hasContinuationHypothesisDriver && !hasDocumentReservations
             ? "Le brief est confirme. Reprenez la structure du devis en gardant la trace d'hypothese active."
             : "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+        : isPreliminaryStructure
+          ? hasWorkReservations
+            ? `${preliminaryContext?.message ?? "La structure preliminaire reste disponible."} Le dossier reste toutefois sous reserves.`
+            : preliminaryContext?.message ??
+              "Le brief confirme suffit pour ouvrir une structure preliminaire editable."
         : hasWorkReservations
           ? hasContinuationHypothesisDriver && !hasDocumentReservations
             ? "Le brief est confirme. Generez la structure du devis en gardant la trace d'hypothese active."
@@ -1007,17 +1110,25 @@ function buildPanelModel(
           : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
       readinessStatus: readinessLevel,
       action: primaryAction,
-      facts: dedupe([
-        clarificationFact,
-        continuationHypothesisFact,
-        hasDpgf
-          ? hasWorkReservations
-            ? "Base devis disponible sous reserves"
-            : "Base devis prete"
-          : "",
-        hasPlans ? "Plans detectes" : "",
-        ...(hasWorkReservations ? documentReservationFacts : ["Version brouillon disponible"]),
-      ]).filter(Boolean),
+      facts: isPreliminaryStructure
+        ? dedupe([
+            clarificationFact,
+            continuationHypothesisFact,
+            ...(preliminaryContext?.facts ?? []),
+            ...(hasWorkReservations ? documentReservationFacts : []),
+          ]).filter(Boolean)
+        : dedupe([
+            clarificationFact,
+            continuationHypothesisFact,
+            hasDpgf
+              ? hasWorkReservations
+                ? "Base devis disponible sous reserves"
+                : "Base devis prete"
+              : "",
+            hasPlans ? "Plans detectes" : "",
+            ...(hasWorkReservations ? documentReservationFacts : ["Version brouillon disponible"]),
+          ]).filter(Boolean),
+      evidence: isPreliminaryStructure ? (preliminaryContext?.evidence ?? []) : undefined,
     };
   } else if (prepareValidationSuggestion) {
     title = "Preparer la validation";
@@ -1456,6 +1567,9 @@ function getReviewChoiceConsequence(input: {
 function getStateWhyContent(card: PanelResultCard) {
   const isStructureResumeCard =
     card.kind === "structure" && isStructureResumeAction(card.action);
+  const isPreliminaryStructureCard =
+    card.kind === "structure" &&
+    card.action.label.toLowerCase().includes("structure preliminaire");
 
   if (card.kind === "primary") {
     return {
@@ -1485,9 +1599,11 @@ function getStateWhyContent(card: PanelResultCard) {
   }
   if (card.kind === "structure") {
     return {
-      title: isStructureResumeCard
-        ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
-        : "Le brief est confirme. La prochaine action est de generer la structure du devis.",
+      title: isPreliminaryStructureCard
+        ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
+        : isStructureResumeCard
+          ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
+          : "Le brief est confirme. La prochaine action est de generer la structure du devis.",
       hints: card.facts.slice(0, 3),
     };
   }
@@ -1504,6 +1620,9 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
     return card.readinessStatus === "not_ready" ? "Brief a confirmer" : "Dossier exploitable";
   }
   if (card.kind === "structure") {
+    if (card.action.label.toLowerCase().includes("structure preliminaire")) {
+      return "Structure preliminaire";
+    }
     return isStructureResumeAction(card.action)
       ? "Structure a reprendre"
       : "Structure a generer";

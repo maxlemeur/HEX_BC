@@ -218,7 +218,48 @@ describe("AffairePilotagePanel", () => {
       key: "devis",
       status: "in_progress",
       summary:
-        "Le devis peut demarrer en manuel ou via une structure preliminaire, sans DPGF obligatoire.",
+        "Le devis peut demarrer en manuel ou s'ouvrir via une structure preliminaire, sans DPGF obligatoire.",
+    });
+  });
+
+  it("mentions the primary CCTP when the preliminary structure path is available", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace({
+        documents: [
+          {
+            documentId: "doc-cctp-primary",
+            fileName: "cctp-principal.docx",
+            detectedCategory: "cctp",
+            documentPriority: "primary",
+            confidence: 0.94,
+            extractedMetadata: {
+              projectName: null,
+              clientName: null,
+              deadlineAt: null,
+              detectedLots: ["Electricite"],
+              detectedVariants: [],
+            },
+            issues: [],
+          },
+        ],
+      }),
+      dpgfSource: null,
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-cctp-preliminary",
+        status: "draft",
+        versionNumber: 1,
+      },
+      lineCount: 0,
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "in_progress",
+      summary:
+        "Une structure preliminaire du devis peut etre ouverte depuis le CCTP principal, sans DPGF obligatoire.",
     });
   });
 

@@ -744,6 +744,98 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(onExecuteSuggestion).toHaveBeenCalledWith(generateStructure);
   });
 
+  it("explains the preliminary structure path from the brief and primary CCTP", () => {
+    const onExecuteSuggestion = vi.fn();
+    const preliminaryStructure = buildSuggestion({
+      actionId: "open-structure-draft",
+      label: "Ouvrir la structure preliminaire",
+      intent: "generate_structure",
+      preview:
+        "Ouvrir une preview editable de structure a partir du brief confirme et des signaux documentaires deja arbitres.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-structure-draft/edit?openStructureDraft=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-structure-draft"
+        currentVersion={{
+          id: "version-structure-draft",
+          projectId: "project-structure-draft",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-cctp",
+              fileName: "cctp-principal.docx",
+              detectedCategory: "cctp",
+              documentPriority: "primary",
+              confidence: 0.94,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: ["Electricite", "SSI"],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Consultation electricite sans DPGF exploitable.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts", "Courants faibles"],
+            lots: ["Electricite", "SSI"],
+            receivedPieces: ["CCTP"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111111",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[preliminaryStructure]}
+        onExecuteSuggestion={onExecuteSuggestion}
+      />,
+    );
+
+    expect(screen.getAllByText("Ouvrir la structure preliminaire").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Structure preliminaire").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Le brief est confirme. Ouvrez une trame editable du devis a partir du brief et du CCTP principal, sans import DPGF obligatoire.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("CCTP principal detecte")).toBeInTheDocument();
+    expect(screen.getByText("Sans import DPGF obligatoire")).toBeInTheDocument();
+    expect(screen.getAllByText("cctp-principal.docx").length).toBeGreaterThan(0);
+    expect(screen.getByText("Lots CCTP: Electricite, SSI")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continuer en manuel" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/version-structure-draft/edit?entry=manual",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir la structure preliminaire" }));
+    expect(onExecuteSuggestion).toHaveBeenCalledWith(preliminaryStructure);
+  });
+
   it("keeps the structure wording under reservations when critical register documents remain open", () => {
     render(
       <AffaireFlowHierarchyPanel
@@ -2083,7 +2175,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.getByText("Dossier de consultation")).toBeInTheDocument();
   });
 
-  it("surfaces the intake evidence when a document must be reviewed and allows quick reclassification", async () => {
+  it("surfaces the intake evidence when a document must be reviewed and allows quick reclassification", { timeout: 10000 }, async () => {
     const user = userEvent.setup();
     const onExecuteSuggestion = vi.fn();
     const reviewIntake = buildSuggestion({

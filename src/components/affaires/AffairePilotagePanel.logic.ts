@@ -112,6 +112,23 @@ export function resolveSubmissionReadiness(
   };
 }
 
+function resolvePrimaryCttpPilotageDocument(
+  intakeWorkspace: AffairePilotageWorkspace,
+) {
+  const cctpDocuments = (intakeWorkspace?.documents ?? []).filter(
+    (document) => document.detectedCategory === "cctp",
+  );
+
+  if (cctpDocuments.length === 0) {
+    return null;
+  }
+
+  return (
+    cctpDocuments.find((document) => document.documentPriority === "primary") ??
+    (cctpDocuments.length === 1 ? cctpDocuments[0] : null)
+  );
+}
+
 function isDocumentRegisterFlagKey(
   key: ReadyToSendBlockingFlag["key"],
 ) {
@@ -752,6 +769,7 @@ export function buildPilotageSteps(input: {
   }
 
   let devisStep: PilotageStep;
+  const primaryCctp = resolvePrimaryCttpPilotageDocument(input.intakeWorkspace);
   if (input.currentVersion === null) {
     devisStep = {
       key: "devis",
@@ -775,7 +793,9 @@ export function buildPilotageSteps(input: {
       label: "Structure devis",
       status: hasConfirmedBrief ? "in_progress" : "waiting",
       summary: hasConfirmedBrief
-        ? "Le devis peut demarrer en manuel ou via une structure preliminaire, sans DPGF obligatoire."
+        ? primaryCctp
+          ? "Une structure preliminaire du devis peut etre ouverte depuis le CCTP principal, sans DPGF obligatoire."
+          : "Le devis peut demarrer en manuel ou s'ouvrir via une structure preliminaire, sans DPGF obligatoire."
         : "Confirmez le brief, puis demarrez en manuel ou importez un DPGF selon le dossier.",
     };
   } else if (input.dpgfSource.importStatus === "failed") {
