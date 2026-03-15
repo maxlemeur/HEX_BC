@@ -781,6 +781,7 @@ describe("AffaireFlowHierarchyPanel", () => {
               documentId: "doc-cctp",
               fileName: "cctp-principal.docx",
               detectedCategory: "cctp",
+              classificationStatus: "classified",
               documentPriority: "primary",
               confidence: 0.94,
               extractedMetadata: {
@@ -834,6 +835,85 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Ouvrir la structure preliminaire" }));
     expect(onExecuteSuggestion).toHaveBeenCalledWith(preliminaryStructure);
+  });
+
+  it("falls back to brief-only preliminary structure copy when the primary CCTP has no defendable lots", () => {
+    const preliminaryStructure = buildSuggestion({
+      actionId: "open-structure-draft",
+      label: "Ouvrir la structure preliminaire",
+      intent: "generate_structure",
+      preview: "Ouvrir une preview editable de structure a partir du brief confirme.",
+      target: {
+        kind: "navigate",
+        href: "/dashboard/estimates/version-structure-draft-limited/edit?openStructureDraft=1",
+      },
+      priority: 650,
+    });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-structure-draft-limited"
+        currentVersion={{
+          id: "version-structure-draft-limited",
+          projectId: "project-structure-draft-limited",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-cctp-limited",
+              fileName: "cctp-principal.docx",
+              detectedCategory: "cctp",
+              classificationStatus: "classified",
+              documentPriority: "primary",
+              confidence: 0.94,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Consultation electricite sans DPGF exploitable.",
+            projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
+            scope: ["Courants forts", "Courants faibles"],
+            lots: ["Electricite", "SSI"],
+            receivedPieces: ["CCTP"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111112",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[preliminaryStructure]}
+      />,
+    );
+
+    expect(
+      screen.getAllByText(
+        "Le brief confirme permet d'ouvrir une trame editable du devis, sans import DPGF obligatoire.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("CCTP principal detecte")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Lots CCTP:/)).not.toBeInTheDocument();
   });
 
   it("keeps the structure wording under reservations when critical register documents remain open", () => {

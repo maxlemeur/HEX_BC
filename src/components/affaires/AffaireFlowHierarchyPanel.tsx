@@ -12,6 +12,7 @@ import {
   isAffaireIntakePrimaryEligibleKind,
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
+  resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import {
@@ -524,32 +525,21 @@ function isPreliminaryStructureSuggestion(suggestion: CockpitSuggestion | null) 
   );
 }
 
-function resolvePrimaryCctpDocument(
-  intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"],
-) {
-  const cctpDocuments = (intakeWorkspace?.documents ?? []).filter(
-    (document) => document.detectedCategory === "cctp",
-  );
-
-  if (cctpDocuments.length === 0) {
-    return null;
-  }
-
-  return (
-    cctpDocuments.find((document) => document.documentPriority === "primary") ??
-    (cctpDocuments.length === 1 ? cctpDocuments[0] : null)
-  );
-}
-
 function describePreliminaryStructureContext(
   intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"],
 ) {
   const briefDraft = intakeWorkspace?.briefDraft ?? null;
-  const primaryCctp = resolvePrimaryCctpDocument(intakeWorkspace);
-  const cctpLots = primaryCctp?.extractedMetadata.detectedLots.filter(Boolean) ?? [];
+  const preliminaryStructure = resolveAffairePreliminaryStructureCapability({
+    briefDraft,
+    documents: intakeWorkspace?.documents ?? [],
+  });
+  const readyPrimaryCctp =
+    preliminaryStructure.sources.find(
+      (source) => source.kind === "primary_cctp" && source.availability === "ready",
+    ) ?? null;
   const briefLots = briefDraft?.lots.filter(Boolean) ?? [];
 
-  if (primaryCctp && briefDraft?.status === "confirme") {
+  if (readyPrimaryCctp && briefDraft?.status === "confirme") {
     return {
       title: "Structure preliminaire editable",
       message:
@@ -560,22 +550,26 @@ function describePreliminaryStructureContext(
         "Sans import DPGF obligatoire",
       ]),
       evidence: dedupe([
-        primaryCctp.fileName,
-        cctpLots.length > 0 ? `Lots CCTP: ${cctpLots.slice(0, 2).join(", ")}` : "",
+        readyPrimaryCctp.fileName,
+        readyPrimaryCctp.availableLots.length > 0
+          ? `Lots CCTP: ${readyPrimaryCctp.availableLots.slice(0, 2).join(", ")}`
+          : "",
         briefLots.length > 0 ? `Lots brief: ${briefLots.slice(0, 2).join(", ")}` : "",
       ]).filter(Boolean),
     };
   }
 
-  if (primaryCctp) {
+  if (readyPrimaryCctp) {
     return {
       title: "Structure preliminaire editable",
       message:
         "Ouvrez une trame editable du devis a partir du CCTP principal, sans import DPGF obligatoire.",
       facts: dedupe(["CCTP principal detecte", "Sans import DPGF obligatoire"]),
       evidence: dedupe([
-        primaryCctp.fileName,
-        cctpLots.length > 0 ? `Lots CCTP: ${cctpLots.slice(0, 2).join(", ")}` : "",
+        readyPrimaryCctp.fileName,
+        readyPrimaryCctp.availableLots.length > 0
+          ? `Lots CCTP: ${readyPrimaryCctp.availableLots.slice(0, 2).join(", ")}`
+          : "",
       ]).filter(Boolean),
     };
   }

@@ -230,6 +230,7 @@ describe("AffairePilotagePanel", () => {
             documentId: "doc-cctp-primary",
             fileName: "cctp-principal.docx",
             detectedCategory: "cctp",
+            classificationStatus: "classified",
             documentPriority: "primary",
             confidence: 0.94,
             extractedMetadata: {
@@ -260,6 +261,48 @@ describe("AffairePilotagePanel", () => {
       status: "in_progress",
       summary:
         "Une structure preliminaire du devis peut etre ouverte depuis le CCTP principal, sans DPGF obligatoire.",
+    });
+  });
+
+  it("keeps the brief-based devis summary when the primary CCTP has no defendable lots", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace({
+        documents: [
+          {
+            documentId: "doc-cctp-primary",
+            fileName: "cctp-principal.docx",
+            detectedCategory: "cctp",
+            classificationStatus: "classified",
+            documentPriority: "primary",
+            confidence: 0.94,
+            extractedMetadata: {
+              projectName: null,
+              clientName: null,
+              deadlineAt: null,
+              detectedLots: [],
+              detectedVariants: [],
+            },
+            issues: [],
+          },
+        ],
+      }),
+      dpgfSource: null,
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-cctp-limited",
+        status: "draft",
+        versionNumber: 1,
+      },
+      lineCount: 0,
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "in_progress",
+      summary:
+        "Le devis peut demarrer en manuel ou s'ouvrir via une structure preliminaire, sans DPGF obligatoire.",
     });
   });
 

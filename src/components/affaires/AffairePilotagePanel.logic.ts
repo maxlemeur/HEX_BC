@@ -1,6 +1,7 @@
 import {
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
+  resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import {
@@ -110,23 +111,6 @@ export function resolveSubmissionReadiness(
     stalePriceDays: readyToSend.stalePriceDays,
     errorMessage: readyToSend.errorMessage,
   };
-}
-
-function resolvePrimaryCttpPilotageDocument(
-  intakeWorkspace: AffairePilotageWorkspace,
-) {
-  const cctpDocuments = (intakeWorkspace?.documents ?? []).filter(
-    (document) => document.detectedCategory === "cctp",
-  );
-
-  if (cctpDocuments.length === 0) {
-    return null;
-  }
-
-  return (
-    cctpDocuments.find((document) => document.documentPriority === "primary") ??
-    (cctpDocuments.length === 1 ? cctpDocuments[0] : null)
-  );
 }
 
 function isDocumentRegisterFlagKey(
@@ -769,7 +753,13 @@ export function buildPilotageSteps(input: {
   }
 
   let devisStep: PilotageStep;
-  const primaryCctp = resolvePrimaryCttpPilotageDocument(input.intakeWorkspace);
+  const preliminaryStructure = resolveAffairePreliminaryStructureCapability({
+    briefDraft: input.intakeWorkspace?.briefDraft ?? null,
+    documents: input.intakeWorkspace?.documents ?? [],
+  });
+  const hasReadyPrimaryCctp = preliminaryStructure.sources.some(
+    (source) => source.kind === "primary_cctp" && source.availability === "ready",
+  );
   if (input.currentVersion === null) {
     devisStep = {
       key: "devis",
@@ -793,7 +783,7 @@ export function buildPilotageSteps(input: {
       label: "Structure devis",
       status: hasConfirmedBrief ? "in_progress" : "waiting",
       summary: hasConfirmedBrief
-        ? primaryCctp
+        ? hasReadyPrimaryCctp
           ? "Une structure preliminaire du devis peut etre ouverte depuis le CCTP principal, sans DPGF obligatoire."
           : "Le devis peut demarrer en manuel ou s'ouvrir via une structure preliminaire, sans DPGF obligatoire."
         : "Confirmez le brief, puis demarrez en manuel ou importez un DPGF selon le dossier.",
