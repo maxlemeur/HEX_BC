@@ -553,7 +553,9 @@ function isReadyLinkedDpgfSource(
   return Boolean(
     dpgfSource &&
       dpgfSource.importStatus === "completed" &&
-      (dpgfSource.mappingStatus === "validated" || dpgfSource.mappingStatus === "applied") &&
+      (dpgfSource.mappingStatus === null ||
+        dpgfSource.mappingStatus === "validated" ||
+        dpgfSource.mappingStatus === "applied") &&
       dpgfSource.mappedRowCount > 0,
   );
 }

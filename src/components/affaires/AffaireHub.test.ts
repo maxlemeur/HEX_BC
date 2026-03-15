@@ -531,6 +531,56 @@ describe("linked DPGF import preference", () => {
     ).toBe(true);
   });
 
+  it("prefers the linked DPGF import path when mapped rows exist without a mapping record", () => {
+    expect(
+      shouldPreferLinkedDpgfImportAction({
+        summary: {
+          project: {
+            id: "project-1",
+            name: "Affaire",
+            clientName: null,
+            reference: null,
+          },
+          currentVersion: {
+            id: "version-1",
+            projectId: "project-1",
+            status: "draft",
+            versionNumber: 1,
+            totalHtCents: 0,
+            marginMultiplier: 1,
+            marginPercent: 0,
+            updatedAt: "2026-03-11T08:00:00.000Z",
+          },
+          acceptedVersion: null,
+          versionsCount: 1,
+          lineCount: 0,
+          structureMode: {
+            mode: "not_started",
+            lineCount: 0,
+            importedLineCount: 0,
+            manualLineCount: 0,
+            unsupportedLineCount: 0,
+            hasImportableLinkedDpgfSource: true,
+            canImportLinkedDpgfIntoCurrentStructure: false,
+            linkedDpgfMappedRowCount: 42,
+          },
+        },
+        dpgfSource: {
+          importId: "import-1",
+          filename: "dpgf.xlsx",
+          sourceFormat: "xlsx",
+          importStatus: "completed",
+          mappingStatus: null,
+          importedAt: "2026-03-11T08:00:00.000Z",
+          mappingUpdatedAt: null,
+          parseMode: "spreadsheet",
+          rowCount: 42,
+          mappedRowCount: 42,
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("hides competing structure and plans suggestions when linked DPGF import should dominate", () => {
     const suggestions: CockpitSuggestion[] = [
       {

@@ -860,6 +860,116 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByRole("button", { name: "Generer la structure du devis" })).not.toBeInTheDocument();
   });
 
+  it("keeps the linked DPGF import CTA when mapped rows exist without a mapping record", () => {
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-dpgf-null-mapping"
+        dpgfSource={{
+          importId: "import-1",
+          filename: "dpgf-electricite.xlsx",
+          sourceFormat: "xlsx",
+          importStatus: "completed",
+          mappingStatus: null,
+          importedAt: "2026-03-11T12:00:00.000Z",
+          mappingUpdatedAt: null,
+          parseMode: "spreadsheet",
+          rowCount: 42,
+          mappedRowCount: 42,
+        }}
+        currentVersion={{
+          id: "version-dpgf-null-mapping",
+          projectId: "project-dpgf-null-mapping",
+          versionNumber: 1,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-dpgf-null-mapping",
+          projectId: "project-dpgf-null-mapping",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-1",
+          isVersionEmpty: true,
+          canGenerate: true,
+          availableLots: [],
+          activeDraft: null,
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf-electricite.xlsx",
+              detectedCategory: "dpgf",
+              documentPriority: "primary",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: ["Electricite"],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Consultation avec DPGF principal valide.",
+            projectObject: "Chiffrage CFO/CFA.",
+            scope: ["Electricite"],
+            lots: ["Electricite"],
+            receivedPieces: ["DPGF"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111116",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        structureMode={{
+          mode: "not_started",
+          lineCount: 0,
+          importedLineCount: 0,
+          manualLineCount: 0,
+          unsupportedLineCount: 0,
+          hasImportableLinkedDpgfSource: true,
+          canImportLinkedDpgfIntoCurrentStructure: false,
+          linkedDpgfMappedRowCount: 42,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[
+          buildSuggestion({
+            actionId: "generate-structure",
+            label: "Generer la structure du devis",
+            intent: "generate_structure",
+            preview: "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+            target: {
+              kind: "navigate",
+              href: "/dashboard/estimates/version-dpgf-null-mapping/edit?openVersionZero=1",
+            },
+            priority: 650,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Importer la DPGF")).toBeInTheDocument();
+    expect(screen.getByText("Base DPGF")).toBeInTheDocument();
+    expect(screen.getByText("42 lignes importables")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Importer la DPGF" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/version-dpgf-null-mapping/edit",
+    );
+    expect(screen.queryByRole("button", { name: "Generer la structure du devis" })).not.toBeInTheDocument();
+  });
+
   it("makes a structure cleanup explicit when the visible mode needs an update", async () => {
     const user = userEvent.setup();
 
