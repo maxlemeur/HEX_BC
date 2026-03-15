@@ -65,15 +65,19 @@ export type AffairePilotageCurrentVersion =
     }
   | null;
 
-export type AffairePilotageStructureMode = Pick<
-  EstimateStructureModeSummary,
-  | "mode"
-  | "lineCount"
-  | "importedLineCount"
-  | "manualLineCount"
-  | "canImportLinkedDpgfIntoCurrentStructure"
-  | "linkedDpgfMappedRowCount"
-> | null;
+export type AffairePilotageStructureMode =
+  | (Pick<
+      EstimateStructureModeSummary,
+      | "mode"
+      | "lineCount"
+      | "importedLineCount"
+      | "manualLineCount"
+      | "canImportLinkedDpgfIntoCurrentStructure"
+      | "linkedDpgfMappedRowCount"
+    > & {
+      unsupportedLineCount?: number;
+    })
+  | null;
 
 export type FinishLineCard = {
   key: "send" | "order";
@@ -280,7 +284,9 @@ function describePilotageStructureMode(input: {
   return {
     status: "in_progress" as const,
     summary:
-      `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} existe${structureMode.lineCount > 1 ? "nt" : ""}, mais le mode de structure doit encore etre remis a plat.`,
+      (structureMode.unsupportedLineCount ?? 0) > 0
+        ? `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} de devis existe${structureMode.lineCount > 1 ? "nt" : ""} deja, dont ${structureMode.unsupportedLineCount} a revoir avant de poursuivre la structure.`
+        : `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} existe${structureMode.lineCount > 1 ? "nt" : ""}, mais le mode de structure doit encore etre remis a plat.`,
   };
 }
 

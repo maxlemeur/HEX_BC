@@ -860,6 +860,114 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.queryByRole("button", { name: "Generer la structure du devis" })).not.toBeInTheDocument();
   });
 
+  it("makes a structure cleanup explicit when the visible mode needs an update", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-needs-update"
+        currentVersion={{
+          id: "version-needs-update",
+          projectId: "project-needs-update",
+          versionNumber: 2,
+          status: "draft",
+          totalHtCents: 0,
+          marginMultiplier: 1,
+          marginPercent: 0,
+          updatedAt: "2026-03-11T12:00:00.000Z",
+        }}
+        versionZeroSummary={{
+          versionId: "version-needs-update",
+          projectId: "project-needs-update",
+          hasConfirmedBrief: true,
+          confirmedBriefId: "brief-needs-update",
+          isVersionEmpty: false,
+          canGenerate: true,
+          availableLots: [],
+          activeDraft: null,
+        }}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [
+            {
+              documentId: "doc-dpgf",
+              fileName: "dpgf-electricite.xlsx",
+              detectedCategory: "dpgf",
+              confidence: 0.99,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: ["Electricite"],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: {
+            status: "confirme",
+            summary: "Le brief est confirme, mais la structure doit etre reprise.",
+            projectObject: "Chiffrage CFO/CFA.",
+            scope: ["Electricite"],
+            lots: ["Electricite"],
+            receivedPieces: ["DPGF"],
+            assumptions: [],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "11111111-1111-4111-8111-111111111115",
+            lastGeneratedAt: "2026-03-11T12:00:00.000Z",
+            confirmedAt: "2026-03-11T13:00:00.000Z",
+          },
+        }}
+        structureMode={{
+          mode: "needs_update",
+          lineCount: 12,
+          importedLineCount: 6,
+          manualLineCount: 3,
+          unsupportedLineCount: 3,
+          hasImportableLinkedDpgfSource: false,
+          canImportLinkedDpgfIntoCurrentStructure: false,
+          linkedDpgfMappedRowCount: 0,
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[
+          buildSuggestion({
+            actionId: "generate-structure-needs-update",
+            label: "Generer la structure du devis",
+            intent: "generate_structure",
+            preview: "Reprendre la structure a partir du brief confirme.",
+            target: {
+              kind: "navigate",
+              href: "/dashboard/estimates/version-needs-update/edit?openVersionZero=1",
+            },
+            priority: 650,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("Structure a remettre a jour").length).toBeGreaterThan(0);
+    expect(screen.getByText("12 lignes deja saisies")).toBeInTheDocument();
+    expect(screen.getByText("3 lignes a revoir")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Le devis contient deja une trame, mais certaines lignes doivent etre revues avant de poursuivre le chiffrage."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generer la structure du devis" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Pourquoi Structure a remettre a jour" }));
+
+    expect(
+      screen.getByText(
+        "Une partie de la structure existe deja, mais certaines lignes doivent encore etre revues avant de reprendre le chiffrage."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("explains the preliminary structure path from the brief and primary CCTP", () => {
     const onExecuteSuggestion = vi.fn();
     const preliminaryStructure = buildSuggestion({

@@ -672,8 +672,18 @@ function describeStructureMode(
   return {
     badgeLabel: "Structure a remettre a jour",
     facts: [
-      `${formatCountLabel(structureMode.lineCount, "ligne", "lignes")} deja materialisee${structureMode.lineCount > 1 ? "s" : ""}`,
-      "Mode de structure a clarifier",
+      formatCountLabel(
+        structureMode.lineCount,
+        "ligne deja saisie",
+        "lignes deja saisies",
+      ),
+      structureMode.unsupportedLineCount > 0
+        ? `${formatCountLabel(
+            structureMode.unsupportedLineCount,
+            "ligne a revoir",
+            "lignes a revoir",
+          )}`
+        : "Mode de structure a clarifier",
     ],
   };
 }
@@ -735,6 +745,7 @@ function buildPanelModel(
     linkedDpgfReady &&
     input.currentVersion?.status === "draft" &&
     (input.structureMode?.mode === "not_started" || input.structureMode == null);
+  const needsStructureUpdate = input.structureMode?.mode === "needs_update";
   const canonicalHubReadiness = input.hubReadiness ?? null;
   const canonicalReadinessStatus = canonicalHubReadiness?.status ?? null;
   const allowsCanonicalContinuation = canonicalHubReadiness?.allowsContinuation ?? false;
@@ -1247,9 +1258,11 @@ function buildPanelModel(
       : null;
     title = generateStructureSuggestion.label;
     summary = generateStructureSuggestion.preview;
-    statusLabel = hasStructureDraft
-      ? "Structure a reprendre"
-      : isPreliminaryStructure
+    statusLabel = needsStructureUpdate
+      ? "Structure a remettre a jour"
+      : hasStructureDraft
+        ? "Structure a reprendre"
+        : isPreliminaryStructure
         ? "Structure preliminaire"
         : "Structure a generer";
     statusVariant = hasWorkReservations ? "warning" : "success";
@@ -1262,6 +1275,10 @@ function buildPanelModel(
         ? hasWorkReservations
           ? "Structure preliminaire sous reserves"
           : preliminaryContext?.title ?? "Structure preliminaire editable"
+        : needsStructureUpdate
+          ? hasWorkReservations
+            ? "Structure a remettre a jour sous reserves"
+            : "Structure a remettre a jour"
         : hasWorkReservations
           ? "Structure generable sous reserves"
           : "Brief confirme",
@@ -1271,6 +1288,10 @@ function buildPanelModel(
             ? "Le brief est confirme. Reprenez la structure du devis en gardant la trace d'hypothese active."
             : "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
           : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+        : needsStructureUpdate
+          ? hasWorkReservations
+            ? "Le devis contient deja une trame, mais certaines lignes doivent etre revues avant de poursuivre le chiffrage. Le dossier reste sous reserves."
+            : "Le devis contient deja une trame, mais certaines lignes doivent etre revues avant de poursuivre le chiffrage."
         : isPreliminaryStructure
           ? hasWorkReservations
             ? `${preliminaryContext?.message ?? "La structure preliminaire reste disponible."} Le dossier reste toutefois sous reserves.`
@@ -1293,6 +1314,7 @@ function buildPanelModel(
           ]).filter(Boolean)
         : dedupe([
             structureModeDescription?.badgeLabel ?? "",
+            ...(structureModeDescription?.facts ?? []),
             clarificationFact,
             continuationHypothesisFact,
             hasDpgf
@@ -1751,6 +1773,10 @@ function getStateWhyContent(card: PanelResultCard) {
     card.kind === "structure" && isHybridStructureAction(card.action);
   const isDpgfImportStructureCard =
     card.kind === "structure" && isDpgfImportStructureAction(card.action);
+  const isNeedsUpdateStructureCard =
+    card.kind === "structure" &&
+    (card.title.toLowerCase().includes("remettre a jour") ||
+      card.facts.some((fact) => fact.toLowerCase().includes("a revoir")));
 
   if (card.kind === "primary") {
     return {
@@ -1783,9 +1809,11 @@ function getStateWhyContent(card: PanelResultCard) {
       title: isDpgfImportStructureCard
         ? "La DPGF principale est deja validee. La prochaine action est de l'utiliser comme base du devis."
         : isHybridStructureCard
-        ? "Le devis existe deja. La prochaine action est d'enrichir cette meme structure en mode hybride."
+          ? "Le devis existe deja. La prochaine action est d'enrichir cette meme structure en mode hybride."
+        : isNeedsUpdateStructureCard
+          ? "Une partie de la structure existe deja, mais certaines lignes doivent encore etre revues avant de reprendre le chiffrage."
         : isPreliminaryStructureCard
-        ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
+          ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
         : isStructureResumeCard
           ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
           : "Le brief est confirme. La prochaine action est de generer la structure du devis.",
@@ -1810,6 +1838,12 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
     }
     if (isHybridStructureAction(card.action)) {
       return "Mode hybride";
+    }
+    if (
+      card.title.toLowerCase().includes("remettre a jour") ||
+      card.facts.some((fact) => fact.toLowerCase().includes("a revoir"))
+    ) {
+      return "Structure a remettre a jour";
     }
     if (card.action.label.toLowerCase().includes("structure preliminaire")) {
       return "Structure preliminaire";

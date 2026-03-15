@@ -459,6 +459,38 @@ describe("AffairePilotagePanel", () => {
     });
   });
 
+  it("makes a structure cleanup explicit when the visible mode needs an update", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: null,
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-needs-update",
+        status: "draft",
+        versionNumber: 3,
+      },
+      lineCount: 12,
+      structureMode: {
+        mode: "needs_update",
+        lineCount: 12,
+        importedLineCount: 6,
+        manualLineCount: 3,
+        unsupportedLineCount: 3,
+        canImportLinkedDpgfIntoCurrentStructure: false,
+        linkedDpgfMappedRowCount: 0,
+      },
+      takeoffEnabled: true,
+    });
+
+    expect(steps[2]).toMatchObject({
+      key: "devis",
+      status: "in_progress",
+      summary:
+        "12 lignes de devis existent deja, dont 3 a revoir avant de poursuivre la structure.",
+    });
+  });
+
   it("prioritizes critical takeoff and register exceptions before warning items", () => {
     const exceptions = buildPilotageExceptions({
       projectId: "project-1",
