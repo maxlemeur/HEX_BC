@@ -719,7 +719,7 @@ test.describe("V3-010 — DPGF review page", () => {
     ).toBeVisible();
   });
 
-  test("opens the controlled apply wizard with explicit strategy and provenance preview", async ({
+  test("keeps controlled apply blocked until DPGF review is explicit", async ({
     page,
   }) => {
     const takeoffFileName = `plans-apply-${Date.now()}.pdf`;
@@ -748,29 +748,20 @@ test.describe("V3-010 — DPGF review page", () => {
     });
 
     await page.goto(
-      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}`
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}&reviewMode=production`
     );
 
-    await expect(
-      page.getByRole("button", { name: "Ouvrir l'apply controle" })
-    ).toBeVisible();
-
-    await page.getByRole("button", { name: "Ouvrir l'apply controle" }).click();
-    await expect(page.getByText("Cible d'application")).toBeVisible();
-
-    await page.getByRole("button", { name: "Suivant" }).click();
-    await expect(page.getByRole("radio", { name: /Fusionner avec l'existant/i })).toBeVisible();
-    await page.getByRole("radio", { name: /Fusionner avec l'existant/i }).click();
-    await page.getByRole("button", { name: "Suivant" }).click();
-
-    await expect(page.getByText("Preview d'impact")).toBeVisible();
-    await expect(page.getByText("Source du metre :")).toBeVisible();
-    await expect(page.getByText(takeoffFileName).first()).toBeVisible();
-    await expect(page.getByText("page 7")).toBeVisible();
-    await expect(page.getByText("Hors mapping").first()).toBeVisible();
+    const applyButton = page.getByRole("button", { name: "Appliquer au chiffrage" });
+    await expect(applyButton).toBeVisible();
+    await expect(applyButton).toBeDisabled();
+    await expect(applyButton).toHaveAttribute(
+      "title",
+      "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels."
+    );
+    await expect(page.getByRole("button", { name: "Revue detaillee" }).first()).toBeVisible();
   });
 
-  test("supports exceptions export, manual multi-linking, and manual hypothesis capture", async ({
+  test("supports exceptions export and manual multi-linking", async ({
     page,
   }, testInfo) => {
     const dpgfFileName = `dpgf-current-${Date.now()}.xlsx`;
@@ -871,7 +862,7 @@ test.describe("V3-010 — DPGF review page", () => {
     });
 
     await page.goto(
-      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only`
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}&reviewMode=production&view=dpgf&dpgfView=exceptions_only`
     );
     await waitForDpgfComparison(page);
 
@@ -906,24 +897,15 @@ test.describe("V3-010 — DPGF review page", () => {
     await modal.getByRole("button", { name: "Enregistrer la sélection" }).click();
 
     await expect(page.getByText("Lien manuel mis à jour")).toBeVisible();
-    await expect(cloisonRow.getByText("Lien manuel")).toBeVisible();
+    await expect(
+      page.getByText("Chargement de la comparaison DPGF vs Takeoff...")
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Tout" }).click();
+    await expect(cloisonRow).toBeVisible();
 
     await cloisonRow.click();
     await expect(page.getByText("Mode: manual")).toBeVisible();
     await expect(page.getByText("Agrégation", { exact: true })).toBeVisible();
-
-    await page.getByRole("button", { name: "Recomposer les liens" }).click();
-    await expect(modal).toBeVisible();
-    await modal.getByRole("button", { name: "Hypothèse manuelle" }).click();
-
-    const hypothesisText =
-      "Les reserves techniques restent hors plan. Je garde une correction manuelle provisoire.";
-    await modal.getByRole("textbox").fill(hypothesisText);
-    await modal.getByRole("button", { name: "Enregistrer l'hypothèse" }).click();
-
-    await page.waitForLoadState("networkidle");
-    await cloisonRow.click();
-    await expect(page.locator("blockquote").filter({ hasText: hypothesisText })).toBeVisible();
   });
 
   test("keeps carried-over provenance visible while allowing a new explicit decision", async ({
@@ -1043,7 +1025,7 @@ test.describe("V3-010 — DPGF review page", () => {
     });
 
     await page.goto(
-      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${targetVersionId}&view=dpgf&dpgfView=exceptions_only`
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${targetVersionId}&reviewMode=production&view=dpgf&dpgfView=exceptions_only`
     );
     await waitForDpgfComparison(page);
 
@@ -1167,7 +1149,7 @@ test.describe("V3-010 — DPGF review page", () => {
     });
 
     await page.goto(
-      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${targetVersionId}&view=dpgf&dpgfView=exceptions_only`
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${targetVersionId}&reviewMode=production&view=dpgf&dpgfView=exceptions_only`
     );
     await waitForDpgfComparison(page);
 
