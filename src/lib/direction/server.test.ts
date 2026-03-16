@@ -302,7 +302,7 @@ function createSupabaseMock(fixtures: {
       if (table === "estimate_items") {
         let builder: ReturnType<typeof createBuilder>;
         builder = createBuilder(() => {
-          const batchError = getBatchLimitError(builder, "estimate_version_id");
+          const batchError = getBatchLimitError(builder, "version_id");
           if (batchError) {
             return {
               data: null,
@@ -310,10 +310,10 @@ function createSupabaseMock(fixtures: {
             };
           }
 
-          const versionIds = builder.getState().in.get("estimate_version_id") ?? [];
+          const versionIds = builder.getState().in.get("version_id") ?? [];
           return {
             data: (fixtures.estimateItems ?? []).filter((row) =>
-              versionIds.includes(row.estimate_version_id)
+              versionIds.includes(row.version_id)
             ),
             error: null,
           };
@@ -542,5 +542,56 @@ describe("fetchDirectionDashboardPageData", () => {
     expect(result.summary.totalAffaires).toBe(205);
     expect(result.cards).toHaveLength(24);
     expect(result.pagination.totalPages).toBe(9);
+  });
+
+  it("computes plans metrics from estimate item version ids", async () => {
+    const projectId = "project-metrics";
+    const versionId = "version-metrics";
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: "tenant-1",
+      tenantRole: "director",
+      userId: "user-1",
+      supabase: createSupabaseMock({
+        versions: [createVersionRow(projectId, versionId, 1)],
+        jobs: [
+          {
+            id: "job-metrics",
+            estimate_version_id: versionId,
+            status: "completed",
+            created_at: "2026-03-07T10:00:00.000Z",
+            completed_at: "2026-03-07T10:05:00.000Z",
+          },
+        ],
+        alerts: [],
+        registerEntries: [
+          {
+            project_id: projectId,
+            version_id: versionId,
+            status: "open",
+          },
+        ],
+        dpgfLinks: [{ takeoff_job_id: "job-metrics" }],
+        reviewDecisions: [{ takeoff_job_id: "job-metrics" }],
+        estimateItems: [{ version_id: versionId }, { version_id: versionId }],
+      }),
+    } as never);
+
+    const result = await fetchDirectionDashboardPageData({
+      page: 1,
+      ownerUserId: null,
+      lot: null,
+      horizon: "all",
+      onlyExceptions: false,
+    });
+
+    expect(result.cards).toHaveLength(1);
+    expect(result.cards[0]).toMatchObject({
+      projectId,
+      versionId,
+      coveragePercent: 50,
+      exceptionCount: 1,
+      openHypothesesCount: 1,
+    });
   });
 });

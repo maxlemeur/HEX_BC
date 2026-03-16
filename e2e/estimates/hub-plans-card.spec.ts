@@ -220,7 +220,7 @@ test.describe("V3-005 — Plans, preuves & exceptions dans le hub affaire", () =
     await loginWithUi(page);
   });
 
-  test("hub affaire sans plans — empty state dismissable", async ({ page }) => {
+  test("hub affaire sans plans — la section plans reste masquee tant qu'aucun jeu n'est disponible", async ({ page }) => {
     const { versionId } = await createEstimateViaWizard(page, {
       projectName: buildEstimateName("V3005-NOPLAN"),
       title: "V3-005 Hub sans plans",
@@ -229,23 +229,15 @@ test.describe("V3-005 — Plans, preuves & exceptions dans le hub affaire", () =
 
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    const plansSection = page
-      .locator("section")
-      .filter({ hasText: "Plans, preuves & exceptions" });
-    await expect(plansSection).toBeVisible();
-
     await expect(
-      plansSection.getByText("Importez vos plans pour lancer l'analyse")
-    ).toBeVisible();
+      page.getByRole("heading", { name: "Plans, preuves & exceptions" })
+    ).toHaveCount(0);
     await expect(
-      plansSection.getByRole("link", { name: "Ajouter les plans" })
-    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/plans`);
-
-    await plansSection.getByRole("button", { name: "Continuer sans plans" }).click();
-    await expect(plansSection).toBeHidden();
+      page.getByRole("button", { name: "Analyser les plans" })
+    ).toHaveCount(0);
   });
 
-  test("hub affaire avec plans — card title and actions are updated", async ({ page }) => {
+  test("hub affaire avec plans — the launch hero targets the seeded plan set and version", async ({ page }) => {
     const { versionId } = await createEstimateViaWizard(page, {
       projectName: buildEstimateName("V3005-PLANS"),
       title: "V3-005 Hub avec plans",
@@ -262,22 +254,19 @@ test.describe("V3-005 — Plans, preuves & exceptions dans le hub affaire", () =
 
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    const plansSection = page
-      .locator("section")
-      .filter({ hasText: "Plans, preuves & exceptions" });
-    await expect(plansSection).toBeVisible();
-
-    await expect(plansSection.getByText(/1 jeu/i)).toBeVisible();
-    await expect(plansSection.getByText(/1 fichier/i)).toBeVisible();
+    const launchHero = page.getByRole("region", {
+      name: "Proposition d'analyse automatique",
+    });
+    await expect(launchHero).toBeVisible();
+    await expect(launchHero.getByText("Jeu de plans : Lot CVC (1 fichier)")).toBeVisible();
+    await expect(launchHero.getByText("Version cible :")).toBeVisible();
+    await expect(launchHero.getByText("V1 (brouillon)")).toBeVisible();
     await expect(
-      plansSection.getByRole("link", { name: "Voir les plans" })
-    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/plans`);
-    await expect(
-      plansSection.getByRole("button", { name: "Analyser les plans" })
+      launchHero.getByRole("button", { name: "Analyser maintenant" })
     ).toBeVisible();
   });
 
-  test("hub affaire carry-over — exceptions link targets the current linked version", async ({
+  test("hub affaire carry-over — contextual exceptions action targets the current linked version", async ({
     page,
   }) => {
     const { versionId: sourceVersionId } = await createEstimateViaWizard(page, {
@@ -310,20 +299,13 @@ test.describe("V3-005 — Plans, preuves & exceptions dans le hub affaire", () =
 
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    await expect(
-      page.getByRole("link", { name: /Version 2 .*Courante/i })
-    ).toBeVisible();
-
-    const plansSection = page
-      .locator("section")
-      .filter({ hasText: "Plans, preuves & exceptions" });
-    await expect(plansSection).toBeVisible();
-
-    const exceptionsLink = plansSection.getByRole("link", {
-      name: "Voir les exceptions",
+    const exceptionsButton = page.getByRole("button", {
+      name: "Voir les 1 exception",
     });
-    await expect(exceptionsLink).toHaveAttribute(
-      "href",
+    await expect(exceptionsButton).toBeVisible();
+    await exceptionsButton.click();
+
+    await expect(page).toHaveURL(
       `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${targetVersionId}&view=dpgf&dpgfView=exceptions_only`
     );
   });

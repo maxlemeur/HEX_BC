@@ -719,7 +719,7 @@ test.describe("V3-010 — DPGF review page", () => {
     ).toBeVisible();
   });
 
-  test("keeps controlled apply blocked until DPGF review is explicit", async ({
+  test("opens the controlled apply wizard with explicit strategy and provenance preview", async ({
     page,
   }) => {
     const takeoffFileName = `plans-apply-${Date.now()}.pdf`;
@@ -751,14 +751,23 @@ test.describe("V3-010 — DPGF review page", () => {
       `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}&reviewMode=production`
     );
 
-    const applyButton = page.getByRole("button", { name: "Appliquer au chiffrage" });
-    await expect(applyButton).toBeVisible();
-    await expect(applyButton).toBeDisabled();
-    await expect(applyButton).toHaveAttribute(
-      "title",
-      "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels."
-    );
-    await expect(page.getByRole("button", { name: "Revue detaillee" }).first()).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Appliquer au chiffrage" })
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Appliquer au chiffrage" }).click();
+    await expect(page.getByText("Cible d'application")).toBeVisible();
+
+    await page.getByRole("button", { name: "Suivant" }).click();
+    await expect(page.getByRole("radio", { name: /Fusionner avec l'existant/i })).toBeVisible();
+    await page.getByRole("radio", { name: /Fusionner avec l'existant/i }).click();
+    await page.getByRole("button", { name: "Suivant" }).click();
+
+    await expect(page.getByText("Preview d'impact")).toBeVisible();
+    await expect(page.getByText("Source du metre :")).toBeVisible();
+    await expect(page.getByText(takeoffFileName).first()).toBeVisible();
+    await expect(page.getByText("page 7")).toBeVisible();
+    await expect(page.getByText("Hors mapping").first()).toBeVisible();
   });
 
   test("supports exceptions export and manual multi-linking", async ({

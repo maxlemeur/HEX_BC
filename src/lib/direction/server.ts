@@ -870,9 +870,9 @@ async function listDirectionPlansMetricsByProjectId(
       versionIdBatches.map(async (batch) => {
         const { data, error } = await context.supabase
           .from("estimate_items" as never)
-          .select("estimate_version_id" as never)
+          .select("version_id" as never)
           .eq("tenant_id" as never, context.tenantId as never)
-          .in("estimate_version_id" as never, batch as never);
+          .in("version_id" as never, batch as never);
 
         if (error) {
           throw mapSupabaseError(
@@ -881,7 +881,7 @@ async function listDirectionPlansMetricsByProjectId(
           );
         }
 
-        return (data ?? []) as Array<{ estimate_version_id: string }>;
+        return (data ?? []) as Array<{ version_id: string }>;
       })
     ),
   ]);
@@ -905,8 +905,8 @@ async function listDirectionPlansMetricsByProjectId(
   const estimateItemCountByVersionId = new Map<string, number>();
   for (const row of estimateItemRows.flat()) {
     estimateItemCountByVersionId.set(
-      row.estimate_version_id,
-      (estimateItemCountByVersionId.get(row.estimate_version_id) ?? 0) + 1
+      row.version_id,
+      (estimateItemCountByVersionId.get(row.version_id) ?? 0) + 1
     );
   }
 
