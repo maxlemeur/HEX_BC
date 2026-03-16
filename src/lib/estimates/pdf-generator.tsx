@@ -16,6 +16,7 @@ import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { formatEUR } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
 
 import {
@@ -636,7 +637,8 @@ async function createSignedUrlOrThrow(input: {
   supabase: Supabase;
   filePath: string;
 }) {
-  const { data, error } = await input.supabase.storage
+  const storageClient = createOptionalServiceRoleClient() ?? input.supabase;
+  const { data, error } = await storageClient.storage
     .from(ESTIMATE_DOCUMENTS_BUCKET)
     .createSignedUrl(input.filePath, SIGNED_URL_TTL_SECONDS);
 
@@ -856,6 +858,7 @@ export async function generateEstimatePdfNow(
   options: PdfGenerateOptions = {}
 ): Promise<PdfReadyPayload> {
   const context = await getAuthenticatedContext();
+  const storageClient = createOptionalServiceRoleClient() ?? context.supabase;
   const access = await getVersionAccessOrThrow(context, versionId);
 
   const existing = await getDocumentRow({
@@ -999,7 +1002,7 @@ export async function generateEstimatePdfNow(
       throw internalError("Impossible de generer le binaire PDF.", error);
     }
 
-    const { error: uploadError } = await context.supabase.storage
+    const { error: uploadError } = await storageClient.storage
       .from(ESTIMATE_DOCUMENTS_BUCKET)
       .upload(filePath, pdfBuffer, {
         contentType: "application/pdf",

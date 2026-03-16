@@ -22,6 +22,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/service-role", () => ({
+  createOptionalServiceRoleClient: vi.fn(() => null),
+}));
+
 import { renderToBuffer } from "@react-pdf/renderer";
 
 import {
@@ -30,6 +34,7 @@ import {
   markEstimatePdfFailed,
 } from "@/lib/estimates/pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -225,6 +230,7 @@ function createSupabasePdfMock(input?: {
 describe("estimate pdf generator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null);
   });
 
   it("generates PDF, uploads it, stores hash and returns signed url", async () => {
@@ -286,6 +292,26 @@ describe("estimate pdf generator", () => {
         download_url: "https://example.com/signed",
       })
     );
+  });
+
+  it("prefers the service-role storage client when available", async () => {
+    const buffer = Buffer.from("pdf-binary");
+    vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
+
+    const supabase = createSupabasePdfMock();
+    const serviceRoleSupabase = createSupabasePdfMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(createOptionalServiceRoleClient).mockReturnValue(serviceRoleSupabase as never);
+
+    await generateEstimatePdfNow(VERSION_ID, {
+      force: true,
+      triggeredBy: "manual",
+    });
+
+    expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalled();
+    expect(serviceRoleSupabase.__mocks.createSignedUrl).toHaveBeenCalled();
+    expect(supabase.__mocks.upload).not.toHaveBeenCalled();
+    expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
   });
 
   it("returns existing ready PDF when force is false", async () => {
