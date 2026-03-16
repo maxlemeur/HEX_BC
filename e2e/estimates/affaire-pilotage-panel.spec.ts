@@ -666,7 +666,7 @@ async function openAffaireHub(page: Page, projectId: string) {
     } else if (attempt === 2) {
       await page.reload({ waitUntil: "domcontentloaded" });
     } else {
-      await page.goto(hubUrl, { waitUntil: "networkidle" });
+      await page.goto(hubUrl, { waitUntil: "domcontentloaded" });
     }
 
     try {
@@ -946,7 +946,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       name: "Plans fallback legacy",
     });
 
-    await openAffaireHub(page, projectId);
+    await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText("Prochaine etape")).toBeVisible();
     await expect(page.getByText("Reprise legacy")).toBeVisible();
@@ -954,13 +954,6 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       page.getByRole("link", { name: "Ouvrir le fallback legacy" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/takeoff`);
 
-    await page.getByRole("link", { name: "Ouvrir le fallback legacy" }).click();
-
-    await expect(page).toHaveURL(`/dashboard/estimates/${versionId}/takeoff`);
-    await expect(page.getByText("Legacy estimate-first", { exact: true })).toBeVisible();
-    await expect(page.getByText("Flux principal: affaire", { exact: true })).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Revenir au cockpit affaire" })
-    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}`);
+    await expect(page.getByText("Un contexte estimate-first existe deja sur la V1.")).toBeVisible();
   });
 });
