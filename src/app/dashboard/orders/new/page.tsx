@@ -11,6 +11,10 @@ import {
   type SupplierData,
   type DeliverySiteData,
 } from "@/components/PurchaseOrderDocument";
+import {
+  DeliverySiteCreateModal,
+  type DeliverySiteCreateResult,
+} from "@/components/DeliverySiteCreateModal";
 import { SupplierCreateModal, type SupplierCreateResult } from "@/components/SupplierCreateModal";
 import { useUserContext } from "@/components/UserContext";
 import {
@@ -22,16 +26,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type SupplierOption = SupplierCreateResult;
 
-type SiteOption = {
-  id: string;
-  name: string;
-  project_code: string | null;
-  address: string | null;
-  postal_code: string | null;
-  city: string | null;
-  contact_name: string | null;
-  contact_phone: string | null;
-};
+type SiteOption = DeliverySiteCreateResult;
 
 type DraftItem = {
   key: string;
@@ -64,6 +59,7 @@ export default function NewOrderPage() {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
+  const [isDeliverySiteModalOpen, setIsDeliverySiteModalOpen] = useState(false);
 
   const fetchSuppliers = useCallback(async () => {
     const { data, error } = await supabase
@@ -102,6 +98,7 @@ export default function NewOrderPage() {
     data: sites = [],
     error: sitesError,
     isLoading: isSitesLoading,
+    mutate: mutateSites,
   } = useSWR<SiteOption[]>("po-sites-full", fetchSites, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
@@ -158,6 +155,21 @@ export default function NewOrderPage() {
       );
     },
     [mutateSuppliers]
+  );
+
+  const handleDeliverySiteCreated = useCallback(
+    (site: DeliverySiteCreateResult) => {
+      setDeliverySiteId(site.id);
+      mutateSites(
+        (current = []) => {
+          const exists = current.some((item) => item.id === site.id);
+          if (exists) return current;
+          return [...current, site].sort((a, b) => a.name.localeCompare(b.name));
+        },
+        { revalidate: true }
+      );
+    },
+    [mutateSites]
   );
 
   function handleItemChange(key: string, field: string, value: string | number) {
@@ -416,6 +428,8 @@ export default function NewOrderPage() {
             name: s.name,
             project_code: s.project_code,
           }))}
+          onDeliverySiteCreate={() => setIsDeliverySiteModalOpen(true)}
+          isDeliverySiteCreateDisabled={creating || isLoading}
           expectedDeliveryDate={expectedDeliveryDate}
           onExpectedDeliveryDateChange={setExpectedDeliveryDate}
           notes={notes}
@@ -433,6 +447,11 @@ export default function NewOrderPage() {
         open={isSupplierModalOpen}
         onClose={() => setIsSupplierModalOpen(false)}
         onCreated={handleSupplierCreated}
+      />
+      <DeliverySiteCreateModal
+        open={isDeliverySiteModalOpen}
+        onClose={() => setIsDeliverySiteModalOpen(false)}
+        onCreated={handleDeliverySiteCreated}
       />
     </div>
   );

@@ -746,6 +746,20 @@ body {
 .document-page {
   width: min(210mm, 100%);
   min-height: 297mm;
+  color: #182235;
+  font-family: var(--font-display-family);
+  letter-spacing: 0;
+}
+
+.document-page h2,
+.document-page h4,
+.document-page table,
+.document-page p {
+  letter-spacing: 0;
+}
+
+.purchase-order-party-card {
+  min-height: 178px;
 }
 
 @media (max-width: 767px) {

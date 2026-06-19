@@ -208,6 +208,37 @@ export default async function AdminHubPage() {
               Activation et configuration des fonctionnalités
             </p>
           </Link>
+
+          <Link
+            href="/dashboard/admin/procurement-reset"
+            className="dashboard-card hub-card p-5 border-red-200"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#b91c1c"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+            </div>
+            <h3 className="mt-3 font-semibold text-foreground">
+              Nettoyage achats
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Suppression controlee des fournisseurs et bons de commande
+            </p>
+          </Link>
         </div>
       </section>
 

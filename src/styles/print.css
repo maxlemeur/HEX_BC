@@ -1,6 +1,6 @@
 @page {
   size: A4;
-  margin: 10mm;
+  margin: 0;
 }
 
 .print-page-footer {
@@ -84,13 +84,16 @@
   }
 
   .document-page {
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
     margin: 0 auto !important;
     box-shadow: none !important;
     width: 210mm !important;
     max-width: 210mm !important;
-    min-height: 277mm !important;
+    min-height: 297mm !important;
     height: auto !important;
-    padding: 12mm !important;
+    padding: 7mm 6mm 22mm !important;
     overflow: visible !important;
     box-sizing: border-box !important;
     break-after: page;
@@ -100,6 +103,13 @@
   .document-page:last-of-type {
     break-after: auto;
     page-break-after: auto;
+  }
+
+  .purchase-order-footer {
+    position: absolute !important;
+    left: 6mm !important;
+    right: 6mm !important;
+    bottom: 6mm !important;
   }
 
   thead {
@@ -151,7 +161,7 @@
   }
 
   .print-page-counter::after {
-    content: "Page " counter(page);
+    content: "";
   }
 
   .print-portal-block {

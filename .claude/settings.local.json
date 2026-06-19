@@ -30,7 +30,15 @@
       "Bash(cp \"/home/tchau@france.groupe.intra/Images/Captures d'écran/Capture d'écran du 2026-03-10 19-45-28.png\" /tmp/screenshot1.png && cp \"/home/tchau@france.groupe.intra/Images/Captures d'écran/Capture d'écran du 2026-03-10 19-45-37.png\" /tmp/screenshot2.png && cp \"/home/tchau@france.groupe.intra/Images/Captures d'écran/Capture d'écran du 2026-03-10 19-45-46.png\" /tmp/screenshot3.png && echo \"OK\")",
       "Bash(agent-browser open:*)",
       "Bash(agent-browser snapshot:*)",
-      "Bash(agent-browser click:*)"
+      "Bash(agent-browser click:*)",
+      "WebFetch(domain:www.theprojectestimate.com)",
+      "WebFetch(domain:www.methvin.org)",
+      "WebSearch",
+      "WebFetch(domain:methvin.co)",
+      "WebFetch(domain:estimations.info)",
+      "WebFetch(domain:www.estimations.info)",
+      "WebFetch(domain:engineer-construction.blogspot.com)",
+      "WebFetch(domain:calculatemanhours.com)"
     ],
     "deny": [
       "Bash(sudo:*)",

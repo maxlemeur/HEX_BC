@@ -58,9 +58,9 @@ export async function PATCH(
     );
   }
 
-  if (order.status !== "draft") {
+  if (order.status === "canceled") {
     return NextResponse.json(
-      { error: "Seuls les bons de commande en brouillon peuvent etre reordonnes." },
+      { error: "Les bons de commande annules ne peuvent plus etre reordonnes." },
       { status: 403 }
     );
   }

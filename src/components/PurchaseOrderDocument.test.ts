@@ -63,4 +63,25 @@ describe("PurchaseOrderDocument", () => {
 
     expect(markup).toContain('<th class="w-12 px-4 py-4 align-middle"></th>');
   });
+
+  it("affiche un emetteur lisible quand le profil contient seulement un email", () => {
+    const markup = renderToStaticMarkup(
+      createElement(PurchaseOrderDocument, {
+        editable: true,
+        issuerName: "maxime.michel@hydroexpress.fr",
+        issuerRole: "maxime.michel@hydroexpress.fr",
+        orderDate: "2026-05-20",
+        reference: undefined,
+        supplier: null,
+        deliverySite: null,
+        items: [],
+        totalHtCents: 0,
+        totalTaxCents: 0,
+        totalTtcCents: 0,
+      })
+    );
+
+    expect(markup).toContain("Maxime MICHEL");
+    expect(markup.match(/maxime\.michel@hydroexpress\.fr/g)).toHaveLength(1);
+  });
 });

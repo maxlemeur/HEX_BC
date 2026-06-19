@@ -68,6 +68,8 @@ type PurchaseOrderDocumentProps = {
   deliverySiteId?: string;
   onDeliverySiteChange?: (id: string) => void;
   siteOptions?: SiteOption[];
+  onDeliverySiteCreate?: () => void;
+  isDeliverySiteCreateDisabled?: boolean;
 
   // Date livraison
   expectedDeliveryDate?: string | null;
@@ -118,6 +120,56 @@ function hasDeliveryDetails(site: DeliverySiteData): boolean {
   );
 }
 
+function isEmailLike(value: string | null | undefined): boolean {
+  return Boolean(value?.trim().match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/));
+}
+
+function nameFromEmail(email: string): string {
+  const localPart = email.split("@")[0]?.trim() ?? "";
+  const parts = localPart.split(/[._-]+/).filter(Boolean);
+
+  if (parts.length === 0) return "Utilisateur";
+
+  return parts
+    .map((part, index) => {
+      const lower = part.toLowerCase();
+      return index === 0
+        ? lower.charAt(0).toUpperCase() + lower.slice(1)
+        : lower.toUpperCase();
+    })
+    .join(" ");
+}
+
+function normalizeIssuerDisplay({
+  issuerName,
+  issuerRole,
+  issuerEmail,
+}: {
+  issuerName: string;
+  issuerRole: string;
+  issuerEmail?: string;
+}) {
+  const rawName = issuerName.trim();
+  const rawRole = issuerRole.trim();
+  const rawEmail = issuerEmail?.trim() ?? "";
+  const nameIsEmail = isEmailLike(rawName);
+  const displayEmail = rawEmail || (nameIsEmail ? rawName : "");
+  const displayName = nameIsEmail ? nameFromEmail(rawName) : rawName || "Utilisateur";
+  const displayRole =
+    rawRole &&
+    !isEmailLike(rawRole) &&
+    rawRole !== rawName &&
+    rawRole !== displayEmail
+      ? rawRole
+      : "";
+
+  return {
+    displayEmail,
+    displayName,
+    displayRole,
+  };
+}
+
 function resolveItemDesignation(item: OrderItemData): string {
   const designation = item.designation?.trim();
   if (designation) return designation;
@@ -152,6 +204,8 @@ export function PurchaseOrderDocument({
   deliverySiteId,
   onDeliverySiteChange,
   siteOptions = [],
+  onDeliverySiteCreate,
+  isDeliverySiteCreateDisabled = false,
   expectedDeliveryDate,
   onExpectedDeliveryDateChange,
   notes,
@@ -168,9 +222,14 @@ export function PurchaseOrderDocument({
     deliverySite &&
     !shouldHideDeliveryDetails(deliverySite) &&
     hasDeliveryDetails(deliverySite);
+  const issuerDisplay = normalizeIssuerDisplay({
+    issuerName,
+    issuerRole,
+    issuerEmail,
+  });
 
   return (
-    <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
+    <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:shadow-none">
       {/* Sidebar accent bar */}
       <div className="sidebar-accent print-color-adjust" />
 
@@ -202,23 +261,31 @@ export function PurchaseOrderDocument({
         </div>
 
         {/* Ligne 2: Émis par | Bon de Commande (centré) */}
-        <div className="mt-4 flex items-start print:mt-3">
+        <div className="mt-5 grid grid-cols-[240px_minmax(0,1fr)_190px] items-start gap-x-5 print:mt-3 print:grid-cols-[220px_minmax(0,1fr)_160px] print:gap-x-3">
           {/* Émis par */}
-          <div className="w-[200px] shrink-0 text-sm">
+          <div className="min-w-0 text-sm">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Emis par
             </p>
-            <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
-            <p className="text-muted-foreground">{issuerRole}</p>
+            <p className="text-lg font-bold leading-tight text-brand-blue print:text-base">
+              {issuerDisplay.displayName}
+            </p>
+            {issuerDisplay.displayRole && (
+              <p className="text-muted-foreground">{issuerDisplay.displayRole}</p>
+            )}
             {issuerPhone && <p className="text-muted-foreground">{issuerPhone}</p>}
-            {issuerEmail && <p className="text-muted-foreground">{issuerEmail}</p>}
+            {issuerDisplay.displayEmail && (
+              <p className="text-muted-foreground [overflow-wrap:anywhere]">
+                {issuerDisplay.displayEmail}
+              </p>
+            )}
             <p className="mt-2 text-xs font-medium text-muted-foreground">
               Le {formatDate(orderDate)}
             </p>
           </div>
 
           {/* Titre - centré */}
-          <div className="flex-1 text-center self-center">
+          <div className="min-w-0 justify-self-center pt-3 text-center print:pt-2">
             <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
               Bon de Commande
             </h2>
@@ -231,14 +298,14 @@ export function PurchaseOrderDocument({
           </div>
 
           {/* Espace pour équilibrer */}
-          <div className="w-[220px] shrink-0"></div>
+          <div className="min-w-0" />
         </div>
       </div>
 
       {/* Info Grid: Supplier + Delivery */}
-      <div className="mb-8 grid grid-cols-2 gap-8 print:mb-3">
+      <div className="mb-8 grid grid-cols-2 gap-8 print:mb-4 print:gap-7">
         {/* Supplier Box */}
-        <div className="flex flex-col justify-between rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
+        <div className="purchase-order-party-card flex flex-col justify-between rounded-xl border border-border bg-surface-subtle p-6 print:p-5">
           <div>
             <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
               Fournisseur
@@ -270,28 +337,28 @@ export function PurchaseOrderDocument({
                 ) : null}
               </div>
             ) : (
-              <p className="mb-1 text-2xl font-extrabold text-muted-foreground">
+              <p className="mb-2 text-2xl font-extrabold leading-tight text-foreground">
                 {supplier?.name ?? "-"}
               </p>
             )}
             {supplier && (
               <>
                 {supplier.address && (
-                  <p className="font-medium text-muted-foreground">{supplier.address}</p>
+                  <p className="text-[15px] font-semibold leading-snug text-secondary-foreground">{supplier.address}</p>
                 )}
-                <p className="font-medium text-muted-foreground">
+                <p className="text-[15px] font-semibold leading-snug text-secondary-foreground">
                   {supplier.postal_code} {supplier.city}
                 </p>
                 {supplier.contact_name && (
-                  <p className="mt-2 font-medium text-muted-foreground">
-                    Contact: {supplier.contact_name}
+                  <p className="mt-4 text-[15px] font-semibold leading-snug text-secondary-foreground">
+                    Contact {supplier.contact_name}
                   </p>
                 )}
                 {supplier.phone && (
-                  <p className="font-medium text-muted-foreground">{supplier.phone}</p>
+                  <p className="text-[15px] font-semibold leading-snug text-secondary-foreground">{supplier.phone}</p>
                 )}
                 {supplier.email && (
-                  <p className="font-medium text-muted-foreground">{supplier.email}</p>
+                  <p className="text-[15px] font-semibold leading-snug text-secondary-foreground">{supplier.email}</p>
                 )}
               </>
             )}
@@ -299,7 +366,7 @@ export function PurchaseOrderDocument({
         </div>
 
         {/* Delivery & Project Box */}
-        <div className="rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
+        <div className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-6 print:p-5">
           <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             informations livraison
           </h4>
@@ -359,8 +426,9 @@ export function PurchaseOrderDocument({
                 adresse
               </p>
               {editable ? (
+                <div className="mb-2 flex flex-col gap-2">
                 <select
-                  className="doc-select mb-2 w-full text-base font-bold text-brand-blue"
+                  className="doc-select w-full text-base font-bold text-brand-blue"
                   value={deliverySiteId ?? ""}
                   onChange={(e) => onDeliverySiteChange?.(e.target.value)}
                   required
@@ -373,9 +441,20 @@ export function PurchaseOrderDocument({
                     </option>
                   ))}
                 </select>
+                  {onDeliverySiteCreate ? (
+                    <button
+                      type="button"
+                      className="text-left text-sm font-semibold text-brand-orange hover:underline disabled:opacity-60 disabled:hover:no-underline"
+                      onClick={onDeliverySiteCreate}
+                      disabled={isDeliverySiteCreateDisabled}
+                    >
+                      + Ajouter un chantier
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
               {showDeliveryDetails && (
-                <div className="text-sm text-slate-600">
+                <div className="text-[15px] font-medium leading-snug text-secondary-foreground">
                   {deliverySite.address && (
                     <p className="whitespace-pre-line">{deliverySite.address}</p>
                   )}
@@ -405,8 +484,7 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Notes / Instructions */}
-      {(editable || notes) && (
-        <div className="mb-6 rounded-xl border border-border bg-surface p-5 print:mb-3 print:p-3">
+      <div className="mb-6 rounded-xl border border-border bg-surface p-5 print:mb-4 print:p-3">
           <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue print:mb-1">
             Instructions complémentaires
           </h4>
@@ -423,14 +501,13 @@ export function PurchaseOrderDocument({
             />
           ) : (
             <p className="min-h-[40px] whitespace-pre-wrap text-sm leading-snug text-secondary-foreground print:min-h-[32px] print:text-xs">
-              {notes}
+              {notes ?? ""}
             </p>
           )}
-        </div>
-      )}
+      </div>
 
       {/* Items Table */}
-      <div className="mb-6 overflow-hidden rounded-xl border border-border shadow-sm print:mb-3">
+      <div className="mb-6 overflow-hidden rounded-xl border border-border shadow-sm print:mb-4">
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
@@ -441,7 +518,7 @@ export function PurchaseOrderDocument({
               {editable && <th className="w-12 px-4 py-4 align-middle"></th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-border text-sm print:text-foreground">
+          <tbody className="divide-y divide-border text-[15px] print:text-foreground">
             {items.map((item) => (
               <tr
                 key={item.key}
@@ -611,7 +688,7 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Footer */}
-      <div className="mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
+      <div className="purchase-order-footer mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
         <p className="mb-1">Siège social : 17 rue Dupin 75006 Paris</p>
         <p>
           SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}

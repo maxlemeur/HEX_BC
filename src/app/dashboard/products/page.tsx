@@ -67,6 +67,7 @@ export default function ProductsPage() {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const referenceFieldRef = useRef<HTMLInputElement | null>(null);
 
   // Filtered products state
@@ -169,6 +170,72 @@ export default function ProductsPage() {
     closeForm();
   }
 
+  async function onDeleteProduct(product: Product) {
+    setFormError(null);
+
+    const [{ count: priceRowsCount, error: priceRowsError }, { count: orderLinesCount, error: orderLinesError }] =
+      await Promise.all([
+        supabase
+          .from("supplier_pricebook")
+          .select("id", { count: "exact", head: true })
+          .eq("product_id", product.id),
+        supabase
+          .from("purchase_order_items")
+          .select("id", { count: "exact", head: true })
+          .eq("product_id", product.id),
+      ]);
+
+    if (priceRowsError) {
+      setFormError(priceRowsError.message);
+      return;
+    }
+
+    if (orderLinesError) {
+      setFormError(orderLinesError.message);
+      return;
+    }
+
+    const linkedPrices = priceRowsCount ?? 0;
+    const linkedOrderLines = orderLinesCount ?? 0;
+    const confirmationMessage =
+      linkedPrices > 0 || linkedOrderLines > 0
+        ? `Ce produit est lie a ${linkedPrices} prix fournisseur et ${linkedOrderLines} ligne(s) de bon de commande. Les prix fournisseur seront supprimes ; les lignes de commande garderont leur texte sans lien catalogue. Continuer ?`
+        : `Supprimer le produit "${product.designation}" ?`;
+
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    setDeletingId(product.id);
+
+    if (linkedPrices > 0) {
+      const { error: deletePricesError } = await supabase
+        .from("supplier_pricebook")
+        .delete()
+        .eq("product_id", product.id);
+
+      if (deletePricesError) {
+        setDeletingId(null);
+        setFormError(deletePricesError.message);
+        return;
+      }
+    }
+
+    const { error } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", product.id);
+
+    setDeletingId(null);
+
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+
+    await mutate();
+  }
+
   return (
     <div className="animate-fade-in">
       <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Produits" />
@@ -202,6 +269,25 @@ export default function ProductsPage() {
           Ajouter un produit
         </button>
       </div>
+
+      {!isFormOpen && formError ? (
+        <div className="alert alert-error mb-6">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="m15 9-6 6" />
+            <path d="m9 9 6 6" />
+          </svg>
+          {formError}
+        </div>
+      ) : null}
 
       {isFormOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
@@ -443,12 +529,13 @@ export default function ProductsPage() {
                 <th>Reference</th>
                 <th className="text-right">Prix HT</th>
                 <th className="text-center">TVA</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-12">
+                  <td colSpan={5} className="text-center py-12">
                     {isLoading ? (
                       <div className="flex flex-col items-center gap-3">
                         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--success)]"></div>
@@ -527,6 +614,33 @@ export default function ProductsPage() {
                       <span className="inline-flex items-center rounded-full bg-[var(--success)]/10 px-2.5 py-1 text-xs font-semibold text-[var(--success)]">
                         {taxLabelFromBp(product.tax_rate_bp)}
                       </span>
+                    </td>
+                    <td className="text-right">
+                      <button
+                        className="btn btn-danger btn-sm"
+                        disabled={deletingId === product.id}
+                        onClick={() => onDeleteProduct(product)}
+                        type="button"
+                      >
+                        {deletingId === product.id ? (
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+                        ) : (
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          </svg>
+                        )}
+                        Supprimer
+                      </button>
                     </td>
                   </tr>
                 ))

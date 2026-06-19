@@ -187,9 +187,9 @@ export async function POST(
     );
   }
 
-  if (order.status !== "draft") {
+  if (order.status === "canceled") {
     return NextResponse.json(
-      { error: "Seuls les bons de commande en brouillon acceptent des devis." },
+      { error: "Les bons de commande annules n'acceptent plus de devis." },
       { status: 403 }
     );
   }

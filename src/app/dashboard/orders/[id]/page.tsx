@@ -157,6 +157,7 @@ export default async function OrderPage({
     unitPriceHtCents: item.unit_price_ht_cents,
     lineTotalHtCents: item.line_total_ht_cents,
   }));
+  const canManageDevis = order.status !== "canceled";
 
   const devisRecords = devisResult.error ? [] : devisResult.data ?? [];
   const devisItems: DevisItem[] = await Promise.all(
@@ -297,7 +298,7 @@ export default async function OrderPage({
         <DevisManager
           orderId={order.id}
           initialItems={devisItems}
-          canManage={order.status === "draft"}
+          canManage={canManageDevis}
         />
       </div>
     </div>

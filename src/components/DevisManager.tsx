@@ -48,7 +48,9 @@ type DevisManagerProps = {
 };
 
 export function DevisManager({ orderId, initialItems, canManage }: DevisManagerProps) {
-  const [showUploader, setShowUploader] = useState(false);
+  const [showUploader, setShowUploader] = useState(
+    canManage && initialItems.length === 0
+  );
 
   return (
     <div className="space-y-6">

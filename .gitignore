@@ -14,6 +14,7 @@
 /coverage
 /playwright-report/
 /test-results/
+/tmp/
 
 # next.js
 /.next/
@@ -34,9 +35,11 @@ e2e/.auth/
 skills/
 .codex/
 .windsurf/
+.mcp.json
 supabase/.temp/
 docs/old_gemini_chiffrage/
 docs/test-logins.local.md
+docs/*.local.md
 
 # debug
 npm-debug.log*
