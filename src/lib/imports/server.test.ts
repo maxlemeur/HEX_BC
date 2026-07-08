@@ -13,7 +13,9 @@ vi.mock("@/lib/imports/tabular-pdf-extraction", () => extractionMocks);
 import {
   createImportFromJsonBody,
   listUserImports,
+  requireTabularPdfReviewAccess,
   reviewTabularPdfImportFile,
+  validateTabularPdfReviewFile,
 } from "@/lib/imports/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -196,6 +198,97 @@ describe("listUserImports", () => {
     });
 
     expect(importsBuilder.eq).toHaveBeenCalledWith("project_id", PROJECT_ID);
+  });
+});
+
+describe("requireTabularPdfReviewAccess", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("rejects unauthenticated callers", async () => {
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: null },
+          error: null,
+        }),
+      },
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(requireTabularPdfReviewAccess()).rejects.toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+
+    expect(supabase.auth.getUser).toHaveBeenCalledOnce();
+  });
+});
+
+describe("validateTabularPdfReviewFile", () => {
+  it("accepts a non-empty pdf file", async () => {
+    await expect(
+      validateTabularPdfReviewFile(
+        new File(["%PDF-1.7"], "lot-cvc.pdf", {
+          type: "application/pdf",
+        })
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects empty pdf files", async () => {
+    await expect(
+      validateTabularPdfReviewFile(
+        new File([], "empty.pdf", {
+          type: "application/pdf",
+        })
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("rejects oversized pdf files", async () => {
+    const file = new File(["%PDF-1.7"], "too-large.pdf", {
+      type: "application/pdf",
+    });
+    Object.defineProperty(file, "size", {
+      value: 50 * 1024 * 1024 + 1,
+    });
+
+    await expect(validateTabularPdfReviewFile(file)).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("rejects files without a pdf name or content type", async () => {
+    await expect(
+      validateTabularPdfReviewFile(
+        new File(["not a pdf"], "notes.txt", {
+          type: "text/plain",
+        })
+      )
+    ).rejects.toMatchObject({
+      status: 415,
+      code: "UNSUPPORTED_MEDIA_TYPE",
+    });
+  });
+
+  it("rejects fake pdf uploads before parser execution", async () => {
+    await expect(
+      validateTabularPdfReviewFile(
+        new File(["not a pdf"], "fake.pdf", {
+          type: "application/pdf",
+        })
+      )
+    ).rejects.toMatchObject({
+      status: 415,
+      code: "UNSUPPORTED_MEDIA_TYPE",
+    });
   });
 });
 

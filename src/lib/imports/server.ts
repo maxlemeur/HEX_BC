@@ -648,6 +648,13 @@ function getUploadContentType(file: File) {
   return trimmedType.length > 0 ? trimmedType : undefined;
 }
 
+function isPdfImportFile(file: File) {
+  const lowerName = file.name.toLowerCase();
+  const lowerType = (file.type ?? "").toLowerCase();
+
+  return lowerName.endsWith(".pdf") || lowerType.includes("pdf");
+}
+
 function buildStoragePath(userId: string, filename: string) {
   const safeFilename = sanitizeFilename(filename);
   return `${userId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${safeFilename}`;
@@ -660,6 +667,23 @@ function validateImportFile(file: File) {
 
   if (file.size > MAX_IMPORT_FILE_SIZE_BYTES) {
     throw badRequest("Le fichier depasse 50 Mo.");
+  }
+}
+
+export async function requireTabularPdfReviewAccess() {
+  await getAuthenticatedContext();
+}
+
+export async function validateTabularPdfReviewFile(file: File) {
+  validateImportFile(file);
+
+  if (!isPdfImportFile(file)) {
+    throw unsupportedMediaType("Le fichier doit etre un PDF.");
+  }
+
+  const header = await file.slice(0, 5).text();
+  if (header !== "%PDF-") {
+    throw unsupportedMediaType("Le fichier doit etre un PDF valide.");
   }
 }
 
