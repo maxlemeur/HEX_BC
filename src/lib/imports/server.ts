@@ -655,6 +655,35 @@ function isPdfImportFile(file: File) {
   return lowerName.endsWith(".pdf") || lowerType.includes("pdf");
 }
 
+function toTabularPdfImportBody(input: {
+  file: File;
+  sourceDocumentId: string | null;
+  tables: Awaited<ReturnType<typeof extractTabularPdfTablesFromFile>>;
+}) {
+  return {
+    sourceFileName: input.file.name,
+    sourceDocumentId: input.sourceDocumentId,
+    tables: input.tables.map((table) => ({
+      page: table.source_page,
+      tableIndex: table.table_index,
+      title: table.title,
+      headers: table.headers,
+      rows: table.rows.map((row) => ({
+        rowIndex: row.row_index,
+        cells: row.cells,
+      })),
+    })),
+  };
+}
+
+function buildSuggestedApprovedPdfTables(review: ReturnType<typeof buildTabularPdfImportReview>) {
+  return new Set(
+    review.suggested_approved_tables.map((table) =>
+      buildApprovedPdfTableKey(table.sourcePage, table.tableIndex)
+    )
+  );
+}
+
 function buildStoragePath(userId: string, filename: string) {
   const safeFilename = sanitizeFilename(filename);
   return `${userId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${safeFilename}`;
@@ -1058,7 +1087,13 @@ export async function createImportFromMultipartFormData(formData: FormData) {
       toOptionalNonEmptyString(fileEntry.name) ??
       "import"
   );
-  const sourceFormat = detectImportSourceFormat(fileEntry.name, fileEntry.type);
+  const sourceDocumentId = toOptionalNonEmptyString(
+    formData.get("sourceDocumentId") ?? formData.get("source_document_id")
+  );
+  const isPdf = isPdfImportFile(fileEntry);
+  const sourceFormat: PersistedImportSourceFormat = isPdf
+    ? "pdf"
+    : detectImportSourceFormat(fileEntry.name, fileEntry.type);
   const storagePath = buildStoragePath(userId, filename);
 
   await ensureProjectCanBeLinked({
@@ -1096,9 +1131,34 @@ export async function createImportFromMultipartFormData(formData: FormData) {
       project_id: projectId,
     });
 
-    const parsed = await parseImportFile(fileEntry, {
-      headerRowNumber,
-    });
+    const parsed = isPdf
+      ? await (async () => {
+          const tables = await extractTabularPdfTablesFromFile(fileEntry);
+          const tabularPdfBody = toTabularPdfImportBody({
+            file: fileEntry,
+            sourceDocumentId,
+            tables,
+          });
+          const review = buildTabularPdfImportReview(tabularPdfBody);
+          const approvedTables = buildSuggestedApprovedPdfTables(review);
+          if (approvedTables.size === 0) {
+            throw badRequest(
+              "Aucun tableau exploitable n'a ete detecte dans ce PDF DPGF."
+            );
+          }
+
+          return {
+            sourceFormat: "pdf" as const,
+            rows: buildApprovedTabularPdfRows({
+              body: tabularPdfBody,
+              approvedTables,
+            }),
+          };
+        })()
+      : await parseImportFile(fileEntry, {
+          headerRowNumber,
+        });
+
     await insertRawRows(supabase, importRecord.id, parsed.rows);
 
     return await updateImportRecord(

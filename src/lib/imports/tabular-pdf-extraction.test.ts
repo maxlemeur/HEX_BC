@@ -257,4 +257,110 @@ describe("detectTabularPdfTablesFromLayout", () => {
       },
     ]);
   });
+
+  it("extracts NIRVANA-style DPGF PDF rows with DPGF columns intact", async () => {
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    const page = document.addPage([595, 842]);
+
+    page.drawText("Projet NIRVANA - DPGF lot CVC", {
+      x: 40,
+      y: 780,
+      font,
+      size: 12,
+    });
+
+    const columns = [
+      { text: "N°", x: 40 },
+      { text: "Designation des ouvrages", x: 90 },
+      { text: "Unite", x: 300 },
+      { text: "Qte", x: 360 },
+      { text: "P.U. HT", x: 420 },
+      { text: "Total HT", x: 500 },
+    ];
+    const rows = [
+      ["CVC-001", "Reseau eau glacee tube acier DN50", "ml", "42,5", "128,40", "5 457,00"],
+      ["CVC-002", "Calorifuge reseau primaire", "ml", "42,5", "24,00", "1 020,00"],
+      ["CVC-003", "Vanne isolement DN50", "u", "6", "215,00", "1 290,00"],
+    ];
+
+    columns.forEach((column) => {
+      page.drawText(column.text, {
+        x: column.x,
+        y: 740,
+        font,
+        size: 9,
+      });
+    });
+
+    rows.forEach((row, rowIndex) => {
+      const y = 720 - rowIndex * 18;
+      row.forEach((cell, cellIndex) => {
+        page.drawText(cell, {
+          x: columns[cellIndex]?.x ?? 40,
+          y,
+          font,
+          size: 9,
+        });
+      });
+    });
+
+    const bytes = await document.save();
+    const result = await extractTabularPdfTablesFromFile(
+      new File([Uint8Array.from(bytes).buffer], "NIRVANA - DPGF lot CVC.pdf", {
+        type: "application/pdf",
+      })
+    );
+
+    expect(result).toEqual([
+      {
+        source_page: 1,
+        table_index: 0,
+        title: "Projet NIRVANA - DPGF lot CVC",
+        headers: [
+          "N°",
+          "Designation des ouvrages",
+          "Unite",
+          "Qte",
+          "P.U. HT",
+          "Total HT",
+        ],
+        rows: [
+          {
+            row_index: 0,
+            cells: [
+              "CVC-001",
+              "Reseau eau glacee tube acier DN50",
+              "ml",
+              "42,5",
+              "128,40",
+              "5 457,00",
+            ],
+          },
+          {
+            row_index: 1,
+            cells: [
+              "CVC-002",
+              "Calorifuge reseau primaire",
+              "ml",
+              "42,5",
+              "24,00",
+              "1 020,00",
+            ],
+          },
+          {
+            row_index: 2,
+            cells: [
+              "CVC-003",
+              "Vanne isolement DN50",
+              "u",
+              "6",
+              "215,00",
+              "1 290,00",
+            ],
+          },
+        ],
+      },
+    ]);
+  });
 });

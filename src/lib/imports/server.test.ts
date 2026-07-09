@@ -11,6 +11,7 @@ const extractionMocks = vi.hoisted(() => ({
 vi.mock("@/lib/imports/tabular-pdf-extraction", () => extractionMocks);
 
 import {
+  createImportFromMultipartFormData,
   createImportFromJsonBody,
   listUserImports,
   requireTabularPdfReviewAccess,
@@ -65,6 +66,12 @@ function createImportCreationSupabaseMock() {
   const rawRowBatches: unknown[][] = [];
   const importInsertPayloads: Array<Record<string, unknown>> = [];
   const importUpdatePayloads: Array<Record<string, unknown>> = [];
+  const storageUploads: Array<{
+    bucket: string;
+    path: string;
+    file: File;
+    options: Record<string, unknown>;
+  }> = [];
   let currentImportRecord: Record<string, unknown> | null = null;
 
   const importsTable = {
@@ -139,6 +146,33 @@ function createImportCreationSupabaseMock() {
 
       throw new Error(`Unexpected table: ${table}`);
     }),
+    storage: {
+      from: vi.fn((bucket: string) => ({
+        upload: vi.fn(
+          async (
+            path: string,
+            file: File,
+            options: Record<string, unknown>
+          ) => {
+            storageUploads.push({
+              bucket,
+              path,
+              file,
+              options,
+            });
+
+            return {
+              data: { path },
+              error: null,
+            };
+          }
+        ),
+        remove: vi.fn(async () => ({
+          data: null,
+          error: null,
+        })),
+      })),
+    },
   };
 
   return {
@@ -147,6 +181,7 @@ function createImportCreationSupabaseMock() {
       rawRowBatches,
       importInsertPayloads,
       importUpdatePayloads,
+      storageUploads,
     },
   };
 }
@@ -693,5 +728,128 @@ describe("createImportFromJsonBody", () => {
       { sourcePage: 1, tableIndex: 0 },
       { sourcePage: 2, tableIndex: 1 },
     ]);
+  });
+});
+
+describe("createImportFromMultipartFormData", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("imports a NIRVANA-style DPGF PDF into canonical raw rows", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    extractionMocks.extractTabularPdfTablesFromFile.mockResolvedValue([
+      {
+        source_page: 1,
+        table_index: 0,
+        title: "NIRVANA - Lot CVC - DPGF",
+        headers: ["N°", "Designation des ouvrages", "Unite", "Qte", "P.U. HT", "Total HT"],
+        rows: [
+          {
+            row_index: 0,
+            cells: [
+              "CVC-001",
+              "Reseau eau glacee tube acier DN50",
+              "ml",
+              "42,5",
+              "128,40",
+              "5 457,00",
+            ],
+          },
+          {
+            row_index: 1,
+            cells: [
+              "CVC-002",
+              "Calorifuge reseau primaire",
+              "ml",
+              "42,5",
+              "24,00",
+              "1 020,00",
+            ],
+          },
+        ],
+      },
+      {
+        source_page: 2,
+        table_index: 0,
+        title: "NIRVANA - Synthese hors DPGF",
+        headers: [""],
+        rows: [{ row_index: 0, cells: [""] }],
+      },
+    ]);
+
+    const file = new File(["%PDF-1.7 NIRVANA"], "NIRVANA - DPGF lot CVC.pdf", {
+      type: "application/pdf",
+    });
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("sourceDocumentId", "nirvana-doc-2026-07");
+
+    const result = await createImportFromMultipartFormData(formData);
+
+    expect(extractionMocks.extractTabularPdfTablesFromFile).toHaveBeenCalledWith(file);
+    expect(state.storageUploads).toHaveLength(1);
+    expect(state.storageUploads[0]).toMatchObject({
+      bucket: "dpgf-imports",
+      file,
+      options: {
+        contentType: "application/pdf",
+        upsert: false,
+      },
+    });
+    expect(state.importInsertPayloads[0]).toMatchObject({
+      filename: "NIRVANA-DPGF-lot-CVC.pdf",
+      source_format: "pdf",
+      parse_mode: "server",
+      status: "parsing",
+      file_size_bytes: file.size,
+    });
+    expect(state.rawRowBatches).toHaveLength(1);
+    expect(state.rawRowBatches[0]).toEqual([
+      {
+        import_id: "import-created",
+        row_index: 0,
+        payload: {
+          "N°": "CVC-001",
+          "Designation des ouvrages": "Reseau eau glacee tube acier DN50",
+          Unite: "ml",
+          Qte: "42,5",
+          "P.U. HT": "128,40",
+          "Total HT": "5 457,00",
+          _timax_provenance: {
+            source_page: 1,
+            table_index: 0,
+            source_file_name: "NIRVANA - DPGF lot CVC.pdf",
+            source_document_id: "nirvana-doc-2026-07",
+          },
+        },
+      },
+      {
+        import_id: "import-created",
+        row_index: 1,
+        payload: {
+          "N°": "CVC-002",
+          "Designation des ouvrages": "Calorifuge reseau primaire",
+          Unite: "ml",
+          Qte: "42,5",
+          "P.U. HT": "24,00",
+          "Total HT": "1 020,00",
+          _timax_provenance: {
+            source_page: 1,
+            table_index: 0,
+            source_file_name: "NIRVANA - DPGF lot CVC.pdf",
+            source_document_id: "nirvana-doc-2026-07",
+          },
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      id: "import-created",
+      status: "completed",
+      row_count: 2,
+      filename: "NIRVANA-DPGF-lot-CVC.pdf",
+      source_format: "pdf",
+    });
   });
 });
