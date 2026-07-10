@@ -13,6 +13,8 @@ import { PricesTable } from "@/components/catalogue/prices-manager/PricesTable";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceLookups";
 import { useSupplierPricesList } from "@/components/catalogue/prices-manager/useSupplierPricesList";
+import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
+import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template";
 
 // --- Filter & Sort config ---
 
@@ -64,6 +66,7 @@ export function PricesManager({
 
   // --- CSV import collapsible ---
   const [isCsvOpen, setIsCsvOpen] = useState(embedded);
+  const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
 
   function closeForm() {
     setIsFormOpen(false);
@@ -126,6 +129,31 @@ export function PricesManager({
           </div>
           <Link className="btn btn-secondary btn-sm" href="/dashboard/products">Retour aux produits</Link>
         </div>
+      ) : null}
+
+      {!embedded ? (
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-950">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="max-w-3xl">
+              <h2 className="font-semibold">Modèle officiel produits + tarifs</h2>
+              <p className="mt-1 text-emerald-800">
+                Faites compléter un seul fichier par vos équipes, contrôlez son aperçu, puis enregistrez les produits et les prix fournisseurs ensemble.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a className="btn btn-secondary btn-sm" href={TEMPLATE_FILE_URL} download>
+                Télécharger le modèle
+              </a>
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={() => setIsTemplateImportOpen(true)}
+              >
+                Importer le modèle
+              </button>
+            </div>
+          </div>
+        </section>
       ) : null}
 
       {/* CSV Import - collapsible */}
@@ -243,6 +271,14 @@ export function PricesManager({
         target={deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onDeleted={refresh}
+      />
+
+      <ProductPriceTemplateImport
+        open={isTemplateImportOpen}
+        onClose={() => setIsTemplateImportOpen(false)}
+        onImported={async () => {
+          await Promise.all([refresh(), reloadLookups()]);
+        }}
       />
     </div>
   );

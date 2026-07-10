@@ -8,6 +8,8 @@ import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
 import { ProductCsvImport } from "@/components/products/ProductCsvImport";
+import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
+import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template";
 import { priceFreshnessLevel, type PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
 import { formatEUR } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -122,6 +124,7 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -273,6 +276,12 @@ export default function ProductsPage() {
     setIsImportOpen(true);
   }
 
+  function openTemplateImport() {
+    setSuccessMessage(null);
+    setFormError(null);
+    setIsTemplateImportOpen(true);
+  }
+
   function handleFormOpenChange(open: boolean) {
     if (isSaving) return;
     setIsFormOpen(open);
@@ -343,9 +352,6 @@ export default function ProductsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button className="btn btn-secondary btn-lg" type="button" onClick={openCsvImport}>
-            Importer un CSV
-          </button>
           <button className="btn btn-primary btn-lg" type="button" onClick={openCreateForm}>
             Ajouter un produit
           </button>
@@ -363,6 +369,28 @@ export default function ProductsPage() {
           <div className="flex flex-wrap gap-2">
             <Link className="btn btn-secondary btn-sm" href="/dashboard/suppliers">Gérer les fournisseurs</Link>
             <Link className="btn btn-secondary btn-sm" href="/dashboard/prices">Voir tous les tarifs</Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-950">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="font-semibold">Import guidé : produits et tarifs fournisseurs</p>
+            <p className="mt-1 text-emerald-800">
+              Transmettez le modèle officiel à vos équipes, puis importez le fichier complété. Le contenu est contrôlé avant l’enregistrement.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a className="btn btn-secondary btn-sm" href={TEMPLATE_FILE_URL} download>
+              Télécharger le modèle
+            </a>
+            <button className="btn btn-primary btn-sm" type="button" onClick={openTemplateImport}>
+              Importer le modèle
+            </button>
+            <button className="btn btn-secondary btn-sm" type="button" onClick={openCsvImport}>
+              Import CSV produits
+            </button>
           </div>
         </div>
       </section>
@@ -453,11 +481,12 @@ export default function ProductsPage() {
                     <div className="mx-auto max-w-lg">
                       <p className="text-lg font-semibold text-[var(--slate-800)]">Construisez votre première base articles</p>
                       <p className="mt-2 text-sm text-[var(--slate-500)]">
-                        Ajoutez un produit manuellement ou importez votre grille Inox depuis un fichier CSV.
+                        Ajoutez un produit manuellement ou partez du modèle officiel pour importer produits et tarifs.
                       </p>
                       <div className="mt-5 flex flex-wrap justify-center gap-3">
                         <button className="btn btn-primary" type="button" onClick={openCreateForm}>Ajouter un produit</button>
-                        <button className="btn btn-secondary" type="button" onClick={openCsvImport}>Importer un CSV</button>
+                        <a className="btn btn-secondary" href={TEMPLATE_FILE_URL} download>Télécharger le modèle</a>
+                        <button className="btn btn-secondary" type="button" onClick={openTemplateImport}>Importer le modèle</button>
                       </div>
                     </div>
                   </td>
@@ -548,6 +577,14 @@ export default function ProductsPage() {
         onImported={async () => {
           await mutate();
           setSuccessMessage("Base produits importée et actualisée.");
+        }}
+      />
+      <ProductPriceTemplateImport
+        open={isTemplateImportOpen}
+        onClose={() => setIsTemplateImportOpen(false)}
+        onImported={async () => {
+          await mutate();
+          setSuccessMessage("Produits et tarifs importés, puis actualisés.");
         }}
       />
     </div>

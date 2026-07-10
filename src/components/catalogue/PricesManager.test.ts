@@ -55,6 +55,7 @@ vi.mock("swr", () => ({
 
 const tableFilterBarTransformMock = vi.hoisted(() => vi.fn((data: unknown[]) => data));
 const priceBookCsvImportPropsMock = vi.hoisted(() => vi.fn());
+const productPriceTemplateImportPropsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/TableFilterBar", () => ({
   TableFilterBar: (props: { data: unknown[]; onDataChange: (items: unknown[]) => void }) => {
@@ -72,6 +73,15 @@ vi.mock("@/components/catalogue/PriceBookCsvImport", () => ({
   PriceBookCsvImport: (props: unknown) => {
     priceBookCsvImportPropsMock(props);
     return createElement("div", { "data-testid": "csv-import" });
+  },
+}));
+
+vi.mock("@/components/products/ProductPriceTemplateImport", () => ({
+  ProductPriceTemplateImport: (props: { open: boolean }) => {
+    productPriceTemplateImportPropsMock(props);
+    return props.open
+      ? createElement("div", { "data-testid": "product-price-template-import" })
+      : null;
   },
 }));
 
@@ -192,6 +202,20 @@ describe("PricesManager", () => {
     await user.click(screen.getByRole("button", { name: /Importer un fichier de prix/i }));
 
     expect(screen.getByTestId("csv-import")).toBeInTheDocument();
+  });
+
+  it("downloads and opens the official products and prices template", async () => {
+    const user = userEvent.setup();
+    renderManager();
+
+    const link = screen.getByRole("link", { name: "Télécharger le modèle" });
+    expect(link).toHaveAttribute("href", "/templates/hex-bc-produits-tarifs-v1.xlsx");
+    expect(link).toHaveAttribute("download");
+    expect(screen.queryByTestId("product-price-template-import")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Importer le modèle" }));
+
+    expect(screen.getByTestId("product-price-template-import")).toBeInTheDocument();
   });
 
   it("does not surface refresh failures through the CSV import completion callback", async () => {
