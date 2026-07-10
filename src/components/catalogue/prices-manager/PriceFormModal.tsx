@@ -16,13 +16,17 @@ type PriceFormModalProps = {
   item: EnrichedPrice | null;
   supplierOptions: SearchableSelectOption[];
   productOptions: SearchableSelectOption[];
+  defaultProductId?: string | null;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 };
 
-function toFormState(item: EnrichedPrice | null): SupplierPriceFormState {
+function toFormState(
+  item: EnrichedPrice | null,
+  defaultProductId: string | null
+): SupplierPriceFormState {
   if (!item) {
-    return EMPTY_FORM;
+    return { ...EMPTY_FORM, product_id: defaultProductId ?? "" };
   }
 
   return {
@@ -42,6 +46,7 @@ export function PriceFormModal({
   item,
   supplierOptions,
   productOptions,
+  defaultProductId = null,
   onClose,
   onSaved,
 }: Readonly<PriceFormModalProps>) {
@@ -61,10 +66,10 @@ export function PriceFormModal({
       return;
     }
 
-    setFormState(toFormState(item));
+    setFormState(toFormState(item, defaultProductId));
     setIsSaving(false);
     setFormError(null);
-  }, [item, open]);
+  }, [defaultProductId, item, open]);
 
   useEffect(() => {
     if (!open) return;

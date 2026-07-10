@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
@@ -42,13 +43,16 @@ const PRICES_SORT_OPTIONS: SortOption[] = [
 
 export function PricesManager({
   embedded = false,
+  productId = null,
 }: {
   embedded?: boolean;
+  productId?: string | null;
 }) {
   const { lookups, supplierMap, productMap, supplierOptions, productOptions, reloadLookups } =
     usePriceLookups();
   const { rawItems, enrichedItems, stats, loadError, isLoading, isValidating, refresh } =
-    useSupplierPricesList({ supplierMap, productMap });
+    useSupplierPricesList({ supplierMap, productMap, productId });
+  const focusedProductName = productId ? productMap.get(productId) ?? null : null;
 
   // --- TableFilterBar state ---
   const [displayedItems, setDisplayedItems] = useState<EnrichedPrice[]>([]);
@@ -111,6 +115,16 @@ export function PricesManager({
             </svg>
             Ajouter un prix
           </button>
+        </div>
+      ) : null}
+
+      {productId ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+          <div>
+            <span className="font-semibold">Tarifs du produit :</span>{" "}
+            {focusedProductName ?? "chargement du produit..."}
+          </div>
+          <Link className="btn btn-secondary btn-sm" href="/dashboard/products">Retour aux produits</Link>
         </div>
       ) : null}
 
@@ -219,6 +233,7 @@ export function PricesManager({
         item={editingItem}
         supplierOptions={supplierOptions}
         productOptions={productOptions}
+        defaultProductId={productId}
         onClose={closeForm}
         onSaved={refresh}
       />

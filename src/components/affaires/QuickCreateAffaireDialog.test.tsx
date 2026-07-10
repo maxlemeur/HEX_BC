@@ -263,14 +263,14 @@ describe("QuickCreateAffaireDialog", () => {
 
     try {
       const user = userEvent.setup();
-      const { container } = render(
+      render(
         <QuickCreateAffaireDialog
           open={true}
           onOpenChange={vi.fn()}
         />
       );
 
-      const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+      const fileInput = document.querySelector<HTMLInputElement>("input[type='file']");
       expect(fileInput).not.toBeNull();
       await user.upload(
         fileInput!,
@@ -321,14 +321,14 @@ describe("QuickCreateAffaireDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
-    const { container } = render(
+    render(
       <QuickCreateAffaireDialog
         open={true}
         onOpenChange={vi.fn()}
       />
     );
 
-    const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+    const fileInput = document.querySelector<HTMLInputElement>("input[type='file']");
     expect(fileInput).not.toBeNull();
     await user.upload(
       fileInput!,
@@ -371,14 +371,14 @@ describe("QuickCreateAffaireDialog", () => {
         isSimplified: true,
       });
 
-      const { container } = render(
+      render(
         <QuickCreateAffaireDialog
           open={true}
           onOpenChange={vi.fn()}
         />
       );
 
-      const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+      const fileInput = document.querySelector<HTMLInputElement>("input[type='file']");
       expect(fileInput).not.toBeNull();
       fireEvent.change(fileInput!, {
         target: {
@@ -425,14 +425,14 @@ describe("QuickCreateAffaireDialog", () => {
       isSimplified: true,
     });
 
-    const { container } = render(
+    render(
       <QuickCreateAffaireDialog
         open={true}
         onOpenChange={onOpenChange}
       />
     );
 
-    const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+    const fileInput = document.querySelector<HTMLInputElement>("input[type='file']");
     expect(fileInput).not.toBeNull();
     fireEvent.change(fileInput!, {
       target: {

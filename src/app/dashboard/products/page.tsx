@@ -1,232 +1,326 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
-import { formatEUR, parseEuroToCents } from "@/lib/money";
+import { ProductCsvImport } from "@/components/products/ProductCsvImport";
+import { priceFreshnessLevel, type PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
+import { formatEUR } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type Product = {
+import {
+  ProductFormModal,
+  type ProductPayload,
+  type ProductRecord,
+} from "./ProductFormModal";
+
+type SupplierPriceRow = {
   id: string;
-  created_at: string;
-  reference: string | null;
-  designation: string;
+  product_id: string;
+  supplier_id: string;
   unit_price_cents: number;
-  tax_rate_bp: number;
-  is_active: boolean;
+  valid_from?: string | null;
+  valid_to?: string | null;
+  is_active?: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-const TAX_RATE_OPTIONS: Array<{ label: string; value: number }> = [
-  { label: "0%", value: 0 },
-  { label: "5,5%", value: 550 },
-  { label: "10%", value: 1000 },
-  { label: "20%", value: 2000 },
+type SupplierRow = {
+  id: string;
+  name: string;
+};
+
+type ProductPageData = {
+  products: ProductRecord[];
+  supplierPrices: SupplierPriceRow[];
+  suppliers: SupplierRow[];
+};
+
+type ProductView = ProductRecord & {
+  _status: "active" | "archived";
+  _priceStatus: "none" | PriceFreshnessLevel;
+  _supplierPriceCount: number;
+  _bestSupplierPriceCents: number | null;
+  _bestSupplierName: string | null;
+  _bestSupplierPriceUpdatedAt: string | null;
+};
+
+const PRODUCT_SORT_OPTIONS: SortOption[] = [
+  { key: "designation", label: "Désignation", defaultDirection: "asc" },
+  { key: "material", label: "Matière", defaultDirection: "asc" },
+  { key: "unit_price_cents", label: "Prix de référence" },
+  { key: "_bestSupplierPriceCents", label: "Meilleur prix fournisseur" },
+  { key: "updated_at", label: "Dernière modification", defaultDirection: "desc" },
 ];
 
-// Filter options for TVA
-const TAX_FILTER_OPTIONS = TAX_RATE_OPTIONS.map((opt) => ({
-  value: String(opt.value),
-  label: opt.label,
-}));
-
-// Filter configuration
-const PRODUCTS_FILTERS: FilterConfig[] = [
-  {
-    type: "multi-select",
-    key: "tax_rate_bp",
-    label: "Taux TVA",
-    placeholder: "Tous les taux",
-    options: TAX_FILTER_OPTIONS,
-  },
+const PRICE_STATUS_OPTIONS = [
+  { value: "fresh", label: "Prix à jour (< 30 j)" },
+  { value: "aging", label: "Prix vieillissant (30–90 j)" },
+  { value: "stale", label: "Prix ancien (> 90 j)" },
+  { value: "none", label: "Sans prix fournisseur" },
 ];
 
-// Sort options
-const PRODUCTS_SORT_OPTIONS: SortOption[] = [
-  { key: "designation", label: "Designation", defaultDirection: "asc" },
-  { key: "unit_price_cents", label: "Prix HT" },
-  { key: "created_at", label: "Date d'ajout", defaultDirection: "desc" },
+const STATUS_OPTIONS = [
+  { value: "active", label: "Actifs" },
+  { value: "archived", label: "Archivés" },
 ];
 
 function taxLabelFromBp(taxRateBp: number) {
-  const match = TAX_RATE_OPTIONS.find((x) => x.value === taxRateBp);
-  if (match) return match.label;
-  return `${(taxRateBp / 100).toFixed(2)}%`;
+  if (taxRateBp % 100 === 0) return `${taxRateBp / 100} %`;
+  return `${(taxRateBp / 100).toFixed(1).replace(".", ",")} %`;
+}
+
+function uniqueOptions(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))
+  )
+    .sort((left, right) => left.localeCompare(right, "fr"))
+    .map((value) => ({ value, label: value }));
+}
+
+function isCurrentlyValidPrice(price: SupplierPriceRow, today: string) {
+  if (price.is_active === false) return false;
+  if (price.valid_from && price.valid_from > today) return false;
+  if (price.valid_to && price.valid_to < today) return false;
+  return true;
+}
+
+function freshnessLabel(status: ProductView["_priceStatus"]) {
+  switch (status) {
+    case "fresh":
+      return "À jour";
+    case "aging":
+      return "À surveiller";
+    case "stale":
+      return "À revalider";
+    default:
+      return "Sans prix";
+  }
+}
+
+function freshnessClass(status: ProductView["_priceStatus"]) {
+  switch (status) {
+    case "fresh":
+      return "bg-emerald-50 text-emerald-700";
+    case "aging":
+      return "bg-amber-50 text-amber-700";
+    case "stale":
+      return "bg-rose-50 text-rose-700";
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
 }
 
 export default function ProductsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-
-  // Form state
-  const [reference, setReference] = useState("");
-  const [designation, setDesignation] = useState("");
-  const [unitPriceEuros, setUnitPriceEuros] = useState("");
-  const [taxRateBp, setTaxRateBp] = useState<number>(2000);
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [displayedProducts, setDisplayedProducts] = useState<ProductView[]>([]);
+  const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const referenceFieldRef = useRef<HTMLInputElement | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
-  // Filtered products state
-  const [displayedProducts, setDisplayedProducts] = useState<Product[]>([]);
+  const fetchPageData = useCallback(async (): Promise<ProductPageData> => {
+    const [productsResult, pricesResult, suppliersResult] = await Promise.all([
+      supabase.from("products").select("*").order("created_at", { ascending: false }),
+      supabase
+        .from("supplier_pricebook")
+        .select("id, product_id, supplier_id, unit_price_cents, valid_from, valid_to, is_active, created_at, updated_at")
+        .limit(5000),
+      supabase.from("suppliers").select("id, name").eq("is_active", true).order("name"),
+    ]);
 
-  const fetchProducts = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("created_at", { ascending: false });
+    if (productsResult.error) throw productsResult.error;
+    if (pricesResult.error) throw pricesResult.error;
+    if (suppliersResult.error) throw suppliersResult.error;
 
-    if (error) {
-      throw error;
-    }
-
-    return (data ?? []) as Product[];
+    return {
+      products: (productsResult.data ?? []) as ProductRecord[],
+      supplierPrices: (pricesResult.data ?? []) as SupplierPriceRow[],
+      suppliers: (suppliersResult.data ?? []) as SupplierRow[],
+    };
   }, [supabase]);
 
   const {
-    data: products = [],
+    data = { products: [], supplierPrices: [], suppliers: [] },
     error: loadError,
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<Product[]>("products", fetchProducts, {
+  } = useSWR<ProductPageData>("products-page-with-pricing", fetchPageData, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
   });
 
-  const closeForm = useCallback(() => {
-    setIsFormOpen(false);
-    setFormError(null);
-    setCreating(false);
-    setReference("");
-    setDesignation("");
-    setUnitPriceEuros("");
-    setTaxRateBp(2000);
-  }, []);
+  const products = useMemo<ProductView[]>(() => {
+    const supplierNames = new Map(data.suppliers.map((supplier) => [supplier.id, supplier.name]));
+    const pricesByProduct = new Map<string, SupplierPriceRow[]>();
+    const today = new Date().toISOString().slice(0, 10);
 
-  const openCreateForm = useCallback(() => {
-    setFormError(null);
-    setCreating(false);
-    setReference("");
-    setDesignation("");
-    setUnitPriceEuros("");
-    setTaxRateBp(2000);
-    setIsFormOpen(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const timeout = window.setTimeout(() => {
-      referenceFieldRef.current?.focus();
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [isFormOpen]);
-
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [isFormOpen]);
-
-  async function onCreateProduct(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFormError(null);
-
-    const unitPriceCents = parseEuroToCents(unitPriceEuros);
-    if (unitPriceCents === null || unitPriceCents < 0) {
-      setFormError("Prix unitaire invalide.");
-      return;
+    for (const price of data.supplierPrices) {
+      if (!isCurrentlyValidPrice(price, today)) continue;
+      const rows = pricesByProduct.get(price.product_id) ?? [];
+      rows.push(price);
+      pricesByProduct.set(price.product_id, rows);
     }
 
-    setCreating(true);
+    return data.products.map((product) => {
+      const supplierPrices = pricesByProduct.get(product.id) ?? [];
+      const bestPrice = supplierPrices.reduce<SupplierPriceRow | null>((best, candidate) => {
+        if (!best || candidate.unit_price_cents < best.unit_price_cents) return candidate;
+        return best;
+      }, null);
+      const freshness = bestPrice
+        ? priceFreshnessLevel({
+            updatedAt: bestPrice.updated_at ?? null,
+            createdAt: bestPrice.created_at ?? null,
+          }).level
+        : "none";
 
-    const { error: insertError } = await supabase.from("products").insert({
-      reference: reference.trim() || null,
-      designation: designation.trim(),
-      unit_price_cents: unitPriceCents,
-      tax_rate_bp: taxRateBp,
-      is_active: true,
+      return {
+        ...product,
+        category: product.category ?? null,
+        product_type: product.product_type ?? null,
+        material: product.material ?? null,
+        grade: product.grade ?? null,
+        dimensions: product.dimensions ?? null,
+        standard: product.standard ?? null,
+        unit: product.unit ?? "u",
+        _status: product.is_active ? "active" : "archived",
+        _priceStatus: freshness,
+        _supplierPriceCount: supplierPrices.length,
+        _bestSupplierPriceCents: bestPrice?.unit_price_cents ?? null,
+        _bestSupplierName: bestPrice ? supplierNames.get(bestPrice.supplier_id) ?? null : null,
+        _bestSupplierPriceUpdatedAt: bestPrice?.updated_at ?? bestPrice?.created_at ?? null,
+      };
     });
+  }, [data.products, data.supplierPrices, data.suppliers]);
 
-    setCreating(false);
+  const productFilters = useMemo<FilterConfig[]>(
+    () => [
+      {
+        type: "multi-select",
+        key: "material",
+        label: "Matière",
+        placeholder: "Toutes les matières",
+        options: uniqueOptions(products.map((product) => product.material)),
+      },
+      {
+        type: "multi-select",
+        key: "category",
+        label: "Famille",
+        placeholder: "Toutes les familles",
+        options: uniqueOptions(products.map((product) => product.category)),
+      },
+      {
+        type: "multi-select",
+        key: "unit",
+        label: "Unité",
+        placeholder: "Toutes les unités",
+        options: uniqueOptions(products.map((product) => product.unit)),
+      },
+      {
+        type: "multi-select",
+        key: "_priceStatus",
+        label: "État des prix",
+        placeholder: "Tous les prix",
+        options: PRICE_STATUS_OPTIONS,
+      },
+      {
+        type: "multi-select",
+        key: "_status",
+        label: "Statut",
+        placeholder: "Tous les statuts",
+        options: STATUS_OPTIONS,
+      },
+    ],
+    [products]
+  );
 
-    if (insertError) {
-      setFormError(insertError.message);
-      return;
-    }
+  const stats = useMemo(() => {
+    const active = products.filter((product) => product.is_active).length;
+    const withoutSupplierPrice = products.filter((product) => product._priceStatus === "none").length;
+    const stale = products.filter((product) => product._priceStatus === "stale").length;
+    const covered = products.filter((product) => product._supplierPriceCount > 0).length;
+    return { active, withoutSupplierPrice, stale, covered };
+  }, [products]);
 
-    setReference("");
-    setDesignation("");
-    setUnitPriceEuros("");
-    setTaxRateBp(2000);
-    await mutate();
-    closeForm();
+  function openCreateForm() {
+    setEditingProduct(null);
+    setFormError(null);
+    setSuccessMessage(null);
+    setIsFormOpen(true);
   }
 
-  async function onDeleteProduct(product: Product) {
+  function openEditForm(product: ProductRecord) {
+    setEditingProduct(product);
     setFormError(null);
+    setSuccessMessage(null);
+    setIsFormOpen(true);
+  }
 
-    const [{ count: priceRowsCount, error: priceRowsError }, { count: orderLinesCount, error: orderLinesError }] =
-      await Promise.all([
-        supabase
-          .from("supplier_pricebook")
-          .select("id", { count: "exact", head: true })
-          .eq("product_id", product.id),
-        supabase
-          .from("purchase_order_items")
-          .select("id", { count: "exact", head: true })
-          .eq("product_id", product.id),
-      ]);
+  function openCsvImport() {
+    setSuccessMessage(null);
+    setFormError(null);
+    setIsImportOpen(true);
+  }
 
-    if (priceRowsError) {
-      setFormError(priceRowsError.message);
+  function handleFormOpenChange(open: boolean) {
+    if (isSaving) return;
+    setIsFormOpen(open);
+    if (!open) {
+      setEditingProduct(null);
+      setFormError(null);
+    }
+  }
+
+  async function saveProduct(payload: ProductPayload) {
+    setIsSaving(true);
+    setFormError(null);
+    setSuccessMessage(null);
+
+    const query = editingProduct
+      ? supabase.from("products").update(payload).eq("id", editingProduct.id)
+      : supabase.from("products").insert(payload);
+    const { error } = await query;
+
+    if (error) {
+      setFormError(error.message);
+      setIsSaving(false);
       return;
     }
 
-    if (orderLinesError) {
-      setFormError(orderLinesError.message);
-      return;
+    await mutate();
+    setIsSaving(false);
+    setIsFormOpen(false);
+    setEditingProduct(null);
+    setSuccessMessage(editingProduct ? "Produit mis à jour." : "Produit ajouté à la base.");
+  }
+
+  async function toggleArchive(product: ProductRecord) {
+    const nextIsActive = !product.is_active;
+    if (!nextIsActive) {
+      const confirmed = window.confirm(
+        `Archiver « ${product.designation} » ? Il ne sera plus proposé dans les nouveaux chiffrages, mais son historique sera conservé.`
+      );
+      if (!confirmed) return;
     }
 
-    const linkedPrices = priceRowsCount ?? 0;
-    const linkedOrderLines = orderLinesCount ?? 0;
-    const confirmationMessage =
-      linkedPrices > 0 || linkedOrderLines > 0
-        ? `Ce produit est lie a ${linkedPrices} prix fournisseur et ${linkedOrderLines} ligne(s) de bon de commande. Les prix fournisseur seront supprimes ; les lignes de commande garderont leur texte sans lien catalogue. Continuer ?`
-        : `Supprimer le produit "${product.designation}" ?`;
-
-    if (!window.confirm(confirmationMessage)) {
-      return;
-    }
-
-    setDeletingId(product.id);
-
-    if (linkedPrices > 0) {
-      const { error: deletePricesError } = await supabase
-        .from("supplier_pricebook")
-        .delete()
-        .eq("product_id", product.id);
-
-      if (deletePricesError) {
-        setDeletingId(null);
-        setFormError(deletePricesError.message);
-        return;
-      }
-    }
-
+    setUpdatingStatusId(product.id);
+    setSuccessMessage(null);
     const { error } = await supabase
       .from("products")
-      .delete()
+      .update({ is_active: nextIsActive })
       .eq("id", product.id);
-
-    setDeletingId(null);
+    setUpdatingStatusId(null);
 
     if (error) {
       setFormError(error.message);
@@ -234,413 +328,202 @@ export default function ProductsPage() {
     }
 
     await mutate();
+    setSuccessMessage(nextIsActive ? "Produit restauré." : "Produit archivé.");
   }
 
   return (
     <div className="animate-fade-in">
       <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Produits" />
-      {/* Page header */}
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
-          <h1 className="page-title">Produits</h1>
+
+      <div className="page-header flex flex-wrap items-start justify-between gap-5">
+        <div className="max-w-3xl">
+          <h1 className="page-title">Produits & prix de référence</h1>
           <p className="page-description">
-            Catalogue des produits avec prix et taux de TVA.
+            Structurez vos articles métier, puis rattachez les tarifs réels de chaque fournisseur.
           </p>
         </div>
-        <button
-          className="btn btn-primary btn-lg"
-          type="button"
-          onClick={openCreateForm}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
-          Ajouter un produit
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button className="btn btn-secondary btn-lg" type="button" onClick={openCsvImport}>
+            Importer un CSV
+          </button>
+          <button className="btn btn-primary btn-lg" type="button" onClick={openCreateForm}>
+            Ajouter un produit
+          </button>
+        </div>
       </div>
 
-      {!isFormOpen && formError ? (
-        <div className="alert alert-error mb-6">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
-          {formError}
-        </div>
-      ) : null}
-
-      {isFormOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
-          <div className="absolute inset-0 bg-slate-900/40" />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="product-modal-title"
-            className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="border-b border-[var(--slate-200)] px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--success)]/10">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--success)"
-                    strokeWidth="1.75"
-                  >
-                    <path d="m7.5 4.27 9 5.15" />
-                    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-                    <path d="m3.3 7 8.7 5 8.7-5" />
-                    <path d="M12 22V12" />
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="product-modal-title" className="text-lg font-semibold text-[var(--slate-800)]">
-                    Ajouter un produit
-                  </h2>
-                  <p className="text-sm text-[var(--slate-500)]">
-                    Renseignez les informations du nouveau produit.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <form className="grid gap-5 overflow-y-auto p-6 sm:grid-cols-2 lg:grid-cols-4" onSubmit={onCreateProduct}>
-              <div>
-                <label className="form-label" htmlFor="product-reference">Reference</label>
-                <input
-                  ref={referenceFieldRef}
-                  id="product-reference"
-                  name="reference"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="REF-001"
-                  value={reference}
-                  onChange={(event) => setReference(event.target.value)}
-                />
-              </div>
-
-              <div className="sm:col-span-2 lg:col-span-1">
-                <label className="form-label" htmlFor="product-designation">Designation *</label>
-                <input
-                  id="product-designation"
-                  name="designation"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="Nom du produit"
-                  required
-                  value={designation}
-                  onChange={(event) => setDesignation(event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-price">Prix unitaire HT</label>
-                <div className="relative">
-                  <input
-                    id="product-price"
-                    name="unit-price"
-                    autoComplete="off"
-                    className="form-input pr-12"
-                    inputMode="decimal"
-                    placeholder="12,50"
-                    required
-                    value={unitPriceEuros}
-                    onChange={(event) => setUnitPriceEuros(event.target.value)}
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[var(--slate-400)]" aria-hidden="true">
-                    EUR
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-tax">Taux TVA</label>
-                <select
-                  id="product-tax"
-                  name="tax-rate"
-                  className="form-input form-select"
-                  value={taxRateBp}
-                  onChange={(event) => setTaxRateBp(Number(event.target.value))}
-                >
-                  {TAX_RATE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center justify-between gap-4 pt-2">
-                {formError ? (
-                  <div className="alert alert-error flex-1">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="m15 9-6 6" />
-                      <path d="m9 9 6 6" />
-                    </svg>
-                    {formError}
-                  </div>
-                ) : (
-                  <span />
-                )}
-                <div className="flex items-center gap-3">
-                  <button
-                    className="btn btn-secondary"
-                    type="button"
-                    onClick={closeForm}
-                    disabled={creating}
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    disabled={creating}
-                    type="submit"
-                  >
-                    {creating ? (
-                      <>
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                        Ajout en cours...
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M5 12h14" />
-                          <path d="M12 5v14" />
-                        </svg>
-                        Ajouter le produit
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </form>
+      <section className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-950">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="font-semibold">Deux niveaux de prix, un seul référentiel produit</p>
+            <p className="mt-1 text-blue-800">
+              Le prix de référence sert de valeur interne. Les offres datées d’Arcus, CEDEO ou d’autres fournisseurs restent dans les tarifs fournisseurs.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-secondary btn-sm" href="/dashboard/suppliers">Gérer les fournisseurs</Link>
+            <Link className="btn btn-secondary btn-sm" href="/dashboard/prices">Voir tous les tarifs</Link>
           </div>
         </div>
+      </section>
+
+      {successMessage ? <div className="alert alert-success mb-5" role="status">{successMessage}</div> : null}
+      {!isFormOpen && formError ? <div className="alert alert-error mb-5" role="alert">{formError}</div> : null}
+
+      {!isLoading ? (
+        <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicateurs du catalogue">
+          <div className="dashboard-card px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Produits actifs</p>
+            <p className="mt-1 text-2xl font-semibold text-[var(--slate-900)]">{stats.active}</p>
+          </div>
+          <div className="dashboard-card px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Couverts par un fournisseur</p>
+            <p className="mt-1 text-2xl font-semibold text-emerald-700">{stats.covered}</p>
+          </div>
+          <div className="dashboard-card px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Sans prix fournisseur</p>
+            <p className="mt-1 text-2xl font-semibold text-amber-700">{stats.withoutSupplierPrice}</p>
+          </div>
+          <div className="dashboard-card px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Prix à revalider</p>
+            <p className="mt-1 text-2xl font-semibold text-rose-700">{stats.stale}</p>
+          </div>
+        </section>
       ) : null}
 
-      {/* Filter Bar */}
       <TableFilterBar
         data={products}
         onDataChange={setDisplayedProducts}
         search={{
-          placeholder: "Rechercher par designation ou reference...",
-          fields: ["designation", "reference"],
+          placeholder: "Rechercher une référence, une matière, une nuance ou une dimension...",
+          fields: [
+            "designation",
+            "reference",
+            "category",
+            "product_type",
+            "material",
+            "grade",
+            "dimensions",
+            "standard",
+          ],
         }}
-        filters={PRODUCTS_FILTERS}
-        sortOptions={PRODUCTS_SORT_OPTIONS}
+        filters={productFilters}
+        sortOptions={PRODUCT_SORT_OPTIONS}
         resultCountLabel="produits"
         showResultCount
       />
 
-      {/* Table card */}
       <div className="dashboard-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-            Catalogue produits
-          </h2>
-          <button
-            className="btn btn-secondary btn-sm"
-            disabled={isValidating}
-            onClick={() => void mutate()}
-            type="button"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className={isValidating ? "animate-spin" : ""}
-            >
-              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-            </svg>
-            {isValidating ? "Chargement..." : "Actualiser"}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--slate-200)] px-6 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--slate-800)]">Base articles</h2>
+            <p className="mt-0.5 text-xs text-[var(--slate-500)]">Identité produit, prix interne et couverture fournisseurs.</p>
+          </div>
+          <button className="btn btn-secondary btn-sm" disabled={isValidating} onClick={() => void mutate()} type="button">
+            {isValidating ? "Actualisation..." : "Actualiser"}
           </button>
         </div>
 
         {loadError ? (
-          <div className="alert alert-error m-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
-            {loadError.message}
+          <div className="alert alert-error m-4" role="alert">
+            {loadError instanceof Error ? loadError.message : "Impossible de charger la base produits."}
           </div>
         ) : null}
 
         <div className="overflow-x-auto">
-          <table className="data-table">
+          <table className="data-table min-w-[1180px]">
             <thead>
               <tr>
-                <th>Designation</th>
-                <th>Reference</th>
-                <th className="text-right">Prix HT</th>
+                <th>Produit</th>
+                <th>Classification</th>
+                <th>Dimensions</th>
+                <th className="text-right">Prix de référence</th>
+                <th>Meilleur prix fournisseur</th>
+                <th>État du prix</th>
                 <th className="text-center">TVA</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {displayedProducts.length === 0 ? (
+              {isLoading ? (
+                <tr><td colSpan={8} className="py-12 text-center text-[var(--slate-500)]">Chargement de la base produits...</td></tr>
+              ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12">
-                    {isLoading ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--success)]"></div>
-                        <span className="text-[var(--slate-500)]">Chargement...</span>
+                  <td colSpan={8} className="py-14 text-center">
+                    <div className="mx-auto max-w-lg">
+                      <p className="text-lg font-semibold text-[var(--slate-800)]">Construisez votre première base articles</p>
+                      <p className="mt-2 text-sm text-[var(--slate-500)]">
+                        Ajoutez un produit manuellement ou importez votre grille Inox depuis un fichier CSV.
+                      </p>
+                      <div className="mt-5 flex flex-wrap justify-center gap-3">
+                        <button className="btn btn-primary" type="button" onClick={openCreateForm}>Ajouter un produit</button>
+                        <button className="btn btn-secondary" type="button" onClick={openCsvImport}>Importer un CSV</button>
                       </div>
-                    ) : products.length === 0 ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="var(--slate-400)"
-                            strokeWidth="1.5"
-                          >
-                            <path d="m7.5 4.27 9 5.15" />
-                            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-                            <path d="m3.3 7 8.7 5 8.7-5" />
-                            <path d="M12 22V12" />
-                          </svg>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun produit</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Cliquez sur le bouton Ajouter un produit pour demarrer.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="var(--slate-400)"
-                            strokeWidth="1.5"
-                          >
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="m21 21-4.3-4.3" />
-                          </svg>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun resultat</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Modifiez vos filtres pour voir plus de resultats.</p>
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </td>
                 </tr>
+              ) : displayedProducts.length === 0 ? (
+                <tr><td colSpan={8} className="py-12 text-center text-[var(--slate-500)]">Aucun produit ne correspond aux filtres.</td></tr>
               ) : (
-                displayedProducts.map((product, index) => (
-                  <tr
-                    key={product.id}
-                    className="animate-fade-in"
-                    style={{ animationDelay: `${index * 0.03}s` }}
-                  >
-                    <td className="font-semibold text-[var(--slate-800)]">
-                      {product.designation}
+                displayedProducts.map((product) => (
+                  <tr key={product.id} className={product.is_active ? undefined : "opacity-60"}>
+                    <td>
+                      <div className="font-semibold text-[var(--slate-900)]">{product.designation}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--slate-500)]">
+                        <span className="font-mono">{product.reference || "Sans référence"}</span>
+                        {!product.is_active ? <span className="rounded-full bg-slate-200 px-2 py-0.5 font-medium text-slate-700">Archivé</span> : null}
+                      </div>
                     </td>
                     <td>
-                      {product.reference ? (
-                        <span className="inline-flex items-center rounded-md bg-[var(--slate-100)] px-2 py-1 font-mono text-xs font-medium text-[var(--slate-600)]">
-                          {product.reference}
-                        </span>
+                      <div className="font-medium text-[var(--slate-800)]">
+                        {[product.material, product.grade].filter(Boolean).join(" ") || "Non renseignée"}
+                      </div>
+                      <div className="mt-1 text-xs text-[var(--slate-500)]">
+                        {[product.category, product.product_type].filter(Boolean).join(" · ") || "Sans famille"}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="text-[var(--slate-800)]">{product.dimensions || "-"}</div>
+                      <div className="mt-1 text-xs text-[var(--slate-500)]">
+                        {[product.standard, product.unit].filter(Boolean).join(" · ")}
+                      </div>
+                    </td>
+                    <td className="text-right font-mono font-semibold text-[var(--slate-900)]">
+                      {formatEUR(product.unit_price_cents)} <span className="text-xs font-normal text-[var(--slate-500)]">/{product.unit || "u"}</span>
+                    </td>
+                    <td>
+                      {product._bestSupplierPriceCents !== null ? (
+                        <>
+                          <div className="font-mono font-semibold text-emerald-700">{formatEUR(product._bestSupplierPriceCents)}</div>
+                          <div className="mt-1 text-xs text-[var(--slate-500)]">
+                            {product._bestSupplierName || "Fournisseur"} · {product._supplierPriceCount} offre(s)
+                          </div>
+                        </>
                       ) : (
-                        <span className="text-[var(--slate-400)]">-</span>
+                        <span className="text-sm text-[var(--slate-400)]">Aucun tarif</span>
                       )}
                     </td>
-                    <td className="text-right font-mono font-semibold text-[var(--slate-800)]">
-                      {formatEUR(product.unit_price_cents)}
-                    </td>
-                    <td className="text-center">
-                      <span className="inline-flex items-center rounded-full bg-[var(--success)]/10 px-2.5 py-1 text-xs font-semibold text-[var(--success)]">
-                        {taxLabelFromBp(product.tax_rate_bp)}
+                    <td>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${freshnessClass(product._priceStatus)}`}>
+                        {freshnessLabel(product._priceStatus)}
                       </span>
                     </td>
-                    <td className="text-right">
-                      <button
-                        className="btn btn-danger btn-sm"
-                        disabled={deletingId === product.id}
-                        onClick={() => onDeleteProduct(product)}
-                        type="button"
-                      >
-                        {deletingId === product.id ? (
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-                        ) : (
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                          </svg>
-                        )}
-                        Supprimer
-                      </button>
+                    <td className="text-center text-sm font-medium text-[var(--slate-700)]">{taxLabelFromBp(product.tax_rate_bp)}</td>
+                    <td>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={() => openEditForm(product)}>Modifier</button>
+                        <Link className="btn btn-secondary btn-sm" href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}>
+                          Tarifs
+                        </Link>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          type="button"
+                          disabled={updatingStatusId === product.id}
+                          onClick={() => void toggleArchive(product)}
+                        >
+                          {updatingStatusId === product.id ? "..." : product.is_active ? "Archiver" : "Restaurer"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -649,6 +532,24 @@ export default function ProductsPage() {
           </table>
         </div>
       </div>
+
+      <ProductFormModal
+        key={`${editingProduct?.id ?? "new"}:${isFormOpen ? "open" : "closed"}`}
+        open={isFormOpen}
+        product={editingProduct}
+        isSaving={isSaving}
+        error={formError}
+        onOpenChange={handleFormOpenChange}
+        onSubmit={saveProduct}
+      />
+      <ProductCsvImport
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onImported={async () => {
+          await mutate();
+          setSuccessMessage("Base produits importée et actualisée.");
+        }}
+      />
     </div>
   );
 }

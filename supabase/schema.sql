@@ -232,6 +232,13 @@ create table public.products (
   designation text not null,
   unit_price_cents integer not null check (unit_price_cents >= 0),
   tax_rate_bp integer not null default 2000 check (tax_rate_bp >= 0 and tax_rate_bp <= 10000),
+  category text,
+  product_type text,
+  material text,
+  grade text,
+  dimensions text,
+  standard text,
+  unit text not null default 'u',
   is_active boolean not null default true
 );
 
@@ -3128,6 +3135,12 @@ create index if not exists products_tenant_id_idx
   on public.products (tenant_id);
 create index if not exists products_tenant_designation_idx
   on public.products (tenant_id, designation);
+create index if not exists products_tenant_category_idx
+  on public.products (tenant_id, category)
+  where category is not null;
+create index if not exists products_tenant_material_idx
+  on public.products (tenant_id, material)
+  where material is not null;
 
 create index if not exists purchase_orders_tenant_id_idx
   on public.purchase_orders (tenant_id);

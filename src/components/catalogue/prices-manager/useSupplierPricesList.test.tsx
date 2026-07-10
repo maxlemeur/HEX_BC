@@ -8,9 +8,14 @@ vi.mock("swr", () => ({
 }));
 
 const priceFreshnessLevelMock = vi.hoisted(() => vi.fn());
+const fetchApiMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/catalogue/stale-prices", () => ({
   priceFreshnessLevel: priceFreshnessLevelMock,
+}));
+
+vi.mock("@/components/catalogue/api", () => ({
+  fetchApi: fetchApiMock,
 }));
 
 import { useSupplierPricesList } from "@/components/catalogue/prices-manager/useSupplierPricesList";
@@ -18,6 +23,7 @@ import { useSupplierPricesList } from "@/components/catalogue/prices-manager/use
 describe("useSupplierPricesList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchApiMock.mockResolvedValue({ items: [] });
   });
 
   it("configures SWR and enriches rows with names, freshness and stats", () => {
@@ -122,5 +128,37 @@ describe("useSupplierPricesList", () => {
     await result.current.refresh();
 
     expect(mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes the SWR key and API request to a selected product", async () => {
+    swrMock.mockReturnValue({
+      data: [],
+      error: undefined,
+      isLoading: false,
+      isValidating: false,
+      mutate: vi.fn(),
+    });
+    priceFreshnessLevelMock.mockReturnValue({ level: "fresh", ageDays: 0 });
+
+    renderHook(() =>
+      useSupplierPricesList({
+        supplierMap: new Map(),
+        productMap: new Map(),
+        productId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      })
+    );
+
+    expect(swrMock).toHaveBeenCalledWith(
+      "supplier-prices:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      expect.any(Function),
+      expect.any(Object)
+    );
+
+    const fetcher = swrMock.mock.calls.at(-1)?.[1] as () => Promise<unknown>;
+    await fetcher();
+
+    expect(fetchApiMock).toHaveBeenCalledWith(
+      "/api/prices?limit=400&product_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    );
   });
 });

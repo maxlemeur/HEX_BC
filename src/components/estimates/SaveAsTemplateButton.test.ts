@@ -1,8 +1,13 @@
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/ui/Toast";
+
+vi.mock("react-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-dom")>();
+  return { ...actual, createPortal: (children: ReactNode) => children };
+});
 
 const { createEstimateTemplateMock } = vi.hoisted(() => ({
   createEstimateTemplateMock: vi.fn(),

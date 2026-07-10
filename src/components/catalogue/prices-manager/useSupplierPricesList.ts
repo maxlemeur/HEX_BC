@@ -15,14 +15,18 @@ type PricesListResponse = {
 export function useSupplierPricesList({
   supplierMap,
   productMap,
+  productId = null,
 }: {
   supplierMap: Map<string, string>;
   productMap: Map<string, string>;
+  productId?: string | null;
 }) {
   const fetchPrices = useCallback(async () => {
-    const data = await fetchApi<PricesListResponse>("/api/prices?limit=400");
+    const query = new URLSearchParams({ limit: "400" });
+    if (productId) query.set("product_id", productId);
+    const data = await fetchApi<PricesListResponse>(`/api/prices?${query.toString()}`);
     return data.items ?? [];
-  }, []);
+  }, [productId]);
 
   const {
     data: rawItems = [],
@@ -30,11 +34,15 @@ export function useSupplierPricesList({
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<SupplierPrice[]>("supplier-prices", fetchPrices, {
+  } = useSWR<SupplierPrice[]>(
+    productId ? `supplier-prices:${productId}` : "supplier-prices",
+    fetchPrices,
+    {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
-  });
+    }
+  );
 
   const enrichedItems = useMemo<EnrichedPrice[]>(() => {
     const now = new Date();

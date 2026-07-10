@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 
 import { cn } from "@/lib/utils";
@@ -99,10 +100,14 @@ function Content({
 }: Readonly<ModalContentProps>) {
   const { open, onOpenChange, titleId, contentRef } = useModalContext();
 
-  return (
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <AnimatePresence>
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
           <button
             aria-hidden="true"
             data-ui-modal-overlay="true"
@@ -174,7 +179,8 @@ function Content({
           </motion.div>
         </div>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 
