@@ -307,7 +307,7 @@ export function AffairesDenseTable({
           {managerQueueSummaryState === "loading" || managerQueueSummaryState === "idle"
             ? "Qualification manager en cours sur le portefeuille."
             : managerQueueSummaryState === "error"
-              ? "Qualification manager indisponible pour le portefeuille. Rechargez la page pour reessayer."
+              ? "Qualification manager indisponible pour ce portefeuille. Affinez les filtres ou rechargez la page pour reessayer."
               : managerQualificationIncomplete
                 ? `Qualification manager incomplete sur ${managerQueueSummary?.incompleteCount ?? 0} affaire${(managerQueueSummary?.incompleteCount ?? 0) > 1 ? "s" : ""} du portefeuille.`
             : managerFilter === "all"

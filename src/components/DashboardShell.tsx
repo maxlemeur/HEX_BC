@@ -273,7 +273,11 @@ export function DashboardShell({
         className={`no-print dashboard-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col${collapsed ? " dashboard-sidebar--collapsed" : ""}`}
       >
         <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
-          <Link href="/dashboard" className="sidebar-logo-link flex items-center gap-3 min-w-0">
+          <Link
+            href="/dashboard"
+            prefetch={false}
+            className="sidebar-logo-link flex items-center gap-3 min-w-0"
+          >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
               <Image
                 src="/logo-hydro-express.jpg"
@@ -341,6 +345,7 @@ export function DashboardShell({
                     <Link
                       key={item.navId ?? item.href}
                       href={item.href}
+                      prefetch={false}
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
                       title={collapsed ? item.label : item.title}
@@ -397,6 +402,7 @@ export function DashboardShell({
           }`}>
             <Link
               href="/dashboard/profile"
+              prefetch={false}
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
               title={collapsed ? displayName || "Compte" : undefined}
             >

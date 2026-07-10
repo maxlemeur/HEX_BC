@@ -1,9 +1,6 @@
 import { Suspense } from "react";
 
-import {
-  fetchAffaireManagerQueueSummary,
-  fetchAffairePageData,
-} from "@/lib/affaires/server";
+import { fetchAffairePageData } from "@/lib/affaires/server";
 import { parseAffaireListQuery } from "@/lib/affaires/schemas";
 import { AffairesPageClient } from "@/components/affaires/AffairesPageClient";
 import AffairesLoading from "./loading";
@@ -16,23 +13,7 @@ export default async function AffairesPage({ searchParams }: Props) {
   const params = await searchParams;
   const query = parseAffaireListQuery(params);
 
-  const [data, managerQueueResult] = await Promise.all([
-    fetchAffairePageData(query),
-    query.manager === "all"
-      ? fetchAffaireManagerQueueSummary({
-          q: query.q ?? undefined,
-          status: query.status,
-          favorites: query.favoritesOnly,
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
-  const initialData =
-    data.managerQueue || managerQueueResult === null
-      ? data
-      : {
-          ...data,
-          managerQueue: managerQueueResult,
-        };
+  const data = await fetchAffairePageData(query);
   const pageClientKey = [
     query.q ?? "",
     (query.status ?? []).join(","),
@@ -47,7 +28,7 @@ export default async function AffairesPage({ searchParams }: Props) {
     <Suspense fallback={<AffairesLoading />}>
       <AffairesPageClient
         key={pageClientKey}
-        initialData={initialData}
+        initialData={data}
         initialQ={query.q ?? ""}
         initialStatuses={query.status ?? []}
         initialFavoritesOnly={query.favoritesOnly}

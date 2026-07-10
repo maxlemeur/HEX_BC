@@ -1103,6 +1103,36 @@ describe("affaires server (list + counters)", () => {
       incompleteCount: 1,
     });
   });
+
+  it("rejects oversized manager portfolios before the per-affaire fan-out", async () => {
+    const context = createContext({ role: "admin" });
+    context.supabase.rpc.mockImplementation(async (fnName: string) => {
+      if (fnName === "get_affaires_counters") {
+        return {
+          data: [
+            {
+              total_count: 959,
+              filtered_count: 959,
+              draft_count: 958,
+              sent_count: 0,
+              accepted_count: 1,
+              archived_count: 0,
+            },
+          ],
+          error: null,
+        };
+      }
+
+      throw new Error(`Unexpected RPC call: ${fnName}`);
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    await expect(fetchAffaireManagerQueueSummary()).rejects.toThrow(
+      "MANAGER_QUEUE_PORTFOLIO_LIMIT_EXCEEDED"
+    );
+    expect(context.supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(context.supabase.from).not.toHaveBeenCalled();
+  });
 });
 
 describe("affaires hub server", () => {

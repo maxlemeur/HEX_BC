@@ -1597,15 +1597,35 @@ async function fetchAffaireListWithContext(
 
 const MANAGER_QUEUE_BATCH_SIZE = 10;
 const MANAGER_QUEUE_LIST_PAGE_SIZE: AffairePageSize = 100;
+const MANAGER_QUEUE_MAX_PROJECTS = 200;
+const MANAGER_QUEUE_TIME_BUDGET_MS = 6_500;
+
+function assertManagerQueueWithinLimits(input: {
+  deadlineAt: number;
+  projectCount?: number;
+}) {
+  if (
+    input.projectCount !== undefined &&
+    input.projectCount > MANAGER_QUEUE_MAX_PROJECTS
+  ) {
+    throw new Error("MANAGER_QUEUE_PORTFOLIO_LIMIT_EXCEEDED");
+  }
+
+  if (Date.now() > input.deadlineAt) {
+    throw new Error("MANAGER_QUEUE_TIME_BUDGET_EXCEEDED");
+  }
+}
 
 async function fetchAllAffaireListItemsWithContext(
   context: AffaireContext,
-  query: NormalizedAffaireListQuery
+  query: NormalizedAffaireListQuery,
+  deadlineAt: number
 ): Promise<AffaireListItem[]> {
   const items: AffaireListItem[] = [];
   let cursor: string | null = null;
 
   while (true) {
+    assertManagerQueueWithinLimits({ deadlineAt });
     const page = await fetchAffaireListWithContext(context, {
       ...query,
       manager: "all",
@@ -1715,7 +1735,8 @@ async function fetchAffaireManagerReadinessWithContext(
 
 async function classifyAffaireManagerQueueWithContext(
   context: AffaireContext,
-  items: AffaireListItem[]
+  items: AffaireListItem[],
+  deadlineAt: number
 ): Promise<{
   readinessByProjectId: Map<string, AffaireHubReadinessResult | null>;
   incompleteCount: number;
@@ -1724,6 +1745,7 @@ async function classifyAffaireManagerQueueWithContext(
   let incompleteCount = 0;
 
   for (let startIndex = 0; startIndex < items.length; startIndex += MANAGER_QUEUE_BATCH_SIZE) {
+    assertManagerQueueWithinLimits({ deadlineAt });
     const batch = items.slice(startIndex, startIndex + MANAGER_QUEUE_BATCH_SIZE);
     const settled = await Promise.allSettled(
       batch.map(async (item) => ({
@@ -1756,9 +1778,18 @@ async function buildAffaireManagerQueueSummaryWithContext(
   summary: AffaireManagerQueueSummary;
   readinessByProjectId: Map<string, AffaireHubReadinessResult | null>;
 }> {
-  const items = await fetchAllAffaireListItemsWithContext(context, query);
+  const deadlineAt = Date.now() + MANAGER_QUEUE_TIME_BUDGET_MS;
+  const items = await fetchAllAffaireListItemsWithContext(
+    context,
+    query,
+    deadlineAt
+  );
+  assertManagerQueueWithinLimits({
+    deadlineAt,
+    projectCount: items.length,
+  });
   const { readinessByProjectId, incompleteCount } =
-    await classifyAffaireManagerQueueWithContext(context, items);
+    await classifyAffaireManagerQueueWithContext(context, items, deadlineAt);
 
   return {
     items,
@@ -1817,10 +1848,15 @@ async function fetchAffaireManagerFilteredPageDataWithContext(
     cursor: null,
   };
 
-  const [baseCounters, managerQueueData] = await Promise.all([
-    fetchAffaireCountersWithContext(context, baseQuery),
-    buildAffaireManagerQueueSummaryWithContext(context, baseQuery),
-  ]);
+  const baseCounters = await fetchAffaireCountersWithContext(context, baseQuery);
+  assertManagerQueueWithinLimits({
+    deadlineAt: Number.POSITIVE_INFINITY,
+    projectCount: baseCounters.filteredCount,
+  });
+  const managerQueueData = await buildAffaireManagerQueueSummaryWithContext(
+    context,
+    baseQuery
+  );
 
   if (managerQueueData.summary.incompleteCount > 0) {
     throw new Error("MANAGER_QUEUE_CLASSIFICATION_INCOMPLETE");
@@ -1871,6 +1907,11 @@ export async function fetchAffaireManagerQueueSummary(
 ): Promise<AffaireManagerQueueSummary> {
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery(input);
+  const counters = await fetchAffaireCountersWithContext(context, query);
+  assertManagerQueueWithinLimits({
+    deadlineAt: Number.POSITIVE_INFINITY,
+    projectCount: counters.filteredCount,
+  });
   const result = await buildAffaireManagerQueueSummaryWithContext(context, {
     ...query,
     manager: "all",
