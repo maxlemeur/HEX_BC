@@ -1498,7 +1498,7 @@ const App = () => {
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] md:w-[60%] h-[70%] bg-[#0d1b2a]/60 blur-[100px] rounded-full pointer-events-none z-[-1]"></div>
 
           <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-50 to-slate-300 mb-6 max-w-5xl leading-tight drop-shadow-md">
-            Vos DPGF <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">chiffrés en heures</span>, pas en jours.
+            Vos devis <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">chiffrés en heures</span>, pas en jours.
           </h1>
 
           <p className="text-lg md:text-2xl text-slate-200 mb-10 max-w-3xl font-medium drop-shadow-md">
