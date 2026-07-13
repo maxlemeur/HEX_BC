@@ -141,7 +141,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                 <div className="rounded-2xl bg-[var(--slate-50)] px-3 py-3">
                   <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
                     Montant HT

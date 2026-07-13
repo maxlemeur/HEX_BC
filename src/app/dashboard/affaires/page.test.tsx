@@ -1,4 +1,4 @@
-import { Children, type ReactElement } from "react";
+import { Children, Suspense, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AffairePageDataResult } from "@/lib/affaires/server";
@@ -43,12 +43,21 @@ describe("AffairesPage", () => {
     const pageElement = (await AffairesPage({
       searchParams: Promise.resolve({}),
     })) as ReactElement<{ children: ReactElement }>;
-    const clientElement = Children.only(pageElement.props.children) as ReactElement<{
-      initialData: AffairePageDataResult;
+    const resultsElement = Children.only(pageElement.props.children) as ReactElement<{
+      query: unknown;
+      pageClientKey: string;
     }>;
 
-    expect(fetchAffairePageData).toHaveBeenCalledTimes(1);
+    expect(pageElement.type).toBe(Suspense);
+    expect(fetchAffairePageData).not.toHaveBeenCalled();
     expect(fetchAffaireManagerQueueSummary).not.toHaveBeenCalled();
+
+    const renderResults = resultsElement.type as unknown as (
+      props: typeof resultsElement.props
+    ) => Promise<ReactElement<{ initialData: AffairePageDataResult }>>;
+    const clientElement = await renderResults(resultsElement.props);
+
+    expect(fetchAffairePageData).toHaveBeenCalledTimes(1);
     expect(clientElement.props.initialData).toBe(data);
   });
 });

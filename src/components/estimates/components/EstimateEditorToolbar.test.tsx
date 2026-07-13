@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
@@ -6,7 +7,53 @@ import { EstimateEditorProvider } from "@/components/estimates/context/EstimateE
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
+
+function createRect({
+  left,
+  right,
+  top,
+  bottom,
+  width,
+  height,
+}: {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+}) {
+  return {
+    x: left,
+    y: top,
+    left,
+    right,
+    top,
+    bottom,
+    width,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function mockCompactViewport() {
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query) =>
+      ({
+        matches: query === "(max-width: 1024px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as MediaQueryList
+  );
+}
 
 function renderToolbar(overrides?: {
   hasSelectedLines?: boolean;
@@ -88,7 +135,10 @@ function renderToolbar(overrides?: {
         onOpenBulkSuggestDialog={vi.fn()}
         onOpenSupplierPreselectionDialog={vi.fn()}
         onOpenAssemblyPicker={vi.fn()}
+        onOpenImportFromEstimateDialog={vi.fn()}
         onAddRootSection={vi.fn()}
+        onExpandAllSections={vi.fn()}
+        onCollapseAllSections={vi.fn()}
         onOpenEstimateStructureDraftDialog={
           overrides?.showAdjacentActions ? vi.fn() : undefined
         }
@@ -151,6 +201,146 @@ describe("EstimateEditorToolbar", () => {
     ).toBeInTheDocument();
   });
 
+  it("exposes and updates the relationships for toolbar popovers", () => {
+    renderToolbar();
+
+    const columnsButton = screen.getByRole("button", { name: "Colonnes" });
+    expect(columnsButton).toHaveAttribute("aria-expanded", "false");
+    expect(columnsButton).toHaveAttribute("aria-haspopup", "dialog");
+    expect(columnsButton).toHaveAttribute(
+      "aria-controls",
+      "estimate-editor-columns-panel"
+    );
+    fireEvent.click(columnsButton);
+    expect(columnsButton).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("dialog", { name: "Choisir les colonnes" })
+    ).toHaveAttribute("id", "estimate-editor-columns-panel");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(columnsButton).toHaveAttribute("aria-expanded", "false");
+
+    const anomaliesButton = screen.getByRole("button", { name: /1 anomalie/ });
+    expect(anomaliesButton).toHaveAttribute("aria-expanded", "false");
+    expect(anomaliesButton).toHaveAttribute("aria-haspopup", "dialog");
+    expect(anomaliesButton).toHaveAttribute(
+      "aria-controls",
+      "estimate-editor-anomalies-panel"
+    );
+    fireEvent.click(anomaliesButton);
+    expect(anomaliesButton).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("dialog", { name: "Filtrer les anomalies" })
+    ).toHaveAttribute("id", "estimate-editor-anomalies-panel");
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    const toolsButton = screen.getByRole("button", { name: "Outils" });
+    expect(toolsButton).toHaveAttribute("aria-expanded", "false");
+    expect(toolsButton).toHaveAttribute("aria-haspopup", "dialog");
+    expect(toolsButton).toHaveAttribute(
+      "aria-controls",
+      "estimate-editor-tools-panel"
+    );
+    fireEvent.click(toolsButton);
+    expect(toolsButton).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("dialog", { name: "Outils du devis" })
+    ).toHaveAttribute("id", "estimate-editor-tools-panel");
+    fireEvent.mouseDown(screen.getByLabelText("Filtre qualité"));
+    expect(toolsButton).toHaveAttribute("aria-expanded", "true");
+    fireEvent.mouseDown(document.body);
+    expect(toolsButton).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("moves keyboard focus into tools and restores it on Escape", async () => {
+    const user = userEvent.setup();
+    renderToolbar();
+
+    const toolsButton = screen.getByRole("button", { name: "Outils" });
+    await user.click(toolsButton);
+
+    const qualityFilter = screen.getByLabelText("Filtre qualité");
+    expect(qualityFilter).toHaveFocus();
+    expect(
+      screen.getByRole("button", { name: "Raccourcis clavier" })
+    ).not.toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByLabelText("Outliers")).toHaveFocus();
+
+    const assembliesButton = screen.getByRole("button", {
+      name: "Assemblages",
+    });
+    assembliesButton.focus();
+    await user.tab();
+    expect(qualityFilter).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(assembliesButton).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(toolsButton).toHaveFocus();
+    expect(toolsButton).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("dialog", { name: "Outils du devis" })
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { viewportWidth: 727, expectedWidth: 320 },
+    { viewportWidth: 320, expectedWidth: 288 },
+  ])(
+    "keeps the tools panel inside a $viewportWidth px viewport",
+    ({ viewportWidth, expectedWidth }) => {
+      vi.stubGlobal("innerWidth", viewportWidth);
+      vi.stubGlobal("innerHeight", 800);
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect"
+      ).mockReturnValue(
+        createRect({
+          left: 180,
+          right: 250,
+          top: 100,
+          bottom: 132,
+          width: 70,
+          height: 32,
+        })
+      );
+      renderToolbar();
+
+      fireEvent.click(screen.getByRole("button", { name: "Outils" }));
+
+      const panel = screen.getByRole("dialog", { name: "Outils du devis" });
+      expect(panel).toHaveStyle({
+        left: "16px",
+        width: `${expectedWidth}px`,
+      });
+      expect(16 + expectedWidth).toBeLessThanOrEqual(viewportWidth - 16);
+    }
+  );
+
+  it("keeps the tools panel right-aligned to its trigger on desktop", () => {
+    vi.stubGlobal("innerWidth", 1440);
+    vi.stubGlobal("innerHeight", 900);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      createRect({
+        left: 1130,
+        right: 1200,
+        top: 100,
+        bottom: 132,
+        width: 70,
+        height: 32,
+      })
+    );
+    renderToolbar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Outils" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Outils du devis" })
+    ).toHaveStyle({ left: "880px", width: "320px" });
+  });
+
   it("labels adjacent estimate helpers explicitly", () => {
     renderToolbar({ showAdjacentActions: true });
 
@@ -161,5 +351,79 @@ describe("EstimateEditorToolbar", () => {
     expect(
       screen.getByRole("button", { name: "Generer des ouvrages" })
     ).toBeInTheDocument();
+  });
+
+  it("groups secondary actions into touch-friendly controls on compact viewports", () => {
+    mockCompactViewport();
+    renderToolbar({ showAdjacentActions: true });
+
+    expect(
+      screen.getByTestId("estimate-editor-toolbar-add-root-section-button")
+    ).toHaveClass("h-11", "flex-1");
+    expect(screen.getByTestId("estimate-editor-search-input")).toHaveClass(
+      "h-11",
+      "min-h-11",
+      "w-full"
+    );
+    expect(
+      screen.queryByRole("button", { name: "Structure IA" })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByTestId("estimate-editor-primary-actions-button")
+    );
+    const actionsMenu = screen.getByRole("menu", {
+      name: "Actions du devis",
+    });
+    expect(
+      within(actionsMenu).getByRole("menuitem", { name: "Tout déplier" })
+    ).toBeInTheDocument();
+    expect(
+      within(actionsMenu).getByRole("menuitem", { name: "Structure IA" })
+    ).toBeInTheDocument();
+    expect(
+      within(actionsMenu).getByRole("menuitem", {
+        name: "Générer des ouvrages",
+      })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("estimate-editor-overflow-button"));
+    const compactDialog = screen.getByRole("dialog", {
+      name: "Insertion et affichage",
+    });
+    fireEvent.click(
+      within(compactDialog).getByTestId("estimate-editor-columns-button")
+    );
+    expect(
+      within(compactDialog).getByRole("group", {
+        name: "Choisir les colonnes",
+      })
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(compactDialog).getByTestId("estimate-editor-anomalies-button")
+    );
+    expect(
+      within(compactDialog).getByRole("group", {
+        name: "Filtrer les anomalies",
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(compactDialog).getByRole("button", {
+        name: "Raccourcis clavier",
+      })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("estimate-editor-overflow-button"));
+    expect(compactDialog).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("estimate-editor-overflow-button"));
+    const reopenedDialog = screen.getByRole("dialog", {
+      name: "Insertion et affichage",
+    });
+    expect(
+      within(reopenedDialog).queryByRole("group", {
+        name: "Filtrer les anomalies",
+      })
+    ).not.toBeInTheDocument();
   });
 });

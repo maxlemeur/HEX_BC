@@ -6,6 +6,7 @@ export type EmptyStateProps = {
   icon: React.ReactNode;
   title: string;
   description: string;
+  headingLevel?: 1 | 2 | 3 | 4;
   actionLabel?: string;
   actionHref?: string;
   onAction?: () => void;
@@ -16,6 +17,7 @@ export function EmptyState({
   icon,
   title,
   description,
+  headingLevel = 3,
   actionLabel,
   actionHref,
   onAction,
@@ -23,6 +25,7 @@ export function EmptyState({
 }: Readonly<EmptyStateProps>) {
   const shouldRenderAction =
     Boolean(actionLabel) && (Boolean(actionHref) || Boolean(onAction));
+  const Heading = `h${headingLevel}` as "h1" | "h2" | "h3" | "h4";
 
   return (
     <div
@@ -35,9 +38,9 @@ export function EmptyState({
         {icon}
       </div>
 
-      <h3 className="text-base font-semibold text-[var(--slate-800)]">
+      <Heading className="text-base font-semibold text-[var(--slate-800)]">
         {title}
-      </h3>
+      </Heading>
       <p className="mt-1 max-w-md text-sm text-[var(--slate-500)]">
         {description}
       </p>
@@ -47,12 +50,15 @@ export function EmptyState({
           <button
             type="button"
             onClick={onAction}
-            className="btn btn-primary btn-sm mt-5 inline-flex"
+            className="btn btn-primary btn-sm mt-5 inline-flex min-h-11 sm:min-h-0"
           >
             {actionLabel}
           </button>
         ) : (
-          <Link href={actionHref!} className="btn btn-primary btn-sm mt-5 inline-flex">
+          <Link
+            href={actionHref!}
+            className="btn btn-primary btn-sm mt-5 inline-flex min-h-11 sm:min-h-0"
+          >
             {actionLabel}
           </Link>
         )

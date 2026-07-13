@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
@@ -135,5 +136,106 @@ describe("EstimateSendGatingDialog", () => {
       "href",
       "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
     );
+  });
+
+  it("moves focus inside, traps keyboard navigation, and restores prior focus", async () => {
+    const user = userEvent.setup();
+    const trigger = document.createElement("button");
+    trigger.textContent = "Ouvrir la verification";
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const onClose = vi.fn();
+    const onConfirm = vi.fn();
+    const onForceConfirm = vi.fn();
+    const { rerender } = render(
+      <EstimateSendGatingDialog
+        isOpen
+        isSubmitting={false}
+        phaseLabel={null}
+        canForce={false}
+        onClose={onClose}
+        onConfirm={onConfirm}
+        onForceConfirm={onForceConfirm}
+        blockingFlags={[]}
+        warningFlags={[]}
+      />
+    );
+
+    const closeButton = screen.getByRole("button", { name: "Fermer" });
+    const sendButton = screen.getByRole("button", { name: "Envoyer" });
+    expect(closeButton).toHaveFocus();
+
+    sendButton.focus();
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+
+    closeButton.focus();
+    await user.tab({ shift: true });
+    expect(sendButton).toHaveFocus();
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onForceConfirm).not.toHaveBeenCalled();
+
+    rerender(
+      <EstimateSendGatingDialog
+        isOpen={false}
+        isSubmitting={false}
+        phaseLabel={null}
+        canForce={false}
+        onClose={onClose}
+        onConfirm={onConfirm}
+        onForceConfirm={onForceConfirm}
+        blockingFlags={[]}
+        warningFlags={[]}
+      />
+    );
+
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
+
+  it("closes on Escape only when no submission is in progress", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onConfirm = vi.fn();
+    const onForceConfirm = vi.fn();
+    const { rerender } = render(
+      <EstimateSendGatingDialog
+        isOpen
+        isSubmitting={false}
+        phaseLabel={null}
+        canForce
+        onClose={onClose}
+        onConfirm={onConfirm}
+        onForceConfirm={onForceConfirm}
+        blockingFlags={[]}
+        warningFlags={[]}
+      />
+    );
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onForceConfirm).not.toHaveBeenCalled();
+
+    onClose.mockClear();
+    rerender(
+      <EstimateSendGatingDialog
+        isOpen
+        isSubmitting
+        phaseLabel="Envoi en cours"
+        canForce
+        onClose={onClose}
+        onConfirm={onConfirm}
+        onForceConfirm={onForceConfirm}
+        blockingFlags={[]}
+        warningFlags={[]}
+      />
+    );
+
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onForceConfirm).not.toHaveBeenCalled();
   });
 });

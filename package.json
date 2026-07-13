@@ -21,6 +21,7 @@
     "e2e:run": "node ./e2e/run-ps1.mjs",
     "e2e:pw": "playwright test",
     "e2e:pw:critical": "playwright test e2e/estimates --project=chromium",
+    "e2e:pw:ux": "playwright test e2e/estimates/dashboard-ux.spec.ts --project=chromium",
     "e2e:pw:takeoff-matrix": "playwright test e2e/estimates/takeoff-epics-matrix.spec.ts --project=chromium",
     "e2e:pw:headed": "playwright test e2e/estimates --project=chromium --headed",
     "e2e:pw:report": "playwright show-report playwright-report",
@@ -59,6 +60,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",

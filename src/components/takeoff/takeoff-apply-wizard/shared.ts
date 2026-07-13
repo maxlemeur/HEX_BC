@@ -166,6 +166,16 @@ export function toOverrideList(overridesByItemId: Record<string, TakeoffMappingO
   return Object.values(overridesByItemId);
 }
 
+export function serializeTakeoffOverrides(
+  overridesByItemId: Record<string, TakeoffMappingOverride>
+) {
+  return JSON.stringify(
+    toOverrideList(overridesByItemId).sort((left, right) =>
+      left.item_id.localeCompare(right.item_id)
+    )
+  );
+}
+
 export function summarizeAction(item: TakeoffPreviewConversionResponse["items"][number]) {
   if (item.action === "none") {
     return "Aucune";

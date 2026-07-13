@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, type ChangeEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -25,9 +26,9 @@ const STATUS_BADGE_VARIANT: Record<string, "neutral" | "info" | "success"> = {
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Brouillon",
-  sent: "Envoye",
-  accepted: "Accepte",
-  archived: "Archive",
+  sent: "Envoyé",
+  accepted: "Accepté",
+  archived: "Archivé",
 };
 
 function formatDate(iso: string): string {
@@ -54,11 +55,13 @@ function KpiCard({
   staggerClass: string;
 }) {
   return (
-    <div className={`dashboard-card p-5 animate-fade-in ${staggerClass}`}>
-      <p className="text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+    <div
+      className={`dashboard-card min-w-0 p-4 animate-fade-in sm:p-5 ${staggerClass}`}
+    >
+      <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--slate-500)] sm:text-xs">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-bold text-[var(--slate-900)]">
+      <p className="mt-2 break-words text-xl font-bold leading-tight text-[var(--slate-900)] [overflow-wrap:anywhere] sm:text-2xl">
         {value}
         {suffix ? (
           <span className="ml-1 text-sm font-medium text-[var(--slate-400)]">
@@ -79,11 +82,17 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
     1,
     ...trend.flatMap((t) => [t.createdCount, t.acceptedCount]),
   );
+  const accessibleSummary = trend
+    .map(
+      (point) =>
+        `${point.label}: ${point.createdCount} créé${point.createdCount > 1 ? "s" : ""}, ${point.acceptedCount} accepté${point.acceptedCount > 1 ? "s" : ""}`,
+    )
+    .join("; ");
 
   return (
-    <div className="dashboard-card p-5 animate-fade-in stagger-5">
+    <div className="dashboard-card p-4 animate-fade-in stagger-5 sm:p-5">
       <h2 className="text-sm font-semibold text-[var(--slate-700)] mb-4">
-        Tendance 6 mois
+        Tendance sur 6 mois
       </h2>
 
       {/* Legend */}
@@ -93,28 +102,28 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
             className="inline-block h-3 w-3 rounded-sm"
             style={{ background: "var(--brand-blue)" }}
           />
-          Creees
+          Créés
         </span>
         <span className="flex items-center gap-1.5">
           <span
             className="inline-block h-3 w-3 rounded-sm"
             style={{ background: "var(--success)" }}
           />
-          Acceptees
+          Acceptés
         </span>
       </div>
 
       {/* Bar grid */}
       <div
-        className="flex items-end gap-3"
+        className="flex items-end gap-1.5 sm:gap-3"
         style={{ height: 160 }}
         role="img"
-        aria-label="Graphique tendance 6 mois"
+        aria-label={`Graphique de tendance sur 6 mois. ${accessibleSummary}`}
       >
         {trend.map((point) => (
           <div
             key={point.key}
-            className="flex-1 flex flex-col items-center gap-1"
+            className="flex min-w-0 flex-1 flex-col items-center gap-1"
           >
             <div
               className="flex items-end gap-1 w-full"
@@ -127,7 +136,7 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
                   background: "var(--brand-blue)",
                   minHeight: point.createdCount > 0 ? 4 : 0,
                 }}
-                title={`${point.label}: ${point.createdCount} creee(s)`}
+                title={`${point.label}: ${point.createdCount} créé(s)`}
               />
               <div
                 className="flex-1 rounded-t transition-all duration-300"
@@ -136,10 +145,13 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
                   background: "var(--success)",
                   minHeight: point.acceptedCount > 0 ? 4 : 0,
                 }}
-                title={`${point.label}: ${point.acceptedCount} acceptee(s)`}
+                title={`${point.label}: ${point.acceptedCount} accepté(s)`}
               />
             </div>
-            <span className="text-[10px] text-[var(--slate-400)] whitespace-nowrap">
+            <span
+              className="block max-w-full truncate whitespace-nowrap text-[9px] text-[var(--slate-400)] sm:text-[10px]"
+              title={point.label}
+            >
               {point.label}
             </span>
           </div>
@@ -154,31 +166,90 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
 // ---------------------------------------------------------------------------
 
 function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
-  const router = useRouter();
-
   if (items.length === 0) {
     return (
       <div className="dashboard-card p-8 text-center animate-fade-in stagger-6">
         <p className="text-sm text-[var(--slate-500)]">
-          Aucune affaire recente.
+          Aucune affaire récente.
         </p>
       </div>
     );
   }
 
+  const resolveTargetHref = (item: AnalyticsTopAffaire) =>
+    item.hasCurrentVersion && item.currentVersionId
+      ? item.currentStatus === "draft"
+        ? `/dashboard/estimates/${item.currentVersionId}/edit`
+        : `/dashboard/estimates/${item.currentVersionId}`
+      : `/dashboard/affaires/${item.projectId}`;
+
   return (
     <div className="dashboard-card overflow-hidden animate-fade-in stagger-6">
       <div className="px-5 py-4 border-b border-[var(--slate-100)]">
         <h2 className="text-sm font-semibold text-[var(--slate-700)]">
-          Top 10 affaires recentes
+          Top 10 affaires récentes
         </h2>
       </div>
-      <div className="overflow-x-auto">
+
+      <div
+        className="divide-y divide-[var(--slate-100)] md:hidden"
+        data-testid="analytics-top-affaires-mobile"
+      >
+        {items.map((item) => {
+          const targetHref = resolveTargetHref(item);
+
+          return (
+            <Link
+              key={item.projectId}
+              href={targetHref}
+              className="block p-4 transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)]"
+            >
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-[var(--slate-900)]">
+                    {item.projectName}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-[var(--slate-500)]">
+                    {item.projectClient ??
+                      item.projectReference ??
+                      "Client non renseigné"}
+                  </p>
+                </div>
+                {item.currentStatus ? (
+                  <Badge
+                    variant={STATUS_BADGE_VARIANT[item.currentStatus] ?? "neutral"}
+                    size="sm"
+                    className="shrink-0 whitespace-nowrap"
+                  >
+                    V{item.currentVersionNumber} -{" "}
+                    {STATUS_LABEL[item.currentStatus] ?? item.currentStatus}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-[var(--slate-700)]">
+                  {item.currentTotalHtCents != null
+                    ? formatEUR(item.currentTotalHtCents)
+                    : "Montant non renseigné"}
+                </span>
+                <span className="text-[var(--slate-400)]">
+                  Mis à jour le {formatDate(item.currentUpdatedAt)}
+                </span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div
+        className="hidden overflow-x-auto md:block"
+        data-testid="analytics-top-affaires-desktop"
+      >
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]">
               <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
-                Nom affaire
+                Affaire
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Client
@@ -190,27 +261,26 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
                 Total HT
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
-                Date MAJ
+                Mise à jour
               </th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => {
-              const targetHref =
-                item.hasCurrentVersion && item.currentVersionId
-                  ? item.currentStatus === "draft"
-                    ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                    : `/dashboard/estimates/${item.currentVersionId}`
-                  : `/dashboard/affaires/${item.projectId}`;
+              const targetHref = resolveTargetHref(item);
 
               return (
                 <tr
                   key={item.projectId}
-                  className="border-b border-[var(--slate-100)] cursor-pointer hover:bg-[var(--slate-50)] transition-colors"
-                  onClick={() => router.push(targetHref)}
+                  className="border-b border-[var(--slate-100)] transition-colors hover:bg-[var(--slate-50)]"
                 >
                   <td className="px-4 py-3 font-medium text-[var(--slate-900)] max-w-[200px] truncate">
-                    {item.projectName}
+                    <Link
+                      href={targetHref}
+                      className="rounded-sm text-[var(--slate-900)] hover:text-[var(--brand-blue)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-blue)]"
+                    >
+                      {item.projectName}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-[var(--slate-600)] max-w-[160px] truncate">
                     {item.projectClient ?? "\u2014"}
@@ -279,7 +349,7 @@ function OwnerSelectorInner({
     <select
       value={currentOwner}
       onChange={handleChange}
-      className="btn btn-secondary text-sm"
+      className="btn btn-secondary w-full min-w-0 max-w-full text-sm sm:w-auto"
       aria-label="Filtrer par chiffreur"
     >
       <option value="all">Tous les chiffreurs</option>
@@ -296,7 +366,7 @@ function OwnerSelector({ owners }: { owners: AnalyticsOwnerOption[] }) {
   return (
     <Suspense
       fallback={
-        <div className="h-10 w-48 animate-pulse rounded-lg bg-[var(--slate-200)]/50" />
+        <div className="h-10 w-full animate-pulse rounded-lg bg-[var(--slate-200)]/50 sm:w-48" />
       }
     >
       <OwnerSelectorInner owners={owners} />
@@ -328,12 +398,12 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
     scope.mode === "all"
       ? "Tous les chiffreurs"
       : owners.find((o) => o.ownerUserId === scope.ownerUserId)?.ownerName ??
-        "Mon activite";
+        "Mon activité";
 
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="page-header flex items-start justify-between gap-6">
+      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="page-title">Tableau de bord</h1>
           <p className="page-description">{scopeLabel}</p>
@@ -344,14 +414,14 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
       </div>
 
       {/* KPI grid */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <KpiCard
           label="Affaires actives"
           value={String(kpis.activeAffaires)}
           staggerClass="stagger-1"
         />
         <KpiCard
-          label="CA accepte"
+          label="CA accepté"
           value={formatEUR(kpis.acceptedRevenueCents)}
           staggerClass="stagger-2"
         />
@@ -362,7 +432,7 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
           staggerClass="stagger-3"
         />
         <KpiCard
-          label="Delai moyen 1re acceptation"
+          label="Délai avant 1re acceptation"
           value={
             kpis.avgDaysToFirstAcceptance != null
               ? String(kpis.avgDaysToFirstAcceptance)
@@ -385,7 +455,7 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
 
       {/* Generated at timestamp */}
       <p className="mt-4 text-xs text-[var(--slate-400)] text-right">
-        Mis a jour : {new Date(initialData.generatedAt).toLocaleString("fr-FR")}
+        Mis à jour : {new Date(initialData.generatedAt).toLocaleString("fr-FR")}
       </p>
     </div>
   );

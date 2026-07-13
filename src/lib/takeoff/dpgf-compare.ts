@@ -24,6 +24,22 @@ import type {
 export const TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE = 50;
 export const TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE = 200;
 
+export function hasBlockingTakeoffDpgfExceptions(
+  summary: TakeoffDpgfComparisonSummary | null
+): boolean {
+  if (!summary) return false;
+
+  const hasTargetDpgfLines = summary.total_lines > 0;
+
+  return (
+    summary.to_confirm > 0 ||
+    summary.significant_gaps > 0 ||
+    summary.lines_without_proof > 0 ||
+    summary.forced_manual > 0 ||
+    (hasTargetDpgfLines && summary.unused_takeoff_items > 0)
+  );
+}
+
 type BuildTakeoffDpgfComparisonInput = {
   versionId: string;
   jobId: string;
@@ -645,10 +661,13 @@ export function buildTakeoffDpgfComparisonSummary(input: {
       if (row.review_status === "significant_gap") {
         summary.significant_gaps += 1;
       }
-      if (row.review_status === "forced_manual") {
+      if (row.review_status === "forced_manual" && !row.applied_decision) {
         summary.forced_manual += 1;
       }
-      if (row.proofs.every((proof) => proof.type === "dpgf")) {
+      if (
+        !row.applied_decision &&
+        row.proofs.every((proof) => proof.type === "dpgf")
+      ) {
         summary.lines_without_proof += 1;
       }
 

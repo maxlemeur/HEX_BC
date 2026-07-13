@@ -105,7 +105,7 @@ export function AffairesCardList({
   }
 
   return (
-    <motion.div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" initial="hidden" animate="visible" transition={{ staggerChildren: 0.05 }}>
+    <motion.div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3" initial="hidden" animate="visible" transition={{ staggerChildren: 0.05 }}>
       <ConfirmModal {...modalProps} />
       {items.map((item) => {
         const hasCurrentVersion =
@@ -208,7 +208,8 @@ export function AffairesCardList({
               <button
                 type="button"
                 title="Hub affaire"
-                className="inline-flex items-center justify-center rounded p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                aria-label="Ouvrir le hub de l'affaire"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 sm:min-h-8 sm:min-w-8"
                 onClick={() => router.push(`/dashboard/affaires/${item.projectId}`)}
               >
                 <svg
@@ -231,7 +232,8 @@ export function AffairesCardList({
                 <button
                   type="button"
                   title="Voir le detail"
-                  className="inline-flex items-center justify-center rounded p-1 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                  aria-label="Voir le détail du chiffrage"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 sm:min-h-8 sm:min-w-8"
                   onClick={() => router.push(`/dashboard/estimates/${item.currentVersionId}`)}
                 >
                   <svg
@@ -255,7 +257,8 @@ export function AffairesCardList({
                 <button
                   type="button"
                   title="Editer l'affaire"
-                  className="inline-flex items-center justify-center rounded p-1 text-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                  aria-label="Éditer l'affaire"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 sm:min-h-8 sm:min-w-8"
                   onClick={() => router.push(
                     hasCurrentVersion
                       ? `/dashboard/estimates/${item.currentVersionId}/edit`
@@ -283,7 +286,8 @@ export function AffairesCardList({
                 <button
                   type="button"
                   title="Supprimer l'affaire"
-                  className="inline-flex items-center justify-center rounded p-1 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  aria-label="Supprimer l'affaire"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:min-h-8 sm:min-w-8"
                   onClick={() => requestDelete(item.projectId, item.projectName)}
                 >
                   <svg

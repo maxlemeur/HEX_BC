@@ -10,10 +10,10 @@ import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ApprovalQueueCardList } from "./ApprovalQueueCardList";
 
 const SORT_OPTIONS: SortOption[] = [
-  { key: "priority", label: "Priorite", defaultDirection: "desc" },
+  { key: "priority", label: "Priorité", defaultDirection: "desc" },
   { key: "amount", label: "Montant", defaultDirection: "desc" },
   { key: "margin", label: "Marge", defaultDirection: "asc" },
-  { key: "age", label: "Anciennete", defaultDirection: "asc" },
+  { key: "age", label: "Ancienneté", defaultDirection: "asc" },
 ];
 
 type ApprovalQueuePageProps = {
@@ -69,7 +69,7 @@ export function ApprovalQueuePage({
   return (
     <div className="space-y-6">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <div role="status" aria-live="polite" aria-atomic="true">
           <h1 className="text-lg font-semibold text-[var(--slate-800)]">
             File d&apos;approbation
@@ -79,7 +79,7 @@ export function ApprovalQueuePage({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 sm:flex sm:items-center">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--slate-600)]">
             <input
               type="checkbox"
@@ -90,12 +90,14 @@ export function ApprovalQueuePage({
             Exceptions seulement
           </label>
 
-          <SortControl
-            options={SORT_OPTIONS}
-            value={sortState}
-            onSortChange={handleSortChange}
-            onDirectionToggle={() => {}}
-          />
+          <div className="min-w-0">
+            <SortControl
+              options={SORT_OPTIONS}
+              value={sortState}
+              onSortChange={handleSortChange}
+              onDirectionToggle={() => {}}
+            />
+          </div>
         </div>
       </div>
 

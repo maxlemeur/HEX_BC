@@ -21,7 +21,11 @@ vi.mock("next/link", () => ({
 
 vi.mock("@/components/approvals/ApprovalQueueStateActions", () => ({
   ApprovalQueueStateActions: function MockApprovalQueueStateActions() {
-    return <span data-testid="triage-actions" />;
+    return (
+      <button type="button" data-testid="triage-actions">
+        Trier
+      </button>
+    );
   },
 }));
 
@@ -75,6 +79,29 @@ describe("ApprovalQueueCard", () => {
       "href",
       "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-1&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only"
     );
+  });
+
+  it("keeps triage actions outside the card content link", () => {
+    const { container } = render(<ApprovalQueueCard item={BASE_ITEM} />);
+
+    expect(container.querySelector("article")).toBeTruthy();
+    expect(within(container).getByTestId("triage-actions").closest("a")).toBeNull();
+    expect(container.querySelector("a button")).toBeNull();
+  });
+
+  it("allows long project names to wrap without horizontal overflow", () => {
+    const { container } = render(
+      <ApprovalQueueCard
+        item={{
+          ...BASE_ITEM,
+          projectName: "Restructuration hydraulique du centre hospitalier intercommunal",
+        }}
+      />
+    );
+
+    const title = within(container).getByRole("heading", { level: 3 });
+    expect(title).toHaveClass("line-clamp-2", "break-words");
+    expect(title).not.toHaveClass("truncate");
   });
 
   it("falls back to the synthetic alert job when the RPC latest job is missing", () => {

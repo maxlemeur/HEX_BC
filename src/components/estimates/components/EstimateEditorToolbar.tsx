@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
@@ -18,7 +19,7 @@ import {
   useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
 import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
-import { useIsTablet } from "@/hooks/useIsTablet";
+import { useIsCompactViewport } from "@/hooks/useIsTablet";
 import { usePopover } from "@/hooks/usePopover";
 import type { UiMode } from "@/lib/ui-mode";
 
@@ -93,6 +94,21 @@ type EstimateEditorToolbarProps = {
 };
 
 const ROOT_KEY = "root";
+const COLUMNS_PANEL_ID = "estimate-editor-columns-panel";
+const ANOMALIES_PANEL_ID = "estimate-editor-anomalies-panel";
+const TOOLS_PANEL_ID = "estimate-editor-tools-panel";
+const PRIMARY_ACTIONS_PANEL_ID = "estimate-editor-primary-actions-panel";
+const TOOLS_PANEL_WIDTH = 320;
+const POPOVER_VIEWPORT_PADDING = 16;
+const POPOVER_TRIGGER_GAP = 8;
+const TOOLS_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
   if (value === "all_lines" || value === "with_anomalies") {
@@ -172,20 +188,23 @@ export function EstimateEditorToolbar({
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
-  const isTablet = useIsTablet();
+  const isCompactViewport = useIsCompactViewport();
   const {
     isOpen: columnsOpen,
     toggle: columnsToggle,
+    close: columnsClose,
     setContainerRef: columnsContainerRef,
   } = usePopover();
   const {
     isOpen: toolsOpen,
     toggle: toolsToggle,
+    close: toolsClose,
     setContainerRef: toolsContainerRef,
   } = usePopover();
   const {
     isOpen: anomaliesOpen,
     toggle: anomaliesToggle,
+    close: anomaliesClose,
     setContainerRef: anomaliesContainerRef,
   } = usePopover();
   const {
@@ -193,17 +212,162 @@ export function EstimateEditorToolbar({
     toggle: overflowToggle,
     setContainerRef: overflowContainerRef,
   } = usePopover();
+  const {
+    isOpen: primaryActionsOpen,
+    toggle: primaryActionsToggle,
+    close: primaryActionsClose,
+    setContainerRef: primaryActionsContainerRef,
+  } = usePopover();
+  const toolsButtonRef = useRef<HTMLButtonElement>(null);
+  const toolsPanelRef = useRef<HTMLDivElement>(null);
+  const hasFocusedToolsPanelRef = useRef(false);
+  const [toolsPanelPosition, setToolsPanelPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const isSimplifiedMode = uiMode === "simplified";
   const availableColumnPresets = isSimplifiedMode
     ? (["essential"] as const)
     : (Object.keys(columnPresetLabels) as ColumnPreset[]);
+
+  useLayoutEffect(() => {
+    if (!toolsOpen) return;
+
+    const updateToolsPanelPosition = () => {
+      const button = toolsButtonRef.current;
+      const panel = toolsPanelRef.current;
+      if (!button || !panel) return;
+
+      const buttonRect = button.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      const width = Math.min(
+        TOOLS_PANEL_WIDTH,
+        Math.max(0, window.innerWidth - POPOVER_VIEWPORT_PADDING * 2)
+      );
+      const maximumLeft = Math.max(
+        POPOVER_VIEWPORT_PADDING,
+        window.innerWidth - POPOVER_VIEWPORT_PADDING - width
+      );
+      const left = Math.min(
+        maximumLeft,
+        Math.max(POPOVER_VIEWPORT_PADDING, buttonRect.right - width)
+      );
+      const availableBelow = Math.max(
+        0,
+        window.innerHeight -
+          buttonRect.bottom -
+          POPOVER_TRIGGER_GAP -
+          POPOVER_VIEWPORT_PADDING
+      );
+      const availableAbove = Math.max(
+        0,
+        buttonRect.top - POPOVER_TRIGGER_GAP - POPOVER_VIEWPORT_PADDING
+      );
+      const shouldOpenAbove =
+        panelRect.height > availableBelow && availableAbove > availableBelow;
+      const maxHeight = shouldOpenAbove ? availableAbove : availableBelow;
+      const top = shouldOpenAbove
+        ? Math.max(
+            POPOVER_VIEWPORT_PADDING,
+            buttonRect.top - POPOVER_TRIGGER_GAP - Math.min(panelRect.height, maxHeight)
+          )
+        : buttonRect.bottom + POPOVER_TRIGGER_GAP;
+
+      setToolsPanelPosition({ left, top, width, maxHeight });
+    };
+
+    updateToolsPanelPosition();
+    window.addEventListener("resize", updateToolsPanelPosition);
+    window.addEventListener("scroll", updateToolsPanelPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateToolsPanelPosition);
+      window.removeEventListener("scroll", updateToolsPanelPosition, true);
+    };
+  }, [toolsOpen]);
+
+  useLayoutEffect(() => {
+    if (!toolsOpen) {
+      hasFocusedToolsPanelRef.current = false;
+      return;
+    }
+    if (!toolsPanelPosition || hasFocusedToolsPanelRef.current) return;
+
+    const firstControl = toolsPanelRef.current?.querySelector<HTMLElement>(
+      "select:not([disabled]), input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    );
+    if (!firstControl) return;
+
+    firstControl.focus();
+    hasFocusedToolsPanelRef.current = true;
+  }, [toolsOpen, toolsPanelPosition]);
+
+  useLayoutEffect(() => {
+    if (!toolsOpen) return;
+
+    const handleToolsKeyDown = (event: KeyboardEvent) => {
+      const panel = toolsPanelRef.current;
+      if (!panel || !panel.contains(document.activeElement)) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        toolsClose();
+        toolsButtonRef.current?.focus();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusableElements = Array.from(
+        panel.querySelectorAll<HTMLElement>(TOOLS_FOCUSABLE_SELECTOR)
+      );
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const firstControl = focusableElements[0];
+      const lastControl = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey && document.activeElement === firstControl) {
+        event.preventDefault();
+        lastControl.focus();
+        return;
+      }
+
+      if (!event.shiftKey && document.activeElement === lastControl) {
+        event.preventDefault();
+        firstControl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleToolsKeyDown, true);
+    return () =>
+      document.removeEventListener("keydown", handleToolsKeyDown, true);
+  }, [toolsClose, toolsOpen]);
+
+  useLayoutEffect(() => {
+    if (!isCompactViewport || overflowOpen) return;
+    columnsClose();
+    anomaliesClose();
+    toolsClose();
+  }, [
+    anomaliesClose,
+    columnsClose,
+    isCompactViewport,
+    overflowOpen,
+    toolsClose,
+  ]);
 
   if (isViewerMode) {
     return (
       <div className="flex flex-wrap items-center gap-2" data-testid="estimate-editor-table-toolbar">
         <input
           type="search"
-          className="form-input h-8 text-sm"
+          className="form-input min-h-11 text-sm sm:min-h-0"
           style={{ width: "220px" }}
           placeholder="Rechercher..."
           value={searchTerm}
@@ -229,11 +393,13 @@ export function EstimateEditorToolbar({
   return (
     <div className={`flex flex-col ${isSimplifiedMode ? "gap-1" : "gap-2"}`} data-testid="estimate-editor-table-toolbar">
       {/* Row 1 — Edit actions */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div
+        className={`flex items-center gap-2 ${isCompactViewport ? "flex-nowrap" : "flex-wrap"}`}
+      >
         {/* Undo / Redo group */}
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-subtle px-2 py-1">
+        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-surface-subtle px-1 py-1 sm:px-2">
           <button
-            className="btn btn-ghost btn-sm px-2"
+            className={`btn btn-ghost btn-sm px-2 ${isCompactViewport ? "h-11 w-11" : ""}`}
             type="button"
             onClick={() => void onUndo()}
             disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
@@ -242,10 +408,12 @@ export function EstimateEditorToolbar({
             data-testid="estimate-editor-undo-button"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
-            <span className="text-xs">Annuler</span>
+            <span className={isCompactViewport ? "sr-only" : "text-xs"}>
+              Annuler
+            </span>
           </button>
           <button
-            className="btn btn-ghost btn-sm px-2"
+            className={`btn btn-ghost btn-sm px-2 ${isCompactViewport ? "h-11 w-11" : ""}`}
             type="button"
             onClick={() => void onRedo()}
             disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
@@ -254,15 +422,17 @@ export function EstimateEditorToolbar({
             data-testid="estimate-editor-redo-button"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
-            <span className="text-xs">Rétablir</span>
+            <span className={isCompactViewport ? "sr-only" : "text-xs"}>
+              Rétablir
+            </span>
           </button>
         </div>
 
-        <div className="h-5 w-px bg-slate-200" />
+        {!isCompactViewport ? <div className="h-5 w-px bg-slate-200" /> : null}
 
         {/* Primary actions */}
         <button
-          className="btn btn-secondary btn-sm"
+          className={`btn btn-secondary btn-sm whitespace-nowrap ${isCompactViewport ? "h-11 flex-1" : ""}`}
           type="button"
           onClick={onAddRootSection}
           disabled={meta.isReadOnly}
@@ -270,106 +440,196 @@ export function EstimateEditorToolbar({
         >
           {rootAddSectionLabel}
         </button>
-        {onExpandAllSections ? (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onExpandAllSections}
-            data-testid="estimate-editor-expand-all-sections-button"
-          >
-            Tout deplier
-          </button>
-        ) : null}
-        {onCollapseAllSections ? (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onCollapseAllSections}
-            data-testid="estimate-editor-collapse-all-sections-button"
-          >
-            Tout replier
-          </button>
-        ) : null}
-        {onOpenImportFromEstimateDialog ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onOpenImportFromEstimateDialog}
-            disabled={meta.isReadOnly}
-            data-testid="estimate-editor-import-from-estimate-button"
-          >
-            Importer depuis...
-          </button>
-        ) : null}
-        {onOpenEstimateStructureDraftDialog || onOpenGeneratedOuvrageDialog ? (
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-            Aides adjacentes
-          </span>
-        ) : null}
-        {onOpenEstimateStructureDraftDialog ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onOpenEstimateStructureDraftDialog}
-            disabled={meta.isReadOnly}
-            data-testid="estimate-editor-open-structure-draft-button"
-          >
-            Structure IA
-          </button>
-        ) : null}
-        {onOpenGeneratedOuvrageDialog ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onOpenGeneratedOuvrageDialog}
-            disabled={meta.isReadOnly}
-            data-testid="estimate-editor-open-generated-ouvrage-button"
-          >
-            Generer des ouvrages
-          </button>
-        ) : null}
-
-        {/* Spacer */}
-        <div className="flex-1 min-w-0" />
-
-        {/* Settings button */}
-        {onOpenSettings && (
-          <>
-            <div className="h-5 w-px bg-slate-200" />
+        {isCompactViewport ? (
+          <div className="relative shrink-0" ref={primaryActionsContainerRef}>
             <button
-              className="btn btn-ghost btn-sm flex items-center gap-1.5"
+              className="btn btn-secondary btn-sm h-10 whitespace-nowrap"
               type="button"
-              onClick={onOpenSettings}
-              title="Paramétrage"
-              data-testid="estimate-editor-settings-button"
+              onClick={primaryActionsToggle}
+              aria-expanded={primaryActionsOpen}
+              aria-haspopup="menu"
+              aria-controls={PRIMARY_ACTIONS_PANEL_ID}
+              data-testid="estimate-editor-primary-actions-button"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-              <span>Paramétrage</span>
+              Actions
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
+            {primaryActionsOpen ? (
+              <div
+                id={PRIMARY_ACTIONS_PANEL_ID}
+                role="menu"
+                aria-label="Actions du devis"
+                className="absolute bottom-full right-0 z-40 mb-2 flex max-h-[calc(100vh-32px)] flex-col gap-1 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-xl"
+                style={{ width: "min(280px, calc(100vw - 32px))" }}
+              >
+                {onExpandAllSections ? (
+                  <button
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      primaryActionsClose();
+                      onExpandAllSections();
+                    }}
+                    data-testid="estimate-editor-expand-all-sections-button"
+                  >
+                    Tout déplier
+                  </button>
+                ) : null}
+                {onCollapseAllSections ? (
+                  <button
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      primaryActionsClose();
+                      onCollapseAllSections();
+                    }}
+                    data-testid="estimate-editor-collapse-all-sections-button"
+                  >
+                    Tout replier
+                  </button>
+                ) : null}
+                {onOpenImportFromEstimateDialog ? (
+                  <button
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      primaryActionsClose();
+                      onOpenImportFromEstimateDialog();
+                    }}
+                    disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-import-from-estimate-button"
+                  >
+                    Importer depuis un devis
+                  </button>
+                ) : null}
+                {onOpenEstimateStructureDraftDialog ||
+                onOpenGeneratedOuvrageDialog ? (
+                  <div className="my-1 border-t border-border pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Aides adjacentes
+                  </div>
+                ) : null}
+                {onOpenEstimateStructureDraftDialog ? (
+                  <button
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      primaryActionsClose();
+                      onOpenEstimateStructureDraftDialog();
+                    }}
+                    disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-open-structure-draft-button"
+                  >
+                    Structure IA
+                  </button>
+                ) : null}
+                {onOpenGeneratedOuvrageDialog ? (
+                  <button
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      primaryActionsClose();
+                      onOpenGeneratedOuvrageDialog();
+                    }}
+                    disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-open-generated-ouvrage-button"
+                  >
+                    Générer des ouvrages
+                  </button>
+                ) : null}
+                {onOpenSettings ? (
+                  <button
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      primaryActionsClose();
+                      onOpenSettings();
+                    }}
+                    data-testid="estimate-editor-settings-button"
+                  >
+                    Paramétrage
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            {onExpandAllSections ? (
+              <button className="btn btn-ghost btn-sm" type="button" onClick={onExpandAllSections} data-testid="estimate-editor-expand-all-sections-button">Tout deplier</button>
+            ) : null}
+            {onCollapseAllSections ? (
+              <button className="btn btn-ghost btn-sm" type="button" onClick={onCollapseAllSections} data-testid="estimate-editor-collapse-all-sections-button">Tout replier</button>
+            ) : null}
+            {onOpenImportFromEstimateDialog ? (
+              <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenImportFromEstimateDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-import-from-estimate-button">Importer depuis...</button>
+            ) : null}
+            {onOpenEstimateStructureDraftDialog || onOpenGeneratedOuvrageDialog ? (
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Aides adjacentes</span>
+            ) : null}
+            {onOpenEstimateStructureDraftDialog ? (
+              <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenEstimateStructureDraftDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-open-structure-draft-button">Structure IA</button>
+            ) : null}
+            {onOpenGeneratedOuvrageDialog ? (
+              <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenGeneratedOuvrageDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-open-generated-ouvrage-button">Generer des ouvrages</button>
+            ) : null}
+            <div className="min-w-0 flex-1" />
+            {onOpenSettings ? (
+              <>
+                <div className="h-5 w-px bg-slate-200" />
+                <button className="btn btn-ghost btn-sm flex items-center gap-1.5" type="button" onClick={onOpenSettings} title="Paramétrage" data-testid="estimate-editor-settings-button">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span>Paramétrage</span>
+                </button>
+              </>
+            ) : null}
           </>
         )}
       </div>
 
       {/* Row 2 — View & filter */}
-      <div className={`flex flex-wrap items-center ${isSimplifiedMode ? "gap-1.5" : "gap-2"}`}>
+      <div
+        className={
+          isCompactViewport && !isSimplifiedMode
+            ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+            : `flex flex-wrap items-center ${isSimplifiedMode ? "gap-1.5" : "gap-2"}`
+        }
+      >
         <input
           type="search"
-          className="form-input h-8 text-sm"
-          style={{ width: "160px" }}
+          className={`form-input text-sm ${isCompactViewport ? "h-11 min-h-11 w-full min-w-0" : "h-8"}`}
+          style={isCompactViewport ? undefined : { width: "160px" }}
           placeholder="Rechercher..."
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
           data-testid="estimate-editor-search-input"
         />
-        {/* Tablet overflow menu — groups Quick Insert, Colonnes, Anomalies, Outils into a single popover */}
-        {isTablet && !isSimplifiedMode ? (
+        {/* Compact overflow menu — keeps mobile and tablet controls touch-friendly. */}
+        {isCompactViewport && !isSimplifiedMode ? (
           <div className="relative" ref={overflowContainerRef}>
             <button
-              className="btn btn-secondary btn-sm"
+              className="btn btn-secondary btn-sm h-11 whitespace-nowrap"
               type="button"
               onClick={overflowToggle}
               aria-expanded={overflowOpen}
-              aria-haspopup="true"
+              aria-haspopup="dialog"
               data-testid="estimate-editor-overflow-button"
             >
               Plus...
@@ -377,13 +637,15 @@ export function EstimateEditorToolbar({
             </button>
             {overflowOpen && (
               <div
-                className="absolute left-0 top-full z-30 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
-                style={{ minWidth: "260px" }}
+                role="dialog"
+                aria-label="Insertion et affichage"
+                className="absolute bottom-full right-0 z-30 mb-2 flex max-h-[calc(100vh-32px)] flex-col gap-1 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-xl"
+                style={{ width: "min(300px, calc(100vw - 32px))" }}
               >
                 {/* Quick insert buttons */}
                 {onToggleQuickTemplatePicker && (
                   <button
-                    className={`btn btn-sm w-full text-left ${isQuickTemplatePickerOpen ? "btn-primary" : "btn-secondary"}`}
+                    className={`btn btn-sm min-h-10 w-full justify-start ${isQuickTemplatePickerOpen ? "btn-primary" : "btn-ghost"}`}
                     type="button"
                     onClick={() => { overflowToggle(); onToggleQuickTemplatePicker(); }}
                     disabled={meta.isReadOnly}
@@ -394,7 +656,7 @@ export function EstimateEditorToolbar({
                 )}
                 {onToggleQuickAssemblyPicker && (
                   <button
-                    className={`btn btn-sm w-full text-left ${isQuickAssemblyPickerOpen ? "btn-primary" : "btn-secondary"}`}
+                    className={`btn btn-sm min-h-10 w-full justify-start ${isQuickAssemblyPickerOpen ? "btn-primary" : "btn-ghost"}`}
                     type="button"
                     onClick={() => { overflowToggle(); onToggleQuickAssemblyPicker(); }}
                     disabled={meta.isReadOnly}
@@ -403,36 +665,122 @@ export function EstimateEditorToolbar({
                     + Assemblage
                   </button>
                 )}
-                <div className="border-t border-border my-1" />
+                <div className="my-1 border-t border-border" />
                 {/* Colonnes */}
                 <button
-                  className="btn btn-secondary btn-sm w-full text-left"
+                  className="btn btn-ghost btn-sm min-h-10 w-full justify-between"
                   type="button"
-                  onClick={() => { overflowToggle(); columnsToggle(); }}
+                  onClick={() => {
+                    if (!columnsOpen && anomaliesOpen) anomaliesToggle();
+                    columnsToggle();
+                  }}
+                  aria-expanded={columnsOpen}
+                  aria-controls={COLUMNS_PANEL_ID}
                   data-testid="estimate-editor-columns-button"
                 >
                   Colonnes
+                  <span className="text-xs text-muted-foreground">
+                    {columnPresetLabels[columnPreset]}
+                  </span>
                 </button>
+                {columnsOpen ? (
+                  <div
+                    id={COLUMNS_PANEL_ID}
+                    role="group"
+                    aria-label="Choisir les colonnes"
+                  >
+                    <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-subtle p-1.5">
+                      {availableColumnPresets.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className={`btn btn-sm min-h-9 ${columnPreset === preset ? "btn-primary" : "btn-ghost"}`}
+                          onClick={() => onColumnPresetChange(preset)}
+                        >
+                          {columnPresetLabels[preset]}
+                        </button>
+                      ))}
+                    </div>
+                    {columnPreset === "custom" ? (
+                      <div className="mt-1 space-y-1 rounded-lg border border-border p-2">
+                        {allAdvancedColumns.map((column) => (
+                          <label
+                            key={column}
+                            className="flex min-h-9 items-center gap-2 text-sm text-secondary-foreground"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={columnVisibleColumns.has(column)}
+                              onChange={() => onToggleColumn(column)}
+                            />
+                            {columnLabels[column]}
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {/* Anomalies */}
                 {qualityCounts.linesWithAnomaliesCount > 0 && (
-                  <button
-                    className={`btn btn-sm w-full text-left ${qualityFilter !== "all_lines" ? "btn-primary" : "btn-secondary"}`}
-                    type="button"
-                    onClick={() => { overflowToggle(); anomaliesToggle(); }}
-                    data-testid="estimate-editor-anomalies-button"
-                  >
-                    Anomalies ({qualityCounts.linesWithAnomaliesCount})
-                  </button>
+                  <>
+                    <button
+                      className={`btn btn-sm min-h-10 w-full justify-between ${qualityFilter !== "all_lines" ? "btn-primary" : "btn-ghost"}`}
+                      type="button"
+                      onClick={() => {
+                        if (!anomaliesOpen && columnsOpen) columnsToggle();
+                        anomaliesToggle();
+                      }}
+                      aria-expanded={anomaliesOpen}
+                      aria-controls={ANOMALIES_PANEL_ID}
+                      data-testid="estimate-editor-anomalies-button"
+                    >
+                      Anomalies
+                      <span>{qualityCounts.linesWithAnomaliesCount}</span>
+                    </button>
+                    {anomaliesOpen ? (
+                      <div
+                        id={ANOMALIES_PANEL_ID}
+                        role="group"
+                        className="flex flex-col gap-1 rounded-lg bg-orange-50 p-1.5"
+                        aria-label="Filtrer les anomalies"
+                      >
+                        <button
+                          type="button"
+                          className={`rounded-md px-3 py-2 text-left text-sm ${qualityFilter === "all_lines" ? "bg-white font-semibold" : ""}`}
+                          onClick={() => onQualityFilterChange("all_lines")}
+                        >
+                          Toutes les lignes ({qualityCounts.linesCount})
+                        </button>
+                        <button
+                          type="button"
+                          className={`rounded-md px-3 py-2 text-left text-sm ${qualityFilter === "with_anomalies" ? "bg-white font-semibold text-orange-800" : ""}`}
+                          onClick={() => onQualityFilterChange("with_anomalies")}
+                        >
+                          Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
                 )}
                 {/* Outils */}
-                <button
-                  className="btn btn-secondary btn-sm w-full text-left"
-                  type="button"
-                  onClick={() => { overflowToggle(); toolsToggle(); }}
-                  data-testid="estimate-editor-tools-button"
-                >
-                  Outils
-                </button>
+                <div ref={toolsContainerRef}>
+                  <button
+                    ref={toolsButtonRef}
+                    className="btn btn-ghost btn-sm min-h-10 w-full justify-start"
+                    type="button"
+                    onClick={toolsToggle}
+                    aria-expanded={toolsOpen}
+                    aria-haspopup="dialog"
+                    aria-controls={TOOLS_PANEL_ID}
+                    data-testid="estimate-editor-tools-button"
+                  >
+                    Outils avancés
+                  </button>
+                </div>
+                <div className="flex min-h-10 items-center justify-between rounded-lg px-3 text-sm text-secondary-foreground">
+                  <span>Raccourcis clavier</span>
+                  <KeyboardShortcutsButton />
+                </div>
               </div>
             )}
             {/* Picker nodes rendered outside overflow for correct positioning */}
@@ -496,12 +844,18 @@ export function EstimateEditorToolbar({
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={columnsToggle}
+              aria-expanded={columnsOpen}
+              aria-haspopup="dialog"
+              aria-controls={COLUMNS_PANEL_ID}
               data-testid="estimate-editor-columns-button"
             >
               Colonnes
             </button>
             {columnsOpen && (
               <div
+                id={COLUMNS_PANEL_ID}
+                role="dialog"
+                aria-label="Choisir les colonnes"
                 className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
                 style={{ minWidth: "200px" }}
               >
@@ -544,6 +898,9 @@ export function EstimateEditorToolbar({
               }`}
               onClick={anomaliesToggle}
               title="Filtrer par anomalies"
+              aria-expanded={anomaliesOpen}
+              aria-haspopup="dialog"
+              aria-controls={ANOMALIES_PANEL_ID}
               data-testid="estimate-editor-anomalies-button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -552,6 +909,9 @@ export function EstimateEditorToolbar({
             </button>
             {anomaliesOpen && (
               <div
+                id={ANOMALIES_PANEL_ID}
+                role="dialog"
+                aria-label="Filtrer les anomalies"
                 className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl"
                 style={{ minWidth: "260px" }}
               >
@@ -586,19 +946,48 @@ export function EstimateEditorToolbar({
         {!isSimplifiedMode && (
           <div className="relative" ref={toolsContainerRef}>
             <button
+              ref={toolsButtonRef}
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={toolsToggle}
+              aria-expanded={toolsOpen}
+              aria-haspopup="dialog"
+              aria-controls={TOOLS_PANEL_ID}
               data-testid="estimate-editor-tools-button"
             >
               Outils
             </button>
-            {toolsOpen && (
+          </div>
+        )}
+          </>
+        )}
+        {toolsOpen && createPortal(
               <div
-                className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-xl"
-                style={{ minWidth: "320px" }}
+                ref={toolsPanelRef}
+                id={TOOLS_PANEL_ID}
+                role="dialog"
+                aria-label="Outils du devis"
+                tabIndex={-1}
+                onMouseDown={(event) => event.stopPropagation()}
+                className="fixed z-20 flex flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-xl"
+                style={
+                  toolsPanelPosition
+                    ? {
+                        left: `${toolsPanelPosition.left}px`,
+                        top: `${toolsPanelPosition.top}px`,
+                        width: `${toolsPanelPosition.width}px`,
+                        maxHeight: `${toolsPanelPosition.maxHeight}px`,
+                      }
+                    : {
+                        left: `${POPOVER_VIEWPORT_PADDING}px`,
+                        top: 0,
+                        width: `min(${TOOLS_PANEL_WIDTH}px, calc(100vw - ${POPOVER_VIEWPORT_PADDING * 2}px))`,
+                        maxHeight: `calc(100vh - ${POPOVER_VIEWPORT_PADDING * 2}px)`,
+                        visibility: "hidden",
+                      }
+                }
               >
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <label
                     className="typo-label text-muted-foreground"
                     htmlFor="estimate-quality-filter"
@@ -607,8 +996,8 @@ export function EstimateEditorToolbar({
                   </label>
                   <select
                     id="estimate-quality-filter"
-                    className="estimate-input estimate-select"
-                    style={{ width: "auto", minWidth: "260px" }}
+                    className="estimate-input estimate-select min-w-0 flex-1"
+                    style={{ width: "auto" }}
                     value={qualityFilter}
                     onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
                   >
@@ -686,13 +1075,10 @@ export function EstimateEditorToolbar({
                     Assemblages
                   </button>
                 </div>
-              </div>
-            )}
-          </div>
+              </div>,
+              document.body
         )}
-          </>
-        )}
-        <KeyboardShortcutsButton />
+        {!isCompactViewport ? <KeyboardShortcutsButton /> : null}
       </div>
 
       {/* Bulk selection bar */}

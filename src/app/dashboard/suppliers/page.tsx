@@ -260,15 +260,15 @@ export default function SuppliersPage() {
     <div className="animate-fade-in">
       <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Fournisseurs" />
       {/* Page header */}
-      <div className="page-header flex items-start justify-between gap-6">
+      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div>
           <h1 className="page-title">Fournisseurs</h1>
           <p className="page-description">
-            Gerez la liste des fournisseurs Hydro Express.
+            Gérez la liste des fournisseurs Hydro Express.
           </p>
         </div>
         <button
-          className="btn btn-primary btn-lg"
+          className="btn btn-primary btn-lg w-full justify-center sm:w-auto"
           type="button"
           onClick={openCreateForm}
         >
@@ -310,16 +310,16 @@ export default function SuppliersPage() {
       ) : null}
 
       {isFormOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40" />
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="supplier-modal-title"
-            className="relative max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
+            className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-[var(--slate-200)] px-6 py-4">
+            <div className="shrink-0 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-blue)]/10">
                   <svg
@@ -357,7 +357,8 @@ export default function SuppliersPage() {
               </div>
             </div>
 
-            <form className="grid gap-5 overflow-y-auto p-6 sm:grid-cols-2 lg:grid-cols-3" onSubmit={onSubmit}>
+            <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
+              <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto px-4 py-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-3">
               <div className="sm:col-span-2 lg:col-span-3">
                 <label className="form-label" htmlFor="supplier-name">Nom *</label>
                 <input
@@ -387,7 +388,7 @@ export default function SuppliersPage() {
               </div>
 
               <div>
-                <label className="form-label" htmlFor="supplier-phone">Telephone</label>
+                <label className="form-label" htmlFor="supplier-phone">Téléphone</label>
                 <input
                   id="supplier-phone"
                   name="phone"
@@ -506,7 +507,10 @@ export default function SuppliersPage() {
                 />
               </div>
 
-              <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 pt-2">
+              </div>
+
+              <div className="shrink-0 border-t border-[var(--slate-200)] bg-surface px-4 py-3 sm:px-6 sm:py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {formError ? (
                   <div className="alert alert-error flex-1">
                     <svg
@@ -527,9 +531,9 @@ export default function SuppliersPage() {
                 ) : (
                   <span />
                 )}
-                <div className="flex items-center gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
                   <button
-                    className="btn btn-secondary"
+                    className="btn btn-secondary w-full justify-center sm:w-auto"
                     onClick={closeForm}
                     type="button"
                     disabled={isSubmitting}
@@ -537,7 +541,7 @@ export default function SuppliersPage() {
                     Annuler
                   </button>
                   <button
-                    className="btn btn-primary"
+                    className="btn btn-primary w-full justify-center sm:w-auto"
                     disabled={isSubmitting}
                     type="submit"
                   >
@@ -552,6 +556,7 @@ export default function SuppliersPage() {
                       "Ajouter"
                     )}
                   </button>
+                </div>
                 </div>
               </div>
             </form>
@@ -574,7 +579,7 @@ export default function SuppliersPage() {
 
       {/* Table card */}
       <div className="dashboard-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">
             Liste des fournisseurs
           </h2>
@@ -620,7 +625,92 @@ export default function SuppliersPage() {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
+        <div className="xl:hidden">
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-[var(--slate-500)]">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+              Chargement...
+            </div>
+          ) : displayedSuppliers.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <p className="font-medium text-[var(--slate-700)]">
+                {suppliers.length === 0 ? "Aucun fournisseur" : "Aucun resultat"}
+              </p>
+              <p className="mt-1 text-sm text-[var(--slate-500)]">
+                {suppliers.length === 0
+                  ? "Ajoutez un fournisseur pour demarrer."
+                  : "Modifiez vos filtres pour voir plus de resultats."}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+              {displayedSuppliers.map((supplier, index) => (
+                <article
+                  key={supplier.id}
+                  className="min-w-0 animate-fade-in rounded-xl border border-[var(--slate-200)] bg-white p-4"
+                  style={{ animationDelay: `${index * 0.03}s` }}
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="break-words font-semibold text-[var(--slate-800)]">
+                        {supplier.name}
+                      </h3>
+                      <p className="mt-1 text-sm text-[var(--slate-500)]">
+                        {[supplier.city, supplier.country].filter(Boolean).join(", ") || "Localisation non renseignee"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-2 text-sm">
+                    <p className="text-[var(--slate-600)]">
+                      <span className="font-medium text-[var(--slate-800)]">Contact :</span>{" "}
+                      {supplier.contact_name ?? "Non renseigne"}
+                    </p>
+                    {supplier.email ? (
+                      <a
+                        href={`mailto:${supplier.email}`}
+                        className="block break-all text-[var(--brand-blue)] hover:underline"
+                      >
+                        {supplier.email}
+                      </a>
+                    ) : (
+                      <p className="text-[var(--slate-400)]">Email non renseigne</p>
+                    )}
+                    {supplier.phone ? (
+                      <a
+                        href={`tel:${supplier.phone}`}
+                        className="block break-all text-[var(--brand-blue)] hover:underline"
+                      >
+                        {supplier.phone}
+                      </a>
+                    ) : (
+                      <p className="text-[var(--slate-400)]">Téléphone non renseigné</p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--slate-100)] pt-3">
+                    <button
+                      className="btn btn-secondary btn-sm w-full justify-center"
+                      onClick={() => openEditForm(supplier)}
+                      type="button"
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      className="btn btn-danger btn-sm w-full justify-center"
+                      onClick={() => onDelete(supplier.id)}
+                      type="button"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto xl:block">
           <table className="data-table">
             <thead>
               <tr>
@@ -628,7 +718,7 @@ export default function SuppliersPage() {
                 <th>Contact</th>
                 <th>Ville</th>
                 <th>Email</th>
-                <th>Telephone</th>
+                <th>Téléphone</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
@@ -659,7 +749,7 @@ export default function SuppliersPage() {
                         </div>
                         <div className="text-center">
                           <p className="font-medium text-[var(--slate-700)]">Aucun fournisseur</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Cliquez sur le bouton Ajouter un fournisseur pour demarrer.</p>
+                          <p className="mt-1 text-sm text-[var(--slate-500)]">Cliquez sur le bouton Ajouter un fournisseur pour démarrer.</p>
                         </div>
                       </div>
                     ) : (

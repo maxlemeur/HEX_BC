@@ -391,4 +391,31 @@ describe("AffairesPageClient", () => {
 
     expect(screen.getByText("manager-state:error")).toBeInTheDocument();
   });
+
+  it("does not start manager qualification for portfolios above the supported volume", async () => {
+    isExpertValue = true;
+
+    render(
+      <AffairesPageClient
+        initialData={{
+          ...initialData,
+          counters: {
+            ...initialData.counters,
+            totalCount: 997,
+            filteredCount: 997,
+          },
+        }}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    expect(screen.getByText("manager-state:unavailable")).toBeInTheDocument();
+    expect(fetchAffaireManagerQueueSummaryAction).not.toHaveBeenCalled();
+  });
 });

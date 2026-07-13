@@ -21,7 +21,7 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
   if (!enabled) notFound();
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <TakeoffRouteHierarchyBanner
         descriptor={buildTakeoffRouteHierarchy({ kind: "affaire_review" })}
       />

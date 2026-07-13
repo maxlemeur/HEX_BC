@@ -30,6 +30,16 @@ import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
 
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";
+import {
+  getCategoryIllustrationLabel,
+  getFileIllustrationTone,
+  getReviewChoiceConsequence,
+  getReviewChoiceLabel,
+  getReviewChoiceSecondaryBadge,
+  getReviewEvidenceHints,
+  getReviewProbableCategories,
+  sortReviewDocuments,
+} from "./AffaireFlowHierarchyPanel.review-logic";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 
@@ -818,10 +828,6 @@ function buildPanelModel(
   const revalidationFacts = (input.registerSummary?.revalidationImpactedStages ?? [])
     .slice(0, 2)
     .map((stage) => AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS[stage]);
-  const hasStudyContinuationSuggestion =
-    (planExceptionCount > 0 && viewExceptionsSuggestion !== null) ||
-    analyzePlansSuggestion !== null ||
-    generateStructureSuggestion !== null;
   const manualEstimateHref = buildManualEstimateHref({
     projectId: input.projectId,
     currentVersion: input.currentVersion,
@@ -1522,36 +1528,6 @@ function ResultFactPill({ label }: { label: string }) {
   );
 }
 
-function getFileIllustrationTone(fileName: string) {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "pdf") {
-    return { label: "PDF", accent: "text-red-600", frame: "border-red-200 bg-red-50/90" };
-  }
-  if (["xlsx", "xls", "csv"].includes(ext)) {
-    return { label: "XLS", accent: "text-emerald-700", frame: "border-emerald-200 bg-emerald-50/90" };
-  }
-  if (["doc", "docx"].includes(ext)) {
-    return { label: "DOC", accent: "text-blue-700", frame: "border-blue-200 bg-blue-50/90" };
-  }
-  if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
-    return { label: "IMG", accent: "text-fuchsia-700", frame: "border-fuchsia-200 bg-fuchsia-50/90" };
-  }
-  if (["eml", "msg"].includes(ext)) {
-    return { label: "MSG", accent: "text-slate-700", frame: "border-slate-200 bg-slate-50/90" };
-  }
-  return { label: "FILE", accent: "text-slate-600", frame: "border-slate-200 bg-white/90" };
-}
-
-function getCategoryIllustrationLabel(category: string) {
-  if (category === "dpgf") return "DPGF";
-  if (category === "plans") return "Plans";
-  if (category === "cctp") return "CCTP";
-  if (category === "bpu_dqe") return "BPU/DQE";
-  if (category === "emails") return "Courriers";
-  if (category === "annexes") return "Annexes";
-  return "A classer";
-}
-
 function getCategoryStoryIcon(category: string) {
   if (category === "plans") {
     return (
@@ -1593,176 +1569,6 @@ function getCategoryStoryIcon(category: string) {
       <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </svg>
   );
-}
-
-function getReviewProbableCategories(
-  document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number] | null,
-) {
-  if (!document) {
-    return ["plans", "cctp", "annexes"];
-  }
-
-  const extension = document.fileName.split(".").pop()?.toLowerCase() ?? "";
-  const baseCategories = ["plans", "cctp", "annexes"];
-  if (["xlsx", "xls", "csv"].includes(extension)) {
-    return ["dpgf", "bpu_dqe", "annexes"];
-  }
-  if (["doc", "docx"].includes(extension)) {
-    return ["cctp", "annexes", "emails"];
-  }
-  if (["eml", "msg"].includes(extension)) {
-    return ["emails", "annexes", "cctp"];
-  }
-  if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(extension)) {
-    return ["plans", "annexes", "cctp"];
-  }
-  return baseCategories;
-}
-
-function getMissingReviewKinds(
-  missingPieces: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["missingPieces"],
-) {
-  const kinds = new Set<string>();
-
-  for (const piece of missingPieces) {
-    const normalized = `${piece.code} ${piece.label}`.toLowerCase();
-    if (normalized.includes("dpgf")) {
-      kinds.add("dpgf");
-    }
-    if (normalized.includes("plan")) {
-      kinds.add("plans");
-    }
-    if (normalized.includes("cctp")) {
-      kinds.add("cctp");
-    }
-  }
-
-  return kinds;
-}
-
-function sortReviewDocuments(
-  documents: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"],
-  missingPieces: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["missingPieces"],
-) {
-  const missingKinds = getMissingReviewKinds(missingPieces);
-
-  return [...documents]
-    .filter((document) => isDocumentNeedingReview(document))
-    .sort((left, right) => {
-      const leftProbables = getReviewProbableCategories(left);
-      const rightProbables = getReviewProbableCategories(right);
-      const leftResolvesCritical = leftProbables.some((category) => missingKinds.has(category));
-      const rightResolvesCritical = rightProbables.some((category) => missingKinds.has(category));
-
-      if (leftResolvesCritical !== rightResolvesCritical) {
-        return leftResolvesCritical ? -1 : 1;
-      }
-
-      if (left.confidence !== right.confidence) {
-        return left.confidence - right.confidence;
-      }
-
-      return left.fileName.localeCompare(right.fileName);
-    });
-}
-
-function getReviewEvidenceHints(
-  document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number] | null,
-  missingPieces: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["missingPieces"] = [],
-) {
-  if (!document) {
-    return ["Piece recue", "Aucune categorie certaine", "Verification manuelle requise"];
-  }
-
-  const extension = document.fileName.split(".").pop()?.toLowerCase() ?? "";
-  const fileTypeHint =
-    extension === "pdf"
-      ? "PDF recu"
-      : ["xlsx", "xls", "csv"].includes(extension)
-        ? "Tableur recu"
-        : ["doc", "docx"].includes(extension)
-          ? "Document texte recu"
-          : ["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(extension)
-            ? "Image recue"
-            : "Piece recue";
-
-  const missingKinds = getMissingReviewKinds(missingPieces);
-  const probableCategories = getReviewProbableCategories(document);
-  const liftedBlockingHint = probableCategories.find((category) => missingKinds.has(category));
-  const liftHint =
-    liftedBlockingHint === "dpgf"
-      ? "Peut lever: DPGF manquant"
-      : liftedBlockingHint === "plans"
-        ? "Peut lever: Plans manquants"
-        : liftedBlockingHint === "cctp"
-          ? "Peut lever: CCTP manquant"
-          : "";
-
-  return dedupe([
-    fileTypeHint,
-    `${Math.round(document.confidence * 100)}% de confiance`,
-    document.confidence < 0.65 ? "Aucune categorie certaine" : "",
-    liftHint,
-    document.issues[0] ?? "",
-  ]).filter(Boolean);
-}
-
-function getReviewChoiceLabel(input: {
-  category: string;
-  hasPrimaryDpgf: boolean;
-  hasPrimaryCctp: boolean;
-}) {
-  if (input.category === "dpgf") {
-    return input.hasPrimaryDpgf ? "DPGF" : "DPGF";
-  }
-  if (input.category === "cctp") {
-    return input.hasPrimaryCctp ? "CCTP" : "CCTP";
-  }
-
-  return getCategoryIllustrationLabel(input.category);
-}
-
-function getReviewChoiceSecondaryBadge(input: {
-  category: string;
-  hasPrimaryDpgf: boolean;
-  hasPrimaryCctp: boolean;
-}) {
-  if (input.category === "dpgf" && input.hasPrimaryDpgf) {
-    return "Complementaire";
-  }
-  if (input.category === "cctp" && input.hasPrimaryCctp) {
-    return "Complementaire";
-  }
-
-  return null;
-}
-
-function getReviewChoiceConsequence(input: {
-  category: string;
-  hasPrimaryDpgf: boolean;
-  hasPrimaryCctp: boolean;
-}) {
-  const { category, hasPrimaryDpgf, hasPrimaryCctp } = input;
-  if (category === "plans") {
-    return "La piece integrera le centre plans et pourra nourrir le metre.";
-  }
-  if (category === "cctp") {
-    return hasPrimaryCctp
-      ? "La piece sera ajoutee comme CCTP complementaire sans remplacer le principal."
-      : "La piece deviendra le CCTP principal pour le cadrage et le brief metier.";
-  }
-  if (category === "dpgf") {
-    return hasPrimaryDpgf
-      ? "La piece sera ajoutee comme DPGF complementaire sans remplacer le principal."
-      : "La piece deviendra le DPGF principal pour la structure et le chiffrage.";
-  }
-  if (category === "bpu_dqe") {
-    return "La piece restera exploitable comme base de prix ou de quantites.";
-  }
-  if (category === "emails") {
-    return "La piece restera disponible comme contexte contractuel secondaire.";
-  }
-  return "La piece restera disponible comme document secondaire du dossier.";
 }
 
 function getStateWhyContent(card: PanelResultCard) {
@@ -2248,7 +2054,7 @@ function ResultCard({
                             <span className={selectedReviewCategory === category ? "text-white" : "text-[var(--brand-blue)]"}>
                               {getCategoryStoryIcon(category)}
                             </span>
-                            <span>{getReviewChoiceLabel({ category, hasPrimaryDpgf, hasPrimaryCctp })}</span>
+                            <span>{getReviewChoiceLabel(category)}</span>
                             {index === 0 ? (
                               <span className="rounded-full bg-[var(--warning)]/15 px-2 py-0.5 text-[11px] font-semibold text-[var(--warning-dark)]">
                                 Probable

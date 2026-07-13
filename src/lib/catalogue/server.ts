@@ -10,13 +10,16 @@ import type {
   BulkCreateSupplierPricesInput,
   BulkUpsertMaterialIndicesInput,
   CatalogueListQueryInput,
+  CataloguePageQueryInput,
   CreateMissingPriceImportEntitiesInput,
   CreateCatalogueItemInput,
   CreateMaterialIndexInput,
   CreateSupplierPriceInput,
   IndicesListQueryInput,
   LinkMappedRowsInput,
+  PriceLookupsQueryInput,
   PricesListQueryInput,
+  PricesPageQueryInput,
   ResolvePriceImportSuggestionsInput,
   UpdateCatalogueItemInput,
   UpdateMaterialIndexInput,
@@ -551,6 +554,26 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function asSafeInteger(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+
+  return fallback;
+}
+
+function rpcRecords(data: unknown): JsonRecord[] {
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((row) => asRecord(row))
+    .filter((row): row is JsonRecord => row !== null);
+}
+
 function resolveProductId(input: {
   product_id?: string | null;
   catalogue_item_id?: string | null;
@@ -666,6 +689,93 @@ export async function listCatalogueItems(input: CatalogueListQueryInput) {
 
   return {
     items: rows,
+  };
+}
+
+export async function listCataloguePage(input: CataloguePageQueryInput) {
+  const { supabase } = await getAuthenticatedContext();
+  const rpcInput = {
+    p_q: input.q || null,
+    p_materials: input.material,
+    p_categories: input.category,
+    p_units: input.unit,
+    p_price_statuses: input.price_status,
+    p_statuses: input.status,
+    p_sort: input.sort,
+    p_dir: input.dir,
+    p_page: input.page,
+    p_size: input.size,
+  };
+
+  const [pageResult, summaryResult] = await Promise.all([
+    supabase.rpc("catalogue_products_page", rpcInput),
+    supabase.rpc("catalogue_products_summary"),
+  ]);
+
+  if (pageResult.error) {
+    throw mapSupabaseError(pageResult.error, "Impossible de charger la page du catalogue.");
+  }
+  if (summaryResult.error) {
+    throw mapSupabaseError(summaryResult.error, "Impossible de charger les indicateurs du catalogue.");
+  }
+
+  const pageRows = rpcRecords(pageResult.data);
+  let totalItems = asSafeInteger(pageRows[0]?.total_count);
+
+  if (pageRows.length === 0 && input.page > 1) {
+    const countProbe = await supabase.rpc("catalogue_products_page", {
+      ...rpcInput,
+      p_page: 1,
+      p_size: 25,
+    });
+    if (countProbe.error) {
+      throw mapSupabaseError(countProbe.error, "Impossible de verifier la pagination du catalogue.");
+    }
+    totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
+  }
+
+  const items = pageRows.map((row) => {
+    const normalized = normalizeCatalogueRecord(row);
+    return {
+      ...normalized,
+      _status: normalized.is_active === false ? "archived" : "active",
+      _priceStatus: typeof row.price_status === "string" ? row.price_status : "none",
+      _supplierPriceCount: asSafeInteger(row.supplier_price_count),
+      _bestSupplierPriceCents:
+        typeof row.best_supplier_price_cents === "number"
+          ? row.best_supplier_price_cents
+          : null,
+      _bestSupplierName:
+        typeof row.best_supplier_name === "string" ? row.best_supplier_name : null,
+      _bestSupplierPriceUpdatedAt:
+        typeof row.best_supplier_price_updated_at === "string"
+          ? row.best_supplier_price_updated_at
+          : null,
+    };
+  });
+
+  const summary = rpcRecords(summaryResult.data)[0] ?? {};
+  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / input.size);
+
+  return {
+    items,
+    pagination: {
+      page: input.page,
+      size: input.size,
+      totalItems,
+      totalPages,
+    },
+    counters: {
+      active: asSafeInteger(summary.active_count),
+      covered: asSafeInteger(summary.covered_count),
+      withoutSupplierPrice: asSafeInteger(summary.without_supplier_price_count),
+      stale: asSafeInteger(summary.stale_count),
+    },
+    facets: {
+      materials: Array.isArray(summary.materials) ? summary.materials : [],
+      categories: Array.isArray(summary.categories) ? summary.categories : [],
+      units: Array.isArray(summary.units) ? summary.units : [],
+    },
   };
 }
 
@@ -1079,6 +1189,119 @@ export async function listSupplierPrices(input: PricesListQueryInput) {
 
   return {
     items: (data ?? []).map((row) => normalizeSupplierPriceRecord((row ?? {}) as JsonRecord)),
+  };
+}
+
+export async function listSupplierPricesPage(input: PricesPageQueryInput) {
+  const { supabase } = await getAuthenticatedContext();
+  const rpcInput = {
+    p_q: input.q || null,
+    p_freshness: input.freshness,
+    p_product_id: input.product_id,
+    p_supplier_id: input.supplier_id,
+    p_sort: input.sort,
+    p_dir: input.dir,
+    p_page: input.page,
+    p_size: input.size,
+  };
+
+  const [pageResult, summaryResult] = await Promise.all([
+    supabase.rpc("supplier_prices_page", rpcInput),
+    supabase.rpc("supplier_prices_summary", {
+      p_product_id: input.product_id,
+      p_supplier_id: input.supplier_id,
+    }),
+  ]);
+
+  if (pageResult.error) {
+    throw mapSupabaseError(pageResult.error, "Impossible de charger la page des prix fournisseur.");
+  }
+  if (summaryResult.error) {
+    throw mapSupabaseError(summaryResult.error, "Impossible de charger les indicateurs des prix.");
+  }
+
+  const pageRows = rpcRecords(pageResult.data);
+  let totalItems = asSafeInteger(pageRows[0]?.total_count);
+
+  if (pageRows.length === 0 && input.page > 1) {
+    const countProbe = await supabase.rpc("supplier_prices_page", {
+      ...rpcInput,
+      p_page: 1,
+      p_size: 25,
+    });
+    if (countProbe.error) {
+      throw mapSupabaseError(countProbe.error, "Impossible de verifier la pagination des prix.");
+    }
+    totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
+  }
+
+  const items = pageRows.map((row) => ({
+    ...normalizeSupplierPriceRecord(row),
+    _supplierName:
+      typeof row.supplier_name === "string" ? row.supplier_name : String(row.supplier_id ?? ""),
+    _productName:
+      typeof row.product_name === "string" ? row.product_name : String(row.product_id ?? ""),
+    _productReference:
+      typeof row.product_reference === "string" ? row.product_reference : null,
+    _freshnessLevel:
+      row.freshness === "aging" || row.freshness === "stale" ? row.freshness : "fresh",
+    _ageDays: asSafeInteger(row.age_days),
+  }));
+
+  const summary = rpcRecords(summaryResult.data)[0] ?? {};
+  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / input.size);
+
+  return {
+    items,
+    pagination: {
+      page: input.page,
+      size: input.size,
+      totalItems,
+      totalPages,
+    },
+    counters: {
+      total: asSafeInteger(summary.total_count),
+      fresh: asSafeInteger(summary.fresh_count),
+      aging: asSafeInteger(summary.aging_count),
+      stale: asSafeInteger(summary.stale_count),
+      uniqueSuppliers: asSafeInteger(summary.unique_suppliers_count),
+    },
+  };
+}
+
+export async function listPriceLookups(input: PriceLookupsQueryInput) {
+  const { supabase } = await getAuthenticatedContext();
+  const kinds = input.kind === "all" ? (["supplier", "product"] as const) : [input.kind];
+
+  const results = await Promise.all(
+    kinds.map((kind) =>
+      supabase.rpc("price_lookup_options", {
+        p_kind: kind,
+        p_q: input.q || null,
+        p_selected_id: input.selected_id,
+        p_limit: input.limit,
+      })
+    )
+  );
+
+  for (const result of results) {
+    if (result.error) {
+      throw mapSupabaseError(result.error, "Impossible de charger les suggestions du referentiel.");
+    }
+  }
+
+  const rows = results.flatMap((result) => rpcRecords(result.data));
+  return {
+    suppliers: rows
+      .filter((row) => row.kind === "supplier")
+      .map((row) => ({ id: String(row.id), name: String(row.label ?? "") })),
+    products: rows
+      .filter((row) => row.kind === "product")
+      .map((row) => ({
+        id: String(row.id),
+        designation: String(row.label ?? ""),
+        reference: typeof row.reference === "string" ? row.reference : null,
+      })),
   };
 }
 

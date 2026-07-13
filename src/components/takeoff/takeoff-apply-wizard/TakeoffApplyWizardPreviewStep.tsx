@@ -22,6 +22,7 @@ export function TakeoffApplyWizardPreviewStep({
   previewData,
   previewError,
   isLoadingPreview,
+  isPreviewStale,
   overrideCount,
   overridesByItemId,
   sourceByItemId,
@@ -36,6 +37,7 @@ export function TakeoffApplyWizardPreviewStep({
   previewData: TakeoffPreviewConversionResponse | null;
   previewError: string | null;
   isLoadingPreview: boolean;
+  isPreviewStale: boolean;
   overrideCount: number;
   overridesByItemId: Record<string, TakeoffMappingOverride>;
   sourceByItemId: Map<string, TakeoffJobItem>;
@@ -102,6 +104,12 @@ export function TakeoffApplyWizardPreviewStep({
 
       {previewError && (
         <div className="alert alert-error">{previewError}</div>
+      )}
+
+      {isPreviewStale && (
+        <div className="alert alert-info" role="status">
+          Les ajustements ont change. Recalculez la preview avant de continuer.
+        </div>
       )}
 
       {previewData && (

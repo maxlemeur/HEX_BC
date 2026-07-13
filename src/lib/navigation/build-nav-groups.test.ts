@@ -22,14 +22,15 @@ describe("buildNavGroups", () => {
   };
 
   describe("engineer + simplified", () => {
-    it("returns 2 groups: affaires, commandes", () => {
-      expect(groupKeys(base)).toEqual(["affaires", "commandes"]);
+    it("returns accueil before affaires and commandes", () => {
+      expect(groupKeys(base)).toEqual(["accueil", "affaires", "commandes"]);
     });
   });
 
   describe("engineer + expert", () => {
-    it("returns 3 groups: affaires, commandes, outils", () => {
+    it("returns accueil, affaires, commandes and outils", () => {
       expect(groupKeys({ ...base, uiMode: "expert" })).toEqual([
+        "accueil",
         "affaires",
         "commandes",
         "outils",
@@ -38,8 +39,9 @@ describe("buildNavGroups", () => {
   });
 
   describe("admin + simplified", () => {
-    it("returns 5 groups including validation and administration", () => {
+    it("returns 6 groups including accueil, validation and administration", () => {
       expect(groupKeys({ ...base, role: "admin" })).toEqual([
+        "accueil",
         "affaires",
         "commandes",
         "validation",
@@ -50,16 +52,24 @@ describe("buildNavGroups", () => {
   });
 
   describe("admin + expert", () => {
-    it("returns 5 groups including validation and administration", () => {
+    it("returns 6 groups including accueil, validation and administration", () => {
       expect(
         groupKeys({ ...base, role: "admin", uiMode: "expert" })
-      ).toEqual(["affaires", "commandes", "validation", "outils", "administration"]);
+      ).toEqual([
+        "accueil",
+        "affaires",
+        "commandes",
+        "validation",
+        "outils",
+        "administration",
+      ]);
     });
   });
 
   describe("director + simplified", () => {
-    it("returns 3 groups: affaires, commandes, validation", () => {
+    it("returns accueil, affaires, commandes and validation", () => {
       expect(groupKeys({ ...base, role: "director" })).toEqual([
+        "accueil",
         "affaires",
         "commandes",
         "validation",
@@ -71,7 +81,7 @@ describe("buildNavGroups", () => {
     it("returns 3 groups: affaires, commandes, validation", () => {
       expect(
         groupKeys({ ...base, role: "director", uiMode: "expert" })
-      ).toEqual(["affaires", "commandes", "validation"]);
+      ).toEqual(["accueil", "affaires", "commandes", "validation"]);
     });
 
     it("includes approvals and direction hrefs in validation group", () => {
@@ -83,8 +93,9 @@ describe("buildNavGroups", () => {
   });
 
   describe("viewer + simplified", () => {
-    it("returns 2 groups: affaires, commandes", () => {
+    it("returns accueil, affaires and commandes", () => {
       expect(groupKeys({ ...base, role: "viewer" })).toEqual([
+        "accueil",
         "affaires",
         "commandes",
       ]);
@@ -95,7 +106,7 @@ describe("buildNavGroups", () => {
     it("returns 2 groups: affaires, commandes", () => {
       expect(
         groupKeys({ ...base, role: "viewer", uiMode: "expert" })
-      ).toEqual(["affaires", "commandes"]);
+      ).toEqual(["accueil", "affaires", "commandes"]);
     });
   });
 
@@ -197,5 +208,22 @@ describe("buildNavGroups", () => {
         }
       }
     });
+  });
+
+  it("uses the requested user-facing labels", () => {
+    const groups = buildNavGroups({
+      role: "admin",
+      uiMode: "expert",
+      featureFlags: { takeoffEnabled: false },
+    });
+    const items = groups.flatMap((group) => group.items);
+
+    expect(items[0]).toMatchObject({ href: "/dashboard", label: "Accueil" });
+    expect(items.find((item) => item.href === "/dashboard/analytics")?.label).toBe(
+      "Performances"
+    );
+    expect(items.find((item) => item.href === "/dashboard/direction")?.label).toBe(
+      "Vue direction"
+    );
   });
 });

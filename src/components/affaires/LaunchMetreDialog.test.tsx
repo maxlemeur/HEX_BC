@@ -79,7 +79,7 @@ describe("LaunchMetreDialog", () => {
     expect(screen.getByText("Plans import")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Plans synchronises depuis le dossier affaire. Seuls les plans confirmes sont repris ici."
+        "Plans synchronisés depuis le dossier de l'affaire. Seuls les plans confirmés sont repris ici."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Version cible" })).toHaveValue(
@@ -88,7 +88,7 @@ describe("LaunchMetreDialog", () => {
     expect(screen.getByText("V3 (brouillon)")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Rapide" })).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Detaille" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeInTheDocument();
   });
 
   it("does not render content when closed", () => {
@@ -98,9 +98,17 @@ describe("LaunchMetreDialog", () => {
 
   it("launches directly on the selected draft version", async () => {
     const user = userEvent.setup();
+    const onLaunched = vi.fn();
+    const onOpenChange = vi.fn();
     launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
 
-    render(<LaunchMetreDialog {...defaultProps} />);
+    render(
+      <LaunchMetreDialog
+        {...defaultProps}
+        onLaunched={onLaunched}
+        onOpenChange={onOpenChange}
+      />
+    );
 
     await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
 
@@ -116,11 +124,15 @@ describe("LaunchMetreDialog", () => {
     expect(launchTakeoffFromSourceVersionPlanSetMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Analyse lancee",
+        title: "Analyse lancée",
         durationMs: 6000,
       })
     );
-    expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
+    expect(screen.getByText("Analyse lancée avec succès")).toBeInTheDocument();
+    expect(onLaunched).toHaveBeenCalledWith("job-1");
+
+    await user.click(screen.getByRole("link", { name: "Centre d'activité" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("creates a draft from the selected source version before launching", async () => {
@@ -138,11 +150,11 @@ describe("LaunchMetreDialog", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Creer un brouillon et analyser" })
+      screen.getByRole("button", { name: "Créer un brouillon et analyser" })
     ).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "Creer un brouillon et analyser" })
+      screen.getByRole("button", { name: "Créer un brouillon et analyser" })
     );
 
     await waitFor(() => {
@@ -170,14 +182,37 @@ describe("LaunchMetreDialog", () => {
     );
 
     expect(
-      screen.getByText(/Creez d'abord une premiere version/i)
+      screen.getByText(/Créez d'abord une première version/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /Creer une premiere version/i })
+      screen.getByRole("link", { name: /Créer une première version/i })
     ).toHaveAttribute(
       "href",
       "/dashboard/estimates/new?projectId=11111111-1111-1111-1111-111111111111"
     );
     expect(screen.getByRole("button", { name: "Analyser maintenant" })).toBeDisabled();
+  });
+
+  it("does not offer analysis for an empty plan set", () => {
+    render(
+      <LaunchMetreDialog
+        {...defaultProps}
+        plansContext={{
+          ...defaultProps.plansContext,
+          defaultPlanSetFileCount: 0,
+        }}
+      />
+    );
+
+    expect(
+      screen.getByText("Aucun jeu de plans exploitable n'est disponible pour cette affaire.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Analyser maintenant" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Voir les plans" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/11111111-1111-1111-1111-111111111111/plans"
+    );
   });
 });

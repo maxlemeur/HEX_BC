@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import { formatEUR } from "@/lib/money";
@@ -22,6 +23,21 @@ type EstimateSendGatingDialogProps = {
   onConfirm: () => void;
   onForceConfirm: () => void;
 };
+
+const FOCUSABLE_ELEMENT_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function getFocusableElements(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_ELEMENT_SELECTOR)
+  ).filter((element) => element.getAttribute("aria-hidden") !== "true");
+}
 
 function formatFlagCount(count: number) {
   return `${count} point${count > 1 ? "s" : ""} a traiter`;
@@ -347,6 +363,89 @@ export function EstimateSendGatingDialog({
   onConfirm,
   onForceConfirm,
 }: Readonly<EstimateSendGatingDialogProps>) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    previouslyFocusedElementRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    const dialog = dialogRef.current;
+    const initialFocusTarget =
+      closeButtonRef.current && !closeButtonRef.current.disabled
+        ? closeButtonRef.current
+        : dialog
+          ? getFocusableElements(dialog)[0] ?? dialog
+          : null;
+    initialFocusTarget?.focus();
+
+    return () => {
+      const previouslyFocusedElement = previouslyFocusedElementRef.current;
+      previouslyFocusedElementRef.current = null;
+      if (previouslyFocusedElement?.isConnected) {
+        previouslyFocusedElement.focus();
+      }
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        if (!isSubmitting) {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+
+      const focusableElements = getFocusableElements(dialog);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstFocusableElement = focusableElements[0];
+      const lastFocusableElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey) {
+        if (
+          activeElement === firstFocusableElement ||
+          !dialog.contains(activeElement)
+        ) {
+          event.preventDefault();
+          lastFocusableElement.focus();
+        }
+        return;
+      }
+
+      if (
+        activeElement === lastFocusableElement ||
+        !dialog.contains(activeElement)
+      ) {
+        event.preventDefault();
+        firstFocusableElement.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, isSubmitting, onClose]);
+
   if (!isOpen) return null;
 
   const hasBlocking = blockingFlags.length > 0;
@@ -355,10 +454,12 @@ export function EstimateSendGatingDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
       <div
+        ref={dialogRef}
         className="dashboard-card w-full max-w-2xl p-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="estimate-send-gating-title"
+        tabIndex={-1}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
@@ -373,6 +474,7 @@ export function EstimateSendGatingDialog({
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={onClose}

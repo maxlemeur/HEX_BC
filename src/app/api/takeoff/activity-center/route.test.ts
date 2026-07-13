@@ -27,13 +27,13 @@ const ACTIVITY_CENTER_RESPONSE = {
       processingStrategy: "batch" as const,
       providerBatchState: "running" as const,
       providerBatchUpdatedAt: "2026-03-01T10:05:00.000Z",
-      statusLabel: "Analyse terminee",
+      statusLabel: "Analyse terminée",
       statusRaw: "completed",
       technicalStatusRaw: "completed",
       itemCount: 42,
       coveragePercent: 85,
       exceptionCount: 3,
-      confidenceLabel: "Elevee" as const,
+      confidenceLabel: "Élevée" as const,
       appliedCount: 0,
       createdAt: "2026-03-01T10:00:00.000Z",
       carriedOverFrom: null,
@@ -69,7 +69,7 @@ describe("GET /api/takeoff/activity-center", () => {
     expect(body.data.counters.blockingExceptionsJobs).toBe(1);
     expect(body.data.jobs).toHaveLength(1);
     expect(body.data.jobs[0].levelLabel).toBe("Rapide");
-    expect(body.data.jobs[0].statusLabel).toBe("Analyse terminee");
+    expect(body.data.jobs[0].statusLabel).toBe("Analyse terminée");
     expect(body.data.pagination.total).toBe(1);
   });
 
@@ -145,8 +145,8 @@ describe("GET /api/takeoff/activity-center", () => {
 
     const job = body.data.jobs[0];
     expect(job.levelLabel).toBe("Rapide");
-    expect(job.statusLabel).toBe("Analyse terminee");
-    expect(job.confidenceLabel).toBe("Elevee");
+    expect(job.statusLabel).toBe("Analyse terminée");
+    expect(job.confidenceLabel).toBe("Élevée");
     expect(job.neverApplied).toBe(true);
   });
 });

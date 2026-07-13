@@ -4,6 +4,7 @@ import {
   deleteCatalogueItem,
   linkMappedRowsToCatalogue,
   listCatalogueItems,
+  listCataloguePage,
   ok,
   toErrorResponse,
   updateCatalogueItem,
@@ -11,6 +12,7 @@ import {
 import {
   catalogueActionSchema,
   catalogueListQuerySchema,
+  cataloguePageQuerySchema,
 } from "@/lib/catalogue/schemas";
 
 function parsePositiveInt(value: string | null): number | null {
@@ -44,6 +46,23 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+
+    if (searchParams.get("view") === "page") {
+      const pageQuery = cataloguePageQuerySchema.parse({
+        q: searchParams.get("q") ?? "",
+        material: searchParams.getAll("material"),
+        category: searchParams.getAll("category"),
+        unit: searchParams.getAll("unit"),
+        price_status: searchParams.getAll("price_status"),
+        status: searchParams.getAll("status"),
+        sort: searchParams.get("sort") ?? "designation",
+        dir: searchParams.get("dir") ?? "asc",
+        page: parsePositiveInt(searchParams.get("page")) ?? 1,
+        size: parsePositiveInt(searchParams.get("size")) ?? 25,
+      });
+
+      return ok(await listCataloguePage(pageQuery));
+    }
 
     const query = catalogueListQuerySchema.parse({
       search: searchParams.get("search"),

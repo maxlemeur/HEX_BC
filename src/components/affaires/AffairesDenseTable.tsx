@@ -21,10 +21,10 @@ import type {
 } from "./types";
 
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
-  required: { label: "A valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
+  required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
   in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
   approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
-  changes_requested: { label: "A reprendre", className: "bg-red-50 text-red-800 border-red-200" },
+  changes_requested: { label: "À reprendre", className: "bg-red-50 text-red-800 border-red-200" },
 };
 
 type AffairesEmptyVariant = "no-data" | "filtered";
@@ -38,7 +38,12 @@ type Props = {
   managerFilter: AffaireManagerQueueFilter;
   onManagerFilterChange: (nextFilter: AffaireManagerQueueFilter) => void;
   managerQueueSummary: AffaireManagerQueueSummary | null;
-  managerQueueSummaryState: "idle" | "loading" | "ready" | "error";
+  managerQueueSummaryState:
+    | "idle"
+    | "loading"
+    | "ready"
+    | "error"
+    | "unavailable";
 };
 
 function formatDate(iso: string): string {
@@ -85,8 +90,8 @@ function AffairesEmptyState({
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
             }
-            title="Creez votre premiere affaire"
-            description="Demarrez un nouveau projet pour lancer votre premier chiffrage."
+            title="Créez votre première affaire"
+            description="Démarrez un nouveau projet pour lancer votre premier chiffrage."
             actionLabel="Nouvelle affaire"
             onAction={onCreateAffaire}
             className="mx-auto max-w-xl"
@@ -109,8 +114,8 @@ function AffairesEmptyState({
                 <path d="m21 21-4.3-4.3" />
               </svg>
             }
-            title="Aucune affaire trouvee"
-            description="Modifiez vos filtres ou votre recherche pour afficher des resultats."
+            title="Aucune affaire trouvée"
+            description="Modifiez vos filtres ou votre recherche pour afficher des résultats."
             className="mx-auto max-w-xl"
           />
         )}
@@ -124,11 +129,11 @@ function versionStatusLabel(status: string): string {
     case "draft":
       return "Brouillon";
     case "sent":
-      return "Envoye";
+      return "Envoyé";
     case "accepted":
-      return "Accepte";
+      return "Accepté";
     case "archived":
-      return "Archive";
+      return "Archivé";
     default:
       return status;
   }
@@ -137,11 +142,11 @@ function versionStatusLabel(status: string): string {
 function importStatusBadge(status: string) {
   switch (status) {
     case "done":
-      return { label: "Importe", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Importé", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
     case "running":
       return { label: "En cours", className: "bg-blue-50 text-blue-700 border-blue-200" };
     case "failed":
-      return { label: "Echec", className: "bg-red-50 text-red-700 border-red-200" };
+      return { label: "Échec", className: "bg-red-50 text-red-700 border-red-200" };
     default:
       return { label: status, className: "bg-gray-50 text-gray-600 border-gray-200" };
   }
@@ -151,7 +156,7 @@ function mappingStatusBadge(status: string | null) {
   if (!status) return null;
   switch (status) {
     case "mapped":
-      return { label: "Mappe", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Mappé", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
     case "partial":
       return { label: "Partiel", className: "bg-amber-50 text-amber-700 border-amber-200" };
     case "unmapped":
@@ -217,18 +222,23 @@ export function AffairesDenseTable({
 
   const handleToggleExpand = useCallback(
     (projectId: string) => {
+      const shouldLoadExpandData = !expandedIds.has(projectId);
+
       setExpandedIds((prev) => {
         const next = new Set(prev);
         if (next.has(projectId)) {
           next.delete(projectId);
         } else {
           next.add(projectId);
-          ensureExpandData(projectId);
         }
         return next;
       });
+
+      if (shouldLoadExpandData) {
+        ensureExpandData(projectId);
+      }
     },
-    [ensureExpandData]
+    [ensureExpandData, expandedIds]
   );
 
   const managerCounts = managerQueueSummary?.counts ?? {
@@ -250,13 +260,13 @@ export function AffairesDenseTable({
               Relances manager
             </p>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Repere les affaires visibles a relancer en priorite, a revoir sous reserves ou a rouvrir en revalidation.
+              Repère les affaires visibles à relancer en priorité, à revoir sous réserves ou à rouvrir en revalidation.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "all"
                   ? "bg-[var(--slate-900)] text-white"
                   : "border border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)]"
@@ -267,7 +277,7 @@ export function AffairesDenseTable({
             </button>
             <button
               type="button"
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "follow_up"
                   ? "bg-[var(--danger)] text-white"
                   : "border border-[var(--danger)]/20 bg-[var(--danger)]/5 text-[var(--danger)] hover:bg-[var(--danger)]/10"
@@ -275,11 +285,11 @@ export function AffairesDenseTable({
               disabled={managerFilterDisabled}
               onClick={() => onManagerFilterChange("follow_up")}
             >
-              A relancer en priorite ({managerCounts.followUp})
+              À relancer en priorité ({managerCounts.followUp})
             </button>
             <button
               type="button"
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "reservations"
                   ? "bg-[var(--warning)] text-white"
                   : "border border-[var(--warning)]/20 bg-[var(--warning)]/5 text-[var(--warning)] hover:bg-[var(--warning)]/10"
@@ -287,11 +297,11 @@ export function AffairesDenseTable({
               disabled={managerFilterDisabled}
               onClick={() => onManagerFilterChange("reservations")}
             >
-              A revoir sous reserves ({managerCounts.reservations})
+              À revoir sous réserves ({managerCounts.reservations})
             </button>
             <button
               type="button"
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "revalidation"
                   ? "bg-[var(--brand-blue-dark)] text-white"
                   : "border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/10 text-[var(--brand-blue-dark)] hover:bg-[var(--brand-blue)]/15"
@@ -299,62 +309,71 @@ export function AffairesDenseTable({
               disabled={managerFilterDisabled}
               onClick={() => onManagerFilterChange("revalidation")}
             >
-              A rouvrir en revalidation ({managerCounts.revalidation})
+              À rouvrir en revalidation ({managerCounts.revalidation})
             </button>
           </div>
         </div>
         <p className="mt-2 text-xs text-[var(--slate-500)]">
           {managerQueueSummaryState === "loading" || managerQueueSummaryState === "idle"
             ? "Qualification manager en cours sur le portefeuille."
+            : managerQueueSummaryState === "unavailable"
+              ? "Qualification indisponible pour ce volume, affinez les filtres."
             : managerQueueSummaryState === "error"
-              ? "Qualification manager indisponible pour ce portefeuille. Affinez les filtres ou rechargez la page pour reessayer."
+              ? "Qualification manager indisponible pour ce portefeuille. Affinez les filtres ou rechargez la page pour réessayer."
               : managerQualificationIncomplete
-                ? `Qualification manager incomplete sur ${managerQueueSummary?.incompleteCount ?? 0} affaire${(managerQueueSummary?.incompleteCount ?? 0) > 1 ? "s" : ""} du portefeuille.`
+                ? `Qualification manager incomplète sur ${managerQueueSummary?.incompleteCount ?? 0} affaire${(managerQueueSummary?.incompleteCount ?? 0) > 1 ? "s" : ""} du portefeuille.`
             : managerFilter === "all"
-              ? `${formatManagerQueueCount(managerCounts.followUp, "a relancer en priorite")}, ${formatManagerQueueCount(managerCounts.reservations, "a revoir sous reserves")} et ${formatManagerQueueCount(managerCounts.revalidation, "a rouvrir en revalidation")} dans le portefeuille.`
+              ? `${formatManagerQueueCount(managerCounts.followUp, "à relancer en priorité")}, ${formatManagerQueueCount(managerCounts.reservations, "à revoir sous réserves")} et ${formatManagerQueueCount(managerCounts.revalidation, "à rouvrir en revalidation")} dans le portefeuille.`
             : managerFilter === "reservations"
-              ? `${formatManagerQueueCount(managerCounts.reservations, "a revoir sous reserves")} dans le portefeuille.`
+              ? `${formatManagerQueueCount(managerCounts.reservations, "à revoir sous réserves")} dans le portefeuille.`
               : managerFilter === "revalidation"
-                ? `${formatManagerQueueCount(managerCounts.revalidation, "a rouvrir en revalidation")} dans le portefeuille.`
-                : `${formatManagerQueueCount(managerCounts.followUp, "a relancer en priorite")} dans le portefeuille.`}
+                ? `${formatManagerQueueCount(managerCounts.revalidation, "à rouvrir en revalidation")} dans le portefeuille.`
+                : `${formatManagerQueueCount(managerCounts.followUp, "à relancer en priorité")} dans le portefeuille.`}
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
+          <caption className="sr-only">
+            Liste des affaires et de leur dernière version de chiffrage
+          </caption>
           <thead>
             <tr className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]">
-              <th className="w-10" />
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="w-10">
+                <span className="sr-only">Détails</span>
+              </th>
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Nom affaire
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Client
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Ref.
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Versions
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 DPGF
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Statut courant
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
-                Derniere acceptee
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+                Dernière acceptée
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Approbation
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Total HT
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Date MAJ
               </th>
-              <th className="w-28" />
+              <th scope="col" className="w-28">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -390,7 +409,7 @@ export function AffairesDenseTable({
                           handleToggleExpand(item.projectId);
                         }}
                         aria-expanded={expanded}
-                        aria-label={expanded ? "Replier" : "Deplier"}
+                        aria-label={expanded ? "Replier" : "Déplier"}
                       >
                         <svg
                           width="16"
@@ -732,7 +751,7 @@ function ExpandedContent({
               })()}
             </div>
             <p>
-              <span className="text-[var(--slate-500)]">Importe le : </span>
+              <span className="text-[var(--slate-500)]">Importé le : </span>
               <span>{formatDate(dpgfSource.importedAt)}</span>
             </p>
           </>

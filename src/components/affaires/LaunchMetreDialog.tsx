@@ -30,7 +30,7 @@ const ANALYSIS_LEVELS: Array<{
   description: string;
 }> = [
   { level: "B", label: "Standard", description: "Analyse standard avec recoupements." },
-  { level: "C", label: "Detaille", description: "Analyse approfondie poste par poste." },
+  { level: "C", label: "Détaillé", description: "Analyse approfondie poste par poste." },
 ];
 
 function getCompatibleAnalysisLevels(
@@ -51,6 +51,7 @@ function getCompatibleAnalysisLevels(
 type LaunchMetreDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onLaunched?: (jobId: string) => void;
   projectId: string;
   currentVersion:
     | {
@@ -104,7 +105,7 @@ function buildVersionOptions(input: {
       versionNumber: input.currentVersion.versionNumber,
       mode: "existing_draft",
       label: `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`,
-      helper: "Le metre sera rattache directement a ce brouillon.",
+      helper: "Le métré sera rattaché directement à ce brouillon.",
     });
     seen.add(input.currentVersion.id);
   }
@@ -118,8 +119,8 @@ function buildVersionOptions(input: {
       id: version.id,
       versionNumber: version.versionNumber,
       mode: "create_draft_from_source",
-      label: `Creer un brouillon depuis V${version.versionNumber}`,
-      helper: `Un nouveau brouillon sera cree depuis V${version.versionNumber} avant lancement.`,
+      label: `Créer un brouillon depuis V${version.versionNumber}`,
+      helper: `Un nouveau brouillon sera créé depuis V${version.versionNumber} avant lancement.`,
     });
     seen.add(version.id);
   }
@@ -135,11 +136,11 @@ function buildVersionOptions(input: {
       label:
         input.currentVersion.status === "draft"
           ? `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`
-          : `Creer un brouillon depuis V${input.currentVersion.versionNumber}`,
+          : `Créer un brouillon depuis V${input.currentVersion.versionNumber}`,
       helper:
         input.currentVersion.status === "draft"
-          ? "Le metre sera rattache directement a ce brouillon."
-          : `Un nouveau brouillon sera cree depuis V${input.currentVersion.versionNumber} avant lancement.`,
+          ? "Le métré sera rattaché directement à ce brouillon."
+          : `Un nouveau brouillon sera créé depuis V${input.currentVersion.versionNumber} avant lancement.`,
     });
   }
 
@@ -160,6 +161,7 @@ export function LaunchMetreDialog({
 function LaunchMetreDialogContent({
   open,
   onOpenChange,
+  onLaunched,
   projectId,
   currentVersion,
   plansContext,
@@ -203,6 +205,7 @@ function LaunchMetreDialogContent({
     selectedVersionOption?.mode ??
     (currentVersion ? "create_draft_from_source" : "missing");
   const hasTargetVersion = selectedVersionOption !== null;
+  const hasPlanFiles = (plansContext?.defaultPlanSetFileCount ?? 0) > 0;
   const versionLabel = selectedVersionOption
     ? selectedVersionOption.mode === "existing_draft"
       ? `V${selectedVersionOption.versionNumber} (brouillon)`
@@ -245,7 +248,7 @@ function LaunchMetreDialogContent({
   );
 
   const handleLaunch = useCallback(async () => {
-    if (!plansContext?.defaultPlanSetId) {
+    if (!plansContext?.defaultPlanSetId || !hasPlanFiles) {
       return;
     }
 
@@ -292,12 +295,13 @@ function LaunchMetreDialogContent({
       }
 
       toast.success({
-        title: "Analyse lancee",
-        description: `${resolvedVersionLabel} — ${plansContext.defaultPlanSetFileCount ?? 0} fichier(s) concernes. Prochaine etape : suivre l'analyse dans le centre d'activite metres.`,
+        title: "Analyse lancée",
+        description: `${resolvedVersionLabel} — ${plansContext.defaultPlanSetFileCount ?? 0} fichier(s) concerné(s). Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
         durationMs: 6000,
       });
       setLaunchSuccessVersionLabel(resolvedVersionLabel);
       setLaunchSuccess(true);
+      onLaunched?.(createdJobId);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Impossible de lancer l'analyse.",
@@ -306,8 +310,9 @@ function LaunchMetreDialogContent({
       setIsSubmitting(false);
     }
   }, [
-    currentVersion,
     plansContext,
+    hasPlanFiles,
+    onLaunched,
     projectId,
     selectedLevel,
     selectedVersionOption,
@@ -325,7 +330,7 @@ function LaunchMetreDialogContent({
           <Modal.Title>Analyser les plans</Modal.Title>
           <Modal.Close disabled={isSubmitting} />
         </Modal.Header>
-        <Modal.Body>
+        <Modal.Body className="max-h-[calc(100dvh-10rem)] overflow-y-auto overscroll-contain pr-1">
           {launchSuccess ? (
             <div aria-live="polite" className="space-y-4 py-4 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--success)]/10">
@@ -344,32 +349,33 @@ function LaunchMetreDialogContent({
                 </svg>
               </div>
               <p className="text-sm font-semibold text-[var(--slate-800)]">
-                Analyse lancee avec succes
+                Analyse lancée avec succès
               </p>
               <p className="text-xs text-[var(--slate-500)]">
                 {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
                 {plansContext?.defaultPlanSetFileCount ?? 0} fichier
                 {(plansContext?.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}.
               </p>
-              <div className="flex items-center justify-center gap-3 pt-2">
+              <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-center sm:gap-3">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
                   onClick={() => onOpenChange(false)}
                 >
                   Rester sur le hub
                 </button>
                 <Link
                   href={`/dashboard/affaires/${projectId}/takeoff`}
-                  className="btn btn-primary btn-sm inline-flex"
+                  className="btn btn-primary btn-sm inline-flex w-full justify-center sm:w-auto"
+                  onClick={() => onOpenChange(false)}
                 >
-                  Centre d&apos;activite
+                  Centre d&apos;activité
                 </Link>
               </div>
             </div>
           ) : (
             <div className="space-y-4">
-              {plansContext?.defaultPlanSetId ? (
+              {plansContext?.defaultPlanSetId && hasPlanFiles ? (
                 <>
                   <div>
                     <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
@@ -386,8 +392,8 @@ function LaunchMetreDialogContent({
                     </div>
                     <p className="mt-2 text-xs text-[var(--slate-500)]">
                       {isIntakeSyncedPlanSet(plansContext.defaultPlanSetSource)
-                        ? "Plans synchronises depuis le dossier affaire. Seuls les plans confirmes sont repris ici."
-                        : "Verifiez que ce jeu contient bien les plans a analyser."}
+                        ? "Plans synchronisés depuis le dossier de l'affaire. Seuls les plans confirmés sont repris ici."
+                        : "Vérifiez que ce jeu contient bien les plans à analyser."}
                     </p>
                   </div>
 
@@ -466,7 +472,7 @@ function LaunchMetreDialogContent({
                     {plansContext.launchRecommendation ? (
                       <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2">
                         <p className="text-xs text-[var(--slate-700)]">
-                          Niveau recommande :{" "}
+                          Niveau recommandé :{" "}
                           {plansContext.launchRecommendation.recommendedLevel ? (
                             <span className="font-semibold text-[var(--brand-blue)]">
                               {TAKEOFF_LEVEL_BUSINESS_LABELS[
@@ -496,20 +502,23 @@ function LaunchMetreDialogContent({
 
                   <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
                     <p className="text-xs text-[var(--slate-600)]">
-                      Resultats disponibles dans le centre d&apos;activite metres apres lancement.
+                      Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
                     </p>
                   </div>
 
                   {errorMessage ? (
-                    <div className="rounded-lg border border-[var(--error)]/20 bg-[var(--error)]/5 px-3 py-2 text-sm text-[var(--error)]">
+                    <div
+                      className="rounded-lg border border-[var(--error)]/20 bg-[var(--error)]/5 px-3 py-2 text-sm text-[var(--error)]"
+                      role="alert"
+                    >
                       {errorMessage}
                     </div>
                   ) : null}
 
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                     <button
                       type="button"
-                      className="btn btn-secondary btn-sm"
+                      className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
                       onClick={() => onOpenChange(false)}
                       disabled={isSubmitting}
                     >
@@ -517,12 +526,12 @@ function LaunchMetreDialogContent({
                     </button>
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-primary btn-sm w-full justify-center sm:w-auto"
                       onClick={() => void handleLaunch()}
                       disabled={isSubmitting || !hasTargetVersion}
                     >
                       {versionMode === "create_draft_from_source"
-                        ? "Creer un brouillon et analyser"
+                        ? "Créer un brouillon et analyser"
                         : "Analyser maintenant"}
                     </button>
                   </div>
@@ -543,13 +552,13 @@ function LaunchMetreDialogContent({
 
               {!hasTargetVersion ? (
                 <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
-                  Creez d&apos;abord une premiere version pour lancer l&apos;analyse sur une cible de chiffrage.
+                  Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.
                   <div className="mt-3">
                     <Link
                       href={`/dashboard/estimates/new?projectId=${projectId}`}
                       className="btn btn-secondary btn-sm inline-flex"
                     >
-                      Creer une premiere version
+                      Créer une première version
                     </Link>
                   </div>
                 </div>

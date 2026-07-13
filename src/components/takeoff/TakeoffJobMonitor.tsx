@@ -10,11 +10,10 @@ import {
   type TakeoffApplyWizardSubmitPayload,
 } from "@/components/takeoff/TakeoffApplyWizard";
 import {
-  acquireEstimateDraftLock,
   isEstimateApiError,
   releaseEstimateDraftLock,
-  renewEstimateDraftLock,
 } from "@/lib/estimates/client";
+import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import {
   applyTakeoffJob,
   cancelTakeoffJob,
@@ -141,84 +140,12 @@ function resolveErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function resolveLockedByOtherMessage(holderName: string | null | undefined) {
-  const normalizedHolder = holderName?.trim() ?? "";
-  const holder = normalizedHolder.length > 0 ? normalizedHolder : "un autre utilisateur";
-  return `La version cible est verrouillee par ${holder}.`;
-}
-
 function parseLowConfidenceThreshold(value: string | null): number {
   if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   return parsed;
-}
-
-type EnsureApplyDraftLockResult = {
-  acquired: boolean;
-  shouldRelease: boolean;
-  errorMessage: string | null;
-};
-
-async function ensureApplyDraftLock(versionId: string): Promise<EnsureApplyDraftLockResult> {
-  try {
-    const renewResult = await renewEstimateDraftLock(versionId);
-    const isOwnedByCurrentUser = renewResult.lock?.isOwnedByCurrentUser !== false;
-
-    if (renewResult.renewed && isOwnedByCurrentUser) {
-      return {
-        acquired: true,
-        shouldRelease: false,
-        errorMessage: null,
-      };
-    }
-
-    return {
-      acquired: false,
-      shouldRelease: false,
-      errorMessage: resolveLockedByOtherMessage(renewResult.lock?.holderName),
-    };
-  } catch (renewError) {
-    if (!isEstimateApiError(renewError) || renewError.status !== 404) {
-      return {
-        acquired: false,
-        shouldRelease: false,
-        errorMessage: resolveErrorMessage(
-          renewError,
-          "Impossible de verifier le verrou de brouillon de la version cible."
-        ),
-      };
-    }
-  }
-
-  try {
-    const acquireResult = await acquireEstimateDraftLock(versionId);
-    const isOwnedByCurrentUser = acquireResult.lock?.isOwnedByCurrentUser !== false;
-
-    if (acquireResult.acquired && isOwnedByCurrentUser) {
-      return {
-        acquired: true,
-        shouldRelease: true,
-        errorMessage: null,
-      };
-    }
-
-    return {
-      acquired: false,
-      shouldRelease: false,
-      errorMessage: resolveLockedByOtherMessage(acquireResult.lock?.holderName),
-    };
-  } catch (acquireError) {
-    return {
-      acquired: false,
-      shouldRelease: false,
-      errorMessage: resolveErrorMessage(
-        acquireError,
-        "Impossible d'acquerir le verrou de brouillon."
-      ),
-    };
-  }
 }
 
 function LiveDuration({ startedAt }: { startedAt: string | null }) {
@@ -574,7 +501,7 @@ export default function TakeoffJobMonitor({
       let shouldReleaseDraftLock = false;
 
       try {
-        const lockResult = await ensureApplyDraftLock(versionId);
+        const lockResult = await ensureTakeoffApplyDraftLock(versionId);
         if (!lockResult.acquired) {
           setApplyState("error");
           setApplyError(
@@ -833,6 +760,9 @@ export default function TakeoffJobMonitor({
         open={isApplyWizardOpen}
         jobId={jobId}
         versionId={versionId}
+        targetVersionLabel={
+          data?.job.version_number != null ? `V${data.job.version_number}` : null
+        }
         includedCount={includedItemsCount}
         excludedCount={excludedItemsCount}
         isSubmitting={applyState === "loading"}

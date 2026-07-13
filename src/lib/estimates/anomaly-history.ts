@@ -54,6 +54,11 @@ export type CurrentAnomalyRow = {
   itemCount: number;
 };
 
+export type AnomalyOwnerOption = {
+  id: string;
+  name: string;
+};
+
 export type TrendPeriod = {
   period: string;
   opened: number;
@@ -77,6 +82,12 @@ export type AnomalyHistoryResult = {
   currentAnomalies: CurrentAnomalyRow[];
   trend: TrendPeriod[];
   avgResolution: AvgResolutionByType[];
+};
+
+export type CurrentAnomalySummaryResult = {
+  summary: AnomalyHistoryResult["summary"];
+  currentAnomalies: CurrentAnomalyRow[];
+  ownerOptions: AnomalyOwnerOption[];
 };
 
 // ---------------------------------------------------------------------------
@@ -207,10 +218,7 @@ export async function getCurrentAnomalySummary(
   supabase: Supabase,
   tenantId: string,
   filters: AnomalyFilters
-): Promise<{
-  summary: AnomalyHistoryResult["summary"];
-  currentAnomalies: CurrentAnomalyRow[];
-}> {
+): Promise<CurrentAnomalySummaryResult> {
   // 1. Fetch all line items across active versions with version/project/owner info
   let itemsQuery = supabase
     .from("estimate_items")
@@ -294,6 +302,7 @@ export async function getCurrentAnomalySummary(
   // Build version metadata and group items
   const versionMetaMap = new Map<string, VersionMeta>();
   const itemsByVersionId = new Map<string, EstimateItemRow[]>();
+  const ownerOptionsMap = new Map<string, AnomalyOwnerOption>();
 
   for (const item of allItems) {
     const version = Array.isArray(item.estimate_versions)
@@ -305,6 +314,17 @@ export async function getCurrentAnomalySummary(
       ? version.estimate_projects[0]
       : version.estimate_projects;
     if (!project || project.is_archived) continue;
+
+    const profile = Array.isArray(project.profiles)
+      ? project.profiles[0]
+      : project.profiles;
+    const ownerName = profile?.full_name?.trim() || "Inconnu";
+    if (!ownerOptionsMap.has(project.user_id)) {
+      ownerOptionsMap.set(project.user_id, {
+        id: project.user_id,
+        name: ownerName,
+      });
+    }
 
     // Apply owner filter
     if (filters.owner_user_id && project.user_id !== filters.owner_user_id) {
@@ -320,17 +340,13 @@ export async function getCurrentAnomalySummary(
       if (!matchesProject && !matchesVersion) continue;
     }
 
-    const profile = Array.isArray(project.profiles)
-      ? project.profiles[0]
-      : project.profiles;
-
     if (!versionMetaMap.has(version.id)) {
       versionMetaMap.set(version.id, {
         versionId: version.id,
         versionLabel,
         projectName: project.name,
         ownerUserId: project.user_id,
-        ownerName: profile?.full_name ?? "Inconnu",
+        ownerName,
       });
     }
 
@@ -511,6 +527,38 @@ export async function getCurrentAnomalySummary(
     }
   }
 
+  currentAnomalies.sort((left, right) => {
+    if (left.severity !== right.severity) {
+      return left.severity === "blocking" ? -1 : 1;
+    }
+
+    if (left.itemCount !== right.itemCount) {
+      return right.itemCount - left.itemCount;
+    }
+
+    const projectComparison = left.projectName.localeCompare(
+      right.projectName,
+      "fr",
+      { sensitivity: "base" }
+    );
+    if (projectComparison !== 0) return projectComparison;
+
+    const versionComparison = left.versionLabel.localeCompare(
+      right.versionLabel,
+      "fr",
+      { numeric: true, sensitivity: "base" }
+    );
+    if (versionComparison !== 0) return versionComparison;
+
+    return left.flagKey.localeCompare(right.flagKey, "fr", {
+      sensitivity: "base",
+    });
+  });
+
+  const ownerOptions = Array.from(ownerOptionsMap.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, "fr", { sensitivity: "base" })
+  );
+
   return {
     summary: {
       totalAnomalies,
@@ -520,6 +568,7 @@ export async function getCurrentAnomalySummary(
       estimatesTotal: versionMetaMap.size,
     },
     currentAnomalies,
+    ownerOptions,
   };
 }
 

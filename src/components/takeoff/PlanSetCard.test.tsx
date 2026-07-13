@@ -115,7 +115,7 @@ describe("PlanSetCard", () => {
   it("renders set name and file count", () => {
     renderCard();
     expect(screen.getByText("Plans Archi")).toBeInTheDocument();
-    expect(screen.getByText("2 plans")).toBeInTheDocument();
+    expect(screen.getAllByText("2 plans")).toHaveLength(2);
   });
 
   it("shows description when present", () => {

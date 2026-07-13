@@ -47,6 +47,7 @@ export type OpenApiSchemaIO = "input" | "output";
 export type OpenApiContentType =
   | "application/json"
   | "multipart/form-data"
+  | "text/csv"
   | "application/pdf"
   | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -1118,18 +1119,44 @@ const anomalyHistoryAvgResolutionSchema = z.object({
   flagLabel: z.string(),
   avgDays: z.number(),
 });
-const anomalyHistoryDataSchema = z.object({
-  summary: z.object({
-    totalAnomalies: z.number(),
-    blockingCount: z.number(),
-    warningCount: z.number(),
-    estimatesAffected: z.number(),
-    estimatesTotal: z.number(),
-  }),
+const anomalyHistorySummarySchema = z.object({
+  totalAnomalies: z.number(),
+  blockingCount: z.number(),
+  warningCount: z.number(),
+  estimatesAffected: z.number(),
+  estimatesTotal: z.number(),
+});
+const anomalyHistoryLegacyDataSchema = z.object({
+  summary: anomalyHistorySummarySchema,
   currentAnomalies: z.array(anomalyHistoryCurrentRowSchema),
   trend: z.array(anomalyHistoryTrendSchema),
   avgResolution: z.array(anomalyHistoryAvgResolutionSchema),
 });
+const anomalyHistoryCurrentDataSchema = z.object({
+  summary: anomalyHistorySummarySchema,
+  currentAnomalies: z.array(anomalyHistoryCurrentRowSchema),
+  ownerOptions: z.array(
+    z.object({
+      id: uuidSchema,
+      name: z.string(),
+    })
+  ),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    size: z.union([z.literal(25), z.literal(50), z.literal(100)]),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().positive(),
+  }),
+});
+const anomalyHistoryTrendDataSchema = z.object({
+  trend: z.array(anomalyHistoryTrendSchema),
+  avgResolution: z.array(anomalyHistoryAvgResolutionSchema),
+});
+const anomalyHistoryDataSchema = z.union([
+  anomalyHistoryLegacyDataSchema,
+  anomalyHistoryCurrentDataSchema,
+  anomalyHistoryTrendDataSchema,
+]);
 
 const estimateEventsDataSchema = z.object({
   events: z.array(estimateVersionEventSchema),
@@ -2926,6 +2953,61 @@ const exportFormatQueryParameter = queryParameter({
   schemaName: "ExportFormatQueryParameter",
   schema: exportFormatQuerySchema,
   required: false,
+});
+const anomalyHistoryViewQueryParameter = queryParameter({
+  name: "view",
+  description:
+    "Vue retournee : etat courant pagine, tendance, ou reponse historique complete.",
+  schemaName: "AnomalyHistoryViewQueryParameter",
+  schema: z.enum(["all", "current", "trend"]),
+});
+const anomalyHistoryFormatQueryParameter = queryParameter({
+  name: "format",
+  description: "Format JSON ou export CSV complet des anomalies filtrees.",
+  schemaName: "AnomalyHistoryFormatQueryParameter",
+  schema: z.enum(["json", "csv"]),
+});
+const anomalyHistoryPageQueryParameter = queryParameter({
+  name: "page",
+  description: "Page de la vue courante, a partir de 1.",
+  schemaName: "AnomalyHistoryPageQueryParameter",
+  schema: z.string().regex(/^[1-9]\d*$/u),
+});
+const anomalyHistorySizeQueryParameter = queryParameter({
+  name: "size",
+  description: "Nombre d'anomalies par page (25, 50 ou 100).",
+  schemaName: "AnomalyHistorySizeQueryParameter",
+  schema: z.enum(["25", "50", "100"]),
+});
+const anomalyHistorySearchQueryParameter = queryParameter({
+  name: "search",
+  description: "Recherche par projet ou version.",
+  schemaName: "AnomalyHistorySearchQueryParameter",
+  schema: z.string().trim().max(200),
+});
+const anomalyHistoryOwnerQueryParameter = queryParameter({
+  name: "owner_user_id",
+  description: "Identifiant du chiffreur.",
+  schemaName: "AnomalyHistoryOwnerQueryParameter",
+  schema: uuidSchema,
+});
+const anomalyHistoryFlagTypesQueryParameter = queryParameter({
+  name: "flag_types",
+  description: "Types d'anomalies separes par des virgules.",
+  schemaName: "AnomalyHistoryFlagTypesQueryParameter",
+  schema: z.string().trim().max(1000),
+});
+const anomalyHistoryDateFromQueryParameter = queryParameter({
+  name: "date_from",
+  description: "Debut de la periode de tendance (AAAA-MM-JJ).",
+  schemaName: "AnomalyHistoryDateFromQueryParameter",
+  schema: z.string().date(),
+});
+const anomalyHistoryDateToQueryParameter = queryParameter({
+  name: "date_to",
+  description: "Fin de la periode de tendance (AAAA-MM-JJ).",
+  schemaName: "AnomalyHistoryDateToQueryParameter",
+  schema: z.string().date(),
 });
 
 const insertAssemblyVersionIdQueryParameter = queryParameter({
@@ -4844,13 +4926,32 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/admin/anomaly-history",
     summary: "Historique des anomalies qualite",
     description:
-      "Retourne l'etat courant et les tendances d'anomalies qualite pour le tenant.",
+      "Retourne l'etat courant pagine, les tendances ou la reponse historique complete. L'export CSV contient toujours toutes les anomalies filtrees.",
     tags: ["Administration"],
+    parameters: [
+      anomalyHistoryViewQueryParameter,
+      anomalyHistoryFormatQueryParameter,
+      anomalyHistoryPageQueryParameter,
+      anomalyHistorySizeQueryParameter,
+      anomalyHistorySearchQueryParameter,
+      anomalyHistoryOwnerQueryParameter,
+      anomalyHistoryFlagTypesQueryParameter,
+      anomalyHistoryDateFromQueryParameter,
+      anomalyHistoryDateToQueryParameter,
+    ],
     responses: {
-      "200": jsonResponse(
-        "Historique anomalies retourne.",
-        apiAdminAnomalyHistorySchemaDefinition
-      ),
+      "200": {
+        description: "Historique anomalies retourne ou exporte.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiAdminAnomalyHistorySchemaDefinition,
+          },
+          {
+            contentType: "text/csv",
+          },
+        ],
+      },
     },
   },
 ];

@@ -66,6 +66,7 @@ export function PlanSetFormModal({
                 maxLength={255}
                 required
                 autoFocus
+                data-modal-autofocus="true"
                 disabled={loading}
               />
             </div>
@@ -79,7 +80,7 @@ export function PlanSetFormModal({
               <textarea
                 id="plan-set-description"
                 className="form-input min-h-[80px] resize-y"
-                placeholder="Notes supplementaires..."
+                placeholder="Notes supplémentaires..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 maxLength={2000}
@@ -97,6 +98,7 @@ export function PlanSetFormModal({
               type="button"
               variant="ghost"
               size="sm"
+              className="h-11 sm:h-8"
               onClick={handleClose}
               disabled={loading}
             >
@@ -105,10 +107,11 @@ export function PlanSetFormModal({
             <Button
               type="submit"
               size="sm"
+              className="h-11 sm:h-8"
               loading={loading}
               disabled={!name.trim()}
             >
-              Creer
+              Créer
             </Button>
           </Modal.Footer>
         </form>

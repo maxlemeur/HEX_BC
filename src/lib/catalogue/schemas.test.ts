@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cataloguePageQuerySchema,
   createCatalogueItemSchema,
   createSupplierPriceSchema,
+  priceLookupsQuerySchema,
+  pricesPageQuerySchema,
   updateCatalogueItemSchema,
   updateSupplierPriceSchema,
 } from "@/lib/catalogue/schemas";
@@ -93,5 +96,52 @@ describe("supplier price update schemas", () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.item.currency).toBe("EUR");
+  });
+});
+
+describe("catalogue and price pagination schemas", () => {
+  it("accepts repeated product filters and the supported page sizes", () => {
+    const parsed = cataloguePageQuerySchema.parse({
+      q: " acier ",
+      material: ["Acier", "Inox"],
+      category: [],
+      unit: ["ml"],
+      price_status: ["fresh", "none"],
+      status: ["active"],
+      sort: "best_supplier_price_cents",
+      dir: "desc",
+      page: 3,
+      size: 100,
+    });
+
+    expect(parsed).toMatchObject({
+      q: "acier",
+      material: ["Acier", "Inox"],
+      page: 3,
+      size: 100,
+    });
+  });
+
+  it("rejects unsupported page sizes", () => {
+    expect(
+      pricesPageQuerySchema.safeParse({
+        freshness: [],
+        supplier_id: null,
+        product_id: null,
+        page: 1,
+        size: 10,
+      }).success
+    ).toBe(false);
+  });
+
+  it("caps remote price lookups at 50 suggestions", () => {
+    expect(
+      priceLookupsQuerySchema.safeParse({
+        kind: "supplier",
+        q: "arc",
+        selected_id: null,
+        limit: 51,
+      }).success
+    ).toBe(false);
   });
 });

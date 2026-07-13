@@ -438,9 +438,8 @@ export function LineRow({
             data-testid="estimate-line-checkbox"
           />
           {!hideEditingActions ? dragHandle : null}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="estimate-designation-meta">{aidInput}</div>
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="estimate-line-designation">
+            <div className="estimate-line-designation__primary">
               <input
                 className="estimate-input estimate-input--title"
                 ref={titleEditorProps.ref}
@@ -473,6 +472,22 @@ export function LineRow({
                     : undefined
                 }
               />
+              {!isAidEditorVisible ? (
+                <div className="estimate-line-hover-actions">
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={onRevealAidEditor}
+                    disabled={isReadOnly}
+                    data-testid="estimate-line-add-aid-button"
+                  >
+                    + AID
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <div className="estimate-line-designation__support">
+              <div className="estimate-designation-meta">{aidInput}</div>
               <EstimateLineTruthBadges item={item} />
               <TakeoffSourceBadge
                 versionId={versionId}
@@ -600,19 +615,6 @@ export function LineRow({
               </div>
             ) : null}
           </div>
-          {!isAidEditorVisible ? (
-            <div className="estimate-line-hover-actions">
-              <button
-                className="estimate-section-hover-btn"
-                type="button"
-                onClick={onRevealAidEditor}
-                disabled={isReadOnly}
-                data-testid="estimate-line-add-aid-button"
-              >
-                + AID
-              </button>
-            </div>
-          ) : null}
         </div>
       </div>
       <EditableCell

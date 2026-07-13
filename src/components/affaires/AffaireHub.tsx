@@ -400,7 +400,7 @@ function BackToListLink() {
   return (
     <Link
       href="/dashboard/affaires"
-      className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)]"
+      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)] sm:min-h-0"
     >
       <svg
         width="16"
@@ -414,7 +414,8 @@ function BackToListLink() {
       >
         <path d="m15 18-6-6 6-6" />
       </svg>
-      Retour à la liste
+      <span className="sm:hidden">Affaires</span>
+      <span className="hidden sm:inline">Retour à la liste</span>
     </Link>
   );
 }
@@ -513,11 +514,22 @@ function ActionBar({
   const hasSecondaryActions = showCompare || showAnalyse || true; // always has duplicate + variant
 
   return (
-    <div className="action-bar animate-fade-in stagger-1">
-      {/* Edit current version — primary */}
+    <div className="action-bar animate-fade-in stagger-1 max-sm:!grid max-sm:grid-cols-3 max-sm:gap-2 lg:flex-nowrap lg:justify-end">
+      {takeoffEnabled ? (
+        <Link
+          href={`/dashboard/affaires/${summary.project.id}/takeoff`}
+          className="btn btn-primary btn-sm col-span-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 sm:w-auto"
+        >
+          Ouvrir les métrés
+        </Link>
+      ) : null}
+
+      {/* Edit current version */}
       <Link
         href={`/dashboard/estimates/${currentVersion.id}/edit`}
-        className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+        className={`btn btn-sm inline-flex min-h-11 items-center justify-center gap-1.5 max-sm:w-full max-sm:gap-1 max-sm:whitespace-nowrap max-sm:px-2 max-sm:text-xs ${
+          takeoffEnabled ? "btn-secondary" : "btn-primary"
+        }`}
       >
         <svg
           width="14"
@@ -539,7 +551,7 @@ function ActionBar({
       (versionZeroSummary?.activeDraft || versionZeroSummary?.canGenerate) ? (
         <Link
           href={`/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`}
-          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+          className="btn btn-secondary btn-sm col-span-3 inline-flex min-h-11 items-center justify-center gap-1.5"
         >
           {versionZeroSummary?.activeDraft ? "Revoir V0 IA" : "Générer V0"}
         </Link>
@@ -548,7 +560,7 @@ function ActionBar({
       {/* Export — frequent */}
       <Link
         href={`/dashboard/estimates/${currentVersion.id}/print`}
-        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+        className="btn btn-secondary btn-sm inline-flex min-h-11 items-center justify-center gap-1.5 max-sm:w-full max-sm:gap-1 max-sm:whitespace-nowrap max-sm:px-2 max-sm:text-xs"
       >
         <svg
           width="14"
@@ -569,11 +581,11 @@ function ActionBar({
 
       {/* "Plus" dropdown — secondary actions */}
       {hasSecondaryActions && (
-        <div className="relative" ref={moreRef}>
+        <div className="relative max-sm:w-full" ref={moreRef}>
           <button
             type="button"
             onClick={() => setMoreOpen((v) => !v)}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1"
+            className="btn btn-secondary btn-sm inline-flex min-h-11 items-center justify-center gap-1 max-sm:w-full max-sm:whitespace-nowrap max-sm:px-2 max-sm:text-xs"
             aria-haspopup="true"
             aria-expanded={moreOpen}
           >
@@ -1608,32 +1620,22 @@ export function AffaireHub({
   return (
     <div className="animate-fade-in">
       {/* Breadcrumb + actions bar */}
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <nav aria-label="Fil d'Ariane">
-          <ol className="flex items-center gap-1.5 text-sm text-[var(--slate-500)]">
+      <div className="mb-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">
+        <nav aria-label="Fil d'Ariane" className="min-w-0 flex-1">
+          <ol className="flex min-w-0 items-center gap-1.5 text-sm text-[var(--slate-500)]">
             <li>
               <BackToListLink />
             </li>
             <li aria-hidden="true" className="text-[var(--slate-300)]">/</li>
-            <li className="truncate font-medium text-[var(--slate-700)]">
+            <li className="min-w-0 truncate font-medium text-[var(--slate-700)]">
               {summary.project.name}
             </li>
           </ol>
         </nav>
 
-        {!isReadOnlyReview && (
-          editingProject ? (
-            <div ref={setActionsPortalTarget} />
-          ) : (
-            <button
-              type="button"
-              className="btn btn-ghost btn-lg shrink-0"
-              onClick={() => setEditingProject(true)}
-            >
-              Modifier la fiche
-            </button>
-          )
-        )}
+        {!isReadOnlyReview && editingProject ? (
+          <div ref={setActionsPortalTarget} />
+        ) : null}
       </div>
 
       {/* Onboarding banner (post-creation, no dossier) */}
@@ -1759,6 +1761,18 @@ export function AffaireHub({
           <h1 className="page-title truncate">{summary.project.name}</h1>
         </div>
       )}
+
+      {!isFreshStartState ? (
+        <div className="mb-4 rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3 shadow-sm md:hidden">
+          <AffaireWorkflowStepper
+            summary={summary}
+            dpgfSource={dpgfSource}
+            intakeWorkspace={intakeWorkspace}
+            approvalSummary={approvalSummary}
+            lineCount={summary.lineCount}
+          />
+        </div>
+      ) : null}
 
       {/* Import result summary banner */}
       {importResult && (
@@ -2057,7 +2071,7 @@ export function AffaireHub({
       )}
 
       {!isFreshStartState ? (
-        <div className="sticky bottom-0 z-10 -mx-4 mt-6 border-t border-[var(--slate-200)] bg-white/95 px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
+        <div className="sticky bottom-0 z-10 -mx-6 mt-6 hidden border-t border-[var(--slate-200)] bg-white/95 px-6 py-3 backdrop-blur-sm md:block">
           <AffaireWorkflowStepper
             summary={summary}
             dpgfSource={dpgfSource}

@@ -43,8 +43,8 @@ const TAKEOFF_VISIBLE_JOB_STATUS_LABELS: Record<
   processing: "En traitement",
   provider_pending: "En attente provider",
   review_required: "Revue requise",
-  action_required: "Echec a corriger",
-  completed: "Analyse terminee",
+  action_required: "Échec à corriger",
+  completed: "Analyse terminée",
 };
 
 const PROVIDER_PENDING_STATES = new Set<TakeoffProviderBatchState>([
@@ -60,23 +60,23 @@ const IN_FLIGHT_VISIBLE_STATUS_SET = new Set<TakeoffVisibleJobStatus>(
 const FAILURE_REASON_LABELS: Record<string, string> = {
   TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable. Importez un autre document PDF lisible.",
   TAKEOFF_PDF_CORRUPTED:
-    "Le PDF est invalide ou protege. Reexportez-le avant de relancer l'analyse.",
+    "Le PDF est invalide ou protégé. Réexportez-le avant de relancer l'analyse.",
   TAKEOFF_PDF_NOT_INTERPRETABLE:
-    "Le PDF est lisible mais reste inexploitable. Importez un PDF mieux exporte ou un autre document.",
+    "Le PDF est lisible mais reste inexploitable. Importez un PDF mieux exporté ou un autre document.",
   TAKEOFF_FILE_TOO_LARGE:
-    "Document trop volumineux. Essayez un niveau plus rapide ou decoupez le document.",
+    "Document trop volumineux. Essayez un niveau plus rapide ou découpez le document.",
   AI_SCHEMA:
-    "Extraction incomplete sur ce document. Changez de niveau ou importez un autre document.",
+    "Extraction incomplète sur ce document. Changez de niveau ou importez un autre document.",
   TAKEOFF_LEVEL_C_INVALID_SCHEMA:
-    "Extraction incomplete sur ce document. Changez de niveau ou importez un autre document.",
+    "Extraction incomplète sur ce document. Changez de niveau ou importez un autre document.",
   AI_TIMEOUT:
-    "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide.",
+    "Délai dépassé. Relancez l'analyse ou essayez un niveau plus rapide.",
   TAKEOFF_LEVEL_C_TIMEOUT:
-    "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide.",
+    "Délai dépassé. Relancez l'analyse ou essayez un niveau plus rapide.",
   AI_SAFETY:
-    "Document bloque pendant l'analyse. Importez un autre document exploitable.",
+    "Document bloqué pendant l'analyse. Importez un autre document exploitable.",
   TAKEOFF_LEVEL_C_BUDGET_EXCEEDED:
-    "Le niveau detaille depasse le budget prevu. Changez de niveau ou ciblez un document plus simple.",
+    "Le niveau détaillé dépasse le budget prévu. Changez de niveau ou ciblez un document plus simple.",
 };
 
 export function getTakeoffVisibleJobStatusLabel(

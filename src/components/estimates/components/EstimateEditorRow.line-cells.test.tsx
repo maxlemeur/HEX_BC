@@ -227,8 +227,14 @@ describe("EstimateEditorRow line cells", () => {
     );
 
     const row = within(view.container);
-    expect(row.getByText("DPGF importee")).toBeInTheDocument();
-    expect(row.getByText("Qte importee non verifiee")).toBeInTheDocument();
-    expect(row.getByText("Confiance moyenne")).toBeInTheDocument();
+    expect(
+      row.getByText("DPGF importee", { selector: ".sr-only" })
+    ).toBeInTheDocument();
+    expect(
+      row.getByText("Qte importee non verifiee", { selector: ".sr-only" })
+    ).toBeInTheDocument();
+    expect(
+      row.getByText("Confiance moyenne", { selector: ".sr-only" })
+    ).toBeInTheDocument();
   });
 });

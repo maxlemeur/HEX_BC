@@ -264,7 +264,7 @@ describe("TakeoffJobList", () => {
 
     renderTakeoffJobList();
 
-    expect(await screen.findByText("Acces refuse")).toBeInTheDocument();
+    expect(await screen.findByText("Accès refusé")).toBeInTheDocument();
     expect(screen.getByText("Acces interdit.")).toBeInTheDocument();
   });
 

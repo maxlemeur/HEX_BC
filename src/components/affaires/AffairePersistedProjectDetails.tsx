@@ -149,6 +149,7 @@ export function AffairePersistedProjectDetails({
         projectNameError={projectNameError}
         errorMessage={errorMessage}
         footer={mode === "view" ? toolbar : undefined}
+        onEdit={mode === "view" ? () => setMode("edit") : undefined}
         onProjectNameChange={(value) => {
         setDraftValues((current) => ({ ...current, projectName: value }));
         if (projectNameError) {

@@ -30,8 +30,8 @@ const CHIP_STYLES: Record<EstimateStatus, { bg: string; color: string; activeBg:
   },
   accepted: {
     bg: "var(--success-light)",
-    color: "#059669",
-    activeBg: "#059669",
+    color: "var(--success)",
+    activeBg: "var(--success)",
     activeColor: "#fff",
   },
   archived: {
@@ -63,7 +63,7 @@ export function EstimateStatusChips({ counts, selected, onChange }: EstimateStat
             key={status}
             type="button"
             onClick={() => toggle(status)}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer"
+            className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0"
             style={{
               background: isActive ? styles.activeBg : styles.bg,
               color: isActive ? styles.activeColor : styles.color,

@@ -6,11 +6,11 @@ describe("buildTakeoffRouteHierarchy", () => {
   it("marks affaire routes as the principal flow", () => {
     expect(buildTakeoffRouteHierarchy({ kind: "affaire_takeoff" })).toEqual({
       classification: "principal",
-      badgeLabel: "Flux principal",
-      title: "Parcours affaire prioritaire",
+      badgeLabel: "Parcours recommandé",
+      title: "Suivre les métrés de l’affaire",
       description:
-        "Vous etes dans le flux principal affaire-first. Les aides adjacentes restent secondaires, et le legacy estimate-first n'est qu'un fallback volontaire.",
-      provenanceLabel: "Provenance du chemin : affaire-first / centre metres",
+        "Consultez les analyses en cours ou terminées et reprenez les éléments qui demandent votre attention.",
+      provenanceLabel: "Étape : suivi des analyses",
       targetHref: null,
       targetLabel: null,
     });
@@ -24,13 +24,13 @@ describe("buildTakeoffRouteHierarchy", () => {
       })
     ).toEqual({
       classification: "legacy",
-      badgeLabel: "Legacy",
-      title: "Fallback estimate-first explicite",
+      badgeLabel: "Ancien parcours",
+      title: "Parcours conservé pour les dossiers existants",
       description:
-        "Vous etes dans une surface legacy estimate-first. Le flux principal reste l'affaire ; utilisez ce chemin seulement si vous reprenez un contexte existant ou un cas de fallback.",
-      provenanceLabel: "Provenance du chemin : legacy estimate-first / historique takeoff",
+        "Cette vue sert à reprendre un métré déjà rattaché à une version de devis. Pour un nouveau métré, partez des plans de l’affaire.",
+      provenanceLabel: "Repère : historique d’une version de devis",
       targetHref: "/dashboard/affaires/project-1",
-      targetLabel: "Revenir au cockpit affaire",
+      targetLabel: "Revenir à l’affaire",
     });
   });
 
@@ -44,7 +44,7 @@ describe("buildTakeoffRouteHierarchy", () => {
       })
     ).toMatchObject({
       classification: "legacy",
-      provenanceLabel: "Provenance du chemin : legacy estimate-first / revue",
+      provenanceLabel: "Repère : revue d’un métré existant",
       targetHref:
         "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-1&view=dpgf&dpgfView=exceptions_only",
     });
@@ -60,9 +60,9 @@ describe("buildTakeoffRouteHierarchy", () => {
       })
     ).toMatchObject({
       classification: "legacy",
-      provenanceLabel: "Provenance du chemin : legacy estimate-first / suivi job",
+      provenanceLabel: "Repère : suivi d’une analyse existante",
       targetHref: "/dashboard/affaires/project-1",
-      targetLabel: "Revenir au cockpit affaire",
+      targetLabel: "Revenir à l’affaire",
     });
   });
 
@@ -89,9 +89,9 @@ describe("buildTakeoffRouteHierarchy", () => {
   it("keeps the generic takeoff portal as an explicit legacy entrypoint", () => {
     expect(buildTakeoffRouteHierarchy({ kind: "dashboard_takeoff_legacy" })).toMatchObject({
       classification: "legacy",
-      provenanceLabel: "Provenance du chemin : legacy estimate-first / portail takeoff",
+      provenanceLabel: "Repère : entrée générale des métrés existants",
       targetHref: "/dashboard/affaires",
-      targetLabel: "Ouvrir les affaires",
+      targetLabel: "Choisir une affaire",
     });
   });
 });

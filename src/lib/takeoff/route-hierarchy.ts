@@ -99,17 +99,17 @@ function buildLegacyTargetLabel(input: { kind: TakeoffRouteHierarchyKind; target
 
   switch (input.kind) {
     case "dashboard_takeoff_legacy":
-      return "Ouvrir les affaires";
+      return "Choisir une affaire";
     case "estimate_plans_legacy":
-      return "Ouvrir les plans affaire";
+      return "Ouvrir les plans de l’affaire";
     case "estimate_review_legacy":
-      return "Ouvrir la revue metres affaire";
+      return "Ouvrir la revue du métré";
     case "estimate_takeoff_legacy":
     case "estimate_launch_legacy":
     case "estimate_job_legacy":
-      return "Revenir au cockpit affaire";
+      return "Revenir à l’affaire";
     default:
-      return "Revenir a l'affaire";
+      return "Revenir à l’affaire";
   }
 }
 
@@ -125,20 +125,32 @@ export function buildTakeoffRouteHierarchy(input: {
     input.kind === "affaire_takeoff" ||
     input.kind === "affaire_review"
   ) {
-    const provenanceLabel =
+    const routeCopy =
       input.kind === "affaire_plans"
-        ? "Provenance du chemin : affaire-first / plans"
+        ? {
+            title: "Préparer les plans de l’affaire",
+            description:
+              "Créez un jeu de plans, ajoutez les documents à analyser, puis lancez le métré depuis l’affaire.",
+            provenanceLabel: "Étape : plans de l’affaire",
+          }
         : input.kind === "affaire_takeoff"
-          ? "Provenance du chemin : affaire-first / centre metres"
-          : "Provenance du chemin : affaire-first / revue metres";
+          ? {
+              title: "Suivre les métrés de l’affaire",
+              description:
+                "Consultez les analyses en cours ou terminées et reprenez les éléments qui demandent votre attention.",
+              provenanceLabel: "Étape : suivi des analyses",
+            }
+          : {
+              title: "Contrôler le métré avant intégration",
+              description:
+                "Vérifiez les quantités et les exceptions avant d’intégrer les éléments retenus au devis.",
+              provenanceLabel: "Étape : revue du métré",
+            };
 
     return {
       classification: "principal",
-      badgeLabel: "Flux principal",
-      title: "Parcours affaire prioritaire",
-      description:
-        "Vous etes dans le flux principal affaire-first. Les aides adjacentes restent secondaires, et le legacy estimate-first n'est qu'un fallback volontaire.",
-      provenanceLabel,
+      badgeLabel: "Parcours recommandé",
+      ...routeCopy,
       targetHref: null,
       targetLabel: null,
     };
@@ -154,23 +166,23 @@ export function buildTakeoffRouteHierarchy(input: {
 
   const provenanceLabel =
     input.kind === "dashboard_takeoff_legacy"
-      ? "Provenance du chemin : legacy estimate-first / portail takeoff"
+      ? "Repère : entrée générale des métrés existants"
       : input.kind === "estimate_plans_legacy"
-      ? "Provenance du chemin : legacy estimate-first / plan center"
+      ? "Repère : plans rattachés à une version de devis"
       : input.kind === "estimate_takeoff_legacy"
-        ? "Provenance du chemin : legacy estimate-first / historique takeoff"
+        ? "Repère : historique d’une version de devis"
         : input.kind === "estimate_launch_legacy"
-          ? "Provenance du chemin : legacy estimate-first / lancement takeoff"
+          ? "Repère : lancement depuis une version de devis"
           : input.kind === "estimate_job_legacy"
-            ? "Provenance du chemin : legacy estimate-first / suivi job"
-            : "Provenance du chemin : legacy estimate-first / revue";
+            ? "Repère : suivi d’une analyse existante"
+            : "Repère : revue d’un métré existant";
 
   return {
     classification: "legacy",
-    badgeLabel: "Legacy",
-    title: "Fallback estimate-first explicite",
+    badgeLabel: "Ancien parcours",
+    title: "Parcours conservé pour les dossiers existants",
     description:
-      "Vous etes dans une surface legacy estimate-first. Le flux principal reste l'affaire ; utilisez ce chemin seulement si vous reprenez un contexte existant ou un cas de fallback.",
+      "Cette vue sert à reprendre un métré déjà rattaché à une version de devis. Pour un nouveau métré, partez des plans de l’affaire.",
     provenanceLabel,
     targetHref,
     targetLabel: buildLegacyTargetLabel({
@@ -200,7 +212,7 @@ export async function fetchTakeoffVersionProjectContext(versionId: string): Prom
   const { data, error } = await query.maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de resoudre le contexte affaire du takeoff.");
+    throw mapSupabaseError(error, "Impossible de résoudre le contexte du métré.");
   }
 
   return {

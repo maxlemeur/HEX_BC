@@ -207,7 +207,7 @@ export function TakeoffLaunchPrompt({
 
       if (launchMode === "create_draft_from_current") {
         if (!sourceVersionId) {
-          throw new Error("Impossible de creer un brouillon cible.");
+          throw new Error("Impossible de créer un brouillon cible.");
         }
 
         if (!resolvedVersionId) {
@@ -237,8 +237,8 @@ export function TakeoffLaunchPrompt({
       setLaunchedVersionLabel(resolvedVersionLabelForLaunch);
       setState("success");
       toast.success({
-        title: "Analyse lancee",
-        description: `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine etape : suivre l'analyse dans le centre d'activite metres.`,
+        title: "Analyse lancée",
+        description: `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
       });
       onLaunched?.(createdJobIdForLaunch, resolvedVersionId);
     } catch (err) {
@@ -268,10 +268,10 @@ export function TakeoffLaunchPrompt({
 
   const primaryActionLabel =
     launchMode === "create_draft_from_current"
-      ? "Creer un brouillon et analyser"
+      ? "Créer un brouillon et analyser"
       : "Analyser maintenant";
 
-  const promptTitle = title ?? "Lancer une premiere analyse";
+  const promptTitle = title ?? "Lancer une première analyse";
   const resolvedResultsHref =
     resultsHref ?? `/dashboard/affaires/${projectId}/takeoff`;
 
@@ -306,7 +306,7 @@ export function TakeoffLaunchPrompt({
             </svg>
             <span className="text-xs font-medium text-[var(--brand-blue)]">
               {launchMode === "create_draft_from_current"
-                ? "Creation du brouillon et lancement de l'analyse..."
+                ? "Création du brouillon et lancement de l'analyse..."
                 : "Lancement de l'analyse..."}
             </span>
           </div>
@@ -330,12 +330,12 @@ export function TakeoffLaunchPrompt({
                 <polyline points="20 6 9 17 4 12" />
               </svg>
               <span className="text-xs font-medium text-[var(--success)]">
-                Analyse lancee
+                Analyse lancée
               </span>
             </div>
             <p className="text-xs text-[var(--slate-600)]">
               {launchedVersionLabel ?? resolvedVersionLabel} — {planFileCount} fichier
-              {planFileCount > 1 ? "s" : ""} concerne
+              {planFileCount > 1 ? "s" : ""} concerné
               {planFileCount > 1 ? "s" : ""}.
             </p>
             {createdJobId && (
@@ -361,7 +361,7 @@ export function TakeoffLaunchPrompt({
               className="btn btn-secondary text-xs"
               onClick={handleRetry}
             >
-              Reessayer
+              Réessayer
             </button>
           </div>
         )}
@@ -404,11 +404,11 @@ export function TakeoffLaunchPrompt({
               </p>
             ) : (
               <p className="text-xs text-[var(--slate-600)]">
-                {planFileCount} fichier{planFileCount > 1 ? "s" : ""} seront analyses.
+                {planFileCount} fichier{planFileCount > 1 ? "s" : ""} seront analysés.
               </p>
             )}
             <p className="text-xs text-[var(--slate-600)]">
-              Niveau recommande :{" "}
+              Niveau recommandé :{" "}
               <span className="inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--brand-blue)]">
                 {launchRecommendation.recommendedLevel
                   ? TAKEOFF_LEVEL_BUSINESS_LABELS[launchRecommendation.recommendedLevel]
@@ -422,14 +422,14 @@ export function TakeoffLaunchPrompt({
               </span>
             </p>
             <p className="text-xs text-[var(--slate-500)]">
-              Resultats disponibles dans le centre d&apos;activite metres apres lancement.
+              Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
             </p>
             <p className="text-xs text-[var(--slate-500)]">
-              Benefice attendu : les quantites seront extraites de vos plans pour alimenter le chiffrage.
+              Bénéfice attendu : les quantités seront extraites de vos plans pour alimenter le chiffrage.
             </p>
             <fieldset className="pt-1">
               <legend className="text-xs font-medium text-[var(--slate-600)]">
-                Niveau a lancer
+                Niveau à lancer
               </legend>
               <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
                 {launchableLevels.map((level) => (

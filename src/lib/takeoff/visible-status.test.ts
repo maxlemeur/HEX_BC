@@ -58,14 +58,14 @@ describe("resolveTakeoffVisibleJobStatus", () => {
       })
     ).toEqual({
       status: "completed",
-      label: "Analyse terminee",
+      label: "Analyse terminée",
     });
   });
 
   it("maps failed jobs to action_required", () => {
     expect(resolveTakeoffVisibleJobStatus({ status: "failed" })).toEqual({
       status: "action_required",
-      label: "Echec a corriger",
+      label: "Échec à corriger",
     });
   });
 });
@@ -75,7 +75,7 @@ describe("getTakeoffFailureReasonLabel", () => {
     expect(
       getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED" })
     ).toBe(
-      "Le niveau detaille depasse le budget prevu. Changez de niveau ou ciblez un document plus simple."
+      "Le niveau détaillé dépasse le budget prévu. Changez de niveau ou ciblez un document plus simple."
     );
   });
 

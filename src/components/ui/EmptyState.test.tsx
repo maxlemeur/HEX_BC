@@ -96,4 +96,23 @@ describe("ui/EmptyState", () => {
     expect(link.props.href).toBe("/dashboard/affaires");
     expect(link.children.join("")).toBe("Voir mes affaires");
   });
+
+  it("supports a configurable semantic heading level", async () => {
+    let renderer: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(
+        createElement(EmptyState, {
+          icon: createElement("svg"),
+          title: "Page introuvable",
+          description: "Cette page n'existe pas.",
+          headingLevel: 1,
+        })
+      );
+    });
+
+    expect(renderer!.root.findByType("h1").children.join("")).toBe(
+      "Page introuvable"
+    );
+  });
 });

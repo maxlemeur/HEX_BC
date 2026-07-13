@@ -51,7 +51,7 @@ export default async function AffairePlansPage({ params }: Props) {
     planSetsResult.status === "fulfilled" ? planSetsResult.value : undefined;
 
   return (
-    <>
+    <div className="min-w-0">
       <HubBreadcrumb
         hubHref="/dashboard/affaires"
         hubLabel="Mes affaires"
@@ -63,7 +63,7 @@ export default async function AffairePlansPage({ params }: Props) {
       <div className="mb-6">
         <h1 className="text-xl font-bold text-[var(--slate-900)]">Plans</h1>
         <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Organisez vos plans PDF en jeux pour le metre de cette affaire.
+          Organisez vos plans PDF en jeux pour le métré de cette affaire.
         </p>
       </div>
 
@@ -75,6 +75,6 @@ export default async function AffairePlansPage({ params }: Props) {
         projectId={projectId}
         initialPlanSets={initialPlanSets}
       />
-    </>
+    </div>
   );
 }

@@ -21,9 +21,9 @@ import { TakeoffApplyWizardStrategyStep } from "./takeoff-apply-wizard/TakeoffAp
 import { TakeoffApplyWizardTargetStep } from "./takeoff-apply-wizard/TakeoffApplyWizardTargetStep";
 import {
   AUTO_OVERRIDE_VALUE,
-  ROOT_SECTION_LABEL,
   buildOverrideFromAction,
   buildSectionOptions,
+  serializeTakeoffOverrides,
   toOverrideList,
   type SectionOption,
   type TakeoffApplyStrategy,
@@ -41,6 +41,7 @@ type TakeoffApplyWizardProps = {
   open: boolean;
   jobId: string;
   versionId: string;
+  targetVersionLabel?: string | null;
   includedCount: number;
   excludedCount: number;
   isSubmitting: boolean;
@@ -61,6 +62,7 @@ export function TakeoffApplyWizard({
   open,
   jobId,
   versionId,
+  targetVersionLabel,
   includedCount,
   excludedCount,
   isSubmitting,
@@ -88,6 +90,7 @@ export function TakeoffApplyWizard({
   const [guardResult, setGuardResult] = useState<ApplyGuardResult | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [overrideJustification, setOverrideJustification] = useState("");
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";
@@ -99,6 +102,13 @@ export function TakeoffApplyWizard({
   useEffect(() => {
     overridesRef.current = overridesByItemId;
   }, [overridesByItemId]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (bodyScrollRef.current) {
+      bodyScrollRef.current.scrollTop = 0;
+    }
+  }, [open, step]);
 
   useEffect(() => {
     if (!isLevelC || !hasGuardItems || step !== 4) {
@@ -113,6 +123,7 @@ export function TakeoffApplyWizard({
     previewData,
     previewError,
     isLoadingPreview,
+    previewOverridesSignature,
     refreshPreview,
     resetPreview,
   } = useTakeoffApplyPreview({
@@ -145,7 +156,9 @@ export function TakeoffApplyWizard({
       try {
         const estimateItems = await fetchEstimateItemsForVersion(versionId);
         if (!active) return;
-        setSectionOptions(buildSectionOptions(estimateItems));
+        const options = buildSectionOptions(estimateItems);
+        setSectionOptions(options);
+        setTargetSectionId(options[0]?.id ?? null);
       } catch (error) {
         if (!active) return;
         setSectionsError(
@@ -167,7 +180,7 @@ export function TakeoffApplyWizard({
   }, [open, presetStrategy, resetPreview, versionId]);
 
   const selectedSectionLabel = useMemo(() => {
-    if (!targetSectionId) return ROOT_SECTION_LABEL;
+    if (!targetSectionId) return "Aucune section selectionnee";
     return (
       sectionOptions.find((option) => option.id === targetSectionId)?.summaryLabel ??
       "Section cible"
@@ -178,6 +191,10 @@ export function TakeoffApplyWizard({
     () => toOverrideList(overridesByItemId),
     [overridesByItemId]
   );
+  const currentOverridesSignature = useMemo(
+    () => serializeTakeoffOverrides(overridesByItemId),
+    [overridesByItemId]
+  );
   const sourceByItemId = useMemo(
     () => new Map((externalItems ?? []).map((item) => [item.id, item])),
     [externalItems]
@@ -186,7 +203,12 @@ export function TakeoffApplyWizard({
   const totalExcludedCount =
     excludedCount + (previewData?.summary.excluded_by_mapping_count ?? 0);
   const hasPreviewReady =
-    previewData !== null && previewError === null && isLoadingPreview === false;
+    previewData !== null &&
+    previewError === null &&
+    isLoadingPreview === false &&
+    previewOverridesSignature === currentOverridesSignature;
+  const isPreviewStale =
+    previewData !== null && previewOverridesSignature !== currentOverridesSignature;
   const guardBlocking =
     isLevelC && guardResult !== null && !guardResult.passed;
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
@@ -285,11 +307,17 @@ export function TakeoffApplyWizard({
 
   return (
     <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content className="max-w-4xl" closeOnOverlayClick={!isSubmitting}>
+      <Modal.Content
+        containerClassName="sm:max-w-4xl"
+        closeOnOverlayClick={!isSubmitting}
+      >
         <Modal.Header>
           <div>
             <Modal.Title>Appliquer au devis</Modal.Title>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p
+              aria-live="polite"
+              className="mt-1 text-sm text-[var(--slate-500)]"
+            >
               Etape {displayStep} / {totalSteps}
             </p>
           </div>
@@ -297,98 +325,116 @@ export function TakeoffApplyWizard({
         </Modal.Header>
 
         <Modal.Body>
-          <div className="mb-2 flex items-center gap-2">
-            {Array.from({ length: totalSteps }, (_, index) => index + 1).map((value) => {
-              const active = displayStep === value;
-              const done = displayStep > value;
-              return (
-                <span
-                  key={value}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
-                    active
-                      ? "bg-[var(--info)] text-white"
-                      : done
-                        ? "bg-[var(--success)] text-white"
-                        : "bg-[var(--slate-100)] text-[var(--slate-500)]"
-                  }`}
-                >
-                  {value}
-                </span>
-              );
-            })}
+          <div
+            ref={bodyScrollRef}
+            data-testid="takeoff-apply-wizard-body"
+            role="region"
+            aria-label={`Contenu de l'etape ${displayStep} sur ${totalSteps}`}
+            tabIndex={0}
+            className="max-h-[calc(100dvh-15rem)] space-y-4 overflow-y-auto overscroll-contain pr-1"
+          >
+            <div
+              aria-label="Progression de l'application"
+              className="mb-2 flex items-center gap-2"
+            >
+              {Array.from({ length: totalSteps }, (_, index) => index + 1).map((value) => {
+                const active = displayStep === value;
+                const done = displayStep > value;
+                return (
+                  <span
+                    key={value}
+                    aria-current={active ? "step" : undefined}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
+                      active
+                        ? "bg-[var(--info)] text-white"
+                        : done
+                          ? "bg-[var(--success)] text-white"
+                          : "bg-[var(--slate-100)] text-[var(--slate-500)]"
+                    }`}
+                  >
+                    {value}
+                  </span>
+                );
+              })}
+            </div>
+
+            {step === 1 && (
+              <TakeoffApplyWizardTargetStep
+                targetVersionLabel={targetVersionLabel}
+                targetSectionId={targetSectionId}
+                sectionOptions={sectionOptions}
+                isLoadingSections={isLoadingSections}
+                sectionsError={sectionsError}
+                isSubmitting={isSubmitting}
+                onTargetSectionChange={(value) => {
+                  setTargetSectionId(value);
+                  resetPreview();
+                }}
+              />
+            )}
+
+            {step === 2 && !isPreset && (
+              <TakeoffApplyWizardStrategyStep
+                strategy={strategy}
+                isSubmitting={isSubmitting}
+                onStrategyChange={(value) => {
+                  setStrategy(value);
+                  resetPreview();
+                }}
+              />
+            )}
+
+            {step === 3 && !isPreset && (
+              <TakeoffApplyWizardPreviewStep
+                strategy={strategy}
+                sourceFileName={sourceFileName}
+                includedCount={includedCount}
+                previewData={previewData}
+                previewError={previewError}
+                isLoadingPreview={isLoadingPreview}
+                isPreviewStale={isPreviewStale}
+                overrideCount={overrideCount}
+                overridesByItemId={overridesByItemId}
+                sourceByItemId={sourceByItemId}
+                isSubmitting={isSubmitting}
+                onRefreshPreview={() => void refreshPreview(overridesByItemId)}
+                onOverrideActionChange={handleOverrideActionChange}
+                onOverrideParamChange={handleOverrideParamChange}
+              />
+            )}
+
+            {step === 4 && (
+              <TakeoffApplyWizardConfirmationStep
+                guardBlocking={guardBlocking}
+                guardResult={guardResult}
+                externalItems={externalItems}
+                isAdmin={isAdmin}
+                isVerifying={isVerifying}
+                overrideJustification={overrideJustification}
+                onVerifyAll={() => void handleVerifyAll()}
+                onVerifyItem={(itemId) => void handleVerifyItem(itemId)}
+                onReturnToReview={onReturnToReview}
+                onOverrideJustificationChange={setOverrideJustification}
+                onOverrideConfirm={() => void handleOverrideConfirm()}
+                isLevelC={isLevelC}
+                previewData={previewData}
+                includedCount={includedCount}
+                totalExcludedCount={totalExcludedCount}
+                overrideCount={overrideCount}
+                targetVersionLabel={targetVersionLabel}
+                selectedSectionLabel={selectedSectionLabel}
+                strategy={strategy}
+                sourceFileName={sourceFileName}
+                hasPreviewReady={hasPreviewReady}
+              />
+            )}
+
           </div>
-
-          {step === 1 && (
-            <TakeoffApplyWizardTargetStep
-              versionId={versionId}
-              targetSectionId={targetSectionId}
-              sectionOptions={sectionOptions}
-              isLoadingSections={isLoadingSections}
-              sectionsError={sectionsError}
-              isSubmitting={isSubmitting}
-              onTargetSectionChange={(value) => {
-                setTargetSectionId(value);
-                resetPreview();
-              }}
-            />
+          {submitError && (
+            <div className="alert alert-error mt-3" role="alert">
+              {submitError}
+            </div>
           )}
-
-          {step === 2 && !isPreset && (
-            <TakeoffApplyWizardStrategyStep
-              strategy={strategy}
-              isSubmitting={isSubmitting}
-              onStrategyChange={(value) => {
-                setStrategy(value);
-                resetPreview();
-              }}
-            />
-          )}
-
-          {step === 3 && !isPreset && (
-            <TakeoffApplyWizardPreviewStep
-              strategy={strategy}
-              sourceFileName={sourceFileName}
-              includedCount={includedCount}
-              previewData={previewData}
-              previewError={previewError}
-              isLoadingPreview={isLoadingPreview}
-              overrideCount={overrideCount}
-              overridesByItemId={overridesByItemId}
-              sourceByItemId={sourceByItemId}
-              isSubmitting={isSubmitting}
-              onRefreshPreview={() => void refreshPreview(overridesByItemId)}
-              onOverrideActionChange={handleOverrideActionChange}
-              onOverrideParamChange={handleOverrideParamChange}
-            />
-          )}
-
-          {step === 4 && (
-            <TakeoffApplyWizardConfirmationStep
-              guardBlocking={guardBlocking}
-              guardResult={guardResult}
-              externalItems={externalItems}
-              isAdmin={isAdmin}
-              isVerifying={isVerifying}
-              overrideJustification={overrideJustification}
-              onVerifyAll={() => void handleVerifyAll()}
-              onVerifyItem={(itemId) => void handleVerifyItem(itemId)}
-              onReturnToReview={onReturnToReview}
-              onOverrideJustificationChange={setOverrideJustification}
-              onOverrideConfirm={() => void handleOverrideConfirm()}
-              isLevelC={isLevelC}
-              previewData={previewData}
-              includedCount={includedCount}
-              totalExcludedCount={totalExcludedCount}
-              overrideCount={overrideCount}
-              versionId={versionId}
-              selectedSectionLabel={selectedSectionLabel}
-              strategy={strategy}
-              sourceFileName={sourceFileName}
-              hasPreviewReady={hasPreviewReady}
-            />
-          )}
-
-          {submitError && <div className="alert alert-error">{submitError}</div>}
         </Modal.Body>
 
         <Modal.Footer>
@@ -419,6 +465,7 @@ export function TakeoffApplyWizard({
               onClick={() => setStep(isPreset ? 4 : ((step + 1) as WizardStep))}
               disabled={
                 isSubmitting ||
+                (step === 1 && !targetSectionId) ||
                 (step === 3 && (!hasPreviewReady || isLoadingPreview))
               }
             >

@@ -114,11 +114,11 @@ export function EstimateEditorTableChrome({
         data-density="compact"
       >
         <div
-          className="dashboard-card relative z-10 p-6"
+          className="dashboard-card relative z-10 p-3 sm:p-4 lg:p-6"
           data-testid="estimate-editor-table-card"
         >
-          <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
+            <div className="order-2 w-full min-w-0 flex-1 md:order-1">
               {toolbarNode}
               {activeLineBreadcrumb ? (
                 <div className="mt-2 text-xs text-[var(--slate-500)]">
@@ -126,7 +126,11 @@ export function EstimateEditorTableChrome({
                 </div>
               ) : null}
             </div>
-            {headerRight ? <div className="shrink-0">{headerRight}</div> : null}
+            {headerRight ? (
+              <div className="order-1 w-full md:order-2 md:w-auto md:shrink-0">
+                {headerRight}
+              </div>
+            ) : null}
           </div>
 
           {actionError ? (

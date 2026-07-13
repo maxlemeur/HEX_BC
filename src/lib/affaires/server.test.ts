@@ -2465,13 +2465,13 @@ describe("affaires hub server", () => {
     expect(summary.latestJob).toMatchObject({
       jobId: "job-3",
       status: "action_required",
-      label: "Echec a corriger",
+      label: "Échec à corriger",
       reviewVersionId: "ver-3",
       planSetId: null,
       estimateVersionId: "ver-3",
     });
     expect(summary.failureReasonLabel).toBe(
-      "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide."
+      "Délai dépassé. Relancez l'analyse ou essayez un niveau plus rapide."
     );
   });
 
@@ -2661,7 +2661,7 @@ describe("affaires hub server", () => {
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
     expect(summary.latestJob?.status).toBe("completed");
-    expect(summary.latestJob?.label).toBe("Analyse terminee");
+    expect(summary.latestJob?.label).toBe("Analyse terminée");
     expect(summary.coveragePercent).toBe(100);
     expect(summary.exceptionCount).toBe(0);
   });

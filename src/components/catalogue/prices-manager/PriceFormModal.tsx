@@ -16,7 +16,11 @@ type PriceFormModalProps = {
   item: EnrichedPrice | null;
   supplierOptions: SearchableSelectOption[];
   productOptions: SearchableSelectOption[];
+  isSupplierLoading?: boolean;
+  isProductLoading?: boolean;
   defaultProductId?: string | null;
+  onSupplierQueryChange?: (query: string) => void;
+  onProductQueryChange?: (query: string) => void;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 };
@@ -46,7 +50,11 @@ export function PriceFormModal({
   item,
   supplierOptions,
   productOptions,
+  isSupplierLoading = false,
+  isProductLoading = false,
   defaultProductId = null,
+  onSupplierQueryChange,
+  onProductQueryChange,
   onClose,
   onSaved,
 }: Readonly<PriceFormModalProps>) {
@@ -207,6 +215,8 @@ export function PriceFormModal({
               value={formState.supplier_id}
               options={supplierOptions}
               placeholder="Rechercher un fournisseur..."
+              isLoading={isSupplierLoading}
+              onQueryChange={onSupplierQueryChange}
               required
               onValueChange={(value) =>
                 setFormState((previous) => ({ ...previous, supplier_id: value }))
@@ -221,6 +231,8 @@ export function PriceFormModal({
               value={formState.product_id}
               options={productOptions}
               placeholder="Rechercher un produit..."
+              isLoading={isProductLoading}
+              onQueryChange={onProductQueryChange}
               required
               onValueChange={(value) =>
                 setFormState((previous) => ({ ...previous, product_id: value }))

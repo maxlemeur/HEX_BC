@@ -32,6 +32,8 @@ import {
   TakeoffApplyWizard,
   type TakeoffApplyWizardSubmitPayload,
 } from "@/components/takeoff/TakeoffApplyWizard";
+import { releaseEstimateDraftLock } from "@/lib/estimates/client";
+import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 
 const LazyTakeoffReviewExpert = dynamic(
   () =>
@@ -73,13 +75,13 @@ import {
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
 } from "@/lib/takeoff/guards";
 import type {
   TakeoffDpgfComparisonResponse,
-  TakeoffDpgfComparisonSummary,
   TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
   TakeoffItemPatchEntry,
@@ -139,15 +141,6 @@ function parseLowConfidenceThreshold(value: string | null): number {
   if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   return parsed;
-}
-
-function hasPendingDpgfExceptions(summary: TakeoffDpgfComparisonSummary | null): boolean {
-  if (!summary) return false;
-  return (
-    summary.lines_without_proof > 0 ||
-    summary.unused_takeoff_items > 0 ||
-    summary.forced_manual > 0
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +382,8 @@ export default function TakeoffReviewPage({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jobFileName, setJobFileName] = useState<string | null>(null);
   const [jobLevel, setJobLevel] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [jobVersionNumber, setJobVersionNumber] = useState<number | null>(null);
   const [globalConfidence, setGlobalConfidence] = useState<number | null>(null);
   const [evidencePanelItemId, setEvidencePanelItemId] = useState<string | null>(null);
   const [compareCandidates, setCompareCandidates] = useState<TakeoffJobSummary[]>([]);
@@ -469,6 +464,8 @@ export default function TakeoffReviewPage({
 
         setJobFileName(firstPage.job.source_file_name);
         setJobLevel(firstPage.job.level);
+        setJobStatus(firstPage.job.status);
+        setJobVersionNumber(firstPage.job.version_number ?? null);
         setGlobalConfidence(firstPage.result?.confidence ?? null);
 
         // Extract tables from result if available
@@ -682,9 +679,7 @@ export default function TakeoffReviewPage({
     const nextMode: DpgfFetchMode | null =
       activeTab === "dpgf"
         ? "detail"
-        : currentReviewMode === "validation"
-          ? "summary"
-          : null;
+        : "summary";
 
     if (!nextMode) return;
 
@@ -1100,12 +1095,16 @@ export default function TakeoffReviewPage({
     return checkApplyGuard(includedItems, lowConfidenceThreshold);
   }, [includedItems, jobLevel, lowConfidenceThreshold]);
   const hasGuardBlocks = guardResult !== null && !guardResult.passed;
-  const requiresDpgfValidation = currentReviewMode === "validation";
-  const hasDpgfBlocks = hasPendingDpgfExceptions(dpgfCompareData?.summary ?? null);
+  const hasDpgfBlocks = hasBlockingTakeoffDpgfExceptions(
+    dpgfCompareData?.summary ?? null
+  );
   const isDpgfValidationPending =
-    requiresDpgfValidation && (dpgfCompareLoading || dpgfCompareData === null);
-  const hasDpgfValidationError = requiresDpgfValidation && dpgfCompareError !== null;
+    dpgfCompareLoading || dpgfCompareData === null;
+  const hasDpgfValidationError = dpgfCompareError !== null;
+  const hasAlreadyBeenApplied = jobStatus === "applied" || applySuccess !== null;
   const canOpenApplyWizard =
+    !hasAlreadyBeenApplied &&
+    jobStatus === "completed" &&
     hasIncluded &&
     !hasDirtyOrSaving &&
     !hasSaveErrors &&
@@ -1115,6 +1114,10 @@ export default function TakeoffReviewPage({
     !hasDpgfBlocks;
   const isApplyReady = canOpenApplyWizard && !hasGuardBlocks;
   const applyReadinessMessage = useMemo(() => {
+    if (hasAlreadyBeenApplied) {
+      return "Ce metre a deja ete applique au chiffrage.";
+    }
+
     if (!hasIncluded) {
       return "Aucun item retenu. Reintegrez au moins une ligne avant l'apply.";
     }
@@ -1156,6 +1159,7 @@ export default function TakeoffReviewPage({
     hasDirtyOrSaving,
     hasGuardBlocks,
     hasIncluded,
+    hasAlreadyBeenApplied,
     hasSaveErrors,
     isDpgfValidationPending,
   ]);
@@ -1170,7 +1174,20 @@ export default function TakeoffReviewPage({
     async (payload: TakeoffApplyWizardSubmitPayload) => {
       setApplySubmitting(true);
       setApplyError(null);
+      let shouldReleaseDraftLock = false;
+
       try {
+        const lockResult = await ensureTakeoffApplyDraftLock(versionId);
+        if (!lockResult.acquired) {
+          setApplyError(
+            lockResult.errorMessage ??
+              "Impossible d'acquerir le verrou de brouillon de la version cible."
+          );
+          return;
+        }
+
+        shouldReleaseDraftLock = lockResult.shouldRelease;
+
         const response = await applyTakeoffJob(jobId, {
           strategy: payload.strategy,
           target_section_id: payload.targetSectionId,
@@ -1187,6 +1204,7 @@ export default function TakeoffReviewPage({
           updatedCount: response.summary.updated_count,
           ignoredCount: response.summary.ignored_count,
         });
+        setJobStatus("applied");
         toast.success({
           title: "Apply controle termine",
           description: `${response.summary.created_count} cree(s), ${response.summary.updated_count} mis a jour, ${response.summary.ignored_count} ignore(s).`,
@@ -1199,6 +1217,9 @@ export default function TakeoffReviewPage({
           isTakeoffApiError(err) ? err.message : "Erreur lors de l'application."
         );
       } finally {
+        if (shouldReleaseDraftLock) {
+          void releaseEstimateDraftLock(versionId).catch(() => false);
+        }
         setApplySubmitting(false);
       }
     },
@@ -1324,7 +1345,7 @@ export default function TakeoffReviewPage({
             )}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
           <TakeoffReviewModeSwitch
             mode={currentReviewMode}
             onModeChange={setReviewMode}
@@ -1335,7 +1356,7 @@ export default function TakeoffReviewPage({
                 ? `/dashboard/affaires/${projectId}/takeoff`
                 : `/dashboard/estimates/${versionId}/takeoff/${jobId}`
             }
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
           >
             {isAffaireContext
               ? "Centre d'activite metres"
@@ -1445,7 +1466,7 @@ export default function TakeoffReviewPage({
       )}
 
       {/* ---- Apply readiness bar (production mode only, others have built-in bars) ---- */}
-      {currentReviewMode === "production" && <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-white px-4 py-3">
+      {currentReviewMode === "production" && <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm">
           {isApplyReady ? (
             <span className="flex items-center gap-2 text-[var(--success)]">
@@ -1463,6 +1484,7 @@ export default function TakeoffReviewPage({
         <Button
           variant="primary"
           size="sm"
+          className="w-full justify-center sm:w-auto"
           disabled={!isApplyReady}
           onClick={handleOpenApplyWizard}
           title={
@@ -1490,6 +1512,9 @@ export default function TakeoffReviewPage({
         open={applyWizardOpen}
         jobId={jobId}
         versionId={versionId}
+        targetVersionLabel={
+          jobVersionNumber !== null ? `V${jobVersionNumber}` : null
+        }
         includedCount={includedItems.length}
         excludedCount={items.length - includedItems.length}
         isSubmitting={applySubmitting}

@@ -17,8 +17,8 @@ describe("getBusinessLevelLabel", () => {
     expect(getBusinessLevelLabel("B")).toBe("Standard");
   });
 
-  it("maps C to Detaille", () => {
-    expect(getBusinessLevelLabel("C")).toBe("Detaille");
+  it("maps C to Détaillé", () => {
+    expect(getBusinessLevelLabel("C")).toBe("Détaillé");
   });
 
   it("returns raw value for unknown level", () => {
@@ -27,8 +27,8 @@ describe("getBusinessLevelLabel", () => {
 });
 
 describe("getBusinessStatusLabel", () => {
-  it("maps completed to Analyse terminee", () => {
-    expect(getBusinessStatusLabel("completed")).toBe("Analyse terminee");
+  it("maps completed to Analyse terminée", () => {
+    expect(getBusinessStatusLabel("completed")).toBe("Analyse terminée");
   });
 
   it("maps processing to Analyse en cours", () => {
@@ -47,8 +47,8 @@ describe("getBusinessStatusLabel", () => {
     expect(getBusinessStatusLabel("review_required")).toBe("Revue requise");
   });
 
-  it("maps action_required to Echec a corriger", () => {
-    expect(getBusinessStatusLabel("action_required")).toBe("Echec a corriger");
+  it("maps action_required to Échec à corriger", () => {
+    expect(getBusinessStatusLabel("action_required")).toBe("Échec à corriger");
   });
 
   it("returns raw value for unknown status", () => {
@@ -57,10 +57,10 @@ describe("getBusinessStatusLabel", () => {
 });
 
 describe("getConfidenceLabel", () => {
-  it("returns Elevee for >= 0.8", () => {
-    expect(getConfidenceLabel(0.9)).toBe("Elevee");
-    expect(getConfidenceLabel(0.8)).toBe("Elevee");
-    expect(getConfidenceLabel(1.0)).toBe("Elevee");
+  it("returns Élevée for >= 0.8", () => {
+    expect(getConfidenceLabel(0.9)).toBe("Élevée");
+    expect(getConfidenceLabel(0.8)).toBe("Élevée");
+    expect(getConfidenceLabel(1.0)).toBe("Élevée");
   });
 
   it("returns Moyenne for 0.5-0.79", () => {
@@ -81,8 +81,8 @@ describe("getConfidenceLabel", () => {
 });
 
 describe("getConfidenceBadgeVariant", () => {
-  it("maps Elevee to success", () => {
-    expect(getConfidenceBadgeVariant("Elevee")).toBe("success");
+  it("maps Élevée to success", () => {
+    expect(getConfidenceBadgeVariant("Élevée")).toBe("success");
   });
 
   it("maps Moyenne to warning", () => {
@@ -110,5 +110,9 @@ describe("isCoverageLow", () => {
     expect(isCoverageLow(50)).toBe(false);
     expect(isCoverageLow(72)).toBe(false);
     expect(isCoverageLow(100)).toBe(false);
+  });
+
+  it("does not flag an unavailable DPGF coverage", () => {
+    expect(isCoverageLow(null)).toBe(false);
   });
 });

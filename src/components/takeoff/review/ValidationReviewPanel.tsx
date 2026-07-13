@@ -9,6 +9,7 @@ import {
   detectAnomalies,
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
 
 type ValidationReviewPanelProps = {
@@ -186,12 +187,7 @@ function buildStatusMessage(input: {
     return "Certaines decisions ne sont pas encore enregistrees. Reprenez les lignes en erreur avant de continuer.";
   }
 
-  if (
-    input.dpgfSummary &&
-    (input.dpgfSummary.lines_without_proof > 0 ||
-      input.dpgfSummary.unused_takeoff_items > 0 ||
-      input.dpgfSummary.forced_manual > 0)
-  ) {
+  if (hasBlockingTakeoffDpgfExceptions(input.dpgfSummary)) {
     return "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels.";
   }
 
@@ -429,8 +425,16 @@ export function ValidationReviewPanel({
               <PriorityCard
                 label="Items orphelins"
                 value={dpgfSummary.unused_takeoff_items}
-                tone={dpgfSummary.unused_takeoff_items > 0 ? "warning" : "success"}
-                hint="items takeoff sans ligne cible"
+                tone={
+                  dpgfSummary.total_lines > 0 && dpgfSummary.unused_takeoff_items > 0
+                    ? "warning"
+                    : "success"
+                }
+                hint={
+                  dpgfSummary.total_lines === 0
+                    ? "aucune ligne DPGF cible, ajout au chiffrage possible"
+                    : "items takeoff sans ligne cible"
+                }
               />
               <PriorityCard
                 label="Revue manuelle"
@@ -522,7 +526,7 @@ export function ValidationReviewPanel({
               key={option.value}
               type="button"
               onClick={() => setFilter(option.value)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 ${
+              className={`min-h-11 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 sm:min-h-0 ${
                 filter === option.value
                   ? "bg-[var(--slate-800)] text-white"
                   : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
@@ -755,7 +759,7 @@ function ValidationItemRow({
           )}
         </div>
 
-        <div className="flex flex-shrink-0 flex-wrap gap-1">
+        <div className="flex w-full min-w-0 flex-wrap gap-1 sm:w-auto sm:max-w-[45%] sm:justify-end">
           {issues.map((issue) => (
             <Badge
               key={issue}

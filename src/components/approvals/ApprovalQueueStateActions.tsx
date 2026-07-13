@@ -75,7 +75,7 @@ export function ApprovalQueueStateActions({
           setIsOpen(!isOpen);
         }}
         disabled={isPending}
-        className="inline-flex items-center gap-1 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1 text-xs font-medium text-[var(--slate-600)] hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] disabled:opacity-50"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1 text-xs font-medium text-[var(--slate-600)] hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] disabled:opacity-50 sm:min-h-8 sm:min-w-8"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label="Actions de triage"
@@ -111,7 +111,7 @@ export function ApprovalQueueStateActions({
                 e.stopPropagation();
                 handleSelect(option.value);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-[var(--slate-50)] ${
+              className={`flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--slate-50)] sm:min-h-0 sm:py-1.5 ${
                 currentState === option.value
                   ? "font-semibold text-[var(--brand-blue)]"
                   : "text-[var(--slate-700)]"

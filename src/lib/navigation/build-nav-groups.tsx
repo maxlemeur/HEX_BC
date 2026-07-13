@@ -33,6 +33,28 @@ export type BuildNavGroupsInput = {
 // Nav item constants
 // ---------------------------------------------------------------------------
 
+const HOME_ITEM: NavItem = {
+  href: "/dashboard",
+  label: "Accueil",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3 11 9-8 9 8" />
+      <path d="M5 10v10h14V10" />
+      <path d="M9 20v-6h6v6" />
+    </svg>
+  ),
+};
+
 const AFFAIRES_ITEM: NavItem = {
   href: "/dashboard/affaires",
   label: "Mes affaires",
@@ -148,7 +170,7 @@ const TARIFS_ITEM: NavItem = {
 
 const ANALYTICS_ITEM: NavItem = {
   href: "/dashboard/analytics",
-  label: "Analytics",
+  label: "Performances",
   icon: (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -191,7 +213,7 @@ const APPROVALS_ITEM: NavItem = {
 
 const DIRECTION_ITEM: NavItem = {
   href: "/dashboard/direction",
-  label: "Cockpit direction",
+  label: "Vue direction",
   navId: "direction",
   icon: (
     <svg
@@ -244,6 +266,8 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
   if (!role) return [];
 
   const groups: NavGroup[] = [];
+
+  groups.push({ key: "accueil", label: "Accueil", items: [HOME_ITEM] });
 
   // --- Mes affaires (all roles) ---
   const affairesItems: NavItem[] = [AFFAIRES_ITEM];

@@ -62,6 +62,31 @@ function ControlledModal() {
   );
 }
 
+function AutoFocusModal() {
+  return createElement(
+    Modal.Root,
+    { open: true, onOpenChange: () => undefined } as never,
+    createElement(
+      Modal.Content,
+      null,
+      createElement(
+        Modal.Header,
+        null,
+        createElement(Modal.Title, null, "Nouveau jeu"),
+        createElement(Modal.Close, null, "Fermer")
+      ),
+      createElement(
+        Modal.Body,
+        null,
+        createElement("input", {
+          "aria-label": "Nom du jeu",
+          "data-modal-autofocus": "true",
+        })
+      )
+    )
+  );
+}
+
 describe("ui/Modal", () => {
   afterEach(() => {
     cleanup();
@@ -76,6 +101,30 @@ describe("ui/Modal", () => {
     expect(document.body).toContainElement(dialog);
     expect(screen.getByTestId("stacking-context")).not.toContainElement(dialog);
     expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
+    const backgroundRoot = screen.getByTestId("stacking-context").parentElement;
+    expect(backgroundRoot).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
+    expect(backgroundRoot).toHaveProperty("inert", true);
+  });
+
+  it("allows a caller to widen the modal container", () => {
+    render(
+      createElement(
+        Modal.Root,
+        { open: true, onOpenChange: () => undefined } as never,
+        createElement(
+          Modal.Content,
+          { containerClassName: "sm:max-w-4xl" } as never,
+          createElement(Modal.Title, null, "Large modal")
+        )
+      )
+    );
+
+    expect(screen.getByRole("dialog", { name: "Large modal" }).parentElement).toHaveClass(
+      "sm:max-w-4xl"
+    );
   });
 
   it("closes on overlay click", async () => {
@@ -135,6 +184,24 @@ describe("ui/Modal", () => {
     await waitFor(() => {
       expect(trigger).toHaveFocus();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      const backgroundRoot = screen.getByTestId("stacking-context").parentElement;
+      expect(backgroundRoot).not.toHaveAttribute(
+        "aria-hidden"
+      );
+      expect(backgroundRoot).toHaveProperty(
+        "inert",
+        false
+      );
     });
+  });
+
+  it("prioritizes an explicitly requested field over an earlier close button", async () => {
+    render(createElement(AutoFocusModal));
+
+    await waitFor(() => expect(screen.getByLabelText("Nom du jeu")).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Fermer" })).toHaveClass(
+      "h-11",
+      "min-w-11"
+    );
   });
 });

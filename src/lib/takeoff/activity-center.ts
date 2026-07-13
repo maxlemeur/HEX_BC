@@ -448,7 +448,7 @@ async function countItemsByJobId(
 type EnrichmentResult = {
   confidence: Map<string, number | null>;
   exceptions: Map<string, number>;
-  coverage: Map<string, number>;
+  coverage: Map<string, number | null>;
   carryOver: Map<string, string | null>;
 };
 
@@ -505,11 +505,21 @@ async function batchEnrich(
       (async () => {
         const { data, error } = await supabase
           .from("takeoff_dpgf_links" as never)
-          .select("takeoff_job_id, version_id" as never)
+          .select("takeoff_job_id, version_id, estimate_item_id" as never)
           .eq("tenant_id" as never, tenantId as never)
           .in("takeoff_job_id" as never, jobIds as never);
-        if (error) return [] as Array<{ takeoff_job_id: string; version_id: string }>;
-        return (data ?? []) as Array<{ takeoff_job_id: string; version_id: string }>;
+        if (error) {
+          return [] as Array<{
+            takeoff_job_id: string;
+            version_id: string;
+            estimate_item_id: string;
+          }>;
+        }
+        return (data ?? []) as Array<{
+          takeoff_job_id: string;
+          version_id: string;
+          estimate_item_id: string;
+        }>;
       })(),
 
       // 4. Carry-over: check version links
@@ -536,11 +546,17 @@ async function batchEnrich(
         const versionIds = [...new Set(jobs.map((j) => j.estimate_version_id))];
         const { data, error } = await supabase
           .from("estimate_items" as never)
-          .select("estimate_version_id" as never)
+          .select("id, version_id" as never)
           .eq("tenant_id" as never, tenantId as never)
-          .in("estimate_version_id" as never, versionIds as never);
-        if (error) return [] as unknown as Array<{ estimate_version_id: string }>;
-        return (data ?? []) as unknown as Array<{ estimate_version_id: string }>;
+          .eq("item_type" as never, "line" as never)
+          .in("version_id" as never, versionIds as never);
+        if (error) {
+          return [] as unknown as Array<{ id: string; version_id: string }>;
+        }
+        return (data ?? []) as unknown as Array<{
+          id: string;
+          version_id: string;
+        }>;
       })(),
     ]);
 
@@ -571,23 +587,41 @@ async function batchEnrich(
     exceptions.set(row.takeoff_job_id, (exceptions.get(row.takeoff_job_id) ?? 0) + 1);
   }
 
-  // Build coverage map: linked/total per job
-  const linkCountByJob = new Map<string, number>();
-  for (const row of linkRows) {
-    linkCountByJob.set(row.takeoff_job_id, (linkCountByJob.get(row.takeoff_job_id) ?? 0) + 1);
-  }
-  const totalItemsByVersion = new Map<string, number>();
+  // Build coverage map: unique linked DPGF lines / unique target DPGF lines.
+  const lineIdsByVersion = new Map<string, Set<string>>();
   for (const row of totalItemRows) {
-    totalItemsByVersion.set(
-      row.estimate_version_id,
-      (totalItemsByVersion.get(row.estimate_version_id) ?? 0) + 1
-    );
+    const lineIds = lineIdsByVersion.get(row.version_id) ?? new Set<string>();
+    lineIds.add(row.id);
+    lineIdsByVersion.set(row.version_id, lineIds);
   }
-  const coverage = new Map<string, number>();
+
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  const linkedLineIdsByJob = new Map<string, Set<string>>();
+  for (const row of linkRows) {
+    const job = jobById.get(row.takeoff_job_id);
+    const targetLineIds = lineIdsByVersion.get(row.version_id);
+    if (
+      !job ||
+      job.estimate_version_id !== row.version_id ||
+      !targetLineIds?.has(row.estimate_item_id)
+    ) {
+      continue;
+    }
+
+    const linkedLineIds =
+      linkedLineIdsByJob.get(row.takeoff_job_id) ?? new Set<string>();
+    linkedLineIds.add(row.estimate_item_id);
+    linkedLineIdsByJob.set(row.takeoff_job_id, linkedLineIds);
+  }
+
+  const coverage = new Map<string, number | null>();
   for (const job of jobs) {
-    const linked = linkCountByJob.get(job.id) ?? 0;
-    const total = totalItemsByVersion.get(job.estimate_version_id) ?? 0;
-    coverage.set(job.id, total > 0 ? Math.min(100, Math.round((linked / total) * 100)) : 0);
+    const total = lineIdsByVersion.get(job.estimate_version_id)?.size ?? 0;
+    const linked = linkedLineIdsByJob.get(job.id)?.size ?? 0;
+    coverage.set(
+      job.id,
+      total > 0 ? Math.min(100, Math.round((linked / total) * 100)) : null
+    );
   }
 
   // Build carry-over map: first linked version per job
@@ -829,7 +863,7 @@ export async function listActivityCenterJobs(
       canCancel: operatorState.canCancel,
       canResubmit: operatorState.canResubmit,
       itemCount: itemCountMap.get(row.id) ?? 0,
-      coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? 0) : 0,
+      coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? null) : null,
       exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : 0,
       confidenceLabel: getConfidenceLabel(avgConfidence) as TakeoffActivityCenterConfidenceLabel,
       appliedCount: row.status === "applied" ? 1 : 0,

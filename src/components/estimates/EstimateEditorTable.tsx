@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -694,6 +695,60 @@ export function resolveEstimateTableShortcutScope(scope: EstimateTableShortcutSc
     canHandleBulkSelectionShortcut,
   };
 }
+
+export function resolveEstimateEditorGridStyle(
+  visibleColumns: ReadonlySet<ColumnKey>,
+  isLaborSplitEnabled: boolean
+): CSSProperties | undefined {
+  if (isLaborSplitEnabled) {
+    return undefined;
+  }
+
+  const desktopColumns = ["minmax(320px, 3fr)", "80px", "80px", "110px"];
+  const tabletColumns = ["minmax(240px, 3fr)", "70px", "70px", "90px"];
+  let desktopMinWidth = 320 + 80 + 80 + 110;
+  let tabletMinWidth = 240 + 70 + 70 + 90;
+
+  const addOptionalColumn = (
+    column: ColumnKey,
+    desktopWidth: number,
+    tabletWidth: number
+  ) => {
+    if (!visibleColumns.has(column)) {
+      return;
+    }
+
+    desktopColumns.push(`${desktopWidth}px`);
+    tabletColumns.push(`${tabletWidth}px`);
+    desktopMinWidth += desktopWidth;
+    tabletMinWidth += tabletWidth;
+  };
+
+  addOptionalColumn("supply_type", 140, 120);
+  addOptionalColumn("k_fo", 88, 76);
+
+  desktopColumns.push("80px");
+  tabletColumns.push("70px");
+  desktopMinWidth += 80;
+  tabletMinWidth += 70;
+
+  addOptionalColumn("h_mo_majoration", 130, 110);
+  addOptionalColumn("labor_role", 130, 110);
+  addOptionalColumn("k_mo", 92, 80);
+
+  desktopColumns.push("110px", "120px", "50px");
+  tabletColumns.push("90px", "100px", "44px");
+  desktopMinWidth += 110 + 120 + 50;
+  tabletMinWidth += 90 + 100 + 44;
+
+  return {
+    "--estimate-grid-desktop": desktopColumns.join(" "),
+    "--estimate-grid-tablet": tabletColumns.join(" "),
+    "--estimate-desktop-min-width": `${desktopMinWidth}px`,
+    "--estimate-tablet-min-width": `${Math.max(tabletMinWidth, 900)}px`,
+  } as CSSProperties;
+}
+
 export function EstimateEditorTable({
   versionId,
   currency = "EUR",
@@ -833,22 +888,14 @@ export function EstimateEditorTable({
     [collapsedSectionIds, getVisibleItems]
   );
   const hasVisibleRowsForRender = getVisibleItemsForRender(null).length > 0;
-  const dynamicGridStyle = useMemo(() => {
-    if (isLaborSplitEnabled) return undefined; // labor split uses its own grid, not affected by column visibility
-    const cols: string[] = ["minmax(320px, 3fr)", "80px", "80px", "110px"]; // designation, qty, unit, PR.FO
-    let minWidth = 320 + 80 + 80 + 110;
-    if (columnVisibility.visibleColumns.has("supply_type")) { cols.push("140px"); minWidth += 140; }
-    if (columnVisibility.visibleColumns.has("k_fo")) { cols.push("88px"); minWidth += 88; }
-    cols.push("80px"); minWidth += 80; // h MO (always visible)
-    if (columnVisibility.visibleColumns.has("h_mo_majoration")) { cols.push("130px"); minWidth += 130; }
-    if (columnVisibility.visibleColumns.has("labor_role")) { cols.push("130px"); minWidth += 130; }
-    if (columnVisibility.visibleColumns.has("k_mo")) { cols.push("92px"); minWidth += 92; }
-    cols.push("110px", "120px", "50px"); minWidth += 110 + 120 + 50; // P.U., Prix total, actions
-    return {
-      "--estimate-grid": cols.join(" "),
-      "--estimate-min-width": `${minWidth}px`,
-    } as React.CSSProperties;
-  }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+  const dynamicGridStyle = useMemo(
+    () =>
+      resolveEstimateEditorGridStyle(
+        columnVisibility.visibleColumns,
+        isLaborSplitEnabled
+      ),
+    [columnVisibility.visibleColumns, isLaborSplitEnabled]
+  );
 
   const hasInitializedPresetRef = useRef(false);
   const previousSimplifiedRef = useRef<boolean | null>(null);

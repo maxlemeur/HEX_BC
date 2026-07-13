@@ -6,6 +6,8 @@ import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHiera
 import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 import { getUserContext } from "@/lib/auth/server";
 import {
+  fetchAffaireHubPlansSummary,
+  fetchAffaireHubSummary,
   fetchAffaireProjectBasic,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
@@ -33,10 +35,18 @@ export default async function AffaireTakeoffPage({ params }: Props) {
     notFound();
   }
 
-  const [projectResult, versionsResult, planSetsResult] = await Promise.allSettled([
+  const [
+    projectResult,
+    versionsResult,
+    planSetsResult,
+    hubSummaryResult,
+    plansSummaryResult,
+  ] = await Promise.allSettled([
     fetchAffaireProjectBasic(projectId),
     fetchProjectVersionList(projectId),
     fetchPlanSetsForProject(projectId),
+    fetchAffaireHubSummary(projectId),
+    fetchAffaireHubPlansSummary(projectId),
   ]);
 
   if (projectResult.status === "rejected") {
@@ -57,20 +67,48 @@ export default async function AffaireTakeoffPage({ params }: Props) {
     versionsResult.status === "fulfilled" ? versionsResult.value : [];
   const planSets =
     planSetsResult.status === "fulfilled" ? planSetsResult.value : [];
+  const hubSummary =
+    hubSummaryResult.status === "fulfilled" ? hubSummaryResult.value : null;
+  const plansSummary =
+    plansSummaryResult.status === "fulfilled" ? plansSummaryResult.value : null;
+  const launchContext =
+    plansSummary?.defaultPlanSetId &&
+    (hubSummary?.currentVersion || versions.length > 0)
+      ? {
+          currentVersion: hubSummary?.currentVersion
+            ? {
+                id: hubSummary.currentVersion.id,
+                status: hubSummary.currentVersion.status,
+                versionNumber: hubSummary.currentVersion.versionNumber,
+              }
+            : null,
+          plansContext: {
+            defaultPlanSetId: plansSummary.defaultPlanSetId,
+            defaultPlanSetName: plansSummary.defaultPlanSetName,
+            defaultPlanSetSource: plansSummary.defaultPlanSetSource,
+            defaultPlanSetFileCount: plansSummary.defaultPlanSetFileCount,
+            launchRecommendation: plansSummary.launchRecommendation ?? null,
+          },
+          availableVersions: versions.map((version) => ({
+            id: version.id,
+            versionNumber: version.version_number,
+          })),
+        }
+      : null;
 
   return (
-    <>
+    <div className="min-w-0">
       <HubBreadcrumb
         hubHref="/dashboard/affaires"
         hubLabel="Mes affaires"
         intermediateHref={`/dashboard/affaires/${projectId}`}
         intermediateLabel={project.name}
-        currentLabel="Metres"
+        currentLabel="Métrés"
       />
 
       <div className="mb-6">
         <h1 className="text-xl font-bold text-[var(--slate-900)]">
-          Centre d&apos;activite &mdash; Metres
+          Centre d&apos;activité &mdash; Métrés
         </h1>
         <p className="mt-1 text-sm text-[var(--slate-500)]">
           Suivez les analyses de plans, les exceptions et l&apos;historique
@@ -90,12 +128,13 @@ export default async function AffaireTakeoffPage({ params }: Props) {
       <TakeoffActivityCenter
         projectId={projectId}
         versions={versions}
+        launchContext={launchContext}
         planSets={planSets.map((ps) => ({
           id: ps.id,
           name: ps.name,
           metadata: ps.metadata,
         }))}
       />
-    </>
+    </div>
   );
 }

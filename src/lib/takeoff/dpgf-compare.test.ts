@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTakeoffDpgfComparison } from "@/lib/takeoff/dpgf-compare";
+import {
+  buildTakeoffDpgfComparison,
+  buildTakeoffDpgfComparisonSummary,
+  hasBlockingTakeoffDpgfExceptions,
+} from "@/lib/takeoff/dpgf-compare";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const JOB_ID = "22222222-2222-4222-8222-222222222222";
@@ -230,5 +234,76 @@ describe("buildTakeoffDpgfComparison", () => {
       carried_over_from_version_number: 2,
     });
     expect(response.unused_takeoff_items).toHaveLength(2);
+  });
+});
+
+describe("hasBlockingTakeoffDpgfExceptions", () => {
+  const baseSummary = {
+    reliable_matches: 0,
+    to_confirm: 0,
+    significant_gaps: 0,
+    forced_manual: 0,
+    lines_without_proof: 0,
+    unused_takeoff_items: 0,
+    total_lines: 0,
+  };
+
+  it("does not block orphan takeoff items when the target has no DPGF lines", () => {
+    expect(
+      hasBlockingTakeoffDpgfExceptions({
+        ...baseSummary,
+        unused_takeoff_items: 6,
+      })
+    ).toBe(false);
+  });
+
+  it("keeps orphan takeoff items blocking when DPGF target lines exist", () => {
+    expect(
+      hasBlockingTakeoffDpgfExceptions({
+        ...baseSummary,
+        total_lines: 3,
+        unused_takeoff_items: 1,
+      })
+    ).toBe(true);
+  });
+
+  it("blocks unresolved confirmations and significant gaps", () => {
+    expect(
+      hasBlockingTakeoffDpgfExceptions({
+        ...baseSummary,
+        total_lines: 2,
+        to_confirm: 1,
+      })
+    ).toBe(true);
+    expect(
+      hasBlockingTakeoffDpgfExceptions({
+        ...baseSummary,
+        total_lines: 2,
+        significant_gaps: 1,
+      })
+    ).toBe(true);
+  });
+
+  it("does not count a recorded manual decision as unresolved", () => {
+    const summary = buildTakeoffDpgfComparisonSummary({
+      rows: [
+        {
+          review_status: "forced_manual",
+          proofs: [{ type: "dpgf", label: "DPGF", value: "10 m2" }],
+          applied_decision: {
+            decision: "keep_dpgf",
+            reason: "Quantite DPGF confirmee",
+            source: "current",
+            carried_over_from_version_id: null,
+            carried_over_from_version_number: null,
+          },
+        } as never,
+      ],
+      unusedTakeoffItems: [],
+    });
+
+    expect(summary.forced_manual).toBe(0);
+    expect(summary.lines_without_proof).toBe(0);
+    expect(hasBlockingTakeoffDpgfExceptions(summary)).toBe(false);
   });
 });

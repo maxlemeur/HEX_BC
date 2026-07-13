@@ -2,163 +2,68 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const swrMock = vi.hoisted(() => vi.fn());
-
-vi.mock("swr", () => ({
-  default: swrMock,
-}));
-
-const priceFreshnessLevelMock = vi.hoisted(() => vi.fn());
 const fetchApiMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/catalogue/stale-prices", () => ({
-  priceFreshnessLevel: priceFreshnessLevelMock,
-}));
-
-vi.mock("@/components/catalogue/api", () => ({
-  fetchApi: fetchApiMock,
-}));
+vi.mock("swr", () => ({ default: swrMock }));
+vi.mock("@/components/catalogue/api", () => ({ fetchApi: fetchApiMock }));
 
 import { useSupplierPricesList } from "@/components/catalogue/prices-manager/useSupplierPricesList";
+
+const pageData = {
+  items: [
+    {
+      id: "price-1",
+      supplier_id: "supplier-1",
+      product_id: "product-1",
+      unit_price_cents: 1250,
+      _supplierName: "Supplier One",
+      _productName: "Cable",
+      _freshnessLevel: "fresh" as const,
+      _ageDays: 4,
+    },
+  ],
+  pagination: { page: 1, size: 25 as const, totalItems: 51, totalPages: 3 },
+  counters: { total: 80, fresh: 50, aging: 20, stale: 10, uniqueSuppliers: 4 },
+};
 
 describe("useSupplierPricesList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchApiMock.mockResolvedValue({ items: [] });
-  });
-
-  it("configures SWR and enriches rows with names, freshness and stats", () => {
-    const mutate = vi.fn();
     swrMock.mockReturnValue({
-      data: [
-        {
-          id: "price-1",
-          supplier_id: "supplier-1",
-          product_id: "product-1",
-          catalogue_item_id: null,
-          unit_price_cents: 1250,
-          currency: "EUR",
-          created_at: "2025-01-01T00:00:00.000Z",
-          updated_at: "2025-02-01T00:00:00.000Z",
-        },
-        {
-          id: "price-2",
-          supplier_id: "supplier-2",
-          product_id: "product-2",
-          catalogue_item_id: null,
-          unit_price_cents: 7500,
-          currency: "EUR",
-          created_at: "2025-01-01T00:00:00.000Z",
-          updated_at: "2025-02-01T00:00:00.000Z",
-        },
-      ],
-      error: undefined,
-      isLoading: false,
-      isValidating: false,
-      mutate,
-    });
-    priceFreshnessLevelMock
-      .mockReturnValueOnce({ level: "fresh", ageDays: 4 })
-      .mockReturnValueOnce({ level: "stale", ageDays: 120 });
-
-    const supplierMap = new Map([
-      ["supplier-1", "Supplier One"],
-      ["supplier-2", "Supplier Two"],
-    ]);
-    const productMap = new Map([
-      ["product-1", "Cable"],
-      ["product-2", "Switch"],
-    ]);
-
-    const { result } = renderHook(() =>
-      useSupplierPricesList({
-        supplierMap,
-        productMap,
-      })
-    );
-
-    expect(swrMock).toHaveBeenCalledWith(
-      "supplier-prices",
-      expect.any(Function),
-      expect.objectContaining({
-        refreshInterval: 30000,
-        revalidateOnFocus: true,
-        revalidateOnReconnect: true,
-      })
-    );
-    expect(result.current.enrichedItems).toEqual([
-      expect.objectContaining({
-        _supplierName: "Supplier One",
-        _productName: "Cable",
-        _freshnessLevel: "fresh",
-        _ageDays: 4,
-      }),
-      expect.objectContaining({
-        _supplierName: "Supplier Two",
-        _productName: "Switch",
-        _freshnessLevel: "stale",
-        _ageDays: 120,
-      }),
-    ]);
-    expect(result.current.stats).toEqual({
-      total: 2,
-      fresh: 1,
-      stale: 1,
-      uniqueSuppliers: 2,
-    });
-  });
-
-  it("refreshes the current SWR key through mutate", async () => {
-    const mutate = vi.fn().mockResolvedValue(undefined);
-    swrMock.mockReturnValue({
-      data: [],
-      error: undefined,
-      isLoading: false,
-      isValidating: false,
-      mutate,
-    });
-    priceFreshnessLevelMock.mockReturnValue({ level: "fresh", ageDays: 0 });
-
-    const { result } = renderHook(() =>
-      useSupplierPricesList({
-        supplierMap: new Map(),
-        productMap: new Map(),
-      })
-    );
-
-    await result.current.refresh();
-
-    expect(mutate).toHaveBeenCalledTimes(1);
-  });
-
-  it("scopes the SWR key and API request to a selected product", async () => {
-    swrMock.mockReturnValue({
-      data: [],
+      data: pageData,
       error: undefined,
       isLoading: false,
       isValidating: false,
       mutate: vi.fn(),
     });
-    priceFreshnessLevelMock.mockReturnValue({ level: "fresh", ageDays: 0 });
+  });
 
-    renderHook(() =>
-      useSupplierPricesList({
-        supplierMap: new Map(),
-        productMap: new Map(),
-        productId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      })
-    );
+  it("keeps the paginated API response and previous data during validation", async () => {
+    const queryString = "view=page&page=1&size=25&sort=updated_at&dir=desc";
+    const { result } = renderHook(() => useSupplierPricesList({ queryString }));
 
     expect(swrMock).toHaveBeenCalledWith(
-      "supplier-prices:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      `/api/prices?${queryString}`,
       expect.any(Function),
-      expect.any(Object)
+      expect.objectContaining({ keepPreviousData: true })
     );
+    expect(result.current.items[0]).toMatchObject({
+      _supplierName: "Supplier One",
+      _productName: "Cable",
+    });
+    expect(result.current.pagination?.totalPages).toBe(3);
+    expect(result.current.stats.total).toBe(80);
 
-    const fetcher = swrMock.mock.calls.at(-1)?.[1] as () => Promise<unknown>;
-    await fetcher();
+    const fetcher = swrMock.mock.calls[0]?.[1] as (url: string) => Promise<unknown>;
+    await fetcher(`/api/prices?${queryString}`);
+    expect(fetchApiMock).toHaveBeenCalledWith(`/api/prices?${queryString}`);
+  });
 
-    expect(fetchApiMock).toHaveBeenCalledWith(
-      "/api/prices?limit=400&product_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    );
+  it("refreshes the current page through SWR mutate", async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined);
+    swrMock.mockReturnValue({ ...swrMock(), mutate });
+    const { result } = renderHook(() => useSupplierPricesList({ queryString: "view=page" }));
+    await result.current.refresh();
+    expect(mutate).toHaveBeenCalledTimes(1);
   });
 });

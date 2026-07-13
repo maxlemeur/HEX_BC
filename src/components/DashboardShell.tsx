@@ -3,7 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { useUserContext } from "@/components/UserContext";
@@ -39,6 +46,15 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
+
+const DRAWER_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 
 
@@ -129,6 +145,11 @@ export function DashboardShell({
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
+  const previousPathnameRef = useRef(pathname);
 
   // Determine active shortcut context from current route
   const shortcutContext = useMemo(() => {
@@ -146,6 +167,7 @@ export function DashboardShell({
   // Global listener for "?" key to open shortcuts modal
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (mobileOpen) return;
       if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
       if (isTextEditingTarget(e.target)) return;
       e.preventDefault();
@@ -153,7 +175,7 @@ export function DashboardShell({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [mobileOpen]);
 
   useEffect(() => {
     try {
@@ -178,7 +200,97 @@ export function DashboardShell({
   }, [collapsed, hasLoadedCollapsedPreference]);
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
-  const closeMobile = useCallback(() => setMobileOpen(false), []);
+  const closeMobile = useCallback((restoreFocus = false) => {
+    setMobileOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mobileOpen) {
+      return;
+    }
+
+    const drawer = sidebarRef.current;
+    const mainContent = mainContentRef.current;
+    const previousOverflow = document.body.style.overflow;
+    const focusFrame = window.requestAnimationFrame(() => {
+      mobileCloseButtonRef.current?.focus();
+    });
+    const handleDrawerKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMobile(true);
+        return;
+      }
+
+      if (event.key !== "Tab" || !drawer) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        drawer.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE_SELECTOR)
+      );
+      const firstFocusable = mobileCloseButtonRef.current ?? focusableElements[0];
+      const lastFocusable = focusableElements.at(-1);
+
+      if (!firstFocusable || !lastFocusable) {
+        event.preventDefault();
+        mobileCloseButtonRef.current?.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
+      } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    mainContent?.setAttribute("inert", "");
+    document.addEventListener("keydown", handleDrawerKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = previousOverflow;
+      mainContent?.removeAttribute("inert");
+      document.removeEventListener("keydown", handleDrawerKeyDown);
+    };
+  }, [closeMobile, mobileOpen]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const desktopQuery = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) {
+        setMobileOpen(false);
+      }
+    };
+
+    closeOnDesktop(desktopQuery);
+    desktopQuery.addEventListener("change", closeOnDesktop);
+    return () => desktopQuery.removeEventListener("change", closeOnDesktop);
+  }, []);
+
+  useEffect(() => {
+    if (previousPathnameRef.current === pathname) {
+      return;
+    }
+
+    previousPathnameRef.current = pathname;
+    setMobileOpen(false);
+    window.requestAnimationFrame(() => {
+      mainContentRef.current?.focus({ preventScroll: true });
+    });
+  }, [pathname]);
+
   const navGroups = useMemo(
     () =>
       buildNavGroups({
@@ -201,6 +313,9 @@ export function DashboardShell({
   }
 
   function isActive(href: string) {
+    if (href === "/dashboard") {
+      return pathname === "/dashboard";
+    }
     // Takeoff routes: match only "Metres plans"
     if (
       href === "/dashboard/takeoff" ||
@@ -216,7 +331,7 @@ export function DashboardShell({
       );
     }
     if (href === "/dashboard/orders") {
-      return pathname === "/dashboard" || pathname.startsWith("/dashboard/orders");
+      return pathname.startsWith("/dashboard/orders");
     }
     if (href === "/dashboard/admin") {
       return pathname.startsWith("/dashboard/admin") || pathname.startsWith("/dashboard/tenants");
@@ -245,12 +360,30 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">
+      <a
+        href="#dashboard-main-content"
+        className="sr-only fixed left-3 top-3 z-[70] rounded-lg bg-white px-4 py-3 font-semibold text-[var(--brand-blue)] shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[var(--brand-blue)]"
+      >
+        Aller au contenu principal
+      </a>
+      <div
+        className="no-print pointer-events-none fixed inset-x-0 top-0 z-30 h-16 border-b border-[var(--slate-200)]/80 bg-[var(--background)]/95 backdrop-blur lg:hidden"
+        aria-hidden="true"
+      />
+
       {/* Mobile hamburger button */}
       <button
+        ref={mobileMenuButtonRef}
         type="button"
-        className="no-print fixed left-4 top-5 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--brand-blue)] text-white shadow-lg md:hidden"
+        className={`no-print fixed left-3 top-2.5 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--brand-blue)] text-white shadow-lg transition-opacity lg:hidden ${
+          mobileOpen ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
         onClick={() => setMobileOpen(true)}
         aria-label="Ouvrir le menu"
+        aria-expanded={mobileOpen}
+        aria-controls="dashboard-sidebar"
+        aria-hidden={mobileOpen || undefined}
+        tabIndex={mobileOpen ? -1 : 0}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 6h16" />
@@ -262,14 +395,19 @@ export function DashboardShell({
       {/* Mobile overlay */}
       {mobileOpen ? (
         <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
-          onClick={closeMobile}
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => closeMobile(true)}
           aria-hidden="true"
         />
       ) : null}
 
       <aside
+        ref={sidebarRef}
+        id="dashboard-sidebar"
         data-mobile-open={mobileOpen ? "true" : undefined}
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen ? "true" : undefined}
+        aria-label={mobileOpen ? "Navigation principale" : undefined}
         className={`no-print dashboard-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col${collapsed ? " dashboard-sidebar--collapsed" : ""}`}
       >
         <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
@@ -277,6 +415,7 @@ export function DashboardShell({
             href="/dashboard"
             prefetch={false}
             className="sidebar-logo-link flex items-center gap-3 min-w-0"
+            onClick={() => setMobileOpen(false)}
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
               <Image
@@ -284,7 +423,7 @@ export function DashboardShell({
                 alt="Hydro Express"
                 width={28}
                 height={28}
-                className="rounded-md"
+                className="h-7 w-7 rounded-md"
               />
             </div>
             <div className="sidebar-label">
@@ -294,11 +433,34 @@ export function DashboardShell({
               </span>
               {isSidebarFlagIndicatorEnabled ? (
                 <span className="mt-1 inline-flex items-center rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
-                  Flags actifs
+                  Fonctionnalités actives
                 </span>
               ) : null}
             </div>
           </Link>
+          <button
+            ref={mobileCloseButtonRef}
+            type="button"
+            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white lg:hidden"
+            onClick={() => closeMobile(true)}
+            aria-label="Fermer le menu"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -331,7 +493,10 @@ export function DashboardShell({
           </button>
         </div>
 
-        <nav className="mt-4 flex-1 px-4" aria-label="Menu principal">
+        <nav
+          className="mt-4 min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+          aria-label="Menu principal"
+        >
           {navGroups.map((group, i) => (
             <div
               key={group.key}
@@ -349,7 +514,7 @@ export function DashboardShell({
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
                       title={collapsed ? item.label : item.title}
-                      onClick={closeMobile}
+                      onClick={() => setMobileOpen(false)}
                     >
                       {item.icon}
                       <span>{item.label}</span>
@@ -361,7 +526,7 @@ export function DashboardShell({
           ))}
         </nav>
 
-        <div className="border-t border-white/10 p-4 sidebar-footer">
+        <div className="sidebar-footer shrink-0 border-t border-white/10 p-4">
           {/* Keyboard shortcuts button */}
           <button
             type="button"
@@ -397,14 +562,15 @@ export function DashboardShell({
             </kbd>
           </button>
 
-          <div className={`sidebar-footer-profile flex items-center rounded-xl bg-white/5 transition-all duration-200 ${
-            collapsed ? "flex-col gap-2 p-2" : "gap-3 p-3"
+          <div className={`sidebar-footer-profile flex items-center gap-3 rounded-xl bg-white/5 p-3 transition-all duration-200 ${
+            collapsed ? "lg:flex-col lg:gap-2 lg:p-2" : ""
           }`}>
             <Link
               href="/dashboard/profile"
               prefetch={false}
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
               title={collapsed ? displayName || "Compte" : undefined}
+              onClick={() => setMobileOpen(false)}
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange text-sm font-bold text-white">
                 {userInitials}
@@ -434,15 +600,18 @@ export function DashboardShell({
       </aside>
 
       <main
+        ref={mainContentRef}
+        id="dashboard-main-content"
+        tabIndex={-1}
         data-density={density}
-        className="min-w-0 flex-1 min-h-screen pl-0 transition-[padding-left] duration-300 ease-in-out md:pl-[var(--sidebar-offset)]"
+        className="min-w-0 flex-1 min-h-screen pl-0 transition-[padding-left] duration-300 ease-in-out focus:outline-none lg:pl-[var(--sidebar-offset)]"
         style={{
           ["--sidebar-offset" as string]: collapsed
             ? "var(--sidebar-collapsed-width)"
             : "var(--sidebar-width)",
         }}
       >
-        <div className="mx-auto w-full px-4 pb-8 pt-20 sm:px-6 sm:py-8">
+        <div className="mx-auto w-full px-3 pb-6 pt-[4.5rem] sm:px-6 sm:py-8">
           {children}
         </div>
       </main>

@@ -28,10 +28,10 @@ export const STATUS_CSS_MAP: Record<string, string> = {
 export const STATUS_LABEL_MAP: Record<string, string> = {
   pending: "En attente",
   processing: "En cours",
-  completed: "Termine",
-  failed: "Echoue",
-  canceled: "Annule",
-  applied: "Applique",
+  completed: "Terminé",
+  failed: "Échoué",
+  canceled: "Annulé",
+  applied: "Appliqué",
 };
 
 export const STATUS_FILTER_OPTIONS: Array<{
@@ -41,10 +41,10 @@ export const STATUS_FILTER_OPTIONS: Array<{
   { value: "all", label: "Tous les statuts" },
   { value: "pending", label: "En attente" },
   { value: "processing", label: "En cours" },
-  { value: "completed", label: "Termine" },
-  { value: "failed", label: "Echoue" },
-  { value: "canceled", label: "Annule" },
-  { value: "applied", label: "Applique" },
+  { value: "completed", label: "Terminé" },
+  { value: "failed", label: "Échoué" },
+  { value: "canceled", label: "Annulé" },
+  { value: "applied", label: "Appliqué" },
 ];
 
 export const LEVEL_FILTER_OPTIONS: Array<{
@@ -61,7 +61,7 @@ export const PERIOD_FILTER_OPTIONS: Array<{
   value: "all" | string;
   label: string;
 }> = [
-  { value: "all", label: "Toutes periodes" },
+  { value: "all", label: "Toutes périodes" },
   { value: "7d", label: "7 jours" },
   { value: "30d", label: "30 jours" },
   { value: "90d", label: "90 jours" },
@@ -103,9 +103,9 @@ export function formatCount(value: number | null | undefined) {
 }
 
 export function resolveErrorTitle(status: number | null) {
-  if (status === 403) return "Acces refuse";
+  if (status === 403) return "Accès refusé";
   if (status === 404) return "Ressource introuvable";
-  if (status === 401) return "Session expiree";
+  if (status === 401) return "Session expirée";
   return "Erreur de chargement";
 }
 
@@ -159,7 +159,7 @@ export function CounterCard({
 export const BUSINESS_LEVEL_LABEL_MAP: Record<string, string> = {
   A: "Rapide",
   B: "Standard",
-  C: "Detaille",
+  C: "Détaillé",
 };
 
 export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
@@ -169,7 +169,7 @@ export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
   { value: "all", label: "Tous niveaux" },
   { value: "A", label: "Rapide" },
   { value: "B", label: "Standard" },
-  { value: "C", label: "Detaille" },
+  { value: "C", label: "Détaillé" },
 ];
 
 export const BUSINESS_STATUS_LABEL_MAP: Record<string, string> = {
@@ -198,26 +198,26 @@ export function getBusinessStatusLabel(status: string): string {
 }
 
 const PROCESSING_STRATEGY_LABEL_MAP: Record<TakeoffProcessingStrategy, string> = {
-  sync: "Synchrone",
-  batch: "Batch provider",
+  sync: "Immédiate",
+  batch: "Différée",
 };
 
 const PROVIDER_BATCH_STATE_LABEL_MAP: Record<TakeoffProviderBatchState, string> = {
-  submitted: "Soumis au provider",
-  pending: "En file provider",
-  running: "Traitement provider",
-  succeeded: "Provider termine",
-  failed: "Echec provider",
-  cancelled: "Provider annule",
-  expired: "Provider expire",
-  unknown: "Etat provider inconnu",
+  submitted: "Analyse envoyée",
+  pending: "Analyse en attente",
+  running: "Analyse en cours",
+  succeeded: "Analyse terminée",
+  failed: "Échec de l’analyse",
+  cancelled: "Analyse annulée",
+  expired: "Analyse expirée",
+  unknown: "État de l’analyse inconnu",
 };
 
 export function getProcessingStrategyLabel(
   strategy: TakeoffProcessingStrategy | null | undefined
 ): string {
   if (!strategy) {
-    return "Strategie inconnue";
+    return "Mode d’analyse inconnu";
   }
 
   return PROCESSING_STRATEGY_LABEL_MAP[strategy] ?? strategy;
@@ -228,11 +228,11 @@ export function getProviderBatchStateLabel(input: {
   state: TakeoffProviderBatchState | null | undefined;
 }): string {
   if (input.strategy === "sync") {
-    return "Hors batch";
+    return "Traitement immédiat";
   }
 
   if (!input.state) {
-    return "Non soumis";
+    return "Non lancé";
   }
 
   return PROVIDER_BATCH_STATE_LABEL_MAP[input.state] ?? input.state;
@@ -265,7 +265,7 @@ export function getOperatorStateBadgeVariant(
 
 export function getConfidenceLabel(confidence: number | null): string {
   if (confidence === null) return "Inconnue";
-  if (confidence >= 0.8) return "Elevee";
+  if (confidence >= 0.8) return "Élevée";
   if (confidence >= 0.5) return "Moyenne";
   return "Faible";
 }
@@ -273,14 +273,14 @@ export function getConfidenceLabel(confidence: number | null): string {
 export function getConfidenceBadgeVariant(
   label: string
 ): "success" | "warning" | "error" | "neutral" {
-  if (label === "Elevee") return "success";
+  if (label === "Élevée") return "success";
   if (label === "Moyenne") return "warning";
   if (label === "Faible") return "error";
   return "neutral";
 }
 
-export function isCoverageLow(percent: number): boolean {
-  return percent < 50;
+export function isCoverageLow(percent: number | null): boolean {
+  return percent !== null && percent < 50;
 }
 
 export function JobsTableSkeleton() {

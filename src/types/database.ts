@@ -2541,6 +2541,122 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      catalogue_normalize_search: {
+        Args: { value: string };
+        Returns: string;
+      };
+      catalogue_products_page: {
+        Args: {
+          p_q?: string | null;
+          p_materials?: string[];
+          p_categories?: string[];
+          p_units?: string[];
+          p_price_statuses?: string[];
+          p_statuses?: string[];
+          p_sort?: string;
+          p_dir?: string;
+          p_page?: number;
+          p_size?: number;
+        };
+        Returns: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          reference: string | null;
+          designation: string;
+          unit_price_cents: number;
+          tax_rate_bp: number;
+          is_active: boolean;
+          category: string | null;
+          product_type: string | null;
+          material: string | null;
+          grade: string | null;
+          dimensions: string | null;
+          standard: string | null;
+          unit: string | null;
+          supplier_price_count: number;
+          best_supplier_price_cents: number | null;
+          best_supplier_name: string | null;
+          best_supplier_price_updated_at: string | null;
+          price_status: string;
+          total_count: number;
+        }[];
+      };
+      catalogue_products_summary: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          active_count: number;
+          covered_count: number;
+          without_supplier_price_count: number;
+          stale_count: number;
+          materials: string[];
+          categories: string[];
+          units: string[];
+        }[];
+      };
+      price_lookup_options: {
+        Args: {
+          p_kind: string;
+          p_q?: string | null;
+          p_selected_id?: string | null;
+          p_limit?: number;
+        };
+        Returns: {
+          kind: string;
+          id: string;
+          label: string;
+          reference: string | null;
+        }[];
+      };
+      supplier_prices_page: {
+        Args: {
+          p_q?: string | null;
+          p_freshness?: string[];
+          p_product_id?: string | null;
+          p_supplier_id?: string | null;
+          p_sort?: string;
+          p_dir?: string;
+          p_page?: number;
+          p_size?: number;
+        };
+        Returns: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          supplier_id: string;
+          product_id: string;
+          supplier_sku: string | null;
+          unit: string;
+          min_quantity: number;
+          unit_price_cents: number;
+          currency: string;
+          valid_from: string;
+          valid_to: string | null;
+          is_active: boolean;
+          source_import_id: string | null;
+          source_mapped_row_id: string | null;
+          notes: string | null;
+          supplier_name: string;
+          product_name: string;
+          product_reference: string | null;
+          freshness: string;
+          age_days: number;
+          total_count: number;
+        }[];
+      };
+      supplier_prices_summary: {
+        Args: {
+          p_product_id?: string | null;
+          p_supplier_id?: string | null;
+        };
+        Returns: {
+          total_count: number;
+          fresh_count: number;
+          aging_count: number;
+          stale_count: number;
+          unique_suppliers_count: number;
+        }[];
+      };
       apply_estimate_structure_draft: {
         Args: {
           p_draft_id: string;

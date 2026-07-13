@@ -74,4 +74,23 @@ describe("AffairePersistedProjectDetails", () => {
     });
     expect(await screen.findByText("Affaire mise a jour")).toBeInTheDocument();
   });
+
+  it("keeps the project toolbar responsive between mobile and desktop", () => {
+    render(
+      <AffairePersistedProjectDetails
+        projectId="project-1"
+        initialValues={{
+          projectName: "Affaire Alpha",
+          clientName: "",
+          reference: "",
+        }}
+        toolbar={<span data-testid="project-toolbar">Actions</span>}
+      />
+    );
+
+    expect(screen.getByTestId("project-toolbar").parentElement).toHaveClass(
+      "w-full",
+      "lg:w-auto",
+    );
+  });
 });

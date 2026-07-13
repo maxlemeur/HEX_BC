@@ -499,17 +499,17 @@ export function CurrencyRatesAdminClient() {
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex items-start justify-between gap-4">
+      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="page-title">Taux de change</h1>
           <p className="page-description">
-            Gelez et maintenez les parites de devises pour les chiffrages multi-currency.
+            Gelez et maintenez les parités de devises pour les chiffrages multidevises.
           </p>
         </div>
 
         <button
           type="button"
-          className="btn btn-secondary"
+          className="btn btn-secondary w-full sm:w-auto"
           onClick={() => void mutate()}
           disabled={isValidating}
         >

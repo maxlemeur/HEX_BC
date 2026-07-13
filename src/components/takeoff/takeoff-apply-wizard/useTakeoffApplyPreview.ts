@@ -9,7 +9,7 @@ import {
 } from "@/lib/takeoff/client";
 
 import type { TakeoffApplyStrategy, WizardStep } from "./shared";
-import { toOverrideList } from "./shared";
+import { serializeTakeoffOverrides, toOverrideList } from "./shared";
 
 type UseTakeoffApplyPreviewParams = {
   open: boolean;
@@ -34,9 +34,13 @@ export function useTakeoffApplyPreview({
     useState<TakeoffPreviewConversionResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewOverridesSignature, setPreviewOverridesSignature] = useState<string | null>(
+    null
+  );
 
   const refreshPreview = useCallback(
     async (overridesSnapshot: Record<string, TakeoffMappingOverride>) => {
+      const overridesSignature = serializeTakeoffOverrides(overridesSnapshot);
       setIsLoadingPreview(true);
       setPreviewError(null);
 
@@ -50,8 +54,10 @@ export function useTakeoffApplyPreview({
               : undefined,
         });
         setPreviewData(response);
+        setPreviewOverridesSignature(overridesSignature);
       } catch (error) {
         setPreviewData(null);
+        setPreviewOverridesSignature(null);
         setPreviewError(
           error instanceof Error
             ? error.message
@@ -67,6 +73,7 @@ export function useTakeoffApplyPreview({
   const resetPreview = useCallback(() => {
     setPreviewData(null);
     setPreviewError(null);
+    setPreviewOverridesSignature(null);
   }, []);
 
   useEffect(() => {
@@ -81,6 +88,7 @@ export function useTakeoffApplyPreview({
     previewData,
     previewError,
     isLoadingPreview,
+    previewOverridesSignature,
     refreshPreview,
     resetPreview,
   };

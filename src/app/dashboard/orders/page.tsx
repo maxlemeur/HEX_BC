@@ -90,13 +90,13 @@ function statusLabel(status: PurchaseOrderStatus) {
     case "draft":
       return "Brouillon";
     case "sent":
-      return "Envoyee";
+      return "Envoyée";
     case "confirmed":
-      return "Confirmee";
+      return "Confirmée";
     case "received":
-      return "Recue";
+      return "Reçue";
     case "canceled":
-      return "Annulee";
+      return "Annulée";
     default:
       return status;
   }
@@ -148,10 +148,10 @@ function formatFileSize(bytes: number) {
 // Status filter options
 const STATUS_OPTIONS = [
   { value: "draft", label: "Brouillon" },
-  { value: "sent", label: "Envoyee" },
-  { value: "confirmed", label: "Confirmee" },
-  { value: "received", label: "Recue" },
-  { value: "canceled", label: "Annulee" },
+  { value: "sent", label: "Envoyée" },
+  { value: "confirmed", label: "Confirmée" },
+  { value: "received", label: "Reçue" },
+  { value: "canceled", label: "Annulée" },
 ];
 
 // Devis filter options
@@ -162,10 +162,10 @@ const DEVIS_OPTIONS = [
 
 // Sort options
 const SORT_OPTIONS: SortOption[] = [
-  { key: "created_at", label: "Creation", defaultDirection: "desc" },
+  { key: "created_at", label: "Création", defaultDirection: "desc" },
   { key: "expected_delivery_date", label: "Livraison" },
   { key: "total_ht_cents", label: "Total HT" },
-  { key: "reference", label: "Reference" },
+  { key: "reference", label: "Référence" },
 ];
 
 // Export columns configuration
@@ -730,14 +730,14 @@ export default function OrdersPage() {
   return (
     <div className="animate-fade-in">
       {/* Page header */}
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
+      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
           <h1 className="page-title">Bons de commande</h1>
           <p className="page-description">
-            Gerez vos achats fournisseurs et suivez l&apos;etat des commandes.
+            Gérez vos achats fournisseurs et suivez l&apos;état des commandes.
           </p>
         </div>
-        <Link href="/dashboard/orders/new" className="btn btn-accent btn-lg">
+        <Link href="/dashboard/orders/new" className="btn btn-accent btn-lg w-full shrink-0 sm:w-auto">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="20"
@@ -781,7 +781,7 @@ export default function OrdersPage() {
         data={orders}
         onDataChange={setDisplayedOrders}
         search={{
-          placeholder: "Rechercher par reference...",
+          placeholder: "Rechercher par référence...",
           fields: ["reference"],
         }}
         filters={filterConfig}
@@ -793,7 +793,7 @@ export default function OrdersPage() {
       {/* Table card */}
       <div className="dashboard-card overflow-visible">
         {/* Card header */}
-        <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="flex flex-col gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-[var(--slate-800)]">
               Tous les bons
@@ -802,7 +802,7 @@ export default function OrdersPage() {
               {orders.length}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
             <ExportDropdown
               onExportExcel={handleExportExcel}
               onExportCSV={handleExportCSV}
@@ -834,14 +834,145 @@ export default function OrdersPage() {
           </div>
         </div>
 
-        {/* Table */}
-        <div className="table-scroll">
+        {/* Mobile and tablet cards */}
+        <div className="divide-y divide-[var(--slate-200)] xl:hidden">
+          {displayedOrders.length === 0 ? (
+            <div className="p-4 sm:p-6">
+              {isLoading ? (
+                <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-sm text-[var(--slate-500)]">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+                  Chargement des commandes...
+                </div>
+              ) : orders.length === 0 ? (
+                <EmptyState
+                  icon={
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="26"
+                      height="26"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="8" cy="20" r="1" />
+                      <circle cx="19" cy="20" r="1" />
+                      <path d="M2 3h3l2.6 11.3a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H7" />
+                    </svg>
+                  }
+                  title="Aucune commande"
+                  description="Les commandes sont générées depuis un chiffrage accepté."
+                  actionLabel="Voir mes affaires"
+                  actionHref="/dashboard/affaires"
+                  className="border-0 bg-transparent px-2 py-8 shadow-none"
+                />
+              ) : (
+                <EmptyState
+                  icon={
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="26"
+                      height="26"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                  }
+                  title="Aucun résultat"
+                  description="Modifiez vos filtres pour voir plus de résultats."
+                  className="border-0 bg-transparent px-2 py-8 shadow-none"
+                />
+              )}
+            </div>
+          ) : (
+            displayedOrders.map((order) => (
+              <article key={order.id} className="p-4 sm:p-5">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                      Bon de commande
+                    </p>
+                    <Link
+                      href={`/dashboard/orders/${order.id}`}
+                      className="mt-1 block break-words text-base font-semibold text-[var(--brand-blue)] hover:underline"
+                    >
+                      {order.reference}
+                    </Link>
+                  </div>
+                  <span className={`${statusClass(order.status)} shrink-0`}>
+                    {statusLabel(order.status)}
+                  </span>
+                </div>
+
+                <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div className="col-span-2 min-w-0">
+                    <dt className="text-xs text-[var(--slate-400)]">Fournisseur</dt>
+                    <dd className="mt-0.5 truncate font-medium text-[var(--slate-800)]">
+                      {relatedName(order.suppliers)}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-xs text-[var(--slate-400)]">Chantier</dt>
+                    <dd className="mt-0.5 truncate text-[var(--slate-700)]">
+                      {relatedName(order.delivery_sites)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--slate-400)]">Création</dt>
+                    <dd className="mt-0.5 text-[var(--slate-700)]">{formatDate(order.created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--slate-400)]">Livraison</dt>
+                    <dd className="mt-0.5 text-[var(--slate-700)]">
+                      {formatDate(order.expected_delivery_date)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--slate-400)]">Documents</dt>
+                    <dd className="mt-0.5 text-[var(--slate-700)]">
+                      {order.devis_count} devis
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="mt-4 flex items-end justify-between gap-3 border-t border-[var(--slate-100)] pt-4">
+                  <div>
+                    <p className="text-xs text-[var(--slate-400)]">Total HT</p>
+                    <p className="mt-0.5 font-mono text-base font-semibold text-[var(--slate-900)]">
+                      {formatEUR(order.total_ht_cents)}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/dashboard/orders/${order.id}`}
+                    className="btn btn-secondary btn-sm min-h-11 shrink-0"
+                    aria-label={`Ouvrir la commande ${order.reference}`}
+                  >
+                    Ouvrir
+                  </Link>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="table-scroll hidden xl:block">
           <table className="data-table data-table--orders">
             <thead>
               <tr>
                 <th className="w-12"></th>
-                <th>Reference</th>
-                <th>Creation</th>
+                <th>Référence</th>
+                <th>Création</th>
                 <th>Fournisseur</th>
                 <th>Chantier</th>
                 <th>Livraison</th>
@@ -904,8 +1035,8 @@ export default function OrdersPage() {
                             <path d="m21 21-4.3-4.3" />
                           </svg>
                         }
-                        title="Aucun resultat"
-                        description="Modifiez vos filtres pour voir plus de resultats."
+                        title="Aucun résultat"
+                        description="Modifiez vos filtres pour voir plus de résultats."
                         className="mx-auto max-w-xl"
                       />
                     )}
@@ -1006,7 +1137,7 @@ export default function OrdersPage() {
                             className={`expand-button ${isExpanded ? "expanded" : ""}`}
                             onClick={() => handleToggleExpand(order.id)}
                             aria-expanded={isExpanded}
-                            aria-label={isExpanded ? "Replier" : "Developper"}
+                            aria-label={isExpanded ? "Replier" : "Développer"}
                           >
                             <svg
                               width="16"

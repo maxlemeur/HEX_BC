@@ -60,6 +60,7 @@ const EMPTY_SUMMARY_RESULT = {
     estimatesTotal: 0,
   },
   currentAnomalies: [],
+  ownerOptions: [],
 };
 
 const EMPTY_TREND_RESULT = {
@@ -152,6 +153,86 @@ describe("/api/admin/anomaly-history", () => {
     );
   });
 
+  it("returns a paginated current view without loading trends", async () => {
+    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
+    vi.mocked(getCurrentAnomalySummary).mockResolvedValue({
+      ...EMPTY_SUMMARY_RESULT,
+      ownerOptions: [{ id: "owner-1", name: "Camille Martin" }],
+      currentAnomalies: Array.from({ length: 51 }, (_, index) => ({
+        versionId: `version-${index}`,
+        versionLabel: `V${index + 1}`,
+        projectName: `Projet ${index + 1}`,
+        ownerUserId: "owner-1",
+        ownerName: "Camille Martin",
+        flagKey: "missing_price" as const,
+        flagLabel: "Prix manquant",
+        severity: "blocking" as const,
+        itemCount: 1,
+      })),
+    });
+
+    const response = await GET(
+      new Request(
+        "http://localhost/api/admin/anomaly-history?view=current&page=2&size=25"
+      )
+    );
+    const body = (await response.json()) as {
+      data: {
+        currentAnomalies: unknown[];
+        ownerOptions: unknown[];
+        pagination: Record<string, number>;
+      };
+    };
+
+    expect(body.data.currentAnomalies).toHaveLength(25);
+    expect(body.data.ownerOptions).toEqual([
+      { id: "owner-1", name: "Camille Martin" },
+    ]);
+    expect(body.data.pagination).toEqual({
+      page: 2,
+      size: 25,
+      totalItems: 51,
+      totalPages: 3,
+    });
+    expect(vi.mocked(getAnomalyTrend)).not.toHaveBeenCalled();
+  });
+
+  it("caps the current view page size at 100", async () => {
+    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
+    vi.mocked(getCurrentAnomalySummary).mockResolvedValue(EMPTY_SUMMARY_RESULT);
+
+    const response = await GET(
+      new Request(
+        "http://localhost/api/admin/anomaly-history?view=current&size=500"
+      )
+    );
+    const body = (await response.json()) as {
+      data: { pagination: { size: number } };
+    };
+
+    expect(body.data.pagination.size).toBe(100);
+  });
+
+  it("returns the trend view without loading current anomalies", async () => {
+    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
+    vi.mocked(getAnomalyTrend).mockResolvedValue(EMPTY_TREND_RESULT);
+
+    const response = await GET(
+      new Request(
+        "http://localhost/api/admin/anomaly-history?view=trend&date_from=2025-01-01&date_to=2025-12-31"
+      )
+    );
+    const body = (await response.json()) as { data: unknown };
+
+    expect(body.data).toEqual(EMPTY_TREND_RESULT);
+    expect(vi.mocked(getCurrentAnomalySummary)).not.toHaveBeenCalled();
+    expect(vi.mocked(getAnomalyTrend)).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT_ID,
+      { date_from: "2025-01-01", date_to: "2025-12-31" }
+    );
+  });
+
   it("returns text/csv when format=csv", async () => {
     vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
     vi.mocked(getCurrentAnomalySummary).mockResolvedValue({
@@ -169,6 +250,7 @@ describe("/api/admin/anomaly-history", () => {
           itemCount: 3,
         },
       ],
+      ownerOptions: [{ id: "u1", name: "User One" }],
     });
     vi.mocked(getAnomalyTrend).mockRejectedValue(
       new Error("trend should not run for csv")
@@ -187,5 +269,34 @@ describe("/api/admin/anomaly-history", () => {
     expect(text).toContain("Projet A");
     expect(text).toContain("Prix manquant");
     expect(vi.mocked(getAnomalyTrend)).not.toHaveBeenCalled();
+  });
+
+  it("escapes separators, quotes and newlines in CSV exports", async () => {
+    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
+    vi.mocked(getCurrentAnomalySummary).mockResolvedValue({
+      summary: EMPTY_SUMMARY_RESULT.summary,
+      currentAnomalies: [
+        {
+          versionId: "v1",
+          versionLabel: "V1",
+          projectName: 'Projet; "Nord"\nPhase 2',
+          ownerUserId: "u1",
+          ownerName: "User One",
+          flagKey: "missing_price" as const,
+          flagLabel: "Prix manquant",
+          severity: "blocking" as const,
+          itemCount: 3,
+        },
+      ],
+      ownerOptions: [],
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/anomaly-history?format=csv")
+    );
+
+    expect(await response.text()).toContain(
+      '"Projet; ""Nord""\nPhase 2"'
+    );
   });
 });

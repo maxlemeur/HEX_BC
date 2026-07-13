@@ -60,8 +60,41 @@ export default function TakeoffApplicationHistoryTab({
   }
 
   return (
-    <div className="dashboard-card overflow-x-auto">
-      <table className="data-table w-full">
+    <>
+      <div className="space-y-3 sm:hidden">
+        {jobs.map((job) => (
+          <article
+            key={job.id}
+            className="rounded-2xl border border-[var(--slate-200)] bg-white p-4 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                  {job.version_number != null ? `Version V${job.version_number}` : "Version"}
+                </p>
+                <p className="mt-1 break-words text-sm font-semibold text-[var(--slate-900)]">
+                  {job.source_file_name ?? "Fichier inconnu"}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs font-semibold text-[var(--slate-700)]">
+                {formatCount(job.items_count)} item{job.items_count === 1 ? "" : "s"}
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-[var(--slate-500)]">
+              Applique le {formatTimestamp(job.created_at)}
+            </p>
+            <Link
+              href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
+              className="btn btn-secondary btn-sm mt-4 w-full justify-center"
+            >
+              Voir le detail
+            </Link>
+          </article>
+        ))}
+      </div>
+
+      <div className="dashboard-card hidden overflow-x-auto sm:block">
+        <table className="data-table w-full">
         <thead>
           <tr>
             <th>Version</th>
@@ -91,7 +124,8 @@ export default function TakeoffApplicationHistoryTab({
             </tr>
           ))}
         </tbody>
-      </table>
-    </div>
+        </table>
+      </div>
+    </>
   );
 }

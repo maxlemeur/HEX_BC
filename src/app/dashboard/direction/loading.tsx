@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 function SummaryCardSkeleton({ index }: { index: number }) {
   return (
     <article
-      className="dashboard-card min-w-[170px] p-4 animate-pulse"
+      className="dashboard-card p-4 animate-pulse"
       style={{ animationDelay: `${index * 0.05}s` }}
     >
       <Skeleton width={90} height={12} />
@@ -30,7 +30,7 @@ function PortfolioCardSkeleton({ index }: { index: number }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
         {Array.from({ length: 4 }, (_, metricIndex) => (
           <div
             key={metricIndex}
@@ -49,7 +49,7 @@ export default function DirectionLoading() {
   return (
     <div aria-live="polite" aria-busy="true" className="space-y-6">
       <header className="space-y-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
           <div>
             <Skeleton width={220} height={30} />
             <Skeleton width={320} height={16} className="mt-2" />

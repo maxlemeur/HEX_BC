@@ -133,7 +133,14 @@ function createSelectBuilder<T extends QueryRow>(
   return builder;
 }
 
-function createSupabaseMock() {
+function createSupabaseMock(input?: {
+  estimateItems?: Array<{
+    id: string;
+    version_id: string;
+    item_type: "line" | "section";
+    tenant_id: string;
+  }>;
+}) {
   const versions = [
     {
       id: VERSION_ID,
@@ -245,8 +252,24 @@ function createSupabaseMock() {
   ];
 
   const dpgfLinks = [
-    { takeoff_job_id: JOB_A_ID, version_id: VERSION_ID, tenant_id: TENANT_ID },
-    { takeoff_job_id: JOB_B_ID, version_id: VERSION_ID, tenant_id: TENANT_ID },
+    {
+      takeoff_job_id: JOB_A_ID,
+      version_id: VERSION_ID,
+      estimate_item_id: "estimate-line-1",
+      tenant_id: TENANT_ID,
+    },
+    {
+      takeoff_job_id: JOB_A_ID,
+      version_id: VERSION_ID,
+      estimate_item_id: "estimate-line-1",
+      tenant_id: TENANT_ID,
+    },
+    {
+      takeoff_job_id: JOB_B_ID,
+      version_id: VERSION_ID,
+      estimate_item_id: "estimate-line-2",
+      tenant_id: TENANT_ID,
+    },
   ];
 
   const versionLinks = [
@@ -257,9 +280,25 @@ function createSupabaseMock() {
     },
   ];
 
-  const estimateItems = [
-    { estimate_version_id: VERSION_ID, tenant_id: TENANT_ID },
-    { estimate_version_id: VERSION_ID, tenant_id: TENANT_ID },
+  const estimateItems = input?.estimateItems ?? [
+    {
+      id: "estimate-line-1",
+      version_id: VERSION_ID,
+      item_type: "line" as const,
+      tenant_id: TENANT_ID,
+    },
+    {
+      id: "estimate-line-2",
+      version_id: VERSION_ID,
+      item_type: "line" as const,
+      tenant_id: TENANT_ID,
+    },
+    {
+      id: "estimate-section-1",
+      version_id: VERSION_ID,
+      item_type: "section" as const,
+      tenant_id: TENANT_ID,
+    },
   ];
 
   return {
@@ -418,6 +457,44 @@ describe("listActivityCenterJobs", () => {
         canReconcile: true,
       })
     );
+  });
+
+  it("computes coverage from unique linked DPGF lines only", async () => {
+    const response = await listActivityCenterJobs({
+      project_id: PROJECT_ID,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs.find((job) => job.jobId === JOB_A_ID)?.coveragePercent).toBe(50);
+    expect(response.jobs.find((job) => job.jobId === JOB_B_ID)?.coveragePercent).toBe(50);
+    expect(response.jobs.find((job) => job.jobId === JOB_C_ID)?.coveragePercent).toBeNull();
+  });
+
+  it("returns no coverage when the target version has no DPGF line", async () => {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+      supabase: createSupabaseMock({
+        estimateItems: [
+          {
+            id: "estimate-section-1",
+            version_id: VERSION_ID,
+            item_type: "section",
+            tenant_id: TENANT_ID,
+          },
+        ],
+      }) as never,
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+
+    const response = await listActivityCenterJobs({
+      project_id: PROJECT_ID,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs.find((job) => job.jobId === JOB_A_ID)?.coveragePercent).toBeNull();
+    expect(response.jobs.find((job) => job.jobId === JOB_B_ID)?.coveragePercent).toBeNull();
   });
 
   it("filters jobs by visible status instead of the raw database status", async () => {

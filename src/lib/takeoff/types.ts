@@ -1127,13 +1127,13 @@ export type TakeoffMetricsStatsPayload = {
 /* --- Activity Center types (V3-007) --- */
 
 export type TakeoffActivityCenterConfidenceLabel =
-  | "Elevee"
+  | "Élevée"
   | "Moyenne"
   | "Faible";
 export type TakeoffActivityCenterLevelLabel =
   | "Rapide"
   | "Standard"
-  | "Detaille";
+  | "Détaillé";
 
 export type TakeoffActivityCenterCounters = {
   technicalJobs: number;
@@ -1169,7 +1169,7 @@ export type TakeoffActivityCenterJobRow = {
   canCancel?: boolean;
   canResubmit?: boolean;
   itemCount: number;
-  coveragePercent: number;
+  coveragePercent: number | null;
   exceptionCount: number;
   confidenceLabel: TakeoffActivityCenterConfidenceLabel;
   appliedCount: number;

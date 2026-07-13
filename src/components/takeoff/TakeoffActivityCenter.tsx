@@ -10,6 +10,8 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
+import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
+import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import {
   BUSINESS_STATUS_FILTER_OPTIONS,
   BUSINESS_LEVEL_FILTER_OPTIONS,
@@ -24,10 +26,34 @@ import TakeoffJobsTable from "./TakeoffJobsTable";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
 
+type LaunchContext = {
+  currentVersion: {
+    id: string;
+    status: string;
+    versionNumber: number;
+  } | null;
+  plansContext: {
+    defaultPlanSetId: string | null;
+    defaultPlanSetName?: string | null;
+    defaultPlanSetSource?: string | null;
+    defaultPlanSetFileCount?: number;
+    launchRecommendation?: TakeoffDocumentRecommendation | null;
+  } | null;
+  availableVersions: Array<{
+    id: string;
+    versionNumber: number;
+  }>;
+};
+
 type Props = {
   projectId: string;
   versions: Array<{ id: string; version_number: number }>;
-  planSets: Array<{ id: string; name: string; metadata?: Record<string, unknown> | null }>;
+  planSets: Array<{
+    id: string;
+    name: string;
+    metadata?: Record<string, unknown> | null;
+  }>;
+  launchContext?: LaunchContext | null;
 };
 
 const TABS = [
@@ -42,6 +68,7 @@ export default function TakeoffActivityCenter({
   projectId,
   versions,
   planSets,
+  launchContext = null,
 }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -60,8 +87,11 @@ export default function TakeoffActivityCenter({
   const selectedPeriod = searchParams.get("period") ?? "all";
 
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
+  const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(false);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const rawOffset = Number(searchParams.get("offset") ?? "0");
-  const pageOffset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const pageOffset =
+    Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
 
   const tabListRef = useRef<HTMLDivElement>(null);
 
@@ -90,14 +120,12 @@ export default function TakeoffActivityCenter({
       const hasPending = latestData.jobs?.some(
         (job) => job.statusRaw === "queued"
       );
-      return hasProcessing || hasPending
-        ? TAKEOFF_LIST_REFRESH_INTERVAL_MS
-        : 0;
+      return hasProcessing || hasPending ? TAKEOFF_LIST_REFRESH_INTERVAL_MS : 0;
     },
     []
   );
 
-  const { data, error, isLoading } = useSWR(
+  const { data, error, isLoading, mutate } = useSWR(
     activeTab === "jobs"
       ? [
           "activity-center",
@@ -153,6 +181,39 @@ export default function TakeoffActivityCenter({
   })();
 
   const statusOptions = BUSINESS_STATUS_FILTER_OPTIONS;
+  const hasActiveJobFilters =
+    selectedVersion !== "all" ||
+    selectedLot !== "all" ||
+    selectedPlanSet !== "all" ||
+    selectedStatus !== "all" ||
+    selectedLevel !== "all" ||
+    selectedPeriod !== "all";
+  const activeJobFilterCount = [
+    selectedVersion,
+    selectedLot,
+    selectedPlanSet,
+    selectedStatus,
+    selectedLevel,
+    selectedPeriod,
+  ].filter((value) => value !== "all").length;
+  const hasVisibleAnalyses = Boolean(
+    data && (data.jobs.length > 0 || data.pagination.total > 0)
+  );
+  const shouldShowFilters =
+    activeTab === "jobs" && (hasActiveJobFilters || hasVisibleAnalyses);
+
+  const resetJobFilters = useCallback(() => {
+    setFiltersExpanded(false);
+    updateParams({
+      version: null,
+      lot: null,
+      planSet: null,
+      status: null,
+      level: null,
+      period: null,
+      offset: null,
+    });
+  }, [updateParams]);
 
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -193,7 +254,7 @@ export default function TakeoffActivityCenter({
   const errorMessage =
     isTakeoffApiError(error) && error.message
       ? error.message
-      : "Impossible de charger le centre d'activite.";
+      : "Impossible de charger le centre d'activité.";
 
   return (
     <div>
@@ -201,7 +262,7 @@ export default function TakeoffActivityCenter({
       <div
         ref={tabListRef}
         role="tablist"
-        aria-label="Onglets du centre d'activite"
+        aria-label="Onglets du centre d'activité"
         className="flex border-b border-[var(--slate-200)] mb-4"
         onKeyDown={handleTabKeyDown}
       >
@@ -216,7 +277,7 @@ export default function TakeoffActivityCenter({
               aria-selected={isActive}
               aria-controls={`tabpanel-${tab.key}`}
               tabIndex={isActive ? 0 : -1}
-              className={`px-4 py-2 text-sm transition-colors ${
+              className={`min-h-11 flex-1 px-3 py-2 text-sm transition-colors sm:flex-none sm:px-4 ${
                 isActive
                   ? "border-b-2 border-[var(--brand-blue)] text-[var(--brand-blue)] font-semibold"
                   : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
@@ -230,143 +291,172 @@ export default function TakeoffActivityCenter({
       </div>
 
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-1.5">
-          <label
-            htmlFor="filter-version"
-            className="text-xs font-semibold text-[var(--slate-500)]"
-          >
-            Version
-          </label>
-          <select
-            id="filter-version"
-            className="form-input form-select form-input--sm h-9 min-w-[120px]"
-            value={selectedVersion}
-            onChange={(e) => updateParams({ version: e.target.value, offset: null })}
-          >
-            <option value="all">Toutes versions</option>
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>
-                V{v.version_number}
-              </option>
-            ))}
-          </select>
-        </div>
+      {shouldShowFilters ? (
+        <div className="mb-4">
+          <div className="sm:hidden">
+            <button
+              type="button"
+              className="btn btn-secondary min-h-11 w-full justify-between px-4"
+              aria-expanded={filtersExpanded}
+              aria-controls="takeoff-analysis-filters"
+              onClick={() => setFiltersExpanded((expanded) => !expanded)}
+            >
+              <span>
+                Filtres
+                {activeJobFilterCount > 0 ? ` (${activeJobFilterCount})` : ""}
+              </span>
+              <span aria-hidden="true">{filtersExpanded ? "−" : "+"}</span>
+            </button>
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <label
-            htmlFor="filter-lot"
-            className="text-xs font-semibold text-[var(--slate-500)]"
+          <div
+            id="takeoff-analysis-filters"
+            data-testid="takeoff-analysis-filters"
+            className={`${filtersExpanded ? "grid" : "hidden"} mt-3 min-w-0 grid-cols-1 gap-3 sm:mt-0 sm:grid sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end`}
+            aria-label="Filtres des analyses"
           >
-            Lot
-          </label>
-          <select
-            id="filter-lot"
-            className="form-input form-select form-input--sm h-9 min-w-[120px]"
-            value={selectedLot}
-            onChange={(e) => updateParams({ lot: e.target.value, offset: null })}
-          >
-            {lotOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label
+              htmlFor="filter-version"
+              className="text-xs font-semibold text-[var(--slate-500)]"
+            >
+              Version
+            </label>
+            <select
+              id="filter-version"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              value={selectedVersion}
+              onChange={(e) =>
+                updateParams({ version: e.target.value, offset: null })
+              }
+            >
+              <option value="all">Toutes versions</option>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  V{v.version_number}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <label
-            htmlFor="filter-planSet"
-            className="text-xs font-semibold text-[var(--slate-500)]"
-          >
-            Jeu de plans
-          </label>
-          <select
-            id="filter-planSet"
-            className="form-input form-select form-input--sm h-9 min-w-[120px]"
-            value={selectedPlanSet}
-            onChange={(e) =>
-              updateParams({ planSet: e.target.value, offset: null })
-            }
-          >
-            <option value="all">Tous les jeux</option>
-            {planSets.map((ps) => (
-              <option key={ps.id} value={ps.id}>
-                {ps.name}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label
+              htmlFor="filter-lot"
+              className="text-xs font-semibold text-[var(--slate-500)]"
+            >
+              Lot
+            </label>
+            <select
+              id="filter-lot"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              value={selectedLot}
+              onChange={(e) =>
+                updateParams({ lot: e.target.value, offset: null })
+              }
+            >
+              {lotOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <label
-            htmlFor="filter-status"
-            className="text-xs font-semibold text-[var(--slate-500)]"
-          >
-            Statut
-          </label>
-          <select
-            id="filter-status"
-            className="form-input form-select form-input--sm h-9 min-w-[120px]"
-            value={selectedStatus}
-            onChange={(e) =>
-              updateParams({ status: e.target.value, offset: null })
-            }
-          >
-            {statusOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label
+              htmlFor="filter-planSet"
+              className="text-xs font-semibold text-[var(--slate-500)]"
+            >
+              Jeu de plans
+            </label>
+            <select
+              id="filter-planSet"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              value={selectedPlanSet}
+              onChange={(e) =>
+                updateParams({ planSet: e.target.value, offset: null })
+              }
+            >
+              <option value="all">Tous les jeux</option>
+              {planSets.map((ps) => (
+                <option key={ps.id} value={ps.id}>
+                  {ps.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <label
-            htmlFor="filter-level"
-            className="text-xs font-semibold text-[var(--slate-500)]"
-          >
-            Niveau
-          </label>
-          <select
-            id="filter-level"
-            className="form-input form-select form-input--sm h-9 min-w-[120px]"
-            value={selectedLevel}
-            onChange={(e) =>
-              updateParams({ level: e.target.value, offset: null })
-            }
-          >
-            {BUSINESS_LEVEL_FILTER_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label
+              htmlFor="filter-status"
+              className="text-xs font-semibold text-[var(--slate-500)]"
+            >
+              Statut
+            </label>
+            <select
+              id="filter-status"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              value={selectedStatus}
+              onChange={(e) =>
+                updateParams({ status: e.target.value, offset: null })
+              }
+            >
+              {statusOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <label
-            htmlFor="filter-period"
-            className="text-xs font-semibold text-[var(--slate-500)]"
-          >
-            Periode
-          </label>
-          <select
-            id="filter-period"
-            className="form-input form-select form-input--sm h-9 min-w-[120px]"
-            value={selectedPeriod}
-            onChange={(e) =>
-              updateParams({ period: e.target.value, offset: null })
-            }
-          >
-            {PERIOD_FILTER_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label
+              htmlFor="filter-level"
+              className="text-xs font-semibold text-[var(--slate-500)]"
+            >
+              Niveau
+            </label>
+            <select
+              id="filter-level"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              value={selectedLevel}
+              onChange={(e) =>
+                updateParams({ level: e.target.value, offset: null })
+              }
+            >
+              {BUSINESS_LEVEL_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label
+              htmlFor="filter-period"
+              className="text-xs font-semibold text-[var(--slate-500)]"
+            >
+              Période
+            </label>
+            <select
+              id="filter-period"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              value={selectedPeriod}
+              onChange={(e) =>
+                updateParams({ period: e.target.value, offset: null })
+              }
+            >
+              {PERIOD_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
+        </div>
+      ) : null}
 
       {/* Tab panels */}
       <div
@@ -390,6 +480,48 @@ export default function TakeoffActivityCenter({
             <TakeoffJobsTable
               projectId={projectId}
               data={data}
+              emptyState={
+                hasActiveJobFilters
+                  ? {
+                      title: "Aucune analyse ne correspond",
+                      description:
+                        "Modifiez ou réinitialisez vos filtres pour retrouver vos analyses.",
+                      actionLabel: "Réinitialiser les filtres",
+                      onAction: resetJobFilters,
+                    }
+                  : launchContext?.plansContext?.defaultPlanSetId &&
+                      (launchContext.plansContext.defaultPlanSetFileCount ?? 0) > 0
+                    ? {
+                        title: "Prêt pour votre premier métré",
+                        description:
+                          "Votre jeu de plans est prêt. Lancez l’analyse pour obtenir vos premières quantités.",
+                        actionLabel: "Lancer le premier métré",
+                        onAction: () => setIsLaunchDialogOpen(true),
+                      }
+                    : launchContext?.plansContext?.defaultPlanSetId
+                      ? {
+                          title: "Ajoutez un PDF pour lancer le métré",
+                          description:
+                            "Le jeu de plans existe, mais il ne contient encore aucun fichier à analyser.",
+                          actionLabel: "Ajouter des plans",
+                          actionHref: `/dashboard/affaires/${projectId}/plans`,
+                        }
+                    : planSets.length > 0
+                      ? {
+                          title: "Vos plans sont prêts",
+                          description:
+                            "Ouvrez l’affaire pour vérifier la version cible et lancer votre premier métré.",
+                          actionLabel: "Lancer le premier métré",
+                          actionHref: `/dashboard/affaires/${projectId}#plans`,
+                        }
+                      : {
+                          title: "Ajoutez vos plans pour commencer",
+                          description:
+                            "Créez un jeu de plans, ajoutez vos fichiers PDF, puis lancez votre premier métré.",
+                          actionLabel: "Ajouter un jeu de plans",
+                          actionHref: `/dashboard/affaires/${projectId}/plans`,
+                        }
+              }
               onPageChange={(offset) =>
                 updateParams({ offset: offset > 0 ? String(offset) : null })
               }
@@ -413,6 +545,20 @@ export default function TakeoffActivityCenter({
           />
         )}
       </div>
+
+      {launchContext ? (
+        <LaunchMetreDialog
+          open={isLaunchDialogOpen}
+          onOpenChange={setIsLaunchDialogOpen}
+          onLaunched={() => {
+            void mutate();
+          }}
+          projectId={projectId}
+          currentVersion={launchContext.currentVersion}
+          plansContext={launchContext.plansContext}
+          availableVersions={launchContext.availableVersions}
+        />
+      ) : null}
     </div>
   );
 }

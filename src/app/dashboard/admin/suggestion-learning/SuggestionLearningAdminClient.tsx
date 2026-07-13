@@ -80,10 +80,10 @@ const MAX_RETENTION_MONTHS = 120;
 
 const FIELD_LABELS: Record<SuggestionLearningFieldName, string> = {
   description: "Description",
-  category_id: "Categorie",
+  category_id: "Catégorie",
   k_fo: "K FO",
   k_mo: "K MO",
-  labor_role_id: "Role MO",
+  labor_role_id: "Rôle MO",
   supply_type_id: "Type fourniture",
 };
 
@@ -137,7 +137,7 @@ function parseRequiredIntegerInput(input: {
   const normalized = Math.trunc(parsed);
   if (normalized < input.min || normalized > input.max) {
     throw new Error(
-      `${input.label} doit etre compris entre ${input.min} et ${input.max}.`
+      `${input.label} doit être compris entre ${input.min} et ${input.max}.`
     );
   }
 
@@ -203,10 +203,10 @@ function getProposalKey(proposal: SuggestionLearningProposal) {
 }
 
 function getStatusLabel(proposal: SuggestionLearningProposal) {
-  if (proposal.review_status === "approved") return "Validee";
-  if (proposal.review_status === "rejected") return "Rejetee";
+  if (proposal.review_status === "approved") return "Validée";
+  if (proposal.review_status === "rejected") return "Rejetée";
   if (!proposal.is_active) return "Inactive";
-  return "A traiter";
+  return "À traiter";
 }
 
 function getStatusClass(proposal: SuggestionLearningProposal) {
@@ -491,7 +491,7 @@ export function SuggestionLearningAdminClient({
       await Promise.all([mutateLearning(), mutateFeatureFlags()]);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible d'actualiser les donnees."
+        error instanceof Error ? error.message : "Impossible d'actualiser les données."
       );
     }
   }
@@ -512,11 +512,11 @@ export function SuggestionLearningAdminClient({
       await mutateLearning(updated, { revalidate: false });
 
       const actionLabel =
-        action === "approve" ? "validee" : action === "reject" ? "rejetee" : "reinitialisee";
+        action === "approve" ? "validée" : action === "reject" ? "rejetée" : "réinitialisée";
       setSuccessMessage(`Suggestion ${actionLabel}.`);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible de mettre a jour la revue."
+        error instanceof Error ? error.message : "Impossible de mettre à jour la revue."
       );
     } finally {
       setActiveRowKey(null);
@@ -545,10 +545,10 @@ export function SuggestionLearningAdminClient({
       );
       await mutateLearning();
 
-      setSuccessMessage(`Apprentissage ${updatedFlag.enabled ? "active" : "desactive"}.`);
+      setSuccessMessage(`Apprentissage ${updatedFlag.enabled ? "activé" : "désactivé"}.`);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible de mettre a jour la configuration."
+        error instanceof Error ? error.message : "Impossible de mettre à jour la configuration."
       );
     } finally {
       setIsConfigSaving(false);
@@ -568,7 +568,7 @@ export function SuggestionLearningAdminClient({
       });
       const retentionMonths = parseRequiredIntegerInput({
         value: retentionMonthsDraft,
-        label: "La retention",
+        label: "La rétention",
         min: MIN_RETENTION_MONTHS,
         max: MAX_RETENTION_MONTHS,
       });
@@ -606,10 +606,10 @@ export function SuggestionLearningAdminClient({
       );
       await mutateLearning();
 
-      setSuccessMessage("Configuration suggestion learning mise a jour.");
+      setSuccessMessage("Configuration de l'apprentissage mise à jour.");
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible de mettre a jour la configuration."
+        error instanceof Error ? error.message : "Impossible de mettre à jour la configuration."
       );
     } finally {
       setIsConfigSaving(false);
@@ -617,21 +617,34 @@ export function SuggestionLearningAdminClient({
   }
 
   async function handlePurge() {
-    setIsPurging(true);
     startAction();
 
+    let retentionMonths: number;
     try {
-      const retentionMonths = parseRequiredIntegerInput({
+      retentionMonths = parseRequiredIntegerInput({
         value: retentionMonthsDraft,
-        label: "La retention",
+        label: "La rétention",
         min: MIN_RETENTION_MONTHS,
         max: MAX_RETENTION_MONTHS,
       });
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "La rétention est invalide."
+      );
+      return;
+    }
 
+    const confirmed = window.confirm(
+      `Supprimer définitivement les corrections apprises de plus de ${retentionMonths} mois ? Cette action est irréversible.`
+    );
+    if (!confirmed) return;
+
+    setIsPurging(true);
+    try {
       const purgeResult = await purgeSuggestionLearning({ retentionMonths });
       await mutateLearning(purgeResult, { revalidate: false });
 
-      setSuccessMessage(`${purgeResult.deleted_count} correction(s) purgee(s).`);
+      setSuccessMessage(`${purgeResult.deleted_count} correction(s) purgée(s).`);
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "Impossible de purger l'historique."
@@ -643,17 +656,17 @@ export function SuggestionLearningAdminClient({
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex items-start justify-between gap-4">
+      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="page-title">Suggestion learning</h1>
+          <h1 className="page-title">Apprentissage des suggestions</h1>
           <p className="page-description">
-            Administrez les corrections apprises et la configuration du tenant.
+            Administrez les corrections apprises et la configuration de l&apos;organisation.
           </p>
         </div>
 
         <button
           type="button"
-          className="btn btn-secondary"
+          className="btn btn-secondary w-full sm:w-auto"
           onClick={() => void handleRefresh()}
           disabled={isRefreshing}
         >
@@ -674,9 +687,11 @@ export function SuggestionLearningAdminClient({
 
       <section className="dashboard-card p-5 mb-6">
         <div className="mb-4">
-          <h2 className="text-sm font-semibold text-[var(--slate-900)]">Configuration tenant</h2>
+          <h2 className="text-sm font-semibold text-[var(--slate-900)]">
+            Configuration de l&apos;organisation
+          </h2>
           <p className="text-sm text-[var(--slate-500)]">
-            Les parametres sont stockes dans les feature flags du tenant.
+            Les paramètres sont stockés dans les fonctionnalités de l&apos;organisation.
           </p>
         </div>
 
@@ -719,7 +734,7 @@ export function SuggestionLearningAdminClient({
               </label>
 
               <label className="form-label">
-                Retention (mois)
+                Rétention (mois)
                 <input
                   type="number"
                   min={MIN_RETENTION_MONTHS}
@@ -740,7 +755,9 @@ export function SuggestionLearningAdminClient({
               onClick={() => void handleToggleLearning()}
               disabled={isConfigSaving || isPurging}
             >
-              {config.enabled ? "Desactiver learning" : "Activer learning"}
+              {config.enabled
+                ? "Désactiver l'apprentissage"
+                : "Activer l'apprentissage"}
             </button>
             <button
               type="button"
@@ -748,7 +765,9 @@ export function SuggestionLearningAdminClient({
               onClick={() => void handleSaveConfig()}
               disabled={isConfigSaving || isPurging}
             >
-              {isConfigSaving ? "Enregistrement..." : "Enregistrer seuil + retention"}
+              {isConfigSaving
+                ? "Enregistrement..."
+                : "Enregistrer le seuil et la rétention"}
             </button>
             <button
               type="button"
@@ -779,13 +798,13 @@ export function SuggestionLearningAdminClient({
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Regle</th>
+                  <th>Règle</th>
                   <th>Champ</th>
-                  <th>Valeur originale echantillon</th>
-                  <th>Valeur corrigee</th>
+                  <th>Valeur originale échantillon</th>
+                  <th>Valeur corrigée</th>
                   <th>Occurrences</th>
                   <th>Statut</th>
-                  <th>Dernier vu</th>
+                  <th>Dernière occurrence</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
@@ -849,7 +868,7 @@ export function SuggestionLearningAdminClient({
                               onClick={() => void handleReview(proposal, "reset")}
                               disabled={isUpdatingRow}
                             >
-                              Reset
+                              Réinitialiser
                             </button>
                           </div>
                         </td>

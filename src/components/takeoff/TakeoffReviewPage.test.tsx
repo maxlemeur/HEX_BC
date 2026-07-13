@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 // Mock next/navigation
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
+const ensureTakeoffApplyDraftLockMock = vi.hoisted(() => vi.fn());
 const { useUiModeMock, setModeMock } = vi.hoisted(() => ({
   useUiModeMock: vi.fn(),
   setModeMock: vi.fn(),
@@ -20,6 +21,11 @@ vi.mock("@/hooks/useUiMode", () => ({
 
 vi.mock("@/lib/estimates/client", () => ({
   fetchEstimateItemsForVersion: vi.fn(),
+  releaseEstimateDraftLock: vi.fn(),
+}));
+
+vi.mock("@/lib/takeoff/apply-draft-lock", () => ({
+  ensureTakeoffApplyDraftLock: ensureTakeoffApplyDraftLockMock,
 }));
 
 // Mock client functions
@@ -71,7 +77,10 @@ vi.mock("@/hooks/useFeatureFlag", () => ({
 }));
 
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
-import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
+import {
+  fetchEstimateItemsForVersion,
+  releaseEstimateDraftLock,
+} from "@/lib/estimates/client";
 import {
   applyTakeoffJob,
   fetchAllTakeoffDpgfComparison,
@@ -256,6 +265,12 @@ function makeDpgfComparisonResponse(
 describe("TakeoffReviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ensureTakeoffApplyDraftLockMock.mockResolvedValue({
+      acquired: true,
+      shouldRelease: false,
+      errorMessage: null,
+    });
+    vi.mocked(releaseEstimateDraftLock).mockResolvedValue(true as never);
     mockSearchParams = new URLSearchParams();
     mockUiMode("expert");
     vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([
@@ -489,6 +504,15 @@ describe("TakeoffReviewPage", () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(
       makeMockResponse([makeItem()])
     );
+    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
+      makeDpgfComparisonResponse({
+        to_confirm: 0,
+        significant_gaps: 0,
+        forced_manual: 0,
+        lines_without_proof: 0,
+        unused_takeoff_items: 0,
+      })
+    );
 
     render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
 
@@ -497,6 +521,7 @@ describe("TakeoffReviewPage", () => {
         name: /appliquer au chiffrage/i,
       });
       expect(applyBtn.getAttribute("disabled")).toBeNull();
+      expect(fetchTakeoffDpgfComparison).toHaveBeenCalled();
     });
   });
 
@@ -872,9 +897,16 @@ describe("TakeoffReviewPage", () => {
   });
 
   it("opens the controlled apply wizard from validation and stays in affaire context after success", async () => {
+    ensureTakeoffApplyDraftLockMock.mockResolvedValue({
+      acquired: true,
+      shouldRelease: true,
+      errorMessage: null,
+    });
     vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
     vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
       makeDpgfComparisonResponse({
+        to_confirm: 0,
+        significant_gaps: 0,
         forced_manual: 0,
         lines_without_proof: 0,
         unused_takeoff_items: 0,
@@ -930,11 +962,15 @@ describe("TakeoffReviewPage", () => {
     });
 
     expect(mockPush).not.toHaveBeenCalledWith(`/dashboard/estimates/${VERSION_ID}/takeoff/${JOB_ID}`);
-    expect(screen.getByText("Apply controle confirme")).toBeDefined();
-    expect(screen.getByRole("link", { name: "Ouvrir le chiffrage" })).toHaveAttribute(
-      "href",
-      `/dashboard/estimates/${VERSION_ID}`
-    );
+    await waitFor(() => {
+      expect(screen.getByText("Apply controle confirme")).toBeDefined();
+      expect(screen.getByRole("link", { name: "Ouvrir le chiffrage" })).toHaveAttribute(
+        "href",
+        `/dashboard/estimates/${VERSION_ID}`
+      );
+      expect(screen.getByRole("button", { name: "Ouvrir l'apply controle" })).toBeDisabled();
+      expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID);
+    });
   });
 
   it("blocks controlled apply from validation while DPGF exceptions remain unresolved", async () => {
@@ -963,6 +999,40 @@ describe("TakeoffReviewPage", () => {
     fireEvent.click(applyButton);
 
     expect(screen.queryByText("Cible d'application")).not.toBeInTheDocument();
+  });
+
+  it("allows controlled apply when the target version has no DPGF lines", async () => {
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
+    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
+      makeDpgfComparisonResponse({
+        reliable_matches: 0,
+        to_confirm: 0,
+        significant_gaps: 0,
+        forced_manual: 0,
+        lines_without_proof: 0,
+        unused_takeoff_items: 1,
+        total_lines: 0,
+      })
+    );
+
+    render(
+      <TakeoffReviewPage
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        projectId="99999999-9999-4999-8999-999999999999"
+      />
+    );
+
+    const applyButton = await screen.findByRole("button", {
+      name: "Ouvrir l'apply controle",
+    });
+
+    await waitFor(() => {
+      expect(applyButton).toBeEnabled();
+    });
+    expect(
+      screen.getByText("aucune ligne DPGF cible, ajout au chiffrage possible")
+    ).toBeInTheDocument();
   });
 
   it("preserves the production tab when switching away and back", async () => {

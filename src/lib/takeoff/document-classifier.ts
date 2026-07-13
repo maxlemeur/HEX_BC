@@ -44,7 +44,7 @@ export type TakeoffSelectionWarning = {
 export const TAKEOFF_LEVEL_BUSINESS_LABELS: Record<TakeoffLevel, string> = {
   A: "Rapide",
   B: "Standard",
-  C: "Detaille",
+  C: "Détaillé",
 };
 
 type TakeoffFileSignal = {

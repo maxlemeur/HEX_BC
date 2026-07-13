@@ -37,16 +37,16 @@ export function AffaireListSkeleton() {
   return (
     <div>
       {/* Header */}
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
+      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
           <Skeleton width={160} height={28} />
           <Skeleton width={240} height={16} className="mt-2" />
         </div>
-        <Skeleton variant="rect" width={160} height={40} className="rounded-lg" />
+        <Skeleton variant="rect" height={44} className="w-full rounded-lg sm:w-40" />
       </div>
 
       {/* Filter bar */}
-      <div className="mt-6 flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3">
         <Skeleton width={256} height={40} className="rounded-lg" />
         <div className="flex gap-2">
           {[1, 2, 3, 4].map((i) => (
@@ -59,7 +59,7 @@ export function AffaireListSkeleton() {
       <Skeleton width={144} height={16} className="mt-4" />
 
       {/* Card grid */}
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-6 grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
         {Array.from({ length: 6 }, (_, i) => (
           <CardSkeleton key={i} index={i} />
         ))}

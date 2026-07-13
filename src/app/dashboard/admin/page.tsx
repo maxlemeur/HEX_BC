@@ -23,8 +23,14 @@ export default async function AdminHubPage() {
       </div>
 
       {/* Section: Système */}
-      <section className="space-y-3 animate-slide-in stagger-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+      <section
+        aria-labelledby="admin-system-heading"
+        className="space-y-3 animate-slide-in stagger-2"
+      >
+        <h2
+          id="admin-system-heading"
+          className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+        >
           Système
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -50,7 +56,7 @@ export default async function AdminHubPage() {
                 <path d="M8 10h8" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-foreground">Tenant</h3>
+            <h3 className="mt-3 font-semibold text-foreground">Organisation</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Paramètres généraux de l&apos;organisation
             </p>
@@ -88,8 +94,14 @@ export default async function AdminHubPage() {
       </section>
 
       {/* Section: Configuration */}
-      <section className="space-y-3 animate-slide-in stagger-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+      <section
+        aria-labelledby="admin-configuration-heading"
+        className="space-y-3 animate-slide-in stagger-3"
+      >
+        <h2
+          id="admin-configuration-heading"
+          className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+        >
           Configuration
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -115,10 +127,10 @@ export default async function AdminHubPage() {
               </svg>
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
-              Suggestion learning
+              Apprentissage des suggestions
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Apprentissage des suggestions automatiques
+              Réglages de l&apos;apprentissage automatique
             </p>
           </Link>
 
@@ -144,7 +156,7 @@ export default async function AdminHubPage() {
               </svg>
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
-              Historique anomalies
+              Historique des anomalies
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Suivi et résolution des anomalies détectées
@@ -175,7 +187,9 @@ export default async function AdminHubPage() {
                 <circle cx="9" cy="6" r="2" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-foreground">Rules engine</h3>
+            <h3 className="mt-3 font-semibold text-foreground">
+              Règles de contrôle
+            </h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Règles métier et moteur de validation
             </p>
@@ -202,41 +216,10 @@ export default async function AdminHubPage() {
               </svg>
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
-              Feature flags
+              Fonctionnalités
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Activation et configuration des fonctionnalités
-            </p>
-          </Link>
-
-          <Link
-            href="/dashboard/admin/procurement-reset"
-            className="dashboard-card hub-card p-5 border-red-200"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#b91c1c"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 6h18" />
-                <path d="M8 6V4h8v2" />
-                <path d="M19 6l-1 14H6L5 6" />
-                <path d="M10 11v5" />
-                <path d="M14 11v5" />
-              </svg>
-            </div>
-            <h3 className="mt-3 font-semibold text-foreground">
-              Nettoyage achats
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Suppression controlee des fournisseurs et bons de commande
+              Activation et configuration des modules
             </p>
           </Link>
         </div>
@@ -244,8 +227,14 @@ export default async function AdminHubPage() {
 
       {/* Section: Modules (conditional) */}
       {takeoffEnabled ? (
-        <section className="space-y-3 animate-slide-in stagger-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <section
+          aria-labelledby="admin-modules-heading"
+          className="space-y-3 animate-slide-in stagger-4"
+        >
+          <h2
+            id="admin-modules-heading"
+            className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+          >
             Modules
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -272,10 +261,10 @@ export default async function AdminHubPage() {
                 </svg>
               </div>
               <h3 className="mt-3 font-semibold text-foreground">
-                Règles d&apos;extraction
+                Règles de métrés
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Règles de correspondance du module d&apos;extraction
+                Correspondances utilisées pendant l&apos;analyse des plans
               </p>
             </Link>
 
@@ -300,15 +289,58 @@ export default async function AdminHubPage() {
                 </svg>
               </div>
               <h3 className="mt-3 font-semibold text-foreground">
-                Métriques d&apos;extraction
+                Suivi des métrés
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Observabilite des extractions, couts et performances
+                Analyse des volumes, des coûts et des performances
               </p>
             </Link>
           </div>
         </section>
       ) : null}
+
+      <section
+        aria-labelledby="admin-danger-heading"
+        className="space-y-3 animate-slide-in stagger-5"
+      >
+        <h2
+          id="admin-danger-heading"
+          className="text-xs font-semibold uppercase tracking-wider text-red-700"
+        >
+          Zone sensible
+        </h2>
+        <Link
+          href="/dashboard/admin/procurement-reset"
+          className="dashboard-card flex flex-col gap-3 border-red-200 bg-red-50/60 p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 sm:flex-row sm:items-center sm:gap-4"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#b91c1c"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M8 6V4h8v2" />
+              <path d="M19 6l-1 14H6L5 6" />
+              <path d="M10 11v5" />
+              <path d="M14 11v5" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-red-950">Nettoyage des achats</h3>
+            <p className="mt-1 text-sm text-red-800">
+              Suppression contrôlée des fournisseurs et des bons de commande
+            </p>
+          </div>
+          <span className="text-sm font-semibold text-red-800">Ouvrir</span>
+        </Link>
+      </section>
     </div>
   );
 }

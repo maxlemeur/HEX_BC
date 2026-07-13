@@ -1,50 +1,71 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 
 describe("TakeoffRouteHierarchyBanner", () => {
-  it("renders a principal flow descriptor without fallback CTA", () => {
+  it("keeps the recommended route help compact until the user opens it", async () => {
+    const user = userEvent.setup();
+
     render(
       <TakeoffRouteHierarchyBanner
         descriptor={{
           classification: "principal",
-          badgeLabel: "Flux principal",
-          title: "Parcours affaire prioritaire",
-          description: "Le parcours affaire reste la voie par defaut.",
-          provenanceLabel: "Provenance du chemin : affaire-first / centre metres",
+          badgeLabel: "Parcours recommandé",
+          title: "Suivre les métrés de l’affaire",
+          description: "Consultez les analyses de cette affaire.",
+          provenanceLabel: "Étape : suivi des analyses",
           targetHref: null,
           targetLabel: null,
         }}
       />
     );
 
-    expect(screen.getByText("Flux principal")).toBeInTheDocument();
-    expect(screen.getByText("Parcours affaire prioritaire")).toBeInTheDocument();
+    const summary = screen.getByText("Suivre les métrés de l’affaire").closest("summary");
+    const details = summary?.closest("details");
+
     expect(
-      screen.queryByRole("link", { name: "Revenir au flux principal" })
+      screen.getByRole("complementary", { name: "Aide sur le parcours de métrés" })
+    ).toBeInTheDocument();
+    expect(summary).toBeInTheDocument();
+    expect(details).not.toHaveAttribute("open");
+    expect(summary).toHaveProperty("tabIndex", 0);
+
+    await user.click(summary!);
+
+    expect(details).toHaveAttribute("open");
+    expect(screen.getByText("Consultez les analyses de cette affaire.")).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: "Ouvrir le parcours depuis l’affaire" })
     ).not.toBeInTheDocument();
   });
 
-  it("renders a legacy descriptor with an explicit fallback link", () => {
+  it("reveals the link back to the recommended route from an old route", async () => {
+    const user = userEvent.setup();
+
     render(
       <TakeoffRouteHierarchyBanner
         descriptor={{
           classification: "legacy",
-          badgeLabel: "Legacy",
-          title: "Fallback estimate-first explicite",
-          description: "Le flux principal reste l'affaire.",
-          provenanceLabel: "Provenance du chemin : legacy estimate-first / revue",
+          badgeLabel: "Ancien parcours",
+          title: "Parcours conservé pour les dossiers existants",
+          description: "Cette vue sert à reprendre un métré existant.",
+          provenanceLabel: "Repère : revue d’un métré existant",
           targetHref: "/dashboard/affaires/project-1/takeoff",
-          targetLabel: "Revenir au flux principal",
+          targetLabel: "Ouvrir le parcours depuis l’affaire",
         }}
       />
     );
 
-    expect(screen.getByText("Legacy")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Revenir au flux principal" })).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/project-1/takeoff"
-    );
+    const summary = screen
+      .getByText("Parcours conservé pour les dossiers existants")
+      .closest("summary");
+
+    await user.click(summary!);
+
+    expect(
+      screen.getByRole("link", { name: "Ouvrir le parcours depuis l’affaire" })
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1/takeoff");
   });
 });

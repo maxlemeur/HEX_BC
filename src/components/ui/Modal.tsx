@@ -50,13 +50,37 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";
 
+      const dialog = contentRef.current;
+      const modalRoot = dialog?.closest<HTMLElement>("[data-ui-modal-root]");
+      const backgroundNodes = Array.from(document.body.children).filter(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement &&
+          node !== modalRoot &&
+          !node.contains(dialog) &&
+          !["SCRIPT", "STYLE", "LINK"].includes(node.tagName)
+      );
+      const backgroundState = backgroundNodes.map((node) => ({
+        node,
+        inert: Boolean(node.inert),
+        ariaHidden: node.getAttribute("aria-hidden"),
+      }));
+
+      backgroundNodes.forEach((node) => {
+        node.inert = true;
+        node.setAttribute("aria-hidden", "true");
+      });
+
       const timer = window.setTimeout(() => {
         const container = contentRef.current;
         if (!container) return;
         const focusable = findFocusableNodes(container);
-        const first = focusable[0];
-        if (first) {
-          first.focus();
+        const preferred = container.querySelector<HTMLElement>(
+          "[data-modal-autofocus='true'], [autofocus]"
+        );
+        const initialFocus =
+          preferred && focusable.includes(preferred) ? preferred : focusable[0];
+        if (initialFocus) {
+          initialFocus.focus();
         } else {
           container.focus();
         }
@@ -65,6 +89,14 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
       return () => {
         window.clearTimeout(timer);
         document.body.style.overflow = originalOverflow;
+        backgroundState.forEach(({ node, inert, ariaHidden }) => {
+          node.inert = inert;
+          if (ariaHidden === null) {
+            node.removeAttribute("aria-hidden");
+          } else {
+            node.setAttribute("aria-hidden", ariaHidden);
+          }
+        });
         previousFocusRef.current?.focus();
       };
     }
@@ -89,6 +121,7 @@ type ModalContentProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode;
   closeOnOverlayClick?: boolean;
   closeOnEscapeKey?: boolean;
+  containerClassName?: string;
 };
 
 function Content({
@@ -96,6 +129,7 @@ function Content({
   className,
   closeOnOverlayClick = true,
   closeOnEscapeKey = true,
+  containerClassName,
   ...props
 }: Readonly<ModalContentProps>) {
   const { open, onOpenChange, titleId, contentRef } = useModalContext();
@@ -107,7 +141,10 @@ function Content({
   return createPortal(
     <AnimatePresence>
       {open ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
+        <div
+          data-ui-modal-root="true"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4"
+        >
           <button
             aria-hidden="true"
             data-ui-modal-overlay="true"
@@ -126,7 +163,10 @@ function Content({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl"
+            className={cn(
+              "relative z-10 w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl",
+              containerClassName
+            )}
           >
             <div
               {...props}
@@ -217,7 +257,7 @@ function Close({ className, children = "Fermer", ...props }: Readonly<ModalClose
     <button
       type="button"
       className={cn(
-        "font-body inline-flex h-8 items-center justify-center rounded-button-sm px-3 text-sm font-medium",
+        "font-body inline-flex h-11 min-w-11 items-center justify-center rounded-button-sm px-3 text-sm font-medium sm:h-8 sm:min-w-8",
         "text-slate-600 transition hover:bg-slate-100 hover:text-slate-900",
         className
       )}

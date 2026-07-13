@@ -1,16 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
+import { fetchApi } from "@/components/catalogue/api";
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
-import { TableFilterBar } from "@/components/TableFilterBar";
-import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
+import { ServerTableFilterBar } from "@/components/TableFilterBar";
+import type {
+  FilterConfig,
+  FilterState,
+  FilterValue,
+  SortDirection,
+  SortOption,
+} from "@/components/TableFilterBar";
 import { ProductCsvImport } from "@/components/products/ProductCsvImport";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template";
-import { priceFreshnessLevel, type PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
+import type { PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
 import { formatEUR } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -19,29 +27,6 @@ import {
   type ProductPayload,
   type ProductRecord,
 } from "./ProductFormModal";
-
-type SupplierPriceRow = {
-  id: string;
-  product_id: string;
-  supplier_id: string;
-  unit_price_cents: number;
-  valid_from?: string | null;
-  valid_to?: string | null;
-  is_active?: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type SupplierRow = {
-  id: string;
-  name: string;
-};
-
-type ProductPageData = {
-  products: ProductRecord[];
-  supplierPrices: SupplierPriceRow[];
-  suppliers: SupplierRow[];
-};
 
 type ProductView = ProductRecord & {
   _status: "active" | "archived";
@@ -52,11 +37,32 @@ type ProductView = ProductRecord & {
   _bestSupplierPriceUpdatedAt: string | null;
 };
 
+type ProductPageResponse = {
+  items: ProductView[];
+  pagination: {
+    page: number;
+    size: 25 | 50 | 100;
+    totalItems: number;
+    totalPages: number;
+  };
+  counters: {
+    active: number;
+    covered: number;
+    withoutSupplierPrice: number;
+    stale: number;
+  };
+  facets: {
+    materials: string[];
+    categories: string[];
+    units: string[];
+  };
+};
+
 const PRODUCT_SORT_OPTIONS: SortOption[] = [
   { key: "designation", label: "Désignation", defaultDirection: "asc" },
   { key: "material", label: "Matière", defaultDirection: "asc" },
   { key: "unit_price_cents", label: "Prix de référence" },
-  { key: "_bestSupplierPriceCents", label: "Meilleur prix fournisseur" },
+  { key: "best_supplier_price_cents", label: "Meilleur prix fournisseur" },
   { key: "updated_at", label: "Dernière modification", defaultDirection: "desc" },
 ];
 
@@ -72,24 +78,15 @@ const STATUS_OPTIONS = [
   { value: "archived", label: "Archivés" },
 ];
 
+const PRODUCT_PAGE_SIZES = [25, 50, 100] as const;
+
 function taxLabelFromBp(taxRateBp: number) {
   if (taxRateBp % 100 === 0) return `${taxRateBp / 100} %`;
   return `${(taxRateBp / 100).toFixed(1).replace(".", ",")} %`;
 }
 
-function uniqueOptions(values: Array<string | null | undefined>) {
-  return Array.from(
-    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))
-  )
-    .sort((left, right) => left.localeCompare(right, "fr"))
-    .map((value) => ({ value, label: value }));
-}
-
-function isCurrentlyValidPrice(price: SupplierPriceRow, today: string) {
-  if (price.is_active === false) return false;
-  if (price.valid_from && price.valid_from > today) return false;
-  if (price.valid_to && price.valid_to < today) return false;
-  return true;
+function toOptions(values: string[]) {
+  return values.map((value) => ({ value, label: value }));
 }
 
 function freshnessLabel(status: ProductView["_priceStatus"]) {
@@ -120,7 +117,9 @@ function freshnessClass(status: ProductView["_priceStatus"]) {
 
 export default function ProductsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const [displayedProducts, setDisplayedProducts] = useState<ProductView[]>([]);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -129,83 +128,102 @@ export default function ProductsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const querySearch = searchParams.get("q") ?? "";
+  const [searchInput, setSearchInput] = useState(querySearch);
+  const page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const sizeParam = Number.parseInt(searchParams.get("size") ?? "25", 10);
+  const pageSize = PRODUCT_PAGE_SIZES.includes(sizeParam as (typeof PRODUCT_PAGE_SIZES)[number])
+    ? (sizeParam as (typeof PRODUCT_PAGE_SIZES)[number])
+    : 25;
+  const sort = PRODUCT_SORT_OPTIONS.some((option) => option.key === searchParams.get("sort"))
+    ? searchParams.get("sort")!
+    : "designation";
+  const direction: SortDirection = searchParams.get("dir") === "desc" ? "desc" : "asc";
+  const materialFilters = searchParams.getAll("material");
+  const categoryFilters = searchParams.getAll("category");
+  const unitFilters = searchParams.getAll("unit");
+  const priceStatusFilters = searchParams.getAll("price_status");
+  const statusFilters = searchParams.getAll("status");
 
-  const fetchPageData = useCallback(async (): Promise<ProductPageData> => {
-    const [productsResult, pricesResult, suppliersResult] = await Promise.all([
-      supabase.from("products").select("*").order("created_at", { ascending: false }),
-      supabase
-        .from("supplier_pricebook")
-        .select("id, product_id, supplier_id, unit_price_cents, valid_from, valid_to, is_active, created_at, updated_at")
-        .limit(5000),
-      supabase.from("suppliers").select("id, name").eq("is_active", true).order("name"),
-    ]);
+  const updateUrl = useCallback(
+    (
+      updates: Record<string, string | string[] | null>,
+      options: { replace?: boolean; resetPage?: boolean } = {}
+    ) => {
+      const next = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        next.delete(key);
+        if (Array.isArray(value)) {
+          value.forEach((entry) => next.append(key, entry));
+        } else if (value) {
+          next.set(key, value);
+        }
+      }
+      if (options.resetPage !== false) next.delete("page");
+      const href = next.size > 0 ? `${pathname}?${next.toString()}` : pathname;
+      if (options.replace) router.replace(href, { scroll: false });
+      else router.push(href, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
-    if (productsResult.error) throw productsResult.error;
-    if (pricesResult.error) throw pricesResult.error;
-    if (suppliersResult.error) throw suppliersResult.error;
+  useEffect(() => {
+    setSearchInput(querySearch);
+  }, [querySearch]);
 
-    return {
-      products: (productsResult.data ?? []) as ProductRecord[],
-      supplierPrices: (pricesResult.data ?? []) as SupplierPriceRow[],
-      suppliers: (suppliersResult.data ?? []) as SupplierRow[],
-    };
-  }, [supabase]);
+  useEffect(() => {
+    if (searchInput === querySearch) return;
+    const timeout = window.setTimeout(() => {
+      updateUrl({ q: searchInput || null }, { replace: true });
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [querySearch, searchInput, updateUrl]);
+
+  const apiUrl = useMemo(() => {
+    const query = new URLSearchParams({
+      view: "page",
+      page: String(page),
+      size: String(pageSize),
+      sort,
+      dir: direction,
+    });
+    if (querySearch) query.set("q", querySearch);
+    materialFilters.forEach((value) => query.append("material", value));
+    categoryFilters.forEach((value) => query.append("category", value));
+    unitFilters.forEach((value) => query.append("unit", value));
+    priceStatusFilters.forEach((value) => query.append("price_status", value));
+    statusFilters.forEach((value) => query.append("status", value));
+    return `/api/catalogue?${query.toString()}`;
+  }, [
+    categoryFilters,
+    direction,
+    materialFilters,
+    page,
+    pageSize,
+    priceStatusFilters,
+    querySearch,
+    sort,
+    statusFilters,
+    unitFilters,
+  ]);
 
   const {
-    data = { products: [], supplierPrices: [], suppliers: [] },
+    data,
     error: loadError,
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<ProductPageData>("products-page-with-pricing", fetchPageData, {
+  } = useSWR<ProductPageResponse>(apiUrl, fetchApi, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
+    keepPreviousData: true,
   });
 
-  const products = useMemo<ProductView[]>(() => {
-    const supplierNames = new Map(data.suppliers.map((supplier) => [supplier.id, supplier.name]));
-    const pricesByProduct = new Map<string, SupplierPriceRow[]>();
-    const today = new Date().toISOString().slice(0, 10);
-
-    for (const price of data.supplierPrices) {
-      if (!isCurrentlyValidPrice(price, today)) continue;
-      const rows = pricesByProduct.get(price.product_id) ?? [];
-      rows.push(price);
-      pricesByProduct.set(price.product_id, rows);
-    }
-
-    return data.products.map((product) => {
-      const supplierPrices = pricesByProduct.get(product.id) ?? [];
-      const bestPrice = supplierPrices.reduce<SupplierPriceRow | null>((best, candidate) => {
-        if (!best || candidate.unit_price_cents < best.unit_price_cents) return candidate;
-        return best;
-      }, null);
-      const freshness = bestPrice
-        ? priceFreshnessLevel({
-            updatedAt: bestPrice.updated_at ?? null,
-            createdAt: bestPrice.created_at ?? null,
-          }).level
-        : "none";
-
-      return {
-        ...product,
-        category: product.category ?? null,
-        product_type: product.product_type ?? null,
-        material: product.material ?? null,
-        grade: product.grade ?? null,
-        dimensions: product.dimensions ?? null,
-        standard: product.standard ?? null,
-        unit: product.unit ?? "u",
-        _status: product.is_active ? "active" : "archived",
-        _priceStatus: freshness,
-        _supplierPriceCount: supplierPrices.length,
-        _bestSupplierPriceCents: bestPrice?.unit_price_cents ?? null,
-        _bestSupplierName: bestPrice ? supplierNames.get(bestPrice.supplier_id) ?? null : null,
-        _bestSupplierPriceUpdatedAt: bestPrice?.updated_at ?? bestPrice?.created_at ?? null,
-      };
-    });
-  }, [data.products, data.supplierPrices, data.suppliers]);
+  const products = data?.items ?? [];
+  const totalItems = data?.pagination.totalItems ?? 0;
+  const totalPages = Math.max(data?.pagination.totalPages ?? 0, 1);
+  const globalTotal = (data?.counters.covered ?? 0) + (data?.counters.withoutSupplierPrice ?? 0);
 
   const productFilters = useMemo<FilterConfig[]>(
     () => [
@@ -214,47 +232,58 @@ export default function ProductsPage() {
         key: "material",
         label: "Matière",
         placeholder: "Toutes les matières",
-        options: uniqueOptions(products.map((product) => product.material)),
+        options: toOptions(data?.facets.materials ?? []),
       },
       {
         type: "multi-select",
         key: "category",
         label: "Famille",
         placeholder: "Toutes les familles",
-        options: uniqueOptions(products.map((product) => product.category)),
+        options: toOptions(data?.facets.categories ?? []),
       },
       {
         type: "multi-select",
         key: "unit",
         label: "Unité",
         placeholder: "Toutes les unités",
-        options: uniqueOptions(products.map((product) => product.unit)),
+        options: toOptions(data?.facets.units ?? []),
       },
       {
         type: "multi-select",
-        key: "_priceStatus",
+        key: "price_status",
         label: "État des prix",
         placeholder: "Tous les prix",
         options: PRICE_STATUS_OPTIONS,
       },
       {
         type: "multi-select",
-        key: "_status",
+        key: "status",
         label: "Statut",
         placeholder: "Tous les statuts",
         options: STATUS_OPTIONS,
       },
     ],
-    [products]
+    [data?.facets.categories, data?.facets.materials, data?.facets.units]
   );
 
-  const stats = useMemo(() => {
-    const active = products.filter((product) => product.is_active).length;
-    const withoutSupplierPrice = products.filter((product) => product._priceStatus === "none").length;
-    const stale = products.filter((product) => product._priceStatus === "stale").length;
-    const covered = products.filter((product) => product._supplierPriceCount > 0).length;
-    return { active, withoutSupplierPrice, stale, covered };
-  }, [products]);
+  const stats = data?.counters ?? { active: 0, covered: 0, withoutSupplierPrice: 0, stale: 0 };
+  const pageStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = Math.min(page * pageSize, totalItems);
+  const filterState: FilterState = {
+    material: materialFilters,
+    category: categoryFilters,
+    unit: unitFilters,
+    price_status: priceStatusFilters,
+    status: statusFilters,
+  };
+
+  const handleFilterChange = useCallback(
+    (key: string, value: FilterValue) => {
+      if (Array.isArray(value)) updateUrl({ [key]: value });
+      else if (typeof value === "string") updateUrl({ [key]: value || null });
+    },
+    [updateUrl]
+  );
 
   function openCreateForm() {
     setEditingProduct(null);
@@ -344,15 +373,15 @@ export default function ProductsPage() {
     <div className="animate-fade-in">
       <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Produits" />
 
-      <div className="page-header flex flex-wrap items-start justify-between gap-5">
-        <div className="max-w-3xl">
+      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
+        <div className="min-w-0 max-w-3xl">
           <h1 className="page-title">Produits & prix de référence</h1>
           <p className="page-description">
             Structurez vos articles métier, puis rattachez les tarifs réels de chaque fournisseur.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <button className="btn btn-primary btn-lg" type="button" onClick={openCreateForm}>
+        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+          <button className="btn btn-primary btn-lg w-full sm:w-auto" type="button" onClick={openCreateForm}>
             Ajouter un produit
           </button>
         </div>
@@ -398,7 +427,7 @@ export default function ProductsPage() {
       {successMessage ? <div className="alert alert-success mb-5" role="status">{successMessage}</div> : null}
       {!isFormOpen && formError ? <div className="alert alert-error mb-5" role="alert">{formError}</div> : null}
 
-      {!isLoading ? (
+      {data ? (
         <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicateurs du catalogue">
           <div className="dashboard-card px-5 py-4">
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Produits actifs</p>
@@ -419,35 +448,49 @@ export default function ProductsPage() {
         </section>
       ) : null}
 
-      <TableFilterBar
-        data={products}
-        onDataChange={setDisplayedProducts}
-        search={{
-          placeholder: "Rechercher une référence, une matière, une nuance ou une dimension...",
-          fields: [
-            "designation",
-            "reference",
-            "category",
-            "product_type",
-            "material",
-            "grade",
-            "dimensions",
-            "standard",
-          ],
-        }}
+      <ServerTableFilterBar
+        searchValue={searchInput}
+        searchPlaceholder="Rechercher une référence, une matière, une nuance ou une dimension..."
+        filterState={filterState}
         filters={productFilters}
         sortOptions={PRODUCT_SORT_OPTIONS}
+        sortState={{ key: sort, direction }}
+        filteredCount={totalItems}
+        totalCount={globalTotal}
         resultCountLabel="produits"
-        showResultCount
+        isPending={isValidating || searchInput !== querySearch}
+        onSearchChange={setSearchInput}
+        onFilterChange={handleFilterChange}
+        onSortChange={(key, nextDirection) =>
+          updateUrl({ sort: key, dir: nextDirection ?? "asc" })
+        }
+        onClearAll={() => {
+          setSearchInput("");
+          updateUrl({
+            q: null,
+            material: null,
+            category: null,
+            unit: null,
+            price_status: null,
+            status: null,
+          });
+        }}
       />
 
-      <div className="dashboard-card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--slate-200)] px-6 py-4">
+      <div
+        className={`dashboard-card overflow-hidden transition-opacity ${isValidating && data ? "opacity-70" : ""}`}
+        aria-busy={isValidating}
+      >
+        <div className="flex flex-col gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
             <h2 className="text-sm font-semibold text-[var(--slate-800)]">Base articles</h2>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">Identité produit, prix interne et couverture fournisseurs.</p>
+            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              {totalItems > 0
+                ? `${pageStart}–${pageEnd} sur ${totalItems} produits`
+                : "Identité produit, prix interne et couverture fournisseurs."}
+            </p>
           </div>
-          <button className="btn btn-secondary btn-sm" disabled={isValidating} onClick={() => void mutate()} type="button">
+          <button className="btn btn-secondary btn-sm min-h-11 w-full sm:min-h-0 sm:w-auto" disabled={isValidating} onClick={() => void mutate()} type="button">
             {isValidating ? "Actualisation..." : "Actualiser"}
           </button>
         </div>
@@ -458,24 +501,113 @@ export default function ProductsPage() {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-[var(--slate-200)] xl:hidden">
+          {isLoading && !data ? (
+            <div className="py-12 text-center text-sm text-[var(--slate-500)]">
+              Chargement de la base produits...
+            </div>
+          ) : globalTotal === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-lg font-semibold text-[var(--slate-800)]">Construisez votre première base articles</p>
+              <p className="mt-2 text-sm text-[var(--slate-500)]">
+                Ajoutez un produit manuellement ou importez le modèle officiel.
+              </p>
+              <button className="btn btn-primary mt-5 min-h-11" type="button" onClick={openCreateForm}>
+                Ajouter un produit
+              </button>
+            </div>
+          ) : totalItems === 0 ? (
+            <div className="py-12 text-center text-sm text-[var(--slate-500)]">
+              Aucun produit ne correspond aux filtres.
+            </div>
+          ) : (
+            products.map((product) => (
+              <article key={product.id} className={`p-4 sm:p-5 ${product.is_active ? "" : "opacity-60"}`}>
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="break-words text-base font-semibold text-[var(--slate-900)]">
+                      {product.designation}
+                    </h3>
+                    <p className="mt-1 break-words font-mono text-xs text-[var(--slate-500)] [overflow-wrap:anywhere]">
+                      {product.reference || "Sans référence"}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${freshnessClass(product._priceStatus)}`}>
+                    {freshnessLabel(product._priceStatus)}
+                  </span>
+                </div>
+
+                <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div className="col-span-2 min-w-0">
+                    <dt className="text-xs text-[var(--slate-400)]">Classification</dt>
+                    <dd className="mt-0.5 break-words font-medium text-[var(--slate-800)]">
+                      {[product.material, product.grade].filter(Boolean).join(" ") || "Non renseignée"}
+                    </dd>
+                    <dd className="mt-0.5 break-words text-xs text-[var(--slate-500)]">
+                      {[product.category, product.product_type].filter(Boolean).join(" · ") || "Sans famille"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--slate-400)]">Prix de référence</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-[var(--slate-900)]">
+                      {formatEUR(product.unit_price_cents)} /{product.unit || "u"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--slate-400)]">Meilleur prix</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-emerald-700">
+                      {product._bestSupplierPriceCents !== null
+                        ? formatEUR(product._bestSupplierPriceCents)
+                        : "Aucun tarif"}
+                    </dd>
+                  </div>
+                  <div className="col-span-2 min-w-0">
+                    <dt className="text-xs text-[var(--slate-400)]">Dimensions et norme</dt>
+                    <dd className="mt-0.5 break-words text-[var(--slate-700)]">
+                      {[product.dimensions, product.standard].filter(Boolean).join(" · ") || "Non renseignées"}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="mt-4 grid grid-cols-3 gap-2 border-t border-[var(--slate-100)] pt-4">
+                  <button className="btn btn-secondary btn-sm min-h-11" type="button" onClick={() => openEditForm(product)}>
+                    Modifier
+                  </button>
+                  <Link className="btn btn-secondary btn-sm min-h-11" href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}>
+                    Tarifs
+                  </Link>
+                  <button
+                    className="btn btn-secondary btn-sm min-h-11"
+                    type="button"
+                    disabled={updatingStatusId === product.id}
+                    onClick={() => void toggleArchive(product)}
+                  >
+                    {updatingStatusId === product.id ? "..." : product.is_active ? "Archiver" : "Restaurer"}
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto xl:block">
           <table className="data-table min-w-[1180px]">
             <thead>
               <tr>
-                <th>Produit</th>
-                <th>Classification</th>
-                <th>Dimensions</th>
-                <th className="text-right">Prix de référence</th>
-                <th>Meilleur prix fournisseur</th>
-                <th>État du prix</th>
-                <th className="text-center">TVA</th>
-                <th className="text-right">Actions</th>
+                <th scope="col">Produit</th>
+                <th scope="col">Classification</th>
+                <th scope="col">Dimensions</th>
+                <th scope="col" className="text-right">Prix de référence</th>
+                <th scope="col">Meilleur prix fournisseur</th>
+                <th scope="col">État du prix</th>
+                <th scope="col" className="text-center">TVA</th>
+                <th scope="col" className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {isLoading && !data ? (
                 <tr><td colSpan={8} className="py-12 text-center text-[var(--slate-500)]">Chargement de la base produits...</td></tr>
-              ) : products.length === 0 ? (
+              ) : globalTotal === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-14 text-center">
                     <div className="mx-auto max-w-lg">
@@ -491,10 +623,10 @@ export default function ProductsPage() {
                     </div>
                   </td>
                 </tr>
-              ) : displayedProducts.length === 0 ? (
+              ) : totalItems === 0 ? (
                 <tr><td colSpan={8} className="py-12 text-center text-[var(--slate-500)]">Aucun produit ne correspond aux filtres.</td></tr>
               ) : (
-                displayedProducts.map((product) => (
+                products.map((product) => (
                   <tr key={product.id} className={product.is_active ? undefined : "opacity-60"}>
                     <td>
                       <div className="font-semibold text-[var(--slate-900)]">{product.designation}</div>
@@ -560,6 +692,54 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
+
+        {totalItems > 0 ? (
+          <div className="flex flex-col gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
+              <span>Afficher</span>
+              {PRODUCT_PAGE_SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors ${
+                    pageSize === size
+                      ? "bg-[var(--slate-900)] text-white"
+                      : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                  }`}
+                  onClick={() => updateUrl({ size: String(size) })}
+                >
+                  {size}
+                </button>
+              ))}
+              <span>par page</span>
+            </div>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm min-h-11"
+                disabled={page <= 1}
+                onClick={() =>
+                  updateUrl({ page: String(Math.max(1, page - 1)) }, { resetPage: false })
+                }
+              >
+                Précédent
+              </button>
+              <span className="px-2 text-center text-xs text-[var(--slate-500)]">
+                {page} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm min-h-11"
+                disabled={page >= totalPages}
+                onClick={() =>
+                  updateUrl({ page: String(Math.min(totalPages, page + 1)) }, { resetPage: false })
+                }
+              >
+                Suivant
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <ProductFormModal

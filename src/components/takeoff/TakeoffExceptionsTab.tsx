@@ -185,14 +185,14 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
       </div>
 
       <section className="dashboard-card mb-4 p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end lg:flex lg:flex-wrap">
+          <div className="min-w-0">
             <label htmlFor="exceptions-severity-filter" className="form-label">
               Severite
             </label>
             <select
               id="exceptions-severity-filter"
-              className="form-input form-select form-input--sm min-w-[180px]"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[180px]"
               value={severityFilter}
               onChange={(event) => {
                 const nextValue = event.target.value as typeof severityFilter;
@@ -209,13 +209,13 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             </select>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <label htmlFor="exceptions-status-filter" className="form-label">
               Statut
             </label>
             <select
               id="exceptions-status-filter"
-              className="form-input form-select form-input--sm min-w-[180px]"
+              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[180px]"
               value={statusFilter}
               onChange={(event) => {
                 const nextValue = event.target.value as typeof statusFilter;
@@ -232,14 +232,62 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             </select>
           </div>
 
-          <p className="text-xs text-[var(--slate-500)]">
+          <p className="text-xs text-[var(--slate-500)] sm:col-span-2 lg:col-span-1">
             {radarData.items.length} signal(s)
             {isFilterPending ? " · filtrage..." : ""}
           </p>
         </div>
       </section>
 
-      <section className="dashboard-card overflow-hidden">
+      <div className="space-y-3 sm:hidden">
+        {radarData.items.map((item) => (
+          <article
+            key={item.alert_id}
+            className="rounded-2xl border border-[var(--slate-200)] bg-white p-4 shadow-sm"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                {item.scope_label}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={SEVERITY_VARIANTS[item.severity]} size="sm">
+                  {SEVERITY_LABELS[item.severity]}
+                </Badge>
+                <Badge variant={STATUS_VARIANTS[item.status]} size="sm">
+                  {STATUS_LABELS[item.status]}
+                </Badge>
+              </div>
+            </div>
+            <h3 className="mt-3 text-sm font-semibold text-[var(--slate-900)]">
+              {item.cause_label}
+            </h3>
+            {item.reason_labels[0] ? (
+              <p className="mt-1 text-sm text-[var(--slate-600)]">
+                {item.reason_labels[0]}
+              </p>
+            ) : null}
+            {item.provenance[0] ? (
+              <p className="mt-3 text-xs text-[var(--slate-500)]">
+                {item.provenance[0].label} · {item.provenance[0].source}
+              </p>
+            ) : null}
+            {item.line_id ? (
+              <Link
+                href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.id}/review?versionId=${latestJob.estimate_version_id}&line=${item.line_id}`}
+                className="btn btn-secondary btn-sm mt-4 w-full justify-center"
+              >
+                Revoir ce signal
+              </Link>
+            ) : (
+              <p className="mt-3 text-xs font-medium text-[var(--slate-500)]">
+                Signal au niveau de l&apos;affaire
+              </p>
+            )}
+          </article>
+        ))}
+      </div>
+
+      <section className="dashboard-card hidden overflow-hidden sm:block">
         <div className="overflow-x-auto">
           <table className="data-table w-full">
             <thead>

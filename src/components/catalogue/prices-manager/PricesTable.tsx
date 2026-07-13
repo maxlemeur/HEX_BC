@@ -6,8 +6,8 @@ import { FreshnessBadge, formatDate } from "@/components/catalogue/prices-manage
 
 type PricesTableProps = {
   items: EnrichedPrice[];
+  filteredItemsCount: number;
   totalItemsCount: number;
-  rawItemsCount: number;
   isLoading: boolean;
   loadError: unknown;
   isValidating: boolean;
@@ -15,12 +15,18 @@ type PricesTableProps = {
   onCreate: () => void;
   onEdit: (item: EnrichedPrice) => void;
   onDelete: (item: EnrichedPrice) => void;
+  page: number;
+  pageSize: number;
+  pageSizes: readonly number[];
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
 };
 
 export function PricesTable({
   items,
+  filteredItemsCount,
   totalItemsCount,
-  rawItemsCount,
   isLoading,
   loadError,
   isValidating,
@@ -28,15 +34,34 @@ export function PricesTable({
   onCreate,
   onEdit,
   onDelete,
+  page,
+  pageSize,
+  pageSizes,
+  totalPages,
+  onPageChange,
+  onPageSizeChange,
 }: Readonly<PricesTableProps>) {
+  const pageStart = filteredItemsCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = Math.min(page * pageSize, filteredItemsCount);
+
   return (
-    <div className="dashboard-card overflow-hidden">
-      <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-          Liste des prix fournisseurs
-        </h2>
+    <div
+      className={`dashboard-card overflow-hidden transition-opacity ${isValidating && items.length > 0 ? "opacity-70" : ""}`}
+      aria-busy={isValidating}
+    >
+      <div className="flex flex-col gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            Liste des prix fournisseurs
+          </h2>
+          {filteredItemsCount > 0 ? (
+            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              {pageStart}–{pageEnd} sur {filteredItemsCount} prix
+            </p>
+          ) : null}
+        </div>
         <button
-          className="btn btn-secondary btn-sm"
+          className="btn btn-secondary btn-sm min-h-11 w-full sm:min-h-0 sm:w-auto"
           disabled={isValidating}
           onClick={onRefresh}
           type="button"
@@ -77,17 +102,93 @@ export function PricesTable({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <table className="data-table">
+      {items.length > 0 ? (
+        <div className="divide-y divide-[var(--slate-200)] xl:hidden">
+          {items.map((item) => (
+            <article key={item.id} className="p-4 sm:p-5">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-words text-base font-semibold text-[var(--slate-900)]">
+                    {item._productName}
+                  </p>
+                  <p className="mt-1 break-words text-sm text-[var(--slate-500)]">
+                    {item._supplierName}
+                  </p>
+                </div>
+                <FreshnessBadge level={item._freshnessLevel} ageDays={item._ageDays} />
+              </div>
+
+              <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <div>
+                  <dt className="text-xs text-[var(--slate-400)]">Prix HT</dt>
+                  <dd className="mt-0.5 font-mono font-semibold text-[var(--slate-900)]">
+                    {typeof item.unit_price_cents === "number" ? formatEUR(item.unit_price_cents) : "-"}
+                    {item.currency && item.currency !== "EUR" ? ` ${item.currency}` : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-[var(--slate-400)]">Mis à jour le</dt>
+                  <dd className="mt-0.5 text-[var(--slate-700)]">
+                    {formatDate(item.updated_at ?? item.created_at)}
+                  </dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-xs text-[var(--slate-400)]">Validité</dt>
+                  <dd className="mt-0.5 text-[var(--slate-700)]">
+                    {item.valid_from || item.valid_to
+                      ? `${formatDate(item.valid_from)} → ${item.valid_to ? formatDate(item.valid_to) : "illimitée"}`
+                      : "Non définie"}
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--slate-100)] pt-4">
+                <button type="button" className="btn btn-secondary btn-sm min-h-11" onClick={() => onEdit(item)}>
+                  Modifier
+                </button>
+                <button type="button" className="btn btn-danger btn-sm min-h-11" onClick={() => onDelete(item)}>
+                  Supprimer
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="px-5 py-10 text-center">
+          <p className="font-medium text-[var(--slate-700)]">
+            {isLoading
+              ? "Chargement..."
+              : totalItemsCount === 0
+                ? "Aucun prix fournisseur"
+                : "Aucun résultat"}
+          </p>
+          {!isLoading ? (
+            <p className="mt-1 text-sm text-[var(--slate-500)]">
+              {totalItemsCount === 0
+                ? "Ajoutez un prix manuellement ou importez un fichier CSV pour démarrer."
+                : "Modifiez vos filtres pour voir plus de résultats."}
+            </p>
+          ) : null}
+          {!isLoading && totalItemsCount === 0 ? (
+            <button type="button" className="btn btn-primary btn-sm mt-5 min-h-11" onClick={onCreate}>
+              Ajouter un prix
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {items.length > 0 ? (
+        <div className="hidden overflow-x-auto xl:block">
+          <table className="data-table min-w-[900px]">
           <thead>
             <tr>
-              <th>Fournisseur</th>
-              <th>Produit</th>
-              <th>Prix HT</th>
-              <th>Validité</th>
-              <th>Mis à jour le</th>
-              <th title="Indique si le prix n'a pas été mis à jour depuis longtemps">Fraîcheur</th>
-              <th className="text-right">Actions</th>
+              <th scope="col">Fournisseur</th>
+              <th scope="col">Produit</th>
+              <th scope="col">Prix HT</th>
+              <th scope="col">Validité</th>
+              <th scope="col">Mis à jour le</th>
+              <th scope="col" title="Indique si le prix n'a pas été mis à jour depuis longtemps">Fraîcheur</th>
+              <th scope="col" className="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -240,12 +341,51 @@ export function PricesTable({
               ))
             )}
           </tbody>
-        </table>
-      </div>
+          </table>
+        </div>
+      ) : null}
 
-      {!isLoading && rawItemsCount >= 400 ? (
-        <div className="border-t border-[var(--slate-200)] px-6 py-3 text-xs text-[var(--slate-500)]">
-          Limite de 400 résultats atteinte. Utilisez les filtres pour affiner votre recherche.
+      {filteredItemsCount > 0 ? (
+        <div className="flex flex-col gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
+            <span>Afficher</span>
+            {pageSizes.map((size) => (
+              <button
+                key={size}
+                type="button"
+                className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors ${
+                  pageSize === size
+                    ? "bg-[var(--slate-900)] text-white"
+                    : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                }`}
+                onClick={() => onPageSizeChange(size)}
+              >
+                {size}
+              </button>
+            ))}
+            <span>par page</span>
+          </div>
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm min-h-11"
+              disabled={page <= 1}
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+            >
+              Précédent
+            </button>
+            <span className="px-2 text-center text-xs text-[var(--slate-500)]">
+              {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm min-h-11"
+              disabled={page >= totalPages}
+              onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+            >
+              Suivant
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

@@ -64,11 +64,11 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
         });
         await mutate();
         setModalOpen(false);
-        setAnnouncement(`Jeu de plans "${input.name}" cree.`);
+        setAnnouncement(`Jeu de plans "${input.name}" créé.`);
       } catch (err) {
         const msg = isTakeoffApiError(err)
           ? err.message
-          : "Impossible de creer le jeu de plans.";
+          : "Impossible de créer le jeu de plans.";
         setCreateError(msg);
       } finally {
         setCreating(false);
@@ -119,18 +119,20 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
       )}
 
       {/* Action bar */}
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div />
-        <Button
-          size="sm"
-          onClick={() => {
-            setCreateError(null);
-            setModalOpen(true);
-          }}
-        >
-          Creer un jeu de plans
-        </Button>
-      </div>
+      {!isLoading && !error && sets && sets.length > 0 && (
+        <div className="mb-6 flex justify-stretch sm:justify-end">
+          <Button
+            className="h-11 w-full sm:h-8 sm:w-auto"
+            size="sm"
+            onClick={() => {
+              setCreateError(null);
+              setModalOpen(true);
+            }}
+          >
+            Créer un jeu de plans
+          </Button>
+        </div>
+      )}
 
       {/* Loading skeleton */}
       {isLoading && (
@@ -154,14 +156,14 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
             className="mt-2 text-sm font-semibold underline"
             onClick={() => mutate()}
           >
-            Reessayer
+            Réessayer
           </button>
         </div>
       )}
 
       {/* Empty state */}
       {!isLoading && !error && sets && sets.length === 0 && (
-        <div className="dashboard-card flex flex-col items-center justify-center px-6 py-16 text-center">
+        <div className="dashboard-card flex flex-col items-center justify-center px-4 py-10 text-center sm:px-6 sm:py-16">
           <svg
             className="mb-4 h-12 w-12 text-[var(--slate-300)]"
             fill="none"
@@ -180,18 +182,18 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
             Aucun jeu de plans
           </h3>
           <p className="mt-2 max-w-sm text-sm text-[var(--slate-500)]">
-            Un jeu de plans regroupe vos fichiers PDF pour le metre.
-            Commencez par en creer un.
+            Un jeu de plans regroupe vos fichiers PDF pour le métré.
+            Commencez par en créer un.
           </p>
           <Button
-            className="mt-6"
+            className="mt-6 h-11 w-full sm:h-8 sm:w-auto"
             size="sm"
             onClick={() => {
               setCreateError(null);
               setModalOpen(true);
             }}
           >
-            Creer mon premier jeu de plans
+            Créer mon premier jeu de plans
           </Button>
         </div>
       )}

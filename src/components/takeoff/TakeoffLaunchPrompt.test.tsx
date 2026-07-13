@@ -165,12 +165,12 @@ describe("TakeoffLaunchPrompt", () => {
   it("renders business-friendly explanation", () => {
     render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
 
-    expect(screen.getByText("Lancer une premiere analyse")).toBeInTheDocument();
+    expect(screen.getByText("Lancer une première analyse")).toBeInTheDocument();
     expect(screen.getByText(/Jeu de plans :/)).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
     expect(screen.getByText("V1 (brouillon)")).toBeInTheDocument();
     expect(
-      screen.getByText(/Resultats disponibles dans le centre d'activite metres/i),
+      screen.getByText(/Résultats disponibles dans le centre d'activité des métrés/i),
     ).toBeInTheDocument();
   });
 
@@ -182,7 +182,7 @@ describe("TakeoffLaunchPrompt", () => {
     fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Analyse lancee")).toBeInTheDocument();
+      expect(screen.getByText("Analyse lancée")).toBeInTheDocument();
     });
 
     expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
@@ -199,7 +199,7 @@ describe("TakeoffLaunchPrompt", () => {
 
     render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
 
-    fireEvent.click(screen.getByRole("radio", { name: "Detaille" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Détaillé" }));
     fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
 
     await waitFor(() => {
@@ -227,7 +227,7 @@ describe("TakeoffLaunchPrompt", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Creer un brouillon et analyser" }),
+      screen.getByRole("button", { name: "Créer un brouillon et analyser" }),
     );
 
     await waitFor(() => {
@@ -258,14 +258,14 @@ describe("TakeoffLaunchPrompt", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Creer un brouillon et analyser" }),
+      screen.getByRole("button", { name: "Créer un brouillon et analyser" }),
     );
 
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Reessayer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
 
     await waitFor(() => {
       expect(launchTakeoffFromPlanSetMock).toHaveBeenNthCalledWith(2, {
@@ -308,7 +308,7 @@ describe("TakeoffLaunchPrompt", () => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("button", { name: "Reessayer" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Réessayer" })).toBeInTheDocument();
   });
 
   it('has aria-live="polite" region for async feedback', () => {

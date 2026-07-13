@@ -22,7 +22,7 @@ export function AffaireBreadcrumb({
       {/* Mobile: back arrow to project hub */}
       <Link
         href={projectHref}
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:hidden"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:hidden"
         aria-label="Retour au projet"
       >
         <svg

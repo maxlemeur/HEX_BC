@@ -9,6 +9,9 @@ import {
   bulkUpsertMaterialIndices,
   createMissingPriceImportEntities,
   linkMappedRowsToCatalogue,
+  listCataloguePage,
+  listPriceLookups,
+  listSupplierPricesPage,
 } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -346,5 +349,163 @@ describe("catalogue server regressions", () => {
     });
     expect(rollbackCalls[0]?.marker).toMatch(/^__hex_atomic_price_import__:/);
     expect(cleanupCalls).toHaveLength(0);
+  });
+
+  it("maps the paginated product RPC without changing the requested page", async () => {
+    const rpc = vi.fn((name: string, args?: Record<string, unknown>) => {
+      if (name === "catalogue_products_page") {
+        return Promise.resolve({
+          data: [
+            {
+              id: PRODUCT_ID,
+              designation: "Tube acier",
+              reference: "TUBE-01",
+              unit_price_cents: 1200,
+              tax_rate_bp: 2000,
+              is_active: true,
+              price_status: "fresh",
+              supplier_price_count: "2",
+              best_supplier_price_cents: 1100,
+              best_supplier_name: "Arcus",
+              total_count: "52",
+            },
+          ],
+          error: null,
+        });
+      }
+      if (name === "catalogue_products_summary") {
+        return Promise.resolve({
+          data: [
+            {
+              active_count: "50",
+              covered_count: "42",
+              without_supplier_price_count: "10",
+              stale_count: "3",
+              materials: ["Acier"],
+              categories: ["Tube"],
+              units: ["ml"],
+            },
+          ],
+          error: null,
+        });
+      }
+      throw new Error(`Unexpected RPC: ${name} ${JSON.stringify(args)}`);
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      ...createAuthenticatedSupabaseBase(),
+      rpc,
+    } as never);
+
+    const result = await listCataloguePage({
+      q: "tube",
+      material: ["Acier"],
+      category: [],
+      unit: [],
+      price_status: [],
+      status: ["active"],
+      sort: "designation",
+      dir: "asc",
+      page: 2,
+      size: 25,
+    });
+
+    expect(rpc).toHaveBeenCalledWith(
+      "catalogue_products_page",
+      expect.objectContaining({ p_page: 2, p_size: 25, p_materials: ["Acier"] })
+    );
+    expect(result.pagination).toEqual({ page: 2, size: 25, totalItems: 52, totalPages: 3 });
+    expect(result.items[0]).toMatchObject({
+      id: PRODUCT_ID,
+      _priceStatus: "fresh",
+      _supplierPriceCount: 2,
+      _bestSupplierName: "Arcus",
+    });
+  });
+
+  it("maps paginated prices and keeps the freshness boundary supplied by SQL", async () => {
+    const rpc = vi.fn((name: string) => {
+      if (name === "supplier_prices_page") {
+        return Promise.resolve({
+          data: [
+            {
+              id: "88888888-8888-4888-8888-888888888888",
+              supplier_id: SUPPLIER_ID,
+              product_id: PRODUCT_ID,
+              unit_price_cents: 980,
+              supplier_name: "Arcus",
+              product_name: "Tube acier",
+              freshness: "aging",
+              age_days: 31,
+              total_count: 1,
+            },
+          ],
+          error: null,
+        });
+      }
+      if (name === "supplier_prices_summary") {
+        return Promise.resolve({
+          data: [
+            {
+              total_count: 1,
+              fresh_count: 0,
+              aging_count: 1,
+              stale_count: 0,
+              unique_suppliers_count: 1,
+            },
+          ],
+          error: null,
+        });
+      }
+      throw new Error(`Unexpected RPC: ${name}`);
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      ...createAuthenticatedSupabaseBase(),
+      rpc,
+    } as never);
+
+    const result = await listSupplierPricesPage({
+      q: "",
+      freshness: ["aging"],
+      supplier_id: null,
+      product_id: null,
+      sort: "updated_at",
+      dir: "desc",
+      page: 1,
+      size: 25,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      _supplierName: "Arcus",
+      _productName: "Tube acier",
+      _freshnessLevel: "aging",
+      _ageDays: 31,
+    });
+    expect(result.counters).toMatchObject({ fresh: 0, aging: 1, stale: 0 });
+  });
+
+  it("returns selected remote lookup options with the bounded RPC limit", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: [{ kind: "supplier", id: SUPPLIER_ID, label: "Arcus", reference: null }],
+      error: null,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      ...createAuthenticatedSupabaseBase(),
+      rpc,
+    } as never);
+
+    const result = await listPriceLookups({
+      kind: "supplier",
+      q: "arc",
+      selected_id: SUPPLIER_ID,
+      limit: 50,
+    });
+
+    expect(rpc).toHaveBeenCalledWith("price_lookup_options", {
+      p_kind: "supplier",
+      p_q: "arc",
+      p_selected_id: SUPPLIER_ID,
+      p_limit: 50,
+    });
+    expect(result.suppliers).toEqual([{ id: SUPPLIER_ID, name: "Arcus" }]);
   });
 });

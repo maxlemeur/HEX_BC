@@ -89,7 +89,12 @@ type Props = {
   initialDir: AffaireSortDirection;
 };
 
-type ManagerQueueSummaryState = "idle" | "loading" | "ready" | "error";
+type ManagerQueueSummaryState =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error"
+  | "unavailable";
 
 export function AffairesPageClient({
   initialData,
@@ -171,6 +176,12 @@ export function AffairesPageClient({
       return;
     }
 
+    if (initialData.counters.filteredCount > 200) {
+      setManagerQueueSummary(null);
+      setManagerQueueSummaryState("unavailable");
+      return;
+    }
+
     let cancelled = false;
     setManagerQueueSummary(null);
     setManagerQueueSummaryState("loading");
@@ -211,7 +222,14 @@ export function AffairesPageClient({
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [initialData.managerQueue, initialFavoritesOnly, initialQ, initialStatuses, isExpert]);
+  }, [
+    initialData.counters.filteredCount,
+    initialData.managerQueue,
+    initialFavoritesOnly,
+    initialQ,
+    initialStatuses,
+    isExpert,
+  ]);
 
   useEffect(() => {
     setFavoriteOverrides((current) => {
@@ -462,8 +480,8 @@ export function AffairesPageClient({
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
+      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
           <h1 className="page-title">Affaires</h1>
           <p className="page-description">
             Suivez vos affaires et leurs versions de chiffrage.
@@ -471,7 +489,7 @@ export function AffairesPageClient({
         </div>
         <button
           type="button"
-          className="btn btn-primary btn-lg shrink-0"
+          className="btn btn-primary btn-lg w-full shrink-0 sm:w-auto"
           onClick={handleCreateAffaire}
         >
           + Nouvelle affaire
@@ -479,7 +497,7 @@ export function AffairesPageClient({
       </div>
 
       {/* Filter toolbar */}
-      <div className="flex flex-wrap items-center gap-3 mt-6 mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <FilterSearch
           value={searchValue}
           onChange={setSearchValue}
@@ -494,7 +512,7 @@ export function AffairesPageClient({
         <button
           type="button"
           onClick={handleToggleFavoritesOnly}
-          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
             favoritesOnly
               ? "border-amber-300 bg-amber-50 text-amber-800"
               : "border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)] hover:bg-[var(--slate-50)]"
@@ -516,7 +534,7 @@ export function AffairesPageClient({
           </svg>
           Favoris
         </button>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:items-center">
           <SortControl
             options={SORT_OPTIONS}
             value={sortState}
@@ -526,12 +544,12 @@ export function AffairesPageClient({
           {DISABLED_SORTS.map((s) => (
             <span
               key={s.key}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-[var(--slate-400)] bg-[var(--slate-50)] cursor-not-allowed"
-              title="Tri a venir"
+              className="hidden items-center gap-1 rounded-lg bg-[var(--slate-50)] px-2.5 py-1.5 text-xs text-[var(--slate-500)] sm:inline-flex"
+              title="Tri à venir"
             >
               {s.label}
               <Badge variant="neutral" size="sm">
-                a venir
+                à venir
               </Badge>
             </span>
           ))}
@@ -551,17 +569,30 @@ export function AffairesPageClient({
       {/* Content */}
       <div className="mt-4">
         {isExpert ? (
-          <AffairesDenseTable
-            items={data.list.items}
-            emptyVariant={emptyVariant}
-            onCreateAffaire={handleCreateAffaire}
-            onToggleFavorite={handleToggleFavorite}
-            favoritePendingIds={favoritePendingIds}
-            managerFilter={managerFilter}
-            onManagerFilterChange={handleManagerFilterChange}
-            managerQueueSummary={managerQueueSummary}
-            managerQueueSummaryState={managerQueueSummaryState}
-          />
+          <>
+            <div className="xl:hidden">
+              <AffairesCardList
+                items={data.list.items}
+                emptyVariant={emptyVariant}
+                onCreateAffaire={handleCreateAffaire}
+                onToggleFavorite={handleToggleFavorite}
+                favoritePendingIds={favoritePendingIds}
+              />
+            </div>
+            <div className="hidden xl:block">
+              <AffairesDenseTable
+                items={data.list.items}
+                emptyVariant={emptyVariant}
+                onCreateAffaire={handleCreateAffaire}
+                onToggleFavorite={handleToggleFavorite}
+                favoritePendingIds={favoritePendingIds}
+                managerFilter={managerFilter}
+                onManagerFilterChange={handleManagerFilterChange}
+                managerQueueSummary={managerQueueSummary}
+                managerQueueSummaryState={managerQueueSummaryState}
+              />
+            </div>
+          </>
         ) : (
           <AffairesCardList
             items={data.list.items}
@@ -574,8 +605,8 @@ export function AffairesPageClient({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between mt-6">
-        <div className="flex items-center gap-2 text-sm text-[var(--slate-500)]">
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
           <span>Afficher</span>
           {PAGE_SIZE_OPTIONS.map((size) => (
             <button
@@ -594,7 +625,7 @@ export function AffairesPageClient({
           <span>par page</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
           <button
             type="button"
             onClick={handlePrevPage}

@@ -18,7 +18,7 @@ function makeJob(
     providerBatchUpdatedAt: null,
     providerReconcileDueAt: null,
     providerReconcileLeaseExpiresAt: null,
-    statusLabel: "Analyse terminee",
+    statusLabel: "Analyse terminée",
     statusRaw: "completed",
     technicalStatusRaw: "completed",
     operatorState: "none",
@@ -29,7 +29,7 @@ function makeJob(
     itemCount: 12,
     coveragePercent: 86,
     exceptionCount: 0,
-    confidenceLabel: "Elevee",
+    confidenceLabel: "Élevée",
     appliedCount: 1,
     createdAt: "2026-03-11T10:00:00.000Z",
     carriedOverFrom: null,
@@ -55,7 +55,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
         makeJob({
           jobId: "job-failed",
           versionLabel: "V3",
-          statusLabel: "Echec a corriger",
+          statusLabel: "Échec à corriger",
           statusRaw: "action_required",
           technicalStatusRaw: "failed",
           createdAt: "2026-03-11T12:00:00.000Z",
@@ -81,7 +81,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
       expect.objectContaining({
         jobId: "job-failed",
         versionLabel: "V3",
-        statusLabel: "Echec a corriger",
+        statusLabel: "Échec à corriger",
       }),
       expect.objectContaining({
         jobId: "job-ok",
@@ -139,7 +139,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
         makeJob({
           jobId: "job-completed",
           versionLabel: "V5",
-          statusLabel: "Analyse terminee",
+          statusLabel: "Analyse terminée",
           statusRaw: "completed",
           technicalStatusRaw: "completed",
           createdAt: "2026-03-11T14:00:00.000Z",
@@ -155,7 +155,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
         makeJob({
           jobId: "job-failed",
           versionLabel: "V3",
-          statusLabel: "Echec a corriger",
+          statusLabel: "Échec à corriger",
           statusRaw: "action_required",
           technicalStatusRaw: "failed",
           createdAt: "2026-03-11T12:00:00.000Z",

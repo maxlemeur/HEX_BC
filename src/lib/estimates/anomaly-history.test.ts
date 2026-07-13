@@ -456,5 +456,99 @@ describe("getCurrentAnomalySummary", () => {
         itemCount: 1,
       }),
     ]);
+    expect(result.ownerOptions).toEqual([
+      { id: "owner-1", name: "Owner One" },
+    ]);
+  });
+
+  it("sorts blocking anomalies deterministically and returns named owner options", async () => {
+    vi.mocked(computeEstimateQualityFlagsByItemId)
+      .mockReturnValueOnce({ "item-warning": ["missing_labor_time"] })
+      .mockReturnValueOnce({ "item-blocking-b": ["missing_price"] })
+      .mockReturnValueOnce({
+        "item-blocking-a-1": ["missing_price"],
+        "item-blocking-a-2": ["missing_price"],
+      });
+
+    function item(input: {
+      id: string;
+      versionId: string;
+      projectName: string;
+      ownerId: string;
+      ownerName: string;
+    }) {
+      return {
+        id: input.id,
+        item_type: "line",
+        selected_supplier_price_id: null,
+        estimate_versions: {
+          id: input.versionId,
+          title: null,
+          version_number: 1,
+          tenant_id: TENANT_ID,
+          estimate_projects: {
+            id: `project-${input.versionId}`,
+            name: input.projectName,
+            is_archived: false,
+            user_id: input.ownerId,
+            profiles: { id: input.ownerId, full_name: input.ownerName },
+          },
+        },
+      };
+    }
+
+    const supabase = buildMockSummarySupabase({
+      estimateItemsRows: [
+        item({
+          id: "item-warning",
+          versionId: "version-warning",
+          projectName: "Projet Z",
+          ownerId: "owner-z",
+          ownerName: "Zoé",
+        }),
+        item({
+          id: "item-blocking-b",
+          versionId: "version-blocking-b",
+          projectName: "Projet B",
+          ownerId: "owner-b",
+          ownerName: "Bruno",
+        }),
+        item({
+          id: "item-blocking-a-1",
+          versionId: "version-blocking-a",
+          projectName: "Projet A",
+          ownerId: "owner-a",
+          ownerName: "Alice",
+        }),
+        item({
+          id: "item-blocking-a-2",
+          versionId: "version-blocking-a",
+          projectName: "Projet A",
+          ownerId: "owner-a",
+          ownerName: "Alice",
+        }),
+      ],
+    });
+
+    const result = await getCurrentAnomalySummary(
+      supabase as never,
+      TENANT_ID,
+      {}
+    );
+
+    expect(result.currentAnomalies.map((row) => [
+      row.projectName,
+      row.severity,
+      row.itemCount,
+    ])).toEqual([
+      ["Projet A", "blocking", 2],
+      ["Projet B", "blocking", 1],
+      ["Projet Z", "warning", 1],
+    ]);
+    expect(result.ownerOptions).toEqual([
+      { id: "owner-a", name: "Alice" },
+      { id: "owner-b", name: "Bruno" },
+      { id: "owner-z", name: "Zoé" },
+    ]);
   });
 });

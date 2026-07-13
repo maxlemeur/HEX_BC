@@ -30,6 +30,13 @@ import {
 type Props = {
   projectId: string;
   data: TakeoffActivityCenterResponse;
+  emptyState?: {
+    title: string;
+    description: string;
+    actionLabel?: string;
+    actionHref?: string;
+    onAction?: () => void;
+  };
   onPageChange: (offset: number) => void;
   onPageSizeChange: (size: number) => void;
   pageSize: number;
@@ -40,6 +47,7 @@ type ActionKind = "reconcile" | "resubmit" | "cancel";
 export default function TakeoffJobsTable({
   projectId,
   data,
+  emptyState,
   onPageChange,
   onPageSizeChange,
   pageSize,
@@ -65,8 +73,7 @@ export default function TakeoffJobsTable({
         }
         // Revalidate activity center data after successful mutation
         await mutate(
-          (key: unknown) =>
-            Array.isArray(key) && key[0] === "activity-center",
+          (key: unknown) => Array.isArray(key) && key[0] === "activity-center",
           undefined,
           { revalidate: true }
         );
@@ -75,10 +82,10 @@ export default function TakeoffJobsTable({
           isTakeoffApiError(err)
             ? err.message
             : action === "reconcile"
-              ? "Impossible de relancer le reconcile de cette extraction."
+              ? "Impossible de relancer la réconciliation de cette analyse."
               : action === "resubmit"
-                ? "Impossible de resoumettre cette extraction."
-              : "Impossible d'annuler cette extraction."
+                ? "Impossible de soumettre à nouveau cette analyse."
+              : "Impossible d'annuler cette analyse."
         );
       } finally {
         setPendingActions((current) => {
@@ -92,6 +99,7 @@ export default function TakeoffJobsTable({
   );
 
   const { jobs } = data;
+  const hasAnalyses = jobs.length > 0 || data.pagination.total > 0;
 
   const renderJobActions = (
     job: TakeoffActivityCenterResponse["jobs"][number],
@@ -106,14 +114,14 @@ export default function TakeoffJobsTable({
         href={`/dashboard/estimates/${job.estimateVersionId}/takeoff/${job.jobId}`}
         className="btn btn-secondary btn-sm"
       >
-        Detail
+        Détail
       </Link>
       {reviewEnabled ? (
         <Link
           href={`/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${job.estimateVersionId}`}
           className="btn btn-secondary btn-sm"
         >
-          Review
+          Revue
         </Link>
       ) : null}
       {canReconcile ? (
@@ -126,8 +134,8 @@ export default function TakeoffJobsTable({
           disabled={Boolean(pendingAction)}
         >
           {pendingAction === "reconcile"
-            ? "Reconcile..."
-            : "Relancer reconcile"}
+            ? "Réconciliation..."
+            : "Relancer la réconciliation"}
         </button>
       ) : null}
       {canResubmit ? (
@@ -140,43 +148,47 @@ export default function TakeoffJobsTable({
           disabled={Boolean(pendingAction)}
         >
           {pendingAction === "resubmit"
-            ? "Resoumission..."
-            : "Resoumettre"}
+            ? "Nouvelle soumission..."
+            : "Soumettre à nouveau"}
         </button>
       ) : null}
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        onClick={() => {
-          void handleAction(job.jobId, "cancel");
-        }}
-        disabled={!canCancel || Boolean(pendingAction)}
-      >
-        {pendingAction === "cancel" ? "Annulation..." : "Annuler"}
-      </button>
+      {canCancel ? (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            void handleAction(job.jobId, "cancel");
+          }}
+          disabled={Boolean(pendingAction)}
+        >
+          {pendingAction === "cancel" ? "Annulation..." : "Annuler"}
+        </button>
+      ) : null}
     </div>
   );
 
   return (
     <div>
       {/* Counter cards */}
-      <div
-        className="grid grid-cols-1 gap-3 sm:grid-cols-3 mb-4"
-        aria-live="polite"
-      >
-        <CounterCard
-          label="Jobs techniques"
-          value={data.counters.technicalJobs}
-        />
-        <CounterCard
-          label="Jobs exploitables"
-          value={data.counters.usableJobs}
-        />
-        <CounterCard
-          label="Exceptions bloquantes"
-          value={data.counters.blockingExceptionsJobs}
-        />
-      </div>
+      {hasAnalyses ? (
+        <div
+          className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
+          aria-live="polite"
+        >
+          <CounterCard
+            label="Analyses en cours"
+            value={data.counters.technicalJobs}
+          />
+          <CounterCard
+            label="Analyses exploitables"
+            value={data.counters.usableJobs}
+          />
+          <CounterCard
+            label="Exceptions bloquantes"
+            value={data.counters.blockingExceptionsJobs}
+          />
+        </div>
+      ) : null}
 
       {actionError ? (
         <div
@@ -207,8 +219,14 @@ export default function TakeoffJobsTable({
               <line x1="16" y1="17" x2="8" y2="17" />
             </svg>
           }
-          title="Aucune analyse trouvee"
-          description="Aucune analyse trouvee pour ces filtres."
+          title={emptyState?.title ?? "Aucune analyse trouvée"}
+          description={
+            emptyState?.description ?? "Aucune analyse n’est disponible."
+          }
+          actionLabel={emptyState?.actionLabel}
+          actionHref={emptyState?.actionHref}
+          onAction={emptyState?.onAction}
+          className="px-4 py-10 sm:px-6 sm:py-12"
         />
       ) : (
         <section className="dashboard-card overflow-hidden">
@@ -270,7 +288,9 @@ export default function TakeoffJobsTable({
                     </Badge>
                     {job.operatorState && job.operatorState !== "none" ? (
                       <Badge
-                        variant={getOperatorStateBadgeVariant(job.operatorState)}
+                        variant={getOperatorStateBadgeVariant(
+                          job.operatorState
+                        )}
                         size="sm"
                       >
                         {job.operatorStateLabel ?? job.operatorState}
@@ -278,7 +298,7 @@ export default function TakeoffJobsTable({
                     ) : null}
                     {job.neverApplied ? (
                       <Badge variant="warning" size="sm">
-                        Jamais applique
+                        Jamais appliqué
                       </Badge>
                     ) : null}
                   </div>
@@ -302,7 +322,7 @@ export default function TakeoffJobsTable({
                     </div>
                     <div>
                       <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-                        Items
+                        Éléments
                       </dt>
                       <dd className="mt-1 text-[var(--slate-800)]">
                         {formatCount(job.itemCount)}
@@ -310,12 +330,14 @@ export default function TakeoffJobsTable({
                     </div>
                     <div>
                       <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-                        Couverture
+                        Couverture DPGF
                       </dt>
                       <dd
                         className={`mt-1 ${isCoverageLow(job.coveragePercent) ? "text-[var(--error)]" : "text-[var(--slate-800)]"}`}
                       >
-                        {job.coveragePercent}%
+                        {job.coveragePercent === null
+                          ? "Aucun DPGF"
+                          : `${job.coveragePercent}%`}
                       </dd>
                     </div>
                     <div>
@@ -351,14 +373,11 @@ export default function TakeoffJobsTable({
                 <tr>
                   <th>Version</th>
                   <th>Source</th>
-                  <th>Niveau</th>
-                  <th>Strategie</th>
-                  <th>Etat provider</th>
+                  <th>Analyse</th>
                   <th>Statut</th>
                   <th>Date</th>
-                  <th>Items</th>
-                  <th>Couverture</th>
-                  <th>Confiance</th>
+                  <th>Éléments</th>
+                  <th>Couverture DPGF</th>
                   <th>Exceptions</th>
                   <th>Actions</th>
                 </tr>
@@ -386,51 +405,58 @@ export default function TakeoffJobsTable({
                         )}
                       </td>
                       <td>{job.planSetLabel ?? "-"}</td>
-                      <td>{job.levelLabel}</td>
                       <td>
-                        <Badge variant="neutral" size="sm">
-                          {getProcessingStrategyLabel(job.processingStrategy)}
-                        </Badge>
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span className="text-sm font-medium text-[var(--slate-800)]">
+                            {job.levelLabel}
+                          </span>
+                          <Badge variant="neutral" size="sm">
+                            {getProcessingStrategyLabel(job.processingStrategy)}
+                          </Badge>
+                        </div>
                       </td>
                       <td>
-                        <Badge
-                          variant={getProviderBatchStateBadgeVariant(
-                            job.providerBatchState
-                          )}
-                          size="sm"
-                        >
-                          {getProviderBatchStateLabel({
-                            strategy: job.processingStrategy,
-                            state: job.providerBatchState,
-                          })}
-                        </Badge>
-                        {job.operatorState && job.operatorState !== "none" ? (
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span
+                            className={`status-badge ${getStatusCss(job.statusRaw)}`}
+                          >
+                            {job.statusLabel}
+                          </span>
                           <Badge
-                            variant={getOperatorStateBadgeVariant(
-                              job.operatorState
+                            variant={getProviderBatchStateBadgeVariant(
+                              job.providerBatchState
                             )}
                             size="sm"
-                            className="ml-1"
                           >
-                            {job.operatorStateLabel ?? job.operatorState}
+                            {getProviderBatchStateLabel({
+                              strategy: job.processingStrategy,
+                              state: job.providerBatchState,
+                            })}
                           </Badge>
-                        ) : null}
-                      </td>
-                      <td>
-                        <span
-                          className={`status-badge ${getStatusCss(job.statusRaw)}`}
-                        >
-                          {job.statusLabel}
-                        </span>
-                        {job.neverApplied && (
                           <Badge
-                            variant="warning"
+                            variant={getConfidenceBadgeVariant(
+                              job.confidenceLabel
+                            )}
                             size="sm"
-                            className="ml-1"
                           >
-                            Jamais applique
+                            {job.confidenceLabel}
                           </Badge>
-                        )}
+                          {job.operatorState && job.operatorState !== "none" ? (
+                            <Badge
+                              variant={getOperatorStateBadgeVariant(
+                                job.operatorState
+                              )}
+                              size="sm"
+                            >
+                              {job.operatorStateLabel ?? job.operatorState}
+                            </Badge>
+                          ) : null}
+                          {job.neverApplied ? (
+                            <Badge variant="warning" size="sm">
+                              Jamais appliqué
+                            </Badge>
+                          ) : null}
+                        </div>
                       </td>
                       <td>{formatTimestamp(job.createdAt)}</td>
                       <td>{formatCount(job.itemCount)}</td>
@@ -441,16 +467,9 @@ export default function TakeoffJobsTable({
                             : ""
                         }
                       >
-                        {job.coveragePercent}%
-                      </td>
-                      <td>
-                        <Badge
-                          variant={getConfidenceBadgeVariant(
-                            job.confidenceLabel
-                          )}
-                        >
-                          {job.confidenceLabel}
-                        </Badge>
+                        {job.coveragePercent === null
+                          ? "Aucun DPGF"
+                          : `${job.coveragePercent}%`}
                       </td>
                       <td
                         className={
@@ -506,21 +525,17 @@ export default function TakeoffJobsTable({
                 className="btn btn-secondary btn-sm"
                 disabled={data.pagination.offset === 0}
                 onClick={() =>
-                  onPageChange(
-                    Math.max(0, data.pagination.offset - pageSize)
-                  )
+                  onPageChange(Math.max(0, data.pagination.offset - pageSize))
                 }
               >
-                Precedent
+                Précédent
               </button>
               <button
                 className="btn btn-secondary btn-sm"
                 disabled={
                   data.pagination.offset + pageSize >= data.pagination.total
                 }
-                onClick={() =>
-                  onPageChange(data.pagination.offset + pageSize)
-                }
+                onClick={() => onPageChange(data.pagination.offset + pageSize)}
               >
                 Suivant
               </button>

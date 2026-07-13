@@ -90,7 +90,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
   return (
     <div className="space-y-6">
       <header className="space-y-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
           <div>
             <h1 className="typo-h1">Cockpit direction</h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--slate-500)]">
@@ -104,7 +104,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             aria-live="polite"
             aria-atomic="true"
           >
-            <article className="dashboard-card min-w-[170px] p-4">
+            <article className="dashboard-card p-4">
               <p className="typo-label text-[var(--slate-400)]">
                 Portefeuille
               </p>
@@ -117,7 +117,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
               </p>
             </article>
 
-            <article className="dashboard-card min-w-[170px] p-4">
+            <article className="dashboard-card p-4">
               <p className="typo-label text-[var(--slate-400)]">
                 A surveiller
               </p>
@@ -130,7 +130,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
               </p>
             </article>
 
-            <article className="dashboard-card min-w-[170px] p-4">
+            <article className="dashboard-card p-4">
               <p className="typo-label text-[var(--slate-400)]">
                 Validation
               </p>
@@ -154,7 +154,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                 Responsable
               </span>
               <select
-                className="form-input form-select form-input--sm min-w-[220px]"
+                className="form-input form-select form-input--sm w-full min-w-0"
                 value={currentQuery.ownerUserId ?? ""}
                 onChange={(event) =>
                   startTransition(() => {
@@ -179,7 +179,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                 Lot
               </span>
               <select
-                className="form-input form-select form-input--sm min-w-[220px]"
+                className="form-input form-select form-input--sm w-full min-w-0"
                 value={currentQuery.lot ?? ""}
                 onChange={(event) =>
                   startTransition(() => {

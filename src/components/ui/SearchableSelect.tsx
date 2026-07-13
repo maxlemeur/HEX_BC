@@ -25,8 +25,17 @@ export type SearchableSelectProps = {
   className?: string;
   required?: boolean;
   disabled?: boolean;
+  isLoading?: boolean;
   onValueChange?: (value: string) => void;
+  onQueryChange?: (query: string) => void;
 };
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
 
 export function SearchableSelect({
   id,
@@ -42,7 +51,9 @@ export function SearchableSelect({
   className,
   required,
   disabled,
+  isLoading = false,
   onValueChange,
+  onQueryChange,
 }: Readonly<SearchableSelectProps>) {
   const generatedId = useId();
   const inputId = id ?? `searchable-select-${generatedId}`;
@@ -83,11 +94,11 @@ export function SearchableSelect({
   }, [open]);
 
   const filteredOptions = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
+    const normalized = normalizeSearch(query.trim());
     if (!normalized) return options;
 
     return options.filter((option) => {
-      const haystack = [option.label, ...(option.keywords ?? [])].join(" ").toLowerCase();
+      const haystack = normalizeSearch([option.label, ...(option.keywords ?? [])].join(" "));
       return haystack.includes(normalized);
     });
   }, [options, query]);
@@ -147,11 +158,14 @@ export function SearchableSelect({
           placeholder={placeholder}
           onFocus={() => {
             if (disabled) return;
-            setQuery(selectedOption?.label ?? "");
+            const nextQuery = selectedOption?.label ?? "";
+            setQuery(nextQuery);
+            onQueryChange?.(nextQuery);
             setOpen(true);
           }}
           onChange={(event) => {
             setQuery(event.target.value);
+            onQueryChange?.(event.target.value);
             setOpen(true);
             setActiveIndex(-1);
           }}
@@ -216,7 +230,9 @@ export function SearchableSelect({
             className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-surface p-1 shadow-lg"
           >
             {filteredOptions.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-slate-500">{emptyMessage}</p>
+              <p className="px-3 py-2 text-xs text-slate-500">
+                {isLoading ? "Recherche..." : emptyMessage}
+              </p>
             ) : (
               filteredOptions.map((option) => {
                 const isSelected = selectedValue === option.value;

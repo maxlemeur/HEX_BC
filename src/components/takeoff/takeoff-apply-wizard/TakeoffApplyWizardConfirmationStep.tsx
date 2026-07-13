@@ -25,7 +25,7 @@ export function TakeoffApplyWizardConfirmationStep({
   includedCount,
   totalExcludedCount,
   overrideCount,
-  versionId,
+  targetVersionLabel,
   selectedSectionLabel,
   strategy,
   sourceFileName,
@@ -47,7 +47,7 @@ export function TakeoffApplyWizardConfirmationStep({
   includedCount: number;
   totalExcludedCount: number;
   overrideCount: number;
-  versionId: string;
+  targetVersionLabel?: string | null;
   selectedSectionLabel: string;
   strategy: TakeoffApplyStrategy;
   sourceFileName?: string | null;
@@ -124,7 +124,10 @@ export function TakeoffApplyWizardConfirmationStep({
 
           <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
             <p className="font-semibold text-[var(--slate-800)]">Recapitulatif</p>
-            <p className="mt-2 text-[var(--slate-700)]">Version cible: {versionId}</p>
+            <p className="mt-2 text-[var(--slate-700)]">
+              Version cible: {targetVersionLabel ?? "brouillon actuellement ouvert"}
+              {targetVersionLabel ? " (brouillon)" : ""}
+            </p>
             <p className="mt-1 text-[var(--slate-700)]">Section cible: {selectedSectionLabel}</p>
             <p className="mt-1 text-[var(--slate-700)]">
               Strategie: {strategyLabel(strategy)} - {strategyDescription(strategy)}

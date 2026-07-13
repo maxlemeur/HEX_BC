@@ -1,4 +1,5 @@
 export { TableFilterBar } from "./TableFilterBar";
+export { ServerTableFilterBar } from "./ServerTableFilterBar";
 export { useTableFilter } from "./useTableFilter";
 export type {
   DateRangeFilterConfig,

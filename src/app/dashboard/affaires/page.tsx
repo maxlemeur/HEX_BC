@@ -1,7 +1,10 @@
 import { Suspense } from "react";
 
 import { fetchAffairePageData } from "@/lib/affaires/server";
-import { parseAffaireListQuery } from "@/lib/affaires/schemas";
+import {
+  parseAffaireListQuery,
+  type NormalizedAffaireListQuery,
+} from "@/lib/affaires/schemas";
 import { AffairesPageClient } from "@/components/affaires/AffairesPageClient";
 import AffairesLoading from "./loading";
 
@@ -9,11 +12,33 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+async function AffairesPageResults({
+  query,
+  pageClientKey,
+}: Readonly<{
+  query: NormalizedAffaireListQuery;
+  pageClientKey: string;
+}>) {
+  const data = await fetchAffairePageData(query);
+
+  return (
+    <AffairesPageClient
+      key={pageClientKey}
+      initialData={data}
+      initialQ={query.q ?? ""}
+      initialStatuses={query.status ?? []}
+      initialFavoritesOnly={query.favoritesOnly}
+      initialManager={query.manager}
+      initialCursor={query.cursor}
+      initialSize={query.size}
+      initialDir={query.dir}
+    />
+  );
+}
+
 export default async function AffairesPage({ searchParams }: Props) {
   const params = await searchParams;
   const query = parseAffaireListQuery(params);
-
-  const data = await fetchAffairePageData(query);
   const pageClientKey = [
     query.q ?? "",
     (query.status ?? []).join(","),
@@ -25,18 +50,8 @@ export default async function AffairesPage({ searchParams }: Props) {
   ].join("::");
 
   return (
-    <Suspense fallback={<AffairesLoading />}>
-      <AffairesPageClient
-        key={pageClientKey}
-        initialData={data}
-        initialQ={query.q ?? ""}
-        initialStatuses={query.status ?? []}
-        initialFavoritesOnly={query.favoritesOnly}
-        initialManager={query.manager}
-        initialCursor={query.cursor}
-        initialSize={query.size}
-        initialDir={query.dir}
-      />
+    <Suspense key={pageClientKey} fallback={<AffairesLoading />}>
+      <AffairesPageResults query={query} pageClientKey={pageClientKey} />
     </Suspense>
   );
 }

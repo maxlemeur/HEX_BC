@@ -1,5 +1,12 @@
 import { type ComponentProps } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -292,6 +299,47 @@ describe("EstimateEditorRow behavior", () => {
 
     expect(container.querySelectorAll("select.estimate-select")).toHaveLength(2);
     expect(container.querySelectorAll('input[placeholder="0.0"]')).toHaveLength(2);
+  });
+
+  it("keeps metadata below the title and its compact AID action", () => {
+    const { container } = renderRow(
+      createItem({
+        id: "line-responsive-designation",
+      })
+    );
+
+    const titleInput = screen.getByTestId("estimate-line-title-input");
+    const primaryRow = container.querySelector(
+      ".estimate-line-designation__primary"
+    );
+    const supportRow = container.querySelector(
+      ".estimate-line-designation__support"
+    );
+    const truthBadges = Array.from(
+      container.querySelectorAll(".estimate-line-truth__badge")
+    );
+    const truthGroup = screen.getByTestId("estimate-line-truth");
+    const addAidButton = screen.getByTestId("estimate-line-add-aid-button");
+
+    expect(primaryRow).toContainElement(titleInput);
+    expect(supportRow).not.toContainElement(titleInput);
+    expect(primaryRow).toContainElement(addAidButton);
+    expect(supportRow).not.toContainElement(addAidButton);
+    expect(truthBadges).toHaveLength(3);
+    truthBadges.forEach((badge) => {
+      expect(badge).toHaveClass("estimate-line-truth__badge");
+    });
+    expect(
+      within(truthGroup).getByText("Saisie manuelle", { selector: ".sr-only" })
+    ).toBeInTheDocument();
+    expect(
+      within(truthGroup).getByText("Qte supposee", { selector: ".sr-only" })
+    ).toBeInTheDocument();
+    expect(
+      within(truthGroup).getByText("Confiance moyenne", {
+        selector: ".sr-only",
+      })
+    ).toBeInTheDocument();
   });
 
   it("loads catalogue suggestions and applies the highlighted suggestion on Enter", async () => {

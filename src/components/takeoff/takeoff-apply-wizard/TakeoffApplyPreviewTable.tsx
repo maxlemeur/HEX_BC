@@ -31,8 +31,17 @@ export function TakeoffApplyPreviewTable({
   onOverrideParamChange: (itemId: string, nextOverride: TakeoffMappingOverride) => void;
 }) {
   return (
-    <div className="max-h-[380px] overflow-auto rounded-xl border border-[var(--slate-200)]">
-      <table className="min-w-full text-sm">
+    <div className="space-y-2">
+      <p className="text-xs text-[var(--slate-500)] sm:hidden">
+        Faites glisser le tableau horizontalement pour verifier chaque parametre.
+      </p>
+      <div
+        aria-label="Preview detaillee des lignes a appliquer"
+        className="max-h-[380px] overflow-auto rounded-xl border border-[var(--slate-200)]"
+        role="region"
+        tabIndex={0}
+      >
+      <table className="min-w-[760px] text-sm">
         <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
           <tr>
             <th className="px-3 py-2">Item</th>
@@ -179,6 +188,7 @@ export function TakeoffApplyPreviewTable({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

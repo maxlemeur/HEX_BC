@@ -157,7 +157,7 @@ describe("AffairesDenseTable", () => {
 
     expect(fetchExpandDataMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Deplier" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Déplier" })[0]!);
 
     expect(pushMock).not.toHaveBeenCalled();
     expect(fetchExpandDataMock).toHaveBeenCalledTimes(1);
@@ -181,7 +181,7 @@ describe("AffairesDenseTable", () => {
     const { onManagerFilterChange } = renderTable();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /A revoir sous reserves \(2\)/i })
+      screen.getByRole("button", { name: /À revoir sous réserves \(2\)/i })
     );
 
     expect(onManagerFilterChange).toHaveBeenCalledWith("reservations");
@@ -200,12 +200,28 @@ describe("AffairesDenseTable", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: /A relancer en priorite \(1\)/i })
+      screen.getByRole("button", { name: /À relancer en priorité \(1\)/i })
     ).toBeDisabled();
     expect(
       screen.getByText(
-        "Qualification manager incomplete sur 1 affaire du portefeuille."
+        "Qualification manager incomplète sur 1 affaire du portefeuille."
       )
     ).toBeInTheDocument();
+  });
+
+  it("explains immediately when the portfolio is too large to classify", () => {
+    renderTable({
+      managerQueueSummary: null,
+      managerQueueSummaryState: "unavailable",
+    });
+
+    expect(
+      screen.getByText(
+        "Qualification indisponible pour ce volume, affinez les filtres."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /À relancer en priorité/i })
+    ).toBeDisabled();
   });
 });

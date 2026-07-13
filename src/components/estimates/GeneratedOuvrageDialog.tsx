@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useToast } from "@/components/ui/Toast";
 
@@ -546,7 +547,7 @@ export function GeneratedOuvrageDialog({
     );
   }, [onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const selectedCount = candidates.filter(
     (c) => c.selected && c.resolutionStatus === "pending"
@@ -572,8 +573,8 @@ export function GeneratedOuvrageDialog({
   const canInsertSelected =
     selectedCount > 0 && selectedInsertReadyCount === selectedCount;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[5vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[5vh]">
       <div
         ref={dialogRef}
         role="dialog"
@@ -673,6 +674,7 @@ export function GeneratedOuvrageDialog({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

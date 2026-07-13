@@ -296,6 +296,22 @@ describe("GeneratedOuvrageDialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders in a body portal so dashboard stacking contexts cannot cover it", () => {
+    const stackingContext = document.createElement("div");
+    document.body.appendChild(stackingContext);
+
+    const { unmount } = render(<GeneratedOuvrageDialog {...defaultProps} />, {
+      container: stackingContext,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Generer des ouvrages" });
+
+    expect(document.body).toContainElement(dialog);
+    expect(stackingContext).not.toContainElement(dialog);
+
+    unmount();
+    stackingContext.remove();
+  });
+
   it("generates from free text and displays candidates", async () => {
     const draftResult = makeDraftResult();
     mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);

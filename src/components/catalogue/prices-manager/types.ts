@@ -7,6 +7,23 @@ export type EnrichedPrice = SupplierPrice & {
   _ageDays: number;
 };
 
+export type SupplierPricesPage = {
+  items: EnrichedPrice[];
+  pagination: {
+    page: number;
+    size: 25 | 50 | 100;
+    totalItems: number;
+    totalPages: number;
+  };
+  counters: {
+    total: number;
+    fresh: number;
+    aging: number;
+    stale: number;
+    uniqueSuppliers: number;
+  };
+};
+
 export type SupplierPriceFormState = {
   supplier_id: string;
   product_id: string;

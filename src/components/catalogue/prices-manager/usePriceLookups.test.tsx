@@ -1,32 +1,22 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  createSupabaseBrowserClientMock,
-  supabaseFromMock,
-  supplierRangeMock,
-  productRangeMock,
-} = vi.hoisted(() => {
-  const supplierRange = vi.fn();
-  const productRange = vi.fn();
-  const from = vi.fn((table: string) => ({
+const fetchApiMock = vi.hoisted(() => vi.fn());
+const supplierRangeMock = vi.hoisted(() => vi.fn());
+const productRangeMock = vi.hoisted(() => vi.fn());
+const supabaseFromMock = vi.hoisted(() =>
+  vi.fn((table: string) => ({
     select: vi.fn(() => ({
       order: vi.fn(() => ({
-        range: table === "suppliers" ? supplierRange : productRange,
+        range: table === "suppliers" ? supplierRangeMock : productRangeMock,
       })),
     })),
-  }));
+  }))
+);
 
-  return {
-    createSupabaseBrowserClientMock: vi.fn(() => ({ from })),
-    supabaseFromMock: from,
-    supplierRangeMock: supplierRange,
-    productRangeMock: productRange,
-  };
-});
-
+vi.mock("@/components/catalogue/api", () => ({ fetchApi: fetchApiMock }));
 vi.mock("@/lib/supabase/client", () => ({
-  createSupabaseBrowserClient: createSupabaseBrowserClientMock,
+  createSupabaseBrowserClient: () => ({ from: supabaseFromMock }),
 }));
 
 import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceLookups";
@@ -34,6 +24,14 @@ import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceL
 describe("usePriceLookups", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchApiMock.mockImplementation(async (url: string) =>
+      url.includes("kind=supplier")
+        ? { suppliers: [{ id: "supplier-1", name: "Supplier One" }], products: [] }
+        : {
+            suppliers: [],
+            products: [{ id: "product-1", designation: "Cable", reference: "REF-CABLE" }],
+          }
+    );
     supplierRangeMock.mockResolvedValue({
       data: [{ id: "supplier-1", name: "Supplier One" }],
       error: null,
@@ -44,54 +42,28 @@ describe("usePriceLookups", () => {
     });
   });
 
-  it("loads suppliers and products and exposes maps and options", async () => {
-    const { result } = renderHook(() => usePriceLookups());
+  it("uses the 50-result remote endpoint while the form is open", async () => {
+    const { result } = renderHook(() =>
+      usePriceLookups({ formOpen: true, importOpen: false })
+    );
 
-    await waitFor(() => {
-      expect(result.current.lookups.suppliers).toHaveLength(1);
-      expect(result.current.lookups.products).toHaveLength(1);
-    });
+    await waitFor(() => expect(result.current.supplierOptions).toHaveLength(1));
+    await waitFor(() => expect(result.current.productOptions).toHaveLength(1));
+    expect(fetchApiMock).toHaveBeenCalledWith(expect.stringContaining("limit=50"));
+    expect(supabaseFromMock).not.toHaveBeenCalled();
 
-    expect(supabaseFromMock).toHaveBeenCalledWith("suppliers");
-    expect(supabaseFromMock).toHaveBeenCalledWith("products");
-    expect(supplierRangeMock).toHaveBeenCalledWith(0, 999);
-    expect(productRangeMock).toHaveBeenCalledWith(0, 999);
-    expect(result.current.supplierMap.get("supplier-1")).toBe("Supplier One");
-    expect(result.current.productMap.get("product-1")).toBe("Cable");
-    expect(result.current.supplierOptions).toEqual([
-      { value: "supplier-1", label: "Supplier One" },
-    ]);
-    expect(result.current.productOptions).toEqual([
-      { value: "product-1", label: "Cable", keywords: ["REF-CABLE"] },
-    ]);
+    act(() => result.current.searchProducts("câble"));
+    await waitFor(() =>
+      expect(fetchApiMock).toHaveBeenCalledWith(expect.stringContaining("q=c%C3%A2ble"))
+    );
   });
 
-  it("requests second pages when the first page reaches the page size", async () => {
-    supplierRangeMock
-      .mockResolvedValueOnce({
-        data: Array.from({ length: 1000 }, (_, index) => ({
-          id: `supplier-${index}`,
-          name: `Supplier ${index}`,
-        })),
-        error: null,
-      })
-      .mockResolvedValueOnce({ data: [], error: null });
-    productRangeMock
-      .mockResolvedValueOnce({
-        data: Array.from({ length: 1000 }, (_, index) => ({
-          id: `product-${index}`,
-          designation: `Product ${index}`,
-          reference: `REF-${index}`,
-        })),
-        error: null,
-      })
-      .mockResolvedValueOnce({ data: [], error: null });
-
-    renderHook(() => usePriceLookups());
-
-    await waitFor(() => {
-      expect(supplierRangeMock).toHaveBeenCalledWith(1000, 1999);
-      expect(productRangeMock).toHaveBeenCalledWith(1000, 1999);
-    });
+  it("loads the complete references only when the import is opened", async () => {
+    const { result } = renderHook(() =>
+      usePriceLookups({ formOpen: false, importOpen: true })
+    );
+    await waitFor(() => expect(result.current.lookups.products).toHaveLength(1));
+    expect(supabaseFromMock).toHaveBeenCalledWith("suppliers");
+    expect(supabaseFromMock).toHaveBeenCalledWith("products");
   });
 });

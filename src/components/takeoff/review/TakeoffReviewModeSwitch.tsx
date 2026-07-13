@@ -94,7 +94,7 @@ export function TakeoffReviewModeSwitch({
       role="radiogroup"
       aria-label="Mode de revue"
       onKeyDown={handleKeyDown}
-      className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--slate-50)] p-0.5"
+      className="flex w-full rounded-lg border border-[var(--border)] bg-[var(--slate-50)] p-0.5 sm:inline-flex sm:w-auto"
     >
       {MODE_OPTIONS.map((option) => {
         const isSelected = option.value === mode;
@@ -110,7 +110,7 @@ export function TakeoffReviewModeSwitch({
             aria-label={`${option.label} : ${option.description}`}
             tabIndex={isSelected ? 0 : -1}
             onClick={() => onModeChange(option.value)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 ${
+            className={`min-h-11 min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 sm:min-h-0 sm:flex-none sm:px-3 ${
               isSelected
                 ? "bg-white text-[var(--slate-900)] shadow-sm ring-1 ring-[var(--primary)]/30"
                 : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"

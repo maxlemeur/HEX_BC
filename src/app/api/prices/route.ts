@@ -5,11 +5,16 @@ import {
   createSupplierPrice,
   deleteSupplierPrice,
   listSupplierPrices,
+  listSupplierPricesPage,
   ok,
   toErrorResponse,
   updateSupplierPrice,
 } from "@/lib/catalogue/server";
-import { pricesActionSchema, pricesListQuerySchema } from "@/lib/catalogue/schemas";
+import {
+  pricesActionSchema,
+  pricesListQuerySchema,
+  pricesPageQuerySchema,
+} from "@/lib/catalogue/schemas";
 
 function parsePositiveInt(value: string | null): number | null {
   if (!value) return null;
@@ -34,6 +39,21 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const productIdParam =
       searchParams.get("product_id") ?? searchParams.get("catalogue_item_id");
+
+    if (searchParams.get("view") === "page") {
+      const pageQuery = pricesPageQuerySchema.parse({
+        q: searchParams.get("q") ?? "",
+        freshness: searchParams.getAll("freshness"),
+        supplier_id: searchParams.get("supplier_id"),
+        product_id: productIdParam,
+        sort: searchParams.get("sort") ?? "updated_at",
+        dir: searchParams.get("dir") ?? "desc",
+        page: parsePositiveInt(searchParams.get("page")) ?? 1,
+        size: parsePositiveInt(searchParams.get("size")) ?? 25,
+      });
+
+      return ok(await listSupplierPricesPage(pageQuery));
+    }
 
     const query = pricesListQuerySchema.parse({
       supplier_id: searchParams.get("supplier_id"),

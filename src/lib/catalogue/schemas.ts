@@ -85,6 +85,31 @@ export const catalogueListQuerySchema = z.object({
   include_inactive: z.boolean().optional().default(false),
 });
 
+const pageSizeSchema = z.union([z.literal(25), z.literal(50), z.literal(100)]);
+const sortDirectionSchema = z.enum(["asc", "desc"]);
+const repeatedFilterSchema = z.array(z.string().trim().min(1).max(255)).max(100).default([]);
+
+export const cataloguePageQuerySchema = z.object({
+  q: z.string().trim().max(200).optional().default(""),
+  material: repeatedFilterSchema,
+  category: repeatedFilterSchema,
+  unit: repeatedFilterSchema,
+  price_status: z.array(z.enum(["fresh", "aging", "stale", "none"])).max(4).default([]),
+  status: z.array(z.enum(["active", "archived"])).max(2).default([]),
+  sort: z
+    .enum([
+      "designation",
+      "material",
+      "unit_price_cents",
+      "best_supplier_price_cents",
+      "updated_at",
+    ])
+    .default("designation"),
+  dir: sortDirectionSchema.default("asc"),
+  page: positiveIntegerSchema.max(100000).default(1),
+  size: pageSizeSchema.default(25),
+});
+
 const catalogueWriteFieldsSchema = z.object({
   reference: optionalTextSchema,
   hex_code: optionalTextSchema,
@@ -168,6 +193,24 @@ export const pricesListQuerySchema = z.object({
   product_id: z.union([z.string().uuid(UUID_ERROR_MESSAGE), z.null()]).optional(),
   catalogue_item_id: z.union([z.string().uuid(UUID_ERROR_MESSAGE), z.null()]).optional(),
   limit: positiveIntegerSchema.max(1000).optional().default(200),
+});
+
+export const pricesPageQuerySchema = z.object({
+  q: z.string().trim().max(200).optional().default(""),
+  freshness: z.array(z.enum(["fresh", "aging", "stale"])).max(3).default([]),
+  supplier_id: z.string().uuid(UUID_ERROR_MESSAGE).nullable().default(null),
+  product_id: z.string().uuid(UUID_ERROR_MESSAGE).nullable().default(null),
+  sort: z.enum(["supplier", "product", "unit_price_cents", "updated_at"]).default("updated_at"),
+  dir: sortDirectionSchema.default("desc"),
+  page: positiveIntegerSchema.max(100000).default(1),
+  size: pageSizeSchema.default(25),
+});
+
+export const priceLookupsQuerySchema = z.object({
+  kind: z.enum(["supplier", "product", "all"]).default("all"),
+  q: z.string().trim().max(200).optional().default(""),
+  selected_id: z.string().uuid(UUID_ERROR_MESSAGE).nullable().default(null),
+  limit: positiveIntegerSchema.max(50).default(50),
 });
 
 const supplierPriceWriteFieldsSchema = z.object({
@@ -452,7 +495,10 @@ export type IndicesActionInput = z.infer<typeof indicesActionSchema>;
 
 export type LinkMappedRowsInput = z.infer<typeof linkMappedRowsSchema>;
 export type CatalogueListQueryInput = z.infer<typeof catalogueListQuerySchema>;
+export type CataloguePageQueryInput = z.infer<typeof cataloguePageQuerySchema>;
 export type PricesListQueryInput = z.infer<typeof pricesListQuerySchema>;
+export type PricesPageQueryInput = z.infer<typeof pricesPageQuerySchema>;
+export type PriceLookupsQueryInput = z.infer<typeof priceLookupsQuerySchema>;
 export type IndicesListQueryInput = z.infer<typeof indicesListQuerySchema>;
 
 export type CreateCatalogueItemInput = z.infer<typeof createCatalogueItemSchema>["item"];

@@ -17,6 +17,7 @@ import type { TakeoffJobItem } from "@/lib/takeoff/types";
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const ITEM_ID = "33333333-3333-4333-8333-333333333333";
+const SECTION_ID = "55555555-5555-4555-8555-555555555555";
 
 const PREVIEW_RESPONSE = {
   job_id: JOB_ID,
@@ -126,7 +127,7 @@ describe("TakeoffApplyWizard", () => {
     vi.clearAllMocks();
     vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([
       {
-        id: "55555555-5555-4555-8555-555555555555",
+        id: SECTION_ID,
         parent_id: null,
         item_type: "section",
         position: 1,
@@ -144,6 +145,7 @@ describe("TakeoffApplyWizard", () => {
         open
         jobId={JOB_ID}
         versionId={VERSION_ID}
+        targetVersionLabel="V1"
         includedCount={1}
         excludedCount={0}
         isSubmitting={false}
@@ -155,6 +157,7 @@ describe("TakeoffApplyWizard", () => {
 
     await waitFor(() => {
       expect(fetchEstimateItemsForVersion).toHaveBeenCalledWith(VERSION_ID);
+      expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
@@ -165,7 +168,7 @@ describe("TakeoffApplyWizard", () => {
         JOB_ID,
         expect.objectContaining({
           strategy: "append",
-          target_section_id: null,
+          target_section_id: SECTION_ID,
         })
       );
     });
@@ -202,7 +205,7 @@ describe("TakeoffApplyWizard", () => {
       expect(onConfirm).toHaveBeenCalledWith(
         expect.objectContaining({
           strategy: "append",
-          targetSectionId: null,
+          targetSectionId: SECTION_ID,
           overrides: [
             {
               item_id: ITEM_ID,
@@ -215,6 +218,77 @@ describe("TakeoffApplyWizard", () => {
         })
       );
     });
+  });
+
+  it("blocks apply until a parent section exists", async () => {
+    vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([]);
+
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        includedCount={1}
+        excludedCount={0}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Creez d'abord un lot ou un chapitre/i)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Section cible")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Suivant" })).toBeDisabled();
+  });
+
+  it("keeps the active step visible on mobile and hides the technical version id", async () => {
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        targetVersionLabel="V1"
+        includedCount={1}
+        excludedCount={0}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchEstimateItemsForVersion).toHaveBeenCalledWith(VERSION_ID);
+    });
+
+    expect(screen.queryByText(VERSION_ID)).not.toBeInTheDocument();
+
+    const body = screen.getByTestId("takeoff-apply-wizard-body");
+    body.scrollTop = 240;
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(body.scrollTop).toBe(0);
+    });
+
+    body.scrollTop = 240;
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(previewTakeoffConversion).toHaveBeenCalled();
+      expect(body.scrollTop).toBe(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirmation finale")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Version cible: V1 (brouillon)")).toBeInTheDocument();
+    expect(screen.queryByText(VERSION_ID)).not.toBeInTheDocument();
   });
 
   it("shows explicit strategy impact and provenance before confirmation", async () => {
@@ -298,6 +372,46 @@ describe("TakeoffApplyWizard", () => {
     expect(overrideCard).not.toBeNull();
     expect(within(overrideCard as HTMLElement).getByText("1")).toBeInTheDocument();
     expect(within(overrideCard as HTMLElement).queryByText("2")).not.toBeInTheDocument();
+  });
+
+  it("requires a fresh preview after an override changes", async () => {
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        includedCount={1}
+        excludedCount={0}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled();
+    });
+
+    fireEvent.change(screen.getByDisplayValue("Regle auto"), {
+      target: { value: "set_price" },
+    });
+
+    expect(screen.getByText(/Les ajustements ont change/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Suivant" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Recalculer la preview" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Les ajustements ont change/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled();
+    });
   });
 
   it("includes mapping-based exclusions in the final recap", async () => {

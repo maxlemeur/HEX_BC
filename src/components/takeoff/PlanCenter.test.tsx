@@ -135,7 +135,7 @@ describe("PlanCenter", () => {
     vi.mocked(fetchPlanSets).mockResolvedValue([
       makeSet({ id: SET_A_ID, name: "Mon jeu" }),
     ]);
-    await user.click(screen.getByRole("button", { name: "Creer" }));
+    await user.click(screen.getByRole("button", { name: "Créer" }));
 
     await waitFor(() => {
       expect(createPlanSet).toHaveBeenCalledWith({

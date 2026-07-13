@@ -73,7 +73,7 @@ const CONFIDENCE_VARIANT: Record<
 };
 
 const CONFIDENCE_LABELS: Record<TakeoffPriceSuggestionConfidenceLabel, string> = {
-  high: "Elevee",
+  high: "Élevée",
   medium: "Moyenne",
   low: "Faible",
 };
