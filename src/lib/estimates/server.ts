@@ -8802,7 +8802,7 @@ export async function claimEstimateBatchRevision(
     }
     throw mapSupabaseError(
       error,
-      "Impossible de reserver la revision du traitement par lot."
+      "Impossible de réserver la révision du traitement par lot."
     );
   }
 

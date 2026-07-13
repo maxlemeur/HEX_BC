@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   isSaveShortcutKey,
+  resolveAutoSaveRetryDelay,
   resolveAutoSaveStatusLabel,
+  shouldAutomaticallyRetry,
   shouldBlockBeforeUnload,
 } from "@/hooks/useAutoSave";
 
@@ -56,5 +58,17 @@ describe("useAutoSave helpers", () => {
     expect(shouldBlockBeforeUnload(true, false)).toBe(true);
     expect(shouldBlockBeforeUnload(false, true)).toBe(true);
     expect(shouldBlockBeforeUnload(false, false)).toBe(false);
+  });
+
+  it("retries transient errors with a capped exponential delay", () => {
+    expect(shouldAutomaticallyRetry("error")).toBe(true);
+    expect(shouldAutomaticallyRetry("blocked")).toBe(false);
+    expect(shouldAutomaticallyRetry("saved")).toBe(false);
+    expect(shouldAutomaticallyRetry("noop")).toBe(false);
+
+    expect(resolveAutoSaveRetryDelay(2_000, 0)).toBe(2_000);
+    expect(resolveAutoSaveRetryDelay(2_000, 1)).toBe(4_000);
+    expect(resolveAutoSaveRetryDelay(2_000, 2)).toBe(8_000);
+    expect(resolveAutoSaveRetryDelay(2_000, 10)).toBe(30_000);
   });
 });

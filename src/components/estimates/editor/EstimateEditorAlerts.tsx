@@ -158,7 +158,7 @@ export function EstimateEditorAlerts({
               <path d="M12 8v4" />
               <path d="M12 16h.01" />
             </svg>
-            <span>Des modifications locales ont ete conservees en memoire de session.</span>
+            <span>Des modifications locales ont été conservées en mémoire de session.</span>
           </div>
           <button
             className="btn btn-secondary btn-sm"
@@ -179,7 +179,7 @@ export function EstimateEditorAlerts({
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            Les totaux n&apos;ont pas pu etre sauvegardes. Vos modifications locales sont conservees.
+            Les totaux n&apos;ont pas pu être sauvegardés. Vos modifications locales sont conservées.
           </div>
           <button
             className="btn btn-secondary btn-sm"
@@ -187,7 +187,7 @@ export function EstimateEditorAlerts({
             onClick={onRetryTotalsSave}
             data-testid="estimate-editor-alert-retry-save-button"
           >
-            Reessayer
+            Réessayer
           </button>
         </div>
       ) : null}

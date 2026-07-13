@@ -341,15 +341,18 @@ describe("EstimateEditorToolbar", () => {
     ).toHaveStyle({ left: "880px", width: "320px" });
   });
 
-  it("labels adjacent estimate helpers explicitly", () => {
+  it("labels optional estimate assistants discreetly", () => {
     renderToolbar({ showAdjacentActions: true });
 
-    expect(screen.getByText("Aides adjacentes")).toBeInTheDocument();
+    const assistantLabel = screen.getByText("Assistants optionnels");
+    expect(assistantLabel).toBeInTheDocument();
+    expect(assistantLabel).toHaveClass("text-slate-400");
+    expect(assistantLabel).not.toHaveClass("border");
     expect(
       screen.getByRole("button", { name: "Structure IA" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Generer des ouvrages" })
+      screen.getByRole("button", { name: "Générer des ouvrages" })
     ).toBeInTheDocument();
   });
 

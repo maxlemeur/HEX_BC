@@ -579,13 +579,13 @@ export function GeneratedOuvrageDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Generer des ouvrages"
+        aria-label="Générer des ouvrages"
         tabIndex={-1}
         className="relative w-full max-w-5xl rounded-xl bg-white shadow-2xl outline-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold">Generer des ouvrages</h2>
+          <h2 className="text-lg font-semibold">Générer des ouvrages</h2>
           <button
             type="button"
             className="btn btn-ghost btn-sm btn-square"
@@ -635,7 +635,7 @@ export function GeneratedOuvrageDialog({
                 className="btn btn-secondary btn-sm"
                 onClick={handleNewGeneration}
               >
-                Reessayer
+                Réessayer
               </button>
             </div>
           )}

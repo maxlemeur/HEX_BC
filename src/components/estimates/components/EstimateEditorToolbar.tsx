@@ -520,7 +520,7 @@ export function EstimateEditorToolbar({
                 {onOpenEstimateStructureDraftDialog ||
                 onOpenGeneratedOuvrageDialog ? (
                   <div className="my-1 border-t border-border pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    Aides adjacentes
+                    Assistants optionnels
                   </div>
                 ) : null}
                 {onOpenEstimateStructureDraftDialog ? (
@@ -573,7 +573,7 @@ export function EstimateEditorToolbar({
         ) : (
           <>
             {onExpandAllSections ? (
-              <button className="btn btn-ghost btn-sm" type="button" onClick={onExpandAllSections} data-testid="estimate-editor-expand-all-sections-button">Tout deplier</button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={onExpandAllSections} data-testid="estimate-editor-expand-all-sections-button">Tout déplier</button>
             ) : null}
             {onCollapseAllSections ? (
               <button className="btn btn-ghost btn-sm" type="button" onClick={onCollapseAllSections} data-testid="estimate-editor-collapse-all-sections-button">Tout replier</button>
@@ -582,13 +582,30 @@ export function EstimateEditorToolbar({
               <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenImportFromEstimateDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-import-from-estimate-button">Importer depuis...</button>
             ) : null}
             {onOpenEstimateStructureDraftDialog || onOpenGeneratedOuvrageDialog ? (
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Aides adjacentes</span>
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400"
+                title="Assistants optionnels : ils proposent du contenu à valider sans remplacer le flux principal."
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 11v5" />
+                  <path d="M12 8h.01" />
+                </svg>
+                Assistants optionnels
+              </span>
             ) : null}
             {onOpenEstimateStructureDraftDialog ? (
               <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenEstimateStructureDraftDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-open-structure-draft-button">Structure IA</button>
             ) : null}
             {onOpenGeneratedOuvrageDialog ? (
-              <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenGeneratedOuvrageDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-open-generated-ouvrage-button">Generer des ouvrages</button>
+              <button className="btn btn-secondary btn-sm" type="button" onClick={onOpenGeneratedOuvrageDialog} disabled={meta.isReadOnly} data-testid="estimate-editor-open-generated-ouvrage-button">Générer des ouvrages</button>
             ) : null}
             <div className="min-w-0 flex-1" />
             {onOpenSettings ? (

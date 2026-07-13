@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export const DEFAULT_AUTOSAVE_DEBOUNCE_MS = 2000;
 export const DEFAULT_AUTOSAVE_RETRY_DELAY_MS = 2000;
+export const DEFAULT_AUTOSAVE_MAX_RETRIES = 3;
+export const MAX_AUTOSAVE_RETRY_DELAY_MS = 30_000;
 
 export type AutoSaveStatus = "idle" | "saving" | "saved" | "error";
 export type AutoSaveReason = "debounce" | "manual" | "retry";
@@ -20,6 +22,7 @@ export type UseAutoSaveOptions = {
   hasPendingChanges: boolean;
   debounceMs?: number;
   retryDelayMs?: number;
+  maxAutomaticRetries?: number;
   enableShortcut?: boolean;
   enableBeforeUnloadGuard?: boolean;
   onSave: (reason: AutoSaveReason) => Promise<AutoSaveResult>;
@@ -45,6 +48,20 @@ export function shouldBlockBeforeUnload(
   return hasPendingChanges || isSaving;
 }
 
+export function shouldAutomaticallyRetry(result: AutoSaveResult) {
+  return result === "error";
+}
+
+export function resolveAutoSaveRetryDelay(
+  retryDelayMs: number,
+  retryAttempt: number
+) {
+  return Math.min(
+    retryDelayMs * 2 ** Math.max(0, retryAttempt),
+    MAX_AUTOSAVE_RETRY_DELAY_MS
+  );
+}
+
 export function resolveAutoSaveStatusLabel(status: AutoSaveStatus) {
   switch (status) {
     case "saving":
@@ -64,6 +81,7 @@ export function useAutoSave({
   hasPendingChanges,
   debounceMs = DEFAULT_AUTOSAVE_DEBOUNCE_MS,
   retryDelayMs = DEFAULT_AUTOSAVE_RETRY_DELAY_MS,
+  maxAutomaticRetries = DEFAULT_AUTOSAVE_MAX_RETRIES,
   enableShortcut = true,
   enableBeforeUnloadGuard = true,
   onSave,
@@ -74,6 +92,7 @@ export function useAutoSave({
   const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queuedSaveAfterCurrentRef = useRef(false);
+  const automaticRetryCountRef = useRef(0);
   const executeSaveRef = useRef<((reason: AutoSaveReason) => Promise<void>) | null>(
     null
   );
@@ -83,6 +102,7 @@ export function useAutoSave({
   const hasPendingRef = useRef(hasPendingChanges);
   const debounceMsRef = useRef(debounceMs);
   const retryDelayMsRef = useRef(retryDelayMs);
+  const maxAutomaticRetriesRef = useRef(maxAutomaticRetries);
   const onSaveRef = useRef(onSave);
 
   useEffect(() => {
@@ -104,6 +124,10 @@ export function useAutoSave({
   useEffect(() => {
     retryDelayMsRef.current = retryDelayMs;
   }, [retryDelayMs]);
+
+  useEffect(() => {
+    maxAutomaticRetriesRef.current = maxAutomaticRetries;
+  }, [maxAutomaticRetries]);
 
   useEffect(() => {
     onSaveRef.current = onSave;
@@ -143,11 +167,18 @@ export function useAutoSave({
     if (!enabledRef.current) return;
     if (!force && !hasPendingRef.current) return;
     if (retryTimeoutRef.current !== null) return;
+    if (automaticRetryCountRef.current >= maxAutomaticRetriesRef.current) return;
+
+    const delay = resolveAutoSaveRetryDelay(
+      retryDelayMsRef.current,
+      automaticRetryCountRef.current
+    );
+    automaticRetryCountRef.current += 1;
 
     retryTimeoutRef.current = setTimeout(() => {
       retryTimeoutRef.current = null;
       void executeSaveRef.current?.("retry");
-    }, retryDelayMsRef.current);
+    }, delay);
   }, []);
 
   const executeSave = useCallback(
@@ -167,6 +198,7 @@ export function useAutoSave({
       clearDebounceTimer();
       if (reason === "manual") {
         clearRetryTimer();
+        automaticRetryCountRef.current = 0;
       }
 
       isSavingRef.current = true;
@@ -178,9 +210,10 @@ export function useAutoSave({
       try {
         const result = await onSaveRef.current(reason);
         if (result === "error" || result === "blocked") {
-          shouldRetry = true;
+          shouldRetry = shouldAutomaticallyRetry(result);
           setStatus("error");
         } else {
+          automaticRetryCountRef.current = 0;
           setStatus("saved");
         }
       } catch {
@@ -233,6 +266,7 @@ export function useAutoSave({
 
     if (!hasPendingChanges) {
       clearTimers();
+      automaticRetryCountRef.current = 0;
       if (!isSavingRef.current) {
         setStatus("saved");
       }

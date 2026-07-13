@@ -303,7 +303,7 @@ describe("GeneratedOuvrageDialog", () => {
     const { unmount } = render(<GeneratedOuvrageDialog {...defaultProps} />, {
       container: stackingContext,
     });
-    const dialog = screen.getByRole("dialog", { name: "Generer des ouvrages" });
+    const dialog = screen.getByRole("dialog", { name: "Générer des ouvrages" });
 
     expect(document.body).toContainElement(dialog);
     expect(stackingContext).not.toContainElement(dialog);
