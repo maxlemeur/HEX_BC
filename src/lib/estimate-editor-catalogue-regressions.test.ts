@@ -3,15 +3,18 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-function readEstimateEditorTableSource() {
+function readCatalogueSuggestionsSource() {
   return fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/estimates/components/EstimateEditorRow.tsx"),
+    path.resolve(
+      process.cwd(),
+      "src/components/estimates/components/estimate-editor-row/useCatalogueSuggestions.ts"
+    ),
     "utf8"
   );
 }
 
-describe("EstimateEditorTable catalogue regressions", () => {
-  const source = readEstimateEditorTableSource();
+describe("EstimateEditorRow catalogue regressions", () => {
+  const source = readCatalogueSuggestionsSource();
 
   it("aborts in-flight catalogue requests in debounce cleanup", () => {
     expect(source).toMatch(

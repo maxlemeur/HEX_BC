@@ -10,6 +10,7 @@ import {
   unauthorized,
 } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -22,7 +23,6 @@ import {
   affaireRegisterEventTypeSchema,
   extractAffaireRegisterClientClarificationRequest,
   extractAffaireRegisterBusinessImpact,
-  extractAffaireRegisterBusinessLocation,
   extractAffaireRegisterFollowUp,
   affaireRegisterEntryKindSchema,
   affaireRegisterEntryOriginKindSchema,
@@ -591,14 +591,6 @@ function clearAffaireRegisterWorkflowMetadata(metadata: Record<string, unknown>)
   return nextMetadata;
 }
 
-function hasAcceptedContinuationDecision(
-  metadata: Record<string, unknown>
-): metadata is Record<string, unknown> & {
-  continuationDecision: AffaireRegisterContinuationDecision;
-} {
-  return extractAffaireRegisterContinuationDecision(metadata) !== null;
-}
-
 function readContinuationSourceEntryId(metadata: Record<string, unknown>) {
   const source = metadata.continuationSource;
   if (
@@ -899,9 +891,9 @@ async function resolveAffaireRegisterOwnerOption(input: {
   return options.find((option) => option.userId === input.ownerUserId) ?? null;
 }
 
-function applyVersionScopeFilter(query: {
+function applyVersionScopeFilter<T extends {
   or: (filters: string) => unknown;
-}, versionId: string | null | undefined) {
+}>(query: T, versionId: string | null | undefined): T {
   if (!versionId) {
     return query;
   }
@@ -910,9 +902,9 @@ function applyVersionScopeFilter(query: {
   return query;
 }
 
-function applyCursorFilter(query: {
+function applyCursorFilter<T extends {
   or: (filters: string) => unknown;
-}, cursor: { updatedAt: string; id: string } | null | undefined) {
+}>(query: T, cursor: { updatedAt: string; id: string } | null | undefined): T {
   if (!cursor) {
     return query;
   }
@@ -953,6 +945,42 @@ async function insertAffaireRegisterEvent(input: {
   if (error) {
     throw mapSupabaseError(error, "Impossible d'historiser l'action du registre.");
   }
+}
+
+async function updateAffaireRegisterEntryWithEvent(input: {
+  supabase: Supabase;
+  entryId: string;
+  actorUserId: string | null;
+  patch: Record<string, Json>;
+  eventType: Exclude<AffaireRegisterEventType, "created">;
+  reason?: string | null;
+  beforePayload?: Json | null;
+  afterPayload?: Json | null;
+  fallbackMessage: string;
+}) {
+  const { data, error } = await createServiceRoleClient().rpc(
+    "update_affaire_register_entry_with_event" as never,
+    {
+      p_entry_id: input.entryId,
+      p_patch: input.patch,
+      p_event_type: input.eventType,
+      p_reason: input.reason ?? null,
+      p_before_payload: input.beforePayload ?? null,
+      p_after_payload: input.afterPayload ?? null,
+      p_actor_user_id: input.actorUserId,
+    } as never
+  );
+
+  if (error) {
+    throw mapSupabaseError(error, input.fallbackMessage);
+  }
+
+  const updatedEntry = normalizeAffaireRegisterEntryRow(data);
+  if (!updatedEntry) {
+    throw badRequest("Reponse invalide lors de la mise a jour du registre.");
+  }
+
+  return updatedEntry;
 }
 
 function toSyncKey(prefix: "assumption" | "missing_piece", value: string) {
@@ -1050,23 +1078,14 @@ async function deactivateMissingSyncEntries(input: {
       input.originKind === "system" && row.status !== "validated"
         ? "validated"
         : row.status;
-    const { error: updateError } = await input.supabase
-      .from("affaire_register_entries" as never)
-      .update({
-        status: nextStatus,
-        is_active: false,
-        updated_by: input.actorUserId ?? null,
-      } as never)
-      .eq("id", row.id);
-
-    if (updateError) {
-      throw mapSupabaseError(updateError, "Impossible de desactiver une entree du registre.");
-    }
-
-    await insertAffaireRegisterEvent({
+    await updateAffaireRegisterEntryWithEvent({
       supabase: input.supabase,
       entryId: row.id,
       actorUserId: input.actorUserId ?? null,
+      patch: {
+        status: nextStatus,
+        is_active: false,
+      },
       eventType: "deactivated",
       reason: input.reason,
       beforePayload: {
@@ -1077,6 +1096,7 @@ async function deactivateMissingSyncEntries(input: {
         status: nextStatus,
         is_active: false,
       } satisfies Json,
+      fallbackMessage: "Impossible de desactiver une entree du registre.",
     });
   }
 }
@@ -1178,31 +1198,26 @@ async function upsertSyncedEntries(input: {
       };
     });
 
-    const { data, error } = await input.supabase
-      .from("affaire_register_entries" as never)
-      .upsert(payload as never, {
-        onConflict: "project_id,sync_key",
-      })
-      .select(
-        "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never
-      );
+    const newPayload = payload.filter(
+      (row) => !existingBySyncKey.has(row.sync_key)
+    );
+    if (newPayload.length > 0) {
+      const { data, error } = await input.supabase
+        .from("affaire_register_entries" as never)
+        .insert(newPayload as never)
+        .select(
+          "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never
+        );
 
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de synchroniser le registre affaire.");
-    }
+      if (error) {
+        throw mapSupabaseError(error, "Impossible de synchroniser le registre affaire.");
+      }
 
-    const rows = ((data ?? []) as unknown[])
-      .map((row) => normalizeAffaireRegisterEntryRow(row))
-      .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null);
+      const insertedRows = ((data ?? []) as unknown[])
+        .map((row) => normalizeAffaireRegisterEntryRow(row))
+        .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null);
 
-    for (const row of rows) {
-      const existing = row.sync_key ? existingBySyncKey.get(row.sync_key) ?? null : null;
-      const nextProjection = buildExistingComparableProjection(row);
-      const previousProjection = existing
-        ? buildExistingComparableProjection(existing)
-        : null;
-
-      if (!existing) {
+      for (const row of insertedRows) {
         await insertAffaireRegisterEvent({
           supabase: input.supabase,
           entryId: row.id,
@@ -1215,47 +1230,84 @@ async function upsertSyncedEntries(input: {
             status: row.status,
           } satisfies Json,
         });
+      }
+    }
+
+    for (const row of payload) {
+      const existing = existingBySyncKey.get(row.sync_key);
+      if (!existing) {
         continue;
       }
 
-      if (!existing.is_active) {
-        await insertAffaireRegisterEvent({
-          supabase: input.supabase,
-          entryId: row.id,
-          actorUserId: input.actorUserId ?? null,
-          eventType: "reactivated",
-          reason: input.reason,
-          beforePayload: {
-            status: existing.status,
-            is_active: false,
-          } satisfies Json,
-          afterPayload: {
-            status: row.status,
-            is_active: true,
-          } satisfies Json,
-        });
+      const nextProjection = JSON.stringify({
+        version_id: row.version_id,
+        source_document_id: row.source_document_id,
+        kind: row.kind,
+        code: row.code,
+        text: row.text,
+        severity: row.severity,
+        status: row.status,
+        scope_type: row.scope_type,
+        scope_id: row.scope_id,
+        scope_ref: row.scope_ref,
+        scope_label: row.scope_label,
+        source_file_name: row.source_file_name,
+        sync_key: row.sync_key,
+        is_active: row.is_active,
+      });
+      if (
+        existing.is_active &&
+        buildExistingComparableProjection(existing) === nextProjection
+      ) {
         continue;
       }
 
-      if (previousProjection !== nextProjection) {
-        await insertAffaireRegisterEvent({
-          supabase: input.supabase,
-          entryId: row.id,
-          actorUserId: input.actorUserId ?? null,
-          eventType: "synced",
-          reason: input.reason,
-          beforePayload: {
-            status: existing.status,
-            severity: existing.severity,
-            text: existing.text,
-          } satisfies Json,
-          afterPayload: {
-            status: row.status,
-            severity: row.severity,
-            text: row.text,
-          } satisfies Json,
-        });
-      }
+      await updateAffaireRegisterEntryWithEvent({
+        supabase: input.supabase,
+        entryId: existing.id,
+        actorUserId: input.actorUserId ?? null,
+        patch: {
+          version_id: row.version_id,
+          source_document_id: row.source_document_id,
+          kind: row.kind,
+          code: row.code,
+          text: row.text,
+          severity: row.severity,
+          status: row.status,
+          origin_kind: row.origin_kind,
+          scope_type: row.scope_type,
+          scope_id: row.scope_id,
+          scope_ref: row.scope_ref,
+          scope_label: row.scope_label,
+          source_file_name: row.source_file_name,
+          sync_key: row.sync_key,
+          is_active: row.is_active,
+          metadata: row.metadata as Json,
+        },
+        eventType: existing.is_active ? "synced" : "reactivated",
+        reason: input.reason,
+        beforePayload: existing.is_active
+          ? ({
+              status: existing.status,
+              severity: existing.severity,
+              text: existing.text,
+            } satisfies Json)
+          : ({
+              status: existing.status,
+              is_active: false,
+            } satisfies Json),
+        afterPayload: existing.is_active
+          ? ({
+              status: row.status,
+              severity: row.severity,
+              text: row.text,
+            } satisfies Json)
+          : ({
+              status: row.status,
+              is_active: true,
+            } satisfies Json),
+        fallbackMessage: "Impossible de synchroniser le registre affaire.",
+      });
     }
   }
 
@@ -1602,7 +1654,7 @@ export async function fetchAffaireRegisterPage(
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
-  let focusedQuery: any = input.focusEntryId
+  let focusedQuery: typeof query | null = input.focusEntryId
     ? context.supabase
         .from("affaire_register_entries" as never)
         .select(ENTRY_SELECT as never)
@@ -1611,13 +1663,10 @@ export async function fetchAffaireRegisterPage(
         .eq("id", input.focusEntryId as never)
     : null;
 
-  query = applyVersionScopeFilter(query as never, input.versionId ?? null) as never;
-  query = applyCursorFilter(query as never, input.cursor ?? null) as never;
+  query = applyVersionScopeFilter(query, input.versionId ?? null);
+  query = applyCursorFilter(query, input.cursor ?? null);
   if (focusedQuery) {
-    focusedQuery = applyVersionScopeFilter(
-      focusedQuery as never,
-      input.versionId ?? null
-    ) as never;
+    focusedQuery = applyVersionScopeFilter(focusedQuery, input.versionId ?? null);
   }
 
   if (input.status) {
@@ -1669,7 +1718,7 @@ export async function fetchAffaireRegisterPage(
   }
   if (focusedResult.error) {
     throw mapSupabaseError(
-      focusedResult.error as any,
+      focusedResult.error,
       "Impossible de charger le point cible du registre affaire."
     );
   }
@@ -2096,30 +2145,14 @@ export async function updateAffaireRegisterEntryStatus(
     revalidationRequest: extractAffaireRegisterRevalidationRequest(nextMetadata),
   });
 
-  const { data: updatedData, error: updateError } = await context.supabase
-    .from("affaire_register_entries" as never)
-    .update({
-      status: parsed.status,
-      metadata: derivedMetadata,
-      updated_by: context.userId,
-    } as never)
-    .eq("id", entry.id as never)
-    .select(ENTRY_SELECT as never)
-    .single();
-
-  if (updateError) {
-    throw mapSupabaseError(updateError, "Impossible de mettre a jour le registre.");
-  }
-
-  const updatedEntry = normalizeAffaireRegisterEntryRow(updatedData);
-  if (!updatedEntry) {
-    throw badRequest("Reponse invalide lors de la mise a jour du registre.");
-  }
-
-  await insertAffaireRegisterEvent({
+  const updatedEntry = await updateAffaireRegisterEntryWithEvent({
     supabase: context.supabase,
     entryId: entry.id,
     actorUserId: context.userId,
+    patch: {
+      status: parsed.status,
+      metadata: derivedMetadata as Json,
+    },
     eventType:
       parsed.status === "clarify_with_client"
         ? "clarify_with_client_requested"
@@ -2132,14 +2165,15 @@ export async function updateAffaireRegisterEntryStatus(
       revalidationRequest: extractAffaireRegisterRevalidationRequest(entry.metadata),
     } satisfies Json,
     afterPayload: {
-      status: updatedEntry.status,
+      status: parsed.status,
       clientClarificationRequest: clarificationRequest,
       revalidationRequest:
         parsed.status === "open"
-          ? extractAffaireRegisterRevalidationRequest(updatedEntry.metadata)
+          ? extractAffaireRegisterRevalidationRequest(derivedMetadata)
           : null,
       comment,
     } satisfies Json,
+    fallbackMessage: "Impossible de mettre a jour le registre.",
   });
 
   return {
@@ -2306,33 +2340,14 @@ export async function updateAffaireRegisterEntryFollowUp(
     revalidationRequest: extractAffaireRegisterRevalidationRequest(entry.metadata),
   });
 
-  const { data: updatedData, error: updateError } = await context.supabase
-    .from("affaire_register_entries" as never)
-    .update({
-      severity: nextSeverity,
-      metadata: derivedMetadata,
-      updated_by: context.userId,
-    } as never)
-    .eq("id", entry.id as never)
-    .select(ENTRY_SELECT as never)
-    .single();
-
-  if (updateError) {
-    throw mapSupabaseError(
-      updateError,
-      "Impossible de mettre a jour le pilotage du registre."
-    );
-  }
-
-  const updatedEntry = normalizeAffaireRegisterEntryRow(updatedData);
-  if (!updatedEntry) {
-    throw badRequest("Reponse invalide lors de la mise a jour du registre.");
-  }
-
-  await insertAffaireRegisterEvent({
+  const updatedEntry = await updateAffaireRegisterEntryWithEvent({
     supabase: context.supabase,
     entryId: entry.id,
     actorUserId: context.userId,
+    patch: {
+      severity: nextSeverity,
+      metadata: derivedMetadata as Json,
+    },
     eventType: "follow_up_updated",
     reason: comment,
     beforePayload: {
@@ -2341,11 +2356,12 @@ export async function updateAffaireRegisterEntryFollowUp(
       followUp: currentFollowUp,
     } satisfies Json,
     afterPayload: {
-      severity: updatedEntry.severity,
+      severity: nextSeverity,
       severityDecision: nextSeverityDecision,
       followUp: nextFollowUp,
       comment,
     } satisfies Json,
+    fallbackMessage: "Impossible de mettre a jour le pilotage du registre.",
   });
 
   return {
@@ -2425,33 +2441,14 @@ export async function requestAffaireRegisterRevalidation(
     revalidationRequest,
   });
 
-  const { data: updatedData, error: updateError } = await context.supabase
-    .from("affaire_register_entries" as never)
-    .update({
-      status: "open",
-      metadata: derivedMetadata,
-      updated_by: context.userId,
-    } as never)
-    .eq("id", entry.id as never)
-    .select(ENTRY_SELECT as never)
-    .single();
-
-  if (updateError) {
-    throw mapSupabaseError(
-      updateError,
-      "Impossible de demander la revalidation du registre."
-    );
-  }
-
-  const updatedEntry = normalizeAffaireRegisterEntryRow(updatedData);
-  if (!updatedEntry) {
-    throw badRequest("Reponse invalide lors de la revalidation du registre.");
-  }
-
-  await insertAffaireRegisterEvent({
+  const updatedEntry = await updateAffaireRegisterEntryWithEvent({
     supabase: context.supabase,
     entryId: entry.id,
     actorUserId: context.userId,
+    patch: {
+      status: "open",
+      metadata: derivedMetadata as Json,
+    },
     eventType: "revalidation_requested",
     reason: comment,
     beforePayload: {
@@ -2461,10 +2458,11 @@ export async function requestAffaireRegisterRevalidation(
       revalidationRequest: extractAffaireRegisterRevalidationRequest(entry.metadata),
     } satisfies Json,
     afterPayload: {
-      status: updatedEntry.status,
+      status: "open",
       revalidationRequest,
       comment,
     } satisfies Json,
+    fallbackMessage: "Impossible de demander la revalidation du registre.",
   });
 
   return {
@@ -2646,10 +2644,7 @@ export async function continueAffaireRegisterWithHypothesis(
     comment,
   } satisfies AffaireRegisterContinuationDecision;
 
-  const { data: updatedData, error: updateError } = await context.supabase
-    .from("affaire_register_entries" as never)
-    .update({
-      metadata: buildAffaireRegisterDerivedMetadata({
+  const updatedMetadata = buildAffaireRegisterDerivedMetadata({
         metadata: {
           ...sourceEntry.metadata,
           continuationDecision: decision,
@@ -2670,29 +2665,14 @@ export async function continueAffaireRegisterWithHypothesis(
         continuationDecision: decision,
         revalidationRequest:
           extractAffaireRegisterRevalidationRequest(sourceEntry.metadata),
-      }),
-      updated_by: context.userId,
-    } as never)
-    .eq("id", sourceEntry.id as never)
-    .select(ENTRY_SELECT as never)
-    .single();
-
-  if (updateError) {
-    throw mapSupabaseError(
-      updateError,
-      "Impossible de tracer la continuation sous hypothese."
-    );
-  }
-
-  const updatedEntry = normalizeAffaireRegisterEntryRow(updatedData);
-  if (!updatedEntry) {
-    throw badRequest("Reponse invalide lors de la mise a jour du registre.");
-  }
-
-  await insertAffaireRegisterEvent({
+      });
+  const updatedEntry = await updateAffaireRegisterEntryWithEvent({
     supabase: context.supabase,
     entryId: sourceEntry.id,
     actorUserId: context.userId,
+    patch: {
+      metadata: updatedMetadata as Json,
+    },
     eventType: "continued_with_hypothesis",
     reason: comment,
     beforePayload: {
@@ -2700,10 +2680,11 @@ export async function continueAffaireRegisterWithHypothesis(
       continuationDecision: null,
     } satisfies Json,
     afterPayload: {
-      status: updatedEntry.status,
+      status: sourceEntry.status,
       continuationDecision: decision,
       comment,
     } satisfies Json,
+    fallbackMessage: "Impossible de tracer la continuation sous hypothese.",
   });
 
   return {

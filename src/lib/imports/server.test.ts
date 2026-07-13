@@ -24,7 +24,9 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 
-function createMembershipBuilder(role: "engineer" | "admin" = "engineer") {
+function createMembershipBuilder(
+  role: "viewer" | "engineer" | "admin" = "engineer"
+) {
   const builder = {
     select: vi.fn(),
     eq: vi.fn(),
@@ -61,8 +63,10 @@ function createAwaitableImportsBuilder(data: unknown[] = []) {
   return builder;
 }
 
-function createImportCreationSupabaseMock() {
-  const membershipBuilder = createMembershipBuilder();
+function createImportCreationSupabaseMock(
+  role: "viewer" | "engineer" | "admin" = "engineer"
+) {
+  const membershipBuilder = createMembershipBuilder(role);
   const rawRowBatches: unknown[][] = [];
   const importInsertPayloads: Array<Record<string, unknown>> = [];
   const importUpdatePayloads: Array<Record<string, unknown>> = [];
@@ -330,6 +334,25 @@ describe("validateTabularPdfReviewFile", () => {
 describe("createImportFromJsonBody", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("rejects a retained project owner whose current tenant role is viewer", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock("viewer");
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createImportFromJsonBody({
+        filename: "dpgf.json",
+        rows: [{ Code: "A-001", Description: "Cable cuivre" }],
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+
+    expect(state.importInsertPayloads).toHaveLength(0);
+    expect(state.rawRowBatches).toHaveLength(0);
+    expect(state.storageUploads).toHaveLength(0);
   });
 
   it("persists approved tabular PDF rows inside the canonical raw rows pipeline", async () => {
@@ -734,6 +757,27 @@ describe("createImportFromJsonBody", () => {
 describe("createImportFromMultipartFormData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("rejects multipart imports for a current viewer before parsing or persistence", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock("viewer");
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File(["%PDF-1.7"], "viewer.pdf", { type: "application/pdf" })
+    );
+
+    await expect(createImportFromMultipartFormData(formData)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+
+    expect(extractionMocks.extractTabularPdfTablesFromFile).not.toHaveBeenCalled();
+    expect(state.importInsertPayloads).toHaveLength(0);
+    expect(state.rawRowBatches).toHaveLength(0);
+    expect(state.storageUploads).toHaveLength(0);
   });
 
   it("imports a NIRVANA-style DPGF PDF into canonical raw rows", async () => {

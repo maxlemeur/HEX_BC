@@ -37,6 +37,13 @@ import {
   resolveTakeoffPdfMimeType,
 } from "@/lib/takeoff/pdf-validation";
 import {
+  inspectPlanSetResourceBudget,
+  PLAN_SET_MAX_FILES,
+  PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+  type PlanSetResourceBudget,
+  type PlanSetResourceBudgetFile,
+} from "@/lib/takeoff/plans";
+import {
   getTakeoffChunkingConfigForTenant,
   getTakeoffEscalationConfigForTenant,
   getTakeoffGeminiDeliveryConfigForTenant,
@@ -175,6 +182,10 @@ type DownloadedTakeoffFile = {
   mimeType: string;
   bytes: ArrayBuffer;
   sourceFileNamesByPage?: string[];
+  sourcePlanFilePageCounts?: Array<{
+    filePath: string;
+    pageCount: number;
+  }>;
 };
 
 type NormalizedTakeoffItemForInsert = {
@@ -1219,6 +1230,49 @@ function canRecoverAcceptedBatchSubmission(input: {
   );
 }
 
+function throwPlanSetResourceBudgetError(input: {
+  budget: PlanSetResourceBudget;
+  job: TakeoffJobProcessingRow;
+  level: ProcessableTakeoffLevel;
+  maxPages: number;
+  phase: "metadata" | "download" | "pdf";
+}): never {
+  throw new TakeoffError({
+    status: 413,
+    code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+    message: "Le jeu de plans depasse les limites de traitement autorisees.",
+    details: {
+      phase: input.phase,
+      violation: input.budget.violation,
+      file_count: input.budget.fileCount,
+      max_file_count: PLAN_SET_MAX_FILES,
+      total_size_bytes: input.budget.totalSizeBytes,
+      max_total_size_bytes: PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+      known_page_count: input.budget.knownPageCount,
+      unknown_page_count: input.budget.unknownPageCount,
+      max_pdf_pages: input.maxPages,
+    },
+    retryable: false,
+    jobId: input.job.id,
+    level: input.level,
+  });
+}
+
+async function getPlanSetMaxPdfPages(input: {
+  supabase: Supabase;
+  tenantId: string;
+  level: ProcessableTakeoffLevel;
+}) {
+  const config = input.level === TAKEOFF_LEVEL_C
+    ? await getTakeoffLevelCProcessingConfigForTenant(input.tenantId, {
+        supabase: input.supabase,
+      })
+    : await getTakeoffChunkingConfigForTenant(input.tenantId, {
+        supabase: input.supabase,
+      });
+  return config.maxPdfPages;
+}
+
 async function downloadTakeoffSourceFile(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
@@ -1228,7 +1282,9 @@ async function downloadTakeoffSourceFile(input: {
   if (planSetId) {
     const { data: planFilesData, error: planFilesError } = await input.supabase
       .from("plan_files" as never)
-      .select("file_path, file_name, file_type" as never)
+      .select(
+        "file_path, file_name, file_type, file_size_bytes, page_count" as never
+      )
       .eq("tenant_id" as never, input.job.tenant_id as never)
       .eq("plan_set_id" as never, planSetId as never)
       .order("created_at" as never, { ascending: true });
@@ -1249,6 +1305,8 @@ async function downloadTakeoffSourceFile(input: {
       file_path?: string | null;
       file_name?: string | null;
       file_type?: string | null;
+      file_size_bytes?: number | null;
+      page_count?: number | null;
     }>;
 
     if (planFiles.length === 0) {
@@ -1258,6 +1316,24 @@ async function downloadTakeoffSourceFile(input: {
         retryable: false,
         jobId: input.job.id,
         level: input.level,
+      });
+    }
+
+    const maxPdfPages = await getPlanSetMaxPdfPages({
+      supabase: input.supabase,
+      tenantId: input.job.tenant_id,
+      level: input.level,
+    });
+    const metadataBudget = inspectPlanSetResourceBudget(planFiles, {
+      maxPages: maxPdfPages,
+    });
+    if (metadataBudget.violation) {
+      throwPlanSetResourceBudgetError({
+        budget: metadataBudget,
+        job: input.job,
+        level: input.level,
+        maxPages: maxPdfPages,
+        phase: "metadata",
       });
     }
 
@@ -1289,6 +1365,44 @@ async function downloadTakeoffSourceFile(input: {
         });
       }
 
+      const downloadedBudget = inspectPlanSetResourceBudget(
+        [
+          {
+            file_size_bytes: data.size,
+            page_count: singleFile.page_count,
+          },
+        ],
+        { maxPages: maxPdfPages }
+      );
+      if (downloadedBudget.violation) {
+        throwPlanSetResourceBudgetError({
+          budget: downloadedBudget,
+          job: input.job,
+          level: input.level,
+          maxPages: maxPdfPages,
+          phase: "download",
+        });
+      }
+      const downloadedBytes = await data.arrayBuffer();
+      const actualByteBudget = inspectPlanSetResourceBudget(
+        [
+          {
+            file_size_bytes: downloadedBytes.byteLength,
+            page_count: singleFile.page_count,
+          },
+        ],
+        { maxPages: maxPdfPages }
+      );
+      if (actualByteBudget.violation) {
+        throwPlanSetResourceBudgetError({
+          budget: actualByteBudget,
+          job: input.job,
+          level: input.level,
+          maxPages: maxPdfPages,
+          phase: "download",
+        });
+      }
+
       return {
         fileName:
           normalizeNullableText(singleFile.file_name) ??
@@ -1305,12 +1419,18 @@ async function downloadTakeoffSourceFile(input: {
               normalizeNullableText(singleFile.file_type),
           }) ??
           "application/pdf",
-        bytes: await data.arrayBuffer(),
+        bytes: downloadedBytes,
       };
     }
 
-    const mergedPdf = await PDFDocument.create();
-    const sourceFileNamesByPage: string[] = [];
+    const actualBudgetFiles: PlanSetResourceBudgetFile[] = [];
+    const validatedSources: Array<{
+      document: PDFDocument;
+      fileName: string;
+      filePath: string;
+      pageCount: number;
+    }> = [];
+
     for (const planFile of planFiles) {
       const sourcePath = normalizeNullableText(planFile.file_path);
       if (!sourcePath) {
@@ -1338,9 +1458,42 @@ async function downloadTakeoffSourceFile(input: {
         });
       }
 
+      const actualBudgetEntry: PlanSetResourceBudgetFile = {
+        file_size_bytes: data.size,
+        page_count: null,
+      };
+      actualBudgetFiles.push(actualBudgetEntry);
+      let actualBudget = inspectPlanSetResourceBudget(actualBudgetFiles, {
+        maxPages: maxPdfPages,
+      });
+      if (actualBudget.violation) {
+        throwPlanSetResourceBudgetError({
+          budget: actualBudget,
+          job: input.job,
+          level: input.level,
+          maxPages: maxPdfPages,
+          phase: "download",
+        });
+      }
+
+      const sourceBytes = await data.arrayBuffer();
+      actualBudgetEntry.file_size_bytes = sourceBytes.byteLength;
+      actualBudget = inspectPlanSetResourceBudget(actualBudgetFiles, {
+        maxPages: maxPdfPages,
+      });
+      if (actualBudget.violation) {
+        throwPlanSetResourceBudgetError({
+          budget: actualBudget,
+          job: input.job,
+          level: input.level,
+          maxPages: maxPdfPages,
+          phase: "download",
+        });
+      }
+
       let sourcePdf: PDFDocument;
       try {
-        sourcePdf = await PDFDocument.load(await data.arrayBuffer());
+        sourcePdf = await PDFDocument.load(sourceBytes);
       } catch (pdfError) {
         throw new TakeoffError({
           code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
@@ -1353,12 +1506,42 @@ async function downloadTakeoffSourceFile(input: {
         });
       }
 
-      const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+      actualBudgetEntry.page_count = sourcePdf.getPageCount();
+      actualBudget = inspectPlanSetResourceBudget(actualBudgetFiles, {
+        maxPages: maxPdfPages,
+      });
+      if (actualBudget.violation) {
+        throwPlanSetResourceBudgetError({
+          budget: actualBudget,
+          job: input.job,
+          level: input.level,
+          maxPages: maxPdfPages,
+          phase: "pdf",
+        });
+      }
+
+      validatedSources.push({
+        document: sourcePdf,
+        fileName:
+          normalizeNullableText(planFile.file_name) ??
+          `plan-${validatedSources.length + 1}.pdf`,
+        filePath: sourcePath,
+        pageCount: sourcePdf.getPageCount(),
+      });
+    }
+
+    // Do not allocate/copy the merged document until every downloaded object
+    // has passed the real aggregate byte and page budgets.
+    const mergedPdf = await PDFDocument.create();
+    const sourceFileNamesByPage: string[] = [];
+    for (const source of validatedSources) {
+      const copiedPages = await mergedPdf.copyPages(
+        source.document,
+        source.document.getPageIndices()
+      );
       for (const copiedPage of copiedPages) {
         mergedPdf.addPage(copiedPage);
-        sourceFileNamesByPage.push(
-          normalizeNullableText(planFile.file_name) ?? `plan-${sourceFileNamesByPage.length + 1}.pdf`
-        );
+        sourceFileNamesByPage.push(source.fileName);
       }
     }
 
@@ -1367,6 +1550,10 @@ async function downloadTakeoffSourceFile(input: {
       mimeType: "application/pdf",
       bytes: toArrayBuffer(await mergedPdf.save()),
       sourceFileNamesByPage,
+      sourcePlanFilePageCounts: validatedSources.map((source) => ({
+        filePath: source.filePath,
+        pageCount: source.pageCount,
+      })),
     };
   }
 
@@ -2264,6 +2451,36 @@ async function upsertDetectedPlanFilePageCount(input: {
   }
 }
 
+async function persistDetectedPlanFilePageCounts(input: {
+  supabase: Supabase;
+  tenantId: string;
+  sourceFile: DownloadedTakeoffFile;
+  fallbackSourceFilePath: string | null;
+  fallbackPageCount: number;
+}) {
+  const sourcePageCounts = input.sourceFile.sourcePlanFilePageCounts;
+  if (sourcePageCounts && sourcePageCounts.length > 0) {
+    await Promise.all(
+      sourcePageCounts.map((source) =>
+        upsertDetectedPlanFilePageCount({
+          supabase: input.supabase,
+          tenantId: input.tenantId,
+          sourceFilePath: source.filePath,
+          pageCount: source.pageCount,
+        })
+      )
+    );
+    return;
+  }
+
+  await upsertDetectedPlanFilePageCount({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    sourceFilePath: input.fallbackSourceFilePath,
+    pageCount: input.fallbackPageCount,
+  });
+}
+
 function cloneLevelCChunkMetrics(metrics: LevelCChunkMetric[]) {
   return metrics.map((metric) => ({ ...metric }));
 }
@@ -2497,11 +2714,12 @@ async function processLevelCGeminiChunks(input: {
     });
   }
 
-  await upsertDetectedPlanFilePageCount({
+  await persistDetectedPlanFilePageCounts({
     supabase: input.supabase,
     tenantId: input.job.tenant_id,
-    sourceFilePath: input.job.source_file_path,
-    pageCount,
+    sourceFile: input.sourceFile,
+    fallbackSourceFilePath: input.job.source_file_path,
+    fallbackPageCount: pageCount,
   });
 
   const chunks = buildPdfChunks(pageCount, {
@@ -3025,11 +3243,12 @@ async function processLevelBGeminiChunks(input: {
   }
 
   if (pageCount !== null) {
-    await upsertDetectedPlanFilePageCount({
+    await persistDetectedPlanFilePageCounts({
       supabase: input.supabase,
       tenantId: input.job.tenant_id,
-      sourceFilePath: input.job.source_file_path,
-      pageCount,
+      sourceFile: input.sourceFile,
+      fallbackSourceFilePath: input.job.source_file_path,
+      fallbackPageCount: pageCount,
     });
   }
 

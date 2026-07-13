@@ -95,6 +95,132 @@ describe("detectTabularPdfTablesFromLayout", () => {
     expect(rowLine).toMatch(/^IIIIIIII\s{2,}Cable cuivre$/);
   });
 
+  it("rejects a page before layout grouping when its text-item budget is exceeded", () => {
+    const item = {
+      str: "A",
+      transform: [1, 0, 0, 1, 40, 120],
+      width: 8,
+      height: 12,
+      hasEOL: false,
+    };
+
+    expect(() =>
+      __testing__.buildPageLayoutText({
+        items: Array.from(
+          { length: __testing__.PDF_EXTRACTION_MAX_ITEMS_PER_PAGE + 1 },
+          () => item
+        ),
+      })
+    ).toThrow(/depasse 20000 elements texte sur une page/);
+  });
+
+  it("rejects parser work that exceeds the extraction deadline", async () => {
+    await expect(
+      __testing__.waitWithinDeadline(
+        new Promise<never>(() => undefined),
+        Date.now() + 5
+      )
+    ).rejects.toThrow(/delai maximal d'analyse PDF/);
+  });
+
+  it("rejects pathological layout coordinates before allocating a huge line", () => {
+    expect(() =>
+      __testing__.buildPageLayoutText({
+        items: [
+          {
+            str: "Code",
+            transform: [1, 0, 0, 1, 40, 120],
+            width: 24,
+            height: 12,
+            hasEOL: false,
+          },
+          {
+            str: "A-001",
+            transform: [1, 0, 0, 1, 1_000_000_000, 120],
+            width: 30,
+            height: 12,
+            hasEOL: false,
+          },
+        ],
+      })
+    ).toThrow(/depasse la largeur maximale autorisee/);
+  });
+
+  it("rejects one oversized raw PDF.js text item before concatenation", () => {
+    expect(() =>
+      __testing__.buildPageLayoutText({
+        items: [
+          {
+            str: "A".repeat(__testing__.PDF_EXTRACTION_MAX_RAW_ITEM_CHARS + 1),
+            transform: [1, 0, 0, 1, 40, 120],
+            width: 1,
+            height: 12,
+            hasEOL: false,
+          },
+        ],
+      })
+    ).toThrow(/element texte du PDF depasse la taille maximale autorisee/);
+  });
+
+  it("rejects cumulative multi-line expansion before retaining unbounded output", () => {
+    const whitespace = " ".repeat(
+      __testing__.PDF_EXTRACTION_MAX_RENDERED_LINE_CHARS
+    );
+
+    expect(() =>
+      __testing__.buildPageLayoutText({
+        items: Array.from(
+          { length: __testing__.PDF_EXTRACTION_MAX_ITEMS_PER_PAGE },
+          (_value, index) => ({
+            str: whitespace,
+            transform: [1, 0, 0, 1, 40, 120 - index * 4],
+            width: __testing__.PDF_EXTRACTION_MAX_RENDERED_LINE_CHARS,
+            height: 1,
+            hasEOL: true,
+          })
+        ),
+      })
+    ).toThrow(/texte extrait du PDF depasse la limite autorisee/);
+  });
+
+  it("bounds pdftotext stdout during execution and rejects overflow", async () => {
+    const overflow = Object.assign(
+      new RangeError("stdout maxBuffer length exceeded"),
+      { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" }
+    );
+    const runner = async (
+      _executable: string,
+      args: string[],
+      options: { maxBuffer: number; timeout: number }
+    ) => {
+      expect(args.at(-1)).toBe("-");
+      expect(options).toMatchObject({
+        maxBuffer: __testing__.PDF_EXTRACTION_MAX_LAYOUT_BYTES,
+        timeout: __testing__.PDF_EXTRACTION_TIMEOUT_MS,
+      });
+      throw overflow;
+    };
+
+    await expect(
+      __testing__.extractLayoutTextFromPdfWithPdftotext(
+        new File(["%PDF-1.7"], "overflow.pdf", { type: "application/pdf" }),
+        runner
+      )
+    ).rejects.toThrow(/texte extrait du PDF depasse la limite autorisee/);
+  });
+
+  it("preserves legitimate bounded pdftotext output", async () => {
+    const layoutText = "Code  Description\nA-001  Cable\n";
+    const runner = async () => ({ stdout: layoutText });
+
+    await expect(
+      __testing__.extractLayoutTextFromPdfWithPdftotext(
+        new File(["%PDF-1.7"], "valid.pdf", { type: "application/pdf" }),
+        runner
+      )
+    ).resolves.toBe(layoutText);
+  });
+
   it("preserves blank lines between same-page tables in rebuilt layout text", () => {
     const layoutText = __testing__.buildPageLayoutText({
       items: [

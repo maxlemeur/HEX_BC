@@ -385,6 +385,83 @@ describe("estimate send gating", () => {
     );
   });
 
+  it("fails closed for unavailable blocking rule signals and preserves warnings", async () => {
+    vi.mocked(evaluateRules).mockResolvedValue({
+      violations: [],
+      blockingViolations: [],
+      warningViolations: [],
+      unavailableSignals: [
+        {
+          rule_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          rule_type: "critical_exceptions_max",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 0,
+          action: "block",
+          metric_key: "critical_exceptions_count",
+          comparator: "<=",
+          source_state: "unavailable",
+          message: "Signal indisponible.",
+        },
+        {
+          rule_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          rule_type: "takeoff_evidence_coverage_min",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 8000,
+          action: "warn",
+          metric_key: "takeoff_evidence_coverage_bp",
+          comparator: ">=",
+          source_state: "unavailable",
+          message: "Signal indisponible.",
+        },
+      ],
+    });
+
+    const supabase = createSupabaseGatingMock({
+      items: [createLineItem({ id: "line-1", quantity: 1, unitPriceHtCents: 5000 })],
+      marginTiers: [],
+      documents: [{ id: "doc-1" }],
+    });
+
+    const result = await evaluateEstimateSendGating({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID,
+        margin_mode: "fixed",
+        margin_multiplier: 1,
+        total_ht_cents: 5000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+      },
+      project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
+        notes: null,
+      },
+    });
+
+    expect(result.canSend).toBe(false);
+    expect(result.blockingFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "rule_violation",
+          severity: "blocking",
+          count: 1,
+        }),
+      ])
+    );
+    expect(result.warningFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "rule_violation",
+          severity: "warning",
+          count: 1,
+        }),
+      ])
+    );
+  });
+
   it("adds register blockers and warnings to client send gating", async () => {
     vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
       openQuestionsCount: 3,

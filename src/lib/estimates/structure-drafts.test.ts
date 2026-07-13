@@ -18,6 +18,7 @@ import {
   generateEstimateStructureDraft,
   inferDpgfPath,
   isAssemblyOnlyWeakSignalMode,
+  withEstimateAiGenerationLease,
 } from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
@@ -655,6 +656,7 @@ function createGenerateStructureSupabaseMock(options?: {
   }>;
   projectNotes?: string | null;
   existingItems?: ReturnType<typeof buildEstimateSectionRow>[];
+  leaseClaimed?: boolean;
 }) {
   const membershipBuilder = createMembershipBuilder();
   const versionAccessBuilder = {
@@ -749,6 +751,23 @@ function createGenerateStructureSupabaseMock(options?: {
     .fn()
     .mockReturnValueOnce(versionAccessBuilder)
     .mockReturnValueOnce(historyVersionsBuilder);
+  const rpc = vi.fn(async (functionName: string) => {
+    if (functionName === "acquire_estimate_ai_generation_lease") {
+      return {
+        data: [
+          {
+            claimed: options?.leaseClaimed ?? true,
+            retry_after_seconds: options?.leaseClaimed === false ? 600 : 0,
+          },
+        ],
+        error: null,
+      };
+    }
+    if (functionName === "complete_estimate_ai_generation_lease") {
+      return { data: true, error: null };
+    }
+    throw new Error(`Unexpected RPC ${functionName}`);
+  });
 
   const supabase = {
     auth: {
@@ -831,11 +850,13 @@ function createGenerateStructureSupabaseMock(options?: {
 
       throw new Error(`Unexpected table ${table}`);
     }),
+    rpc,
   };
 
   return {
     supabase,
     draftNodesInsert,
+    rpc,
   };
 }
 
@@ -857,7 +878,7 @@ describe("generateEstimateStructureDraft", () => {
   });
 
   it("returns a low-confidence skipped preview when assemblies are the only available signal", async () => {
-    const { supabase, draftNodesInsert } = createGenerateStructureSupabaseMock({
+    const { supabase, draftNodesInsert, rpc } = createGenerateStructureSupabaseMock({
       assemblies: [
         {
           id: "assembly-1",
@@ -894,6 +915,39 @@ describe("generateEstimateStructureDraft", () => {
       used: true,
     });
     expect(draftNodesInsert).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(callGeminiStructured)).toHaveBeenCalledWith(
+      expect.objectContaining({ maxRetries: 0 })
+    );
+    expect(rpc.mock.calls.map(([functionName]) => functionName)).toEqual([
+      "acquire_estimate_ai_generation_lease",
+      "complete_estimate_ai_generation_lease",
+    ]);
+  });
+
+  it("rejects a replayed generation before the Gemini provider sink", async () => {
+    const { supabase, draftNodesInsert, rpc } = createGenerateStructureSupabaseMock({
+      assemblies: [
+        {
+          id: "assembly-1",
+          name: "Electricite",
+          description: "Bloc standard",
+        },
+      ],
+      leaseClaimed: false,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      generateEstimateStructureDraft(VERSION_ID, { strategy: "hybrid" })
+    ).rejects.toMatchObject({
+      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
+      status: 409,
+    });
+
+    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(draftNodesInsert).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces the canonical primary CCTP as a strong structure source when it exposes lots", async () => {
@@ -989,6 +1043,75 @@ describe("generateEstimateStructureDraft", () => {
       used: false,
     });
     expect(result.nodes.map((node) => node.label)).not.toContain("Electricite");
+  });
+});
+
+describe("withEstimateAiGenerationLease", () => {
+  it("allows one legitimate operation and closes concurrent requests and replays", async () => {
+    let consumed = false;
+    let releaseRun: () => void = () => {
+      throw new Error("Generation gate was not initialized.");
+    };
+    const providerSink = vi.fn(async () => "generated");
+    const rpc = vi.fn(async (functionName: string) => {
+      if (functionName === "acquire_estimate_ai_generation_lease") {
+        if (consumed) {
+          return {
+            data: [{ claimed: false, retry_after_seconds: 600 }],
+            error: null,
+          };
+        }
+        consumed = true;
+        return {
+          data: [{ claimed: true, retry_after_seconds: 0 }],
+          error: null,
+        };
+      }
+      if (functionName === "complete_estimate_ai_generation_lease") {
+        return { data: true, error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+    const supabase = { rpc };
+    const gate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+
+    const first = withEstimateAiGenerationLease({
+      supabase: supabase as never,
+      versionId: VERSION_ID,
+      operation: "structure_draft",
+      run: async () => {
+        await gate;
+        return providerSink();
+      },
+    });
+
+    await expect(
+      withEstimateAiGenerationLease({
+        supabase: supabase as never,
+        versionId: VERSION_ID,
+        operation: "structure_draft",
+        run: providerSink,
+      })
+    ).rejects.toMatchObject({
+      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
+    });
+
+    releaseRun();
+    await expect(first).resolves.toBe("generated");
+
+    await expect(
+      withEstimateAiGenerationLease({
+        supabase: supabase as never,
+        versionId: VERSION_ID,
+        operation: "structure_draft",
+        run: providerSink,
+      })
+    ).rejects.toMatchObject({
+      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
+    });
+    expect(providerSink).toHaveBeenCalledTimes(1);
   });
 });
 

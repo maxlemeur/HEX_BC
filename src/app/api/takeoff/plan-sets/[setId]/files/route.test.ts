@@ -11,6 +11,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 import { GET, POST } from "@/app/api/takeoff/plan-sets/[setId]/files/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { PLAN_SET_MAX_FILES } from "@/lib/takeoff/plans";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -53,6 +54,7 @@ type SupabaseMockOptions = {
   planSets?: PlanSetStoredRow[];
   planFiles?: PlanFileStoredRow[];
   hasMembership?: boolean;
+  planFileInsertError?: { code: string; message: string };
 };
 
 type UploadInput = {
@@ -294,6 +296,17 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         return {
           select: vi.fn(() => createPlanFilesSelectBuilder()),
           insert: vi.fn((payload: unknown) => {
+            if (options.planFileInsertError) {
+              const failedInsertBuilder = {
+                select: vi.fn(() => failedInsertBuilder),
+                single: vi.fn(async () => ({
+                  data: null,
+                  error: options.planFileInsertError,
+                })),
+              };
+              return failedInsertBuilder;
+            }
+
             const raw = (Array.isArray(payload) ? payload[0] : payload) as
               | Partial<PlanFileStoredRow>
               | undefined;
@@ -542,6 +555,63 @@ describe("/api/takeoff/plan-sets/[setId]/files", () => {
     expect(response.status).toBe(413);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBeDefined();
+  });
+
+  it("returns 413 before upload when the plan set already contains 20 files", async () => {
+    const supabase = createSupabaseMock({
+      planFiles: Array.from({ length: PLAN_SET_MAX_FILES }, (_, index) =>
+        basePlanFile({
+          id: `66666666-6666-4666-8666-${String(index + 1).padStart(12, "0")}`,
+          file_name: `plan-${index + 1}.pdf`,
+          file_size_bytes: 1024,
+        })
+      ),
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await postUploadWithFallback(SET_ID, makeParams(), {
+      fileName: "plan-21.pdf",
+      fileType: "application/pdf",
+      fileSizeBytes: 1024,
+    });
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(413);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("TAKEOFF_PLAN_SET_BUDGET_EXCEEDED");
+    expect(supabase.__state.planFilesById.size).toBe(PLAN_SET_MAX_FILES);
+    expect(supabase.__state.uploads).toEqual([]);
+    expect(supabase.__state.signedUploadPaths).toEqual([]);
+  });
+
+  it("maps the atomic database budget rejection to the stable 413 API error", async () => {
+    const supabase = createSupabaseMock({
+      planFiles: [],
+      planFileInsertError: {
+        code: "23514",
+        message: "PLAN_SET_FILE_COUNT_BUDGET_EXCEEDED",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await postUploadWithFallback(SET_ID, makeParams(), {
+      fileName: "concurrent-plan.pdf",
+      fileType: "application/pdf",
+      fileSizeBytes: 1024,
+    });
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(413);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("TAKEOFF_PLAN_SET_BUDGET_EXCEEDED");
+    expect(supabase.__state.planFilesById.size).toBe(0);
+    expect(supabase.__state.signedUploadPaths).toEqual([]);
   });
 
   it("returns 404 when set does not exist", async () => {

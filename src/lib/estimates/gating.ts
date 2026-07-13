@@ -21,7 +21,11 @@ import {
 } from "@/lib/estimates/readiness";
 
 import { mapSupabaseError } from "./errors";
-import { evaluateRules, type EstimateRuleViolation } from "./rules-engine";
+import {
+  evaluateRules,
+  type EstimateRuleUnavailableSignal,
+  type EstimateRuleViolation,
+} from "./rules-engine";
 import { fetchVersionZeroDraftSummary } from "./version-zero-drafts";
 
 type Supabase = SupabaseClient<Database>;
@@ -617,6 +621,23 @@ export async function evaluateEstimateSendGating(
     } satisfies Record<string, unknown>;
   }
 
+  function toUnavailableRuleDetails(signals: EstimateRuleUnavailableSignal[]) {
+    return {
+      unavailable_signals: signals.map((signal) => ({
+        rule_id: signal.rule_id,
+        rule_type: signal.rule_type,
+        scope_type: signal.scope_type,
+        scope_id: signal.scope_id,
+        threshold_value: signal.threshold_value,
+        action: signal.action,
+        metric_key: signal.metric_key,
+        comparator: signal.comparator,
+        source_state: signal.source_state,
+        message: signal.message,
+      })),
+    } satisfies Record<string, unknown>;
+  }
+
   if (rulesEvaluation.blockingViolations.length > 0) {
     blockingFlags.push({
       key: "rule_violation",
@@ -640,6 +661,41 @@ export async function evaluateEstimateSendGating(
       label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description: ESTIMATE_GATING_FLAG_META.rule_violation.description,
       details: toRuleViolationDetails(rulesEvaluation.warningViolations),
+    });
+  }
+
+  const blockingUnavailableSignals = rulesEvaluation.unavailableSignals.filter(
+    (signal) => signal.action !== "warn"
+  );
+  const warningUnavailableSignals = rulesEvaluation.unavailableSignals.filter(
+    (signal) => signal.action === "warn"
+  );
+
+  if (blockingUnavailableSignals.length > 0) {
+    blockingFlags.push({
+      key: "rule_violation",
+      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+      severity: "blocking",
+      count: blockingUnavailableSignals.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
+      description:
+        "Des regles bloquantes ne peuvent pas etre evaluees avec les preuves disponibles.",
+      details: toUnavailableRuleDetails(blockingUnavailableSignals),
+    });
+  }
+
+  if (warningUnavailableSignals.length > 0) {
+    warningFlags.push({
+      key: "rule_violation",
+      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+      severity: "warning",
+      count: warningUnavailableSignals.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
+      description:
+        "Certaines regles d'avertissement ne peuvent pas etre evaluees avec les preuves disponibles.",
+      details: toUnavailableRuleDetails(warningUnavailableSignals),
     });
   }
 

@@ -23,6 +23,7 @@ import {
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -50,7 +51,9 @@ import {
 } from "@/lib/file-validation";
 import {
   assertTakeoffEnabled,
+  getTakeoffChunkingConfigForTenant,
   getTakeoffGeminiDeliveryConfigForTenant,
+  getTakeoffLevelCProcessingConfigForTenant,
   getTakeoffLowConfidenceThresholdForTenant,
 } from "@/lib/takeoff/feature-flags";
 import {
@@ -154,6 +157,11 @@ import {
   type TakeoffPriceSuggestionCandidate,
 } from "@/lib/takeoff/price-suggestions";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
+import {
+  inspectPlanSetResourceBudget,
+  PLAN_SET_MAX_FILES,
+  PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+} from "@/lib/takeoff/plans";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
 const TAKEOFF_STRUCTURED_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
@@ -1244,6 +1252,7 @@ async function resolvePlanSetSourceFile(input: {
   tenantId: string;
   planSetId: string;
   jobId: string;
+  maxPages: number;
 }) {
   const { data, error } = await input.supabase
     .from("plan_files" as never)
@@ -1275,6 +1284,30 @@ async function resolvePlanSetSourceFile(input: {
     });
   }
 
+  const resourceBudget = inspectPlanSetResourceBudget(planFiles, {
+    maxPages: input.maxPages,
+  });
+  if (resourceBudget.violation) {
+    throw new TakeoffError({
+      status: 413,
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      message: "Le jeu de plans depasse les limites de traitement autorisees.",
+      details: {
+        violation: resourceBudget.violation,
+        file_count: resourceBudget.fileCount,
+        max_file_count: PLAN_SET_MAX_FILES,
+        total_size_bytes: resourceBudget.totalSizeBytes,
+        max_total_size_bytes: PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+        known_page_count: resourceBudget.knownPageCount,
+        unknown_page_count: resourceBudget.unknownPageCount,
+        max_pdf_pages: input.maxPages,
+      },
+      retryable: false,
+      jobId: input.jobId,
+      level: TAKEOFF_PLAN_SET_LEVEL,
+    });
+  }
+
   const firstPlanFile = planFiles[0];
   const sourceFilePath =
     typeof firstPlanFile?.file_path === "string" && firstPlanFile.file_path.trim().length > 0
@@ -1289,7 +1322,7 @@ async function resolvePlanSetSourceFile(input: {
       ? firstPlanFile.file_type.trim()
       : "application/pdf";
   const sourceFileSizeBytes =
-    typeof firstPlanFile?.file_size_bytes === "number" ? firstPlanFile.file_size_bytes : null;
+    resourceBudget.totalSizeBytes;
 
   if (!sourceFilePath) {
     throw new TakeoffError({
@@ -5214,7 +5247,9 @@ export async function requestTakeoffPriceSuggestion(
   jobId: string,
   input: RequestTakeoffPriceSuggestionInput
 ): Promise<TakeoffPriceSuggestionResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -5488,7 +5523,9 @@ export async function reviewTakeoffPriceSuggestion(
   suggestionId: string,
   input: ReviewTakeoffPriceSuggestionInput
 ): Promise<ReviewTakeoffPriceSuggestionResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -5684,7 +5721,9 @@ export async function saveTakeoffDpgfManualLink(
   jobId: string,
   input: SaveTakeoffDpgfManualLinkInput
 ): Promise<SaveTakeoffDpgfManualLinkResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -5910,7 +5949,9 @@ export async function saveTakeoffReviewDecision(
   jobId: string,
   input: SaveTakeoffReviewDecisionInput
 ): Promise<SaveTakeoffReviewDecisionResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -6215,7 +6256,9 @@ export async function updateTakeoffRiskAlertStatus(
   alertId: string,
   input: UpdateTakeoffRiskAlertStatusInput
 ): Promise<UpdateTakeoffRiskAlertStatusResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -7576,7 +7619,7 @@ export async function applyTakeoffJob(
               blocked_items_count: guardResult.blocked_items.length,
               justification: overrideJustification,
             }),
-            mode: "non-blocking",
+            mode: "fail-hard",
           });
         } else {
           throw new TakeoffError({
@@ -7850,10 +7893,13 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
 }
 
 async function removeUploadedFileIfPresent(input: {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
   storagePath: string;
 }) {
-  const { error } = await input.supabase.storage
+  // The upload can exist before its takeoff_jobs row. The authenticated
+  // Storage DELETE policy intentionally requires that row, so rollback uses
+  // the server-only client for this server-generated exact path.
+  const storageAdmin = createServiceRoleClient();
+  const { error } = await storageAdmin.storage
     .from(TAKEOFF_FILES_BUCKET)
     .remove([input.storagePath]);
 
@@ -8069,7 +8115,6 @@ export async function createTakeoffJobFromFormData(
           }
 
           await removeUploadedFileIfPresent({
-            supabase,
             storagePath: sourceFilePath,
           });
 
@@ -8088,7 +8133,6 @@ export async function createTakeoffJobFromFormData(
         }
 
         await removeUploadedFileIfPresent({
-          supabase,
           storagePath: sourceFilePath,
         });
 
@@ -8107,7 +8151,6 @@ export async function createTakeoffJobFromFormData(
       }
 
       await removeUploadedFileIfPresent({
-        supabase,
         storagePath: sourceFilePath,
       });
 
@@ -8164,7 +8207,6 @@ export async function createTakeoffJobFromFormData(
       });
     } catch (error) {
       await removeUploadedFileIfPresent({
-        supabase,
         storagePath: sourceFilePath,
       });
       await removeCreatedJobIfPresent({
@@ -8216,11 +8258,12 @@ export async function createTakeoffJobFromPlanSet(input: {
     tenantRole,
     estimateVersionId: input.estimateVersionId,
   });
-  const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
-    tenantId,
-    level,
-    { supabase }
-  );
+  const [geminiDeliveryConfig, planSetPageConfig] = await Promise.all([
+    getTakeoffGeminiDeliveryConfigForTenant(tenantId, level, { supabase }),
+    level === "C"
+      ? getTakeoffLevelCProcessingConfigForTenant(tenantId, { supabase })
+      : getTakeoffChunkingConfigForTenant(tenantId, { supabase }),
+  ]);
   const processingStrategy = resolveTakeoffProcessingStrategy(
     geminiDeliveryConfig.useBatchApi
   );
@@ -8249,6 +8292,7 @@ export async function createTakeoffJobFromPlanSet(input: {
     tenantId,
     planSetId: input.planSetId,
     jobId,
+    maxPages: planSetPageConfig.maxPdfPages,
   });
   const planSetClassification = classifyTakeoffPlanSetSource({
     files: sourceFile.planFiles.map((planFile) => ({
@@ -8377,7 +8421,9 @@ export async function batchUpdateTakeoffItems(
   jobId: string,
   body: unknown
 ): Promise<TakeoffItemBatchPatchResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,

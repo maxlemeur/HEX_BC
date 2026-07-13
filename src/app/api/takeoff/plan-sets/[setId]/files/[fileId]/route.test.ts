@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { createServiceRoleClientMock } = vi.hoisted(() => ({
+  createServiceRoleClientMock: vi.fn(),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: createServiceRoleClientMock,
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
@@ -53,7 +61,9 @@ type SupabaseMockOptions = {
   planSets?: PlanSetStoredRow[];
   planFiles?: PlanFileStoredRow[];
   hasMembership?: boolean;
+  membershipRole?: "admin" | "engineer" | "viewer";
   signedDownloadBehavior?: "success" | "missing";
+  storageRemoveError?: { message: string } | null;
 };
 
 function basePlanSet(input?: Partial<PlanSetStoredRow>): PlanSetStoredRow {
@@ -122,7 +132,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       ? [
           {
             tenant_id: TENANT_ID,
-            role: "admin",
+            role: options.membershipRole ?? "admin",
             is_default: true,
             created_at: "2026-01-01T00:00:00.000Z",
           },
@@ -307,7 +317,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           }),
           remove: vi.fn(async (paths: string[]) => {
             state.storageRemovals.push(...paths);
-            return { data: null, error: null };
+            return {
+              data: null,
+              error: options.storageRemoveError ?? null,
+            };
           }),
         };
       }),
@@ -328,6 +341,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       if (table === "plan_files") {
         return {
           select: vi.fn(() => createPlanFilesSelectBuilder()),
+          insert: vi.fn(async (payload: PlanFileStoredRow) => {
+            state.planFilesById.set(payload.id, payload);
+            return { data: null, error: null };
+          }),
           delete: vi.fn(() => createPlanFilesDeleteBuilder()),
         };
       }
@@ -416,30 +433,72 @@ describe("/api/takeoff/plan-sets/[setId]/files/[fileId]", () => {
     expect(body.data?.plan_file?.download_url).toBeNull();
   });
 
-  it("DELETE removes the file and associated storage object", async () => {
-    const supabase = createSupabaseMock();
+  it.each(["admin", "engineer"] as const)(
+    "DELETE removes the file and associated storage object for an %s",
+    async (membershipRole) => {
+      const supabase = createSupabaseMock({ membershipRole });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+      createServiceRoleClientMock.mockReturnValue(supabase);
+
+      const response = await DELETE(
+        new Request(
+          `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}`,
+          {
+            method: "DELETE",
+          }
+        ),
+        makeParams()
+      );
+      const body = (await response.json()) as {
+        ok: boolean;
+        data?: unknown;
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(supabase.__state.planFilesById.has(FILE_ID)).toBe(false);
+      expect(supabase.__state.storageRemovals).toContain(
+        `${TENANT_ID}/${SET_ID}/${FILE_ID}/rdc.pdf`
+      );
+      expect(createServiceRoleClientMock).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("DELETE rejects a viewer before file or Storage mutation", async () => {
+    const supabase = createSupabaseMock({ membershipRole: "viewer" });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const response = await DELETE(
       new Request(
         `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}`,
-        {
-          method: "DELETE",
-        }
+        { method: "DELETE" }
       ),
       makeParams()
     );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: unknown;
-    };
 
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(supabase.__state.planFilesById.has(FILE_ID)).toBe(false);
-    expect(supabase.__state.storageRemovals).toContain(
-      `${TENANT_ID}/${SET_ID}/${FILE_ID}/rdc.pdf`
+    expect(response.status).toBe(403);
+    expect(supabase.__state.planFilesById.has(FILE_ID)).toBe(true);
+    expect(supabase.__state.storageRemovals).toHaveLength(0);
+    expect(createServiceRoleClientMock).not.toHaveBeenCalled();
+  });
+
+  it("DELETE restores file metadata when server-side Storage cleanup fails", async () => {
+    const supabase = createSupabaseMock({
+      storageRemoveError: { message: "storage unavailable" },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    createServiceRoleClientMock.mockReturnValue(supabase);
+
+    const response = await DELETE(
+      new Request(
+        `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}`,
+        { method: "DELETE" }
+      ),
+      makeParams()
     );
+
+    expect(response.status).toBe(409);
+    expect(supabase.__state.planFilesById.has(FILE_ID)).toBe(true);
   });
 
   it("returns 400 for invalid fileId", async () => {

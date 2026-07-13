@@ -4,6 +4,10 @@ import { PDFDocument } from "pdf-lib";
 import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import {
+  PLAN_SET_MAX_FILES,
+  PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+} from "@/lib/takeoff/plans";
+import {
   processLevelA,
   processLevelB,
   processLevelC,
@@ -151,12 +155,14 @@ type SupabaseMockOptions = {
     file_path: string;
     file_name?: string | null;
     file_type?: string | null;
+    file_size_bytes?: number;
     page_count: number | null;
     metadata: Record<string, unknown>;
   }>;
   planFile?: {
     id: string;
     file_path: string;
+    file_size_bytes?: number;
     page_count: number | null;
     metadata: Record<string, unknown>;
   } | null;
@@ -194,6 +200,7 @@ type SupabaseMockState = {
     file_path: string;
     file_name: string | null;
     file_type: string | null;
+    file_size_bytes: number;
     page_count: number | null;
     metadata: Record<string, unknown>;
   }>;
@@ -204,6 +211,7 @@ type SupabaseMockState = {
     file_path: string;
     file_name: string | null;
     file_type: string | null;
+    file_size_bytes: number;
     page_count: number | null;
     metadata: Record<string, unknown>;
   } | null;
@@ -330,6 +338,7 @@ function createTakeoffProcessorSupabaseMock(
         ) => Promise<
           QueryResponse<{
             type: string;
+            size: number;
             arrayBuffer: () => Promise<ArrayBuffer>;
           } | null>
         >;
@@ -403,6 +412,7 @@ function createTakeoffProcessorSupabaseMock(
           file_path: planFile.file_path,
           file_name: planFile.file_name ?? null,
           file_type: planFile.file_type ?? null,
+          file_size_bytes: planFile.file_size_bytes ?? 1024,
           page_count: planFile.page_count,
           metadata: deepClone(planFile.metadata),
         }))
@@ -415,6 +425,7 @@ function createTakeoffProcessorSupabaseMock(
             file_path: options.planFile.file_path,
             file_name: null,
             file_type: null,
+            file_size_bytes: options.planFile.file_size_bytes ?? 1024,
             page_count: options.planFile.page_count,
             metadata: deepClone(options.planFile.metadata),
           },
@@ -431,6 +442,7 @@ function createTakeoffProcessorSupabaseMock(
             file_path: options.planFile.file_path,
             file_name: null,
             file_type: null,
+            file_size_bytes: options.planFile.file_size_bytes ?? 1024,
             page_count: options.planFile.page_count,
             metadata: deepClone(options.planFile.metadata),
           }
@@ -920,6 +932,8 @@ function createTakeoffProcessorSupabaseMock(
         file_path: string | null;
         file_name: string | null;
         file_type: string | null;
+        file_size_bytes: number;
+        page_count: number | null;
       }>
     > = (onfulfilled, onrejected) => {
       const data = state.planFiles
@@ -939,6 +953,8 @@ function createTakeoffProcessorSupabaseMock(
           file_path: planFile.file_path,
           file_name: planFile.file_name,
           file_type: planFile.file_type,
+          file_size_bytes: planFile.file_size_bytes,
+          page_count: planFile.page_count,
         }));
 
       return Promise.resolve({
@@ -1055,6 +1071,7 @@ function createTakeoffProcessorSupabaseMock(
             ): Promise<
               QueryResponse<{
                 type: string;
+                size: number;
                 arrayBuffer: () => Promise<ArrayBuffer>;
               } | null>
             > => {
@@ -1075,6 +1092,7 @@ function createTakeoffProcessorSupabaseMock(
                 return {
                   data: {
                     type: planDownload.mimeType,
+                    size: planDownload.bytes.byteLength,
                     arrayBuffer: async () => planDownload.bytes,
                   },
                   error: null,
@@ -1094,6 +1112,7 @@ function createTakeoffProcessorSupabaseMock(
               return {
                 data: {
                   type: downloadFile.mimeType,
+                  size: downloadFile.bytes.byteLength,
                   arrayBuffer: async () => downloadFile.bytes,
                 },
                 error: null,
@@ -2152,6 +2171,8 @@ describe("processLevelB", () => {
         source_file_name: "niveau-b.pdf",
         source_file_path: DEFAULT_SOURCE_PATH_B,
         source_file_type: "application/pdf",
+        processing_strategy: "batch",
+        prompt_version: "takeoff-b-legacy",
       },
       downloadFile: {
         bytes: pdfBytes,
@@ -2219,6 +2240,8 @@ describe("processLevelB", () => {
     );
 
     expect(mock.state.job.status).toBe("completed");
+    expect(mock.state.job.processing_strategy).toBe("sync");
+    expect(mock.state.job.prompt_version).toBe("takeoff-b-v1");
     expect(mock.state.job.token_count).toBe(5_200);
     expect(mock.state.job.cost_cents).toBe(154);
     expect(mock.state.job.duration_ms).toBe(3_800);
@@ -2450,7 +2473,168 @@ describe("processLevelB", () => {
     expect(mock.state.job.error_code).toBe(TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED);
   });
 
-  it("preserves per-file source names when a plan set is merged into one PDF", async () => {
+  it("rejects an over-cardinality plan set before any Storage download", async () => {
+    const planSetId = "55555555-5555-4555-8555-555555555555";
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        plan_set_id: planSetId,
+        source_file_name: "plan-1.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      planFiles: Array.from({ length: PLAN_SET_MAX_FILES + 1 }, (_, index) => ({
+        id: `88888888-8888-4888-8888-${String(index + 1).padStart(12, "0")}`,
+        plan_set_id: planSetId,
+        file_path: `${TENANT_ID}/${planSetId}/plan-${index + 1}.pdf`,
+        file_name: `plan-${index + 1}.pdf`,
+        file_type: "application/pdf",
+        file_size_bytes: 1024,
+        page_count: 1,
+        metadata: {},
+      })),
+    });
+    const callGemini = vi.fn();
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      details: expect.objectContaining({
+        phase: "metadata",
+        violation: "file_count",
+      }),
+    });
+
+    expect(mock.state.downloadRequests).toEqual([]);
+    expect(callGemini).not.toHaveBeenCalled();
+  });
+
+  it("rejects aggregate declared bytes before any Storage download", async () => {
+    const planSetId = "55555555-5555-4555-8555-555555555555";
+    const perFileSize = Math.floor(PLAN_SET_MAX_TOTAL_SIZE_BYTES / 3) + 1;
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        plan_set_id: planSetId,
+        source_file_name: "plan-1.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      planFiles: Array.from({ length: 3 }, (_, index) => ({
+        id: `77777777-7777-4777-8777-${String(index + 1).padStart(12, "0")}`,
+        plan_set_id: planSetId,
+        file_path: `${TENANT_ID}/${planSetId}/volume-${index + 1}.pdf`,
+        file_name: `volume-${index + 1}.pdf`,
+        file_type: "application/pdf",
+        file_size_bytes: perFileSize,
+        page_count: 1,
+        metadata: {},
+      })),
+    });
+    const callGemini = vi.fn();
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      details: expect.objectContaining({
+        phase: "metadata",
+        violation: "total_size",
+      }),
+    });
+
+    expect(mock.state.downloadRequests).toEqual([]);
+    expect(callGemini).not.toHaveBeenCalled();
+  });
+
+  it("rechecks real aggregate PDF pages before copying the merged document", async () => {
+    const planSetId = "55555555-5555-4555-8555-555555555555";
+    const firstPlanPath = `${TENANT_ID}/${planSetId}/mutated-a.pdf`;
+    const secondPlanPath = `${TENANT_ID}/${planSetId}/mutated-b.pdf`;
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        plan_set_id: planSetId,
+        source_file_name: "mutated-a.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_MAX_PDF_PAGES: "3",
+      },
+      planFiles: [
+        {
+          id: "66666666-6666-4666-8666-666666666661",
+          plan_set_id: planSetId,
+          file_path: firstPlanPath,
+          file_name: "mutated-a.pdf",
+          file_type: "application/pdf",
+          file_size_bytes: 1024,
+          page_count: 1,
+          metadata: {},
+        },
+        {
+          id: "66666666-6666-4666-8666-666666666662",
+          plan_set_id: planSetId,
+          file_path: secondPlanPath,
+          file_name: "mutated-b.pdf",
+          file_type: "application/pdf",
+          file_size_bytes: 1024,
+          page_count: 1,
+          metadata: {},
+        },
+      ],
+      planFileDownloads: {
+        [firstPlanPath]: {
+          bytes: await createPdfArrayBuffer(2),
+          mimeType: "application/pdf",
+        },
+        [secondPlanPath]: {
+          bytes: await createPdfArrayBuffer(2),
+          mimeType: "application/pdf",
+        },
+      },
+    });
+    const callGemini = vi.fn();
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      details: expect.objectContaining({
+        phase: "pdf",
+        violation: "total_pages",
+        known_page_count: 4,
+      }),
+    });
+
+    expect(mock.state.downloadRequests).toEqual([
+      firstPlanPath,
+      secondPlanPath,
+    ]);
+    expect(callGemini).not.toHaveBeenCalled();
+  });
+
+  it("preserves per-file source names and page counts across a multi-PDF rerun", async () => {
     const planSetId = "55555555-5555-4555-8555-555555555555";
     const firstPlanPath = `${TENANT_ID}/${planSetId}/plan-a.pdf`;
     const secondPlanPath = `${TENANT_ID}/${planSetId}/plan-b.pdf`;
@@ -2461,6 +2645,9 @@ describe("processLevelB", () => {
         source_file_name: "plan-a.pdf",
         source_file_path: null,
         source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_MAX_PDF_PAGES: "3",
       },
       planFiles: [
         {
@@ -2570,6 +2757,55 @@ describe("processLevelB", () => {
         }),
       ])
     );
+    expect(
+      mock.state.planFiles.map((planFile) => planFile.page_count)
+    ).toEqual([1, 2]);
+
+    const retryMock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        plan_set_id: planSetId,
+        source_file_name: "plan-a.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_MAX_PDF_PAGES: "3",
+      },
+      planFiles: mock.state.planFiles.map((planFile) => ({
+        ...planFile,
+        metadata: deepClone(planFile.metadata),
+      })),
+      planFileDownloads: {
+        [firstPlanPath]: {
+          bytes: await createPdfArrayBuffer(1),
+          mimeType: "application/pdf",
+        },
+        [secondPlanPath]: {
+          bytes: await createPdfArrayBuffer(2),
+          mimeType: "application/pdf",
+        },
+      },
+    });
+    const retryCallGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, {
+        model: "gemini-3.1-pro-preview",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    await processLevelB(JOB_ID, {
+      supabase: retryMock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini: retryCallGemini,
+    });
+
+    expect(retryMock.state.job.status).toBe("completed");
+    expect(
+      retryMock.state.planFiles.map((planFile) => planFile.page_count)
+    ).toEqual([1, 2]);
   });
 
   it("chunks Level B PDF extraction using tenant page/chunk configuration", async () => {

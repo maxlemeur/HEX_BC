@@ -10,6 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ORDER_ID = "44444444-4444-4444-8444-444444444444";
+const TENANT_ID = "55555555-5555-4555-8555-555555555555";
 
 function createPutSupabaseMock() {
   const headerUpdates: Record<string, unknown>[] = [];
@@ -30,6 +31,7 @@ function createPutSupabaseMock() {
   const selectSingle = vi.fn().mockResolvedValue({
     data: {
       id: ORDER_ID,
+      tenant_id: TENANT_ID,
       status: "draft",
     },
     error: null,
@@ -87,6 +89,21 @@ function createPutSupabaseMock() {
       }),
     },
     from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue({
+                  data: [{ tenant_id: TENANT_ID, role: "engineer" }],
+                  error: null,
+                }),
+              })),
+            })),
+          })),
+        };
+      }
+
       if (table === "purchase_orders") {
         return {
           select: purchaseOrdersSelect,

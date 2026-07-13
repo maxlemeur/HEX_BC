@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import {
+  canWritePurchaseOrders,
+  getAccessiblePurchaseOrderOrNull,
+} from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type ReorderRequestBody = {
@@ -48,13 +51,21 @@ export async function PATCH(
 
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
+    tenant_id: string;
     status: "draft" | "sent" | "confirmed" | "received" | "canceled";
-  }>(supabase, id, "id, status");
+  }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, user.id, order.tenant_id))) {
+    return NextResponse.json(
+      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { status: 403 }
     );
   }
 

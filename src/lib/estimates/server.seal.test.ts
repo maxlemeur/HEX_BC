@@ -333,6 +333,23 @@ describe("estimate status seal flow", () => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    mockServiceRoleRpc.mockImplementation(
+      async (functionName: string, parameters: Record<string, unknown>) => {
+        if (functionName === "transition_estimate_version_status") {
+          return {
+            data: {
+              id: VERSION_ID,
+              status: parameters.p_next_status,
+              updated_at: NEXT_UPDATED_AT,
+              seal_hash: parameters.p_seal_hash,
+            },
+            error: null,
+          };
+        }
+
+        return { data: null, error: null };
+      }
+    );
   });
 
   it("rejects status update when concurrency token is missing", async () => {
@@ -397,18 +414,18 @@ describe("estimate status seal flow", () => {
         data: [],
         error: null,
       },
-      updateResult: {
-        data: null,
-        error: {
-          code: "PGRST116",
-          message: "No rows found",
-          details: null,
-          hint: null,
-        },
-      },
     });
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    mockServiceRoleRpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "40001",
+        message: "ESTIMATE_VERSION_CONFLICT",
+        details: null,
+        hint: null,
+      },
+    });
 
     await expect(
       patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT)
@@ -421,8 +438,13 @@ describe("estimate status seal flow", () => {
       },
     });
 
-    expect(supabase.__mocks.updateEqCalls).toEqual(
-      expect.arrayContaining([["updated_at", UPDATED_AT]])
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith(
+      "transition_estimate_version_status",
+      expect.objectContaining({
+        p_version_id: VERSION_ID,
+        p_expected_updated_at: UPDATED_AT,
+        p_next_status: "accepted",
+      })
     );
   });
 
@@ -550,7 +572,7 @@ describe("estimate status seal flow", () => {
     expect(supabase.__mocks.updatePayloads).toEqual([]);
   });
 
-  it("computes seal hash and inserts sent event on draft -> sent", async () => {
+  it("computes the seal and uses the atomic trusted send command", async () => {
     const supabase = createSupabaseSealMock({
       versionSelectResponses: [
         {
@@ -613,26 +635,18 @@ describe("estimate status seal flow", () => {
       }),
     });
 
-    expect(supabase.__mocks.updatePayloads).toHaveLength(1);
-    const updatePayload = supabase.__mocks.updatePayloads[0] as {
-      status: string;
-      seal_hash: string;
-    };
-    expect(updatePayload.status).toBe("sent");
-    expect(updatePayload.seal_hash).toMatch(/^[0-9a-f]{64}$/);
-
+    expect(supabase.__mocks.updatePayloads).toEqual([]);
     expect(supabase.__mocks.eventInsert).not.toHaveBeenCalled();
     expect(mockServiceRoleRpc).toHaveBeenCalledWith(
-      "log_estimate_version_event",
+      "transition_estimate_version_status",
       expect.objectContaining({
-        p_estimate_version_id: VERSION_ID,
-        p_event_type: "sent",
-        p_created_by: USER_ID,
-        p_metadata: expect.objectContaining({
-          previous_status: "draft",
-          next_status: "sent",
-          seal_hash: updatePayload.seal_hash,
-        }),
+        p_version_id: VERSION_ID,
+        p_tenant_id: TENANT_ID,
+        p_expected_updated_at: UPDATED_AT,
+        p_next_status: "sent",
+        p_seal_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        p_actor_user_id: USER_ID,
+        p_event_metadata: {},
         p_occurred_at: expect.any(String),
       })
     );

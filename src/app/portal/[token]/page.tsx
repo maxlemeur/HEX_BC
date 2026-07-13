@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { PortalActions } from "@/components/portal/PortalActions";
@@ -44,7 +44,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
   // 1. Lookup portal token
   const { data: portalToken, error: tokenError } = await supabase
     .from("portal_tokens")
-    .select("id, version_id, status, expires_at, email")
+    .select("id, tenant_id, version_id, status, expires_at, email")
     .eq("token", token)
     .single();
 
@@ -54,18 +54,18 @@ export default async function PortalPage({ params }: PortalPageProps) {
 
   // 2. Determine effective status (check expiry)
   const isExpired = new Date(portalToken.expires_at) < new Date();
-  const effectiveStatus: PortalTokenStatus =
-    portalToken.status === "pending" && isExpired
-      ? "expired"
-      : (portalToken.status as PortalTokenStatus);
+  if (portalToken.status === "expired" || isExpired) {
+    if (isExpired && portalToken.status === "pending") {
+      await supabase
+        .from("portal_tokens")
+        .update({ status: "expired" })
+        .eq("id", portalToken.id);
+    }
 
-  if (effectiveStatus === "expired" && portalToken.status === "pending") {
-    // Auto-update expired tokens in DB
-    await supabase
-      .from("portal_tokens")
-      .update({ status: "expired" })
-      .eq("id", portalToken.id);
+    redirect(`/portal/${token}/expired`);
   }
+
+  const effectiveStatus = portalToken.status as PortalTokenStatus;
 
   // 3. Load estimate version + items
   const versionId = portalToken.version_id;
@@ -77,11 +77,13 @@ export default async function PortalPage({ params }: PortalPageProps) {
         "project_id, tenant_id, version_number, status, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
       )
       .eq("id", versionId)
+      .eq("tenant_id", portalToken.tenant_id)
       .single(),
     supabase
       .from("estimate_items")
       .select("*")
       .eq("version_id", versionId)
+      .eq("tenant_id", portalToken.tenant_id)
       .order("position", { ascending: true }),
   ]);
 

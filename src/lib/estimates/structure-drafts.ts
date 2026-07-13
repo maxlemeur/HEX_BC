@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import {
   normalizeMappedRowsForEstimateCreation,
@@ -31,6 +31,7 @@ import {
   estimateStructureDraftApplyModeSchema,
   generateEstimateStructureDraftSchema,
 } from "./schemas";
+import { assertCanWriteEstimateWorkflows } from "./write-access";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -141,6 +142,23 @@ type AuthenticatedContext = {
   userId: string;
   tenantId: string;
   tenantRole: TenantRole;
+};
+
+export type EstimateAiGenerationOperation =
+  | "structure_draft"
+  | "version_zero_draft";
+
+type EstimateAiGenerationRpc = (
+  functionName: string,
+  args: Record<string, unknown>
+) => Promise<{
+  data: unknown;
+  error: PostgrestError | null;
+}>;
+
+type EstimateAiGenerationLeaseRow = {
+  claimed: boolean;
+  retry_after_seconds: number | null;
 };
 
 export type EstimateStructureDraftSourceSummary = {
@@ -354,6 +372,80 @@ const EstimateStructureGeminiExchangeSchema = z.object({
   summary: z.union([z.string().trim().min(1).max(400), z.null()]).default(null),
   roots: z.array(EstimateStructureGeminiNodeSchema).min(1).max(24),
 });
+
+function estimateAiGenerationRpc(supabase: Supabase) {
+  return supabase.rpc.bind(supabase) as unknown as EstimateAiGenerationRpc;
+}
+
+function readEstimateAiGenerationLeaseRow(
+  value: unknown
+): EstimateAiGenerationLeaseRow | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const candidate = row as Partial<EstimateAiGenerationLeaseRow>;
+  if (typeof candidate.claimed !== "boolean") {
+    return null;
+  }
+
+  return {
+    claimed: candidate.claimed,
+    retry_after_seconds:
+      typeof candidate.retry_after_seconds === "number"
+        ? Math.max(1, Math.trunc(candidate.retry_after_seconds))
+        : null,
+  };
+}
+
+export async function withEstimateAiGenerationLease<T>(input: {
+  supabase: Supabase;
+  versionId: string;
+  operation: EstimateAiGenerationOperation;
+  run: () => Promise<T>;
+}) {
+  const leaseToken = randomUUID();
+  const rpc = estimateAiGenerationRpc(input.supabase);
+  const { data, error } = await rpc("acquire_estimate_ai_generation_lease", {
+    p_version_id: input.versionId,
+    p_operation: input.operation,
+    p_lease_token: leaseToken,
+  });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de reserver le budget de generation IA."
+    );
+  }
+
+  const lease = readEstimateAiGenerationLeaseRow(data);
+  if (!lease?.claimed) {
+    throw conflict(
+      "Une generation IA est deja en cours ou a ete lancee recemment pour cette version.",
+      { retry_after_seconds: lease?.retry_after_seconds ?? null },
+      "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED"
+    );
+  }
+
+  try {
+    return await input.run();
+  } finally {
+    const completion = await rpc("complete_estimate_ai_generation_lease", {
+      p_version_id: input.versionId,
+      p_operation: input.operation,
+      p_lease_token: leaseToken,
+    });
+    if (completion.error) {
+      console.error("estimate.ai_generation.lease_completion_failed", {
+        operation: input.operation,
+        version_id: input.versionId,
+        code: completion.error.code,
+      });
+    }
+  }
+}
 
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (!value) return null;
@@ -2074,6 +2166,7 @@ async function tryGenerateGeminiNodes(input: {
     prompt,
     schema: EstimateStructureGeminiExchangeSchema,
     thinkingLevel: ESTIMATE_STRUCTURE_PROMPT_THINKING_LEVEL,
+    maxRetries: 0,
     context: {
       model: ESTIMATE_STRUCTURE_PROMPT_MODEL,
       promptVersion: ESTIMATE_STRUCTURE_PROMPT_VERSION,
@@ -2284,6 +2377,7 @@ export async function generateEstimateStructureDraft(
   input: GenerateEstimateStructureDraftInput
 ): Promise<EstimateStructureDraftResult> {
   const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
 
@@ -2318,106 +2412,124 @@ export async function generateEstimateStructureDraft(
     (existingItemsData ?? []) as EstimateItemRow[]
   );
 
-  const generation = await buildDraftNodesFromSources({
-    sourceEntries: sourceBundle.source_entries,
-    sourceSummaries: sourceBundle.source_summaries,
-    promptSources: sourceBundle.prompt_sources,
-    project,
-    existingSections,
-  });
-  const summary = buildDraftSummary(generation.nodes);
-
-  await discardPendingDrafts({
+  return withEstimateAiGenerationLease({
     supabase,
-    tenantId,
     versionId,
-    userId,
-  });
+    operation: "structure_draft",
+    run: async () => {
+      const generation = await buildDraftNodesFromSources({
+        sourceEntries: sourceBundle.source_entries,
+        sourceSummaries: sourceBundle.source_summaries,
+        promptSources: sourceBundle.prompt_sources,
+        project,
+        existingSections,
+      });
+      const summary = buildDraftSummary(generation.nodes);
 
-  const draftInsert: EstimateStructureDraftInsert = {
-    tenant_id: tenantId,
-    project_id: project.id,
-    target_version_id: versionId,
-    created_by: userId,
-    status: "pending",
-    strategy: input.strategy ?? "hybrid",
-    summary: toJson(summary),
-    source_overview: toJson(sourceBundle.source_summaries),
-    generation_metadata: toJson(generation.metadata),
-    applied_at: null,
-  };
+      await discardPendingDrafts({
+        supabase,
+        tenantId,
+        versionId,
+        userId,
+      });
 
-  const { data: draftData, error: draftError } = await supabase
-    .from("estimate_structure_drafts")
-    .insert(draftInsert)
-    .select("*")
-    .single();
+      const draftInsert: EstimateStructureDraftInsert = {
+        tenant_id: tenantId,
+        project_id: project.id,
+        target_version_id: versionId,
+        created_by: userId,
+        status: "pending",
+        strategy: input.strategy ?? "hybrid",
+        summary: toJson(summary),
+        source_overview: toJson(sourceBundle.source_summaries),
+        generation_metadata: toJson(generation.metadata),
+        applied_at: null,
+      };
 
-  if (draftError || !draftData) {
-    if (draftError) {
-      throw mapSupabaseError(draftError, "Impossible de creer la preview de structure.");
-    }
-
-    throw badRequest("Impossible de creer la preview de structure.");
-  }
-
-  const flattenedNodes = flattenDraftNodes(generation.nodes);
-  const nodeIdMap = new Map(flattenedNodes.map((node) => [node.id, randomUUID()] as const));
-
-  const nodesInsert: EstimateStructureDraftNodeInsert[] = flattenedNodes.map((node) => ({
-    id: nodeIdMap.get(node.id) ?? randomUUID(),
-    tenant_id: tenantId,
-    draft_id: draftData.id,
-    parent_node_id: node.parent_id ? nodeIdMap.get(node.parent_id) ?? null : null,
-    order_index: node.order_index,
-    hierarchy_level: node.hierarchy_level,
-    label: node.label,
-    normalized_label: node.normalized_label,
-    confidence: node.confidence,
-    default_action: node.default_action,
-    duplicate_match_item_id: node.duplicate_match_item_id,
-    duplicate_match_path: node.duplicate_match_path,
-    provenance: toJson(node.provenance),
-    facts: toJson(node.facts),
-    hypotheses: toJson(node.hypotheses),
-    inferences: toJson(node.inferences),
-  }));
-
-  if (nodesInsert.length > 0) {
-    const { error: insertNodesError } = await supabase
-      .from("estimate_structure_draft_nodes")
-      .insert(nodesInsert);
-
-    if (insertNodesError) {
-      await supabase
+      const { data: draftData, error: draftError } = await supabase
         .from("estimate_structure_drafts")
-        .delete()
-        .eq("tenant_id", tenantId)
-        .eq("id", draftData.id);
-      throw mapSupabaseError(
-        insertNodesError,
-        "Impossible d'enregistrer les noeuds de structure."
+        .insert(draftInsert)
+        .select("*")
+        .single();
+
+      if (draftError || !draftData) {
+        if (draftError) {
+          throw mapSupabaseError(
+            draftError,
+            "Impossible de creer la preview de structure."
+          );
+        }
+
+        throw badRequest("Impossible de creer la preview de structure.");
+      }
+
+      const flattenedNodes = flattenDraftNodes(generation.nodes);
+      const nodeIdMap = new Map(
+        flattenedNodes.map((node) => [node.id, randomUUID()] as const)
       );
-    }
-  }
 
-  const persistedNodes = rebuildDraftNodes(
-    flattenedNodes.map((node) => ({
-      ...node,
-      id: nodeIdMap.get(node.id) ?? node.id,
-      parent_id: node.parent_id ? nodeIdMap.get(node.parent_id) ?? null : null,
-    }) satisfies EstimateStructureDraftNodePayloadFlat)
-  );
+      const nodesInsert: EstimateStructureDraftNodeInsert[] = flattenedNodes.map(
+        (node) => ({
+          id: nodeIdMap.get(node.id) ?? randomUUID(),
+          tenant_id: tenantId,
+          draft_id: draftData.id,
+          parent_node_id: node.parent_id
+            ? nodeIdMap.get(node.parent_id) ?? null
+            : null,
+          order_index: node.order_index,
+          hierarchy_level: node.hierarchy_level,
+          label: node.label,
+          normalized_label: node.normalized_label,
+          confidence: node.confidence,
+          default_action: node.default_action,
+          duplicate_match_item_id: node.duplicate_match_item_id,
+          duplicate_match_path: node.duplicate_match_path,
+          provenance: toJson(node.provenance),
+          facts: toJson(node.facts),
+          hypotheses: toJson(node.hypotheses),
+          inferences: toJson(node.inferences),
+        })
+      );
 
-  return {
-    draft_id: draftData.id,
-    version_id: versionId,
-    strategy: input.strategy ?? "hybrid",
-    sources: sourceBundle.source_summaries,
-    summary,
-    nodes: persistedNodes,
-    generated_at: draftData.created_at,
-  };
+      if (nodesInsert.length > 0) {
+        const { error: insertNodesError } = await supabase
+          .from("estimate_structure_draft_nodes")
+          .insert(nodesInsert);
+
+        if (insertNodesError) {
+          await supabase
+            .from("estimate_structure_drafts")
+            .delete()
+            .eq("tenant_id", tenantId)
+            .eq("id", draftData.id);
+          throw mapSupabaseError(
+            insertNodesError,
+            "Impossible d'enregistrer les noeuds de structure."
+          );
+        }
+      }
+
+      const persistedNodes = rebuildDraftNodes(
+        flattenedNodes.map((node) => ({
+          ...node,
+          id: nodeIdMap.get(node.id) ?? node.id,
+          parent_id: node.parent_id
+            ? nodeIdMap.get(node.parent_id) ?? null
+            : null,
+        }) satisfies EstimateStructureDraftNodePayloadFlat)
+      );
+
+      return {
+        draft_id: draftData.id,
+        version_id: versionId,
+        strategy: input.strategy ?? "hybrid",
+        sources: sourceBundle.source_summaries,
+        summary,
+        nodes: persistedNodes,
+        generated_at: draftData.created_at,
+      };
+    },
+  });
 }
 
 export async function getEstimateStructureDraft(
@@ -2697,6 +2809,7 @@ export async function applyEstimateStructureDraft(
   input: ApplyEstimateStructureDraftInput
 ): Promise<EstimateStructureDraftApplyResult> {
   const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 

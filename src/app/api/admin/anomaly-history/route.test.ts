@@ -299,4 +299,35 @@ describe("/api/admin/anomaly-history", () => {
       '"Projet; ""Nord""\nPhase 2"'
     );
   });
+
+  it("neutralizes spreadsheet formulas in CSV exports", async () => {
+    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
+    vi.mocked(getCurrentAnomalySummary).mockResolvedValue({
+      summary: EMPTY_SUMMARY_RESULT.summary,
+      currentAnomalies: [
+        {
+          versionId: "v1",
+          versionLabel: "+1+1",
+          projectName: '=HYPERLINK("https://example.invalid")',
+          ownerUserId: "u1",
+          ownerName: "  @SUM(1,1)",
+          flagKey: "missing_price" as const,
+          flagLabel: "-2+3",
+          severity: "blocking" as const,
+          itemCount: 3,
+        },
+      ],
+      ownerOptions: [],
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/anomaly-history?format=csv")
+    );
+    const text = await response.text();
+
+    expect(text).toContain("'+1+1");
+    expect(text).toContain("'=HYPERLINK");
+    expect(text).toContain("'  @SUM");
+    expect(text).toContain("'-2+3");
+  });
 });

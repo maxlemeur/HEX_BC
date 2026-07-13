@@ -249,10 +249,12 @@ describe("POST /api/portal/[token]/accept", () => {
     expect(json.status).toBe("accepted");
     expect(json.accepted_at).toBeTruthy();
 
-    // Verify token claimed with correct data
-    expect(mockTokenPatchUpdate).toHaveBeenCalledWith(
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_portal_estimate_decision",
       expect.objectContaining({
-        status: "accepted",
+        p_portal_token_id: "token-id-1",
+        p_decision: "accepted",
+        p_client_ip: null,
       })
     );
   });
@@ -289,9 +291,9 @@ describe("POST /api/portal/[token]/accept", () => {
       data: PENDING_TOKEN,
       error: null,
     });
-    mockTokenUpdateSingle.mockResolvedValueOnce({
+    mockRpc.mockResolvedValueOnce({
       data: null,
-      error: { code: "PGRST116" },
+      error: { code: "P0001" },
     });
 
     const res = await POST(
@@ -342,14 +344,15 @@ describe("POST /api/portal/[token]/accept", () => {
       makeParams()
     );
 
-    expect(mockTokenPatchUpdate).toHaveBeenCalledWith(
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_portal_estimate_decision",
       expect.objectContaining({
-        accepted_ip: "1.2.3.4",
+        p_client_ip: "1.2.3.4",
       })
     );
   });
 
-  it("logs accepted event via RPC", async () => {
+  it("delegates accepted audit creation to the atomic decision RPC", async () => {
     mockTokenLookupSingle.mockResolvedValueOnce({
       data: PENDING_TOKEN,
       error: null,
@@ -362,16 +365,12 @@ describe("POST /api/portal/[token]/accept", () => {
     await POST(makeRequest({ accepted_terms: true }), makeParams());
 
     expect(mockRpc).toHaveBeenCalledWith(
-      "log_estimate_version_event",
+      "claim_portal_estimate_decision",
       expect.objectContaining({
-        p_estimate_version_id: "version-id-1",
-        p_event_type: "accepted",
-        p_created_by: null,
-        p_metadata: expect.objectContaining({
-          portal_token_id: "token-id-1",
-          accepted_via: "portal",
-        }),
+        p_portal_token_id: "token-id-1",
+        p_decision: "accepted",
       })
     );
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 });

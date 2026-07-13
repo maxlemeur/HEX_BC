@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -196,9 +196,14 @@ function createDraftLockBuilder(userId: string | null = USER_ID) {
 
 describe("estimate server coverage additions", () => {
   beforeEach(() => {
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     vi.clearAllMocks();
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("lists latest estimates and keeps only the newest version per project", async () => {

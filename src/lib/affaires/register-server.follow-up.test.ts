@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(),
+}));
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   fetchAffaireRegisterOwnerOptions,
   updateAffaireRegisterEntryFollowUp,
@@ -146,6 +150,21 @@ function createSupabaseMock(options?: {
         data: { user: { id: USER_ID } },
       })),
     },
+    rpc: vi.fn(async (_name: string, params: Record<string, unknown>) => {
+      updatePayloads.push({
+        ...(params.p_patch as Record<string, unknown>),
+        updated_by: params.p_actor_user_id,
+      });
+      eventPayloads.push({
+        entry_id: params.p_entry_id,
+        actor_user_id: params.p_actor_user_id,
+        event_type: params.p_event_type,
+        reason: params.p_reason,
+        before_payload: params.p_before_payload,
+        after_payload: params.p_after_payload,
+      });
+      return { data: updatedEntryRow, error: null };
+    }),
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         const state: {
@@ -288,6 +307,7 @@ function createSupabaseMock(options?: {
     }),
   };
 
+  vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
   return { supabase, eventPayloads, updatePayloads };
 }
 

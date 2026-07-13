@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SWRConfig } from "swr";
 
@@ -181,7 +181,7 @@ describe("TakeoffExceptionsTab", () => {
 
     renderTab();
 
-    await screen.findByText("Doublage acoustique");
+    const reviewLink = await screen.findByRole("link", { name: "Revoir" });
 
     expect(listTakeoffJobs).toHaveBeenCalledWith({
       estimate_version_id: VERSION_ID,
@@ -192,7 +192,7 @@ describe("TakeoffExceptionsTab", () => {
       severity: null,
       status: "to_process",
     });
-    expect(screen.getByRole("link", { name: "Revoir" })).toHaveAttribute(
+    expect(reviewLink).toHaveAttribute(
       "href",
       `/dashboard/affaires/${PROJECT_ID}/takeoff/${appliedJob.id}/review?versionId=${appliedJob.estimate_version_id}&line=line-1`
     );
@@ -219,12 +219,11 @@ describe("TakeoffExceptionsTab", () => {
 
     renderTab();
 
-    await waitFor(() => {
-      expect(fetchTakeoffRiskRadar).toHaveBeenCalledWith(completedJob.id, {
-        version_id: completedJob.estimate_version_id,
-        severity: null,
-        status: "to_process",
-      });
+    await screen.findByRole("link", { name: "Revoir" });
+    expect(fetchTakeoffRiskRadar).toHaveBeenCalledWith(completedJob.id, {
+      version_id: completedJob.estimate_version_id,
+      severity: null,
+      status: "to_process",
     });
   });
 });

@@ -5,6 +5,7 @@ import type {
 } from "@/lib/estimates/schemas";
 import {
   bulkUpdateEstimateItems,
+  claimEstimateBatchRevision,
   createEstimateItem,
   deleteEstimateItem,
   listEstimateItems,
@@ -495,6 +496,13 @@ export async function executeEstimateBatch(
       version: versionToken,
     };
   }
+
+  const claimedVersion = await claimEstimateBatchRevision(
+    versionId,
+    concurrencyToken
+  );
+  versionToken.id = claimedVersion.id;
+  versionToken.updated_at = claimedVersion.updated_at;
 
   const results: EstimateBatchOperationResult[] = [];
   const rollbackActions: RollbackAction[] = [];

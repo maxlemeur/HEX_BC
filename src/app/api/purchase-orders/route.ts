@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { computeTotalsFromInputs } from "@/lib/order-calculations";
 import { isValidDateOnly } from "@/lib/date-only";
+import { canWritePurchaseOrders } from "@/lib/purchase-orders";
 import { buildPurchaseOrderReference } from "@/lib/reference";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -57,6 +58,13 @@ export async function POST(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, user.id))) {
+    return NextResponse.json(
+      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { status: 403 }
+    );
   }
 
   if (!payload) {

@@ -525,6 +525,68 @@ export async function processTakeoffJobAttempt(
     });
   }
 
+  if (job.status === "failed") {
+    const nextRetryAtMs = job.next_retry_at
+      ? Date.parse(job.next_retry_at)
+      : Number.NaN;
+    const retryIsScheduled =
+      options.trigger === "retry" && Number.isFinite(nextRetryAtMs);
+
+    if (retryCount >= TAKEOFF_RETRY_MAX || !retryIsScheduled) {
+      await repository.clearRetrySchedule({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        lastErrorAtIso: job.last_error_at ?? now().toISOString(),
+      });
+      logger.error("Takeoff async worker rejected an unscheduled or exhausted retry", {
+        job_id: job.id,
+        tenant_id: job.tenant_id,
+        retry_count: retryCount,
+        trigger: options.trigger,
+        correlation_id: options.correlationId,
+      });
+
+      return buildOutcome({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        level: job.level,
+        status: "failed_terminal",
+        trigger: options.trigger,
+        retryCount,
+        retryable: false,
+        shouldRequeue: false,
+        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+        errorCode: job.error_code,
+        errorMessage: job.error_message,
+        correlationId: options.correlationId,
+      });
+    }
+
+    if (nextRetryAtMs > now().getTime()) {
+      const nextRunInSeconds = Math.max(
+        1,
+        Math.ceil((nextRetryAtMs - now().getTime()) / 1000)
+      );
+      return buildOutcome({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        level: job.level,
+        status: "failed_retryable",
+        trigger: options.trigger,
+        retryCount,
+        retryable: true,
+        shouldRequeue: true,
+        requeueReason: "retry",
+        nextRunInSeconds,
+        nextRunAt: job.next_retry_at,
+        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+        errorCode: job.error_code,
+        errorMessage: job.error_message,
+        correlationId: options.correlationId,
+      });
+    }
+  }
+
   if (isBatchReconcileCandidate(job)) {
     const leaseToken = crypto.randomUUID();
     const nowIso = now().toISOString();

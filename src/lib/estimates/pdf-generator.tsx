@@ -866,11 +866,16 @@ export async function generateEstimatePdfNow(
     tenantId: context.tenantId,
     versionId,
   });
+  const filePath = toFilePath({
+    tenantId: context.tenantId,
+    estimateId: access.project.id,
+    versionId,
+  });
 
   if (
     !options.force &&
     existing?.status === "ready" &&
-    existing.file_path &&
+    existing.file_path === filePath &&
     existing.generated_at
   ) {
     const downloadUrl = await createSignedUrlOrThrow({
@@ -887,12 +892,6 @@ export async function generateEstimatePdfNow(
       generated_at: existing.generated_at,
     };
   }
-
-  const filePath = toFilePath({
-    tenantId: context.tenantId,
-    estimateId: access.project.id,
-    versionId,
-  });
 
   await upsertDocumentRow({
     supabase: context.supabase,
@@ -1075,7 +1074,7 @@ export async function generateEstimatePdfNow(
 
 export async function getEstimatePdfStatus(versionId: string): Promise<PdfStatusPayload> {
   const context = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(context, versionId);
+  const access = await getVersionAccessOrThrow(context, versionId);
 
   const row = await getDocumentRow({
     supabase: context.supabase,
@@ -1110,15 +1109,27 @@ export async function getEstimatePdfStatus(versionId: string): Promise<PdfStatus
     };
   }
 
+  const expectedFilePath = toFilePath({
+    tenantId: context.tenantId,
+    estimateId: access.project.id,
+    versionId,
+  });
+  if (row.file_path !== expectedFilePath) {
+    return {
+      status: "failed",
+      last_error: "Chemin du document PDF non conforme.",
+    };
+  }
+
   const downloadUrl = await createSignedUrlOrThrow({
     supabase: context.supabase,
-    filePath: row.file_path,
+    filePath: expectedFilePath,
   });
 
   return {
     status: "ready",
     download_url: downloadUrl,
-    file_path: row.file_path,
+    file_path: expectedFilePath,
     sha256_hash: row.sha256_hash ?? undefined,
     generated_at: row.generated_at ?? undefined,
     file_size_bytes: row.file_size_bytes === null ? undefined : Number(row.file_size_bytes),

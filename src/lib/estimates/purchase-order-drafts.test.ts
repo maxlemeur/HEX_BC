@@ -77,6 +77,7 @@ function createSupabaseMock(options?: {
     data: [
       {
         tenant_id: TENANT_ID,
+        role: "engineer",
         is_default: true,
         created_at: "2026-03-11T10:00:00.000Z",
       },

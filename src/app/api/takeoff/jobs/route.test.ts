@@ -1,8 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 
+const { createServiceRoleClientMock, serviceRoleRemoveMock } = vi.hoisted(() => {
+  const remove = vi.fn().mockResolvedValue({ data: null, error: null });
+  return {
+    serviceRoleRemoveMock: remove,
+    createServiceRoleClientMock: vi.fn(() => ({
+      storage: {
+        from: vi.fn(() => ({ remove })),
+      },
+    })),
+  };
+});
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: createServiceRoleClientMock,
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
@@ -880,8 +896,11 @@ describe("POST /api/takeoff/jobs", () => {
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("IDEMPOTENCY_KEY_REUSED");
     expect(supabase.__state.uploads).toHaveLength(1);
-    expect(supabase.__state.removals).toHaveLength(1);
-    expect(supabase.__state.removals[0]).toBe(supabase.__state.uploads[0]);
+    expect(supabase.__state.removals).toHaveLength(0);
+    expect(createServiceRoleClientMock).toHaveBeenCalledOnce();
+    expect(serviceRoleRemoveMock).toHaveBeenCalledWith([
+      supabase.__state.uploads[0],
+    ]);
   });
 
   it("returns 201 even when edge trigger fails", async () => {

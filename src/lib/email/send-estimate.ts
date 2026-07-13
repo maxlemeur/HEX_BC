@@ -3,12 +3,19 @@ import { Resend } from "resend";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { EstimateEmailTemplate } from "@/lib/email/templates/estimate";
 import {
+  badRequest,
+  forbidden,
   internalError,
   mapSupabaseError,
   notFound,
   unauthorized,
 } from "@/lib/estimates/errors";
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
+import {
+  patchEstimateStatus,
+  verifyEstimateSeal,
+} from "@/lib/estimates/server";
+import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { generateEstimatePdfNow } from "@/lib/estimates/pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -18,7 +25,13 @@ type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionForEmail = Pick<
   EstimateVersionRow,
-  "id" | "version_number" | "total_ttc_cents" | "currency"
+  | "id"
+  | "tenant_id"
+  | "version_number"
+  | "total_ttc_cents"
+  | "currency"
+  | "status"
+  | "updated_at"
 > & {
   estimate_projects:
     | Pick<EstimateProjectRow, "name">
@@ -93,7 +106,9 @@ async function loadVersionForEmail(versionId: string): Promise<EstimateVersionFo
 
   const { data, error } = await supabase
     .from("estimate_versions")
-    .select("id, version_number, total_ttc_cents, currency, estimate_projects(name)")
+    .select(
+      "id, tenant_id, version_number, total_ttc_cents, currency, status, updated_at, estimate_projects(name)"
+    )
     .eq("id", versionId)
     .single();
 
@@ -104,6 +119,25 @@ async function loadVersionForEmail(versionId: string): Promise<EstimateVersionFo
   if (!data) {
     throw notFound("Version de devis introuvable.");
   }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("tenant_memberships")
+    .select("role")
+    .eq("tenant_id", data.tenant_id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (membershipError) {
+    throw mapSupabaseError(
+      membershipError,
+      "Impossible de verifier les droits d'envoi du devis."
+    );
+  }
+
+  if (!membership?.role) {
+    throw forbidden("Acces au devis refuse.");
+  }
+  assertCanWriteEstimateWorkflows(membership.role);
 
   return data as EstimateVersionForEmail;
 }
@@ -127,6 +161,30 @@ async function loadPdfBuffer(filePath: string): Promise<Buffer> {
 
 export async function sendEstimateEmail(input: SendEstimateEmailInput) {
   const version = await loadVersionForEmail(input.versionId);
+
+  if (version.status === "draft") {
+    await patchEstimateStatus(
+      input.versionId,
+      { status: "sent" },
+      version.updated_at
+    );
+  } else if (version.status === "sent") {
+    const seal = await verifyEstimateSeal(input.versionId);
+    if (!seal.valid) {
+      throw badRequest(
+        "Envoi bloque: le scellement du devis n'est plus valide.",
+        { seal },
+        "ESTIMATE_SEAL_INVALID"
+      );
+    }
+  } else {
+    throw forbidden(
+      "Ce devis finalise ne peut plus etre envoye par email.",
+      { status: version.status },
+      "ESTIMATE_EMAIL_STATUS_FORBIDDEN"
+    );
+  }
+
   const generatedPdf = await generateEstimatePdfNow(input.versionId, {
     force: true,
     triggeredBy: "send",

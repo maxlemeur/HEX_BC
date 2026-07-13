@@ -49,8 +49,9 @@ function parsePageSize(value: string | null): AnomalyPageSize {
 }
 
 function escapeCsvField(value: string): string {
-  if (!/[;"\r\n]/u.test(value)) return value;
-  return `"${value.replaceAll('"', '""')}"`;
+  const neutralized = /^[\t\r\n ]*[=+\-@]/u.test(value) ? `'${value}` : value;
+  if (!/[;"\r\n]/u.test(neutralized)) return neutralized;
+  return `"${neutralized.replaceAll('"', '""')}"`;
 }
 
 function buildCsvContent(anomalies: CurrentAnomalyRow[]): string {

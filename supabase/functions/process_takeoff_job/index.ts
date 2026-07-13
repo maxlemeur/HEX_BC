@@ -1,5 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+// @ts-expect-error Deno Edge imports require the explicit TypeScript extension.
+import { isAuthorizedWorkerRelayRequest } from "./security.ts";
+
 declare const Deno: {
   env: {
     get: (name: string) => string | undefined;
@@ -344,6 +347,16 @@ Deno.serve(async (request: Request) => {
     }
 
     const config = runtimeConfig.config;
+    if (!isAuthorizedWorkerRelayRequest(request, config.serviceRoleKey)) {
+      return jsonResponse(401, {
+        ok: false,
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Service-role relay credentials are required.",
+        },
+      });
+    }
+
     const payload = await parsePayload(request);
     const outcome = await invokeInternalWorker(config, payload);
 

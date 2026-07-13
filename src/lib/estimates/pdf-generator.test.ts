@@ -333,6 +333,39 @@ describe("estimate pdf generator", () => {
     expect(result.download_url).toBe("https://example.com/signed");
   });
 
+  it("does not sign a forged cached path and regenerates the canonical PDF", async () => {
+    const buffer = Buffer.from("pdf-binary");
+    vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
+    const supabase = createSupabasePdfMock({
+      existingDocument: {
+        status: "ready",
+        file_path: "foreign-tenant/foreign-project/private.pdf",
+        sha256_hash: "a".repeat(64),
+        file_size_bytes: 42,
+        generated_at: "2026-02-21T00:00:00.000Z",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await generateEstimatePdfNow(VERSION_ID);
+    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`;
+
+    expect(supabase.__mocks.upload).toHaveBeenCalledWith(
+      expectedPath,
+      buffer,
+      expect.any(Object)
+    );
+    expect(supabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
+      expectedPath,
+      3600
+    );
+    expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalledWith(
+      "foreign-tenant/foreign-project/private.pdf",
+      expect.any(Number)
+    );
+    expect(result.file_path).toBe(expectedPath);
+  });
+
   it("returns failed status for stored failed document", async () => {
     const supabase = createSupabasePdfMock({
       existingDocument: {
@@ -378,6 +411,24 @@ describe("estimate pdf generator", () => {
       status: "failed",
       last_error: "Chemin du document PDF manquant.",
     });
+  });
+
+  it("fails closed without signing when ready metadata contains a foreign path", async () => {
+    const supabase = createSupabasePdfMock({
+      existingDocument: {
+        status: "ready",
+        file_path: "foreign-tenant/foreign-project/private.pdf",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const status = await getEstimatePdfStatus(VERSION_ID);
+
+    expect(status).toEqual({
+      status: "failed",
+      last_error: "Chemin du document PDF non conforme.",
+    });
+    expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
   });
 
   it("marks document as failed when upload fails", async () => {

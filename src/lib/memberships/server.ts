@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
 
 import {
@@ -90,6 +91,8 @@ async function getCurrentMembershipOrThrow(supabase: Supabase, userId: string) {
     throw forbidden("Aucun tenant actif pour cet utilisateur.");
   }
 
+  await getTenantOrThrow(supabase, membership.tenant_id);
+
   return membership;
 }
 
@@ -174,7 +177,7 @@ function toMembershipRecords(input: {
   });
 }
 
-async function listCandidates(supabase: Supabase, input: {
+async function listCandidates(input: {
   tenantMemberships: TenantMembershipRow[];
   search: string | null | undefined;
 }) {
@@ -184,7 +187,8 @@ async function listCandidates(supabase: Supabase, input: {
   }
 
   const pattern = `%${normalizedSearch}%`;
-  const { data, error } = await supabase
+  const directoryClient = createServiceRoleClient();
+  const { data, error } = await directoryClient
     .from("profiles")
     .select("id, full_name, work_email, role")
     .or(`full_name.ilike.${pattern},work_email.ilike.${pattern}`)
@@ -253,7 +257,7 @@ export async function listTenantMemberships(query: MembershipsListQueryInput) {
     memberships.map((membership) => membership.user_id)
   );
 
-  const candidates = await listCandidates(supabase, {
+  const candidates = await listCandidates({
     tenantMemberships: memberships,
     search: query.search,
   });
@@ -287,7 +291,8 @@ export async function createMembership(input: CreateMembershipInput) {
     throw conflict("Cet utilisateur est deja membre de ce tenant.");
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const directoryClient = createServiceRoleClient();
+  const { data: profile, error: profileError } = await directoryClient
     .from("profiles")
     .select("id")
     .eq("id", input.user_id)

@@ -10,8 +10,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SUPPLIER_ID = "22222222-2222-4222-8222-222222222222";
 const DELIVERY_SITE_ID = "33333333-3333-4333-8333-333333333333";
+const TENANT_ID = "44444444-4444-4444-8444-444444444444";
 
-function createPostSupabaseMock() {
+function createPostSupabaseMock(role: "engineer" | "viewer" = "engineer") {
   const insertedOrderHeaders: Record<string, unknown>[] = [];
 
   const purchaseOrdersInsertSingle = vi.fn().mockResolvedValue({
@@ -44,6 +45,7 @@ function createPostSupabaseMock() {
   const purchaseOrderItemsInsert = vi.fn().mockResolvedValue({ error: null });
 
   const supabase = {
+    rpc: vi.fn().mockResolvedValue({ data: TENANT_ID, error: null }),
     auth: {
       getUser: vi.fn().mockResolvedValue({
         data: {
@@ -55,6 +57,21 @@ function createPostSupabaseMock() {
       }),
     },
     from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue({
+                  data: [{ tenant_id: TENANT_ID, role }],
+                  error: null,
+                }),
+              })),
+            })),
+          })),
+        };
+      }
+
       if (table === "purchase_orders") {
         return {
           insert: purchaseOrdersInsert,
@@ -113,5 +130,32 @@ describe("purchase orders POST regressions", () => {
     expect(response.status).toBe(200);
     expect(insertedOrderHeaders).toHaveLength(1);
     expect(insertedOrderHeaders[0]?.["expected_delivery_date"]).toBe("TBD");
+  });
+
+  it("rejects a viewer before creating a manual purchase order", async () => {
+    const { supabase, insertedOrderHeaders } = createPostSupabaseMock("viewer");
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      new Request("http://localhost/api/purchase-orders", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          supplierId: SUPPLIER_ID,
+          deliverySiteId: DELIVERY_SITE_ID,
+          items: [
+            {
+              designation: "Ligne 1",
+              quantity: 1,
+              unitPriceCents: 1500,
+              taxRateBp: 2000,
+            },
+          ],
+        }),
+      })
+    );
+
+    expect(response.status).toBe(403);
+    expect(insertedOrderHeaders).toEqual([]);
   });
 });

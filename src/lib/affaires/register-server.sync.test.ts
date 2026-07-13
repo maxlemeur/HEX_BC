@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(),
+}));
 
 import { syncAffaireRegisterMissingPieces } from "@/lib/affaires/register-server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -87,6 +92,30 @@ describe("syncAffaireRegisterMissingPieces", () => {
     let registerEntriesCall = 0;
 
     const supabase = {
+      rpc: async (_name: string, params: Record<string, unknown>) => {
+        const patch = params.p_patch as Record<string, unknown>;
+        upsertPayloads.push({
+          project_id: existingRow.project_id,
+          ...patch,
+          updated_by: params.p_actor_user_id,
+        });
+        eventPayloads.push({
+          entry_id: params.p_entry_id,
+          actor_user_id: params.p_actor_user_id,
+          event_type: params.p_event_type,
+          reason: params.p_reason,
+          before_payload: params.p_before_payload,
+          after_payload: params.p_after_payload,
+        });
+        return {
+          data: {
+            ...existingRow,
+            ...patch,
+            updated_by: USER_ID,
+          },
+          error: null,
+        };
+      },
       from: (table: string) => {
         if (table === "affaire_register_events") {
           return {
@@ -100,9 +129,9 @@ describe("syncAffaireRegisterMissingPieces", () => {
         if (table === "affaire_register_entries") {
           const currentCall = registerEntriesCall++;
           const builder = {
-            select: (_columns: string) => builder,
-            eq: (_column: string, _value: unknown) => builder,
-            in: (_column: string, _values: unknown[]) =>
+            select: () => builder,
+            eq: () => builder,
+            in: () =>
               Promise.resolve({
                 data: currentCall === 0 ? [existingRow] : [],
                 error: null,
@@ -138,6 +167,7 @@ describe("syncAffaireRegisterMissingPieces", () => {
         throw new Error(`Unexpected table ${table}`);
       },
     };
+    vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
 
     await syncAffaireRegisterMissingPieces({
       supabase: supabase as never,

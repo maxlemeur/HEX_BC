@@ -307,6 +307,91 @@ describe("processTakeoffJobAttempt", () => {
     expect(outcome.should_requeue).toBe(false);
     expect(repository.scheduleRetry).not.toHaveBeenCalled();
     expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
+    expect(processLevelAFn).not.toHaveBeenCalled();
+  });
+
+  it("does not process a failed job before its scheduled retry time", async () => {
+    const { repository } = createWorkerRepository({
+      id: JOB_ID,
+      tenant_id: TENANT_ID,
+      level: "A",
+      status: "failed",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
+      retry_count: 1,
+      error_code: TakeoffErrorCode.AI_TIMEOUT,
+      error_message: "Timed out",
+      created_by: null,
+      next_retry_at: "2026-02-25T11:00:30.000Z",
+      last_error_at: FIXED_NOW.toISOString(),
+    });
+    const processLevelAFn = vi.fn();
+
+    const outcome = await processTakeoffJobAttempt(JOB_ID, {
+      correlationId: CORRELATION_ID,
+      trigger: "retry",
+      repository,
+      processLevelAFn: processLevelAFn as never,
+      now: () => FIXED_NOW,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(outcome.status).toBe("failed_retryable");
+    expect(outcome.should_requeue).toBe(true);
+    expect(outcome.next_run_in_seconds).toBe(30);
+    expect(processLevelAFn).not.toHaveBeenCalled();
+  });
+
+  it("processes a legitimate scheduled retry once its backoff is due", async () => {
+    const { state, repository } = createWorkerRepository({
+      id: JOB_ID,
+      tenant_id: TENANT_ID,
+      level: "A",
+      status: "failed",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
+      retry_count: 1,
+      error_code: TakeoffErrorCode.AI_TIMEOUT,
+      error_message: "Timed out",
+      created_by: null,
+      next_retry_at: FIXED_NOW.toISOString(),
+      last_error_at: FIXED_NOW.toISOString(),
+    });
+    const processLevelAFn = vi.fn(async () => {
+      state.job = { ...state.job, status: "completed" };
+      return {
+        jobId: JOB_ID,
+        resultId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        status: "completed" as const,
+        itemsCount: 1,
+        warningsCount: 0,
+        tokenCount: 100,
+        costCents: 12,
+        durationMs: 250,
+      };
+    });
+
+    const outcome = await processTakeoffJobAttempt(JOB_ID, {
+      correlationId: CORRELATION_ID,
+      trigger: "retry",
+      repository,
+      processLevelAFn,
+      now: () => FIXED_NOW,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(outcome.status).toBe("completed");
+    expect(processLevelAFn).toHaveBeenCalledTimes(1);
   });
 
   it("does not schedule retry from stale persisted retryable error codes", async () => {

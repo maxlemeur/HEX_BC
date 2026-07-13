@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   insert: vi.fn(),
@@ -19,6 +19,10 @@ describe("ProductCsvImport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.insert.mockResolvedValue({ error: null });
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("renders the upload guidance and previews valid and rejected rows", async () => {

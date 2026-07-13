@@ -143,11 +143,12 @@ describe("POST /api/portal/[token]/reject", () => {
     const json = await res.json();
     expect(json.status).toBe("rejected");
 
-    // Verify token was updated with reject reason
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_portal_estimate_decision",
       expect.objectContaining({
-        status: "rejected",
-        reject_reason: "Trop cher",
+        p_portal_token_id: "token-id-1",
+        p_decision: "rejected",
+        p_reject_reason: "Trop cher",
       })
     );
   });
@@ -159,10 +160,11 @@ describe("POST /api/portal/[token]/reject", () => {
     const res = await POST(makeRequest({}), makeParams());
     expect(res.status).toBe(200);
 
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_portal_estimate_decision",
       expect.objectContaining({
-        status: "rejected",
-        reject_reason: null,
+        p_decision: "rejected",
+        p_reject_reason: null,
       })
     );
   });
@@ -188,72 +190,45 @@ describe("POST /api/portal/[token]/reject", () => {
     const res = await POST(makeRequest(null), makeParams());
     expect(res.status).toBe(200);
 
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ reject_reason: null })
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_portal_estimate_decision",
+      expect.objectContaining({ p_reject_reason: null })
     );
   });
 
   it("returns 409 on concurrent rejection (0 rows updated)", async () => {
     mockSingle.mockResolvedValueOnce({ data: PENDING_TOKEN, error: null });
-    mockEqChain.mockResolvedValueOnce({ data: null, error: { code: "PGRST116" } });
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: "P0001" },
+    });
 
     const res = await POST(makeRequest({}), makeParams());
     expect(res.status).toBe(409);
   });
 
-  it("logs rejected event via RPC", async () => {
+  it("delegates rejected audit creation to the atomic decision RPC", async () => {
     mockSingle.mockResolvedValueOnce({ data: PENDING_TOKEN, error: null });
     mockEqChain.mockResolvedValueOnce({ data: { id: "token-id-1" }, error: null });
 
     await POST(makeRequest({ reason: "Delai" }), makeParams());
 
     expect(mockRpc).toHaveBeenCalledWith(
-      "log_estimate_version_event",
+      "claim_portal_estimate_decision",
       expect.objectContaining({
-        p_estimate_version_id: "version-id-1",
-        p_event_type: "rejected",
-        p_created_by: null,
-        p_metadata: expect.objectContaining({
-          portal_token_id: "token-id-1",
-          rejected_via: "portal",
-          reason: "Delai",
-        }),
+        p_portal_token_id: "token-id-1",
+        p_decision: "rejected",
+        p_reject_reason: "Delai",
       })
     );
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 
-  it("returns 500 when version update fails", async () => {
+  it("returns 500 when the atomic decision claim fails unexpectedly", async () => {
     mockSingle.mockResolvedValueOnce({ data: PENDING_TOKEN, error: null });
-    mockEqChain.mockResolvedValueOnce({ data: { id: "token-id-1" }, error: null });
-
-    // Override estimate_versions to return error
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "portal_tokens") {
-        return {
-          select: vi.fn(() => ({
-            eq: vi.fn(() => ({ single: mockSingle })),
-          })),
-          update: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              eq: vi.fn(() => ({
-                select: vi.fn(() => ({ single: mockEqChain })),
-              })),
-            })),
-          })),
-        };
-      }
-      if (table === "estimate_versions") {
-        return {
-          update: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              eq: vi.fn(() => ({
-                error: { message: "DB error", code: "50000" },
-              })),
-            })),
-          })),
-        };
-      }
-      return {};
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: "DB error", code: "50000" },
     });
 
     const res = await POST(makeRequest({}), makeParams());

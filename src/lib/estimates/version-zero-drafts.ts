@@ -18,7 +18,10 @@ import {
   matchVersionZeroLotsByLabel,
   normalizeVersionZeroLotKey,
 } from "@/lib/estimates/version-zero-utils";
-import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
+import {
+  generateEstimateStructureDraft,
+  withEstimateAiGenerationLease,
+} from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 import type { Database, Json } from "@/types/database";
@@ -28,6 +31,7 @@ import type {
   VersionZeroLineReviewStatus,
   VersionZeroLotStatus,
 } from "./schemas";
+import { assertCanWriteEstimateWorkflows } from "./write-access";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -778,7 +782,7 @@ async function tryGenerateGeminiLots(input: {
     schema: VersionZeroGeminiSchema,
     thinkingLevel: "low",
     timeoutMs: 25_000,
-    maxRetries: 1,
+    maxRetries: 0,
     context: {
       promptVersion: VERSION_ZERO_PROMPT_VERSION,
     },
@@ -1350,6 +1354,7 @@ export async function generateVersionZeroDraft(input: {
   selectedLots?: string[];
 }) {
   const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version, project } = await getVersionAccessOrThrow(
     supabase,
@@ -1384,7 +1389,12 @@ export async function generateVersionZeroDraft(input: {
     );
   }
 
-  const [sourceLinks, structureDraftResult] = await Promise.all([
+  return withEstimateAiGenerationLease({
+    supabase,
+    versionId: input.versionId,
+    operation: "version_zero_draft",
+    run: async () => {
+      const [sourceLinks, structureDraftResult] = await Promise.all([
     loadBriefSourceLinks({
       supabase,
       briefId: brief.id,
@@ -1487,9 +1497,11 @@ export async function generateVersionZeroDraft(input: {
     newDraftId: persistedDraft.id,
   });
 
-  return fetchVersionZeroReview({
-    versionId: input.versionId,
-    draftId: persistedDraft.id,
+      return fetchVersionZeroReview({
+        versionId: input.versionId,
+        draftId: persistedDraft.id,
+      });
+    },
   });
 }
 
@@ -1555,6 +1567,7 @@ export async function reviewVersionZeroLine(input: {
   };
 }) {
   const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, input.versionId, context);
 
@@ -1699,6 +1712,7 @@ export async function materializeVersionZeroDraft(input: {
   draftId: string;
 }) {
   const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, input.versionId, context);
 

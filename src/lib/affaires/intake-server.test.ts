@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 
 vi.mock("@/lib/estimates/server", () => ({
   getAuthenticatedContext: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("@/lib/takeoff/gemini-client", () => ({
 import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-server";
 import {
+  __securityTesting__,
   mergeGeneratedAffaireBriefWithFallback,
   updateAffaireBrief,
 } from "@/lib/affaires/intake-server";
@@ -32,6 +34,84 @@ const DOC_ASSUMPTION = "99999999-9999-4999-8999-999999999999";
 const DOC_VIGILANCE = "88888888-8888-4888-8888-888888888888";
 const DOC_SUMMARY = "77777777-7777-4777-8777-777777777777";
 const NOW = "2026-03-07T10:00:00.000Z";
+
+function toArrayBuffer(buffer: Buffer) {
+  return buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength
+  ) as ArrayBuffer;
+}
+
+describe("affaire intake resource budgets", () => {
+  it("rejects an excessive file count before creating upload state", () => {
+    const files = Array.from(
+      { length: 21 },
+      (_value, index) => new File(["x"], `piece-${index}.pdf`)
+    );
+
+    expect(() =>
+      __securityTesting__.validateAffaireIntakeUploadBatch(files)
+    ).toThrow(/ne peut pas depasser 20 fichiers/);
+  });
+
+  it("rejects an excessive cumulative batch while preserving ordinary batches", () => {
+    const first = new File(["x"], "lot-a.pdf");
+    const second = new File(["x"], "lot-b.pdf");
+    Object.defineProperty(first, "size", { value: 60 * 1024 * 1024 });
+    Object.defineProperty(second, "size", { value: 50 * 1024 * 1024 });
+
+    expect(() =>
+      __securityTesting__.validateAffaireIntakeUploadBatch([first, second])
+    ).toThrow(/volume cumule.*depasse 100 Mo/);
+    expect(() =>
+      __securityTesting__.validateAffaireIntakeUploadBatch([
+        new File(["contenu"], "lot-legitime.pdf"),
+      ])
+    ).not.toThrow();
+  });
+
+  it("preflights XLSX expansion metadata before SheetJS parsing", async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["Code", "Description", "Qte"],
+        ["A-001", "Cable cuivre", 12],
+      ]),
+      "DPGF"
+    );
+    const legitimate = Buffer.from(
+      XLSX.write(workbook, { type: "buffer", bookType: "xlsx" })
+    );
+
+    await expect(
+      __securityTesting__.buildSpreadsheetSnippet(
+        "dpgf.xlsx",
+        toArrayBuffer(legitimate)
+      )
+    ).resolves.toContain("A-001");
+
+    const malicious = Buffer.from(legitimate);
+    const centralEntryOffset = malicious.indexOf(
+      Buffer.from([0x50, 0x4b, 0x01, 0x02])
+    );
+    expect(centralEntryOffset).toBeGreaterThanOrEqual(0);
+    malicious.writeUInt32LE(0x7fffffff, centralEntryOffset + 24);
+
+    expect(() =>
+      __securityTesting__.validateSpreadsheetBudget(
+        "dpgf.xlsx",
+        toArrayBuffer(malicious)
+      )
+    ).toThrow(/depasse la taille autorisee|ratio de decompression/);
+    expect(() =>
+      __securityTesting__.validateSpreadsheetBudget(
+        "dpgf.xls",
+        toArrayBuffer(malicious)
+      )
+    ).toThrow(/depasse la taille autorisee|ratio de decompression/);
+  });
+});
 
 function createProjectRow() {
   return {

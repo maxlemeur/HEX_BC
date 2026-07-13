@@ -22,6 +22,7 @@ import type {
   estimatePurchaseOrderDraftGroupSchema,
 } from "@/lib/estimates/schemas";
 import { isValidDateOnly } from "@/lib/date-only";
+import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 
 type SupplierComparisonRecord = Awaited<
   ReturnType<typeof getEstimateSupplierComparisons>
@@ -244,7 +245,7 @@ async function getDraftOrderContext() {
 
   const { data: memberships, error } = await supabase
     .from("tenant_memberships")
-    .select("tenant_id, is_default, created_at")
+    .select("tenant_id, role, is_default, created_at")
     .eq("user_id", user.id)
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true })
@@ -262,6 +263,7 @@ async function getDraftOrderContext() {
   return {
     supabase,
     tenantId: membership.tenant_id,
+    tenantRole: membership.role,
     userId: user.id,
   };
 }
@@ -543,6 +545,7 @@ export async function createEstimatePurchaseOrderDrafts(
   });
 
   const context = await getDraftOrderContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const alreadyDraftedItemIds = await listDraftedEstimateItemIds(
     versionId,
     Array.from(requestedItemIds),

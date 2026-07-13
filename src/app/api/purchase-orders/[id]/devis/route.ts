@@ -2,7 +2,10 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { validateFileForUpload } from "@/lib/file-validation";
-import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import {
+  canWritePurchaseOrders,
+  getAccessiblePurchaseOrderOrNull,
+} from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
@@ -177,13 +180,21 @@ export async function POST(
 
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
+    tenant_id: string;
     status: "draft" | "sent" | "confirmed" | "received" | "canceled";
-  }>(supabase, id, "id, status");
+  }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, user.id, order.tenant_id))) {
+    return NextResponse.json(
+      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { status: 403 }
     );
   }
 

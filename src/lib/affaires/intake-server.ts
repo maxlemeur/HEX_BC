@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { inflateRawSync } from "node:zlib";
 
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -309,6 +310,18 @@ const AFFAIRE_BRIEF_PROMPT_VERSION = "est372_affaire_brief_v1";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
 const TEXT_SNIPPET_MAX_LENGTH = 12_000;
+const AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD = 20;
+const AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES = 100 * 1024 * 1024;
+const SPREADSHEET_MAX_INPUT_BYTES = 10 * 1024 * 1024;
+const SPREADSHEET_MAX_ARCHIVE_ENTRIES = 512;
+const SPREADSHEET_MAX_EXPANDED_BYTES = 32 * 1024 * 1024;
+const SPREADSHEET_MAX_ENTRY_BYTES = 16 * 1024 * 1024;
+const SPREADSHEET_MAX_COMPRESSION_RATIO = 100;
+const SPREADSHEET_MAX_SHEETS = 32;
+const SPREADSHEET_MAX_ROWS_PER_SHEET = 20;
+const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+const ZIP_CENTRAL_DIRECTORY_ENTRY_SIGNATURE = 0x02014b50;
+const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -720,8 +733,163 @@ function buildClassificationPrompt(input: { fileName: string; mimeType: string }
   ].join("\n");
 }
 
+function findZipEndOfCentralDirectory(buffer: Buffer) {
+  const minimumOffset = Math.max(0, buffer.length - 65_557);
+  for (let offset = buffer.length - 22; offset >= minimumOffset; offset -= 1) {
+    if (buffer.readUInt32LE(offset) === ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+      return offset;
+    }
+  }
+
+  return -1;
+}
+
+function validateXlsxArchiveBudget(buffer: Buffer) {
+  const endOffset = findZipEndOfCentralDirectory(buffer);
+  if (endOffset < 0) {
+    throw new Error("Archive XLSX invalide ou repertoire central introuvable.");
+  }
+
+  const entryCount = buffer.readUInt16LE(endOffset + 10);
+  const directorySize = buffer.readUInt32LE(endOffset + 12);
+  const directoryOffset = buffer.readUInt32LE(endOffset + 16);
+  if (
+    entryCount === 0xffff ||
+    directorySize === 0xffffffff ||
+    directoryOffset === 0xffffffff
+  ) {
+    throw new Error("Les archives XLSX ZIP64 ne sont pas prises en charge.");
+  }
+  if (entryCount > SPREADSHEET_MAX_ARCHIVE_ENTRIES) {
+    throw new Error(
+      `Le classeur depasse ${SPREADSHEET_MAX_ARCHIVE_ENTRIES} entrees archivees.`
+    );
+  }
+  if (directoryOffset + directorySize > buffer.length) {
+    throw new Error("Repertoire central XLSX invalide.");
+  }
+
+  let cursor = directoryOffset;
+  let totalExpandedBytes = 0;
+
+  for (let entryIndex = 0; entryIndex < entryCount; entryIndex += 1) {
+    if (
+      cursor + 46 > directoryOffset + directorySize ||
+      buffer.readUInt32LE(cursor) !== ZIP_CENTRAL_DIRECTORY_ENTRY_SIGNATURE
+    ) {
+      throw new Error("Entree du repertoire central XLSX invalide.");
+    }
+
+    const flags = buffer.readUInt16LE(cursor + 8);
+    const compressionMethod = buffer.readUInt16LE(cursor + 10);
+    const compressedSize = buffer.readUInt32LE(cursor + 20);
+    const declaredExpandedSize = buffer.readUInt32LE(cursor + 24);
+    const fileNameLength = buffer.readUInt16LE(cursor + 28);
+    const extraLength = buffer.readUInt16LE(cursor + 30);
+    const commentLength = buffer.readUInt16LE(cursor + 32);
+    const localHeaderOffset = buffer.readUInt32LE(cursor + 42);
+
+    if (
+      compressedSize === 0xffffffff ||
+      declaredExpandedSize === 0xffffffff ||
+      localHeaderOffset === 0xffffffff
+    ) {
+      throw new Error("Les entrees XLSX ZIP64 ne sont pas prises en charge.");
+    }
+    if ((flags & 0x1) !== 0) {
+      throw new Error("Les classeurs XLSX chiffres ne sont pas pris en charge.");
+    }
+    if (compressionMethod !== 0 && compressionMethod !== 8) {
+      throw new Error("Methode de compression XLSX non prise en charge.");
+    }
+    if (declaredExpandedSize > SPREADSHEET_MAX_ENTRY_BYTES) {
+      throw new Error("Une entree du classeur depasse la taille autorisee.");
+    }
+    if (
+      declaredExpandedSize > 0 &&
+      declaredExpandedSize / Math.max(1, compressedSize) >
+        SPREADSHEET_MAX_COMPRESSION_RATIO
+    ) {
+      throw new Error("Le ratio de decompression du classeur depasse la limite autorisee.");
+    }
+    if (
+      localHeaderOffset + 30 > buffer.length ||
+      buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE
+    ) {
+      throw new Error("Entree locale XLSX invalide.");
+    }
+
+    const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+    const compressedDataOffset =
+      localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+    const compressedDataEnd = compressedDataOffset + compressedSize;
+    if (compressedDataEnd > buffer.length) {
+      throw new Error("Donnees compressees XLSX tronquees.");
+    }
+
+    const remainingBudget = SPREADSHEET_MAX_EXPANDED_BYTES - totalExpandedBytes;
+    if (remainingBudget <= 0) {
+      throw new Error("Le classeur depasse la taille decompressee autorisee.");
+    }
+
+    const compressedData = buffer.subarray(compressedDataOffset, compressedDataEnd);
+    let actualExpandedSize: number;
+    if (compressionMethod === 0) {
+      actualExpandedSize = compressedData.byteLength;
+    } else {
+      try {
+        actualExpandedSize = inflateRawSync(compressedData, {
+          maxOutputLength: Math.min(remainingBudget, SPREADSHEET_MAX_ENTRY_BYTES),
+        }).byteLength;
+      } catch {
+        throw new Error("Une entree XLSX depasse le budget de decompression.");
+      }
+    }
+
+    if (actualExpandedSize !== declaredExpandedSize) {
+      throw new Error("Taille decompressee XLSX incoherente.");
+    }
+    totalExpandedBytes += actualExpandedSize;
+    if (totalExpandedBytes > SPREADSHEET_MAX_EXPANDED_BYTES) {
+      throw new Error("Le classeur depasse la taille decompressee autorisee.");
+    }
+
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  if (cursor !== directoryOffset + directorySize) {
+    throw new Error("Taille du repertoire central XLSX incoherente.");
+  }
+}
+
+function validateSpreadsheetBudget(fileName: string, bytes: ArrayBuffer) {
+  if (bytes.byteLength > SPREADSHEET_MAX_INPUT_BYTES) {
+    throw new Error("Le classeur depasse la taille maximale d'analyse de 10 Mo.");
+  }
+
+  const buffer = Buffer.from(bytes);
+  const extension = getAffaireIntakeFileExtension(fileName);
+  const isZipWorkbook =
+    buffer.length >= 4 &&
+    buffer.readUInt32LE(0) === ZIP_LOCAL_FILE_HEADER_SIGNATURE;
+  if (extension === "xlsx" && !isZipWorkbook) {
+    throw new Error("Archive XLSX invalide.");
+  }
+  if (isZipWorkbook) {
+    validateXlsxArchiveBudget(buffer);
+  }
+}
+
 async function buildSpreadsheetSnippet(fileName: string, bytes: ArrayBuffer) {
-  const workbook = XLSX.read(Buffer.from(bytes), { type: "buffer" });
+  validateSpreadsheetBudget(fileName, bytes);
+  const workbook = XLSX.read(Buffer.from(bytes), {
+    type: "buffer",
+    sheetRows: SPREADSHEET_MAX_ROWS_PER_SHEET,
+  });
+  if (workbook.SheetNames.length > SPREADSHEET_MAX_SHEETS) {
+    throw new Error(`Le classeur depasse ${SPREADSHEET_MAX_SHEETS} feuilles.`);
+  }
   const lines: string[] = [`Workbook: ${fileName}`];
 
   for (const sheetName of workbook.SheetNames.slice(0, 3)) {
@@ -2069,6 +2237,19 @@ function collectFilesFromFormData(formData: FormData) {
   );
 }
 
+function validateAffaireIntakeUploadBatch(files: File[]) {
+  if (files.length > AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD) {
+    throw badRequest(
+      `Un lot intake ne peut pas depasser ${AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD} fichiers.`
+    );
+  }
+
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES) {
+    throw badRequest("Le volume cumule du lot intake depasse 100 Mo.");
+  }
+}
+
 export async function createAffaireIntakeUpload(
   projectId: string,
   formData: FormData
@@ -2079,6 +2260,7 @@ export async function createAffaireIntakeUpload(
   if (files.length === 0) {
     throw badRequest("Aucun fichier fourni.");
   }
+  validateAffaireIntakeUploadBatch(files);
 
   const { data: uploadData, error: uploadError } = await context.supabase
     .from("affaire_intake_uploads" as never)
@@ -2307,6 +2489,13 @@ export async function createAffaireIntakeUpload(
     shouldProcessAsync: uploadedCount > 0,
   };
 }
+
+export const __securityTesting__ = {
+  validateAffaireIntakeUploadBatch,
+  validateSpreadsheetBudget,
+  buildSpreadsheetSnippet,
+  SPREADSHEET_MAX_ARCHIVE_ENTRIES,
+};
 
 async function getUploadForProcessing(uploadId: string) {
   const supabase = createServiceRoleClient();

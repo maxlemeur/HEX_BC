@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   conflict,
+  forbidden,
   internalError,
   mapSupabaseError,
   notFound,
@@ -15,16 +16,97 @@ import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const PLAN_FILES_BUCKET = "plan-files";
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
 const PLAN_FILE_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const PLAN_FILE_MAX_SIZE_LABEL = "50 Mo";
+export const PLAN_SET_MAX_FILES = 20;
+export const PLAN_SET_MAX_TOTAL_SIZE_BYTES = 100 * 1024 * 1024;
 const PLAN_FILE_UPLOAD_SIGNED_URL_TTL_SECONDS = 60 * 60 * 2;
 const PLAN_FILE_DOWNLOAD_SIGNED_URL_TTL_SECONDS = 60 * 10;
 const DEFAULT_PLAN_SETS_LIST_LIMIT = 50;
 const MAX_PLAN_SETS_LIST_LIMIT = 100;
+
+export type PlanSetResourceBudgetFile = {
+  file_size_bytes?: number | null;
+  page_count?: number | null;
+};
+
+export type PlanSetResourceBudget = {
+  fileCount: number;
+  totalSizeBytes: number;
+  knownPageCount: number;
+  unknownPageCount: number;
+  violation:
+    | "file_count"
+    | "file_size"
+    | "total_size"
+    | "page_count"
+    | "total_pages"
+    | null;
+};
+
+export function inspectPlanSetResourceBudget(
+  files: PlanSetResourceBudgetFile[],
+  input?: { maxPages?: number | null }
+): PlanSetResourceBudget {
+  let totalSizeBytes = 0;
+  let knownPageCount = 0;
+  let unknownPageCount = 0;
+  let violation: PlanSetResourceBudget["violation"] =
+    files.length > PLAN_SET_MAX_FILES ? "file_count" : null;
+
+  for (const file of files) {
+    if (
+      !Number.isSafeInteger(file.file_size_bytes) ||
+      (file.file_size_bytes ?? 0) <= 0 ||
+      (file.file_size_bytes ?? 0) > PLAN_FILE_MAX_SIZE_BYTES
+    ) {
+      violation ??= "file_size";
+    } else {
+      totalSizeBytes += file.file_size_bytes ?? 0;
+      if (!Number.isSafeInteger(totalSizeBytes)) {
+        violation ??= "total_size";
+      }
+    }
+
+    if (file.page_count === null || file.page_count === undefined) {
+      unknownPageCount += 1;
+    } else if (!Number.isSafeInteger(file.page_count) || file.page_count <= 0) {
+      violation ??= "page_count";
+    } else {
+      knownPageCount += file.page_count;
+      if (!Number.isSafeInteger(knownPageCount)) {
+        violation ??= "total_pages";
+      }
+    }
+  }
+
+  if (totalSizeBytes > PLAN_SET_MAX_TOTAL_SIZE_BYTES) {
+    violation ??= "total_size";
+  }
+
+  const maxPages = input?.maxPages;
+  if (
+    typeof maxPages === "number" &&
+    Number.isSafeInteger(maxPages) &&
+    maxPages > 0 &&
+    knownPageCount > maxPages
+  ) {
+    violation ??= "total_pages";
+  }
+
+  return {
+    fileCount: files.length,
+    totalSizeBytes,
+    knownPageCount,
+    unknownPageCount,
+    violation,
+  };
+}
 
 const PLAN_SET_SELECT = [
   "id",
@@ -344,6 +426,32 @@ function buildPlanFileStoragePath(input: {
   return `${input.tenantId}/${input.setId}/${input.fileId}/${input.fileName}`;
 }
 
+function assertCanonicalPlanFileStoragePath(planFile: PlanFile) {
+  const canonicalFileName = sanitizePdfFilename(planFile.file_name);
+  const canonicalPath = buildPlanFileStoragePath({
+    tenantId: planFile.tenant_id,
+    setId: planFile.plan_set_id,
+    fileId: planFile.id,
+    fileName: canonicalFileName,
+  });
+
+  if (
+    planFile.file_name !== canonicalFileName ||
+    planFile.file_path !== canonicalPath
+  ) {
+    throw conflict(
+      "Le chemin Storage du fichier de plan est invalide.",
+      {
+        file_id: planFile.id,
+        plan_set_id: planFile.plan_set_id,
+      },
+      "PLAN_FILE_STORAGE_PATH_MISMATCH"
+    );
+  }
+
+  return canonicalPath;
+}
+
 function getStorageErrorStatus(error: unknown): number | null {
   if (!error || typeof error !== "object") {
     return null;
@@ -424,6 +532,11 @@ async function getAuthenticatedTakeoffContext() {
   const context = await getAuthenticatedContext();
   await assertTakeoffEnabled(context.tenantId, { supabase: context.supabase });
   return context;
+}
+
+function assertPlanSetMutationRole(role: string | null | undefined) {
+  if (role === "admin" || role === "engineer") return;
+  throw forbidden("Action reservee aux administrateurs et ingenieurs.");
 }
 
 async function resolveProjectIdForEstimateVersion(input: {
@@ -844,7 +957,9 @@ export async function getPlanSet(setId: string) {
 }
 
 export async function createPlanSet(input: CreatePlanSetInput) {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertPlanSetMutationRole(tenantRole);
   let targetProjectId = input.project_id ?? null;
   const estimateVersionId = input.estimate_version_id ?? null;
 
@@ -920,7 +1035,8 @@ export async function createPlanSet(input: CreatePlanSetInput) {
 }
 
 export async function deletePlanSet(setId: string) {
-  const { supabase } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantRole } = await getAuthenticatedTakeoffContext();
+  assertPlanSetMutationRole(tenantRole);
 
   const planSet = await getPlanSetByIdOrThrow({
     supabase,
@@ -931,6 +1047,7 @@ export async function deletePlanSet(setId: string) {
     supabase,
     setId,
   });
+  const storagePaths = planFiles.map(assertCanonicalPlanFileStoragePath);
 
   const { error: deleteError } = await supabase
     .from("plan_sets" as never)
@@ -941,9 +1058,12 @@ export async function deletePlanSet(setId: string) {
     throw mapSupabaseError(deleteError, "Impossible de supprimer le jeu de plans.");
   }
 
-  const storagePaths = planFiles.map((file) => file.file_path);
   if (storagePaths.length > 0) {
-    const { error: cleanupError } = await supabase.storage
+    // Metadata authorization is evaluated with the caller before deletion.
+    // Cleanup then uses the server-only client because plan_files were removed
+    // by the plan_set cascade and can no longer satisfy the Storage DELETE RLS.
+    const storageAdmin = createServiceRoleClient();
+    const { error: cleanupError } = await storageAdmin.storage
       .from(PLAN_FILES_BUCKET)
       .remove(storagePaths);
 
@@ -1053,6 +1173,28 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
     );
   }
 
+  const existingPlanFiles = await listPlanFilesBySetId({
+    supabase,
+    setId,
+  });
+  const prospectiveBudget = inspectPlanSetResourceBudget([
+    ...existingPlanFiles,
+    input,
+  ]);
+  if (prospectiveBudget.violation) {
+    throw payloadTooLarge(
+      "Le jeu de plans depasse les limites de fichiers ou de taille cumulee.",
+      {
+        violation: prospectiveBudget.violation,
+        file_count: prospectiveBudget.fileCount,
+        max_file_count: PLAN_SET_MAX_FILES,
+        total_size_bytes: prospectiveBudget.totalSizeBytes,
+        max_total_size_bytes: PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+      },
+      "TAKEOFF_PLAN_SET_BUDGET_EXCEEDED"
+    );
+  }
+
   const fileId = randomUUID();
   const normalizedFileName = sanitizePdfFilename(input.file_name);
   const storagePath = buildPlanFileStoragePath({
@@ -1083,6 +1225,22 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
     .single();
 
   if (error) {
+    const databaseBudgetViolation = [
+      "PLAN_FILE_SIZE_BUDGET_EXCEEDED",
+      "PLAN_SET_FILE_COUNT_BUDGET_EXCEEDED",
+      "PLAN_SET_TOTAL_SIZE_BUDGET_EXCEEDED",
+    ].find((code) => error.message.includes(code));
+    if (databaseBudgetViolation) {
+      throw payloadTooLarge(
+        "Le jeu de plans depasse les limites de fichiers ou de taille cumulee.",
+        {
+          database_violation: databaseBudgetViolation,
+          max_file_count: PLAN_SET_MAX_FILES,
+          max_total_size_bytes: PLAN_SET_MAX_TOTAL_SIZE_BYTES,
+        },
+        "TAKEOFF_PLAN_SET_BUDGET_EXCEEDED"
+      );
+    }
     throw mapSupabaseError(error, "Impossible d'enregistrer le fichier de plan.");
   }
 
@@ -1206,7 +1364,8 @@ export async function getPlanFileDetail(input: {
 }
 
 export async function deletePlanFile(setId: string, fileId: string) {
-  const { supabase } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantRole } = await getAuthenticatedTakeoffContext();
+  assertPlanSetMutationRole(tenantRole);
 
   await getPlanSetByIdOrThrow({
     supabase,
@@ -1218,6 +1377,7 @@ export async function deletePlanFile(setId: string, fileId: string) {
     setId,
     fileId,
   });
+  const storagePath = assertCanonicalPlanFileStoragePath(planFile);
 
   const { error: deleteError } = await supabase
     .from("plan_files" as never)
@@ -1229,9 +1389,13 @@ export async function deletePlanFile(setId: string, fileId: string) {
     throw mapSupabaseError(deleteError, "Impossible de supprimer le fichier de plan.");
   }
 
-  const { error: cleanupError } = await supabase.storage
+  // The authenticated metadata delete removes the row required by the
+  // restrictive Storage policy. Use the server-only client only for the exact
+  // path captured from the authorized row above.
+  const storageAdmin = createServiceRoleClient();
+  const { error: cleanupError } = await storageAdmin.storage
     .from(PLAN_FILES_BUCKET)
-    .remove([planFile.file_path]);
+    .remove([storagePath]);
 
   if (cleanupError) {
     const compensation = await restoreDeletedPlanFile({

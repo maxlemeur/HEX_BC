@@ -103,6 +103,12 @@ type SupabaseMockOptions = {
     details?: string | null;
     hint?: string | null;
   };
+  auditError?: {
+    code?: string;
+    message?: string;
+    details?: string | null;
+    hint?: string | null;
+  };
 };
 
 function baseJob(overrides: Partial<StoredTakeoffJob> = {}): StoredTakeoffJob {
@@ -344,7 +350,11 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
               state.auditActions.push(payload.action);
             }
 
-            return { data: null, error: null };
+            const error =
+              payload.action === "takeoff.apply.override"
+                ? options.auditError ?? null
+                : null;
+            return { data: null, error };
           }),
         };
       }
@@ -749,6 +759,49 @@ describe("applyTakeoffJob", () => {
       "takeoff.apply.started",
       "takeoff.apply.completed",
     ]);
+  });
+
+  it("fails closed when the required admin override audit cannot be persisted", async () => {
+    const supabase = createSupabaseMock({
+      jobLevel: "C",
+      takeoffItems: [
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_1,
+          confidence: 0.2,
+          is_verified: false,
+        }),
+      ],
+      auditError: {
+        code: "42501",
+        message: "new row violates row-level security policy",
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+        override: true,
+        override_justification: "Validation manuelle exceptionnelle",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("uses tenant low-confidence threshold for level C guard", async () => {

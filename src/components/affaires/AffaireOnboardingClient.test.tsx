@@ -6,14 +6,10 @@ const {
   initializeAffaireDraftMock,
   routerPushMock,
   routerRefreshMock,
-  onboardingDropzoneProps,
-  importSectionProps,
 } = vi.hoisted(() => ({
   initializeAffaireDraftMock: vi.fn(),
   routerPushMock: vi.fn(),
   routerRefreshMock: vi.fn(),
-  onboardingDropzoneProps: [] as Array<Record<string, unknown>>,
-  importSectionProps: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("next/link", () => ({
@@ -45,25 +41,21 @@ vi.mock("@/app/dashboard/affaires/_actions/quick-create-affaire", () => ({
   initializeAffaireDraft: initializeAffaireDraftMock,
 }));
 
-vi.mock("@/components/affaires/OnboardingIntakeDropzone", () => ({
-  OnboardingIntakeDropzone: (props: Record<string, unknown>) => {
-    onboardingDropzoneProps.push(props);
-    return (
-      <button
-        type="button"
-        onClick={() => void (props.onMissingProjectName as () => void)?.()}
-      >
-        Trigger dossier validation
+vi.mock("@/components/affaires/BlueprintCreationAnimation", () => ({
+  BlueprintCreationAnimation: ({
+    projectName,
+    onComplete,
+  }: {
+    projectName: string;
+    onComplete: () => void;
+  }) => (
+    <div>
+      <span>Creation de {projectName}</span>
+      <button type="button" onClick={onComplete}>
+        Terminer l&apos;animation
       </button>
-    );
-  },
-}));
-
-vi.mock("@/components/affaires/AffaireImportBootstrapSection", () => ({
-  AffaireImportBootstrapSection: (props: Record<string, unknown>) => {
-    importSectionProps.push(props);
-    return <div data-testid="import-bootstrap-section" />;
-  },
+    </div>
+  ),
 }));
 
 import { AffaireOnboardingClient } from "@/components/affaires/AffaireOnboardingClient";
@@ -71,8 +63,6 @@ import { AffaireOnboardingClient } from "@/components/affaires/AffaireOnboarding
 describe("AffaireOnboardingClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    onboardingDropzoneProps.length = 0;
-    importSectionProps.length = 0;
     initializeAffaireDraftMock.mockResolvedValue({
       projectId: "project-1",
       versionId: "version-1",
@@ -87,26 +77,25 @@ describe("AffaireOnboardingClient", () => {
   it("does not create anything on initial render", () => {
     render(<AffaireOnboardingClient />);
 
-    expect(screen.getByRole("heading", { name: /nouvelle affaire/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/nom du projet/i)).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: /creer l'affaire/i })
+    ).toBeDisabled();
     expect(initializeAffaireDraftMock).not.toHaveBeenCalled();
-    expect(importSectionProps.at(-1)).toEqual(
-      expect.objectContaining({
-        metadata: {
-          projectName: "",
-          clientName: "",
-          reference: "",
-        },
-      })
-    );
   });
 
-  it("requires a project name before save", async () => {
+  it("enables creation once a project name is entered", async () => {
     const user = userEvent.setup();
     render(<AffaireOnboardingClient />);
 
-    await user.click(screen.getByRole("button", { name: /enregistrer l'affaire/i }));
+    const createButton = screen.getByRole("button", {
+      name: /creer l'affaire/i,
+    });
+    expect(createButton).toBeDisabled();
 
-    expect(await screen.findAllByText(/le nom du projet est obligatoire/i)).not.toHaveLength(0);
+    await user.type(screen.getByLabelText(/nom du projet/i), "Residence Horizon");
+
+    expect(createButton).toBeEnabled();
     expect(initializeAffaireDraftMock).not.toHaveBeenCalled();
   });
 
@@ -116,7 +105,7 @@ describe("AffaireOnboardingClient", () => {
 
     await user.type(screen.getByLabelText(/nom du projet/i), "Residence Horizon");
     await user.type(screen.getByLabelText(/^client$/i), "Client Demo");
-    await user.click(screen.getByRole("button", { name: /enregistrer l'affaire/i }));
+    await user.click(screen.getByRole("button", { name: /creer l'affaire/i }));
 
     await waitFor(() => {
       expect(initializeAffaireDraftMock).toHaveBeenCalledWith({
@@ -125,21 +114,28 @@ describe("AffaireOnboardingClient", () => {
         reference: null,
       });
     });
+    await user.click(
+      screen.getByRole("button", { name: /terminer l'animation/i })
+    );
     expect(routerPushMock).toHaveBeenCalledWith(
       "/dashboard/affaires/project-1?created=1"
     );
     expect(routerRefreshMock).toHaveBeenCalled();
   });
 
-  it("surfaces project-name validation when dossier upload is attempted too early", async () => {
+  it("surfaces initialization errors and allows a retry", async () => {
+    initializeAffaireDraftMock.mockRejectedValueOnce(
+      new Error("Impossible de creer ce projet.")
+    );
     const user = userEvent.setup();
     render(<AffaireOnboardingClient />);
 
-    await user.click(
-      screen.getByRole("button", { name: /trigger dossier validation/i })
-    );
+    await user.type(screen.getByLabelText(/nom du projet/i), "Projet invalide");
+    await user.click(screen.getByRole("button", { name: /creer l'affaire/i }));
 
-    expect(await screen.findAllByText(/le nom du projet est obligatoire/i)).not.toHaveLength(0);
-    expect(initializeAffaireDraftMock).not.toHaveBeenCalled();
+    expect(await screen.findByText("Impossible de creer ce projet.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /creer l'affaire/i })
+    ).toBeEnabled();
   });
 });

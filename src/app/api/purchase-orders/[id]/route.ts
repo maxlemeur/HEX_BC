@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 
 import { isValidDateOnly } from "@/lib/date-only";
 import { computeTotalsFromInputs } from "@/lib/order-calculations";
-import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import {
+  canWritePurchaseOrders,
+  getAccessiblePurchaseOrderOrNull,
+} from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -193,12 +196,20 @@ export async function PUT(
   const existingOrder = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: PurchaseOrderStatus;
-  }>(supabase, id, "id, status");
+    tenant_id: string;
+  }>(supabase, id, "id, status, tenant_id");
 
   if (!existingOrder) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, user.id, existingOrder.tenant_id))) {
+    return NextResponse.json(
+      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { status: 403 }
     );
   }
 
@@ -393,12 +404,20 @@ export async function DELETE(
   const existingOrder = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: PurchaseOrderStatus;
-  }>(supabase, id, "id, status");
+    tenant_id: string;
+  }>(supabase, id, "id, status, tenant_id");
 
   if (!existingOrder) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, user.id, existingOrder.tenant_id))) {
+    return NextResponse.json(
+      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { status: 403 }
     );
   }
 

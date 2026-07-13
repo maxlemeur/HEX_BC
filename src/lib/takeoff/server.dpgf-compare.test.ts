@@ -970,7 +970,7 @@ describe("takeoff DPGF comparison server helpers", () => {
 
     expect(response.view).toBe("all");
     expect(response.summary).toMatchObject({
-      forced_manual: 1,
+      forced_manual: 0,
       total_lines: 1,
       unused_takeoff_items: 1,
     });
@@ -1055,7 +1055,7 @@ describe("takeoff DPGF comparison server helpers", () => {
     });
   });
 
-  it("includes carried review decisions in the hub summary for linked versions", async () => {
+  it("excludes carried review decisions from forced-manual blockers in the hub summary", async () => {
     const mock = createSupabaseMock();
     mock.state.reviewDecisions = [
       {
@@ -1105,7 +1105,7 @@ describe("takeoff DPGF comparison server helpers", () => {
     });
 
     expect(summary).toMatchObject({
-      forced_manual: 1,
+      forced_manual: 0,
       total_lines: 1,
       unused_takeoff_items: 1,
     });

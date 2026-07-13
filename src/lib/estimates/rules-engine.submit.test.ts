@@ -1600,7 +1600,7 @@ describe("submitEstimateApproval", () => {
     });
   });
 
-  it("journals only the decided rule snapshot for legacy approval decisions", async () => {
+  it("decides a legacy approval without a review cycle through the atomic RPC", async () => {
     const targetRuleId = "99999999-9999-4999-8999-999999999999";
     const otherRuleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const targetApprovalId = "88888888-8888-4888-8888-888888888888";
@@ -1665,12 +1665,24 @@ describe("submitEstimateApproval", () => {
       data: null,
       error: null,
     });
+    const decisionRpc = vi.fn().mockResolvedValue({
+      data: {
+        id: targetApprovalId,
+        created_at: "2026-03-03T10:05:00.000Z",
+        updated_at: "2026-03-03T10:10:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        rule_id: targetRuleId,
+        requested_by: OWNER_ID,
+        approved_by: USER_ID,
+        status: "approved",
+        decided_at: "2026-03-03T10:10:00.000Z",
+        approved_content_revision: 1,
+      },
+      error: null,
+    });
 
-    vi.mocked(createOptionalServiceRoleClient)
-      .mockReturnValueOnce({
-        rpc,
-      } as never)
-      .mockReturnValueOnce(null as never);
+    vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null as never);
 
     const from = vi.fn((table: string) => {
       if (table === "tenant_memberships") {
@@ -1719,34 +1731,27 @@ describe("submitEstimateApproval", () => {
       throw new Error(`Unexpected table: ${table}`);
     });
 
-    mockAuthenticatedSupabase({ from });
+    mockAuthenticatedSupabase({ from, rpc: decisionRpc });
 
-    await submitEstimateApproval({
+    const result = await submitEstimateApproval({
       versionId: VERSION_ID,
       action: "approve",
       ruleId: targetRuleId,
     });
 
-    expect(rpc).toHaveBeenCalledWith("log_estimate_version_event", {
-      p_estimate_version_id: VERSION_ID,
-      p_event_type: "approval_decided",
-      p_created_by: USER_ID,
-      p_occurred_at: "2026-03-03T10:10:00.000Z",
-      p_metadata: expect.objectContaining({
-        ruleIds: [targetRuleId],
-        rulesTriggered: [
-          expect.objectContaining({
-            ruleId: targetRuleId,
-          }),
-        ],
-      }),
+    expect(decisionRpc).toHaveBeenCalledWith("decide_estimate_approval", {
+      p_approval_id: targetApprovalId,
+      p_status: "approved",
     });
-    expect(
-      rpc.mock.calls[0]?.[1]?.p_metadata?.rulesTriggered
-    ).toHaveLength(1);
+    expect(result.approval).toMatchObject({
+      id: targetApprovalId,
+      status: "approved",
+      approved_content_revision: 1,
+    });
+    expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("closes legacy review cycles from approvals in the current cycle only", async () => {
+  it("leaves legacy review cycle closure to the atomic approval RPC", async () => {
     const targetRuleId = "99999999-9999-4999-8999-999999999999";
     const targetApprovalId = "88888888-8888-4888-8888-888888888888";
     const cycleId = "77777777-7777-4777-8777-777777777777";
@@ -1847,6 +1852,13 @@ describe("submitEstimateApproval", () => {
     });
     const reviewCycleSelectBuilders = [openCycleBuilder, openCycleBuilder];
     const reviewCycleUpdate = vi.fn(() => closeCycleBuilder);
+    const decisionRpc = vi.fn().mockResolvedValue({
+      data: {
+        ...currentApproved,
+        approved_content_revision: 1,
+      },
+      error: null,
+    });
     const from = vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
@@ -1895,7 +1907,7 @@ describe("submitEstimateApproval", () => {
       throw new Error(`Unexpected table: ${table}`);
     });
 
-    mockAuthenticatedSupabase({ from });
+    mockAuthenticatedSupabase({ from, rpc: decisionRpc });
 
     const result = await submitEstimateApproval({
       versionId: VERSION_ID,
@@ -1903,15 +1915,12 @@ describe("submitEstimateApproval", () => {
       ruleId: targetRuleId,
     });
 
-    expect(cycleApprovalsBuilder.gte).toHaveBeenCalledWith(
-      "created_at",
-      "2026-03-02T10:00:00.000Z"
-    );
-    expect(reviewCycleUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        decision: "approved",
-      })
-    );
+    expect(decisionRpc).toHaveBeenCalledWith("decide_estimate_approval", {
+      p_approval_id: targetApprovalId,
+      p_status: "approved",
+    });
+    expect(cycleApprovalsBuilder.gte).not.toHaveBeenCalled();
+    expect(reviewCycleUpdate).not.toHaveBeenCalled();
     expect(result.approval).toMatchObject({
       id: targetApprovalId,
       status: "approved",

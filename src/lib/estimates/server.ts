@@ -70,6 +70,7 @@ import {
   resolveEstimateLineTruth,
   type EstimateLineTruth,
 } from "./line-truth";
+import { assertCanWriteEstimateWorkflows } from "./write-access";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -1904,7 +1905,7 @@ function getServiceRoleSupabaseClient() {
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw internalError(
-      "Configuration Supabase service role manquante pour journaliser les evenements."
+      "Configuration Supabase service role manquante pour executer le workflow protege."
     );
   }
 
@@ -1966,6 +1967,54 @@ async function logEstimateVersionEvent(input: {
       "Impossible d'enregistrer l'evenement de statut."
     );
   }
+}
+
+async function transitionEstimateVersionStatusAtomically(input: {
+  versionId: string;
+  tenantId: string;
+  expectedUpdatedAt: string;
+  nextStatus: EstimateStatus;
+  sealHash: string | null;
+  actorUserId: string;
+  eventMetadata?: Json;
+  occurredAt: string;
+}) {
+  const rpcClient = getServiceRoleSupabaseClient();
+  const { data, error } = await rpcClient.rpc(
+    "transition_estimate_version_status" as never,
+    {
+      p_version_id: input.versionId,
+      p_tenant_id: input.tenantId,
+      p_expected_updated_at: input.expectedUpdatedAt,
+      p_next_status: input.nextStatus,
+      p_seal_hash: input.sealHash,
+      p_actor_user_id: input.actorUserId,
+      p_event_metadata: input.eventMetadata ?? {},
+      p_occurred_at: input.occurredAt,
+    } as never
+  );
+
+  if (error) {
+    if (
+      error.code === "40001" ||
+      error.message.includes("ESTIMATE_VERSION_CONFLICT")
+    ) {
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: input.expectedUpdatedAt,
+      });
+    }
+
+    throw mapSupabaseError(error, "Impossible de changer le statut.");
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: input.expectedUpdatedAt,
+    });
+  }
+
+  return row as unknown as EstimateVersionRow;
 }
 
 function extractPatchedEstimateTotals(input: PatchEstimateVersionInput) {
@@ -5164,7 +5213,8 @@ export async function getEstimateAssembly(assemblyId: string) {
 }
 
 export async function createEstimateAssembly(input: CreateEstimateAssemblyInput) {
-  const { supabase, tenantId, userId } = await getAuthenticatedContext();
+  const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   const { data: assemblyData, error: assemblyError } = await supabase
     .from("estimate_assemblies")
@@ -5230,7 +5280,8 @@ export async function updateEstimateAssembly(
   assemblyId: string,
   input: UpdateEstimateAssemblyInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   await loadEstimateAssemblyOrThrow({
     supabase,
@@ -5314,7 +5365,8 @@ export async function updateEstimateAssembly(
 }
 
 export async function deleteEstimateAssembly(assemblyId: string) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   await loadEstimateAssemblyOrThrow({
     supabase,
@@ -7290,63 +7342,29 @@ export async function patchEstimateStatus(
     sealHash = computeEstimateSealHash(sealPayload);
   }
 
-  const updatePayload: EstimateVersionUpdate = {
-    status: input.status,
-  };
-
-  if (sealHash !== null) {
-    (updatePayload as EstimateVersionUpdate & { seal_hash: string | null }).seal_hash =
-      sealHash;
-  }
-
-  const { data, error } = await supabase
-    .from("estimate_versions")
-    .update(updatePayload)
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .eq("updated_at", version.updated_at)
-    .select("*")
-    .single();
-
-  if (error || !data) {
-    if (error?.code === "PGRST116") {
-      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-        updated_at: version.updated_at,
-      });
-    }
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de changer le statut.");
-    }
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: version.updated_at,
-    });
-  }
-
   const statusEventType = resolveStatusEventType(input.status);
-  if (statusEventType) {
-    const statusEventMetadata: Record<string, unknown> = {
-      previous_status: version.status,
-      next_status: input.status,
-    };
-
-    if (sealHash !== null) {
-      statusEventMetadata.seal_hash = sealHash;
-    }
-
-    if (forcedByAdmin) {
-      statusEventMetadata.forced_by_admin = true;
-      statusEventMetadata.forced_blocking_flags = forcedBlockingFlags;
-    }
-
-    await logEstimateVersionEvent({
-      versionId,
-      eventType: statusEventType,
-      actorUserId: userId,
-      metadata: statusEventMetadata as Json,
-      occurredAt: new Date().toISOString(),
-    });
+  if (!statusEventType) {
+    throw badRequest(
+      `Transition de statut invalide: ${version.status} -> ${input.status}.`
+    );
   }
+
+  const statusEventMetadata: Record<string, unknown> = {};
+  if (forcedByAdmin) {
+    statusEventMetadata.forced_by_admin = true;
+    statusEventMetadata.forced_blocking_flags = forcedBlockingFlags;
+  }
+
+  const data = await transitionEstimateVersionStatusAtomically({
+    versionId,
+    tenantId,
+    expectedUpdatedAt: version.updated_at,
+    nextStatus: input.status,
+    sealHash,
+    actorUserId: userId,
+    eventMetadata: statusEventMetadata as Json,
+    occurredAt: new Date().toISOString(),
+  });
 
   return {
     version: data,
@@ -8750,6 +8768,52 @@ export async function bulkUpdateEstimateItems(
     updated_count: rpcUpdatedCount ?? 0,
     version: updatedVersion,
   };
+}
+
+export async function claimEstimateBatchRevision(
+  versionId: string,
+  concurrencyToken: string | undefined
+) {
+  const normalizedToken = normalizeConcurrencyToken(concurrencyToken);
+  if (!normalizedToken) {
+    throw badRequest("Jeton de concurrence manquant.");
+  }
+  if (!Number.isFinite(new Date(normalizedToken).getTime())) {
+    throw badRequest("Jeton de concurrence invalide.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc(
+    "claim_estimate_batch_revision" as never,
+    {
+      p_version_id: versionId,
+      p_expected_updated_at: normalizedToken,
+    } as never
+  );
+
+  if (error) {
+    if (
+      error.code === "40001" ||
+      error.message.includes("ESTIMATE_BATCH_REVISION_CONFLICT")
+    ) {
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: normalizedToken,
+      });
+    }
+    throw mapSupabaseError(
+      error,
+      "Impossible de reserver la revision du traitement par lot."
+    );
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== "object") {
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: normalizedToken,
+    });
+  }
+
+  return row as unknown as { id: string; updated_at: string };
 }
 
 export async function deleteEstimateItem(

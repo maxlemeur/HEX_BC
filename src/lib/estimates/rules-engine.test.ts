@@ -13,6 +13,7 @@ type QueryResult = {
 function createRulesEngineSupabaseMock(input: {
   rules: unknown[];
   approvals?: unknown[];
+  contentRevision?: number;
   takeoffJobs?: unknown[];
   takeoffVersionLinks?: unknown[];
   takeoffDpgfLinks?: unknown[];
@@ -64,6 +65,16 @@ function createRulesEngineSupabaseMock(input: {
   };
 
   return {
+    rpc: (functionName: string) => {
+      if (functionName !== "get_estimate_content_revision") {
+        throw new Error(`Unexpected RPC: ${functionName}`);
+      }
+
+      return Promise.resolve({
+        data: input.contentRevision ?? 1,
+        error: null,
+      });
+    },
     from: (table: string) => {
       if (table === "estimate_rules") {
         return {
@@ -203,7 +214,7 @@ describe("rules engine", () => {
     );
   });
 
-  it("does not raise violation when require_approval rule is already approved", async () => {
+  it("does not raise a violation for an approval bound to the current revision", async () => {
     const ruleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createRulesEngineSupabaseMock({
       rules: [
@@ -232,6 +243,7 @@ describe("rules engine", () => {
           approved_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
           status: "approved",
           decided_at: "2026-02-23T10:30:00.000Z",
+          approved_content_revision: 1,
         },
       ],
     });
@@ -255,6 +267,67 @@ describe("rules engine", () => {
     });
 
     expect(result.violations).toHaveLength(0);
+  });
+
+  it("fails closed when an approval belongs to an older content revision", async () => {
+    const ruleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const supabase = createRulesEngineSupabaseMock({
+      contentRevision: 2,
+      rules: [
+        {
+          id: ruleId,
+          created_at: "2026-02-23T09:00:00.000Z",
+          updated_at: "2026-02-23T09:00:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          rule_type: "require_approval",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 100000,
+          action: "require_approval",
+          is_active: true,
+        },
+      ],
+      approvals: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          created_at: "2026-02-23T10:00:00.000Z",
+          updated_at: "2026-02-23T10:00:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          version_id: "33333333-3333-4333-8333-333333333333",
+          rule_id: ruleId,
+          requested_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          approved_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          status: "approved",
+          decided_at: "2026-02-23T10:30:00.000Z",
+          approved_content_revision: 1,
+        },
+      ],
+    });
+
+    const result = await evaluateRules({
+      supabase: supabase as never,
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      version: {
+        id: "33333333-3333-4333-8333-333333333333",
+        project_id: "44444444-4444-4444-8444-444444444444",
+        margin_bp: 1200,
+        margin_multiplier: 1,
+        discount_bp: 200,
+        total_ht_cents: 150000,
+      },
+      project: {
+        id: "44444444-4444-4444-8444-444444444444",
+        client_name: "Client A",
+      },
+      items: [],
+    });
+
+    expect(result.blockingViolations).toEqual([
+      expect.objectContaining({
+        rule_id: ruleId,
+        approval_status: "missing",
+      }),
+    ]);
   });
 
   it("keeps approved approval violations when explicitly requested for summary projection", async () => {
@@ -358,6 +431,198 @@ describe("rules engine", () => {
     expect(result.unavailableSignals).toEqual([
       expect.objectContaining({
         metric_key: "critical_exceptions_count",
+        source_state: "unavailable",
+      }),
+    ]);
+  });
+
+  it("accepts a fresh director approval for an unavailable require-approval signal", async () => {
+    const ruleId = "99999999-9999-4999-8999-999999999999";
+    const supabase = createRulesEngineSupabaseMock({
+      contentRevision: 7,
+      rules: [
+        {
+          id: ruleId,
+          created_at: "2026-02-23T09:00:00.000Z",
+          updated_at: "2026-02-23T09:00:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          rule_type: "critical_exceptions_max",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 0,
+          action: "require_approval",
+          is_active: true,
+        },
+      ],
+      approvals: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          created_at: "2026-02-23T10:00:00.000Z",
+          updated_at: "2026-02-23T10:30:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          version_id: "33333333-3333-4333-8333-333333333333",
+          rule_id: ruleId,
+          requested_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          approved_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          status: "approved",
+          decided_at: "2026-02-23T10:30:00.000Z",
+          approved_content_revision: 7,
+        },
+      ],
+    });
+
+    const result = await evaluateRules({
+      supabase: supabase as never,
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      version: {
+        id: "33333333-3333-4333-8333-333333333333",
+        project_id: "44444444-4444-4444-8444-444444444444",
+        margin_bp: 1500,
+        margin_multiplier: 1,
+        discount_bp: 100,
+        total_ht_cents: 90000,
+      },
+      project: {
+        id: "44444444-4444-4444-8444-444444444444",
+        client_name: "Client A",
+      },
+      items: [],
+    });
+
+    expect(result.violations).toHaveLength(0);
+    expect(result.unavailableSignals).toHaveLength(0);
+  });
+
+  it.each([
+    ["stale", "approved", 6],
+    ["unversioned", "approved", null],
+    ["rejected", "rejected", 7],
+  ] as const)(
+    "keeps an unavailable require-approval signal blocking for a %s approval",
+    async (_case, status, approvedContentRevision) => {
+      const ruleId = "99999999-9999-4999-8999-999999999999";
+      const supabase = createRulesEngineSupabaseMock({
+        contentRevision: 7,
+        rules: [
+          {
+            id: ruleId,
+            created_at: "2026-02-23T09:00:00.000Z",
+            updated_at: "2026-02-23T09:00:00.000Z",
+            tenant_id: "22222222-2222-4222-8222-222222222222",
+            rule_type: "missing_line_evidence_max",
+            scope_type: "global",
+            scope_id: null,
+            threshold_value: 0,
+            action: "require_approval",
+            is_active: true,
+          },
+        ],
+        approvals: [
+          {
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            created_at: "2026-02-23T10:00:00.000Z",
+            updated_at: "2026-02-23T10:30:00.000Z",
+            tenant_id: "22222222-2222-4222-8222-222222222222",
+            version_id: "33333333-3333-4333-8333-333333333333",
+            rule_id: ruleId,
+            requested_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            approved_by:
+              status === "approved"
+                ? "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+                : "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            status,
+            decided_at: "2026-02-23T10:30:00.000Z",
+            approved_content_revision: approvedContentRevision,
+          },
+        ],
+      });
+
+      const result = await evaluateRules({
+        supabase: supabase as never,
+        tenantId: "22222222-2222-4222-8222-222222222222",
+        version: {
+          id: "33333333-3333-4333-8333-333333333333",
+          project_id: "44444444-4444-4444-8444-444444444444",
+          margin_bp: 1500,
+          margin_multiplier: 1,
+          discount_bp: 100,
+          total_ht_cents: 90000,
+        },
+        project: {
+          id: "44444444-4444-4444-8444-444444444444",
+          client_name: "Client A",
+        },
+        items: [],
+      });
+
+      expect(result.violations).toHaveLength(0);
+      expect(result.unavailableSignals).toEqual([
+        expect.objectContaining({
+          rule_id: ruleId,
+          action: "require_approval",
+          source_state: "unavailable",
+        }),
+      ]);
+    }
+  );
+
+  it("keeps an unavailable block action fail-closed despite a fresh approval row", async () => {
+    const ruleId = "99999999-9999-4999-8999-999999999999";
+    const supabase = createRulesEngineSupabaseMock({
+      contentRevision: 7,
+      rules: [
+        {
+          id: ruleId,
+          created_at: "2026-02-23T09:00:00.000Z",
+          updated_at: "2026-02-23T09:00:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          rule_type: "critical_exceptions_max",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 0,
+          action: "block",
+          is_active: true,
+        },
+      ],
+      approvals: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          created_at: "2026-02-23T10:00:00.000Z",
+          updated_at: "2026-02-23T10:30:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          version_id: "33333333-3333-4333-8333-333333333333",
+          rule_id: ruleId,
+          requested_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          approved_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          status: "approved",
+          decided_at: "2026-02-23T10:30:00.000Z",
+          approved_content_revision: 7,
+        },
+      ],
+    });
+
+    const result = await evaluateRules({
+      supabase: supabase as never,
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      version: {
+        id: "33333333-3333-4333-8333-333333333333",
+        project_id: "44444444-4444-4444-8444-444444444444",
+        margin_bp: 1500,
+        margin_multiplier: 1,
+        discount_bp: 100,
+        total_ht_cents: 90000,
+      },
+      project: {
+        id: "44444444-4444-4444-8444-444444444444",
+        client_name: "Client A",
+      },
+      items: [],
+    });
+
+    expect(result.unavailableSignals).toEqual([
+      expect.objectContaining({
+        rule_id: ruleId,
+        action: "block",
         source_state: "unavailable",
       }),
     ]);

@@ -30,7 +30,6 @@ export default defineConfig({
           environment: "node",
           include: allTestFiles,
           exclude: jsdomTestFiles,
-          setupFiles: ["src/test/vitest.setup.ts"],
         },
       },
       {

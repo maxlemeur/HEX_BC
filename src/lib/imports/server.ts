@@ -45,6 +45,7 @@ type AuthenticatedContext = {
   supabase: Supabase;
   userId: string;
   tenantId: string;
+  tenantRole: TenantMembershipRow["role"];
   isTenantAdmin: boolean;
 };
 
@@ -732,8 +733,17 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
     supabase,
     userId: user.id,
     tenantId: membership.tenant_id,
+    tenantRole: membership.role,
     isTenantAdmin: membership.role === "admin",
   };
+}
+
+function requireImportWriteRole(context: AuthenticatedContext) {
+  if (context.tenantRole !== "admin" && context.tenantRole !== "engineer") {
+    throw forbidden(
+      "Seuls les ingenieurs et administrateurs peuvent creer ou modifier un import DPGF."
+    );
+  }
 }
 
 async function getCurrentMembershipOrThrow(
@@ -945,7 +955,9 @@ export async function createImportFromJsonBody(body: unknown) {
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
   const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
-  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  const context = await getAuthenticatedContext();
+  requireImportWriteRole(context);
+  const { supabase, userId, tenantId, isTenantAdmin } = context;
 
   let importRecord: ImportRow | null = null;
 
@@ -1081,7 +1093,9 @@ export async function createImportFromMultipartFormData(formData: FormData) {
 
   validateImportFile(fileEntry);
 
-  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  const context = await getAuthenticatedContext();
+  requireImportWriteRole(context);
+  const { supabase, userId, tenantId, isTenantAdmin } = context;
   const filename = sanitizeFilename(
     toOptionalNonEmptyString(formData.get("filename")) ??
       toOptionalNonEmptyString(fileEntry.name) ??

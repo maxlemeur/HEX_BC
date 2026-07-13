@@ -117,21 +117,27 @@ export async function POST(
     // 2. Capture client IP
     const clientIp = resolveClientIp(request);
 
-    // 3. Claim the token FIRST (concurrency guard) — before any side effects
+    // 3. Atomically claim both the capability and its parent estimate version.
     const acceptedAt = new Date().toISOString();
-    const { data: updated, error: updateError } = await supabase
-      .from("portal_tokens")
-      .update({
-        status: "accepted",
-        accepted_at: acceptedAt,
-        accepted_ip: clientIp,
-      })
-      .eq("id", portalToken.id)
-      .eq("status", "pending")
-      .select("id")
-      .single();
+    const { error: claimError } = await supabase.rpc(
+      "claim_portal_estimate_decision" as never,
+      {
+        p_portal_token_id: portalToken.id,
+        p_decision: "accepted",
+        p_client_ip: clientIp,
+        p_reject_reason: null,
+      } as never
+    );
 
-    if (updateError || !updated) {
+    if (claimError) {
+      if (claimError.code !== "P0001") {
+        console.error("Portal acceptance claim error:", claimError);
+        return NextResponse.json(
+          { error: "Erreur lors de la mise a jour du statut du devis." },
+          { status: 500 }
+        );
+      }
+
       return NextResponse.json(
         { error: "Ce devis a deja ete traite." },
         { status: 409 }
@@ -167,41 +173,7 @@ export async function POST(
       }
     }
 
-    // 5. Update estimate version status
-    const { error: versionUpdateError } = await supabase
-      .from("estimate_versions")
-      .update({ status: "accepted" })
-      .eq("id", portalToken.version_id)
-      .eq("status", "sent");
-
-    if (versionUpdateError) {
-      console.error("Version status update error:", versionUpdateError);
-      return NextResponse.json(
-        { error: "Erreur lors de la mise a jour du statut du devis." },
-        { status: 500 }
-      );
-    }
-
-    // 6. Log 'accepted' event
-    const { error: eventError } = await supabase.rpc("log_estimate_version_event", {
-      p_estimate_version_id: portalToken.version_id,
-      p_event_type: "accepted",
-      p_created_by: null,
-      p_metadata: {
-        portal_token_id: portalToken.id,
-        accepted_via: "portal",
-        client_ip: clientIp,
-        has_signature: !!body.signature_base64,
-        ...(signatureUrl ? { signature_url: signatureUrl } : {}),
-      },
-    });
-
-    if (eventError) {
-      console.error("Event log error:", eventError);
-      // Non-fatal: token and version are already updated
-    }
-
-    // 7. Send confirmation email (best-effort)
+    // 5. Send confirmation email (best-effort)
     try {
       const apiKey = process.env.RESEND_API_KEY?.trim();
       const emailFrom = process.env.EMAIL_FROM?.trim();

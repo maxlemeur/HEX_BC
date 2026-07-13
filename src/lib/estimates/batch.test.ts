@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/server", () => ({
   bulkUpdateEstimateItems: vi.fn(),
+  claimEstimateBatchRevision: vi.fn(),
   createEstimateItem: vi.fn(),
   updateEstimateItem: vi.fn(),
   deleteEstimateItem: vi.fn(),
@@ -20,6 +21,7 @@ import {
 import { badRequest, conflict } from "@/lib/estimates/errors";
 import {
   bulkUpdateEstimateItems,
+  claimEstimateBatchRevision,
   createEstimateItem,
   deleteEstimateItem,
   listEstimateItems,
@@ -136,6 +138,10 @@ describe("executeEstimateBatch", () => {
     vi.mocked(listEstimateItems).mockResolvedValue({
       items: [],
     } as never);
+    vi.mocked(claimEstimateBatchRevision).mockResolvedValue({
+      id: VERSION_ID,
+      updated_at: "2026-02-21T10:00:00.001Z",
+    });
   });
 
   afterEach(() => {
@@ -251,6 +257,7 @@ describe("executeEstimateBatch", () => {
     expect(vi.mocked(deleteEstimateItem)).not.toHaveBeenCalled();
     expect(vi.mocked(reorderEstimateItems)).not.toHaveBeenCalled();
     expect(vi.mocked(createSupabaseServerClient)).not.toHaveBeenCalled();
+    expect(vi.mocked(claimEstimateBatchRevision)).not.toHaveBeenCalled();
   });
 
   it("propagates optimistic concurrency conflicts from the token precheck", async () => {
@@ -281,6 +288,31 @@ describe("executeEstimateBatch", () => {
     expect(vi.mocked(updateEstimateItem)).not.toHaveBeenCalled();
     expect(vi.mocked(deleteEstimateItem)).not.toHaveBeenCalled();
     expect(vi.mocked(reorderEstimateItems)).not.toHaveBeenCalled();
+  });
+
+  it("stops before mutations when the atomic batch revision claim loses the race", async () => {
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: { id: VERSION_ID, updated_at: UPDATED_AT },
+    } as never);
+    vi.mocked(claimEstimateBatchRevision).mockRejectedValue(
+      conflict("Version modifiee par un autre utilisateur.", {
+        updated_at: UPDATED_AT,
+      })
+    );
+
+    await expect(
+      executeEstimateBatch(
+        VERSION_ID,
+        [{ op: "delete", id: ITEM_ID }],
+        { concurrencyToken: UPDATED_AT }
+      )
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(deleteEstimateItem).not.toHaveBeenCalled();
+    expect(createEstimateItem).not.toHaveBeenCalled();
+    expect(updateEstimateItem).not.toHaveBeenCalled();
+    expect(reorderEstimateItems).not.toHaveBeenCalled();
   });
 
   it("returns committed=false and rolls back created rows when a later operation fails", async () => {
@@ -687,7 +719,7 @@ describe("executeEstimateBatch", () => {
       updated_count: 0,
       version: {
         id: VERSION_ID,
-        updated_at: UPDATED_AT,
+        updated_at: "2026-02-21T10:00:00.001Z",
       },
     } as never);
     vi.mocked(deleteEstimateItem).mockResolvedValue({
@@ -711,7 +743,7 @@ describe("executeEstimateBatch", () => {
       committed: true,
       version: {
         id: VERSION_ID,
-        updated_at: UPDATED_AT,
+        updated_at: "2026-02-21T10:00:00.001Z",
       },
       results: [
         {

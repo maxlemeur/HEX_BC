@@ -453,7 +453,7 @@ describe("PlansStep", () => {
     });
 
     expect(screen.getByText(/2 fichiers uploades/i)).toBeInTheDocument();
-    expect(screen.getByText(/Lancer une premiere analyse/i)).toBeInTheDocument();
+    expect(screen.getByText("Lancer une première analyse")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analyser maintenant" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Me rappeler plus tard" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ne pas proposer/i })).toBeInTheDocument();
