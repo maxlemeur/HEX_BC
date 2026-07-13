@@ -56,6 +56,7 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
         (node): node is HTMLElement =>
           node instanceof HTMLElement &&
           node !== modalRoot &&
+          !node.hasAttribute("data-ui-modal-root") &&
           !node.contains(dialog) &&
           !["SCRIPT", "STYLE", "LINK"].includes(node.tagName)
       );

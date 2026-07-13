@@ -65,6 +65,7 @@ export function AffaireOnboardingClient() {
 
   return (
     <div className="animate-fade-in">
+      <h1 className="sr-only">Nouvelle affaire</h1>
       <AnimatePresence>
         {showAnimation && (
           <BlueprintCreationAnimation

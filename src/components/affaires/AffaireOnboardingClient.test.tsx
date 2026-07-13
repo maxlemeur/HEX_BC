@@ -77,6 +77,9 @@ describe("AffaireOnboardingClient", () => {
   it("does not create anything on initial render", () => {
     render(<AffaireOnboardingClient />);
 
+    expect(
+      screen.getByRole("heading", { level: 1, name: /nouvelle affaire/i })
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/nom du projet/i)).toHaveValue("");
     expect(
       screen.getByRole("button", { name: /creer l'affaire/i })

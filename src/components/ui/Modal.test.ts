@@ -96,9 +96,12 @@ describe("ui/Modal", () => {
     render(createElement(TestModal));
 
     const dialog = screen.getByRole("dialog", { name: "Produit" });
+    const modalRoot = dialog.closest("[data-ui-modal-root]");
 
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(document.body).toContainElement(dialog);
+    expect(modalRoot).not.toHaveAttribute("aria-hidden");
+    expect(modalRoot).not.toHaveProperty("inert", true);
     expect(screen.getByTestId("stacking-context")).not.toContainElement(dialog);
     expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
     const backgroundRoot = screen.getByTestId("stacking-context").parentElement;
