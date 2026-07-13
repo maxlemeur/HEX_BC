@@ -31,6 +31,7 @@ async function AffairesPageResults({
       initialManager={query.manager}
       initialCursor={query.cursor}
       initialSize={query.size}
+      initialSort={query.sort}
       initialDir={query.dir}
     />
   );

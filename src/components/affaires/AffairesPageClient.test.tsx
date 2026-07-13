@@ -105,7 +105,10 @@ vi.mock("./AffairesCardList", () => ({
   ),
 }));
 
-import { AffairesPageClient } from "./AffairesPageClient";
+import {
+  AFFAIRE_SEARCH_DEBOUNCE_MS,
+  AffairesPageClient,
+} from "./AffairesPageClient";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";
 
@@ -180,6 +183,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -191,6 +195,114 @@ describe("AffairesPageClient", () => {
         "/dashboard/affaires?favorites=1",
         { scroll: false }
       );
+    });
+  });
+
+  it("sorts affairs by name in ascending or descending order", async () => {
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialSort="updatedAt"
+        initialDir="desc"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Trier par Date MAJ/i })
+    );
+    fireEvent.click(screen.getByRole("option", { name: "Nom" }));
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenLastCalledWith(
+        "/dashboard/affaires?sort=name&dir=asc",
+        { scroll: false }
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Trier par Nom/i }));
+    fireEvent.click(screen.getByRole("option", { name: "Nom" }));
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenLastCalledWith(
+        "/dashboard/affaires?sort=name",
+        { scroll: false }
+      );
+    });
+  });
+
+  it("sorts affairs by current amount", async () => {
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialSort="updatedAt"
+        initialDir="desc"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Trier par Date MAJ/i })
+    );
+    fireEvent.click(screen.getByRole("option", { name: "Montant" }));
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenLastCalledWith(
+        "/dashboard/affaires?sort=totalHtCents",
+        { scroll: false }
+      );
+    });
+  });
+
+  it("debounces search navigation while the user is typing", async () => {
+    vi.useFakeTimers();
+
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialSort="updatedAt"
+        initialDir="desc"
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText(
+      "Rechercher par nom ou client..."
+    );
+    fireEvent.change(searchInput, { target: { value: "L" } });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AFFAIRE_SEARCH_DEBOUNCE_MS - 1);
+    });
+    expect(replaceMock).not.toHaveBeenCalled();
+
+    fireEvent.change(searchInput, { target: { value: "LL" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AFFAIRE_SEARCH_DEBOUNCE_MS - 1);
+    });
+    expect(replaceMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith("/dashboard/affaires?q=LL", {
+      scroll: false,
     });
   });
 
@@ -207,6 +319,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -227,6 +340,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -281,6 +395,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -321,6 +436,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -345,6 +461,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -379,6 +496,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );
@@ -411,6 +529,7 @@ describe("AffairesPageClient", () => {
         initialManager="all"
         initialCursor={null}
         initialSize={20}
+        initialSort="updatedAt"
         initialDir="desc"
       />
     );

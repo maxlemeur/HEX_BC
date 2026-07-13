@@ -23,7 +23,7 @@ import type {
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
   required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
   in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
-  approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+  approved: { label: "Approuvée", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
   changes_requested: { label: "À reprendre", className: "bg-red-50 text-red-800 border-red-200" },
 };
 
@@ -72,7 +72,7 @@ function AffairesEmptyState({
 }) {
   return (
     <tr>
-      <td colSpan={12} className="py-16 text-center">
+      <td colSpan={10} className="py-16 text-center">
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
@@ -350,19 +350,21 @@ export function AffairesDenseTable({
               <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Ref.
               </th>
-              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
-                Versions
-              </th>
-              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
-                DPGF
-              </th>
               <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Statut courant
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
-                Dernière acceptée
+              <th
+                scope="col"
+                className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider"
+                title="Dernière version acceptée par le client, conservée comme référence commerciale."
+              >
+                Version acceptée
               </th>
-              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider"
+                title="État de la approbation interne requise avant l’envoi au client."
+              >
                 Approbation
               </th>
               <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
@@ -433,18 +435,6 @@ export function AffairesDenseTable({
                     </td>
                     <td className="px-4 py-3 text-[var(--slate-400)] max-w-[120px] truncate">
                       {item.projectReference ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-center text-[var(--slate-600)]">
-                      {item.versionCount}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {item.hasDpgf ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
-                          DPGF
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[var(--slate-300)]">-</span>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       {hasCurrentVersion ? (
@@ -617,7 +607,7 @@ export function AffairesDenseTable({
 
                   {expanded && (
                     <tr className="expanded-content-row">
-                      <td colSpan={12}>
+                      <td colSpan={10}>
                         <div className="expanded-content animate-expand-down">
                           {cached === "loading" ? (
                             <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">
@@ -629,7 +619,11 @@ export function AffairesDenseTable({
                               Erreur lors du chargement.
                             </div>
                           ) : cached ? (
-                            <ExpandedContent data={cached} projectId={item.projectId} />
+                            <ExpandedContent
+                              data={cached}
+                              projectId={item.projectId}
+                              versionCount={item.versionCount}
+                            />
                           ) : null}
                         </div>
                       </td>
@@ -653,9 +647,11 @@ export function AffairesDenseTable({
 function ExpandedContent({
   data,
   projectId,
+  versionCount,
 }: {
   data: AffaireDenseExpandData;
   projectId: string;
+  versionCount: number;
 }) {
   const { summary, dpgfSource } = data;
   const cv = summary.currentVersion;
@@ -663,11 +659,15 @@ function ExpandedContent({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* Column 1 — Resume financier */}
+      {/* Column 1 — Résumé financier */}
       <div className="space-y-1.5 text-sm">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
-          Resume financier
+          Résumé financier
         </h4>
+        <p>
+          <span className="text-[var(--slate-500)]">Nombre de versions : </span>
+          <span>{versionCount}</span>
+        </p>
         {cv ? (
           <>
             <p>
@@ -692,7 +692,7 @@ function ExpandedContent({
             </p>
             {av && (
               <p>
-                <span className="text-[var(--slate-500)]">Version acceptee : </span>
+                <span className="text-[var(--slate-500)]">Version acceptée : </span>
                 <span className="text-emerald-700 font-medium">
                   V{av.versionNumber} — {formatAmount(av.totalHtCents)}
                 </span>
@@ -757,7 +757,7 @@ function ExpandedContent({
           </>
         ) : (
           <p className="text-[var(--slate-400)] italic border border-dashed border-[var(--slate-200)] rounded px-3 py-2">
-            Aucune DPGF importee
+            Aucune DPGF importée
           </p>
         )}
       </div>

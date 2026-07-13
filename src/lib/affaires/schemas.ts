@@ -5,7 +5,11 @@ import type { Database } from "@/types/database";
 export const AFFAIRE_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 export type AffairePageSize = (typeof AFFAIRE_PAGE_SIZE_OPTIONS)[number];
 
-export const AFFAIRE_SORT_VALUES = ["updatedAt"] as const;
+export const AFFAIRE_SORT_VALUES = [
+  "updatedAt",
+  "name",
+  "totalHtCents",
+] as const;
 export type AffaireSort = (typeof AFFAIRE_SORT_VALUES)[number];
 export const AFFAIRE_SORT_DIRECTION_VALUES = ["asc", "desc"] as const;
 export type AffaireSortDirection = (typeof AFFAIRE_SORT_DIRECTION_VALUES)[number];
@@ -32,10 +36,10 @@ const DEFAULT_SORT: AffaireSort = "updatedAt";
 const DEFAULT_SORT_DIRECTION: AffaireSortDirection = "desc";
 const DEFAULT_MANAGER_QUEUE_FILTER: AffaireManagerQueueFilter = "all";
 
-export type AffaireCursorPayload = {
-  updatedAt: string;
-  projectId: string;
-};
+export type AffaireCursorPayload =
+  | { sort: "updatedAt"; value: string; projectId: string }
+  | { sort: "name"; value: string; projectId: string }
+  | { sort: "totalHtCents"; value: number; projectId: string };
 
 export type AffaireListQuery = {
   q?: string | null;
@@ -101,10 +105,23 @@ const managerQueueFilterSchema = z
   .enum(AFFAIRE_MANAGER_QUEUE_FILTER_VALUES)
   .catch(DEFAULT_MANAGER_QUEUE_FILTER);
 
-export const affaireCursorPayloadSchema = z.object({
-  updatedAt: z.string().datetime({ offset: true }),
-  projectId: z.string().uuid(),
-});
+export const affaireCursorPayloadSchema = z.discriminatedUnion("sort", [
+  z.object({
+    sort: z.literal("updatedAt"),
+    value: z.string().datetime({ offset: true }),
+    projectId: z.string().uuid(),
+  }),
+  z.object({
+    sort: z.literal("name"),
+    value: z.string(),
+    projectId: z.string().uuid(),
+  }),
+  z.object({
+    sort: z.literal("totalHtCents"),
+    value: z.number().int(),
+    projectId: z.string().uuid(),
+  }),
+]);
 
 function toNullableFirstString(
   value: string | string[] | number | null | undefined

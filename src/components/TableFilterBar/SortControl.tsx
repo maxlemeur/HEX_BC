@@ -62,7 +62,7 @@ export function SortControl({ options, value, onSortChange, onDirectionToggle }:
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        aria-label={`Trier par ${displayLabel}, ordre ${value?.direction === "asc" ? "croissant" : "decroissant"}`}
+        aria-label={`Trier par ${displayLabel}, ordre ${value?.direction === "asc" ? "croissant" : "décroissant"}`}
       >
         <svg
           width="16"

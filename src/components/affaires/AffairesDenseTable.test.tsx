@@ -143,6 +143,34 @@ describe("AffairesDenseTable", () => {
     expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
   });
 
+  it("keeps secondary version and DPGF information in the expanded summary", async () => {
+    renderTable();
+
+    expect(
+      screen.queryByRole("columnheader", { name: "Versions" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("columnheader", { name: "DPGF" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "Version acceptée" })
+    ).toHaveAttribute(
+      "title",
+      "Dernière version acceptée par le client, conservée comme référence commerciale."
+    );
+    expect(
+      screen.getByRole("columnheader", { name: "Approbation" })
+    ).toHaveAttribute(
+      "title",
+      "État de la approbation interne requise avant l’envoi au client."
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Déplier" }));
+
+    expect(await screen.findByText("Nombre de versions :")).toBeInTheDocument();
+    expect(screen.getByText("Aucune DPGF importée")).toBeInTheDocument();
+  });
+
   it("loads dense expansion data only when a row is expanded", () => {
     renderTable({
       items: [

@@ -8,6 +8,7 @@ export type {
 
 export type {
   AffairePageSize,
+  AffaireSort,
   AffaireManagerQueueFilter,
   AffaireSortDirection,
   AffaireStatus,

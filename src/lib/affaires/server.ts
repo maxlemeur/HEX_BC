@@ -46,6 +46,7 @@ import {
   type AffaireCursorPayload,
   type AffaireListQuery,
   type AffairePageSize,
+  type AffaireSort,
   type AffaireStatus,
   type NormalizedAffaireListQuery,
 } from "./schemas";
@@ -542,24 +543,47 @@ function buildStatusCounts(items: AffaireListItem[]): Record<AffaireStatus, numb
   return counts;
 }
 
-function isAffaireAfterCursor(
-  item: AffaireListItem,
-  cursor: AffaireCursorPayload,
-  direction: NormalizedAffaireListQuery["dir"]
-): boolean {
-  if (direction === "desc") {
-    return (
-      item.currentUpdatedAt.localeCompare(cursor.updatedAt) < 0 ||
-      (item.currentUpdatedAt === cursor.updatedAt &&
-        item.projectId.localeCompare(cursor.projectId) < 0)
+function assertAffaireCursorMatchesSort(
+  cursor: AffaireCursorPayload | null,
+  sort: AffaireSort
+): void {
+  if (cursor && cursor.sort !== sort) {
+    throw badRequest(
+      "Le curseur de pagination ne correspond pas au tri demandé.",
+      undefined,
+      "BAD_REQUEST"
     );
   }
+}
 
-  return (
-    item.currentUpdatedAt.localeCompare(cursor.updatedAt) > 0 ||
-    (item.currentUpdatedAt === cursor.updatedAt &&
-      item.projectId.localeCompare(cursor.projectId) > 0)
-  );
+function getAffaireCursorValue(
+  item: AffaireListItem,
+  sort: AffaireSort
+): string | number {
+  switch (sort) {
+    case "name":
+      return item.projectName;
+    case "totalHtCents":
+      return item.currentTotalHtCents ?? 0;
+    default:
+      return item.currentUpdatedAt;
+  }
+}
+
+function createAffaireCursorPayload(
+  item: AffaireListItem,
+  sort: AffaireSort
+): AffaireCursorPayload {
+  const value = getAffaireCursorValue(item, sort);
+
+  switch (sort) {
+    case "name":
+      return { sort, value: String(value), projectId: item.projectId };
+    case "totalHtCents":
+      return { sort, value: Number(value), projectId: item.projectId };
+    default:
+      return { sort, value: String(value), projectId: item.projectId };
+  }
 }
 
 function paginateAffaireItems(
@@ -567,18 +591,22 @@ function paginateAffaireItems(
   query: NormalizedAffaireListQuery
 ): AffaireListPageResult {
   const decodedCursor = query.cursor ? decodeAffaireCursor(query.cursor) : null;
-  const cursorFilteredItems = decodedCursor
-    ? items.filter((item) => isAffaireAfterCursor(item, decodedCursor, query.dir))
-    : items;
-  const pageItems = cursorFilteredItems.slice(0, query.size);
+  assertAffaireCursorMatchesSort(decodedCursor, query.sort);
+
+  const cursorIndex = decodedCursor
+    ? items.findIndex((item) => item.projectId === decodedCursor.projectId)
+    : -1;
+  if (decodedCursor && cursorIndex < 0) {
+    throw badRequest("Curseur de pagination invalide.", undefined, "BAD_REQUEST");
+  }
+
+  const remainingItems = items.slice(cursorIndex + 1);
+  const pageItems = remainingItems.slice(0, query.size);
   const lastItem = pageItems[pageItems.length - 1] ?? null;
-  const hasNextPage = cursorFilteredItems.length > query.size;
+  const hasNextPage = remainingItems.length > query.size;
   const nextCursor =
     hasNextPage && lastItem
-      ? encodeAffaireCursor({
-          updatedAt: lastItem.currentUpdatedAt,
-          projectId: lastItem.projectId,
-        })
+      ? encodeAffaireCursor(createAffaireCursorPayload(lastItem, query.sort))
       : null;
 
   return {
@@ -1556,6 +1584,7 @@ async function fetchAffaireListWithContext(
   query: NormalizedAffaireListQuery
 ): Promise<AffaireListPageResult> {
   const decodedCursor = query.cursor ? decodeAffaireCursor(query.cursor) : null;
+  assertAffaireCursorMatchesSort(decodedCursor, query.sort);
   const fetchLimit = query.size + 1;
 
   const { data, error } = await context.supabase.rpc("list_affaires_page", {
@@ -1565,8 +1594,13 @@ async function fetchAffaireListWithContext(
     p_search: query.q,
     p_statuses: query.status,
     p_favorites_only: query.favoritesOnly,
-    p_cursor_updated_at: decodedCursor?.updatedAt ?? null,
+    p_cursor_updated_at:
+      decodedCursor?.sort === "updatedAt" ? decodedCursor.value : null,
+    p_cursor_name: decodedCursor?.sort === "name" ? decodedCursor.value : null,
+    p_cursor_total_ht_cents:
+      decodedCursor?.sort === "totalHtCents" ? decodedCursor.value : null,
     p_cursor_project_id: decodedCursor?.projectId ?? null,
+    p_sort_by: query.sort,
     p_sort_dir: query.dir,
   } as never);
 
@@ -1581,10 +1615,7 @@ async function fetchAffaireListWithContext(
 
   const lastItem = items[items.length - 1] ?? null;
   const nextCursor = hasNextPage && lastItem
-    ? encodeAffaireCursor({
-        updatedAt: lastItem.currentUpdatedAt,
-        projectId: lastItem.projectId,
-      })
+    ? encodeAffaireCursor(createAffaireCursorPayload(lastItem, query.sort))
     : null;
 
   return {

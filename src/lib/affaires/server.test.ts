@@ -575,7 +575,10 @@ describe("affaires server (list + counters)", () => {
       p_statuses: ["draft"],
       p_favorites_only: false,
       p_cursor_updated_at: null,
+      p_cursor_name: null,
+      p_cursor_total_ht_cents: null,
       p_cursor_project_id: null,
+      p_sort_by: "updatedAt",
       p_sort_dir: "asc",
     });
 
@@ -590,6 +593,86 @@ describe("affaires server (list + counters)", () => {
     });
     expect(result.hasNextPage).toBe(false);
     expect(result.nextCursor).toBeNull();
+  });
+
+  it("passes name and amount cursors to the matching server sort", async () => {
+    const row = buildAffaireRow(1);
+    const context = createContext({
+      role: "engineer",
+      rpcResult: { data: [row], error: null },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const nameCursor = Buffer.from(
+      JSON.stringify({
+        sort: "name",
+        value: row.project_name,
+        projectId: row.project_id,
+      }),
+      "utf8"
+    ).toString("base64url");
+    await fetchAffaireList({
+      sort: "name",
+      dir: "asc",
+      cursor: nameCursor,
+    });
+
+    expect(context.supabase.rpc).toHaveBeenLastCalledWith(
+      "list_affaires_page",
+      expect.objectContaining({
+        p_cursor_updated_at: null,
+        p_cursor_name: row.project_name,
+        p_cursor_total_ht_cents: null,
+        p_cursor_project_id: row.project_id,
+        p_sort_by: "name",
+        p_sort_dir: "asc",
+      })
+    );
+
+    const amountCursor = Buffer.from(
+      JSON.stringify({
+        sort: "totalHtCents",
+        value: row.current_total_ht_cents,
+        projectId: row.project_id,
+      }),
+      "utf8"
+    ).toString("base64url");
+    await fetchAffaireList({
+      sort: "totalHtCents",
+      dir: "desc",
+      cursor: amountCursor,
+    });
+
+    expect(context.supabase.rpc).toHaveBeenLastCalledWith(
+      "list_affaires_page",
+      expect.objectContaining({
+        p_cursor_updated_at: null,
+        p_cursor_name: null,
+        p_cursor_total_ht_cents: row.current_total_ht_cents,
+        p_cursor_project_id: row.project_id,
+        p_sort_by: "totalHtCents",
+        p_sort_dir: "desc",
+      })
+    );
+  });
+
+  it("rejects a cursor created for another sort", async () => {
+    const row = buildAffaireRow(1);
+    const context = createContext({ role: "engineer" });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    const cursor = Buffer.from(
+      JSON.stringify({
+        sort: "name",
+        value: row.project_name,
+        projectId: row.project_id,
+      }),
+      "utf8"
+    ).toString("base64url");
+
+    await expect(
+      fetchAffaireList({ sort: "totalHtCents", cursor })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(context.supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("maps projects without current version as nullable fields", async () => {
@@ -670,13 +753,15 @@ describe("affaires server (list + counters)", () => {
       "base64"
     ).toString("utf8");
     const decodedCursor = JSON.parse(decodedCursorRaw) as {
-      updatedAt: string;
+      sort: string;
+      value: string;
       projectId: string;
     };
     const lastVisibleItem = result.items[19]!;
 
     expect(decodedCursor).toEqual({
-      updatedAt: lastVisibleItem.currentUpdatedAt,
+      sort: "updatedAt",
+      value: lastVisibleItem.currentUpdatedAt,
       projectId: lastVisibleItem.projectId,
     });
   });

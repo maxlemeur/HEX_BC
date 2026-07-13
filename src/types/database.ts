@@ -2978,7 +2978,10 @@ export type Database = {
             | "archived"
           )[] | null;
           p_cursor_updated_at?: string | null;
+          p_cursor_name?: string | null;
+          p_cursor_total_ht_cents?: number | null;
           p_cursor_project_id?: string | null;
+          p_sort_by?: string | null;
           p_sort_dir?: string | null;
           p_favorites_only?: boolean | null;
         };

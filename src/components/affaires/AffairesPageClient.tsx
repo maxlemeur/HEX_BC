@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -19,12 +18,12 @@ import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
-import { Badge } from "@/components/ui/Badge";
 import { AffairesCardList } from "./AffairesCardList";
 import type {
   AffaireManagerQueueFilter,
   AffairePageDataResult,
   AffairePageSize,
+  AffaireSort,
   AffaireSortDirection,
   AffaireStatus,
 } from "./types";
@@ -45,14 +44,12 @@ const PAGE_SIZE_OPTIONS: AffairePageSize[] = [20, 50, 100];
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
 const PAGE_SIZE_STORAGE_KEY = "affaires-page-size";
 const MANAGER_QUEUE_FETCH_TIMEOUT_MS = 8_000;
+export const AFFAIRE_SEARCH_DEBOUNCE_MS = 400;
 
 const SORT_OPTIONS: SortOption[] = [
   { key: "updatedAt", label: "Date MAJ", defaultDirection: "desc" },
-];
-
-const DISABLED_SORTS = [
-  { key: "name", label: "Nom" },
-  { key: "totalHtCents", label: "Montant" },
+  { key: "name", label: "Nom", defaultDirection: "asc" },
+  { key: "totalHtCents", label: "Montant", defaultDirection: "desc" },
 ];
 
 // -- Helpers --
@@ -86,6 +83,7 @@ type Props = {
   initialManager: AffaireManagerQueueFilter;
   initialCursor: string | null;
   initialSize: AffairePageSize;
+  initialSort: AffaireSort;
   initialDir: AffaireSortDirection;
 };
 
@@ -104,6 +102,7 @@ export function AffairesPageClient({
   initialManager,
   initialCursor,
   initialSize,
+  initialSort,
   initialDir,
 }: Readonly<Props>) {
   const pathname = usePathname();
@@ -115,8 +114,8 @@ export function AffairesPageClient({
   // -- State --
 
   const [searchValue, setSearchValue] = useState(initialQ);
-  const deferredSearch = useDeferredValue(searchValue);
-  const isSearchPending = searchValue !== deferredSearch;
+  const [debouncedSearch, setDebouncedSearch] = useState(initialQ);
+  const isSearchPending = searchValue !== debouncedSearch;
 
   const [selectedStatuses, setSelectedStatuses] =
     useState<AffaireStatus[]>(initialStatuses);
@@ -133,7 +132,7 @@ export function AffairesPageClient({
   );
 
   const [sortState, setSortState] = useState<SortState>({
-    key: "updatedAt",
+    key: initialSort,
     direction: initialDir,
   });
   const [favoriteOverrides, setFavoriteOverrides] = useState<
@@ -269,7 +268,17 @@ export function AffairesPageClient({
 
   // -- Sync URL --
 
-  const prevSearchRef = useRef(deferredSearch);
+  useEffect(() => {
+    if (searchValue === debouncedSearch) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch(searchValue);
+    }, AFFAIRE_SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [debouncedSearch, searchValue]);
+
+  const prevSearchRef = useRef(debouncedSearch);
   const prevStatusRef = useRef(selectedStatuses);
   const prevFavoritesRef = useRef(favoritesOnly);
   const prevManagerRef = useRef(managerFilter);
@@ -278,7 +287,7 @@ export function AffairesPageClient({
   const prevCursorRef = useRef(currentCursor);
 
   useEffect(() => {
-    const searchChanged = prevSearchRef.current !== deferredSearch;
+    const searchChanged = prevSearchRef.current !== debouncedSearch;
     const statusChanged = prevStatusRef.current !== selectedStatuses;
     const favoritesChanged = prevFavoritesRef.current !== favoritesOnly;
     const managerChanged = prevManagerRef.current !== managerFilter;
@@ -286,7 +295,7 @@ export function AffairesPageClient({
     const sizeChanged = prevSizeRef.current !== pageSize;
     const cursorChanged = prevCursorRef.current !== currentCursor;
 
-    prevSearchRef.current = deferredSearch;
+    prevSearchRef.current = debouncedSearch;
     prevStatusRef.current = selectedStatuses;
     prevFavoritesRef.current = favoritesOnly;
     prevManagerRef.current = managerFilter;
@@ -307,24 +316,38 @@ export function AffairesPageClient({
     }
 
     // Reset cursor when filters change
-    if (searchChanged || statusChanged || favoritesChanged || managerChanged || sizeChanged) {
+    if (
+      searchChanged ||
+      statusChanged ||
+      favoritesChanged ||
+      managerChanged ||
+      sortChanged ||
+      sizeChanged
+    ) {
       setCursorStack([]);
       setCurrentCursor(null);
     }
 
     const params = new URLSearchParams();
-    if (deferredSearch) params.set("q", deferredSearch);
+    if (debouncedSearch) params.set("q", debouncedSearch);
     if (selectedStatuses.length > 0)
       params.set("status", selectedStatuses.join(","));
     if (favoritesOnly) params.set("favorites", "1");
     if (managerFilter !== "all") params.set("manager", managerFilter);
+    if (sortState?.key && sortState.key !== "updatedAt")
+      params.set("sort", sortState.key);
     if (sortState && sortState.direction !== "desc")
       params.set("dir", sortState.direction);
     if (pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(pageSize));
 
     // Only set cursor if not resetting
     const effectiveCursor =
-      searchChanged || statusChanged || favoritesChanged || managerChanged || sizeChanged
+      searchChanged ||
+      statusChanged ||
+      favoritesChanged ||
+      managerChanged ||
+      sortChanged ||
+      sizeChanged
         ? null
         : currentCursor;
     if (effectiveCursor) params.set("cursor", effectiveCursor);
@@ -336,7 +359,7 @@ export function AffairesPageClient({
     const newPath = qs ? `${pathname}?${qs}` : pathname;
     router.replace(newPath, { scroll: false });
   }, [
-    deferredSearch,
+    debouncedSearch,
     selectedStatuses,
     favoritesOnly,
     managerFilter,
@@ -541,18 +564,6 @@ export function AffairesPageClient({
             onSortChange={handleSortChange}
             onDirectionToggle={handleSortToggle}
           />
-          {DISABLED_SORTS.map((s) => (
-            <span
-              key={s.key}
-              className="hidden items-center gap-1 rounded-lg bg-[var(--slate-50)] px-2.5 py-1.5 text-xs text-[var(--slate-500)] sm:inline-flex"
-              title="Tri à venir"
-            >
-              {s.label}
-              <Badge variant="neutral" size="sm">
-                à venir
-              </Badge>
-            </span>
-          ))}
         </div>
       </div>
 
