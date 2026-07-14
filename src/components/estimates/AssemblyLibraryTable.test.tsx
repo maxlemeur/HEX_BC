@@ -30,8 +30,15 @@ function createAssemblyItem(
     k_mo: overrides.k_mo ?? 1,
     labor_role_id: overrides.labor_role_id ?? null,
     default_quantity: overrides.default_quantity ?? 1,
+    h_mo: overrides.h_mo ?? 0,
     position: overrides.position ?? 1,
     ...overrides,
+    cost_type: overrides.cost_type ?? "material",
+    unit_cost_ht_cents: overrides.unit_cost_ht_cents ?? 0,
+    loss_coeff_bp: overrides.loss_coeff_bp ?? 0,
+    yield_value: overrides.yield_value ?? null,
+    yield_unit: overrides.yield_unit ?? null,
+    source_metadata: overrides.source_metadata ?? {},
   };
 }
 
@@ -66,9 +73,11 @@ function createAssemblyDetail(
         id: "item-1",
         title: "Main d'oeuvre - Ossature métallique",
         unit: "ml",
+        cost_type: "labor",
         k_fo: 1,
         k_mo: 1.05,
-        default_quantity: 10,
+        default_quantity: 1,
+        h_mo: 10,
         position: 1,
       }),
     ],
@@ -90,6 +99,7 @@ describe("AssemblyLibraryTable", () => {
           busyAssemblyId: null,
           onEdit: vi.fn(),
           onRename: vi.fn(),
+          laborRoles: [],
           onDuplicate: vi.fn(),
           onDelete: vi.fn(),
           loadAssembly,
@@ -118,6 +128,10 @@ describe("AssemblyLibraryTable", () => {
     expect(renderedContent.indexOf("Main-d’œuvre")).toBeLessThan(
       renderedContent.indexOf("Matériel de pose"),
     );
+    expect(renderedContent).toContain("Qté");
+    expect(renderedContent).toContain("H MO");
+    expect(renderedContent).toContain("10 h");
+    expect(renderedContent).not.toContain("Qté / temps");
     expect(renderedContent).not.toContain("ligne(s)");
 
     await act(async () => {

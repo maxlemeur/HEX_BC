@@ -1357,7 +1357,14 @@ const estimateAssemblyItemSchema = z.preprocess(
       k_mo: record.k_mo ?? record.kMo,
       labor_role_id: record.labor_role_id ?? record.laborRoleId,
       default_quantity: record.default_quantity ?? record.defaultQuantity,
+      h_mo: record.h_mo ?? record.laborHours,
       position: record.position,
+      cost_type: record.cost_type ?? record.costType,
+      unit_cost_ht_cents: record.unit_cost_ht_cents ?? record.unitCostHtCents,
+      loss_coeff_bp: record.loss_coeff_bp ?? record.lossCoeffBp,
+      yield_value: record.yield_value ?? record.yieldValue,
+      yield_unit: record.yield_unit ?? record.yieldUnit,
+      source_metadata: record.source_metadata ?? record.sourceMetadata,
     };
   },
   z.object({
@@ -1367,7 +1374,14 @@ const estimateAssemblyItemSchema = z.preprocess(
     k_mo: nonNegativeNumberSchema.optional(),
     labor_role_id: nullableUuidSchema.optional(),
     default_quantity: nullableNonNegativeNumberSchema.optional(),
+    h_mo: nonNegativeNumberSchema.optional(),
     position: positiveIntegerSchema,
+    cost_type: z.enum(["material", "labor", "equipment", "subcontract"]).optional(),
+    unit_cost_ht_cents: nonNegativeIntegerSchema.optional(),
+    loss_coeff_bp: nonNegativeIntegerSchema.max(100000, "Doit etre <= 100000.").optional(),
+    yield_value: nullableNonNegativeNumberSchema.optional(),
+    yield_unit: optionalNullableTextSchema.optional(),
+    source_metadata: z.record(z.string(), z.unknown()).optional(),
   })
 );
 
@@ -1402,12 +1416,16 @@ export const createEstimateAssemblySchema = z.preprocess(
     return {
       name: record.name,
       description: record.description,
+      reference_code: record.reference_code ?? record.referenceCode,
+      unit: record.unit,
       items: record.items,
     };
   },
   z.object({
     name: assemblyNameSchema,
     description: optionalNullableTextSchema.optional(),
+    reference_code: optionalNullableTextSchema.optional(),
+    unit: optionalNullableTextSchema.optional(),
     items: estimateAssemblyItemsSchema,
   })
 );
@@ -1428,6 +1446,12 @@ export const updateEstimateAssemblySchema = z
       if (Object.prototype.hasOwnProperty.call(record, "description")) {
         payload.description = record.description;
       }
+      if (Object.prototype.hasOwnProperty.call(record, "reference_code")) {
+        payload.reference_code = record.reference_code;
+      }
+      if (Object.prototype.hasOwnProperty.call(record, "unit")) {
+        payload.unit = record.unit;
+      }
       if (Object.prototype.hasOwnProperty.call(record, "items")) {
         payload.items = record.items;
       }
@@ -1437,6 +1461,8 @@ export const updateEstimateAssemblySchema = z
     z.object({
       name: assemblyNameSchema.optional(),
       description: optionalNullableTextSchema.optional(),
+      reference_code: optionalNullableTextSchema.optional(),
+      unit: optionalNullableTextSchema.optional(),
       items: estimateAssemblyItemsSchema.optional(),
     })
   )

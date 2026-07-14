@@ -2050,6 +2050,14 @@ export type Database = {
           created_by: string;
           name: string;
           description: string | null;
+          reference_code: string | null;
+          unit: string | null;
+          pricing_source: string | null;
+          ds_cents: number;
+          indicative_target_price_cents: number;
+          avg_output_rate: number | null;
+          avg_time_hours: number | null;
+          source_metadata: Json;
         };
         Insert: {
           id?: string;
@@ -2059,6 +2067,14 @@ export type Database = {
           created_by: string;
           name: string;
           description?: string | null;
+          reference_code?: string | null;
+          unit?: string | null;
+          pricing_source?: string | null;
+          ds_cents?: number;
+          indicative_target_price_cents?: number;
+          avg_output_rate?: number | null;
+          avg_time_hours?: number | null;
+          source_metadata?: Json;
         };
         Update: {
           id?: string;
@@ -2068,6 +2084,14 @@ export type Database = {
           created_by?: string;
           name?: string;
           description?: string | null;
+          reference_code?: string | null;
+          unit?: string | null;
+          pricing_source?: string | null;
+          ds_cents?: number;
+          indicative_target_price_cents?: number;
+          avg_output_rate?: number | null;
+          avg_time_hours?: number | null;
+          source_metadata?: Json;
         };
         Relationships: [];
       };
@@ -2084,7 +2108,14 @@ export type Database = {
           k_mo: number;
           labor_role_id: string | null;
           default_quantity: number | null;
+          h_mo: number;
           position: number;
+          cost_type: "material" | "labor" | "equipment" | "subcontract";
+          unit_cost_ht_cents: number;
+          loss_coeff_bp: number;
+          yield_value: number | null;
+          yield_unit: string | null;
+          source_metadata: Json;
         };
         Insert: {
           id?: string;
@@ -2098,7 +2129,14 @@ export type Database = {
           k_mo?: number;
           labor_role_id?: string | null;
           default_quantity?: number | null;
+          h_mo?: number;
           position?: number;
+          cost_type?: "material" | "labor" | "equipment" | "subcontract";
+          unit_cost_ht_cents?: number;
+          loss_coeff_bp?: number;
+          yield_value?: number | null;
+          yield_unit?: string | null;
+          source_metadata?: Json;
         };
         Update: {
           id?: string;
@@ -2112,7 +2150,14 @@ export type Database = {
           k_mo?: number;
           labor_role_id?: string | null;
           default_quantity?: number | null;
+          h_mo?: number;
           position?: number;
+          cost_type?: "material" | "labor" | "equipment" | "subcontract";
+          unit_cost_ht_cents?: number;
+          loss_coeff_bp?: number;
+          yield_value?: number | null;
+          yield_unit?: string | null;
+          source_metadata?: Json;
         };
         Relationships: [];
       };

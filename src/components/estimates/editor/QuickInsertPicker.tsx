@@ -107,7 +107,10 @@ export function QuickInsertPicker({
     <div
       ref={containerRef}
       className="absolute left-0 top-full z-30 mt-2 flex flex-col rounded-xl border border-border bg-surface shadow-xl"
-      style={{ width: "340px", maxHeight: "420px" }}
+      style={{
+        width: "min(340px, calc(100vw - 32px))",
+        maxHeight: "420px",
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2">

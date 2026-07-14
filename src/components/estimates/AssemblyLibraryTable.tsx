@@ -4,12 +4,14 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import type {
   EstimateAssemblyDetail,
+  EstimateAssemblyLaborRole,
   EstimateAssemblySummary,
 } from "@/lib/estimates/client";
 
 type AssemblyLibraryTableProps = {
   assemblies: EstimateAssemblySummary[];
   busyAssemblyId: string | null;
+  laborRoles: EstimateAssemblyLaborRole[];
   onEdit: (assembly: EstimateAssemblySummary) => void;
   onRename: (assembly: EstimateAssemblySummary) => void;
   onDuplicate: (assembly: EstimateAssemblySummary) => void;
@@ -32,6 +34,26 @@ function formatNumber(value: number | null | undefined, fallback = "-") {
     maximumFractionDigits: 2,
   }).format(value);
 }
+function formatCurrency(cents: number | null | undefined) {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format((cents ?? 0) / 100);
+}
+
+function formatCostType(value: EstimateAssemblyDetail["items"][number]["cost_type"]) {
+  switch (value) {
+    case "labor":
+      return "Main-d’œuvre";
+    case "equipment":
+      return "Matériel";
+    case "subcontract":
+      return "Sous-traitance";
+    default:
+      return "Fourniture";
+  }
+}
 
 function formatLineCount(count: number) {
   return count + " " + (count === 1 ? "ligne" : "lignes");
@@ -50,6 +72,7 @@ function formatLegacyGeneratedText(value: string) {
 type AssemblyContentPreviewProps = {
   assembly: EstimateAssemblySummary;
   detail: EstimateAssemblyDetail | undefined;
+  laborRoles: EstimateAssemblyLaborRole[];
   isLoading: boolean;
   error: string | undefined;
   onRetry: () => void;
@@ -57,6 +80,7 @@ type AssemblyContentPreviewProps = {
 
 function AssemblyContentPreview({
   assembly,
+  laborRoles,
   detail,
   isLoading,
   error,
@@ -71,6 +95,35 @@ function AssemblyContentPreview({
         <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-[var(--slate-600)] shadow-sm">
           {formatLineCount(detail?.items.length ?? assembly.itemCount)}
         </span>
+      </div>
+
+      <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <span className="text-xs text-[var(--slate-500)]">Référence</span>
+          <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--slate-800)]">
+            {detail?.referenceCode ?? assembly.referenceCode ?? assembly.id.slice(0, 8)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <span className="text-xs text-[var(--slate-500)]">Coût direct</span>
+          <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
+            {formatCurrency(detail?.directCostCents ?? assembly.directCostCents)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <span className="text-xs text-[var(--slate-500)]">Temps MO total</span>
+          <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
+            {formatNumber(detail?.averageTimeHours ?? assembly.averageTimeHours, "0")} h
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <span className="text-xs text-[var(--slate-500)]">Prix cible</span>
+          <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
+            {formatCurrency(
+              detail?.targetPriceCents ?? assembly.targetPriceCents
+            )}
+          </p>
+        </div>
       </div>
 
       {isLoading ? (
@@ -93,15 +146,19 @@ function AssemblyContentPreview({
         </div>
       ) : detail?.items.length ? (
         <div className="overflow-x-auto rounded-lg border border-[var(--slate-200)] bg-surface">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead>
               <tr className="bg-[var(--slate-50)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
                 <th className="px-4 py-2.5">Position</th>
                 <th className="px-4 py-2.5">Désignation</th>
+                <th className="px-4 py-2.5">Type</th>
                 <th className="px-4 py-2.5">Unité</th>
+                <th className="px-4 py-2.5">Qté</th>
+                <th className="px-4 py-2.5">H MO</th>
+                <th className="px-4 py-2.5">Coût unitaire</th>
+                <th className="px-4 py-2.5">Rôle MO</th>
                 <th className="px-4 py-2.5">K FO</th>
                 <th className="px-4 py-2.5">K MO</th>
-                <th className="px-4 py-2.5">Qté par défaut</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--slate-100)]">
@@ -115,15 +172,34 @@ function AssemblyContentPreview({
                     <td className="px-4 py-3 font-medium text-[var(--slate-800)]">
                       {formatLegacyGeneratedText(item.title)}
                     </td>
+                    <td className="px-4 py-3">
+                      {formatCostType(item.cost_type)}
+                    </td>
                     <td className="px-4 py-3">{item.unit?.trim() || "-"}</td>
+                    <td className="px-4 py-3 font-mono">
+                      {formatNumber(item.default_quantity)}
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      {`${formatNumber(
+                        typeof item.h_mo === "number"
+                          ? item.h_mo
+                          : item.cost_type === "labor"
+                            ? item.default_quantity
+                            : 0,
+                      )} h`}
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      {formatCurrency(item.unit_cost_ht_cents)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {laborRoles.find((role) => role.id === item.labor_role_id)?.name ??
+                        (item.labor_role_id ? item.labor_role_id.slice(0, 8) : "-")}
+                    </td>
                     <td className="px-4 py-3 font-mono">
                       {formatNumber(item.k_fo, "1")}
                     </td>
                     <td className="px-4 py-3 font-mono">
                       {formatNumber(item.k_mo, "1")}
-                    </td>
-                    <td className="px-4 py-3 font-mono">
-                      {formatNumber(item.default_quantity)}
                     </td>
                   </tr>
                 ))}
@@ -142,6 +218,7 @@ function AssemblyContentPreview({
 export function AssemblyLibraryTable({
   assemblies,
   busyAssemblyId,
+  laborRoles,
   onEdit,
   onRename,
   onDuplicate,
@@ -363,6 +440,7 @@ export function AssemblyLibraryTable({
                       <td colSpan={5} className="!px-6 !py-4">
                         <AssemblyContentPreview
                           assembly={assembly}
+                          laborRoles={laborRoles}
                           detail={detail}
                           isLoading={isLoadingDetail}
                           error={loadError}

@@ -814,6 +814,8 @@ describe("estimate assembly schemas", () => {
     const parsed = createEstimateAssemblySchema.parse({
       name: "Mur exterieur",
       description: "Standard",
+      referenceCode: "ASM-MUR-001",
+      unit: "m²",
       items: [
         {
           title: "Parpaing 20",
@@ -822,7 +824,14 @@ describe("estimate assembly schemas", () => {
           kMo: 1.2,
           laborRoleId: roleId,
           defaultQuantity: 2,
+          laborHours: 1.5,
           position: 1,
+          costType: "material",
+          unitCostHtCents: 2500,
+          lossCoeffBp: 500,
+          yieldValue: 1.25,
+          yieldUnit: "m²/h",
+          sourceMetadata: { origin: "manual" },
         },
       ],
     });
@@ -836,9 +845,18 @@ describe("estimate assembly schemas", () => {
         k_mo: 1.2,
         labor_role_id: roleId,
         default_quantity: 2,
+        h_mo: 1.5,
         position: 1,
+        cost_type: "material",
+        unit_cost_ht_cents: 2500,
+        loss_coeff_bp: 500,
+        yield_value: 1.25,
+        yield_unit: "m²/h",
+        source_metadata: { origin: "manual" },
       })
     );
+    expect(parsed.reference_code).toBe("ASM-MUR-001");
+    expect(parsed.unit).toBe("m²");
   });
 
   it("rejects assemblies with no lines or more than 50 lines", () => {

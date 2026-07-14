@@ -5,9 +5,9 @@ import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import {
-  AssemblyEditorModal,
+  AssemblyEditorDialog,
   type AssemblyEditorInput,
-} from "@/components/estimates/AssemblyEditorModal";
+} from "@/components/estimates/AssemblyEditorDialog";
 import { AssemblyLibraryTable } from "@/components/estimates/AssemblyLibraryTable";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { PromptModal } from "@/components/ui/PromptModal";
@@ -16,6 +16,7 @@ import {
   deleteEstimateAssembly,
   duplicateEstimateAssembly,
   fetchEstimateAssemblies,
+  fetchEstimateAssemblyLaborRoles,
   fetchEstimateAssembly,
   updateEstimateAssembly,
   type EstimateAssemblyDetail,
@@ -58,6 +59,11 @@ export default function EstimateAssembliesPage() {
   } = useSWR<EstimateAssemblySummary[]>(swrKey, fetcher, {
     revalidateOnFocus: true,
   });
+  const { data: laborRoles = [] } = useSWR(
+    "estimate-assembly-labor-roles",
+    fetchEstimateAssemblyLaborRoles,
+    { revalidateOnFocus: false }
+  );
 
   const openCreateModal = useCallback(() => {
     setEditingAssembly(null);
@@ -248,6 +254,7 @@ export default function EstimateAssembliesPage() {
         ) : (
           <AssemblyLibraryTable
             assemblies={assemblies}
+            laborRoles={laborRoles}
             busyAssemblyId={busyAssemblyId}
             onEdit={handleEdit}
             onRename={handleRename}
@@ -259,10 +266,11 @@ export default function EstimateAssembliesPage() {
       </div>
 
       {isModalOpen ? (
-        <AssemblyEditorModal
+        <AssemblyEditorDialog
           key={editingAssembly?.id ?? "new-assembly"}
           isSubmitting={isModalSubmitting}
           initialValue={editingAssembly}
+          laborRoles={laborRoles}
           onClose={closeModal}
           onSubmit={handleSubmitModal}
         />

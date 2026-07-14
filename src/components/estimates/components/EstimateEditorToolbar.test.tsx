@@ -1,5 +1,10 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
@@ -8,58 +13,15 @@ import { EstimateEditorProvider } from "@/components/estimates/context/EstimateE
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
-
-function createRect({
-  left,
-  right,
-  top,
-  bottom,
-  width,
-  height,
-}: {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}) {
-  return {
-    x: left,
-    y: top,
-    left,
-    right,
-    top,
-    bottom,
-    width,
-    height,
-    toJSON: () => ({}),
-  } as DOMRect;
-}
-
-function mockCompactViewport() {
-  vi.spyOn(window, "matchMedia").mockImplementation(
-    (query) =>
-      ({
-        matches: query === "(max-width: 1024px)",
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }) as MediaQueryList
-  );
-}
 
 function renderToolbar(overrides?: {
   hasSelectedLines?: boolean;
   uiMode?: "expert" | "simplified";
   isLaborSplitEnabled?: boolean;
-  showAdjacentActions?: boolean;
+  showAssistants?: boolean;
+  isViewerMode?: boolean;
+  isFinalizationPanelOpen?: boolean;
 }) {
   const actions = {
     setBulkMajorationPercent: vi.fn(),
@@ -69,9 +31,18 @@ function renderToolbar(overrides?: {
     toggleAllVisibleLines: vi.fn(),
     clearLineSelection: vi.fn(),
   };
-
-  const onUndo = vi.fn().mockResolvedValue(undefined);
-  const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
+  const callbacks = {
+    onUndo: vi.fn().mockResolvedValue(undefined),
+    onQualityFilterChange: vi.fn(),
+    onApplyBulkMajoration: vi.fn().mockResolvedValue(undefined),
+    onApplyBulkMove: vi.fn().mockResolvedValue(undefined),
+    onBulkDeleteSelection: vi.fn().mockResolvedValue(undefined),
+    onOpenAssemblyPicker: vi.fn(),
+    onOpenImportFromEstimateDialog: vi.fn(),
+    onToggleQuickTemplatePicker: vi.fn(),
+    onToggleQuickAssemblyPicker: vi.fn(),
+    onToggleFinalizationPanel: vi.fn(),
+  };
 
   render(
     <EstimateEditorProvider
@@ -96,13 +67,14 @@ function renderToolbar(overrides?: {
     >
       <EstimateEditorToolbar
         uiMode={overrides?.uiMode ?? "expert"}
+        isViewerMode={overrides?.isViewerMode}
         qualityCounts={{
           linesCount: 2,
           linesWithAnomaliesCount: 1,
-          totalFlagsCount: 1,
+          totalFlagsCount: 2,
           byFlag: {
             missing_price: 1,
-            missing_quantity: 0,
+            missing_quantity: 1,
             missing_labor_time: 0,
             missing_labor_role: 0,
             price_outlier: 0,
@@ -119,336 +91,230 @@ function renderToolbar(overrides?: {
         canRedo={false}
         bulkMoveDestinations={[{ id: null, label: "Racine" }]}
         categories={[{ id: "cat-1", name: "Tube" } as never]}
-        laborRoles={[{ id: "role-1", name: "Soudeur", is_active: true } as never]}
+        laborRoles={[
+          { id: "role-1", name: "Soudeur", is_active: true } as never,
+        ]}
         bulkSuggestionEligibleCount={0}
         supplierPreselectionEligibleCount={2}
-        onQualityFilterChange={vi.fn()}
+        onQualityFilterChange={callbacks.onQualityFilterChange}
         onOutlierDetectionMethodChange={vi.fn()}
         onOutlierThresholdChange={vi.fn()}
-        onUndo={onUndo}
+        onUndo={callbacks.onUndo}
         onRedo={vi.fn().mockResolvedValue(undefined)}
-        onApplyBulkMajoration={onApplyBulkMajoration}
-        onBulkDeleteSelection={vi.fn().mockResolvedValue(undefined)}
-        onApplyBulkMove={vi.fn().mockResolvedValue(undefined)}
+        onApplyBulkMajoration={callbacks.onApplyBulkMajoration}
+        onBulkDeleteSelection={callbacks.onBulkDeleteSelection}
+        onApplyBulkMove={callbacks.onApplyBulkMove}
         onApplyBulkCategory={vi.fn().mockResolvedValue(undefined)}
         onApplyBulkLaborRole={vi.fn().mockResolvedValue(undefined)}
         onOpenBulkSuggestDialog={vi.fn()}
         onOpenSupplierPreselectionDialog={vi.fn()}
-        onOpenAssemblyPicker={vi.fn()}
-        onOpenImportFromEstimateDialog={vi.fn()}
-        onAddRootSection={vi.fn()}
+        onOpenAssemblyPicker={callbacks.onOpenAssemblyPicker}
+        onOpenImportFromEstimateDialog={
+          callbacks.onOpenImportFromEstimateDialog
+        }
         onExpandAllSections={vi.fn()}
         onCollapseAllSections={vi.fn()}
+        onOpenSettings={vi.fn()}
         onOpenEstimateStructureDraftDialog={
-          overrides?.showAdjacentActions ? vi.fn() : undefined
+          overrides?.showAssistants ? vi.fn() : undefined
         }
         onOpenGeneratedOuvrageDialog={
-          overrides?.showAdjacentActions ? vi.fn() : undefined
+          overrides?.showAssistants ? vi.fn() : undefined
         }
         columnPreset="standard"
-        columnPresetLabels={{ essential: "Essentiel", standard: "Standard", full: "Complet", custom: "Personnalisé" }}
+        columnPresetLabels={{
+          essential: "Essentiel",
+          standard: "Standard",
+          full: "Complet",
+          custom: "Personnalisé",
+        }}
         onColumnPresetChange={vi.fn()}
         searchTerm=""
         onSearchChange={vi.fn()}
         columnVisibleColumns={new Set()}
         allAdvancedColumns={[]}
-        columnLabels={{} as Record<import("@/hooks/useColumnVisibility").ColumnKey, string>}
+        columnLabels={
+          {} as Record<import("@/hooks/useColumnVisibility").ColumnKey, string>
+        }
         onToggleColumn={vi.fn()}
         hiddenAdvancedCount={5}
         onToggleAdvancedColumns={vi.fn()}
+        isFinalizationPanelOpen={overrides?.isFinalizationPanelOpen}
+        onToggleFinalizationPanel={callbacks.onToggleFinalizationPanel}
         isLaborSplitEnabled={overrides?.isLaborSplitEnabled}
+        onToggleQuickTemplatePicker={callbacks.onToggleQuickTemplatePicker}
+        onToggleQuickAssemblyPicker={callbacks.onToggleQuickAssemblyPicker}
       />
-    </EstimateEditorProvider>
+    </EstimateEditorProvider>,
   );
 
-  return { actions, onUndo, onApplyBulkMajoration };
+  return { actions, callbacks };
 }
 
-describe("EstimateEditorToolbar", () => {
-  it("delegates undo and majoration changes", () => {
-    const { actions, onUndo } = renderToolbar({ hasSelectedLines: true });
+describe("EstimateEditorToolbar option 3", () => {
+  it("presents one command row with explicit insertion and display groups", () => {
+    renderToolbar({ showAssistants: true });
+
+    expect(
+      screen.getByRole("button", { name: "Annuler la dernière action" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("Rechercher dans le chiffrage..."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Insérer" })).toHaveAttribute(
+      "title",
+    );
+    expect(screen.getByRole("button", { name: /Afficher/ })).toHaveAttribute(
+      "title",
+    );
+    expect(screen.getByRole("button", { name: /Commandes/ })).toHaveAttribute(
+      "title",
+    );
+  });
+
+  it("groups insertion sources and explains optional assistants", () => {
+    const { callbacks } = renderToolbar({ showAssistants: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Insérer" }));
+    const menu = screen.getByRole("menu", {
+      name: "Insérer dans le chiffrage",
+    });
+    expect(
+      within(menu).getByRole("menuitem", { name: "Insérer un template" }),
+    ).toBeInTheDocument();
+    expect(within(menu).getByText("Assistants optionnels")).toBeInTheDocument();
+    expect(within(menu).getByText(/libre de valider/)).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Annuler la dernière action" })
+      within(menu).getByRole("menuitem", {
+        name: "Importer depuis un autre devis",
+      }),
     );
-    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(callbacks.onOpenImportFromEstimateDialog).toHaveBeenCalledTimes(1);
+  });
 
-    fireEvent.change(screen.getByLabelText("Majoration MO en pourcentage"), {
-      target: { value: "120" },
+  it("groups structure, columns, quality and advanced controls under Afficher", () => {
+    const { callbacks } = renderToolbar();
+
+    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Options d’affichage du chiffrage",
     });
+    expect(
+      within(dialog).getByRole("heading", { name: "Structure" }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("heading", { name: "Colonnes" }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("2 anomalies")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("heading", { name: "Contrôles avancés" }),
+    ).toHaveAttribute("title");
+
+    fireEvent.change(within(dialog).getByLabelText("Lignes affichées"), {
+      target: { value: "with_anomalies" },
+    });
+    expect(callbacks.onQualityFilterChange).toHaveBeenCalledWith(
+      "with_anomalies",
+    );
+  });
+
+  it("keeps the finalization inspector hidden behind an explicit display toggle", () => {
+    const { callbacks } = renderToolbar();
+
+    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Options d’affichage du chiffrage",
+    });
+    expect(
+      within(dialog).getByRole("heading", { name: "Finalisation" }),
+    ).toBeInTheDocument();
+
+    const toggle = within(dialog).getByTestId(
+      "estimate-editor-toggle-finalization-button",
+    );
+    expect(toggle).toHaveTextContent("Afficher");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(toggle);
+    expect(callbacks.onToggleFinalizationPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels the finalization toggle as Masquer when the inspector is open", () => {
+    renderToolbar({ isFinalizationPanelOpen: true });
+
+    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
+    const toggle = screen.getByTestId(
+      "estimate-editor-toggle-finalization-button",
+    );
+    expect(toggle).toHaveTextContent("Masquer");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps root-lot creation out of the toolbar", () => {
+    renderToolbar();
+    expect(
+      screen.queryByTestId("estimate-editor-toolbar-add-root-section-button"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps selection actions contextual and functional", () => {
+    const { actions, callbacks } = renderToolbar({ hasSelectedLines: true });
+
+    const selectionBar = screen.getByTestId(
+      "estimate-editor-bulk-selection-bar",
+    );
+    expect(
+      within(selectionBar).getByText("1 ligne sélectionnée"),
+    ).toBeInTheDocument();
+    fireEvent.change(
+      within(selectionBar).getByLabelText(
+        "Déplacer les lignes sélectionnées vers",
+      ),
+      {
+        target: { value: "" },
+      },
+    );
+    expect(actions.setBulkMoveParentId).toHaveBeenCalledWith("");
+    fireEvent.click(
+      within(selectionBar).getByRole("button", { name: "Déplacer" }),
+    );
+    expect(callbacks.onApplyBulkMove).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(selectionBar).getByText("Modifier les attributs"));
+    fireEvent.change(
+      within(selectionBar).getByLabelText("Majoration MO en pourcentage"),
+      {
+        target: { value: "120" },
+      },
+    );
     expect(actions.setBulkMajorationPercent).toHaveBeenCalledWith("120");
   });
 
-  it("hides bulk actions when no line is selected", () => {
-    renderToolbar({ hasSelectedLines: false });
+  it("hides selection actions when no line is selected", () => {
+    renderToolbar();
     expect(
-      screen.queryByRole("button", { name: "Appliquer majoration" })
+      screen.queryByTestId("estimate-editor-bulk-selection-bar"),
     ).not.toBeInTheDocument();
   });
 
-  it("hides simplified advanced-columns toggle when labor split is enabled", () => {
+  it("keeps simplified labor-split mode free of the advanced-column toggle", () => {
     renderToolbar({ uiMode: "simplified", isLaborSplitEnabled: true });
+    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
     expect(
-      screen.queryByRole("button", { name: "Colonnes avancées" })
+      screen.queryByRole("button", { name: "Colonnes avancées" }),
     ).not.toBeInTheDocument();
   });
 
-  it("shows supplier preselection action when lines are available", () => {
-    renderToolbar();
-    fireEvent.click(screen.getByRole("button", { name: "Outils" }));
-    expect(
-      screen.getByRole("button", { name: "Préselection fournisseurs (2)" })
-    ).toBeInTheDocument();
-  });
-
-  it("exposes and updates the relationships for toolbar popovers", () => {
+  it("opens the global command palette through Ctrl+K", () => {
+    const keydownListener = vi.fn();
+    document.addEventListener("keydown", keydownListener);
     renderToolbar();
 
-    const columnsButton = screen.getByRole("button", { name: "Colonnes" });
-    expect(columnsButton).toHaveAttribute("aria-expanded", "false");
-    expect(columnsButton).toHaveAttribute("aria-haspopup", "dialog");
-    expect(columnsButton).toHaveAttribute(
-      "aria-controls",
-      "estimate-editor-columns-panel"
+    fireEvent.click(screen.getByRole("button", { name: /Commandes/ }));
+    expect(keydownListener).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "k", ctrlKey: true }),
     );
-    fireEvent.click(columnsButton);
-    expect(columnsButton).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.getByRole("dialog", { name: "Choisir les colonnes" })
-    ).toHaveAttribute("id", "estimate-editor-columns-panel");
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(columnsButton).toHaveAttribute("aria-expanded", "false");
-
-    const anomaliesButton = screen.getByRole("button", { name: /1 anomalie/ });
-    expect(anomaliesButton).toHaveAttribute("aria-expanded", "false");
-    expect(anomaliesButton).toHaveAttribute("aria-haspopup", "dialog");
-    expect(anomaliesButton).toHaveAttribute(
-      "aria-controls",
-      "estimate-editor-anomalies-panel"
-    );
-    fireEvent.click(anomaliesButton);
-    expect(anomaliesButton).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.getByRole("dialog", { name: "Filtrer les anomalies" })
-    ).toHaveAttribute("id", "estimate-editor-anomalies-panel");
-    fireEvent.keyDown(document, { key: "Escape" });
-
-    const toolsButton = screen.getByRole("button", { name: "Outils" });
-    expect(toolsButton).toHaveAttribute("aria-expanded", "false");
-    expect(toolsButton).toHaveAttribute("aria-haspopup", "dialog");
-    expect(toolsButton).toHaveAttribute(
-      "aria-controls",
-      "estimate-editor-tools-panel"
-    );
-    fireEvent.click(toolsButton);
-    expect(toolsButton).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.getByRole("dialog", { name: "Outils du devis" })
-    ).toHaveAttribute("id", "estimate-editor-tools-panel");
-    fireEvent.mouseDown(screen.getByLabelText("Filtre qualité"));
-    expect(toolsButton).toHaveAttribute("aria-expanded", "true");
-    fireEvent.mouseDown(document.body);
-    expect(toolsButton).toHaveAttribute("aria-expanded", "false");
-  });
-
-  it("moves keyboard focus into tools and restores it on Escape", async () => {
-    const user = userEvent.setup();
-    renderToolbar();
-
-    const toolsButton = screen.getByRole("button", { name: "Outils" });
-    await user.click(toolsButton);
-
-    const qualityFilter = screen.getByLabelText("Filtre qualité");
-    expect(qualityFilter).toHaveFocus();
-    expect(
-      screen.getByRole("button", { name: "Raccourcis clavier" })
-    ).not.toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByLabelText("Outliers")).toHaveFocus();
-
-    const assembliesButton = screen.getByRole("button", {
-      name: "Assemblages",
-    });
-    assembliesButton.focus();
-    await user.tab();
-    expect(qualityFilter).toHaveFocus();
-
-    await user.tab({ shift: true });
-    expect(assembliesButton).toHaveFocus();
-
-    await user.keyboard("{Escape}");
-    expect(toolsButton).toHaveFocus();
-    expect(toolsButton).toHaveAttribute("aria-expanded", "false");
-    expect(
-      screen.queryByRole("dialog", { name: "Outils du devis" })
-    ).not.toBeInTheDocument();
-  });
-
-  it.each([
-    { viewportWidth: 727, expectedWidth: 320, expectedLeft: 180 },
-    { viewportWidth: 320, expectedWidth: 288, expectedLeft: 16 },
-  ])(
-    "keeps the tools panel inside a $viewportWidth px viewport",
-    ({ viewportWidth, expectedWidth, expectedLeft }) => {
-      vi.stubGlobal("innerWidth", viewportWidth);
-      vi.stubGlobal("innerHeight", 800);
-      vi.spyOn(
-        HTMLElement.prototype,
-        "getBoundingClientRect"
-      ).mockReturnValue(
-        createRect({
-          left: 180,
-          right: 250,
-          top: 100,
-          bottom: 132,
-          width: 70,
-          height: 32,
-        })
-      );
-      renderToolbar();
-
-      fireEvent.click(screen.getByRole("button", { name: "Outils" }));
-
-      const panel = screen.getByRole("dialog", { name: "Outils du devis" });
-      expect(panel).toHaveStyle({
-        left: `${expectedLeft}px`,
-        width: `${expectedWidth}px`,
-      });
-      expect(expectedLeft + expectedWidth).toBeLessThanOrEqual(viewportWidth - 16);
-    }
-  );
-
-  it("opens tools away from the sidebar when space is available", () => {
-    vi.stubGlobal("innerWidth", 1292);
-    vi.stubGlobal("innerHeight", 910);
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
-      createRect({
-        left: 448,
-        right: 512,
-        top: 261,
-        bottom: 297,
-        width: 64,
-        height: 36,
-      })
-    );
-    renderToolbar();
-
-    fireEvent.click(screen.getByRole("button", { name: "Outils" }));
-
-    expect(
-      screen.getByRole("dialog", { name: "Outils du devis" })
-    ).toHaveStyle({ left: "448px", width: "320px" });
-  });
-
-  it("keeps the tools panel right-aligned to its trigger on desktop", () => {
-    vi.stubGlobal("innerWidth", 1440);
-    vi.stubGlobal("innerHeight", 900);
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
-      createRect({
-        left: 1130,
-        right: 1200,
-        top: 100,
-        bottom: 132,
-        width: 70,
-        height: 32,
-      })
-    );
-    renderToolbar();
-
-    fireEvent.click(screen.getByRole("button", { name: "Outils" }));
-
-    expect(
-      screen.getByRole("dialog", { name: "Outils du devis" })
-    ).toHaveStyle({ left: "880px", width: "320px" });
-  });
-
-  it("labels optional estimate assistants discreetly", () => {
-    renderToolbar({ showAdjacentActions: true });
-
-    const assistantLabel = screen.getByText("Assistants optionnels");
-    expect(assistantLabel).toBeInTheDocument();
-    expect(assistantLabel).toHaveClass("text-slate-400");
-    expect(assistantLabel).not.toHaveClass("border");
-    expect(
-      screen.getByRole("button", { name: "Structure IA" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Générer des ouvrages" })
-    ).toBeInTheDocument();
-  });
-
-  it("groups secondary actions into touch-friendly controls on compact viewports", () => {
-    mockCompactViewport();
-    renderToolbar({ showAdjacentActions: true });
-
-    expect(
-      screen.getByTestId("estimate-editor-toolbar-add-root-section-button")
-    ).toHaveClass("h-11", "flex-1");
-    expect(screen.getByTestId("estimate-editor-search-input")).toHaveClass(
-      "h-11",
-      "min-h-11",
-      "w-full"
-    );
-    expect(
-      screen.queryByRole("button", { name: "Structure IA" })
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByTestId("estimate-editor-primary-actions-button")
-    );
-    const actionsMenu = screen.getByRole("menu", {
-      name: "Actions du devis",
-    });
-    expect(
-      within(actionsMenu).getByRole("menuitem", { name: "Tout déplier" })
-    ).toBeInTheDocument();
-    expect(
-      within(actionsMenu).getByRole("menuitem", { name: "Structure IA" })
-    ).toBeInTheDocument();
-    expect(
-      within(actionsMenu).getByRole("menuitem", {
-        name: "Générer des ouvrages",
-      })
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("estimate-editor-overflow-button"));
-    const compactDialog = screen.getByRole("dialog", {
-      name: "Insertion et affichage",
-    });
-    fireEvent.click(
-      within(compactDialog).getByTestId("estimate-editor-columns-button")
-    );
-    expect(
-      within(compactDialog).getByRole("group", {
-        name: "Choisir les colonnes",
-      })
-    ).toBeInTheDocument();
-
-    fireEvent.click(
-      within(compactDialog).getByTestId("estimate-editor-anomalies-button")
-    );
-    expect(
-      within(compactDialog).getByRole("group", {
-        name: "Filtrer les anomalies",
-      })
-    ).toBeInTheDocument();
-    expect(
-      within(compactDialog).getByRole("button", {
-        name: "Raccourcis clavier",
-      })
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("estimate-editor-overflow-button"));
-    expect(compactDialog).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("estimate-editor-overflow-button"));
-    const reopenedDialog = screen.getByRole("dialog", {
-      name: "Insertion et affichage",
-    });
-    expect(
-      within(reopenedDialog).queryByRole("group", {
-        name: "Filtrer les anomalies",
-      })
-    ).not.toBeInTheDocument();
+    document.removeEventListener("keydown", keydownListener);
   });
 });

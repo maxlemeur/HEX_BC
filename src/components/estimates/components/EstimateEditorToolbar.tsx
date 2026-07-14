@@ -21,6 +21,7 @@ import {
 import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
 import { useIsCompactViewport } from "@/hooks/useIsTablet";
 import { usePopover } from "@/hooks/usePopover";
+import { EstimateEditorCommandBar } from "@/components/estimates/components/EstimateEditorCommandBar";
 import type { UiMode } from "@/lib/ui-mode";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
@@ -36,7 +37,7 @@ type BulkMoveDestination = {
   label: string;
 };
 
-type EstimateEditorToolbarProps = {
+export type EstimateEditorToolbarProps = {
   uiMode: UiMode;
   isViewerMode?: boolean;
   qualityCounts: EstimateQualityFlagCounts;
@@ -67,8 +68,6 @@ type EstimateEditorToolbarProps = {
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
   onOpenGeneratedOuvrageDialog?: () => void;
-  onAddRootSection: () => void;
-  rootAddSectionLabel?: string;
   onExpandAllSections?: () => void;
   onCollapseAllSections?: () => void;
   onOpenSettings?: () => void;
@@ -83,6 +82,8 @@ type EstimateEditorToolbarProps = {
   onToggleColumn: (key: ColumnKey) => void;
   hiddenAdvancedCount: number;
   onToggleAdvancedColumns: () => void;
+  isFinalizationPanelOpen?: boolean;
+  onToggleFinalizationPanel?: () => void;
   isLaborSplitEnabled?: boolean;
   /* UX2-022: Quick insert pickers */
   isQuickTemplatePickerOpen?: boolean;
@@ -130,7 +131,13 @@ function parseNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function EstimateEditorToolbar({
+export function EstimateEditorToolbar(props: EstimateEditorToolbarProps) {
+  return <EstimateEditorCommandBar {...props} />;
+}
+
+// Conservé temporairement pour les intégrations qui dépendent encore de la
+// disposition historique à deux rangées.
+export function LegacyEstimateEditorToolbar({
   uiMode,
   isViewerMode = false,
   qualityCounts,
@@ -161,8 +168,6 @@ export function EstimateEditorToolbar({
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
   onOpenGeneratedOuvrageDialog,
-  onAddRootSection,
-  rootAddSectionLabel = "+ Ajouter un Lot",
   onExpandAllSections,
   onCollapseAllSections,
   onOpenSettings,
@@ -439,15 +444,6 @@ export function EstimateEditorToolbar({
         {!isCompactViewport ? <div className="h-5 w-px bg-slate-200" /> : null}
 
         {/* Primary actions */}
-        <button
-          className={`btn btn-secondary btn-sm whitespace-nowrap ${isCompactViewport ? "h-11 flex-1" : ""}`}
-          type="button"
-          onClick={onAddRootSection}
-          disabled={meta.isReadOnly}
-          data-testid="estimate-editor-toolbar-add-root-section-button"
-        >
-          {rootAddSectionLabel}
-        </button>
         {isCompactViewport ? (
           <div className="relative shrink-0" ref={primaryActionsContainerRef}>
             <button

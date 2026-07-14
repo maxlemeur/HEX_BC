@@ -288,6 +288,8 @@ type EstimateEditorTableProps = {
   virtualization?: EstimateVirtualizationConfig;
   highlightedItemIds?: Set<string>;
   headerRight?: React.ReactNode;
+  isFinalizationPanelOpen?: boolean;
+  onToggleFinalizationPanel?: () => void;
   onOpenSettings?: () => void;
 };
 
@@ -812,6 +814,8 @@ export function EstimateEditorTable({
   onScrollToItemHandled,
   virtualization,
   headerRight,
+  isFinalizationPanelOpen = false,
+  onToggleFinalizationPanel,
   onOpenSettings,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
@@ -2068,8 +2072,6 @@ export function EstimateEditorTable({
                   onOpenEstimateStructureDraftDialog
                 }
                 onOpenGeneratedOuvrageDialog={onOpenGeneratedOuvrageDialog}
-                onAddRootSection={() => onAddSection(null)}
-                rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
                 onExpandAllSections={handleExpandAllSections}
                 onCollapseAllSections={handleCollapseAllSections}
                 columnPreset={columnVisibility.preset}
@@ -2083,6 +2085,8 @@ export function EstimateEditorTable({
                 onToggleColumn={columnVisibility.toggleColumn}
                 hiddenAdvancedCount={columnVisibility.hiddenAdvancedCount}
                 onToggleAdvancedColumns={columnVisibility.toggleAdvancedColumns}
+                isFinalizationPanelOpen={isFinalizationPanelOpen}
+                onToggleFinalizationPanel={onToggleFinalizationPanel}
                 isLaborSplitEnabled={isLaborSplitEnabled}
                 onOpenSettings={onOpenSettings}
                 isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}

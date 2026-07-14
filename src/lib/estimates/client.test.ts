@@ -1378,6 +1378,7 @@ describe("estimate client assemblies wrappers", () => {
           kFo: 1.2,
           kMo: 1.1,
           defaultQuantity: 2,
+          laborHours: 1.5,
         },
       ],
     });
@@ -1387,6 +1388,8 @@ describe("estimate client assemblies wrappers", () => {
     expect(JSON.parse(String(createRequest.body))).toEqual({
       name: "Mur",
       description: null,
+      reference_code: null,
+      unit: null,
       items: [
         {
           title: "Parpaing",
@@ -1395,7 +1398,14 @@ describe("estimate client assemblies wrappers", () => {
           k_mo: 1.1,
           labor_role_id: null,
           default_quantity: 2,
+          h_mo: 1.5,
           position: 1,
+          cost_type: "material",
+          unit_cost_ht_cents: 0,
+          loss_coeff_bp: 0,
+          yield_value: null,
+          yield_unit: null,
+          source_metadata: {},
         },
       ],
     });
@@ -1420,7 +1430,14 @@ describe("estimate client assemblies wrappers", () => {
           k_mo: 1,
           labor_role_id: null,
           default_quantity: null,
+          h_mo: 0,
           position: 1,
+          cost_type: "material",
+          unit_cost_ht_cents: 0,
+          loss_coeff_bp: 0,
+          yield_value: null,
+          yield_unit: null,
+          source_metadata: {},
         },
       ],
     });

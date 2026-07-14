@@ -8,6 +8,7 @@ import {
   bulkUpdateEstimateItems,
   createEstimate,
   createEstimateItem,
+  computeAssemblyMetrics,
   insertAssemblyIntoVersion,
   insertTemplateIntoVersion,
   instantiateEstimateFromTemplate,
@@ -2480,6 +2481,27 @@ function createAssemblyUpdateSupabaseMock(input?: {
   };
   assemblyBuilder.eq.mockReturnValue(assemblyBuilder);
 
+  const assemblyUpdateBuilder = {
+    eq: vi.fn(),
+    select: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: ASSEMBLY_ID,
+        tenant_id: TENANT_ID,
+        created_by: USER_ID,
+        name: "Mur",
+        description: null,
+        ds_cents: 0,
+        avg_time_hours: null,
+        created_at: VERSION_UPDATED_AT,
+        updated_at: VERSION_UPDATED_AT,
+      },
+      error: null,
+    }),
+  };
+  assemblyUpdateBuilder.eq.mockReturnValue(assemblyUpdateBuilder);
+  assemblyUpdateBuilder.select.mockReturnValue(assemblyUpdateBuilder);
+
   let assemblyItemsOrderCalls = 0;
   const assemblyItemsBuilder = {
     eq: vi.fn(),
@@ -2531,6 +2553,7 @@ function createAssemblyUpdateSupabaseMock(input?: {
       if (table === "estimate_assemblies") {
         return {
           select: vi.fn(() => assemblyBuilder),
+          update: vi.fn(() => assemblyUpdateBuilder),
         };
       }
       if (table === "estimate_assembly_items") {
@@ -2548,6 +2571,33 @@ function createAssemblyUpdateSupabaseMock(input?: {
 
   return supabase;
 }
+
+describe("estimate assembly metrics", () => {
+  it("uses K FO for supplies and K MO for labor without a separate loss factor", () => {
+    const metrics = computeAssemblyMetrics(
+      [
+        {
+          title: "Tube inox",
+          position: 1,
+          cost_type: "material",
+          default_quantity: 2,
+          h_mo: 3,
+          labor_role_id: LABOR_ROLE_ID,
+          unit_cost_ht_cents: 1000,
+          k_fo: 1.2,
+          k_mo: 1.5,
+          loss_coeff_bp: 5000,
+        },
+      ],
+      new Map([[LABOR_ROLE_ID, 4000]])
+    );
+
+    expect(metrics).toEqual({
+      directCostCents: 20400,
+      laborHours: 3,
+    });
+  });
+});
 
 describe("estimate assemblies insertion", () => {
   beforeEach(() => {
@@ -3082,7 +3132,14 @@ describe("estimate assemblies updates", () => {
           k_mo: 1,
           labor_role_id: LABOR_ROLE_ID,
           default_quantity: null,
+          h_mo: 0,
           position: 1,
+          cost_type: "material",
+          unit_cost_ht_cents: 0,
+          loss_coeff_bp: 0,
+          yield_value: null,
+          yield_unit: null,
+          source_metadata: {},
         },
       ],
     });

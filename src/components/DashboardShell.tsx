@@ -88,16 +88,16 @@ function ModeToggleSwitch({
       aria-label={isExpert ? "Mode Expert actif, basculer en Simplifié" : "Mode Simplifié actif, basculer en Expert"}
       title={isExpert ? "Passer en mode Simplifié" : "Passer en mode Expert"}
       onClick={onToggle}
-      className="group relative flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-white/20 bg-white/10 p-0.5 transition-colors duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/50 focus-visible:outline-offset-2"
+      className="sidebar-mode-toggle group relative flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-white/20 bg-white/10 p-0.5 transition-colors duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/50 focus-visible:outline-offset-2"
     >
       {/* Track labels */}
-      <span className="absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold uppercase tracking-wider">
+      <span className="sidebar-mode-toggle__labels absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold uppercase tracking-wider">
         <span className={`transition-opacity duration-200 ${isExpert ? "opacity-0" : "opacity-60 text-white"}`}>S</span>
         <span className={`transition-opacity duration-200 ${isExpert ? "opacity-60 text-white" : "opacity-0"}`}>E</span>
       </span>
       {/* Sliding thumb */}
       <span
-        className={`pointer-events-none relative z-10 h-5 w-5 rounded-full shadow-md transition-all duration-200 ease-in-out ${
+        className={`sidebar-mode-toggle__thumb pointer-events-none relative z-10 h-5 w-5 rounded-full shadow-md transition-all duration-200 ease-in-out ${
           isExpert
             ? "translate-x-5 bg-brand-orange"
             : "translate-x-0 bg-white/80"

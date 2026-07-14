@@ -20553,6 +20553,80 @@
                         }
                       ]
                     },
+                    "reference_code": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pricing_source": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ds_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "indicative_target_price_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "avg_output_rate": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "avg_time_hours": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_metadata": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "created_by": {
                       "anyOf": [
                         {
@@ -20579,6 +20653,14 @@
                     "id",
                     "name",
                     "description",
+                    "reference_code",
+                    "unit",
+                    "pricing_source",
+                    "ds_cents",
+                    "indicative_target_price_cents",
+                    "avg_output_rate",
+                    "avg_time_hours",
+                    "source_metadata",
                     "created_by",
                     "created_at",
                     "updated_at",
@@ -20586,10 +20668,45 @@
                   ],
                   "additionalProperties": {}
                 }
+              },
+              "labor_roles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "hourly_rate_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": {}
+                }
               }
             },
             "required": [
-              "assemblies"
+              "assemblies",
+              "labor_roles"
             ],
             "additionalProperties": false
           }
@@ -20609,6 +20726,26 @@
             "maxLength": 160
           },
           "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reference_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
             "anyOf": [
               {
                 "type": "string"
@@ -20671,10 +20808,61 @@
                     }
                   ]
                 },
+                "h_mo": {
+                  "type": "number",
+                  "minimum": 0
+                },
                 "position": {
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9007199254740991
+                },
+                "cost_type": {
+                  "type": "string",
+                  "enum": [
+                    "material",
+                    "labor",
+                    "equipment",
+                    "subcontract"
+                  ]
+                },
+                "unit_cost_ht_cents": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loss_coeff_bp": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "yield_value": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yield_unit": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "source_metadata": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
                 }
               },
               "required": [
@@ -20714,6 +20902,80 @@
                     "anyOf": [
                       {
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "reference_code": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pricing_source": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ds_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "indicative_target_price_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "avg_output_rate": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "avg_time_hours": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_metadata": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
                       },
                       {
                         "type": "null"
@@ -20811,10 +21073,60 @@
                             }
                           ]
                         },
+                        "h_mo": {
+                          "type": "number",
+                          "minimum": 0
+                        },
                         "position": {
                           "type": "integer",
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
+                        },
+                        "cost_type": {
+                          "type": "string",
+                          "enum": [
+                            "material",
+                            "labor",
+                            "equipment",
+                            "subcontract"
+                          ]
+                        },
+                        "unit_cost_ht_cents": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "loss_coeff_bp": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "yield_value": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "yield_unit": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "source_metadata": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
                         }
                       },
                       "required": [
@@ -20826,7 +21138,14 @@
                         "k_mo",
                         "labor_role_id",
                         "default_quantity",
-                        "position"
+                        "h_mo",
+                        "position",
+                        "cost_type",
+                        "unit_cost_ht_cents",
+                        "loss_coeff_bp",
+                        "yield_value",
+                        "yield_unit",
+                        "source_metadata"
                       ],
                       "additionalProperties": {}
                     }
@@ -20836,6 +21155,14 @@
                   "id",
                   "name",
                   "description",
+                  "reference_code",
+                  "unit",
+                  "pricing_source",
+                  "ds_cents",
+                  "indicative_target_price_cents",
+                  "avg_output_rate",
+                  "avg_time_hours",
+                  "source_metadata",
                   "created_by",
                   "created_at",
                   "updated_at",
@@ -20871,6 +21198,26 @@
             "maxLength": 160
           },
           "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reference_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
             "anyOf": [
               {
                 "type": "string"
@@ -20933,10 +21280,61 @@
                     }
                   ]
                 },
+                "h_mo": {
+                  "type": "number",
+                  "minimum": 0
+                },
                 "position": {
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9007199254740991
+                },
+                "cost_type": {
+                  "type": "string",
+                  "enum": [
+                    "material",
+                    "labor",
+                    "equipment",
+                    "subcontract"
+                  ]
+                },
+                "unit_cost_ht_cents": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loss_coeff_bp": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "yield_value": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yield_unit": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "source_metadata": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
                 }
               },
               "required": [

@@ -1,6 +1,10 @@
 "use client";
 
-import { type RefObject } from "react";
+import {
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+} from "react";
 
 import { type UseEstimateSectionDialogsResult } from "@/components/estimates/hooks/useEstimateSectionDialogs";
 
@@ -12,6 +16,23 @@ type SectionContextMeta = {
   addSectionLabel: string;
   addLineLabel: string;
 };
+
+const CONTEXT_MENU_VIEWPORT_PADDING = 8;
+
+export function resolveSectionContextMenuTop(
+  preferredTop: number,
+  menuHeight: number,
+  viewportHeight: number,
+  viewportPadding = CONTEXT_MENU_VIEWPORT_PADDING
+): number {
+  const minimumTop = viewportPadding;
+  const maximumTop = Math.max(
+    minimumTop,
+    viewportHeight - Math.max(0, menuHeight) - viewportPadding
+  );
+
+  return Math.max(minimumTop, Math.min(preferredTop, maximumTop));
+}
 
 type EstimateEditorTableSectionDialogsProps = {
   isViewerMode?: boolean;
@@ -82,10 +103,25 @@ export function EstimateEditorTableSectionDialogs({
   onCloseSaveAsAssemblyDialog,
   onConfirmSaveAsAssembly,
 }: EstimateEditorTableSectionDialogsProps) {
+  const sectionContextMenuRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const menu = sectionContextMenuRef.current;
+    if (!sectionContextMenu || !menu) return;
+
+    const top = resolveSectionContextMenuTop(
+      sectionContextMenu.y,
+      menu.getBoundingClientRect().height,
+      window.innerHeight
+    );
+
+    menu.style.top = `${top}px`;
+  }, [sectionContextMenu, sectionContextMeta?.canAddSection]);
+
   return (
     <>
       {sectionContextMenu && !isViewerMode ? (
         <div
+          ref={sectionContextMenuRef}
           className="estimate-supplier-comparison-context-menu estimate-section-context-menu"
           role="menu"
           aria-label="Actions de section"

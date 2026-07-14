@@ -220,4 +220,26 @@ describe("DashboardShell mobile navigation", () => {
     );
     expect(contentContainer).not.toHaveClass("sm:py-8");
   });
+
+  it("uses compact footer controls when the desktop sidebar is collapsed", async () => {
+    window.localStorage.setItem("sidebar-collapsed", "true");
+
+    render(
+      <DashboardShell displayName="Jean Dupont">
+        <div>Contenu</div>
+      </DashboardShell>
+    );
+
+    const sidebar = document.getElementById("dashboard-sidebar");
+    await waitFor(() =>
+      expect(sidebar).toHaveClass("dashboard-sidebar--collapsed")
+    );
+
+    const modeSwitch = screen.getByRole("switch", {
+      name: /Mode (Expert|Simplifié) actif/,
+    });
+    expect(modeSwitch).toHaveClass("sidebar-mode-toggle");
+    expect(modeSwitch.querySelector(".sidebar-mode-toggle__labels")).not.toBeNull();
+    expect(modeSwitch.querySelector(".sidebar-mode-toggle__thumb")).not.toBeNull();
+  });
 });

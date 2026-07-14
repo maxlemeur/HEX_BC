@@ -1673,6 +1673,7 @@ export function useEstimateEditorState({
     useState<EstimateQualityFilter>("all_lines");
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
+  const [isFinalizationPanelOpen, setIsFinalizationPanelOpen] = useState(false);
   const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(true);
   const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
     useState<string | null>(null);
@@ -2750,6 +2751,18 @@ export function useEstimateEditorState({
       }),
     [deferredItems, qualityFlagsByItemId, settings]
   );
+
+  const handleShowChecklistAnomalies = useCallback(() => {
+    setQualityFilter("with_anomalies");
+    const firstAffectedLine = deferredItems.find(
+      (item) =>
+        item.item_type === "line" &&
+        (qualityFlagsByItemId[item.id]?.length ?? 0) > 0
+    );
+    if (firstAffectedLine) {
+      setChecklistScrollTargetItemId(firstAffectedLine.id);
+    }
+  }, [deferredItems, qualityFlagsByItemId]);
 
   const buildLineCalculationInput = useCallback(
     (
@@ -7686,16 +7699,22 @@ export function useEstimateEditorState({
       virtualization: editorTableVirtualization,
       highlightedItemIds,
       onOpenSettings: () => handleOpenSettingsDrawer(),
-      headerRight: (
+      isFinalizationPanelOpen,
+      onToggleFinalizationPanel: () =>
+        setIsFinalizationPanelOpen((previous) => !previous),
+      headerRight: isFinalizationPanelOpen ? (
         <EstimateChecklist
           checklist={checklist}
           isCollapsed={isChecklistCollapsed}
+          anomalyCount={qualityCounts.totalFlagsCount}
+          affectedLineCount={qualityCounts.linesWithAnomaliesCount}
           onToggleCollapsed={() =>
             setIsChecklistCollapsed((previous) => !previous)
           }
           onCriterionClick={handleChecklistCriterionClick}
+          onShowAnomalies={handleShowChecklistAnomalies}
         />
-      ),
+      ) : null,
     }),
     [
       actionError,
@@ -7757,8 +7776,10 @@ export function useEstimateEditorState({
       supplierPreselectionEligibleCount,
       checklistScrollTargetItemId,
       checklist,
+      isFinalizationPanelOpen,
       isChecklistCollapsed,
       handleChecklistCriterionClick,
+      handleShowChecklistAnomalies,
       settings?.currency,
       totals?.appliedMarginMultiplier,
       version?.id,

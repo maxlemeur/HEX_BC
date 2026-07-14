@@ -5,6 +5,7 @@ export type CatalogueItem = {
   reference: string;
   hex_code?: string | null;
   designation: string;
+  unit?: string | null;
   unit_price_cents?: number | null;
   tax_rate_bp?: number | null;
   is_active?: boolean;

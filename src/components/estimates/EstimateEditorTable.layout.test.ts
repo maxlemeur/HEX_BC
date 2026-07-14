@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { resolveEstimateEditorGridStyle } from "@/components/estimates/EstimateEditorTable";
+import { resolveSectionContextMenuTop } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs";
 import type { ColumnKey } from "@/hooks/useColumnVisibility";
 
 const ALL_OPTIONAL_COLUMNS = new Set<ColumnKey>([
@@ -14,14 +15,16 @@ const ALL_OPTIONAL_COLUMNS = new Set<ColumnKey>([
   "k_mo",
 ]);
 
-function toCustomProperties(style: ReturnType<typeof resolveEstimateEditorGridStyle>) {
+function toCustomProperties(
+  style: ReturnType<typeof resolveEstimateEditorGridStyle>,
+) {
   return style as Record<string, string> | undefined;
 }
 
 describe("estimate editor responsive grid", () => {
   it("provides distinct desktop and tablet tracks for every visible column", () => {
     const style = toCustomProperties(
-      resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, false)
+      resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, false),
     );
 
     expect(style).toMatchObject({
@@ -37,7 +40,7 @@ describe("estimate editor responsive grid", () => {
 
   it("removes hidden optional columns from both responsive grids", () => {
     const style = toCustomProperties(
-      resolveEstimateEditorGridStyle(new Set<ColumnKey>(), false)
+      resolveEstimateEditorGridStyle(new Set<ColumnKey>(), false),
     );
 
     expect(style).toMatchObject({
@@ -52,58 +55,86 @@ describe("estimate editor responsive grid", () => {
 
   it("keeps the dedicated labor split grid untouched", () => {
     expect(
-      resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, true)
+      resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, true),
     ).toBeUndefined();
   });
 
   it("keeps the stylesheet contract that activates tablet and sticky tracks", () => {
     const css = readFileSync(
       join(process.cwd(), "src/app/globals.css"),
-      "utf8"
+      "utf8",
     );
 
     expect(css).toContain("--estimate-grid: var(--estimate-grid-desktop);");
     expect(css).toMatch(
-      /@media \(min-width: 768px\) and \(max-width: 1024px\)[\s\S]*?--estimate-grid: var\(--estimate-grid-tablet\);/
+      /@media \(min-width: 768px\) and \(max-width: 1024px\)[\s\S]*?--estimate-grid: var\(--estimate-grid-tablet\);/,
     );
     expect(css).toMatch(
-      /\.estimate-row \.estimate-cell--designation \{[\s\S]*?position: sticky;[\s\S]*?left: 0;/
+      /\.estimate-row \.estimate-cell--designation \{[\s\S]*?position: sticky;[\s\S]*?left: 0;/,
     );
     expect(css).toMatch(
-      /\.estimate-row--section \.estimate-cell--designation \{[\s\S]*?position: sticky;/
+      /\.estimate-row--section \.estimate-cell--designation \{[\s\S]*?position: sticky;/,
     );
     expect(css).toMatch(
-      /\.estimate-line-truth__badge \{[\s\S]*?white-space: nowrap;/
+      /\.estimate-line-truth__badge \{[\s\S]*?white-space: nowrap;/,
     );
     expect(css).toMatch(
-      /@media \(max-width: 1440px\)[\s\S]*?\.estimate-line-truth__badge \{[\s\S]*?padding-inline: 5px;[\s\S]*?font-size: 10px;/
+      /@media \(max-width: 1440px\)[\s\S]*?\.estimate-line-truth__badge \{[\s\S]*?padding-inline: 5px;[\s\S]*?font-size: 10px;/,
+    );
+    expect(css).toMatch(
+      /\.estimate-catalogue-suggestions \{[\s\S]*?position: absolute;[\s\S]*?top: calc\(100% \+ 6px\);[\s\S]*?z-index: 30;/,
     );
   });
 
-  it("stacks checklist and toolbar instead of squeezing them on mobile", () => {
+  it("reserves the finalization inspector for wide screens without squeezing tablets", () => {
     const chromeSource = readFileSync(
       join(
         process.cwd(),
-        "src/components/estimates/components/estimate-editor-table/EstimateEditorTableChrome.tsx"
+        "src/components/estimates/components/estimate-editor-table/EstimateEditorTableChrome.tsx",
       ),
-      "utf8"
+      "utf8",
     );
     const checklistSource = readFileSync(
       join(process.cwd(), "src/components/estimates/EstimateChecklist.tsx"),
-      "utf8"
+      "utf8",
+    );
+    const editorStateSource = readFileSync(
+      join(process.cwd(), "src/hooks/useEstimateEditorState.impl.tsx"),
+      "utf8",
     );
 
     expect(chromeSource).toContain(
-      "flex flex-col gap-3 md:flex-row md:items-start md:gap-4"
+      "grid gap-2 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-x-3",
     );
     expect(chromeSource).toContain(
-      "order-2 w-full min-w-0 flex-1 md:order-1"
+      "w-full xl:col-start-2 xl:row-span-2 xl:row-start-1",
     );
     expect(chromeSource).toContain(
-      "order-1 w-full md:order-2 md:w-auto md:shrink-0"
+      "estimate-table-scroll overflow-x-auto xl:col-start-1 xl:row-start-2",
     );
     expect(checklistSource).toContain(
-      "dashboard-card h-fit w-full p-3 sm:p-4 md:min-w-[260px]"
+      "h-fit w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4",
+    );
+    expect(editorStateSource).toContain(
+      "const [isFinalizationPanelOpen, setIsFinalizationPanelOpen] = useState(false);",
+    );
+    expect(editorStateSource).toContain(
+      "headerRight: isFinalizationPanelOpen ? (",
+    );
+  });
+
+  it("keeps section menus inside the viewport using their measured height", () => {
+    expect(resolveSectionContextMenuTop(760, 295, 792)).toBe(489);
+    expect(resolveSectionContextMenuTop(220, 295, 792)).toBe(220);
+    expect(resolveSectionContextMenuTop(-20, 295, 792)).toBe(8);
+
+    const css = readFileSync(
+      join(process.cwd(), "src/app/globals.css"),
+      "utf8",
+    );
+
+    expect(css).toMatch(
+      /\.estimate-supplier-comparison-context-menu \{[\s\S]*?max-height: calc\(100dvh - 16px\);[\s\S]*?overflow-y: auto;/,
     );
   });
 });

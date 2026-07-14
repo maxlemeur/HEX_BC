@@ -949,6 +949,14 @@ const estimateAssemblySummarySchema = z
     id: uuidSchema,
     name: z.string(),
     description: z.string().nullable(),
+    reference_code: z.string().nullable(),
+    unit: z.string().nullable(),
+    pricing_source: z.string().nullable(),
+    ds_cents: z.number().int(),
+    indicative_target_price_cents: z.number().int(),
+    avg_output_rate: z.number().nullable(),
+    avg_time_hours: z.number().nullable(),
+    source_metadata: z.record(z.string(), z.unknown()).nullable(),
     created_by: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
@@ -966,7 +974,14 @@ const estimateAssemblyItemSchema = z
     k_mo: z.number().nullable(),
     labor_role_id: uuidSchema.nullable(),
     default_quantity: z.number().nullable(),
+    h_mo: z.number().nonnegative(),
     position: z.number().int(),
+    cost_type: z.enum(["material", "labor", "equipment", "subcontract"]),
+    unit_cost_ht_cents: z.number().int(),
+    loss_coeff_bp: z.number().int(),
+    yield_value: z.number().nullable(),
+    yield_unit: z.string().nullable(),
+    source_metadata: z.record(z.string(), z.unknown()),
   })
   .passthrough();
 
@@ -1207,6 +1222,7 @@ const estimateInstantiateTemplateDataSchema = z.object({
 
 const estimateAssembliesDataSchema = z.object({
   assemblies: z.array(estimateAssemblySummarySchema),
+  labor_roles: z.array(laborRoleSchema),
 });
 
 const estimateAssemblyDataSchema = z.object({

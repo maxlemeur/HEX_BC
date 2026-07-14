@@ -3404,6 +3404,14 @@ function toAssemblySummary(row: EstimateAssemblyRow, itemCount: number) {
     id: row.id,
     name: row.name,
     description: row.description,
+    reference_code: row.reference_code,
+    unit: row.unit,
+    pricing_source: row.pricing_source,
+    ds_cents: row.ds_cents,
+    indicative_target_price_cents: row.indicative_target_price_cents,
+    avg_output_rate: row.avg_output_rate,
+    avg_time_hours: row.avg_time_hours,
+    source_metadata: row.source_metadata,
     created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -5210,7 +5218,7 @@ export async function instantiateEstimateFromTemplate(
 export async function listEstimateAssemblies(
   query: ListEstimateAssembliesQueryInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = await getAuthenticatedContext();
 
   let assembliesQuery = supabase
     .from("estimate_assemblies")
@@ -5238,11 +5246,23 @@ export async function listEstimateAssemblies(
     tenantId,
     assemblyIds: assemblies.map((assembly) => assembly.id),
   });
+  const { data: laborRoles, error: laborRolesError } = await supabase
+    .from("labor_roles")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("position", { ascending: true });
+
+  if (laborRolesError) {
+    throw mapSupabaseError(laborRolesError, "Impossible de charger les rôles de main-d’œuvre.");
+  }
 
   return {
     assemblies: assemblies.map((assembly) =>
       toAssemblySummary(assembly, itemCountByAssemblyId.get(assembly.id) ?? 0)
     ),
+    labor_roles: (laborRoles ?? []) as LaborRoleRow[],
   };
 }
 
@@ -5268,10 +5288,76 @@ export async function getEstimateAssembly(assemblyId: string) {
   };
 }
 
+export function computeAssemblyMetrics(
+  items: CreateEstimateAssemblyInput["items"],
+  laborRatesById: ReadonlyMap<string, number> = new Map()
+) {
+  let directCostCents = 0;
+  let laborHours = 0;
+
+  items.forEach((item) => {
+    const quantity = Math.max(item.default_quantity ?? 0, 0);
+    const unitCostCents = Math.max(item.unit_cost_ht_cents ?? 0, 0);
+    const isLabor = (item.cost_type ?? "material") === "labor";
+    const itemLaborHours = Math.max(
+      item.h_mo ?? (isLabor ? quantity : 0),
+      0
+    );
+    const supplyCostCents = isLabor
+      ? 0
+      : quantity * unitCostCents * Math.max(item.k_fo ?? 1, 0);
+    const selectedLaborRate = item.labor_role_id
+      ? laborRatesById.get(item.labor_role_id)
+      : undefined;
+    const laborRateCents =
+      selectedLaborRate !== undefined
+        ? selectedLaborRate
+        : isLabor
+          ? unitCostCents
+          : 0;
+    const laborCostCents =
+      itemLaborHours * laborRateCents * Math.max(item.k_mo ?? 1, 0);
+
+    directCostCents += Math.round(supplyCostCents + laborCostCents);
+    laborHours += itemLaborHours;
+  });
+
+  return {
+    directCostCents,
+    laborHours: laborHours > 0 ? laborHours : null,
+  };
+}
 export async function createEstimateAssembly(input: CreateEstimateAssemblyInput) {
   const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(tenantRole);
 
+  const laborRoleIds = Array.from(
+    new Set(
+      input.items
+        .map((item) => item.labor_role_id)
+        .filter((roleId): roleId is string => Boolean(roleId))
+    )
+  );
+  const laborRatesById = new Map<string, number>();
+  if (laborRoleIds.length > 0) {
+    const { data: laborRoles, error: laborRolesError } = await supabase
+      .from("labor_roles")
+      .select("id, hourly_rate_cents")
+      .eq("tenant_id", tenantId)
+      .in("id", laborRoleIds);
+
+    if (laborRolesError) {
+      throw mapSupabaseError(
+        laborRolesError,
+        "Impossible de charger les taux de main-d’œuvre."
+      );
+    }
+    (laborRoles ?? []).forEach((role) => {
+      laborRatesById.set(role.id, role.hourly_rate_cents);
+    });
+  }
+
+  const metrics = computeAssemblyMetrics(input.items, laborRatesById);
   const { data: assemblyData, error: assemblyError } = await supabase
     .from("estimate_assemblies")
     .insert({
@@ -5279,6 +5365,12 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
       created_by: userId,
       name: input.name.trim(),
       description: toNullableText(input.description),
+      reference_code: toNullableText(input.reference_code),
+      unit: toNullableText(input.unit),
+      pricing_source: "manual",
+      ds_cents: metrics.directCostCents,
+      indicative_target_price_cents: 0,
+      avg_time_hours: metrics.laborHours,
     } as EstimateAssemblyInsert)
     .select("*")
     .single();
@@ -5301,7 +5393,18 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     k_mo: item.k_mo ?? 1,
     labor_role_id: item.labor_role_id ?? null,
     default_quantity: item.default_quantity ?? null,
+    h_mo:
+      item.h_mo ??
+      ((item.cost_type ?? "material") === "labor"
+        ? Math.max(item.default_quantity ?? 0, 0)
+        : 0),
     position: item.position,
+    cost_type: item.cost_type ?? "material",
+    unit_cost_ht_cents: item.unit_cost_ht_cents ?? 0,
+    loss_coeff_bp: item.loss_coeff_bp ?? 0,
+    yield_value: item.yield_value ?? null,
+    yield_unit: toNullableText(item.yield_unit),
+    source_metadata: (item.source_metadata ?? {}) as Json,
   }));
 
   const { data: insertedItems, error: itemsError } = await supabase
@@ -5352,7 +5455,12 @@ export async function updateEstimateAssembly(
   if ("description" in input) {
     assemblyPayload.description = toNullableText(input.description);
   }
-
+  if ("reference_code" in input) {
+    assemblyPayload.reference_code = toNullableText(input.reference_code);
+  }
+  if ("unit" in input) {
+    assemblyPayload.unit = toNullableText(input.unit);
+  }
   let updatedAssembly: EstimateAssemblyRow;
   if (Object.keys(assemblyPayload).length > 0) {
     const { data, error } = await supabase
@@ -5387,7 +5495,18 @@ export async function updateEstimateAssembly(
       k_mo: item.k_mo ?? 1,
       labor_role_id: item.labor_role_id ?? null,
       default_quantity: item.default_quantity ?? null,
+      h_mo:
+        item.h_mo ??
+        ((item.cost_type ?? "material") === "labor"
+          ? Math.max(item.default_quantity ?? 0, 0)
+          : 0),
       position: item.position,
+      cost_type: item.cost_type ?? "material",
+      unit_cost_ht_cents: item.unit_cost_ht_cents ?? 0,
+      loss_coeff_bp: item.loss_coeff_bp ?? 0,
+      yield_value: item.yield_value ?? null,
+      yield_unit: toNullableText(item.yield_unit),
+      source_metadata: (item.source_metadata ?? {}) as Json,
     }));
 
     const { error: replaceItemsError } = await supabase.rpc(

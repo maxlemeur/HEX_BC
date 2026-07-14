@@ -35,15 +35,9 @@ import {
   type SpreadsheetEditorProps,
   type SpreadsheetNavigationResult,
 } from "@/hooks/useSpreadsheetNavigation";
-import {
-  CatalogueSuggestionsPopover,
-} from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
-import {
-  LaborSplitCells,
-} from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
-import {
-  StandardMoCells,
-} from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
+import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
+import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
+import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import {
   type CataloguePriceSuggestion,
   type ColumnVisibilitySet,
@@ -149,7 +143,7 @@ type LineRowProps = {
   activeCatalogueSuggestionIndex: number;
   onApplyCatalogueSuggestion: (
     suggestion: CataloguePriceSuggestion,
-    alternative?: SupplierAlternative
+    alternative?: SupplierAlternative,
   ) => void;
   handleLineTitleFocus: (event: FocusEvent<HTMLInputElement>) => void;
   handleLineTitleBlur: (event: FocusEvent<HTMLInputElement>) => void;
@@ -161,7 +155,7 @@ type LineRowProps = {
   onPatchItem: (
     itemId: string,
     patch: ItemPatch,
-    options?: { persist?: boolean }
+    options?: { persist?: boolean },
   ) => void;
   onUnitChange: (itemId: string, value: string) => void;
   onUnitCommit: (itemId: string) => void;
@@ -171,13 +165,13 @@ type LineRowProps = {
   onOpenSupplierComparisonPanel: (itemId: string) => void;
   onOpenSupplierComparisonContextMenu: (
     itemId: string,
-    position: { x: number; y: number }
+    position: { x: number; y: number },
   ) => void;
   onConvertLineToSection: (lineId: string) => void;
   onToggleOutlierDismiss: (
     itemId: string,
     flagKey: EstimateOutlierFlagKey,
-    dismissed: boolean
+    dismissed: boolean,
   ) => void;
   onLineSelectionInteraction: (interaction: {
     id: string;
@@ -306,17 +300,24 @@ export function LineRow({
   const priceOutlierActive =
     detectedOutlierFlags.includes("price_outlier") &&
     !dismissedOutlierSet.has("price_outlier");
-  const dismissedOutlierBadges = detectedOutlierFlags.filter((flag, index, flags) => {
-    return dismissedOutlierSet.has(flag) && flags.indexOf(flag) === index;
-  });
-  const actionableOutlierFlags = detectedOutlierFlags.filter((flag, index, flags) => {
-    return ESTIMATE_OUTLIER_FLAG_KEYS.includes(flag) && flags.indexOf(flag) === index;
-  });
+  const dismissedOutlierBadges = detectedOutlierFlags.filter(
+    (flag, index, flags) => {
+      return dismissedOutlierSet.has(flag) && flags.indexOf(flag) === index;
+    },
+  );
+  const actionableOutlierFlags = detectedOutlierFlags.filter(
+    (flag, index, flags) => {
+      return (
+        ESTIMATE_OUTLIER_FLAG_KEYS.includes(flag) &&
+        flags.indexOf(flag) === index
+      );
+    },
+  );
   const isLaborRoleVisible =
     isLaborSplitEnabled || !visibleColumns || visibleColumns.has("labor_role");
 
   const handleLineSelectionCheckboxClick = (
-    event: ReactMouseEvent<HTMLInputElement>
+    event: ReactMouseEvent<HTMLInputElement>,
   ) => {
     if (isReadOnly) {
       return;
@@ -331,7 +332,9 @@ export function LineRow({
     });
   };
 
-  const handleRowModifierSelection = (event: ReactMouseEvent<HTMLDivElement>) => {
+  const handleRowModifierSelection = (
+    event: ReactMouseEvent<HTMLDivElement>,
+  ) => {
     if (isReadOnly) {
       return;
     }
@@ -342,7 +345,7 @@ export function LineRow({
     const target = event.target as HTMLElement;
     if (
       target.closest(
-        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']",
       )
     ) {
       return;
@@ -361,7 +364,7 @@ export function LineRow({
     const target = event.target as HTMLElement;
     if (
       target.closest(
-        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']",
       )
     ) {
       return;
@@ -399,7 +402,7 @@ export function LineRow({
             !item.title.trim() && !showCatalogueSuggestions
               ? " estimate-cell--required-empty"
               : ""
-          }`
+          }`,
         )}
         style={indentStyle}
       >
@@ -455,7 +458,7 @@ export function LineRow({
                   onPatchItem(
                     item.id,
                     { title: event.target.value },
-                    { persist: false }
+                    { persist: false },
                   )
                 }
                 onBlur={handleLineTitleBlur}
@@ -534,7 +537,7 @@ export function LineRow({
 
                       const cellId = `${item.id}::${targetColumn}`;
                       const el = document.querySelector<HTMLElement>(
-                        `[data-cell-id="${cellId}"]`
+                        `[data-cell-id="${cellId}"]`,
                       );
                       el?.focus();
                     };
@@ -632,7 +635,7 @@ export function LineRow({
             quantityOutlierActive
               ? " bg-orange-50 ring-1 ring-inset ring-orange-300"
               : ""
-          }${!item.quantity ? " estimate-cell--required-empty" : ""}`
+          }${!item.quantity ? " estimate-cell--required-empty" : ""}`,
         )}
         inputClassName="estimate-input"
         type="number"
@@ -650,14 +653,14 @@ export function LineRow({
           onPatchItem(
             item.id,
             { quantity: parseNumberInput(value) },
-            { persist: false }
+            { persist: false },
           )
         }
         onCommit={(value) =>
           onPatchItem(
             item.id,
             { quantity: parseNumberInput(value) },
-            { persist: true }
+            { persist: true },
           )
         }
       />
@@ -668,7 +671,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           unitCell,
-          `estimate-cell${!unitValue.trim() ? " estimate-cell--required-empty" : ""}`
+          `estimate-cell${!unitValue.trim() ? " estimate-cell--required-empty" : ""}`,
         )}
       >
         <input
@@ -700,7 +703,7 @@ export function LineRow({
             priceOutlierActive
               ? " bg-orange-50 ring-1 ring-inset ring-orange-300"
               : ""
-          }${!item.unit_price_ht_cents ? " estimate-cell--required-empty" : ""}`
+          }${!item.unit_price_ht_cents ? " estimate-cell--required-empty" : ""}`,
         )}
         inputClassName="estimate-input"
         type="number"
@@ -721,7 +724,7 @@ export function LineRow({
               unit_price_ht_cents:
                 parseCurrencyToCents(value, estimateCurrency) ?? 0,
             },
-            { persist: false }
+            { persist: false },
           )
         }
         onCommit={(value) =>
@@ -731,11 +734,13 @@ export function LineRow({
               unit_price_ht_cents:
                 parseCurrencyToCents(value, estimateCurrency) ?? 0,
             },
-            { persist: true }
+            { persist: true },
           )
         }
       />
-      {(!visibleColumns || visibleColumns.has("supply_type") || isLaborSplitEnabled) ? (
+      {!visibleColumns ||
+      visibleColumns.has("supply_type") ||
+      isLaborSplitEnabled ? (
         <div
           {...supplyTypeCellProps}
           role="gridcell"
@@ -743,7 +748,7 @@ export function LineRow({
           className={toCellClassName(
             navigation,
             supplyTypeCell,
-            "estimate-cell estimate-col--fo"
+            "estimate-cell estimate-col--fo",
           )}
         >
           <input
@@ -754,7 +759,9 @@ export function LineRow({
             value={supplyTypeValue}
             onFocus={supplyTypeEditorProps.onFocus}
             onKeyDown={supplyTypeEditorProps.onKeyDown}
-            onChange={(event) => onSupplyTypeChange(item.id, event.target.value)}
+            onChange={(event) =>
+              onSupplyTypeChange(item.id, event.target.value)
+            }
             onBlur={(event) => {
               supplyTypeEditorProps.onBlur(event);
               onSupplyTypeCommit(item.id);
@@ -764,7 +771,7 @@ export function LineRow({
           />
         </div>
       ) : null}
-      {(!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled) ? (
+      {!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled ? (
         <div
           {...kFoCellProps}
           role="gridcell"
@@ -772,7 +779,7 @@ export function LineRow({
           className={toCellClassName(
             navigation,
             kFoCell,
-            "estimate-cell estimate-col--fo"
+            "estimate-cell estimate-col--fo",
           )}
         >
           <input
@@ -789,7 +796,7 @@ export function LineRow({
               onPatchItem(
                 item.id,
                 { k_fo: parseNumberInput(event.target.value) },
-                { persist: false }
+                { persist: false },
               )
             }
             onBlur={(event) => {
@@ -797,7 +804,7 @@ export function LineRow({
               onPatchItem(
                 item.id,
                 { k_fo: parseNumberInput(event.target.value) },
-                { persist: true }
+                { persist: true },
               );
             }}
             placeholder="1.00"
@@ -870,7 +877,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           puCell,
-          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator"
+          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator",
         )}
       >
         <input
@@ -893,7 +900,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           totalCell,
-          "estimate-cell estimate-cell--total estimate-cell--readonly"
+          "estimate-cell estimate-cell--total estimate-cell--readonly",
         )}
       >
         <span>{formatCurrency(lineTotal, estimateCurrency)}</span>

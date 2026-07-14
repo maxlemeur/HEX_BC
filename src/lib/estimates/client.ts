@@ -289,11 +289,20 @@ export type EstimateTemplateDetail = EstimateTemplateSummary & {
 };
 
 export type EstimateAssemblyItem = EstimateAssemblyItemRow;
+export type EstimateAssemblyLaborRole = LaborRole;
 
 export type EstimateAssemblySummary = {
   id: string;
   name: string;
   description: string | null;
+  referenceCode?: string | null;
+  unit?: string | null;
+  pricingSource?: string | null;
+  directCostCents?: number;
+  targetPriceCents?: number;
+  averageOutputRate?: number | null;
+  averageTimeHours?: number | null;
+  sourceMetadata?: unknown;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -307,6 +316,8 @@ export type EstimateAssemblyDetail = EstimateAssemblySummary & {
 export type CreateEstimateAssemblyPayload = {
   name: string;
   description?: string | null;
+  referenceCode?: string | null;
+  unit?: string | null;
   items: Array<{
     title: string;
     unit?: string | null;
@@ -314,13 +325,22 @@ export type CreateEstimateAssemblyPayload = {
     kMo?: number;
     laborRoleId?: string | null;
     defaultQuantity?: number | null;
+    laborHours?: number;
     position: number;
+    costType?: EstimateAssemblyItem["cost_type"];
+    unitCostHtCents?: number;
+    lossCoeffBp?: number;
+    yieldValue?: number | null;
+    yieldUnit?: string | null;
+    sourceMetadata?: unknown;
   }>;
 };
 
 export type UpdateEstimateAssemblyPayload = {
   name?: string;
   description?: string | null;
+  referenceCode?: string | null;
+  unit?: string | null;
   items?: Array<{
     title: string;
     unit?: string | null;
@@ -328,7 +348,14 @@ export type UpdateEstimateAssemblyPayload = {
     kMo?: number;
     laborRoleId?: string | null;
     defaultQuantity?: number | null;
+    laborHours?: number;
     position: number;
+    costType?: EstimateAssemblyItem["cost_type"];
+    unitCostHtCents?: number;
+    lossCoeffBp?: number;
+    yieldValue?: number | null;
+    yieldUnit?: string | null;
+    sourceMetadata?: unknown;
   }>;
 };
 
@@ -3214,6 +3241,14 @@ function parseEstimateAssemblySummaryEntity(
     createdAt,
     updatedAt,
     itemCount: toNumber(value.item_count) ?? toNumber(value.itemCount) ?? 0,
+    referenceCode: toStringValue(value.reference_code),
+    unit: toStringValue(value.unit),
+    pricingSource: toStringValue(value.pricing_source),
+    directCostCents: toNumber(value.ds_cents) ?? 0,
+    targetPriceCents: toNumber(value.indicative_target_price_cents) ?? 0,
+    averageOutputRate: toNumber(value.avg_output_rate),
+    averageTimeHours: toNumber(value.avg_time_hours),
+    sourceMetadata: value.source_metadata ?? null,
   };
 }
 
@@ -5299,7 +5334,14 @@ function toAssemblyItemRequestPayload(
     k_mo: item.kMo ?? 1,
     labor_role_id: item.laborRoleId ?? null,
     default_quantity: item.defaultQuantity ?? null,
+    h_mo: item.laborHours ?? 0,
     position: item.position,
+    cost_type: item.costType ?? "material",
+    unit_cost_ht_cents: item.unitCostHtCents ?? 0,
+    loss_coeff_bp: item.lossCoeffBp ?? 0,
+    yield_value: item.yieldValue ?? null,
+    yield_unit: item.yieldUnit ?? null,
+    source_metadata: item.sourceMetadata ?? {},
   };
 }
 
@@ -5335,6 +5377,24 @@ export async function fetchEstimateAssemblies(options?: {
   return parseEstimateAssemblySummaryList(payload);
 }
 
+export async function fetchEstimateAssemblyLaborRoles(): Promise<
+  EstimateAssemblyLaborRole[]
+> {
+  const payload = await requestJson<unknown>(
+    "/api/estimates/assemblies?limit=1",
+    {
+      method: "GET",
+    },
+    "Impossible de charger les rôles de main-d’œuvre."
+  );
+  const root = getRootPayload(payload);
+  if (!isRecord(root) || !Array.isArray(root.labor_roles)) {
+    return [];
+  }
+  return root.labor_roles.filter((entry) => isRecord(entry)) as
+    EstimateAssemblyLaborRole[];
+}
+
 export async function fetchEstimateAssembly(
   assemblyId: string
 ): Promise<EstimateAssemblyDetail> {
@@ -5362,6 +5422,8 @@ export async function createEstimateAssembly(
       body: JSON.stringify({
         name: input.name,
         description: input.description ?? null,
+        reference_code: input.referenceCode ?? null,
+        unit: input.unit ?? null,
         items: input.items.map((item) => toAssemblyItemRequestPayload(item)),
       }),
     },
@@ -5382,6 +5444,12 @@ export async function updateEstimateAssembly(
   }
   if ("description" in updates) {
     body.description = updates.description ?? null;
+  }
+  if ("referenceCode" in updates) {
+    body.reference_code = updates.referenceCode ?? null;
+  }
+  if ("unit" in updates) {
+    body.unit = updates.unit ?? null;
   }
   if ("items" in updates && updates.items) {
     body.items = updates.items.map((item) => toAssemblyItemRequestPayload(item));
@@ -5421,6 +5489,7 @@ export async function duplicateEstimateAssembly(
   return createEstimateAssembly({
     name: options?.name?.trim() || `${source.name} (copie)`,
     description: source.description,
+    unit: source.unit,
     items: source.items.map((item) => ({
       title: item.title,
       unit: item.unit,
@@ -5428,6 +5497,13 @@ export async function duplicateEstimateAssembly(
       kMo: item.k_mo,
       laborRoleId: item.labor_role_id,
       defaultQuantity: item.default_quantity,
+      laborHours: item.h_mo,
+      costType: item.cost_type,
+      unitCostHtCents: item.unit_cost_ht_cents,
+      lossCoeffBp: item.loss_coeff_bp,
+      yieldValue: item.yield_value,
+      yieldUnit: item.yield_unit,
+      sourceMetadata: item.source_metadata,
       position: item.position,
     })),
   });

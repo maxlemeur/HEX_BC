@@ -157,6 +157,18 @@ describe("EstimateEditorBody", () => {
     expect(onAddRootSection).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps root-lot creation at the bottom of a populated table", () => {
+    const { props, onAddRootSection } = buildProps();
+    render(<EstimateEditorBody {...props} />);
+
+    const addLotButton = screen.getByTestId("estimate-editor-add-lot-button");
+    expect(
+      screen.getByTestId("estimate-editor-add-lot-row")
+    ).toContainElement(addLotButton);
+    fireEvent.click(addLotButton);
+    expect(onAddRootSection).toHaveBeenCalledTimes(1);
+  });
+
   it("renders quality-filter empty state and resets filter", () => {
     const { props, onResetQualityFilter } = buildProps({
       items: [createItem({ id: "line-1", item_type: "line", title: "Tube" })],

@@ -29,6 +29,13 @@ function createAssemblyItem(overrides: Partial<EstimateAssemblyItem> = {}): Esti
     default_quantity: overrides.default_quantity ?? 1,
     position: overrides.position ?? 1,
     ...overrides,
+    h_mo: overrides.h_mo ?? 0,
+    cost_type: overrides.cost_type ?? "material",
+    unit_cost_ht_cents: overrides.unit_cost_ht_cents ?? 0,
+    loss_coeff_bp: overrides.loss_coeff_bp ?? 0,
+    yield_value: overrides.yield_value ?? null,
+    yield_unit: overrides.yield_unit ?? null,
+    source_metadata: overrides.source_metadata ?? {},
   };
 }
 
@@ -117,7 +124,7 @@ describe("AssemblyEditorModal", () => {
       (node) =>
         node.type === "input" &&
         typeof node.props.placeholder === "string" &&
-        node.props.placeholder === "Designation"
+        node.props.placeholder === "Désignation"
     )[0];
 
     expect(nameInput.props.value).toBe("Assemblage A");
@@ -148,7 +155,7 @@ describe("AssemblyEditorModal", () => {
       (node) =>
         node.type === "input" &&
         typeof node.props.placeholder === "string" &&
-        node.props.placeholder === "Designation"
+        node.props.placeholder === "Désignation"
     )[0];
 
     expect(refreshedNameInput.props.value).toBe("Assemblage B");

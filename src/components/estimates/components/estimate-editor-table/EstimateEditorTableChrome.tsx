@@ -7,12 +7,12 @@ import {
   type RefObject,
 } from "react";
 
-import { ColumnHeaderHelp, COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/ColumnHeaderHelp";
-import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
 import {
-  formatCurrency,
-  type SupportedEstimateCurrency,
-} from "@/lib/money";
+  ColumnHeaderHelp,
+  COLUMN_HEADER_TOOLTIPS,
+} from "@/components/estimates/components/ColumnHeaderHelp";
+import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
+import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { type ColumnKey } from "@/hooks/useColumnVisibility";
 import type { Database } from "@/types/database";
 
@@ -110,25 +110,23 @@ export function EstimateEditorTableChrome({
     <>
       <div
         ref={tableCardRef}
+        className={
+          headerRight
+            ? "grid gap-2 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-x-3"
+            : undefined
+        }
         data-testid="estimate-editor-table-shell"
         data-density="compact"
       >
         <div
-          className="dashboard-card relative z-10 p-3 sm:p-4 lg:p-6"
+          className="dashboard-card relative z-10 p-3 sm:p-4"
           data-testid="estimate-editor-table-card"
         >
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
-            <div className="order-2 w-full min-w-0 flex-1 md:order-1">
-              {toolbarNode}
-              {activeLineBreadcrumb ? (
-                <div className="mt-2 text-xs text-[var(--slate-500)]">
-                  Chemin actif: {activeLineBreadcrumb}
-                </div>
-              ) : null}
-            </div>
-            {headerRight ? (
-              <div className="order-1 w-full md:order-2 md:w-auto md:shrink-0">
-                {headerRight}
+          <div className="w-full min-w-0">
+            {toolbarNode}
+            {activeLineBreadcrumb ? (
+              <div className="mt-2 text-xs text-[var(--slate-500)]">
+                Chemin actif: {activeLineBreadcrumb}
               </div>
             ) : null}
           </div>
@@ -156,9 +154,19 @@ export function EstimateEditorTableChrome({
           ) : null}
         </div>
 
+        {headerRight ? (
+          <div className="w-full xl:col-start-2 xl:row-span-2 xl:row-start-1">
+            {headerRight}
+          </div>
+        ) : null}
+
         <div
           ref={scrollContainerRef}
-          className="estimate-table-scroll mt-2 overflow-x-auto"
+          className={
+            headerRight
+              ? "estimate-table-scroll overflow-x-auto xl:col-start-1 xl:row-start-2"
+              : "estimate-table-scroll mt-2 overflow-x-auto"
+          }
           data-testid="estimate-editor-table-scroll"
         >
           <div
@@ -393,7 +401,9 @@ export function EstimateEditorTableChrome({
                 className="estimate-table__footer"
                 data-testid="estimate-editor-table-footer"
               >
-                <div className="font-semibold text-[var(--slate-800)]">Total</div>
+                <div className="font-semibold text-[var(--slate-800)]">
+                  Total
+                </div>
                 <div></div>
                 <div></div>
                 <div
