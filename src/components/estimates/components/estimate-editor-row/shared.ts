@@ -76,6 +76,12 @@ export type CataloguePriceSuggestion = {
   product_id: string;
   product_designation: string;
   product_reference: string | null;
+  product_category?: string | null;
+  product_type?: string | null;
+  product_material?: string | null;
+  product_grade?: string | null;
+  product_dimensions?: string | null;
+  product_standard?: string | null;
   supplier_id: string;
   supplier_name: string;
   supplier_reference: string | null;
@@ -91,6 +97,7 @@ export type CataloguePriceSuggestion = {
   material_index_code: string | null;
   material_index_value: number | null;
   catalogue_url: string | null;
+  supplier_offer_count?: number;
   alternatives: SupplierAlternative[];
 };
 

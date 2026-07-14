@@ -745,6 +745,12 @@ type SuggestedCataloguePrice = {
   product_id: string;
   product_designation: string;
   product_reference: string | null;
+  product_category: string | null;
+  product_type: string | null;
+  product_material: string | null;
+  product_grade: string | null;
+  product_dimensions: string | null;
+  product_standard: string | null;
   supplier_id: string;
   supplier_name: string;
   supplier_reference: string | null;
@@ -760,6 +766,7 @@ type SuggestedCataloguePrice = {
   material_index_code: string | null;
   material_index_value: number | null;
   catalogue_url: string | null;
+  supplier_offer_count: number;
   alternatives: SuggestedSupplierAlternative[];
 };
 
@@ -777,7 +784,22 @@ type SupplierPricebookRow = {
   is_active: boolean;
 };
 
-type HydratedSuggestedCatalogueCandidate = Omit<SuggestedCataloguePrice, "alternatives">;
+type HydratedSuggestedCatalogueCandidate = Omit<
+  SuggestedCataloguePrice,
+  "alternatives" | "supplier_offer_count"
+>;
+
+type CatalogueProductSuggestionRecord = {
+  id: string;
+  designation: string;
+  reference: string | null;
+  category: string | null;
+  product_type: string | null;
+  material: string | null;
+  grade: string | null;
+  dimensions: string | null;
+  standard: string | null;
+};
 
 type EstimateSupplierComparisonSourceAlternative = {
   supplier_price_id: string;
@@ -896,14 +918,14 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     return [] as HydratedSuggestedCatalogueCandidate[];
   }
 
-  const productById = new Map<string, { id: string; designation: string; reference: string | null }>();
+  const productById = new Map<string, CatalogueProductSuggestionRecord>();
   const supplierById = new Map<string, { id: string; name: string }>();
 
   const productIds = Array.from(new Set(input.supplierPrices.map((row) => row.product_id)));
   if (productIds.length > 0) {
     const { data: productsData, error: productsError } = await input.supabase
       .from("products")
-      .select("id, designation, reference")
+      .select("id, designation, reference, category, product_type, material, grade, dimensions, standard")
       .eq("tenant_id", input.tenantId)
       .in("id", productIds);
 
@@ -914,11 +936,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
       );
     }
 
-    ((productsData ?? []) as Array<{
-      id: string;
-      designation: string;
-      reference: string | null;
-    }>).forEach((product) => {
+    ((productsData ?? []) as unknown as CatalogueProductSuggestionRecord[]).forEach((product) => {
       productById.set(product.id, product);
     });
   }
@@ -1032,6 +1050,12 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         supplierName: supplier?.name ?? "",
         supplierSku: row.supplier_sku ?? null,
         productReference: product?.reference ?? null,
+        category: product?.category ?? null,
+        productType: product?.product_type ?? null,
+        material: product?.material ?? null,
+        grade: product?.grade ?? null,
+        dimensions: product?.dimensions ?? null,
+        standard: product?.standard ?? null,
       });
 
       return {
@@ -1039,6 +1063,12 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         product_id: row.product_id,
         product_designation: product?.designation ?? "Produit",
         product_reference: product?.reference ?? null,
+        product_category: product?.category ?? null,
+        product_type: product?.product_type ?? null,
+        product_material: product?.material ?? null,
+        product_grade: product?.grade ?? null,
+        product_dimensions: product?.dimensions ?? null,
+        product_standard: product?.standard ?? null,
         supplier_id: row.supplier_id,
         supplier_name: supplier?.name ?? "Fournisseur",
         supplier_reference: row.supplier_sku ?? null,
@@ -1199,13 +1229,16 @@ async function findSelectedSupplierComparisonCandidate(input: {
     return null;
   }
 
+  const productCandidates = candidates.filter((candidate) => {
+    const row = selectedAndPeerRowsById.get(candidate.supplier_price_id);
+    return candidate.product_id === selectedCandidate.product_id && row?.is_active === true;
+  });
+
   return {
     ...selectedCandidate,
+    supplier_offer_count: productCandidates.length,
     alternatives: buildSuggestedCatalogueAlternatives({
-      productCandidates: candidates.filter((candidate) => {
-        const row = selectedAndPeerRowsById.get(candidate.supplier_price_id);
-        return candidate.product_id === selectedCandidate.product_id && row?.is_active === true;
-      }),
+      productCandidates,
       preferredSupplierId,
     }),
   } satisfies SuggestedCataloguePrice;
@@ -3151,12 +3184,28 @@ function computeSearchRelevance(input: {
   supplierName: string;
   supplierSku: string | null;
   productReference: string | null;
+  category?: string | null;
+  productType?: string | null;
+  material?: string | null;
+  grade?: string | null;
+  dimensions?: string | null;
+  standard?: string | null;
 }) {
   const query = input.query.toLowerCase();
   const designation = input.designation.toLowerCase();
   const supplierName = input.supplierName.toLowerCase();
   const supplierSku = (input.supplierSku ?? "").toLowerCase();
   const productReference = (input.productReference ?? "").toLowerCase();
+  const technicalDetails = [
+    input.category,
+    input.productType,
+    input.material,
+    input.grade,
+    input.dimensions,
+    input.standard,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
 
   let score = 0;
 
@@ -3185,6 +3234,13 @@ function computeSearchRelevance(input: {
   } else if (supplierSku.includes(query)) {
     score += 12;
   }
+  technicalDetails.forEach((detail) => {
+    if (detail === query) {
+      score += 28;
+    } else if (detail.includes(query)) {
+      score += 14;
+    }
+  });
 
   return score;
 }
@@ -6770,7 +6826,7 @@ export async function suggestEstimateCataloguePrices(
       .from("products")
       .select("id, designation, reference")
       .eq("tenant_id", tenantId)
-      .or(`designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%`)
+      .or(`designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`)
       .limit(40),
     supabase
       .from("suppliers")
@@ -6874,13 +6930,19 @@ export async function suggestEstimateCataloguePrices(
     candidatesByProductId.set(candidate.product_id, productCandidates);
   });
 
-  const suggestions = candidates.slice(0, 10).map((candidate) => ({
-    ...candidate,
-    alternatives: buildSuggestedCatalogueAlternatives({
-      productCandidates: candidatesByProductId.get(candidate.product_id) ?? [candidate],
-      preferredSupplierId,
-    }),
-  })) satisfies SuggestedCataloguePrice[];
+  const suggestions = Array.from(candidatesByProductId.values())
+    .slice(0, 10)
+    .map((productCandidates) => {
+      const candidate = productCandidates[0]!;
+      return {
+        ...candidate,
+        supplier_offer_count: productCandidates.length,
+        alternatives: buildSuggestedCatalogueAlternatives({
+          productCandidates,
+          preferredSupplierId,
+        }),
+      };
+    }) satisfies SuggestedCataloguePrice[];
 
   return {
     query: normalizedQuery,

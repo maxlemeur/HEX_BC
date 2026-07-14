@@ -485,6 +485,22 @@ export function LineRow({
                   </button>
                 </div>
               ) : null}
+              {showCatalogueSuggestions ? (
+                <CatalogueSuggestionsPopover
+                  itemId={item.id}
+                  query={item.title}
+                  estimateCurrency={estimateCurrency}
+                  catalogueListboxId={catalogueListboxId}
+                  isCatalogueLoading={isCatalogueLoading}
+                  catalogueError={catalogueError}
+                  catalogueSuggestions={catalogueSuggestions}
+                  activeCatalogueSuggestionIndex={
+                    activeCatalogueSuggestionIndex
+                  }
+                  isReadOnly={isReadOnly}
+                  onApplySuggestion={onApplyCatalogueSuggestion}
+                />
+              ) : null}
             </div>
             <div className="estimate-line-designation__support">
               <div className="estimate-designation-meta">{aidInput}</div>
@@ -571,19 +587,6 @@ export function LineRow({
                 </div>
               ) : null}
             </div>
-            {showCatalogueSuggestions ? (
-              <CatalogueSuggestionsPopover
-                itemId={item.id}
-                estimateCurrency={estimateCurrency}
-                catalogueListboxId={catalogueListboxId}
-                isCatalogueLoading={isCatalogueLoading}
-                catalogueError={catalogueError}
-                catalogueSuggestions={catalogueSuggestions}
-                activeCatalogueSuggestionIndex={activeCatalogueSuggestionIndex}
-                isReadOnly={isReadOnly}
-                onApplySuggestion={onApplyCatalogueSuggestion}
-              />
-            ) : null}
             {hasSupplierComparisonMismatch ? (
               <div className="flex flex-wrap items-center gap-1">
                 <span className="estimate-supplier-comparison-row-badge">

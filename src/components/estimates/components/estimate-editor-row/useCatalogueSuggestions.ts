@@ -171,6 +171,7 @@ export function useCatalogueSuggestions({
         suggestion.adjusted_unit_price_cents;
 
       const patch: ItemPatch = {
+        title: selectedDescription,
         description: selectedDescription.length > 0 ? selectedDescription : null,
         unit_price_ht_cents: selectedAdjustedUnitPrice,
         selected_supplier_price_id: selectedSupplierPriceId,
