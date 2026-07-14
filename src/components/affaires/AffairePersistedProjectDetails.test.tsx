@@ -92,5 +92,8 @@ describe("AffairePersistedProjectDetails", () => {
       "w-full",
       "lg:w-auto",
     );
+    expect(
+      screen.getByRole("heading", { name: "Affaire Alpha" }).closest("section"),
+    ).not.toHaveClass("overflow-hidden");
   });
 });

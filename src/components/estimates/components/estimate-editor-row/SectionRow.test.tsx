@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { SectionRow } from "@/components/estimates/components/estimate-editor-row/SectionRow";
+import {
+  SECTION_FO_TOTAL_HELP,
+  SectionRow,
+} from "@/components/estimates/components/estimate-editor-row/SectionRow";
 import type { EstimateItem } from "@/components/estimates/components/estimate-editor-row/shared";
 import type {
   SpreadsheetCellProps,
@@ -167,6 +170,11 @@ describe("SectionRow", () => {
     expect(screen.getByText(/FO/)).toBeInTheDocument();
     expect(screen.getByText(/MO/)).toBeInTheDocument();
     expect(screen.getByText(/HT/)).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Aide : total fournitures" })
+    );
+    expect(screen.getByText(SECTION_FO_TOTAL_HELP)).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("estimate-section-add-line-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-section-button"));

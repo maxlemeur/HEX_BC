@@ -206,6 +206,14 @@ describe("EstimateEditorRow line cells", () => {
     expect(container.querySelector('[data-cell-id="line-1::h_mo"]')).not.toBeNull();
     expect(container.querySelector('[data-cell-id="line-1::h_mo_atelier"]')).toBeNull();
     expect(container.querySelectorAll("select.estimate-select")).toHaveLength(1);
+
+    const kFoInput = within(container).getByRole("spinbutton", {
+      name: "Coefficient fourniture K FO pour Ligne test",
+    });
+    expect(kFoInput).toHaveAttribute(
+      "title",
+      "K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
+    );
   });
 
   it("renders split labor cells when labor split is enabled", () => {

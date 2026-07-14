@@ -1,4 +1,5 @@
 import { EstimateEditorPage } from "@/components/estimates/editor/EstimateEditorPage";
+import type { SettingsSection } from "@/components/estimates/EstimateSettingsSummaryBar";
 
 type EditEstimateRoutePageProps = {
   params: Promise<{ versionId: string }>;
@@ -14,6 +15,7 @@ export default async function EditEstimateRoutePage({
   const focusItemIdValue = resolvedSearchParams.focusItemId;
   const openVersionZeroValue = resolvedSearchParams.openVersionZero;
   const openStructureDraftValue = resolvedSearchParams.openStructureDraft;
+  const openSettingsValue = resolvedSearchParams.openSettings;
   const focusItemId =
     typeof focusItemIdValue === "string"
       ? focusItemIdValue
@@ -34,6 +36,20 @@ export default async function EditEstimateRoutePage({
         ? (openStructureDraftValue[0] ?? "") === "1" ||
           (openStructureDraftValue[0] ?? "") === "true"
         : false;
+  const requestedSettingsSection =
+    typeof openSettingsValue === "string"
+      ? openSettingsValue
+      : Array.isArray(openSettingsValue)
+        ? (openSettingsValue[0] ?? "")
+        : "";
+  const autoOpenSettingsSection: SettingsSection | null =
+    requestedSettingsSection === "margin" ||
+    requestedSettingsSection === "discount" ||
+    requestedSettingsSection === "tax" ||
+    requestedSettingsSection === "rounding" ||
+    requestedSettingsSection === "general"
+      ? requestedSettingsSection
+      : null;
 
   return (
     <EstimateEditorPage
@@ -41,6 +57,7 @@ export default async function EditEstimateRoutePage({
       focusItemId={focusItemId}
       autoOpenVersionZero={autoOpenVersionZero}
       autoOpenStructureDraft={autoOpenStructureDraft}
+      autoOpenSettingsSection={autoOpenSettingsSection}
     />
   );
 }

@@ -7,11 +7,20 @@ import {
   getAffaireHubIntakeWorkspacePresentation,
   getAffaireHubDominantIntent,
   getAffaireHubHiddenPilotageExceptionIds,
+  getEstimateMarginSettingsHref,
   isAffaireFreshStartState,
   shouldPreferLinkedDpgfImportAction,
   shouldHideAffaireHubTakeoffLaunchAction,
   shouldShowAffaireCreatedOnboardingBanner,
 } from "./AffaireHub";
+
+describe("getEstimateMarginSettingsHref", () => {
+  it("deep-links to the margin settings for the current estimate", () => {
+    expect(getEstimateMarginSettingsHref("version-1")).toBe(
+      "/dashboard/estimates/version-1/edit?openSettings=margin",
+    );
+  });
+});
 
 describe("shouldShowAffaireCreatedOnboardingBanner", () => {
   it("shows the onboarding banner when no dossier or linked DPGF exists yet", () => {

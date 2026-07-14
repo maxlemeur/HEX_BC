@@ -5,6 +5,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { Popover } from "@/components/ui/Popover";
 
 import { type SectionTotals, UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-calculations";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
@@ -67,6 +68,9 @@ type SectionRowProps = {
   setNodeRef: (element: HTMLElement | null) => void;
   treeConnectorMeta: TreeConnectorMeta;
 };
+
+export const SECTION_FO_TOTAL_HELP =
+  "FO = Σ(Qté × PR. FO × K FO) × coefficient de marge, après remise et arrondi éventuels. K FO agit uniquement sur les fournitures et ne modifie jamais la MO.";
 
 function renderTreeConnectors(
   prefix: string,
@@ -279,7 +283,7 @@ export function SectionRow({
       <div />
       <div />
       <div
-        className="estimate-section-total-cell estimate-section-total-cell--fo"
+        className="estimate-section-total-cell estimate-section-total-cell--fo gap-1"
         title={
           supplyTypeEntries.length > 0
             ? supplyTypeEntries
@@ -294,7 +298,23 @@ export function SectionRow({
             : undefined
         }
       >
-        FO {formatCurrency(sectionTotals?.foTotalCents ?? 0, estimateCurrency)}
+        <span>
+          FO {formatCurrency(sectionTotals?.foTotalCents ?? 0, estimateCurrency)}
+        </span>
+        <Popover
+          hover
+          trigger={
+            <button
+              type="button"
+              className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[9px] leading-none opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              aria-label="Aide : total fournitures"
+            >
+              ?
+            </button>
+          }
+        >
+          {SECTION_FO_TOTAL_HELP}
+        </Popover>
       </div>
       {isLaborSplitEnabled ? (
         <>

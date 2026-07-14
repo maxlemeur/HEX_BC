@@ -11,7 +11,10 @@ import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStr
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
-import { EstimateSettingsSummaryBar } from "@/components/estimates/EstimateSettingsSummaryBar";
+import {
+  EstimateSettingsSummaryBar,
+  type SettingsSection,
+} from "@/components/estimates/EstimateSettingsSummaryBar";
 import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
@@ -23,6 +26,7 @@ type EstimateEditorPageProps = {
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
   autoOpenStructureDraft?: boolean;
+  autoOpenSettingsSection?: SettingsSection | null;
 };
 
 const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
@@ -44,12 +48,14 @@ export function EstimateEditorPage({
   focusItemId = null,
   autoOpenVersionZero = false,
   autoOpenStructureDraft = false,
+  autoOpenSettingsSection = null,
 }: EstimateEditorPageProps) {
   const model = useEstimateEditorState({
     versionId,
     focusItemId,
     autoOpenVersionZero,
     autoOpenStructureDraft,
+    autoOpenSettingsSection,
   });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsProps = readyMeta?.alertsProps ?? null;

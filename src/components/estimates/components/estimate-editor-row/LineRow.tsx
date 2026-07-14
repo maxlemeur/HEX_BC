@@ -789,6 +789,8 @@ export function LineRow({
             step="0.01"
             min={0}
             value={kFoValue}
+            aria-label={`Coefficient fourniture K FO pour ${item.title || "sans titre"}`}
+            title="K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
             onFocus={kFoEditorProps.onFocus}
             onKeyDown={kFoEditorProps.onKeyDown}
             onChange={(event) =>

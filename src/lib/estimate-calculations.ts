@@ -766,15 +766,15 @@ function computeSectionLineSplit(
     };
   }
 
-  const foShare = foCostRaw / costRawTotal;
-  const foSaleLineCents = Math.min(
-    Math.max(bankersRound(lineValues.saleLineCents * foShare), 0),
+  // Keep the MO component independent from FO inputs. Any cent-level rounding
+  // residual from the canonical line total is assigned to FO, never to MO.
+  const moSaleLineCents = Math.min(
+    Math.max(bankersRound(moCostRaw * marginMultiplier), 0),
     lineValues.saleLineCents
   );
-  const moSaleLineCents = lineValues.saleLineCents - foSaleLineCents;
-  const moAtelierShare = moCostRaw > 0 ? moAtelierCostRaw / moCostRaw : 0;
+  const foSaleLineCents = lineValues.saleLineCents - moSaleLineCents;
   const moAtelierSaleLineCents = Math.min(
-    Math.max(bankersRound(moSaleLineCents * moAtelierShare), 0),
+    Math.max(bankersRound(moAtelierCostRaw * marginMultiplier), 0),
     moSaleLineCents
   );
   const moChantierSaleLineCents = moSaleLineCents - moAtelierSaleLineCents;

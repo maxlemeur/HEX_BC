@@ -153,6 +153,10 @@ export function isAffaireFreshStartState(input: {
   );
 }
 
+export function getEstimateMarginSettingsHref(versionId: string) {
+  return `/dashboard/estimates/${versionId}/edit?openSettings=margin`;
+}
+
 function fmtDate(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "-" : DATE_FMT.format(d);
@@ -795,8 +799,10 @@ function AffaireProgressStrip({
 
 function FinancialSummaryCard({
   summary,
+  canEditMargin,
 }: {
   summary: AffaireHubSummaryResult;
+  canEditMargin: boolean;
 }) {
   const { currentVersion, acceptedVersion, lineCount } = summary;
 
@@ -862,6 +868,16 @@ function FinancialSummaryCard({
           <p className="mt-0.5 text-xs text-[var(--slate-500)]">
             Coeff. {currentVersion.marginMultiplier.toFixed(3)}
           </p>
+          {canEditMargin ? (
+            <Link
+              href={getEstimateMarginSettingsHref(currentVersion.id)}
+              className="mt-2 inline-flex min-h-9 items-center rounded-md px-2 text-xs font-semibold text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+              title="Ouvrir les paramètres de marge du devis"
+            >
+              Modifier la marge
+            </Link>
+          ) : null}
+
         </div>
 
         <div>
@@ -1965,7 +1981,14 @@ export function AffaireHub({
                   />
                 </div>
               )}
-              {!isFreshStartState ? <FinancialSummaryCard summary={summary} /> : null}
+              {!isFreshStartState ? (
+                <FinancialSummaryCard
+                  summary={summary}
+                  canEditMargin={
+                    !isReadOnlyReview && summary.currentVersion?.status === "draft"
+                  }
+                />
+              ) : null}
               {!isFreshStartState && isExpert && (
                 <MarginAnalysisWidget
                   data={marginAnalysis ?? null}

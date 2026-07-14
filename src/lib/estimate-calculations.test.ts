@@ -953,6 +953,42 @@ describe("estimate calculations", () => {
     });
   });
 
+  it("keeps the MO subtotal unchanged when K FO changes", () => {
+    const sectionId = "section-k-fo-isolation";
+    const computeWithKFo = (kFo: number) =>
+      computeSectionTotals({
+        items: [
+          createSectionRecord({ id: sectionId, parent_id: null, position: 1 }),
+          createItemRecord({
+            id: `line-k-fo-${kFo}`,
+            parent_id: sectionId,
+            position: 1,
+            quantity: 1,
+            unit_price_ht_cents: 1,
+            k_fo: kFo,
+            h_mo: 1,
+            k_mo: 1,
+            labor_role_id: "role-k-fo-isolation",
+          }),
+        ],
+        sectionId,
+        marginMultiplier: 1.1,
+        taxRateBp: 0,
+        discountCents: 0,
+        laborRateById: new Map([["role-k-fo-isolation", 3]]),
+      });
+
+    const initialTotals = computeWithKFo(1);
+    const updatedTotals = computeWithKFo(2);
+
+    expect(initialTotals.moTotalCents).toBe(3);
+    expect(updatedTotals.moTotalCents).toBe(initialTotals.moTotalCents);
+    expect(updatedTotals.moChantierTotalCents).toBe(
+      initialTotals.moChantierTotalCents
+    );
+    expect(updatedTotals.foTotalCents).not.toBe(initialTotals.foTotalCents);
+  });
+
   it("EST-031: split global actif conserve MO legacy quand la ligne n'est pas split", () => {
     const sectionId = "section-legacy-mo";
     const items: EstimateItemRecord[] = [

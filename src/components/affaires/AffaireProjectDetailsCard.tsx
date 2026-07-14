@@ -139,7 +139,7 @@ export function AffaireProjectDetailsCard({
   const projectTypeLabel = PROJECT_ICONS[iconKey]?.label ?? "Projet";
 
   return (
-    <section className="relative animate-fade-in overflow-hidden rounded-xl border border-[var(--slate-200)] border-l-4 border-l-[var(--brand-orange)] bg-white px-4 py-5 shadow-sm sm:px-5 lg:px-6 lg:py-6">
+    <section className="relative animate-fade-in rounded-xl border border-[var(--slate-200)] border-l-4 border-l-[var(--brand-orange)] bg-white px-4 py-5 shadow-sm sm:px-5 lg:px-6 lg:py-6">
       {onEdit ? (
         <button
           type="button"

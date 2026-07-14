@@ -265,11 +265,13 @@ export function useEstimateEditorState({
   focusItemId = null,
   autoOpenVersionZero = false,
   autoOpenStructureDraft = false,
+  autoOpenSettingsSection = null,
 }: {
   versionId: string;
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
   autoOpenStructureDraft?: boolean;
+  autoOpenSettingsSection?: SettingsSection | null;
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
@@ -777,6 +779,26 @@ export function useEstimateEditorState({
     refreshAudit: loadAuditLogs,
     refreshTimeline: loadTimelineEvents,
   } = activityController.actions;
+
+  const autoOpenedSettingsRef = useRef(false);
+  useEffect(() => {
+    if (
+      !autoOpenSettingsSection ||
+      autoOpenedSettingsRef.current ||
+      isLoading ||
+      !settings
+    ) {
+      return;
+    }
+
+    autoOpenedSettingsRef.current = true;
+    handleOpenSettingsDrawer(autoOpenSettingsSection);
+  }, [
+    autoOpenSettingsSection,
+    handleOpenSettingsDrawer,
+    isLoading,
+    settings,
+  ]);
   const drawerScrollTargetRef = useRef<SettingsSection | null>(null);
   useEffect(() => {
     drawerScrollTargetRef.current = drawerScrollTarget;

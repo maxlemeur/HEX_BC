@@ -2,12 +2,14 @@ import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import EditEstimateRoutePage from "@/app/dashboard/estimates/[versionId]/edit/page";
+import type { SettingsSection } from "@/components/estimates/EstimateSettingsSummaryBar";
 
 type EstimateEditorPageProps = {
   versionId: string;
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
   autoOpenStructureDraft?: boolean;
+  autoOpenSettingsSection?: SettingsSection | null;
 };
 
 describe("EditEstimateRoutePage", () => {
@@ -23,6 +25,7 @@ describe("EditEstimateRoutePage", () => {
       versionId: "version-1",
       autoOpenVersionZero: false,
       autoOpenStructureDraft: false,
+      autoOpenSettingsSection: null,
     });
   });
 
@@ -40,6 +43,32 @@ describe("EditEstimateRoutePage", () => {
       versionId: "version-2",
       autoOpenVersionZero: true,
       autoOpenStructureDraft: true,
+      autoOpenSettingsSection: null,
     });
+  });
+
+  it("opens the requested estimate settings section", async () => {
+    const pageElement = (await EditEstimateRoutePage({
+      params: Promise.resolve({ versionId: "version-3" }),
+      searchParams: Promise.resolve({
+        openSettings: "margin",
+      }),
+    })) as ReactElement<EstimateEditorPageProps>;
+
+    expect(pageElement.props).toMatchObject({
+      versionId: "version-3",
+      autoOpenSettingsSection: "margin",
+    });
+  });
+
+  it("ignores an unknown settings section", async () => {
+    const pageElement = (await EditEstimateRoutePage({
+      params: Promise.resolve({ versionId: "version-4" }),
+      searchParams: Promise.resolve({
+        openSettings: "unknown",
+      }),
+    })) as ReactElement<EstimateEditorPageProps>;
+
+    expect(pageElement.props.autoOpenSettingsSection).toBeNull();
   });
 });
