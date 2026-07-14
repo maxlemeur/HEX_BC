@@ -2130,6 +2130,7 @@ export type Database = {
           labor_role_id: string | null;
           default_quantity: number | null;
           h_mo: number;
+          supply_type_id: string | null;
           position: number;
           cost_type: "material" | "labor" | "equipment" | "subcontract";
           unit_cost_ht_cents: number;
@@ -2151,6 +2152,7 @@ export type Database = {
           labor_role_id?: string | null;
           default_quantity?: number | null;
           h_mo?: number;
+          supply_type_id?: string | null;
           position?: number;
           cost_type?: "material" | "labor" | "equipment" | "subcontract";
           unit_cost_ht_cents?: number;
@@ -2172,6 +2174,7 @@ export type Database = {
           labor_role_id?: string | null;
           default_quantity?: number | null;
           h_mo?: number;
+          supply_type_id?: string | null;
           position?: number;
           cost_type?: "material" | "labor" | "equipment" | "subcontract";
           unit_cost_ht_cents?: number;

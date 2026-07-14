@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +16,17 @@ import {
 import type { EstimateAssemblyDetail } from "@/lib/estimates/client";
 
 const LABOR_ROLE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SUPPLY_TYPE_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const SUPPLY_TYPES = [
+  {
+    id: SUPPLY_TYPE_ID,
+    tenant_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    code: "TUBE",
+    name: "Tube",
+    created_at: "2026-07-14T08:00:00.000Z",
+    updated_at: "2026-07-14T08:00:00.000Z",
+  },
+];
 
 const ASSEMBLY: EstimateAssemblyDetail = {
   id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -36,6 +54,7 @@ const ASSEMBLY: EstimateAssemblyDetail = {
       k_fo: 0,
       k_mo: 1,
       labor_role_id: LABOR_ROLE_ID,
+      supply_type_id: null,
       default_quantity: 1,
       h_mo: 2,
       position: 1,
@@ -66,6 +85,7 @@ describe("AssemblyEditorDialog", () => {
       <AssemblyEditorDialog
         isSubmitting={false}
         initialValue={ASSEMBLY}
+        supplyTypes={SUPPLY_TYPES}
         laborRoles={[
           {
             id: LABOR_ROLE_ID,
@@ -89,7 +109,7 @@ describe("AssemblyEditorDialog", () => {
     expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
     expect(screen.queryByText(/Rôle MO \(UUID\)/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Temps MO (h)")).toHaveValue(2);
-    expect(screen.getByLabelText("Prix unitaire HT (€)")).toHaveValue(45);
+    expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveValue(45);
     expect(
       screen.getByRole("option", { name: /Compagnon.*45,00.*€\/h/ })
     ).toBeInTheDocument();
@@ -146,6 +166,7 @@ describe("AssemblyEditorDialog", () => {
       <AssemblyEditorDialog
         isSubmitting={false}
         initialValue={null}
+        supplyTypes={SUPPLY_TYPES}
         laborRoles={[]}
         onClose={() => undefined}
         onSubmit={() => undefined}
@@ -181,7 +202,7 @@ describe("AssemblyEditorDialog", () => {
     });
 
     expect(screen.getByLabelText("Unité")).toHaveValue("ml");
-    expect(screen.getByLabelText("Prix unitaire HT (€)")).toHaveValue(12.34);
+    expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveValue(12.34);
   });
 
   it("separates quantity from labor time and uses coefficients instead of losses", async () => {
@@ -199,6 +220,7 @@ describe("AssemblyEditorDialog", () => {
             },
           ],
         }}
+        supplyTypes={SUPPLY_TYPES}
         laborRoles={[]}
         onClose={() => undefined}
         onSubmit={() => undefined}
@@ -207,8 +229,37 @@ describe("AssemblyEditorDialog", () => {
 
     const header = screen.getByTestId("assembly-items-header");
     expect(header).toHaveTextContent("Qté");
+    expect(header).toHaveTextContent("PR FO");
+    expect(header).toHaveTextContent("Type FO");
+    expect(header).toHaveTextContent("K FO");
     expect(header).toHaveTextContent("H MO");
+    expect(header).toHaveTextContent("Rôle MO");
+    expect(header).toHaveTextContent("K MO");
+    expect(header).toHaveTextContent("Total");
+    expect(header).not.toHaveTextContent("PU HT");
+    expect(header).not.toHaveTextContent("Coût HT");
     expect(header).not.toHaveTextContent("Pertes");
+    expect(within(header).getByText("PR FO")).toHaveClass("bg-blue-100/80");
+    expect(within(header).getByText("Type FO")).toHaveClass("bg-blue-100/80");
+    expect(within(header).getByText("K FO")).toHaveClass("bg-blue-100/80");
+    expect(within(header).getByText("H MO")).toHaveClass("bg-amber-100/80");
+    expect(within(header).getByText("Rôle MO")).toHaveClass("bg-amber-100/80");
+    expect(within(header).getByText("K MO")).toHaveClass("bg-amber-100/80");
+    expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveClass(
+      "!bg-blue-50/80"
+    );
+    expect(screen.getByLabelText("Coefficient FO")).toHaveClass(
+      "!bg-blue-50/80"
+    );
+    expect(screen.getByLabelText("Temps MO (h)")).toHaveClass(
+      "!bg-amber-50/80"
+    );
+    expect(screen.getByLabelText("Rôle de main-d’œuvre")).toHaveClass(
+      "!bg-amber-50/80"
+    );
+    expect(screen.getByLabelText("Coefficient MO")).toHaveClass(
+      "!bg-amber-50/80"
+    );
     expect(screen.getByLabelText("Quantité par défaut")).toHaveValue(1);
     expect(screen.getByLabelText("Temps MO (h)")).toHaveValue(2);
     expect(screen.queryByLabelText("Pertes (%)")).not.toBeInTheDocument();
@@ -228,6 +279,7 @@ describe("AssemblyEditorDialog", () => {
       <AssemblyEditorDialog
         isSubmitting={false}
         initialValue={null}
+        supplyTypes={SUPPLY_TYPES}
         laborRoles={[
           {
             id: LABOR_ROLE_ID,
@@ -251,6 +303,7 @@ describe("AssemblyEditorDialog", () => {
     const laborRoleSelect = screen.getByLabelText("Rôle de main-d’œuvre");
     expect(laborRoleSelect).toBeEnabled();
     await user.selectOptions(laborRoleSelect, LABOR_ROLE_ID);
+    await user.selectOptions(screen.getByLabelText("Type FO"), SUPPLY_TYPE_ID);
     await user.clear(screen.getByLabelText("Temps MO (h)"));
     await user.type(screen.getByLabelText("Temps MO (h)"), "1.5");
     await user.click(screen.getByRole("button", { name: "Enregistrer" }));
@@ -262,6 +315,7 @@ describe("AssemblyEditorDialog", () => {
           expect.objectContaining({
             costType: "material",
             laborRoleId: LABOR_ROLE_ID,
+            supplyTypeId: SUPPLY_TYPE_ID,
             laborHours: 1.5,
           }),
         ],
@@ -288,6 +342,7 @@ describe("AssemblyEditorDialog", () => {
       <AssemblyEditorDialog
         isSubmitting={false}
         initialValue={fiveLineAssembly}
+        supplyTypes={SUPPLY_TYPES}
         laborRoles={[]}
         onClose={() => undefined}
         onSubmit={onSubmit}
@@ -299,12 +354,18 @@ describe("AssemblyEditorDialog", () => {
     );
     expect(screen.getByTestId("assembly-items-header")).toHaveClass(
       "lg:grid",
-      "min-w-[920px]"
+      "min-w-[1100px]",
+      "gap-0"
     );
     const rows = screen.getAllByTestId("assembly-item-row");
     expect(rows).toHaveLength(5);
     rows.forEach((row) =>
-      expect(row).toHaveClass("lg:py-1.5", "lg:min-w-[920px]")
+      expect(row).toHaveClass("lg:p-0", "lg:gap-0", "lg:min-w-[1100px]")
+    );
+    expect(screen.getAllByLabelText("Quantité par défaut")[0]).toHaveClass(
+      "text-right",
+      "tabular-nums",
+      "[appearance:textfield]"
     );
     expect(screen.getByTestId("assembly-items-header")).not.toHaveTextContent(
       "Pos."

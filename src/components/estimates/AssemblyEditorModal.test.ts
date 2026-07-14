@@ -24,6 +24,7 @@ function createAssemblyItem(overrides: Partial<EstimateAssemblyItem> = {}): Esti
     position: overrides.position ?? 1,
     ...overrides,
     h_mo: overrides.h_mo ?? 0,
+    supply_type_id: overrides.supply_type_id ?? null,
     cost_type: overrides.cost_type ?? "material",
     unit_cost_ht_cents: overrides.unit_cost_ht_cents ?? 0,
     loss_coeff_bp: overrides.loss_coeff_bp ?? 0,

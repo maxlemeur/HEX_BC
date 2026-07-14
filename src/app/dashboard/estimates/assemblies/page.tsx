@@ -16,7 +16,7 @@ import {
   deleteEstimateAssembly,
   duplicateEstimateAssembly,
   fetchEstimateAssemblies,
-  fetchEstimateAssemblyLaborRoles,
+  fetchEstimateAssemblyOptions,
   fetchEstimateAssembly,
   updateEstimateAssembly,
   type EstimateAssemblyDetail,
@@ -59,11 +59,13 @@ export default function EstimateAssembliesPage() {
   } = useSWR<EstimateAssemblySummary[]>(swrKey, fetcher, {
     revalidateOnFocus: true,
   });
-  const { data: laborRoles = [] } = useSWR(
-    "estimate-assembly-labor-roles",
-    fetchEstimateAssemblyLaborRoles,
+  const { data: assemblyOptions } = useSWR(
+    "estimate-assembly-options",
+    fetchEstimateAssemblyOptions,
     { revalidateOnFocus: false }
   );
+  const laborRoles = assemblyOptions?.laborRoles ?? [];
+  const supplyTypes = assemblyOptions?.supplyTypes ?? [];
 
   const openCreateModal = useCallback(() => {
     setEditingAssembly(null);
@@ -271,6 +273,7 @@ export default function EstimateAssembliesPage() {
           isSubmitting={isModalSubmitting}
           initialValue={editingAssembly}
           laborRoles={laborRoles}
+          supplyTypes={supplyTypes}
           onClose={closeModal}
           onSubmit={handleSubmitModal}
         />

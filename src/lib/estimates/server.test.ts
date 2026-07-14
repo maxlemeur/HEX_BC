@@ -28,6 +28,7 @@ const PARENT_ID_1 = "12121212-1212-4121-8121-121212121212";
 const OWNER_USER_ID = "77777777-7777-4777-8777-777777777777";
 const CATEGORY_ID = "88888888-8888-4888-8888-888888888888";
 const LABOR_ROLE_ID = "99999999-9999-4999-8999-999999999999";
+const SUPPLY_TYPE_ID = "abababab-abab-4bab-8bab-abababababab";
 const ASSEMBLY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const INSERTED_SECTION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const INSERTED_LINE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -3117,6 +3118,7 @@ describe("estimate assemblies updates", () => {
         {
           title: "Ligne",
           labor_role_id: LABOR_ROLE_ID,
+          supply_type_id: SUPPLY_TYPE_ID,
           position: 1,
         },
       ],
@@ -3131,6 +3133,7 @@ describe("estimate assemblies updates", () => {
           k_fo: 1,
           k_mo: 1,
           labor_role_id: LABOR_ROLE_ID,
+          supply_type_id: SUPPLY_TYPE_ID,
           default_quantity: null,
           h_mo: 0,
           position: 1,

@@ -290,6 +290,7 @@ export type EstimateTemplateDetail = EstimateTemplateSummary & {
 
 export type EstimateAssemblyItem = EstimateAssemblyItemRow;
 export type EstimateAssemblyLaborRole = LaborRole;
+export type EstimateAssemblySupplyType = SupplyType;
 
 export type EstimateAssemblySummary = {
   id: string;
@@ -324,6 +325,7 @@ export type CreateEstimateAssemblyPayload = {
     kFo?: number;
     kMo?: number;
     laborRoleId?: string | null;
+    supplyTypeId?: string | null;
     defaultQuantity?: number | null;
     laborHours?: number;
     position: number;
@@ -347,6 +349,7 @@ export type UpdateEstimateAssemblyPayload = {
     kFo?: number;
     kMo?: number;
     laborRoleId?: string | null;
+    supplyTypeId?: string | null;
     defaultQuantity?: number | null;
     laborHours?: number;
     position: number;
@@ -5333,6 +5336,7 @@ function toAssemblyItemRequestPayload(
     k_fo: item.kFo ?? 1,
     k_mo: item.kMo ?? 1,
     labor_role_id: item.laborRoleId ?? null,
+    supply_type_id: item.supplyTypeId ?? null,
     default_quantity: item.defaultQuantity ?? null,
     h_mo: item.laborHours ?? 0,
     position: item.position,
@@ -5377,24 +5381,31 @@ export async function fetchEstimateAssemblies(options?: {
   return parseEstimateAssemblySummaryList(payload);
 }
 
-export async function fetchEstimateAssemblyLaborRoles(): Promise<
-  EstimateAssemblyLaborRole[]
-> {
+export async function fetchEstimateAssemblyOptions(): Promise<{
+  laborRoles: EstimateAssemblyLaborRole[];
+  supplyTypes: EstimateAssemblySupplyType[];
+}> {
   const payload = await requestJson<unknown>(
     "/api/estimates/assemblies?limit=1",
     {
       method: "GET",
     },
-    "Impossible de charger les rôles de main-d’œuvre."
+    "Impossible de charger les options des assemblages."
   );
   const root = getRootPayload(payload);
-  if (!isRecord(root) || !Array.isArray(root.labor_roles)) {
-    return [];
+  if (!isRecord(root)) {
+    return { laborRoles: [], supplyTypes: [] };
   }
-  return root.labor_roles.filter((entry) => isRecord(entry)) as
-    EstimateAssemblyLaborRole[];
-}
 
+  return {
+    laborRoles: Array.isArray(root.labor_roles)
+      ? (root.labor_roles.filter((entry) => isRecord(entry)) as EstimateAssemblyLaborRole[])
+      : [],
+    supplyTypes: Array.isArray(root.supply_types)
+      ? (root.supply_types.filter((entry) => isRecord(entry)) as EstimateAssemblySupplyType[])
+      : [],
+  };
+}
 export async function fetchEstimateAssembly(
   assemblyId: string
 ): Promise<EstimateAssemblyDetail> {
@@ -5496,6 +5507,7 @@ export async function duplicateEstimateAssembly(
       kFo: item.k_fo,
       kMo: item.k_mo,
       laborRoleId: item.labor_role_id,
+      supplyTypeId: item.supply_type_id,
       defaultQuantity: item.default_quantity,
       laborHours: item.h_mo,
       costType: item.cost_type,

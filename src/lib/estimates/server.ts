@@ -5264,11 +5264,24 @@ export async function listEstimateAssemblies(
     throw mapSupabaseError(laborRolesError, "Impossible de charger les rôles de main-d’œuvre.");
   }
 
+  const { data: supplyTypes, error: supplyTypesError } = await supabase
+    .from("supply_types")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("name", { ascending: true });
+
+  if (supplyTypesError) {
+    throw mapSupabaseError(
+      supplyTypesError,
+      "Impossible de charger les types de fourniture."
+    );
+  }
   return {
     assemblies: assemblies.map((assembly) =>
       toAssemblySummary(assembly, itemCountByAssemblyId.get(assembly.id) ?? 0)
     ),
     labor_roles: (laborRoles ?? []) as LaborRoleRow[],
+    supply_types: (supplyTypes ?? []) as SupplyTypeRow[],
   };
 }
 
@@ -5363,6 +5376,30 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     });
   }
 
+  const supplyTypeIds = Array.from(
+    new Set(
+      input.items
+        .map((item) => item.supply_type_id)
+        .filter((typeId): typeId is string => Boolean(typeId))
+    )
+  );
+  if (supplyTypeIds.length > 0) {
+    const { data: supplyTypes, error: supplyTypesError } = await supabase
+      .from("supply_types")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .in("id", supplyTypeIds);
+
+    if (supplyTypesError) {
+      throw mapSupabaseError(
+        supplyTypesError,
+        "Impossible de vérifier les types de fourniture."
+      );
+    }
+    if ((supplyTypes ?? []).length !== supplyTypeIds.length) {
+      throw badRequest("supply_type_id invalide.");
+    }
+  }
   const metrics = computeAssemblyMetrics(input.items, laborRatesById);
   const { data: assemblyData, error: assemblyError } = await supabase
     .from("estimate_assemblies")
@@ -5398,6 +5435,7 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     k_fo: item.k_fo ?? 1,
     k_mo: item.k_mo ?? 1,
     labor_role_id: item.labor_role_id ?? null,
+    supply_type_id: item.supply_type_id ?? null,
     default_quantity: item.default_quantity ?? null,
     h_mo:
       item.h_mo ??
@@ -5500,6 +5538,7 @@ export async function updateEstimateAssembly(
       k_fo: item.k_fo ?? 1,
       k_mo: item.k_mo ?? 1,
       labor_role_id: item.labor_role_id ?? null,
+      supply_type_id: item.supply_type_id ?? null,
       default_quantity: item.default_quantity ?? null,
       h_mo:
         item.h_mo ??

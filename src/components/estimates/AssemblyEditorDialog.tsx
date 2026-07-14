@@ -10,6 +10,7 @@ import type {
   EstimateAssemblyDetail,
   EstimateAssemblyItem,
   EstimateAssemblyLaborRole,
+  EstimateAssemblySupplyType,
 } from "@/lib/estimates/client";
 
 export type AssemblyEditorInput = {
@@ -29,6 +30,7 @@ type AssemblyDraftItem = {
   kFo: string;
   kMo: string;
   laborRoleId: string;
+  supplyTypeId: string;
   defaultQuantity: string;
   laborHours: string;
   costType: AssemblyCostType;
@@ -42,6 +44,7 @@ type AssemblyEditorDialogProps = {
   isSubmitting: boolean;
   initialValue?: EstimateAssemblyDetail | null;
   laborRoles: EstimateAssemblyLaborRole[];
+  supplyTypes: EstimateAssemblySupplyType[];
   onClose: () => void;
   onSubmit: (input: AssemblyEditorInput) => Promise<void> | void;
 };
@@ -61,6 +64,7 @@ function createEmptyItem(sequence: number): AssemblyDraftItem {
     kFo: "1",
     kMo: "1",
     laborRoleId: "",
+    supplyTypeId: "",
     defaultQuantity: "1",
     laborHours: "0",
     costType: "material",
@@ -96,6 +100,7 @@ function toDraftItems(
       kFo: String(item.k_fo ?? 1),
       kMo: String(item.k_mo ?? 1),
       laborRoleId: item.labor_role_id ?? "",
+      supplyTypeId: item.supply_type_id ?? "",
       defaultQuantity:
         defaultQuantity === null || defaultQuantity === undefined
           ? ""
@@ -303,6 +308,7 @@ export function AssemblyEditorDialog({
   isSubmitting,
   initialValue,
   laborRoles,
+  supplyTypes,
   onClose,
   onSubmit,
 }: AssemblyEditorDialogProps) {
@@ -404,6 +410,7 @@ export function AssemblyEditorDialog({
         kFo: Math.max(readFiniteNumber(item.kFo, 1), 0),
         kMo: Math.max(readFiniteNumber(item.kMo, 1), 0),
         laborRoleId: item.laborRoleId.trim() || null,
+        supplyTypeId: item.supplyTypeId.trim() || null,
         defaultQuantity: item.defaultQuantity.trim()
           ? Math.max(readFiniteNumber(item.defaultQuantity, 1), 0)
           : null,
@@ -544,29 +551,32 @@ export function AssemblyEditorDialog({
           >
             <div
               data-testid="assembly-items-header"
-              className="hidden min-w-[920px] grid-cols-[minmax(160px,1fr)_88px_48px_62px_72px_42px_62px_98px_42px_74px_52px] items-center gap-2 bg-[var(--slate-50)] px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)] lg:grid"
+              className="hidden min-w-[1100px] grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] items-stretch gap-0 bg-[var(--slate-50)] p-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)] lg:grid lg:[&>span]:flex lg:[&>span]:h-10 lg:[&>span]:items-center lg:[&>span]:border-r lg:[&>span]:border-[var(--slate-200)] lg:[&>span]:px-2 lg:[&>span:last-child]:border-r-0"
             >
               <span>Désignation</span>
               <span>Type</span>
               <span>Unité</span>
               <span>Qté</span>
-              <span className="rounded-md bg-blue-100/80 px-1.5 py-1 text-blue-800">
-                PU HT
+              <span className="bg-blue-100/80 text-blue-800">
+                PR FO
               </span>
-              <span className="rounded-md bg-blue-100/80 px-1.5 py-1 text-blue-800">
+              <span className="bg-blue-100/80 text-blue-800">
+                Type FO
+              </span>
+              <span className="bg-blue-100/80 text-blue-800">
                 K FO
               </span>
-              <span className="rounded-md bg-amber-100/80 px-1.5 py-1 text-amber-800">
+              <span className="bg-amber-100/80 text-amber-800">
                 H MO
               </span>
-              <span className="rounded-md bg-amber-100/80 px-1.5 py-1 text-amber-800">
+              <span className="bg-amber-100/80 text-amber-800">
                 Rôle MO
               </span>
-              <span className="rounded-md bg-amber-100/80 px-1.5 py-1 text-amber-800">
+              <span className="bg-amber-100/80 text-amber-800">
                 K MO
               </span>
-              <span>Total</span>
-              <span className="sr-only">Actions</span>
+              <span>Total ligne</span>
+              <span aria-hidden="true" />
             </div>
 
             <div className="divide-y divide-[var(--slate-200)]">
@@ -574,14 +584,18 @@ export function AssemblyEditorDialog({
                 const rowPrefix = `assembly-item-${index}`;
                 const isLabor = item.costType === "labor";
                 const compactInputClass =
-                  "form-input !h-9 !rounded-lg !px-2 !text-[13px]";
-                const foInputClass = `${compactInputClass} !border-blue-200 !bg-blue-50/80 focus:!border-blue-400`;
-                const moInputClass = `${compactInputClass} !border-amber-200 !bg-amber-50/80 focus:!border-amber-400`;
+                  "form-input !h-9 !rounded-lg !px-2 !text-[13px] lg:!h-10 lg:!rounded-none lg:!border-0 lg:!shadow-none lg:focus:!outline-2 lg:focus:!-outline-offset-2";
+                const compactSelectClass = `${compactInputClass} form-select lg:!pr-7 lg:[background-position:right_6px_center]`;
+                const numericInputClass = `${compactInputClass} text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
+                const foSelectClass = `${compactSelectClass} !border-blue-200 !bg-blue-50/80 focus:!border-blue-400`;
+                const foNumericInputClass = `${numericInputClass} !border-blue-200 !bg-blue-50/80 focus:!border-blue-400`;
+                const moSelectClass = `${compactSelectClass} !border-amber-200 !bg-amber-50/80 focus:!border-amber-400`;
+                const moNumericInputClass = `${numericInputClass} !border-amber-200 !bg-amber-50/80 focus:!border-amber-400`;
                 return (
                   <section
                     key={item.key}
                     data-testid="assembly-item-row"
-                    className="grid gap-3 bg-white p-3 sm:grid-cols-2 lg:min-w-[920px] lg:grid-cols-[minmax(160px,1fr)_88px_48px_62px_72px_42px_62px_98px_42px_74px_52px] lg:items-center lg:gap-2 lg:px-2 lg:py-1.5"
+                    className="grid gap-3 bg-white p-3 sm:grid-cols-2 lg:min-w-[1100px] lg:grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] lg:items-stretch lg:gap-0 lg:p-0 lg:[&>div]:min-w-0 lg:[&>div]:border-r lg:[&>div]:border-[var(--slate-200)]"
                     aria-labelledby={`${rowPrefix}-title`}
                   >
                     <h3
@@ -626,7 +640,7 @@ export function AssemblyEditorDialog({
                       </label>
                       <select
                         id={`${rowPrefix}-cost-type`}
-                        className={`${compactInputClass} form-select`}
+                        className={compactSelectClass}
                         value={item.costType}
                         onChange={(event) =>
                           updateCostType(index, event.target.value as AssemblyCostType)
@@ -667,7 +681,7 @@ export function AssemblyEditorDialog({
                       </label>
                       <input
                         id={`${rowPrefix}-quantity`}
-                        className={compactInputClass}
+                        className={numericInputClass}
                         type="number"
                         min={0}
                         step="0.01"
@@ -685,11 +699,11 @@ export function AssemblyEditorDialog({
                         className="form-label mb-1 text-xs lg:sr-only"
                         htmlFor={`${rowPrefix}-unit-cost`}
                       >
-                        Prix unitaire HT (€)
+                        Prix de revient FO (€)
                       </label>
                       <input
                         id={`${rowPrefix}-unit-cost`}
-                        className={foInputClass}
+                        className={foNumericInputClass}
                         type="number"
                         min={0}
                         step="0.01"
@@ -703,13 +717,36 @@ export function AssemblyEditorDialog({
                     <div>
                       <label
                         className="form-label mb-1 text-xs lg:sr-only"
+                        htmlFor={`${rowPrefix}-supply-type`}
+                      >
+                        Type FO
+                      </label>
+                      <select
+                        id={`${rowPrefix}-supply-type`}
+                        className={foSelectClass}
+                        value={item.supplyTypeId}
+                        onChange={(event) =>
+                          updateItem(index, { supplyTypeId: event.target.value })
+                        }
+                      >
+                        <option value="">Aucun type</option>
+                        {supplyTypes.map((type) => (
+                          <option key={type.id} value={type.id}>
+                            {type.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        className="form-label mb-1 text-xs lg:sr-only"
                         htmlFor={`${rowPrefix}-k-fo`}
                       >
                         Coefficient FO
                       </label>
                       <input
                         id={`${rowPrefix}-k-fo`}
-                        className={foInputClass}
+                        className={foNumericInputClass}
                         type="number"
                         min={0}
                         step="0.01"
@@ -729,7 +766,7 @@ export function AssemblyEditorDialog({
                       </label>
                       <input
                         id={`${rowPrefix}-labor-hours`}
-                        className={moInputClass}
+                        className={moNumericInputClass}
                         type="number"
                         min={0}
                         step="0.01"
@@ -751,7 +788,7 @@ export function AssemblyEditorDialog({
                       </label>
                       <select
                         id={`${rowPrefix}-labor-role`}
-                        className={`${moInputClass} form-select`}
+                        className={moSelectClass}
                         value={item.laborRoleId}
                         onChange={(event) =>
                           updateItem(index, { laborRoleId: event.target.value })
@@ -776,7 +813,7 @@ export function AssemblyEditorDialog({
                       </label>
                       <input
                         id={`${rowPrefix}-k-mo`}
-                        className={moInputClass}
+                        className={moNumericInputClass}
                         type="number"
                         min={0}
                         step="0.01"
@@ -791,13 +828,13 @@ export function AssemblyEditorDialog({
                       <span className="form-label mb-1 text-xs lg:sr-only">
                         Coût direct de la ligne
                       </span>
-                      <output className="flex h-9 items-center rounded-lg bg-[var(--slate-50)] px-2 text-[13px] font-semibold text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)]">
+                      <output className="flex h-9 items-center justify-end whitespace-nowrap rounded-lg bg-[var(--slate-50)] px-2 text-right text-[13px] font-semibold tabular-nums text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)] lg:h-10 lg:rounded-none lg:ring-0">
                         {formatCurrency(computeDraftDirectCost(item, laborRoles))}
                       </output>
                     </div>
                     <button
                       type="button"
-                      className="btn btn-danger btn-sm !h-9 !min-h-9 !px-2 !text-xs"
+                      className="btn btn-danger btn-sm !h-9 !min-h-9 !px-2 !text-xs lg:!h-10 lg:!min-h-10 lg:!rounded-none lg:!border-0 lg:!px-1"
                       onClick={() => removeItem(index)}
                       disabled={isSubmitting || items.length <= 1}
                       aria-label={`Retirer la ligne ${index + 1}`}

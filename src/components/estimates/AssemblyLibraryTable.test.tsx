@@ -25,6 +25,7 @@ function createAssemblyItem(
     labor_role_id: overrides.labor_role_id ?? null,
     default_quantity: overrides.default_quantity ?? 1,
     h_mo: overrides.h_mo ?? 0,
+    supply_type_id: overrides.supply_type_id ?? null,
     position: overrides.position ?? 1,
     ...overrides,
     cost_type: overrides.cost_type ?? "material",

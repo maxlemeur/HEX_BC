@@ -809,6 +809,7 @@ describe("suggestion learning schemas", () => {
 
 describe("estimate assembly schemas", () => {
   const roleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const supplyTypeId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
   it("accepts a valid assembly payload with one line", () => {
     const parsed = createEstimateAssemblySchema.parse({
@@ -823,6 +824,7 @@ describe("estimate assembly schemas", () => {
           kFo: 1.1,
           kMo: 1.2,
           laborRoleId: roleId,
+          supplyTypeId,
           defaultQuantity: 2,
           laborHours: 1.5,
           position: 1,
@@ -844,6 +846,7 @@ describe("estimate assembly schemas", () => {
         k_fo: 1.1,
         k_mo: 1.2,
         labor_role_id: roleId,
+        supply_type_id: supplyTypeId,
         default_quantity: 2,
         h_mo: 1.5,
         position: 1,

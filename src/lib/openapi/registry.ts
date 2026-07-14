@@ -973,6 +973,7 @@ const estimateAssemblyItemSchema = z
     k_fo: z.number().nullable(),
     k_mo: z.number().nullable(),
     labor_role_id: uuidSchema.nullable(),
+    supply_type_id: uuidSchema.nullable(),
     default_quantity: z.number().nullable(),
     h_mo: z.number().nonnegative(),
     position: z.number().int(),
@@ -1223,6 +1224,7 @@ const estimateInstantiateTemplateDataSchema = z.object({
 const estimateAssembliesDataSchema = z.object({
   assemblies: z.array(estimateAssemblySummarySchema),
   labor_roles: z.array(laborRoleSchema),
+  supply_types: z.array(supplyTypeSchema),
 });
 
 const estimateAssemblyDataSchema = z.object({

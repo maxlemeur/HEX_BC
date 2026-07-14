@@ -20702,11 +20702,33 @@
                   ],
                   "additionalProperties": {}
                 }
+              },
+              "supply_types": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": {}
+                }
               }
             },
             "required": [
               "assemblies",
-              "labor_roles"
+              "labor_roles",
+              "supply_types"
             ],
             "additionalProperties": false
           }
@@ -20786,6 +20808,18 @@
                   "minimum": 0
                 },
                 "labor_role_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "supply_type_id": {
                   "anyOf": [
                     {
                       "type": "string",
@@ -21063,6 +21097,18 @@
                             }
                           ]
                         },
+                        "supply_type_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "default_quantity": {
                           "anyOf": [
                             {
@@ -21137,6 +21183,7 @@
                         "k_fo",
                         "k_mo",
                         "labor_role_id",
+                        "supply_type_id",
                         "default_quantity",
                         "h_mo",
                         "position",
@@ -21258,6 +21305,18 @@
                   "minimum": 0
                 },
                 "labor_role_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "supply_type_id": {
                   "anyOf": [
                     {
                       "type": "string",

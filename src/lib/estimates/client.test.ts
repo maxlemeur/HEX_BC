@@ -1379,6 +1379,7 @@ describe("estimate client assemblies wrappers", () => {
           kMo: 1.1,
           defaultQuantity: 2,
           laborHours: 1.5,
+          supplyTypeId: SUPPLY_TYPE_ID,
         },
       ],
     });
@@ -1397,6 +1398,7 @@ describe("estimate client assemblies wrappers", () => {
           k_fo: 1.2,
           k_mo: 1.1,
           labor_role_id: null,
+          supply_type_id: SUPPLY_TYPE_ID,
           default_quantity: 2,
           h_mo: 1.5,
           position: 1,
@@ -1429,6 +1431,7 @@ describe("estimate client assemblies wrappers", () => {
           k_fo: 1,
           k_mo: 1,
           labor_role_id: null,
+          supply_type_id: null,
           default_quantity: null,
           h_mo: 0,
           position: 1,
