@@ -243,16 +243,14 @@ describe("catalogue server regressions", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const result = await bulkUpsertMaterialIndices(
-      [
-        {
-          index_code: "INDEX-01",
-          label: "Index Label",
-          index_value: 123.45,
-          index_date: "2026-02-01",
-        },
-      ] as unknown as Parameters<typeof bulkUpsertMaterialIndices>[0]
-    );
+    const result = await bulkUpsertMaterialIndices([
+      {
+        index_code: "INDEX-01",
+        label: "Index Label",
+        index_value: 123.45,
+        index_date: "2026-02-01",
+      },
+    ] as unknown as Parameters<typeof bulkUpsertMaterialIndices>[0]);
 
     expect(onConflictTargets).toEqual(["tenant_id,index_code,index_date"]);
     expect(result.mode).toBe("fallback-upsert");
@@ -337,7 +335,7 @@ describe("catalogue server regressions", () => {
             unit_price_cents: 200,
           },
         ],
-      })
+      }),
     ).rejects.toMatchObject({
       message: expect.stringContaining("Import annule: Echec du lot 2/2"),
     });
@@ -367,6 +365,11 @@ describe("catalogue server regressions", () => {
               supplier_price_count: "2",
               best_supplier_price_cents: 1100,
               best_supplier_name: "Arcus",
+              reference_price_source_order_id:
+                "88888888-8888-4888-8888-888888888888",
+              reference_price_source_order_reference: "CMD-2026-0042",
+              reference_price_source_supplier_name: "CEDEO",
+              reference_price_source_date: "2026-07-10",
               total_count: "52",
             },
           ],
@@ -411,14 +414,26 @@ describe("catalogue server regressions", () => {
 
     expect(rpc).toHaveBeenCalledWith(
       "catalogue_products_page",
-      expect.objectContaining({ p_page: 2, p_size: 25, p_materials: ["Acier"] })
+      expect.objectContaining({
+        p_page: 2,
+        p_size: 25,
+        p_materials: ["Acier"],
+      }),
     );
-    expect(result.pagination).toEqual({ page: 2, size: 25, totalItems: 52, totalPages: 3 });
+    expect(result.pagination).toEqual({
+      page: 2,
+      size: 25,
+      totalItems: 52,
+      totalPages: 3,
+    });
     expect(result.items[0]).toMatchObject({
       id: PRODUCT_ID,
       _priceStatus: "fresh",
       _supplierPriceCount: 2,
       _bestSupplierName: "Arcus",
+      _referencePriceSourceOrderReference: "CMD-2026-0042",
+      _referencePriceSourceSupplierName: "CEDEO",
+      _referencePriceSourceDate: "2026-07-10",
     });
   });
 
@@ -485,7 +500,9 @@ describe("catalogue server regressions", () => {
 
   it("returns selected remote lookup options with the bounded RPC limit", async () => {
     const rpc = vi.fn().mockResolvedValue({
-      data: [{ kind: "supplier", id: SUPPLIER_ID, label: "Arcus", reference: null }],
+      data: [
+        { kind: "supplier", id: SUPPLIER_ID, label: "Arcus", reference: null },
+      ],
       error: null,
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue({

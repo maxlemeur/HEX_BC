@@ -35,6 +35,10 @@ type ProductView = ProductRecord & {
   _bestSupplierPriceCents: number | null;
   _bestSupplierName: string | null;
   _bestSupplierPriceUpdatedAt: string | null;
+  _referencePriceSourceOrderId: string | null;
+  _referencePriceSourceOrderReference: string | null;
+  _referencePriceSourceSupplierName: string | null;
+  _referencePriceSourceDate: string | null;
 };
 
 type ProductPageResponse = {
@@ -63,7 +67,11 @@ const PRODUCT_SORT_OPTIONS: SortOption[] = [
   { key: "material", label: "Matière", defaultDirection: "asc" },
   { key: "unit_price_cents", label: "Prix de référence" },
   { key: "best_supplier_price_cents", label: "Meilleur prix fournisseur" },
-  { key: "updated_at", label: "Dernière modification", defaultDirection: "desc" },
+  {
+    key: "updated_at",
+    label: "Dernière modification",
+    defaultDirection: "desc",
+  },
 ];
 
 const PRICE_STATUS_OPTIONS = [
@@ -83,6 +91,24 @@ const PRODUCT_PAGE_SIZES = [25, 50, 100] as const;
 function taxLabelFromBp(taxRateBp: number) {
   if (taxRateBp % 100 === 0) return `${taxRateBp / 100} %`;
   return `${(taxRateBp / 100).toFixed(1).replace(".", ",")} %`;
+}
+
+function formatDateOnly(value: string | null) {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value ?? "";
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function referencePriceSourceLabel(product: ProductView) {
+  if (!product._referencePriceSourceOrderId) return "Saisie interne";
+
+  const source = [
+    product._referencePriceSourceSupplierName,
+    product._referencePriceSourceOrderReference,
+    formatDateOnly(product._referencePriceSourceDate),
+  ].filter(Boolean);
+
+  return `Dernier achat confirmé${source.length > 0 ? ` · ${source.join(" · ")}` : ""}`;
 }
 
 function toOptions(values: string[]) {
@@ -120,7 +146,9 @@ export default function ProductsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(null);
+  const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(
+    null,
+  );
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
@@ -130,15 +158,23 @@ export default function ProductsPage() {
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const querySearch = searchParams.get("q") ?? "";
   const [searchInput, setSearchInput] = useState(querySearch);
-  const page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const page = Math.max(
+    1,
+    Number.parseInt(searchParams.get("page") ?? "1", 10) || 1,
+  );
   const sizeParam = Number.parseInt(searchParams.get("size") ?? "25", 10);
-  const pageSize = PRODUCT_PAGE_SIZES.includes(sizeParam as (typeof PRODUCT_PAGE_SIZES)[number])
+  const pageSize = PRODUCT_PAGE_SIZES.includes(
+    sizeParam as (typeof PRODUCT_PAGE_SIZES)[number],
+  )
     ? (sizeParam as (typeof PRODUCT_PAGE_SIZES)[number])
     : 25;
-  const sort = PRODUCT_SORT_OPTIONS.some((option) => option.key === searchParams.get("sort"))
+  const sort = PRODUCT_SORT_OPTIONS.some(
+    (option) => option.key === searchParams.get("sort"),
+  )
     ? searchParams.get("sort")!
     : "designation";
-  const direction: SortDirection = searchParams.get("dir") === "desc" ? "desc" : "asc";
+  const direction: SortDirection =
+    searchParams.get("dir") === "desc" ? "desc" : "asc";
   const materialFilters = searchParams.getAll("material");
   const categoryFilters = searchParams.getAll("category");
   const unitFilters = searchParams.getAll("unit");
@@ -148,7 +184,7 @@ export default function ProductsPage() {
   const updateUrl = useCallback(
     (
       updates: Record<string, string | string[] | null>,
-      options: { replace?: boolean; resetPage?: boolean } = {}
+      options: { replace?: boolean; resetPage?: boolean } = {},
     ) => {
       const next = new URLSearchParams(searchParams.toString());
       for (const [key, value] of Object.entries(updates)) {
@@ -164,7 +200,7 @@ export default function ProductsPage() {
       if (options.replace) router.replace(href, { scroll: false });
       else router.push(href, { scroll: false });
     },
-    [pathname, router, searchParams]
+    [pathname, router, searchParams],
   );
 
   useEffect(() => {
@@ -223,7 +259,8 @@ export default function ProductsPage() {
   const products = data?.items ?? [];
   const totalItems = data?.pagination.totalItems ?? 0;
   const totalPages = Math.max(data?.pagination.totalPages ?? 0, 1);
-  const globalTotal = (data?.counters.covered ?? 0) + (data?.counters.withoutSupplierPrice ?? 0);
+  const globalTotal =
+    (data?.counters.covered ?? 0) + (data?.counters.withoutSupplierPrice ?? 0);
 
   const productFilters = useMemo<FilterConfig[]>(
     () => [
@@ -263,10 +300,15 @@ export default function ProductsPage() {
         options: STATUS_OPTIONS,
       },
     ],
-    [data?.facets.categories, data?.facets.materials, data?.facets.units]
+    [data?.facets.categories, data?.facets.materials, data?.facets.units],
   );
 
-  const stats = data?.counters ?? { active: 0, covered: 0, withoutSupplierPrice: 0, stale: 0 };
+  const stats = data?.counters ?? {
+    active: 0,
+    covered: 0,
+    withoutSupplierPrice: 0,
+    stale: 0,
+  };
   const pageStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = Math.min(page * pageSize, totalItems);
   const filterState: FilterState = {
@@ -282,7 +324,7 @@ export default function ProductsPage() {
       if (Array.isArray(value)) updateUrl({ [key]: value });
       else if (typeof value === "string") updateUrl({ [key]: value || null });
     },
-    [updateUrl]
+    [updateUrl],
   );
 
   function openCreateForm() {
@@ -340,14 +382,16 @@ export default function ProductsPage() {
     setIsSaving(false);
     setIsFormOpen(false);
     setEditingProduct(null);
-    setSuccessMessage(editingProduct ? "Produit mis à jour." : "Produit ajouté à la base.");
+    setSuccessMessage(
+      editingProduct ? "Produit mis à jour." : "Produit ajouté à la base.",
+    );
   }
 
   async function toggleArchive(product: ProductRecord) {
     const nextIsActive = !product.is_active;
     if (!nextIsActive) {
       const confirmed = window.confirm(
-        `Archiver « ${product.designation} » ? Il ne sera plus proposé dans les nouveaux chiffrages, mais son historique sera conservé.`
+        `Archiver « ${product.designation} » ? Il ne sera plus proposé dans les nouveaux chiffrages, mais son historique sera conservé.`,
       );
       if (!confirmed) return;
     }
@@ -371,17 +415,26 @@ export default function ProductsPage() {
 
   return (
     <div className="animate-fade-in">
-      <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Produits" />
+      <HubBreadcrumb
+        hubHref="/dashboard/referentiel"
+        hubLabel="Référentiel"
+        currentLabel="Produits"
+      />
 
       <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
         <div className="min-w-0 max-w-3xl">
           <h1 className="page-title">Produits & prix de référence</h1>
           <p className="page-description">
-            Structurez vos articles métier, puis rattachez les tarifs réels de chaque fournisseur.
+            Structurez vos articles métier, puis rattachez les tarifs réels de
+            chaque fournisseur.
           </p>
         </div>
         <div className="flex w-full flex-wrap gap-3 sm:w-auto">
-          <button className="btn btn-primary btn-lg w-full sm:w-auto" type="button" onClick={openCreateForm}>
+          <button
+            className="btn btn-primary btn-lg w-full sm:w-auto"
+            type="button"
+            onClick={openCreateForm}
+          >
             Ajouter un produit
           </button>
         </div>
@@ -390,14 +443,25 @@ export default function ProductsPage() {
       <section className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-950">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="font-semibold">Deux niveaux de prix, un seul référentiel produit</p>
+            <p className="font-semibold">
+              Deux niveaux de prix, un seul référentiel produit
+            </p>
             <p className="mt-1 text-blue-800">
-              Le prix de référence sert de valeur interne. Les offres datées d’Arcus, CEDEO ou d’autres fournisseurs restent dans les tarifs fournisseurs.
+              Le prix de référence reprend le dernier achat confirmé. À défaut,
+              la saisie interne du produit est utilisée. Les autres offres
+              datées restent disponibles dans les tarifs fournisseurs.{" "}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn btn-secondary btn-sm" href="/dashboard/suppliers">Gérer les fournisseurs</Link>
-            <Link className="btn btn-secondary btn-sm" href="/dashboard/prices">Voir tous les tarifs</Link>
+            <Link
+              className="btn btn-secondary btn-sm"
+              href="/dashboard/suppliers"
+            >
+              Gérer les fournisseurs
+            </Link>
+            <Link className="btn btn-secondary btn-sm" href="/dashboard/prices">
+              Voir tous les tarifs
+            </Link>
           </div>
         </div>
       </section>
@@ -405,45 +469,87 @@ export default function ProductsPage() {
       <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-950">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="max-w-3xl">
-            <p className="font-semibold">Import guidé : produits et tarifs fournisseurs</p>
+            <p className="font-semibold">
+              Import guidé : produits et tarifs fournisseurs
+            </p>
             <p className="mt-1 text-emerald-800">
-              Transmettez le modèle officiel à vos équipes, puis importez le fichier complété. Le contenu est contrôlé avant l’enregistrement.
+              Transmettez le modèle officiel à vos équipes, puis importez le
+              fichier complété. Le contenu est contrôlé avant l’enregistrement.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a className="btn btn-secondary btn-sm" href={TEMPLATE_FILE_URL} download>
+            <a
+              className="btn btn-secondary btn-sm"
+              href={TEMPLATE_FILE_URL}
+              download
+            >
               Télécharger le modèle
             </a>
-            <button className="btn btn-primary btn-sm" type="button" onClick={openTemplateImport}>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={openTemplateImport}
+            >
               Importer le modèle
             </button>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={openCsvImport}>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={openCsvImport}
+            >
               Import CSV produits
             </button>
           </div>
         </div>
       </section>
 
-      {successMessage ? <div className="alert alert-success mb-5" role="status">{successMessage}</div> : null}
-      {!isFormOpen && formError ? <div className="alert alert-error mb-5" role="alert">{formError}</div> : null}
+      {successMessage ? (
+        <div className="alert alert-success mb-5" role="status">
+          {successMessage}
+        </div>
+      ) : null}
+      {!isFormOpen && formError ? (
+        <div className="alert alert-error mb-5" role="alert">
+          {formError}
+        </div>
+      ) : null}
 
       {data ? (
-        <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicateurs du catalogue">
+        <section
+          className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+          aria-label="Indicateurs du catalogue"
+        >
           <div className="dashboard-card px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Produits actifs</p>
-            <p className="mt-1 text-2xl font-semibold text-[var(--slate-900)]">{stats.active}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+              Produits actifs
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-[var(--slate-900)]">
+              {stats.active}
+            </p>
           </div>
           <div className="dashboard-card px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Couverts par un fournisseur</p>
-            <p className="mt-1 text-2xl font-semibold text-emerald-700">{stats.covered}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+              Couverts par un fournisseur
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-emerald-700">
+              {stats.covered}
+            </p>
           </div>
           <div className="dashboard-card px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Sans prix fournisseur</p>
-            <p className="mt-1 text-2xl font-semibold text-amber-700">{stats.withoutSupplierPrice}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+              Sans prix fournisseur
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-amber-700">
+              {stats.withoutSupplierPrice}
+            </p>
           </div>
           <div className="dashboard-card px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">Prix à revalider</p>
-            <p className="mt-1 text-2xl font-semibold text-rose-700">{stats.stale}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+              Prix à revalider
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-rose-700">
+              {stats.stale}
+            </p>
           </div>
         </section>
       ) : null}
@@ -483,21 +589,30 @@ export default function ProductsPage() {
       >
         <div className="flex flex-col gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">Base articles</h2>
+            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+              Base articles
+            </h2>
             <p className="mt-0.5 text-xs text-[var(--slate-500)]">
               {totalItems > 0
                 ? `${pageStart}–${pageEnd} sur ${totalItems} produits`
                 : "Identité produit, prix interne et couverture fournisseurs."}
             </p>
           </div>
-          <button className="btn btn-secondary btn-sm min-h-11 w-full sm:min-h-0 sm:w-auto" disabled={isValidating} onClick={() => void mutate()} type="button">
+          <button
+            className="btn btn-secondary btn-sm min-h-11 w-full sm:min-h-0 sm:w-auto"
+            disabled={isValidating}
+            onClick={() => void mutate()}
+            type="button"
+          >
             {isValidating ? "Actualisation..." : "Actualiser"}
           </button>
         </div>
 
         {loadError ? (
           <div className="alert alert-error m-4" role="alert">
-            {loadError instanceof Error ? loadError.message : "Impossible de charger la base produits."}
+            {loadError instanceof Error
+              ? loadError.message
+              : "Impossible de charger la base produits."}
           </div>
         ) : null}
 
@@ -508,11 +623,17 @@ export default function ProductsPage() {
             </div>
           ) : globalTotal === 0 ? (
             <div className="px-5 py-10 text-center">
-              <p className="text-lg font-semibold text-[var(--slate-800)]">Construisez votre première base articles</p>
+              <p className="text-lg font-semibold text-[var(--slate-800)]">
+                Construisez votre première base articles
+              </p>
               <p className="mt-2 text-sm text-[var(--slate-500)]">
                 Ajoutez un produit manuellement ou importez le modèle officiel.
               </p>
-              <button className="btn btn-primary mt-5 min-h-11" type="button" onClick={openCreateForm}>
+              <button
+                className="btn btn-primary mt-5 min-h-11"
+                type="button"
+                onClick={openCreateForm}
+              >
                 Ajouter un produit
               </button>
             </div>
@@ -522,7 +643,10 @@ export default function ProductsPage() {
             </div>
           ) : (
             products.map((product) => (
-              <article key={product.id} className={`p-4 sm:p-5 ${product.is_active ? "" : "opacity-60"}`}>
+              <article
+                key={product.id}
+                className={`p-4 sm:p-5 ${product.is_active ? "" : "opacity-60"}`}
+              >
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="break-words text-base font-semibold text-[var(--slate-900)]">
@@ -532,29 +656,47 @@ export default function ProductsPage() {
                       {product.reference || "Sans référence"}
                     </p>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${freshnessClass(product._priceStatus)}`}>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${freshnessClass(product._priceStatus)}`}
+                  >
                     {freshnessLabel(product._priceStatus)}
                   </span>
                 </div>
 
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div className="col-span-2 min-w-0">
-                    <dt className="text-xs text-[var(--slate-400)]">Classification</dt>
+                    <dt className="text-xs text-[var(--slate-400)]">
+                      Classification
+                    </dt>
                     <dd className="mt-0.5 break-words font-medium text-[var(--slate-800)]">
-                      {[product.material, product.grade].filter(Boolean).join(" ") || "Non renseignée"}
+                      {[product.material, product.grade]
+                        .filter(Boolean)
+                        .join(" ") || "Non renseignée"}
                     </dd>
                     <dd className="mt-0.5 break-words text-xs text-[var(--slate-500)]">
-                      {[product.category, product.product_type].filter(Boolean).join(" · ") || "Sans famille"}
+                      {[product.category, product.product_type]
+                        .filter(Boolean)
+                        .join(" · ") || "Sans famille"}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-[var(--slate-400)]">Prix de référence</dt>
-                    <dd className="mt-0.5 font-mono font-semibold text-[var(--slate-900)]">
-                      {formatEUR(product.unit_price_cents)} /{product.unit || "u"}
-                    </dd>
+                    <dt className="text-xs text-[var(--slate-400)]">
+                      Prix de référence
+                    </dt>
+                    <dd className="mt-0.5">
+                      <div className="font-mono font-semibold text-[var(--slate-900)]">
+                        {formatEUR(product.unit_price_cents)} /
+                        {product.unit || "u"}
+                      </div>
+                      <div className="mt-1 text-xs text-[var(--slate-500)]">
+                        {referencePriceSourceLabel(product)}
+                      </div>
+                    </dd>{" "}
                   </div>
                   <div>
-                    <dt className="text-xs text-[var(--slate-400)]">Meilleur prix</dt>
+                    <dt className="text-xs text-[var(--slate-400)]">
+                      Meilleur prix
+                    </dt>
                     <dd className="mt-0.5 font-mono font-semibold text-emerald-700">
                       {product._bestSupplierPriceCents !== null
                         ? formatEUR(product._bestSupplierPriceCents)
@@ -562,18 +704,29 @@ export default function ProductsPage() {
                     </dd>
                   </div>
                   <div className="col-span-2 min-w-0">
-                    <dt className="text-xs text-[var(--slate-400)]">Dimensions et norme</dt>
+                    <dt className="text-xs text-[var(--slate-400)]">
+                      Dimensions et norme
+                    </dt>
                     <dd className="mt-0.5 break-words text-[var(--slate-700)]">
-                      {[product.dimensions, product.standard].filter(Boolean).join(" · ") || "Non renseignées"}
+                      {[product.dimensions, product.standard]
+                        .filter(Boolean)
+                        .join(" · ") || "Non renseignées"}
                     </dd>
                   </div>
                 </dl>
 
                 <div className="mt-4 grid grid-cols-3 gap-2 border-t border-[var(--slate-100)] pt-4">
-                  <button className="btn btn-secondary btn-sm min-h-11" type="button" onClick={() => openEditForm(product)}>
+                  <button
+                    className="btn btn-secondary btn-sm min-h-11"
+                    type="button"
+                    onClick={() => openEditForm(product)}
+                  >
                     Modifier
                   </button>
-                  <Link className="btn btn-secondary btn-sm min-h-11" href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}>
+                  <Link
+                    className="btn btn-secondary btn-sm min-h-11"
+                    href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}
+                  >
                     Tarifs
                   </Link>
                   <button
@@ -582,7 +735,11 @@ export default function ProductsPage() {
                     disabled={updatingStatusId === product.id}
                     onClick={() => void toggleArchive(product)}
                   >
-                    {updatingStatusId === product.id ? "..." : product.is_active ? "Archiver" : "Restaurer"}
+                    {updatingStatusId === product.id
+                      ? "..."
+                      : product.is_active
+                        ? "Archiver"
+                        : "Restaurer"}
                   </button>
                 </div>
               </article>
@@ -597,83 +754,169 @@ export default function ProductsPage() {
                 <th scope="col">Produit</th>
                 <th scope="col">Classification</th>
                 <th scope="col">Dimensions</th>
-                <th scope="col" className="text-right">Prix de référence</th>
+                <th scope="col" className="text-right">
+                  Prix de référence
+                </th>
                 <th scope="col">Meilleur prix fournisseur</th>
                 <th scope="col">État du prix</th>
-                <th scope="col" className="text-center">TVA</th>
-                <th scope="col" className="text-right">Actions</th>
+                <th scope="col" className="text-center">
+                  TVA
+                </th>
+                <th scope="col" className="text-right">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {isLoading && !data ? (
-                <tr><td colSpan={8} className="py-12 text-center text-[var(--slate-500)]">Chargement de la base produits...</td></tr>
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="py-12 text-center text-[var(--slate-500)]"
+                  >
+                    Chargement de la base produits...
+                  </td>
+                </tr>
               ) : globalTotal === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-14 text-center">
                     <div className="mx-auto max-w-lg">
-                      <p className="text-lg font-semibold text-[var(--slate-800)]">Construisez votre première base articles</p>
+                      <p className="text-lg font-semibold text-[var(--slate-800)]">
+                        Construisez votre première base articles
+                      </p>
                       <p className="mt-2 text-sm text-[var(--slate-500)]">
-                        Ajoutez un produit manuellement ou partez du modèle officiel pour importer produits et tarifs.
+                        Ajoutez un produit manuellement ou partez du modèle
+                        officiel pour importer produits et tarifs.
                       </p>
                       <div className="mt-5 flex flex-wrap justify-center gap-3">
-                        <button className="btn btn-primary" type="button" onClick={openCreateForm}>Ajouter un produit</button>
-                        <a className="btn btn-secondary" href={TEMPLATE_FILE_URL} download>Télécharger le modèle</a>
-                        <button className="btn btn-secondary" type="button" onClick={openTemplateImport}>Importer le modèle</button>
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          onClick={openCreateForm}
+                        >
+                          Ajouter un produit
+                        </button>
+                        <a
+                          className="btn btn-secondary"
+                          href={TEMPLATE_FILE_URL}
+                          download
+                        >
+                          Télécharger le modèle
+                        </a>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          onClick={openTemplateImport}
+                        >
+                          Importer le modèle
+                        </button>
                       </div>
                     </div>
                   </td>
                 </tr>
               ) : totalItems === 0 ? (
-                <tr><td colSpan={8} className="py-12 text-center text-[var(--slate-500)]">Aucun produit ne correspond aux filtres.</td></tr>
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="py-12 text-center text-[var(--slate-500)]"
+                  >
+                    Aucun produit ne correspond aux filtres.
+                  </td>
+                </tr>
               ) : (
                 products.map((product) => (
-                  <tr key={product.id} className={product.is_active ? undefined : "opacity-60"}>
+                  <tr
+                    key={product.id}
+                    className={product.is_active ? undefined : "opacity-60"}
+                  >
                     <td>
-                      <div className="font-semibold text-[var(--slate-900)]">{product.designation}</div>
+                      <div className="font-semibold text-[var(--slate-900)]">
+                        {product.designation}
+                      </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--slate-500)]">
-                        <span className="font-mono">{product.reference || "Sans référence"}</span>
-                        {!product.is_active ? <span className="rounded-full bg-slate-200 px-2 py-0.5 font-medium text-slate-700">Archivé</span> : null}
+                        <span className="font-mono">
+                          {product.reference || "Sans référence"}
+                        </span>
+                        {!product.is_active ? (
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 font-medium text-slate-700">
+                            Archivé
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td>
                       <div className="font-medium text-[var(--slate-800)]">
-                        {[product.material, product.grade].filter(Boolean).join(" ") || "Non renseignée"}
+                        {[product.material, product.grade]
+                          .filter(Boolean)
+                          .join(" ") || "Non renseignée"}
                       </div>
                       <div className="mt-1 text-xs text-[var(--slate-500)]">
-                        {[product.category, product.product_type].filter(Boolean).join(" · ") || "Sans famille"}
+                        {[product.category, product.product_type]
+                          .filter(Boolean)
+                          .join(" · ") || "Sans famille"}
                       </div>
                     </td>
                     <td>
-                      <div className="text-[var(--slate-800)]">{product.dimensions || "-"}</div>
+                      <div className="text-[var(--slate-800)]">
+                        {product.dimensions || "-"}
+                      </div>
                       <div className="mt-1 text-xs text-[var(--slate-500)]">
-                        {[product.standard, product.unit].filter(Boolean).join(" · ")}
+                        {[product.standard, product.unit]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </div>
                     </td>
-                    <td className="text-right font-mono font-semibold text-[var(--slate-900)]">
-                      {formatEUR(product.unit_price_cents)} <span className="text-xs font-normal text-[var(--slate-500)]">/{product.unit || "u"}</span>
-                    </td>
+                    <td className="text-right">
+                      <div className="font-mono font-semibold text-[var(--slate-900)]">
+                        {formatEUR(product.unit_price_cents)}{" "}
+                        <span className="text-xs font-normal text-[var(--slate-500)]">
+                          /{product.unit || "u"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-[var(--slate-500)]">
+                        {referencePriceSourceLabel(product)}
+                      </div>
+                    </td>{" "}
                     <td>
                       {product._bestSupplierPriceCents !== null ? (
                         <>
-                          <div className="font-mono font-semibold text-emerald-700">{formatEUR(product._bestSupplierPriceCents)}</div>
+                          <div className="font-mono font-semibold text-emerald-700">
+                            {formatEUR(product._bestSupplierPriceCents)}
+                          </div>
                           <div className="mt-1 text-xs text-[var(--slate-500)]">
-                            {product._bestSupplierName || "Fournisseur"} · {product._supplierPriceCount} offre(s)
+                            {product._bestSupplierName || "Fournisseur"} ·{" "}
+                            {product._supplierPriceCount} offre(s)
                           </div>
                         </>
                       ) : (
-                        <span className="text-sm text-[var(--slate-400)]">Aucun tarif</span>
+                        <span className="text-sm text-[var(--slate-400)]">
+                          Aucun tarif
+                        </span>
                       )}
                     </td>
                     <td>
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${freshnessClass(product._priceStatus)}`}>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${freshnessClass(product._priceStatus)}`}
+                      >
                         {freshnessLabel(product._priceStatus)}
                       </span>
                     </td>
-                    <td className="text-center text-sm font-medium text-[var(--slate-700)]">{taxLabelFromBp(product.tax_rate_bp)}</td>
+                    <td className="text-center text-sm font-medium text-[var(--slate-700)]">
+                      {taxLabelFromBp(product.tax_rate_bp)}
+                    </td>
                     <td>
                       <div className="flex flex-wrap justify-end gap-2">
-                        <button className="btn btn-secondary btn-sm" type="button" onClick={() => openEditForm(product)}>Modifier</button>
-                        <Link className="btn btn-secondary btn-sm" href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          type="button"
+                          onClick={() => openEditForm(product)}
+                        >
+                          Modifier
+                        </button>
+                        <Link
+                          className="btn btn-secondary btn-sm"
+                          href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}
+                        >
                           Tarifs
                         </Link>
                         <button
@@ -682,7 +925,11 @@ export default function ProductsPage() {
                           disabled={updatingStatusId === product.id}
                           onClick={() => void toggleArchive(product)}
                         >
-                          {updatingStatusId === product.id ? "..." : product.is_active ? "Archiver" : "Restaurer"}
+                          {updatingStatusId === product.id
+                            ? "..."
+                            : product.is_active
+                              ? "Archiver"
+                              : "Restaurer"}
                         </button>
                       </div>
                     </td>
@@ -719,7 +966,10 @@ export default function ProductsPage() {
                 className="btn btn-secondary btn-sm min-h-11"
                 disabled={page <= 1}
                 onClick={() =>
-                  updateUrl({ page: String(Math.max(1, page - 1)) }, { resetPage: false })
+                  updateUrl(
+                    { page: String(Math.max(1, page - 1)) },
+                    { resetPage: false },
+                  )
                 }
               >
                 Précédent
@@ -732,7 +982,10 @@ export default function ProductsPage() {
                 className="btn btn-secondary btn-sm min-h-11"
                 disabled={page >= totalPages}
                 onClick={() =>
-                  updateUrl({ page: String(Math.min(totalPages, page + 1)) }, { resetPage: false })
+                  updateUrl(
+                    { page: String(Math.min(totalPages, page + 1)) },
+                    { resetPage: false },
+                  )
                 }
               >
                 Suivant

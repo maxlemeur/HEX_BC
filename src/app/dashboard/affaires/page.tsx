@@ -14,16 +14,13 @@ type Props = {
 
 async function AffairesPageResults({
   query,
-  pageClientKey,
 }: Readonly<{
   query: NormalizedAffaireListQuery;
-  pageClientKey: string;
 }>) {
   const data = await fetchAffairePageData(query);
 
   return (
     <AffairesPageClient
-      key={pageClientKey}
       initialData={data}
       initialQ={query.q ?? ""}
       initialStatuses={query.status ?? []}
@@ -40,19 +37,10 @@ async function AffairesPageResults({
 export default async function AffairesPage({ searchParams }: Props) {
   const params = await searchParams;
   const query = parseAffaireListQuery(params);
-  const pageClientKey = [
-    query.q ?? "",
-    (query.status ?? []).join(","),
-    query.favoritesOnly ? "1" : "0",
-    query.manager,
-    query.cursor ?? "",
-    String(query.size),
-    query.dir,
-  ].join("::");
 
   return (
-    <Suspense key={pageClientKey} fallback={<AffairesLoading />}>
-      <AffairesPageResults query={query} pageClientKey={pageClientKey} />
+    <Suspense fallback={<AffairesLoading />}>
+      <AffairesPageResults query={query} />
     </Suspense>
   );
 }

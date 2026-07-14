@@ -45,10 +45,11 @@ describe("AffairesPage", () => {
     })) as ReactElement<{ children: ReactElement }>;
     const resultsElement = Children.only(pageElement.props.children) as ReactElement<{
       query: unknown;
-      pageClientKey: string;
     }>;
 
     expect(pageElement.type).toBe(Suspense);
+    expect(pageElement.key).toBeNull();
+    expect(resultsElement.key).toBeNull();
     expect(fetchAffairePageData).not.toHaveBeenCalled();
     expect(fetchAffaireManagerQueueSummary).not.toHaveBeenCalled();
 

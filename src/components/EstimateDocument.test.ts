@@ -145,6 +145,18 @@ function expectSectionSummary(
 }
 
 describe("EstimateDocument - EST-121", () => {
+  it("masque la remise sur le document client lorsqu'elle est nulle", () => {
+    const markup = renderEstimateDocument([], { discountCents: 0 });
+
+    expect(markup).not.toContain("Remise");
+  });
+
+  it("affiche la remise sur le document client lorsqu'elle est positive", () => {
+    const markup = renderEstimateDocument([], { discountCents: 1000 });
+
+    expect(markup).toContain("Remise");
+    expect(markup).toContain(`-${formatCurrencyForTest(1000, "EUR")}`);
+  });
   it("affiche le total HT d'une section avec remise proportionnelle", () => {
     const sectionId = "section-target";
     const items: EstimateItem[] = [

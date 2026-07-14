@@ -81,10 +81,10 @@ export default function EstimateAssembliesPage() {
       try {
         if (editingAssembly) {
           await updateEstimateAssembly(editingAssembly.id, input);
-          setSuccessMessage("Assemblage mis a jour.");
+          setSuccessMessage("Assemblage mis à jour.");
         } else {
           await createEstimateAssembly(input);
-          setSuccessMessage("Assemblage cree.");
+          setSuccessMessage("Assemblage créé.");
         }
         setIsModalOpen(false);
         setEditingAssembly(null);
@@ -133,7 +133,7 @@ export default function EstimateAssembliesPage() {
       setRenamingAssembly(null);
       try {
         await updateEstimateAssembly(renamingAssembly.id, { name: nextName });
-        setSuccessMessage("Assemblage renomme.");
+        setSuccessMessage("Assemblage renommé.");
         await mutate();
       } catch (error) {
         setActionError(
@@ -159,7 +159,7 @@ export default function EstimateAssembliesPage() {
       setDuplicatingAssembly(null);
       try {
         await duplicateEstimateAssembly(duplicatingAssembly.id, { name: duplicateName });
-        setSuccessMessage("Assemblage duplique.");
+        setSuccessMessage("Assemblage dupliqué.");
         await mutate();
       } catch (error) {
         setActionError(
@@ -184,7 +184,7 @@ export default function EstimateAssembliesPage() {
     setDeletingAssembly(null);
     try {
       await deleteEstimateAssembly(deletingAssembly.id);
-      setSuccessMessage("Assemblage supprime.");
+      setSuccessMessage("Assemblage supprimé.");
       await mutate();
     } catch (error) {
       setActionError(
@@ -199,9 +199,9 @@ export default function EstimateAssembliesPage() {
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Assemblages reutilisables</h1>
+          <h1 className="page-title">Bibliothèque d&apos;assemblages</h1>
           <p className="page-description">
-            Bibliotheque partagee du tenant pour inserer rapidement des sections preconfigurees.
+            Créez et réutilisez des groupes de lignes préconfigurés dans vos chiffrages.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -253,6 +253,7 @@ export default function EstimateAssembliesPage() {
             onRename={handleRename}
             onDuplicate={handleDuplicate}
             onDelete={handleDelete}
+            loadAssembly={fetchEstimateAssembly}
           />
         )}
       </div>
@@ -288,7 +289,7 @@ export default function EstimateAssembliesPage() {
       <ConfirmModal
         open={deletingAssembly !== null}
         title="Supprimer l'assemblage"
-        message={`Supprimer l'assemblage "${deletingAssembly?.name ?? ""}" ? Cette action est irreversible.`}
+        message={`Supprimer l'assemblage "${deletingAssembly?.name ?? ""}" ? Cette action est irréversible.`}
         confirmLabel="Supprimer"
         variant="danger"
         onConfirm={() => void confirmDelete()}

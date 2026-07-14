@@ -264,8 +264,8 @@ export default async function PrintEstimatePage({
   return (
     <div className="min-h-screen bg-[var(--slate-100)] print:bg-white">
       <PrintTitle title={printTitle} />
-      <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
-        <div className="mx-auto max-w-5xl px-6 pt-4">
+      <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/95 backdrop-blur-md">
+        <div className="mx-auto max-w-5xl px-6 pt-3">
           {version.project_id && project?.name && (
             <AffaireBreadcrumb
               projectId={version.project_id}
@@ -275,10 +275,10 @@ export default async function PrintEstimatePage({
             />
           )}
         </div>
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
+        <div className="mx-auto flex max-w-5xl flex-col items-stretch gap-4 px-6 pb-5 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-5">
             <Link
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm shrink-0"
               href={`/dashboard/estimates/${versionId}`}
             >
               <svg
@@ -294,24 +294,53 @@ export default async function PrintEstimatePage({
               </svg>
               Retour
             </Link>
-            <div className="hidden h-6 w-px bg-[var(--slate-200)] sm:block" />
-            <span className="hidden text-sm font-semibold text-[var(--slate-700)] sm:block">
-              Apercu avant impression
-            </span>
-            <span className="hidden rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)] sm:inline-block">
-              {project?.reference ?? `V${version.version_number}`}
-            </span>
-            <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
+            <div className="hidden h-10 w-px shrink-0 bg-[var(--slate-200)] sm:block" />
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold tracking-[-0.02em] text-[var(--slate-900)] sm:text-2xl">
+                Aperçu avant impression
+              </h1>
+              <div className="mt-2 hidden flex-wrap items-center gap-2 text-sm text-[var(--slate-500)] md:flex">
+                <span className="font-medium text-[var(--slate-600)]">
+                  Devis V{version.version_number}
+                </span>
+                <span aria-hidden className="text-[var(--slate-300)]">
+                  •
+                </span>
+                <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
+                <span aria-hidden className="text-[var(--slate-300)]">
+                  •
+                </span>
+                <span>Configuration :</span>
+                <PrintCurrencySelect currency={selectedCurrency} />
+                <PrintLevelFilter
+                  value={
+                    maxVisibleSectionLevelSelectValue as
+                      | "all"
+                      | "1"
+                      | "2"
+                      | "3"
+                      | "4"
+                  }
+                />
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <PrintCurrencySelect currency={selectedCurrency} />
-            <PrintLevelFilter
-              value={
-                maxVisibleSectionLevelSelectValue as "all" | "1" | "2" | "3" | "4"
-              }
-            />
+          <div className="shrink-0 [&>button]:w-full sm:[&>button]:w-auto">
             <PrintButton />
           </div>
+        </div>
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-6 pb-4 text-sm text-[var(--slate-500)] md:hidden">
+          <span className="font-medium text-[var(--slate-600)]">
+            Devis V{version.version_number}
+          </span>
+          <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
+          <span className="basis-full sm:basis-auto sm:pl-2">Configuration :</span>
+          <PrintCurrencySelect currency={selectedCurrency} />
+          <PrintLevelFilter
+            value={
+              maxVisibleSectionLevelSelectValue as "all" | "1" | "2" | "3" | "4"
+            }
+          />
         </div>
       </div>
 

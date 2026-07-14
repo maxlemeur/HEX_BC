@@ -21,6 +21,10 @@ export type ProductRecord = {
   unit_price_cents: number;
   tax_rate_bp: number;
   is_active: boolean;
+  _referencePriceSourceOrderId?: string | null;
+  _referencePriceSourceOrderReference?: string | null;
+  _referencePriceSourceSupplierName?: string | null;
+  _referencePriceSourceDate?: string | null;
 };
 
 export type ProductPayload = {
@@ -103,13 +107,15 @@ export function ProductFormModal({
   onOpenChange,
   onSubmit,
 }: Readonly<ProductFormModalProps>) {
-  const [form, setForm] = useState<ProductFormState>(() => initialFormState(product));
+  const [form, setForm] = useState<ProductFormState>(() =>
+    initialFormState(product),
+  );
   const [localError, setLocalError] = useState<string | null>(null);
   const isEditing = product !== null;
 
   const title = useMemo(
     () => (isEditing ? "Modifier le produit" : "Ajouter un produit"),
-    [isEditing]
+    [isEditing],
   );
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -124,7 +130,9 @@ export function ProductFormModal({
 
     const unitPriceCents = parseEuroToCents(form.unit_price_euros);
     if (unitPriceCents === null || unitPriceCents < 0) {
-      setLocalError("Le prix de référence doit être un montant positif ou nul.");
+      setLocalError(
+        "Le prix de référence doit être un montant positif ou nul.",
+      );
       return;
     }
 
@@ -156,10 +164,14 @@ export function ProductFormModal({
             <div>
               <Modal.Title>{title}</Modal.Title>
               <p className="mt-1 text-sm text-[var(--slate-500)]">
-                Identifiez précisément l’article, son unité et son prix interne de référence.
+                Identifiez précisément l’article, son unité et son prix interne
+                de référence.
               </p>
             </div>
-            <Modal.Close disabled={isSaving} aria-label="Fermer le formulaire produit">
+            <Modal.Close
+              disabled={isSaving}
+              aria-label="Fermer le formulaire produit"
+            >
               Fermer
             </Modal.Close>
           </Modal.Header>
@@ -173,19 +185,28 @@ export function ProductFormModal({
               </legend>
 
               <div>
-                <label className="form-label" htmlFor="product-reference">Référence</label>
+                <label className="form-label" htmlFor="product-reference">
+                  Référence
+                </label>
                 <input
                   id="product-reference"
                   className="form-input"
                   autoComplete="off"
                   placeholder="Ex. Tub.I4S.50"
                   value={form.reference}
-                  onChange={(event) => setForm((current) => ({ ...current, reference: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      reference: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-designation">Désignation *</label>
+                <label className="form-label" htmlFor="product-designation">
+                  Désignation *
+                </label>
                 <input
                   id="product-designation"
                   className="form-input"
@@ -193,29 +214,48 @@ export function ProductFormModal({
                   placeholder="Ex. Tube inox 304L DN50"
                   required
                   value={form.designation}
-                  onChange={(event) => setForm((current) => ({ ...current, designation: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      designation: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-category">Famille</label>
+                <label className="form-label" htmlFor="product-category">
+                  Famille
+                </label>
                 <input
                   id="product-category"
                   className="form-input"
                   placeholder="Ex. Tuyauterie"
                   value={form.category}
-                  onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      category: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-type">Type d’article</label>
+                <label className="form-label" htmlFor="product-type">
+                  Type d’article
+                </label>
                 <input
                   id="product-type"
                   className="form-input"
                   placeholder="Ex. Tube, coude, té"
                   value={form.product_type}
-                  onChange={(event) => setForm((current) => ({ ...current, product_type: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      product_type: event.target.value,
+                    }))
+                  }
                 />
               </div>
             </fieldset>
@@ -226,46 +266,74 @@ export function ProductFormModal({
               </legend>
 
               <div>
-                <label className="form-label" htmlFor="product-material">Matière</label>
+                <label className="form-label" htmlFor="product-material">
+                  Matière
+                </label>
                 <input
                   id="product-material"
                   className="form-input"
                   placeholder="Ex. Inox"
                   value={form.material}
-                  onChange={(event) => setForm((current) => ({ ...current, material: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      material: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-grade">Nuance</label>
+                <label className="form-label" htmlFor="product-grade">
+                  Nuance
+                </label>
                 <input
                   id="product-grade"
                   className="form-input"
                   placeholder="Ex. 304L"
                   value={form.grade}
-                  onChange={(event) => setForm((current) => ({ ...current, grade: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      grade: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-dimensions">Dimensions</label>
+                <label className="form-label" htmlFor="product-dimensions">
+                  Dimensions
+                </label>
                 <input
                   id="product-dimensions"
                   className="form-input"
                   placeholder="Ex. DN50 · 60,3 × 2"
                   value={form.dimensions}
-                  onChange={(event) => setForm((current) => ({ ...current, dimensions: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      dimensions: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-standard">Norme</label>
+                <label className="form-label" htmlFor="product-standard">
+                  Norme
+                </label>
                 <input
                   id="product-standard"
                   className="form-input"
                   placeholder="Ex. EN 10217-7"
                   value={form.standard}
-                  onChange={(event) => setForm((current) => ({ ...current, standard: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      standard: event.target.value,
+                    }))
+                  }
                 />
               </div>
             </fieldset>
@@ -276,12 +344,19 @@ export function ProductFormModal({
               </legend>
 
               <div>
-                <label className="form-label" htmlFor="product-unit">Unité *</label>
+                <label className="form-label" htmlFor="product-unit">
+                  Unité *
+                </label>
                 <select
                   id="product-unit"
                   className="form-input form-select"
                   value={form.unit}
-                  onChange={(event) => setForm((current) => ({ ...current, unit: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      unit: event.target.value,
+                    }))
+                  }
                 >
                   <option value="u">Unité (u)</option>
                   <option value="ml">Mètre linéaire (ml)</option>
@@ -292,7 +367,9 @@ export function ProductFormModal({
               </div>
 
               <div className="sm:col-span-1 lg:col-span-2">
-                <label className="form-label" htmlFor="product-price">Prix de référence HT *</label>
+                <label className="form-label" htmlFor="product-price">
+                  Prix de référence HT *
+                </label>
                 <div className="relative">
                   <input
                     id="product-price"
@@ -301,27 +378,43 @@ export function ProductFormModal({
                     placeholder="0,00"
                     required
                     value={form.unit_price_euros}
-                    onChange={(event) => setForm((current) => ({ ...current, unit_price_euros: event.target.value }))}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        unit_price_euros: event.target.value,
+                      }))
+                    }
                   />
                   <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[var(--slate-400)]">
                     EUR
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-[var(--slate-500)]">
-                  Valeur interne utilisée par défaut avant comparaison des fournisseurs.
-                </p>
+                  {product?._referencePriceSourceOrderId
+                    ? "Ce montant vient du dernier achat confirmé. Le modifier le remplace par une saisie interne."
+                    : "Saisie interne utilisée tant qu’aucun achat confirmé n’est disponible."}
+                </p>{" "}
               </div>
 
               <div>
-                <label className="form-label" htmlFor="product-tax">TVA</label>
+                <label className="form-label" htmlFor="product-tax">
+                  TVA
+                </label>
                 <select
                   id="product-tax"
                   className="form-input form-select"
                   value={form.tax_rate_bp}
-                  onChange={(event) => setForm((current) => ({ ...current, tax_rate_bp: Number(event.target.value) }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      tax_rate_bp: Number(event.target.value),
+                    }))
+                  }
                 >
                   {TAX_RATE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -332,21 +425,38 @@ export function ProductFormModal({
                 <input
                   type="checkbox"
                   checked={form.is_active}
-                  onChange={(event) => setForm((current) => ({ ...current, is_active: event.target.checked }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      is_active: event.target.checked,
+                    }))
+                  }
                 />
                 Produit actif et proposé dans les recherches et chiffrages
               </label>
             ) : null}
 
             {localError || error ? (
-              <div className="alert alert-error mt-5" role="alert">{localError ?? error}</div>
+              <div className="alert alert-error mt-5" role="alert">
+                {localError ?? error}
+              </div>
             ) : null}
           </Modal.Body>
 
           <Modal.Footer className="mt-0 border-t border-[var(--slate-200)] px-6 py-4">
-            <Modal.Close className="btn btn-secondary" disabled={isSaving}>Annuler</Modal.Close>
-            <button className="btn btn-primary" type="submit" disabled={isSaving}>
-              {isSaving ? "Enregistrement..." : isEditing ? "Enregistrer" : "Ajouter le produit"}
+            <Modal.Close className="btn btn-secondary" disabled={isSaving}>
+              Annuler
+            </Modal.Close>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={isSaving}
+            >
+              {isSaving
+                ? "Enregistrement..."
+                : isEditing
+                  ? "Enregistrer"
+                  : "Ajouter le produit"}
             </button>
           </Modal.Footer>
         </form>

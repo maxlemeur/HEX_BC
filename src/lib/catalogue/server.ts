@@ -148,11 +148,15 @@ export function ok<T>(data: T, status: 200 | 201 = 200) {
       ok: true,
       data,
     },
-    { status }
+    { status },
   );
 }
 
-export function badRequest(message: string, details?: unknown, code = "BAD_REQUEST") {
+export function badRequest(
+  message: string,
+  details?: unknown,
+  code = "BAD_REQUEST",
+) {
   return new CatalogueApiError({
     status: 400,
     code,
@@ -169,7 +173,11 @@ function unauthorized(message = "Unauthorized") {
   });
 }
 
-function forbidden(message = "Acces refuse.", details?: unknown, code = "FORBIDDEN") {
+function forbidden(
+  message = "Acces refuse.",
+  details?: unknown,
+  code = "FORBIDDEN",
+) {
   return new CatalogueApiError({
     status: 403,
     code,
@@ -199,7 +207,7 @@ function conflict(message: string, details?: unknown, code = "CONFLICT") {
 function internalError(
   message = "Une erreur interne est survenue.",
   details?: unknown,
-  code: ApiErrorCode | string = "INTERNAL_ERROR"
+  code: ApiErrorCode | string = "INTERNAL_ERROR",
 ) {
   return new CatalogueApiError({
     status: 500,
@@ -209,10 +217,17 @@ function internalError(
   });
 }
 
-function mapSupabaseError(error: PostgrestError, fallbackMessage: string): CatalogueApiError {
-  const normalizedMessage = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+function mapSupabaseError(
+  error: PostgrestError,
+  fallbackMessage: string,
+): CatalogueApiError {
+  const normalizedMessage =
+    `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
 
-  if (error.code === "42501" || normalizedMessage.includes("row-level security")) {
+  if (
+    error.code === "42501" ||
+    normalizedMessage.includes("row-level security")
+  ) {
     return forbidden("Acces refuse.", error, "FORBIDDEN");
   }
 
@@ -224,7 +239,11 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Catal
     return conflict("Conflit de donnees.", error, "CONFLICT");
   }
 
-  if (error.code === "23503" || error.code === "23514" || error.code === "22P02") {
+  if (
+    error.code === "23503" ||
+    error.code === "23514" ||
+    error.code === "22P02"
+  ) {
     return badRequest(fallbackMessage, error, "BAD_REQUEST");
   }
 
@@ -268,7 +287,10 @@ export function toErrorResponse(error: unknown) {
 
   // K-01: Log internal details server-side only, never expose to client
   if (apiError.details) {
-    console.error(`[catalogue] API error details (${apiError.code}):`, apiError.details);
+    console.error(
+      `[catalogue] API error details (${apiError.code}):`,
+      apiError.details,
+    );
   }
 
   const body: ApiFailureResponse = {
@@ -331,10 +353,16 @@ function scoreSuggestionMatch(source: string, candidate: string): number {
 
   if (!sourceToken || !candidateToken) return 0;
   if (sourceToken === candidateToken) return 1;
-  if (candidateToken.startsWith(sourceToken) || sourceToken.startsWith(candidateToken)) {
+  if (
+    candidateToken.startsWith(sourceToken) ||
+    sourceToken.startsWith(candidateToken)
+  ) {
     return 0.9;
   }
-  if (candidateToken.includes(sourceToken) || sourceToken.includes(candidateToken)) {
+  if (
+    candidateToken.includes(sourceToken) ||
+    sourceToken.includes(candidateToken)
+  ) {
     return 0.8;
   }
 
@@ -369,7 +397,9 @@ function extractMissingColumn(error: PostgrestError): string | null {
 
 function isFunctionMissingError(error: PostgrestError) {
   const message = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
-  return error.code === "PGRST202" || message.includes("could not find the function");
+  return (
+    error.code === "PGRST202" || message.includes("could not find the function")
+  );
 }
 
 function sanitizeWritePayload(payload: JsonRecord) {
@@ -387,7 +417,7 @@ async function insertSingleWithFallback(
   supabase: RuntimeSupabase,
   table: string,
   payload: JsonRecord,
-  fallbackMessage: string
+  fallbackMessage: string,
 ): Promise<JsonRecord> {
   const attemptPayload = sanitizeWritePayload(payload);
   // K-07: Track silently dropped columns
@@ -403,7 +433,7 @@ async function insertSingleWithFallback(
     if (!error) {
       if (droppedColumns.length > 0) {
         console.warn(
-          `[catalogue] insertSingleWithFallback: dropped columns [${droppedColumns.join(", ")}] from table "${table}"`
+          `[catalogue] insertSingleWithFallback: dropped columns [${droppedColumns.join(", ")}] from table "${table}"`,
         );
       }
       return (data ?? {}) as JsonRecord;
@@ -426,7 +456,7 @@ async function updateSingleWithFallback(
   table: string,
   id: string,
   payload: JsonRecord,
-  fallbackMessage: string
+  fallbackMessage: string,
 ): Promise<JsonRecord> {
   const attemptPayload = sanitizeWritePayload(payload);
 
@@ -464,7 +494,7 @@ async function insertManyWithFallback(
   supabase: RuntimeSupabase,
   table: string,
   payload: JsonRecord[],
-  fallbackMessage: string
+  fallbackMessage: string,
 ): Promise<JsonRecord[]> {
   let attemptPayload = payload.map((row) => sanitizeWritePayload(row));
 
@@ -581,15 +611,24 @@ function resolveProductId(input: {
   return input.product_id ?? input.catalogue_item_id ?? null;
 }
 
-function resolveIndexCode(input: { index_code?: string | null; code?: string | null }) {
+function resolveIndexCode(input: {
+  index_code?: string | null;
+  code?: string | null;
+}) {
   return input.index_code ?? input.code ?? null;
 }
 
-function resolveIndexValue(input: { index_value?: number | null; value?: number | null }) {
+function resolveIndexValue(input: {
+  index_value?: number | null;
+  value?: number | null;
+}) {
   return input.index_value ?? input.value ?? null;
 }
 
-function resolveIndexDate(input: { index_date?: string | null; effective_date?: string | null }) {
+function resolveIndexDate(input: {
+  index_date?: string | null;
+  effective_date?: string | null;
+}) {
   return input.index_date ?? input.effective_date ?? null;
 }
 
@@ -667,7 +706,9 @@ export async function listCatalogueItems(input: CatalogueListQueryInput) {
     }
 
     if (safeSearch) {
-      query = query.or(`reference.ilike.%${safeSearch}%,designation.ilike.%${safeSearch}%`);
+      query = query.or(
+        `reference.ilike.%${safeSearch}%,designation.ilike.%${safeSearch}%`,
+      );
     }
 
     return query;
@@ -675,7 +716,11 @@ export async function listCatalogueItems(input: CatalogueListQueryInput) {
 
   let { data, error } = await buildQuery(!input.include_inactive);
 
-  if (error && !input.include_inactive && extractMissingColumn(error) === "is_active") {
+  if (
+    error &&
+    !input.include_inactive &&
+    extractMissingColumn(error) === "is_active"
+  ) {
     const fallbackResult = await buildQuery(false);
     data = fallbackResult.data;
     error = fallbackResult.error;
@@ -685,7 +730,9 @@ export async function listCatalogueItems(input: CatalogueListQueryInput) {
     throw mapSupabaseError(error, "Impossible de charger le catalogue.");
   }
 
-  const rows = (data ?? []).map((row) => normalizeCatalogueRecord((row ?? {}) as JsonRecord));
+  const rows = (data ?? []).map((row) =>
+    normalizeCatalogueRecord((row ?? {}) as JsonRecord),
+  );
 
   return {
     items: rows,
@@ -713,10 +760,16 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
   ]);
 
   if (pageResult.error) {
-    throw mapSupabaseError(pageResult.error, "Impossible de charger la page du catalogue.");
+    throw mapSupabaseError(
+      pageResult.error,
+      "Impossible de charger la page du catalogue.",
+    );
   }
   if (summaryResult.error) {
-    throw mapSupabaseError(summaryResult.error, "Impossible de charger les indicateurs du catalogue.");
+    throw mapSupabaseError(
+      summaryResult.error,
+      "Impossible de charger les indicateurs du catalogue.",
+    );
   }
 
   const pageRows = rpcRecords(pageResult.data);
@@ -729,7 +782,10 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
       p_size: 25,
     });
     if (countProbe.error) {
-      throw mapSupabaseError(countProbe.error, "Impossible de verifier la pagination du catalogue.");
+      throw mapSupabaseError(
+        countProbe.error,
+        "Impossible de verifier la pagination du catalogue.",
+      );
     }
     totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
   }
@@ -739,17 +795,36 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     return {
       ...normalized,
       _status: normalized.is_active === false ? "archived" : "active",
-      _priceStatus: typeof row.price_status === "string" ? row.price_status : "none",
+      _priceStatus:
+        typeof row.price_status === "string" ? row.price_status : "none",
       _supplierPriceCount: asSafeInteger(row.supplier_price_count),
       _bestSupplierPriceCents:
         typeof row.best_supplier_price_cents === "number"
           ? row.best_supplier_price_cents
           : null,
       _bestSupplierName:
-        typeof row.best_supplier_name === "string" ? row.best_supplier_name : null,
+        typeof row.best_supplier_name === "string"
+          ? row.best_supplier_name
+          : null,
       _bestSupplierPriceUpdatedAt:
         typeof row.best_supplier_price_updated_at === "string"
           ? row.best_supplier_price_updated_at
+          : null,
+      _referencePriceSourceOrderId:
+        typeof row.reference_price_source_order_id === "string"
+          ? row.reference_price_source_order_id
+          : null,
+      _referencePriceSourceOrderReference:
+        typeof row.reference_price_source_order_reference === "string"
+          ? row.reference_price_source_order_reference
+          : null,
+      _referencePriceSourceSupplierName:
+        typeof row.reference_price_source_supplier_name === "string"
+          ? row.reference_price_source_supplier_name
+          : null,
+      _referencePriceSourceDate:
+        typeof row.reference_price_source_date === "string"
+          ? row.reference_price_source_date
           : null,
     };
   });
@@ -795,7 +870,7 @@ export async function createCatalogueItem(input: CreateCatalogueItemInput) {
     supabase,
     CATALOGUE_TABLE,
     payload,
-    "Impossible de creer la ligne catalogue."
+    "Impossible de creer la ligne catalogue.",
   );
 
   return {
@@ -811,7 +886,9 @@ export async function updateCatalogueItem(input: UpdateCatalogueItemInput) {
     Object.prototype.hasOwnProperty.call(input.item, "hex_code");
 
   const payload: JsonRecord = {
-    reference: hasReference ? input.item.reference ?? input.item.hex_code : undefined,
+    reference: hasReference
+      ? (input.item.reference ?? input.item.hex_code)
+      : undefined,
     designation: input.item.designation,
     unit_price_cents: input.item.unit_price_cents,
     tax_rate_bp: input.item.tax_rate_bp,
@@ -823,7 +900,7 @@ export async function updateCatalogueItem(input: UpdateCatalogueItemInput) {
     CATALOGUE_TABLE,
     input.id,
     payload,
-    "Impossible de mettre a jour la ligne catalogue."
+    "Impossible de mettre a jour la ligne catalogue.",
   );
 
   return {
@@ -842,7 +919,10 @@ export async function deleteCatalogueItem(id: string) {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de supprimer la ligne catalogue.");
+    throw mapSupabaseError(
+      error,
+      "Impossible de supprimer la ligne catalogue.",
+    );
   }
 
   if (!data) {
@@ -861,7 +941,9 @@ type MappedRowCandidate = {
   designation: string;
 };
 
-function buildMappedRowCandidates(rows: Array<{ id: string; payload: unknown }>) {
+function buildMappedRowCandidates(
+  rows: Array<{ id: string; payload: unknown }>,
+) {
   const candidates: MappedRowCandidate[] = [];
 
   for (const row of rows) {
@@ -880,7 +962,9 @@ function buildMappedRowCandidates(rows: Array<{ id: string; payload: unknown }>)
       id: row.id,
       payload,
       reference:
-        typeof referenceRaw === "string" ? referenceRaw.trim() : String(referenceRaw),
+        typeof referenceRaw === "string"
+          ? referenceRaw.trim()
+          : String(referenceRaw),
       designation:
         typeof designationRaw === "string"
           ? designationRaw.trim()
@@ -919,7 +1003,7 @@ function indexCatalogueRows(rows: CatalogueItemRecord[]) {
 
 function matchCatalogueItem(
   candidate: MappedRowCandidate,
-  indexes: ReturnType<typeof indexCatalogueRows>
+  indexes: ReturnType<typeof indexCatalogueRows>,
 ): {
   item: CatalogueItemRecord;
   matchType: "reference+designation" | "reference" | "designation";
@@ -930,7 +1014,7 @@ function matchCatalogueItem(
   const referenceRows = indexes.byReference.get(referenceToken) ?? [];
   if (referenceRows.length > 0) {
     const exact = referenceRows.find(
-      (row) => normalizeToken(row.designation) === designationToken
+      (row) => normalizeToken(row.designation) === designationToken,
     );
 
     if (exact) {
@@ -965,43 +1049,58 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
     .limit(input.limit);
 
   if (mappedRowsError) {
-    throw mapSupabaseError(mappedRowsError, "Impossible de charger les lignes mappees.");
+    throw mapSupabaseError(
+      mappedRowsError,
+      "Impossible de charger les lignes mappees.",
+    );
   }
 
   const candidates = buildMappedRowCandidates(
-    ((mappedRows ?? []) as Array<{ id: string; payload: unknown }>)
+    (mappedRows ?? []) as Array<{ id: string; payload: unknown }>,
   );
 
   const uniqueReferences = Array.from(
     new Set(
       candidates
         .map((x) => x.reference.trim())
-        .filter((value) => value.length > 0)
-    )
+        .filter((value) => value.length > 0),
+    ),
   );
   const uniqueDesignations = Array.from(
     new Set(
       candidates
         .map((x) => x.designation.trim())
-        .filter((value) => value.length > 0)
-    )
+        .filter((value) => value.length > 0),
+    ),
   );
 
   const [catalogueByReference, catalogueByDesignation] = await Promise.all([
     uniqueReferences.length > 0
-      ? supabase.from(CATALOGUE_TABLE).select("*").in("reference", uniqueReferences)
+      ? supabase
+          .from(CATALOGUE_TABLE)
+          .select("*")
+          .in("reference", uniqueReferences)
       : Promise.resolve({ data: [], error: null }),
     uniqueDesignations.length > 0
-      ? supabase.from(CATALOGUE_TABLE).select("*").in("designation", uniqueDesignations)
+      ? supabase
+          .from(CATALOGUE_TABLE)
+          .select("*")
+          .in("designation", uniqueDesignations)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (catalogueByReference.error) {
-    throw mapSupabaseError(catalogueByReference.error, "Impossible de charger le catalogue.");
+    throw mapSupabaseError(
+      catalogueByReference.error,
+      "Impossible de charger le catalogue.",
+    );
   }
 
   if (catalogueByDesignation.error) {
-    throw mapSupabaseError(catalogueByDesignation.error, "Impossible de charger le catalogue.");
+    throw mapSupabaseError(
+      catalogueByDesignation.error,
+      "Impossible de charger le catalogue.",
+    );
   }
 
   const allRowsMap = new Map<string, CatalogueItemRecord>();
@@ -1017,7 +1116,10 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
   const knownRows = Array.from(allRowsMap.values());
   let indexes = indexCatalogueRows(knownRows);
 
-  const rowsToCreate = new Map<string, { reference: string; designation: string }>();
+  const rowsToCreate = new Map<
+    string,
+    { reference: string; designation: string }
+  >();
   const preMatches = new Map<
     string,
     {
@@ -1058,7 +1160,7 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
       supabase,
       CATALOGUE_TABLE,
       payload,
-      "Impossible de creer les lignes catalogue depuis les lignes mappees."
+      "Impossible de creer les lignes catalogue depuis les lignes mappees.",
     );
 
     createdRows = inserted.map((row) => normalizeCatalogueRecord(row));
@@ -1078,7 +1180,8 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
   }> = [];
 
   for (const candidate of candidates) {
-    const existingMatch = preMatches.get(candidate.id) ?? matchCatalogueItem(candidate, indexes);
+    const existingMatch =
+      preMatches.get(candidate.id) ?? matchCatalogueItem(candidate, indexes);
     if (!existingMatch) continue;
 
     links.push({
@@ -1103,7 +1206,10 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
     });
 
     if (error && !isFunctionMissingError(error)) {
-      throw mapSupabaseError(error, "Impossible de persister les liaisons catalogue.");
+      throw mapSupabaseError(
+        error,
+        "Impossible de persister les liaisons catalogue.",
+      );
     }
 
     if (error && isFunctionMissingError(error)) {
@@ -1113,14 +1219,19 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
         .select("id");
 
       if (fallbackError) {
-        throw mapSupabaseError(fallbackError, "Impossible de persister les liaisons catalogue.");
+        throw mapSupabaseError(
+          fallbackError,
+          "Impossible de persister les liaisons catalogue.",
+        );
       }
     }
   }
 
   // T-13: Batch payload updates in chunks of 100 instead of 1 per row
   if (input.update_payload && !input.dry_run && links.length > 0) {
-    const payloadByRowId = new Map(candidates.map((candidate) => [candidate.id, candidate.payload]));
+    const payloadByRowId = new Map(
+      candidates.map((candidate) => [candidate.id, candidate.payload]),
+    );
 
     const linkChunks = chunkItems(links, 100);
 
@@ -1144,9 +1255,12 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
             .eq("id", link.mapped_row_id);
 
           if (error) {
-            throw mapSupabaseError(error, "Impossible de lier les lignes mappees au catalogue.");
+            throw mapSupabaseError(
+              error,
+              "Impossible de lier les lignes mappees au catalogue.",
+            );
           }
-        })
+        }),
       );
     }
   }
@@ -1184,11 +1298,16 @@ export async function listSupplierPrices(input: PricesListQueryInput) {
   const { data, error } = await query;
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les prix fournisseur.");
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les prix fournisseur.",
+    );
   }
 
   return {
-    items: (data ?? []).map((row) => normalizeSupplierPriceRecord((row ?? {}) as JsonRecord)),
+    items: (data ?? []).map((row) =>
+      normalizeSupplierPriceRecord((row ?? {}) as JsonRecord),
+    ),
   };
 }
 
@@ -1214,10 +1333,16 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
   ]);
 
   if (pageResult.error) {
-    throw mapSupabaseError(pageResult.error, "Impossible de charger la page des prix fournisseur.");
+    throw mapSupabaseError(
+      pageResult.error,
+      "Impossible de charger la page des prix fournisseur.",
+    );
   }
   if (summaryResult.error) {
-    throw mapSupabaseError(summaryResult.error, "Impossible de charger les indicateurs des prix.");
+    throw mapSupabaseError(
+      summaryResult.error,
+      "Impossible de charger les indicateurs des prix.",
+    );
   }
 
   const pageRows = rpcRecords(pageResult.data);
@@ -1230,7 +1355,10 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
       p_size: 25,
     });
     if (countProbe.error) {
-      throw mapSupabaseError(countProbe.error, "Impossible de verifier la pagination des prix.");
+      throw mapSupabaseError(
+        countProbe.error,
+        "Impossible de verifier la pagination des prix.",
+      );
     }
     totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
   }
@@ -1238,13 +1366,19 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
   const items = pageRows.map((row) => ({
     ...normalizeSupplierPriceRecord(row),
     _supplierName:
-      typeof row.supplier_name === "string" ? row.supplier_name : String(row.supplier_id ?? ""),
+      typeof row.supplier_name === "string"
+        ? row.supplier_name
+        : String(row.supplier_id ?? ""),
     _productName:
-      typeof row.product_name === "string" ? row.product_name : String(row.product_id ?? ""),
+      typeof row.product_name === "string"
+        ? row.product_name
+        : String(row.product_id ?? ""),
     _productReference:
       typeof row.product_reference === "string" ? row.product_reference : null,
     _freshnessLevel:
-      row.freshness === "aging" || row.freshness === "stale" ? row.freshness : "fresh",
+      row.freshness === "aging" || row.freshness === "stale"
+        ? row.freshness
+        : "fresh",
     _ageDays: asSafeInteger(row.age_days),
   }));
 
@@ -1271,7 +1405,8 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
 
 export async function listPriceLookups(input: PriceLookupsQueryInput) {
   const { supabase } = await getAuthenticatedContext();
-  const kinds = input.kind === "all" ? (["supplier", "product"] as const) : [input.kind];
+  const kinds =
+    input.kind === "all" ? (["supplier", "product"] as const) : [input.kind];
 
   const results = await Promise.all(
     kinds.map((kind) =>
@@ -1280,13 +1415,16 @@ export async function listPriceLookups(input: PriceLookupsQueryInput) {
         p_q: input.q || null,
         p_selected_id: input.selected_id,
         p_limit: input.limit,
-      })
-    )
+      }),
+    ),
   );
 
   for (const result of results) {
     if (result.error) {
-      throw mapSupabaseError(result.error, "Impossible de charger les suggestions du referentiel.");
+      throw mapSupabaseError(
+        result.error,
+        "Impossible de charger les suggestions du referentiel.",
+      );
     }
   }
 
@@ -1331,7 +1469,7 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
       source_mapped_row_id: input.source_mapped_row_id,
       notes: input.notes ?? input.source,
     },
-    "Impossible de creer le prix fournisseur."
+    "Impossible de creer le prix fournisseur.",
   );
 
   return {
@@ -1344,8 +1482,14 @@ export async function updateSupplierPrice(input: UpdateSupplierPriceInput) {
   const hasProductId =
     Object.prototype.hasOwnProperty.call(input.item, "product_id") ||
     Object.prototype.hasOwnProperty.call(input.item, "catalogue_item_id");
-  const hasValidFrom = Object.prototype.hasOwnProperty.call(input.item, "valid_from");
-  const hasValidTo = Object.prototype.hasOwnProperty.call(input.item, "valid_to");
+  const hasValidFrom = Object.prototype.hasOwnProperty.call(
+    input.item,
+    "valid_from",
+  );
+  const hasValidTo = Object.prototype.hasOwnProperty.call(
+    input.item,
+    "valid_to",
+  );
 
   const row = await updateSingleWithFallback(
     supabase,
@@ -1359,14 +1503,16 @@ export async function updateSupplierPrice(input: UpdateSupplierPriceInput) {
       min_quantity: input.item.min_quantity ?? undefined,
       unit_price_cents: input.item.unit_price_cents,
       currency: input.item.currency,
-      valid_from: hasValidFrom ? input.item.valid_from ?? undefined : undefined,
-      valid_to: hasValidTo ? input.item.valid_to ?? null : undefined,
+      valid_from: hasValidFrom
+        ? (input.item.valid_from ?? undefined)
+        : undefined,
+      valid_to: hasValidTo ? (input.item.valid_to ?? null) : undefined,
       is_active: input.item.is_active,
       source_import_id: input.item.source_import_id,
       source_mapped_row_id: input.item.source_mapped_row_id,
       notes: input.item.notes ?? input.item.source,
     },
-    "Impossible de mettre a jour le prix fournisseur."
+    "Impossible de mettre a jour le prix fournisseur.",
   );
 
   return {
@@ -1385,7 +1531,10 @@ export async function deleteSupplierPrice(id: string) {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de supprimer le prix fournisseur.");
+    throw mapSupabaseError(
+      error,
+      "Impossible de supprimer le prix fournisseur.",
+    );
   }
 
   if (!data) {
@@ -1399,11 +1548,15 @@ export async function deleteSupplierPrice(id: string) {
 
 type BulkCreateSupplierPricesMode = "rpc" | "fallback-insert";
 
-function buildBulkCreateSupplierPricesPayload(input: BulkCreateSupplierPricesInput): JsonRecord[] {
+function buildBulkCreateSupplierPricesPayload(
+  input: BulkCreateSupplierPricesInput,
+): JsonRecord[] {
   return input.map((item, index) => {
     const productId = resolveProductId(item);
     if (!productId) {
-      throw badRequest(`Le champ product_id est requis pour la ligne ${index + 1}.`);
+      throw badRequest(
+        `Le champ product_id est requis pour la ligne ${index + 1}.`,
+      );
     }
 
     return {
@@ -1427,7 +1580,7 @@ function buildBulkCreateSupplierPricesPayload(input: BulkCreateSupplierPricesInp
 
 async function bulkCreateSupplierPricesWithSupabase(
   supabase: RuntimeSupabase,
-  input: BulkCreateSupplierPricesInput
+  input: BulkCreateSupplierPricesInput,
 ): Promise<{ created_count: number; mode: BulkCreateSupplierPricesMode }> {
   const rpcPayload = buildBulkCreateSupplierPricesPayload(input);
   const fallbackMessage = "Impossible de creer les prix fournisseur en masse.";
@@ -1452,7 +1605,7 @@ async function bulkCreateSupplierPricesWithSupabase(
     supabase,
     SUPPLIER_PRICES_TABLE,
     rpcPayload,
-    fallbackMessage
+    fallbackMessage,
   );
 
   return {
@@ -1461,29 +1614,37 @@ async function bulkCreateSupplierPricesWithSupabase(
   };
 }
 
-export async function bulkCreateSupplierPrices(input: BulkCreateSupplierPricesInput) {
+export async function bulkCreateSupplierPrices(
+  input: BulkCreateSupplierPricesInput,
+) {
   const { supabase } = await getAuthenticatedContext();
   return bulkCreateSupplierPricesWithSupabase(supabase, input);
 }
 
-export async function bulkCreateSupplierPricesAtomic(input: BulkCreateSupplierPricesAtomicInput) {
+export async function bulkCreateSupplierPricesAtomic(
+  input: BulkCreateSupplierPricesAtomicInput,
+) {
   const { supabase } = await getAuthenticatedContext();
 
-  const hasManualNotes = input.items.some((item) => item.notes != null || item.source != null);
+  const hasManualNotes = input.items.some(
+    (item) => item.notes != null || item.source != null,
+  );
   if (hasManualNotes) {
     throw badRequest(
       "L'action bulk-create-atomic ne supporte pas les champs notes/source.",
       undefined,
-      "ATOMIC_IMPORT_UNSUPPORTED_FIELDS"
+      "ATOMIC_IMPORT_UNSUPPORTED_FIELDS",
     );
   }
 
   const marker = `${BULK_CREATE_PRICES_ATOMIC_MARKER_PREFIX}:${randomUUID()}`;
-  const itemsWithMarker: BulkCreateSupplierPricesInput = input.items.map((item) => ({
-    ...item,
-    source: null,
-    notes: marker,
-  }));
+  const itemsWithMarker: BulkCreateSupplierPricesInput = input.items.map(
+    (item) => ({
+      ...item,
+      source: null,
+      notes: marker,
+    }),
+  );
   const batches = chunkItems(itemsWithMarker, input.batch_size);
 
   let totalCreated = 0;
@@ -1494,7 +1655,10 @@ export async function bulkCreateSupplierPricesAtomic(input: BulkCreateSupplierPr
       const batch = batches[batchIndex];
 
       try {
-        const result = await bulkCreateSupplierPricesWithSupabase(supabase, batch);
+        const result = await bulkCreateSupplierPricesWithSupabase(
+          supabase,
+          batch,
+        );
         totalCreated += result.created_count;
         responseModes.add(result.mode);
       } catch (batchError) {
@@ -1502,7 +1666,9 @@ export async function bulkCreateSupplierPricesAtomic(input: BulkCreateSupplierPr
           batchError instanceof Error
             ? batchError.message
             : "Erreur inconnue pendant le bulk-create.";
-        throw new Error(`Echec du lot ${batchIndex + 1}/${batches.length}: ${details}`);
+        throw new Error(
+          `Echec du lot ${batchIndex + 1}/${batches.length}: ${details}`,
+        );
       }
     }
   } catch (importError) {
@@ -1515,15 +1681,23 @@ export async function bulkCreateSupplierPricesAtomic(input: BulkCreateSupplierPr
       throw internalError(
         "Echec de l'import et du rollback automatique des lots precedents.",
         {
-          import_error: importError instanceof Error ? importError.message : "Erreur inconnue.",
+          import_error:
+            importError instanceof Error
+              ? importError.message
+              : "Erreur inconnue.",
           rollback_error: rollbackError,
         },
-        "ATOMIC_IMPORT_ROLLBACK_FAILED"
+        "ATOMIC_IMPORT_ROLLBACK_FAILED",
       );
     }
 
-    const details = importError instanceof Error ? importError.message : "Erreur inconnue.";
-    throw badRequest(`Import annule: ${details}`, undefined, "ATOMIC_IMPORT_FAILED");
+    const details =
+      importError instanceof Error ? importError.message : "Erreur inconnue.";
+    throw badRequest(
+      `Import annule: ${details}`,
+      undefined,
+      "ATOMIC_IMPORT_FAILED",
+    );
   }
 
   const { error: cleanupError } = await supabase
@@ -1566,7 +1740,9 @@ export async function listMaterialIndices(input: IndicesListQueryInput) {
   }
 
   return {
-    items: (data ?? []).map((row) => normalizeMaterialIndexRecord((row ?? {}) as JsonRecord)),
+    items: (data ?? []).map((row) =>
+      normalizeMaterialIndexRecord((row ?? {}) as JsonRecord),
+    ),
   };
 }
 
@@ -1595,7 +1771,7 @@ export async function createMaterialIndex(input: CreateMaterialIndexInput) {
       source: input.source,
       metadata: input.metadata,
     },
-    "Impossible de creer l'indice matiere."
+    "Impossible de creer l'indice matiere.",
   );
 
   return {
@@ -1628,7 +1804,7 @@ export async function updateMaterialIndex(input: UpdateMaterialIndexInput) {
       source: input.item.source,
       metadata: input.item.metadata,
     },
-    "Impossible de mettre a jour l'indice matiere."
+    "Impossible de mettre a jour l'indice matiere.",
   );
 
   return {
@@ -1659,7 +1835,9 @@ export async function deleteMaterialIndex(id: string) {
   };
 }
 
-export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndicesInput) {
+export async function bulkUpsertMaterialIndices(
+  input: BulkUpsertMaterialIndicesInput,
+) {
   const { supabase } = await getAuthenticatedContext();
 
   const rpcPayload = input.map((item, index) => {
@@ -1667,11 +1845,15 @@ export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndices
     const indexValue = resolveIndexValue(item);
 
     if (!indexCode) {
-      throw badRequest(`Le champ index_code est requis pour la ligne ${index + 1}.`);
+      throw badRequest(
+        `Le champ index_code est requis pour la ligne ${index + 1}.`,
+      );
     }
 
     if (indexValue == null) {
-      throw badRequest(`Le champ index_value est requis pour la ligne ${index + 1}.`);
+      throw badRequest(
+        `Le champ index_value est requis pour la ligne ${index + 1}.`,
+      );
     }
 
     return {
@@ -1699,7 +1881,10 @@ export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndices
   }
 
   if (!isFunctionMissingError(error)) {
-    throw mapSupabaseError(error, "Impossible de synchroniser les indices en masse.");
+    throw mapSupabaseError(
+      error,
+      "Impossible de synchroniser les indices en masse.",
+    );
   }
 
   const fallbackRows = rpcPayload.map((item) => ({
@@ -1720,7 +1905,10 @@ export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndices
     .select("id");
 
   if (upsertError) {
-    throw mapSupabaseError(upsertError, "Impossible de synchroniser les indices en masse.");
+    throw mapSupabaseError(
+      upsertError,
+      "Impossible de synchroniser les indices en masse.",
+    );
   }
 
   return {
@@ -1730,7 +1918,7 @@ export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndices
 }
 
 export async function resolvePriceImportSuggestions(
-  input: ResolvePriceImportSuggestionsInput
+  input: ResolvePriceImportSuggestionsInput,
 ): Promise<{ suggestions: PriceImportSuggestion[] }> {
   const { supabase } = await getAuthenticatedContext();
   const suggestions: PriceImportSuggestion[] = [];
@@ -1746,7 +1934,10 @@ export async function resolvePriceImportSuggestions(
       .limit(10);
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible de resoudre les fournisseurs inconnus.");
+      throw mapSupabaseError(
+        error,
+        "Impossible de resoudre les fournisseurs inconnus.",
+      );
     }
 
     const matches = ((data ?? []) as Array<{ id: string; name: string }>)
@@ -1777,16 +1968,28 @@ export async function resolvePriceImportSuggestions(
       .limit(10);
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible de resoudre les produits inconnus.");
+      throw mapSupabaseError(
+        error,
+        "Impossible de resoudre les produits inconnus.",
+      );
     }
 
-    const matches = ((data ?? []) as Array<{ id: string; reference?: string | null; designation: string }>)
+    const matches = (
+      (data ?? []) as Array<{
+        id: string;
+        reference?: string | null;
+        designation: string;
+      }>
+    )
       .map((entry) => {
-        const reference = typeof entry.reference === "string" && entry.reference.trim() ? entry.reference : null;
+        const reference =
+          typeof entry.reference === "string" && entry.reference.trim()
+            ? entry.reference
+            : null;
         const bestValue = reference ?? entry.designation;
         const confidence = Math.max(
           scoreSuggestionMatch(productInput, bestValue),
-          scoreSuggestionMatch(productInput, entry.designation)
+          scoreSuggestionMatch(productInput, entry.designation),
         );
         return {
           id: entry.id,
@@ -1809,51 +2012,68 @@ export async function resolvePriceImportSuggestions(
 }
 
 export async function createMissingPriceImportEntities(
-  input: CreateMissingPriceImportEntitiesInput
+  input: CreateMissingPriceImportEntitiesInput,
 ): Promise<{
   createdSuppliers: Array<{ id: string; name: string }>;
-  createdProducts: Array<{ id: string; reference: string; designation: string }>;
+  createdProducts: Array<{
+    id: string;
+    reference: string;
+    designation: string;
+  }>;
 }> {
   const { supabase } = await getAuthenticatedContext();
 
   const createdSuppliers: Array<{ id: string; name: string }> = [];
-  const createdProducts: Array<{ id: string; reference: string; designation: string }> = [];
+  const createdProducts: Array<{
+    id: string;
+    reference: string;
+    designation: string;
+  }> = [];
 
   for (const supplierNameRaw of input.suppliersToCreate) {
     const supplierName = supplierNameRaw.trim();
     if (!supplierName) continue;
     const escapedSupplierName = escapeIlikePattern(supplierName);
 
-    const { data: existingSuppliers, error: existingSuppliersError } = await supabase
-      .from("suppliers")
-      .select("id, name")
-      .ilike("name", escapedSupplierName)
-      .limit(5);
+    const { data: existingSuppliers, error: existingSuppliersError } =
+      await supabase
+        .from("suppliers")
+        .select("id, name")
+        .ilike("name", escapedSupplierName)
+        .limit(5);
 
     if (existingSuppliersError) {
       throw mapSupabaseError(
         existingSuppliersError,
-        "Impossible de verifier les fournisseurs existants."
+        "Impossible de verifier les fournisseurs existants.",
       );
     }
 
-    const exactSupplier = ((existingSuppliers ?? []) as Array<{ id: string; name: string }>).find(
-      (supplier) => normalizeSuggestionToken(supplier.name) === normalizeSuggestionToken(supplierName)
+    const exactSupplier = (
+      (existingSuppliers ?? []) as Array<{ id: string; name: string }>
+    ).find(
+      (supplier) =>
+        normalizeSuggestionToken(supplier.name) ===
+        normalizeSuggestionToken(supplierName),
     );
 
     if (exactSupplier) continue;
 
-    const { data: insertedSupplier, error: insertSupplierError } = await supabase
-      .from("suppliers")
-      .insert({
-        name: supplierName,
-        is_active: true,
-      })
-      .select("id, name")
-      .single();
+    const { data: insertedSupplier, error: insertSupplierError } =
+      await supabase
+        .from("suppliers")
+        .insert({
+          name: supplierName,
+          is_active: true,
+        })
+        .select("id, name")
+        .single();
 
     if (insertSupplierError) {
-      throw mapSupabaseError(insertSupplierError, "Impossible de creer un fournisseur manquant.");
+      throw mapSupabaseError(
+        insertSupplierError,
+        "Impossible de creer un fournisseur manquant.",
+      );
     }
 
     if (insertedSupplier) {
@@ -1866,20 +2086,29 @@ export async function createMissingPriceImportEntities(
     if (!productReference) continue;
     const escapedProductReference = escapeIlikePattern(productReference);
 
-    const { data: existingProducts, error: existingProductsError } = await supabase
-      .from("products")
-      .select("id, reference")
-      .ilike("reference", escapedProductReference)
-      .limit(5);
+    const { data: existingProducts, error: existingProductsError } =
+      await supabase
+        .from("products")
+        .select("id, reference")
+        .ilike("reference", escapedProductReference)
+        .limit(5);
 
     if (existingProductsError) {
-      throw mapSupabaseError(existingProductsError, "Impossible de verifier les produits existants.");
+      throw mapSupabaseError(
+        existingProductsError,
+        "Impossible de verifier les produits existants.",
+      );
     }
 
-    const exactProduct = ((existingProducts ?? []) as Array<{ id: string; reference?: string | null }>).find(
+    const exactProduct = (
+      (existingProducts ?? []) as Array<{
+        id: string;
+        reference?: string | null;
+      }>
+    ).find(
       (product) =>
         normalizeSuggestionToken(product.reference ?? "") ===
-        normalizeSuggestionToken(productReference)
+        normalizeSuggestionToken(productReference),
     );
 
     if (exactProduct) continue;
@@ -1897,14 +2126,21 @@ export async function createMissingPriceImportEntities(
       .single();
 
     if (insertProductError) {
-      throw mapSupabaseError(insertProductError, "Impossible de creer un produit manquant.");
+      throw mapSupabaseError(
+        insertProductError,
+        "Impossible de creer un produit manquant.",
+      );
     }
 
     if (insertedProduct) {
       createdProducts.push({
         id: String((insertedProduct as { id: unknown }).id),
-        reference: String((insertedProduct as { reference: unknown }).reference),
-        designation: String((insertedProduct as { designation: unknown }).designation),
+        reference: String(
+          (insertedProduct as { reference: unknown }).reference,
+        ),
+        designation: String(
+          (insertedProduct as { designation: unknown }).designation,
+        ),
       });
     }
   }

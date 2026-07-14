@@ -159,13 +159,13 @@ export function AssemblyEditorModal({
       const item = items[index];
       const title = item.title.trim();
       if (!title) {
-        setValidationError(`La designation de la ligne ${index + 1} est obligatoire.`);
+        setValidationError(`La désignation de la ligne ${index + 1} est obligatoire.`);
         return;
       }
 
       const position = readPositiveInteger(item.position, index + 1);
       if (usedPositions.has(position)) {
-        setValidationError("Les positions des lignes doivent etre uniques.");
+        setValidationError("Les positions des lignes doivent être uniques.");
         return;
       }
       usedPositions.add(position);
@@ -214,7 +214,7 @@ export function AssemblyEditorModal({
               {modalTitle}
             </h2>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Configurez des lignes reutilisables pour les insertions dans l&apos;editeur.
+              Configurez des lignes réutilisables pour les insérer dans l&apos;éditeur.
             </p>
           </div>
           <button
@@ -260,12 +260,12 @@ export function AssemblyEditorModal({
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Designation</th>
-                  <th>Unite</th>
+                  <th>Désignation</th>
+                  <th>Unité</th>
                   <th>K FO</th>
                   <th>K MO</th>
-                  <th>Role MO (UUID)</th>
-                  <th>Qte defaut</th>
+                  <th>Rôle MO (UUID)</th>
+                  <th>Qté par défaut</th>
                   <th>Position</th>
                   <th></th>
                 </tr>
@@ -280,7 +280,7 @@ export function AssemblyEditorModal({
                         onChange={(event) =>
                           updateItem(index, { title: event.target.value })
                         }
-                        placeholder="Designation"
+                        placeholder="Désignation"
                       />
                     </td>
                     <td>

@@ -37,9 +37,9 @@ const CARDS = [
     ),
   },
   {
-    href: "/dashboard/catalogue",
-    title: "Catalogue",
-    description: "Consultation du catalogue fournisseur",
+    href: "/dashboard/estimates/assemblies",
+    title: "Kits métiers",
+    description: "Assemblages réutilisables pour vos chiffrages",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5z" />

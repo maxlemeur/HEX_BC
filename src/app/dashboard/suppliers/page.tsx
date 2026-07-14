@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import useSWR from "swr";
 
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
@@ -310,13 +311,17 @@ export default function SuppliersPage() {
       ) : null}
 
       {isFormOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40" />
+        createPortal(
           <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="supplier-modal-title"
-            className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
+            data-supplier-modal-root
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-slate-900/40" />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="supplier-modal-title"
+              className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="shrink-0 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
@@ -560,8 +565,10 @@ export default function SuppliersPage() {
                 </div>
               </div>
             </form>
-          </div>
-        </div>
+            </div>
+          </div>,
+          document.body
+        )
       ) : null}
 
       {/* Filter Bar */}

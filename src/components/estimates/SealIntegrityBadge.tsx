@@ -8,20 +8,33 @@ type SealIntegrityBadgeProps = {
 function getBadgeLabel(state: SealIntegrityState, hashPrefix?: string | null) {
   if (state === "valid") {
     if (hashPrefix) {
-      return `Scelle (${hashPrefix})`;
+      return `Scellé (${hashPrefix})`;
     }
-    return "Scelle";
+    return "Scellé";
   }
 
   if (state === "invalid") {
-    return "Integrite compromise";
+    return "Intégrité compromise";
   }
 
   if (state === "error") {
-    return "Verification indisponible";
+    return "Vérification indisponible";
   }
 
-  return "Non scelle";
+  return "Non scellé";
+}
+
+function getBadgeTitle(state: SealIntegrityState) {
+  if (state === "valid") {
+    return "Version scellée : son empreinte d’intégrité correspond au contenu du devis.";
+  }
+  if (state === "invalid") {
+    return "Le contenu du devis ne correspond plus à son empreinte d’intégrité.";
+  }
+  if (state === "error") {
+    return "L’intégrité de cette version ne peut pas être vérifiée pour le moment.";
+  }
+  return "Version modifiable : aucune empreinte d’intégrité n’a encore été enregistrée.";
 }
 
 function getBadgeClass(state: SealIntegrityState) {
@@ -35,9 +48,16 @@ export function SealIntegrityBadge({
   state,
   hashPrefix = null,
 }: Readonly<SealIntegrityBadgeProps>) {
+  const label = getBadgeLabel(state, hashPrefix);
+  const title = getBadgeTitle(state);
+
   return (
-    <span className={getBadgeClass(state)} title="Integrite du chiffrage">
-      {getBadgeLabel(state, hashPrefix)}
+    <span
+      aria-label={`${label}. ${title}`}
+      className={getBadgeClass(state)}
+      title={title}
+    >
+      {label}
     </span>
   );
 }

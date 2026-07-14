@@ -112,13 +112,19 @@ describe("responsive reference directory pages", () => {
   });
 
   it("uses supplier cards below xl and keeps the form actions visible", async () => {
-    render(<SuppliersPage />);
+    const { container } = render(<SuppliersPage />);
 
     await waitFor(() =>
       expect(screen.getAllByText("Acme Distribution")).toHaveLength(2),
     );
     expectResponsiveDirectoryLayout(/Ajouter un fournisseur/i);
     await expectScrollableDialog(/Ajouter un fournisseur/i);
+
+    const dialog = screen.getByRole("dialog");
+    const modalRoot = dialog.closest("[data-supplier-modal-root]");
+    expect(modalRoot).toHaveClass("z-[100]");
+    expect(modalRoot?.parentElement).toBe(document.body);
+    expect(container).not.toContainElement(dialog);
   });
 
   it("uses site cards below xl and keeps the form actions visible", async () => {

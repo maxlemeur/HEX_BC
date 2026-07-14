@@ -6,9 +6,14 @@ type PrintCurrencySelectProps = {
 
 export function PrintCurrencySelect({ currency }: PrintCurrencySelectProps) {
   return (
-    <label className="flex items-center gap-2 text-sm font-medium text-[var(--slate-700)]">
-      Devise
-      <select className="form-input form-select h-9 w-24" defaultValue={currency} disabled>
+    <label>
+      <span className="sr-only">Devise</span>
+      <select
+        aria-label="Devise"
+        className="form-input form-select h-10 w-24 bg-white text-sm font-medium"
+        defaultValue={currency}
+        disabled
+      >
         <option value={currency}>{currency}</option>
       </select>
     </label>

@@ -12,10 +12,11 @@ export function PrintLevelFilter({ value }: PrintLevelFilterProps) {
   const searchParams = useSearchParams();
 
   return (
-    <label className="flex items-center gap-2 text-sm font-medium text-[var(--slate-700)]">
-      Niveau max affiché
+    <label>
+      <span className="sr-only">Niveau max affiché</span>
       <select
-        className="form-input form-select h-9 w-24"
+        aria-label="Niveau max affiché"
+        className="form-input form-select h-10 w-44 bg-white text-sm font-medium"
         value={value}
         onChange={(event) => {
           const nextValue = event.target.value;
@@ -31,11 +32,11 @@ export function PrintLevelFilter({ value }: PrintLevelFilterProps) {
           });
         }}
       >
-        <option value="all">Tous</option>
-        <option value="1">Niv. 1</option>
-        <option value="2">Niv. 2</option>
-        <option value="3">Niv. 3</option>
-        <option value="4">Niv. 4</option>
+        <option value="all">Tous les niveaux</option>
+        <option value="1">Jusqu&apos;au niveau 1</option>
+        <option value="2">Jusqu&apos;au niveau 2</option>
+        <option value="3">Jusqu&apos;au niveau 3</option>
+        <option value="4">Jusqu&apos;au niveau 4</option>
       </select>
     </label>
   );

@@ -184,12 +184,14 @@ export function EstimateDocument({
             Conditions
           </h4>
           <div className="space-y-3 text-sm text-slate-600">
-            <div className="flex items-center justify-between gap-4">
-              <span>Remise</span>
-              <span className="font-semibold text-secondary-foreground">
-                {discountLabel}
-              </span>
-            </div>
+            {discountCents > 0 ? (
+              <div className="flex items-center justify-between gap-4">
+                <span>Remise</span>
+                <span className="font-semibold text-secondary-foreground">
+                  {discountLabel}
+                </span>
+              </div>
+            ) : null}
             {taxEnabled ? (
               <div className="flex items-center justify-between gap-4">
                 <span>TVA</span>
