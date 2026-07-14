@@ -7851,8 +7851,8 @@ export function useEstimateEditorState({
         showImportDpgfSource: hasLinkedDpgfSource || isLoadingLinkedDpgfSource,
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel: versionZeroSummary?.activeDraft
-          ? "Revoir V0 IA"
-          : "Generer V0",
+          ? "Revoir le brouillon IA"
+          : "Préparer un brouillon IA",
         isVersionZeroActionDisabled:
           !versionZeroSummary?.activeDraft && !versionZeroSummary?.canGenerate,
         isExportDisabled,
