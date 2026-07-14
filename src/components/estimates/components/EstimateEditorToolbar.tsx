@@ -250,9 +250,17 @@ export function EstimateEditorToolbar({
         POPOVER_VIEWPORT_PADDING,
         window.innerWidth - POPOVER_VIEWPORT_PADDING - width
       );
+      const leftAlignedPosition = buttonRect.left;
+      const rightAlignedPosition = buttonRect.right - width;
+      const canOpenRight =
+        leftAlignedPosition + width <=
+        window.innerWidth - POPOVER_VIEWPORT_PADDING;
       const left = Math.min(
         maximumLeft,
-        Math.max(POPOVER_VIEWPORT_PADDING, buttonRect.right - width)
+        Math.max(
+          POPOVER_VIEWPORT_PADDING,
+          canOpenRight ? leftAlignedPosition : rightAlignedPosition
+        )
       );
       const availableBelow = Math.max(
         0,

@@ -286,11 +286,11 @@ describe("EstimateEditorToolbar", () => {
   });
 
   it.each([
-    { viewportWidth: 727, expectedWidth: 320 },
-    { viewportWidth: 320, expectedWidth: 288 },
+    { viewportWidth: 727, expectedWidth: 320, expectedLeft: 180 },
+    { viewportWidth: 320, expectedWidth: 288, expectedLeft: 16 },
   ])(
     "keeps the tools panel inside a $viewportWidth px viewport",
-    ({ viewportWidth, expectedWidth }) => {
+    ({ viewportWidth, expectedWidth, expectedLeft }) => {
       vi.stubGlobal("innerWidth", viewportWidth);
       vi.stubGlobal("innerHeight", 800);
       vi.spyOn(
@@ -312,12 +312,34 @@ describe("EstimateEditorToolbar", () => {
 
       const panel = screen.getByRole("dialog", { name: "Outils du devis" });
       expect(panel).toHaveStyle({
-        left: "16px",
+        left: `${expectedLeft}px`,
         width: `${expectedWidth}px`,
       });
-      expect(16 + expectedWidth).toBeLessThanOrEqual(viewportWidth - 16);
+      expect(expectedLeft + expectedWidth).toBeLessThanOrEqual(viewportWidth - 16);
     }
   );
+
+  it("opens tools away from the sidebar when space is available", () => {
+    vi.stubGlobal("innerWidth", 1292);
+    vi.stubGlobal("innerHeight", 910);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      createRect({
+        left: 448,
+        right: 512,
+        top: 261,
+        bottom: 297,
+        width: 64,
+        height: 36,
+      })
+    );
+    renderToolbar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Outils" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Outils du devis" })
+    ).toHaveStyle({ left: "448px", width: "320px" });
+  });
 
   it("keeps the tools panel right-aligned to its trigger on desktop", () => {
     vi.stubGlobal("innerWidth", 1440);
