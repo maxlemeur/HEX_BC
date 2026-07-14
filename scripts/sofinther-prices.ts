@@ -33,7 +33,6 @@ const DEFAULT_BASE_URL = "https://www.sofinther.fr/sof/";
 const DEFAULT_CREDENTIALS_PATH = "docs/sofinther-credentials.local.md";
 const DEFAULT_OUTPUT_PATH = "tmp/sofinther-prices.csv";
 const SUPPLIER_NAME = "Sofinther";
-const PRICE_PATTERN = /(?:^|\s)(\d{1,4}(?:[\s\u00a0\u202f.]\d{3})*(?:[,.]\d{1,2})?)\s*(?:EUR|€)/i;
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {

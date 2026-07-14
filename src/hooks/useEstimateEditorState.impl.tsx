@@ -1756,8 +1756,6 @@ export function useEstimateEditorState({
     useState<AffaireLinkedDpgfSource>(null);
   const [isLoadingLinkedDpgfSource, setIsLoadingLinkedDpgfSource] =
     useState(false);
-  const [hasResolvedLinkedDpgfSource, setHasResolvedLinkedDpgfSource] =
-    useState(false);
   const [isImportingDpgfSource, setIsImportingDpgfSource] = useState(false);
   const {
     push: pushHistoryCommand,
@@ -2096,14 +2094,12 @@ export function useEstimateEditorState({
     if (!projectId) {
       setLinkedDpgfSource(null);
       setIsLoadingLinkedDpgfSource(false);
-      setHasResolvedLinkedDpgfSource(false);
       return;
     }
     const targetProjectId = projectId;
 
     let active = true;
     setIsLoadingLinkedDpgfSource(true);
-    setHasResolvedLinkedDpgfSource(false);
 
     async function loadLinkedDpgfSource() {
       try {
@@ -2117,7 +2113,6 @@ export function useEstimateEditorState({
       } finally {
         if (active) {
           setIsLoadingLinkedDpgfSource(false);
-          setHasResolvedLinkedDpgfSource(true);
         }
       }
     }

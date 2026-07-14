@@ -13,6 +13,8 @@ create index if not exists estimate_items_tenant_aid_idx
   on public.estimate_items (tenant_id, aid)
   where aid is not null;
 
+drop function if exists public.snapshot_estimate_item_bulk_updates(uuid, jsonb);
+
 create or replace function public.snapshot_estimate_item_bulk_updates(
   target_version_id uuid,
   item_updates jsonb

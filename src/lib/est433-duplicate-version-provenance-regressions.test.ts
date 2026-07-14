@@ -7,7 +7,7 @@ describe("EST-433 duplicate version provenance regressions", () => {
   const migrationSql = fs.readFileSync(
     path.resolve(
       process.cwd(),
-      "supabase/migrations/20260310113000_est433_duplicate_version_source_metadata_fix.sql"
+      "supabase/migrations/20260310113000_affaire_favorites.sql"
     ),
     "utf8"
   );

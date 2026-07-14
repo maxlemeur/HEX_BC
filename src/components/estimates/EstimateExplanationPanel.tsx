@@ -32,9 +32,19 @@ type EstimateExplanationPanelProps = {
 };
 
 type PanelState =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; explanation: EstimateExplanationSnapshot };
+  | { requestKey: string; kind: "loading" }
+  | { requestKey: string; kind: "error"; message: string }
+  | {
+      requestKey: string;
+      kind: "ready";
+      explanation: EstimateExplanationSnapshot;
+    };
+
+type DetailState = {
+  requestKey: string;
+  status: "idle" | "loading" | "error" | "ready";
+  message?: string;
+};
 
 const CONFIDENCE_VARIANTS = {
   high: "success",
@@ -148,6 +158,15 @@ function hasMarginImpact(input: {
   );
 }
 
+function formatExplanationError(error: unknown, detail: boolean) {
+  if (isEstimateApiError(error) || error instanceof EstimateApiError) {
+    return error.message;
+  }
+  return detail
+    ? "Impossible de charger le detail de l'explication."
+    : "Impossible de charger l'explication.";
+}
+
 function SummaryMetricCard({
   label,
   value,
@@ -221,23 +240,30 @@ export function EstimateExplanationPanel({
   surfaceLabel,
   cacheToken,
 }: EstimateExplanationPanelProps) {
-  const [state, setState] = useState<PanelState>({ kind: "loading" });
-  const [detailState, setDetailState] = useState<{
-    status: "idle" | "loading" | "error" | "ready";
-    message?: string;
-  }>({ status: "idle" });
-  const cacheRef = useRef<Record<string, EstimateExplanationSnapshot>>({});
   const requestKey =
     kind === "price"
       ? `${kind}:${versionId}:${lineId ?? "missing"}:${cacheToken ?? "default"}`
       : `${kind}:${versionId}:${compareVersionId ?? "missing"}:${cacheToken ?? "default"}`;
+  const [state, setState] = useState<PanelState>(() => ({
+    requestKey,
+    kind: "loading",
+  }));
+  const [storedDetailState, setDetailState] = useState<DetailState>(() => ({
+    requestKey,
+    status: "idle",
+  }));
+  const cacheRef = useRef<Record<string, EstimateExplanationSnapshot>>({});
+  const currentState: PanelState =
+    state.requestKey === requestKey
+      ? state
+      : { requestKey, kind: "loading" };
+  const detailState: DetailState =
+    storedDetailState.requestKey === requestKey
+      ? storedDetailState
+      : { requestKey, status: "idle" };
 
-  const loadExplanation = useCallback(
+  const requestExplanation = useCallback(
     async (detail: boolean, options?: { force?: boolean }) => {
-      if (!open) {
-        return;
-      }
-
       const cacheKey = `${requestKey}:${detail ? "detail" : "summary"}`;
       if (options?.force) {
         delete cacheRef.current[`${requestKey}:summary`];
@@ -246,71 +272,85 @@ export function EstimateExplanationPanel({
 
       const cached = options?.force ? null : cacheRef.current[cacheKey];
       if (cached) {
-        if (detail) {
-          startTransition(() => {
-            setState({ kind: "ready", explanation: cached });
-            setDetailState({ status: "ready" });
-          });
-        } else {
-          setState({ kind: "ready", explanation: cached });
-        }
+        return cached;
+      }
+
+      const explanation =
+        kind === "price"
+          ? await fetchEstimateLineExplanation(versionId, lineId ?? "", { detail })
+          : await fetchEstimateDeltaExplanation(versionId, compareVersionId ?? "", {
+              detail,
+            });
+      cacheRef.current[cacheKey] = explanation;
+      return explanation;
+    },
+    [compareVersionId, kind, lineId, requestKey, versionId]
+  );
+
+  const loadExplanation = useCallback(
+    async (detail: boolean, options?: { force?: boolean }) => {
+      if (!open) {
         return;
       }
 
       if (detail) {
-        setDetailState({ status: "loading" });
+        setDetailState({ requestKey, status: "loading" });
       } else {
-        setDetailState({ status: "idle" });
-        setState({ kind: "loading" });
+        setDetailState({ requestKey, status: "idle" });
+        setState({ requestKey, kind: "loading" });
       }
 
       try {
-        const explanation =
-          kind === "price"
-            ? await fetchEstimateLineExplanation(versionId, lineId ?? "", { detail })
-            : await fetchEstimateDeltaExplanation(versionId, compareVersionId ?? "", {
-                detail,
-              });
-
-        cacheRef.current[cacheKey] = explanation;
+        const explanation = await requestExplanation(detail, options);
         startTransition(() => {
-          setState({ kind: "ready", explanation });
+          setState({ requestKey, kind: "ready", explanation });
           if (detail) {
-            setDetailState({ status: "ready" });
+            setDetailState({ requestKey, status: "ready" });
           }
         });
       } catch (error) {
-        const message =
-          isEstimateApiError(error) || error instanceof EstimateApiError
-            ? error.message
-            : detail
-              ? "Impossible de charger le detail de l'explication."
-              : "Impossible de charger l'explication.";
+        const message = formatExplanationError(error, detail);
 
         if (detail) {
-          setDetailState({ status: "error", message });
+          setDetailState({ requestKey, status: "error", message });
         } else {
-          setState({ kind: "error", message });
+          setState({ requestKey, kind: "error", message });
         }
       }
     },
-    [compareVersionId, kind, lineId, open, requestKey, versionId]
+    [open, requestExplanation, requestKey]
   );
-
-  useEffect(() => {
-    setDetailState({ status: "idle" });
-  }, [requestKey]);
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    void loadExplanation(false);
-  }, [loadExplanation, open]);
+    let active = true;
+    void requestExplanation(false).then(
+      (explanation) => {
+        if (!active) return;
+        startTransition(() => {
+          setState({ requestKey, kind: "ready", explanation });
+        });
+      },
+      (error: unknown) => {
+        if (!active) return;
+        setState({
+          requestKey,
+          kind: "error",
+          message: formatExplanationError(error, false),
+        });
+      }
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [open, requestExplanation, requestKey]);
 
   const explanation =
-    state.kind === "ready" ? state.explanation : null;
+    currentState.kind === "ready" ? currentState.explanation : null;
   const title =
     kind === "price"
       ? lineLabel?.trim() || "Explication de prix"
@@ -383,15 +423,15 @@ export function EstimateExplanationPanel({
         </div>
 
         <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-[var(--slate-50)] px-5 py-5 sm:px-6">
-          {state.kind === "loading" ? (
+          {currentState.kind === "loading" ? (
             <div className="rounded-3xl border border-dashed border-[var(--border)] bg-white p-5 text-sm text-[var(--slate-600)]">
               Chargement de l&apos;explication...
             </div>
           ) : null}
 
-          {state.kind === "error" ? (
+          {currentState.kind === "error" ? (
             <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {state.message}
+              {currentState.message}
             </div>
           ) : null}
 
