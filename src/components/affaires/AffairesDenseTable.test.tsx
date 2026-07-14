@@ -162,7 +162,7 @@ describe("AffairesDenseTable", () => {
       screen.getByRole("columnheader", { name: "Approbation" })
     ).toHaveAttribute(
       "title",
-      "État de la approbation interne requise avant l’envoi au client."
+      "État de l’approbation interne requise avant l’envoi au client."
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Déplier" }));

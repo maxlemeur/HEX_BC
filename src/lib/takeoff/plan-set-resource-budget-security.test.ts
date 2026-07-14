@@ -177,7 +177,7 @@ describe("plan-set aggregate resource budget", () => {
     );
 
     expect(migration).toContain("pg_catalog.pg_advisory_xact_lock(");
-    expect(migration).toMatch(/language plpgsql\nsecurity definer\nset search_path = ''/);
+    expect(migration).toMatch(/language plpgsql\r?\nsecurity definer\r?\nset search_path = ''/);
     expect(migration).toContain(
       "revoke all on function public.enforce_plan_set_resource_budget()"
     );

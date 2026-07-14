@@ -81,7 +81,7 @@ describe("estimate AI generation budget security", () => {
     expect(migration).toContain(
       "alter table public.estimate_ai_generation_budgets force row level security"
     );
-    expect(migration).toMatch(/security definer\nset search_path = ''/g);
+    expect(migration).toMatch(/security definer\r?\nset search_path = ''/g);
     expect(migration).toContain("v_user_id uuid := auth.uid()");
     expect(migration).toContain("tm.role in ('admin'::public.tenant_role");
     expect(migration).toContain("dl.expires_at > v_now");

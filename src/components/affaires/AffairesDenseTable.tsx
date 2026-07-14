@@ -363,7 +363,7 @@ export function AffairesDenseTable({
               <th
                 scope="col"
                 className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider"
-                title="État de la approbation interne requise avant l’envoi au client."
+                title="État de l’approbation interne requise avant l’envoi au client."
               >
                 Approbation
               </th>
