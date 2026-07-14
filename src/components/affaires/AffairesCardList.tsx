@@ -8,14 +8,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
-import { motion } from "motion/react";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0 },
-};
 
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
   required: { label: "A valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
@@ -105,7 +99,7 @@ export function AffairesCardList({
   }
 
   return (
-    <motion.div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3" initial="hidden" animate="visible" transition={{ staggerChildren: 0.05 }}>
+    <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
       <ConfirmModal {...modalProps} />
       {items.map((item) => {
         const hasCurrentVersion =
@@ -120,11 +114,9 @@ export function AffairesCardList({
           !hasCurrentVersion || item.currentStatus === "draft";
 
         return (
-          <motion.div
+          <div
             key={item.projectId}
-            variants={cardVariants}
-            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="dashboard-card relative overflow-hidden transition-shadow hover:shadow-md"
+            className="dashboard-card animate-fade-in relative overflow-hidden transition-shadow hover:shadow-md"
           >
             <Link
               href={primaryHref}
@@ -308,9 +300,9 @@ export function AffairesCardList({
                 </button>
               )}
             </div>
-          </motion.div>
+          </div>
         );
       })}
-    </motion.div>
+    </div>
   );
 }

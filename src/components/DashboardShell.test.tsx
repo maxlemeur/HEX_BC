@@ -203,4 +203,21 @@ describe("DashboardShell mobile navigation", () => {
 
     await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
   });
+
+  it("keeps dashboard content below the mobile header through tablet widths", () => {
+    render(
+      <DashboardShell displayName="Jean Dupont">
+        <div>Contenu</div>
+      </DashboardShell>
+    );
+
+    const contentContainer = screen.getByRole("main").firstElementChild;
+
+    expect(contentContainer).toHaveClass(
+      "pt-[4.5rem]",
+      "sm:pb-8",
+      "lg:py-8"
+    );
+    expect(contentContainer).not.toHaveClass("sm:py-8");
+  });
 });

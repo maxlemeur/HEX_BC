@@ -28,16 +28,6 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-vi.mock("motion/react", () => ({
-  motion: {
-    div: ({
-      children,
-      ...props
-    }: React.HTMLAttributes<HTMLDivElement> & { children: React.ReactNode }) => (
-      <div {...props}>{children}</div>
-    ),
-  },
-}));
 
 vi.mock("@/components/ui/ConfirmModal", () => ({
   ConfirmModal: () => null,
@@ -97,6 +87,11 @@ describe("AffairesCardList", () => {
     expect(
       screen.getByRole("link", { name: /affaire alpha/i })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1");
+    expect(
+      screen.getByRole("link", { name: /affaire alpha/i }).closest(
+        ".dashboard-card"
+      )
+    ).toHaveClass("animate-fade-in");
   });
 
   it("keeps draft cards pointed at the affaire hub", () => {

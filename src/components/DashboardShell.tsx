@@ -611,7 +611,7 @@ export function DashboardShell({
             : "var(--sidebar-width)",
         }}
       >
-        <div className="mx-auto w-full px-3 pb-6 pt-[4.5rem] sm:px-6 sm:py-8">
+        <div className="mx-auto w-full px-3 pb-6 pt-[4.5rem] sm:px-6 sm:pb-8 lg:py-8">
           {children}
         </div>
       </main>
