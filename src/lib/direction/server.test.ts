@@ -110,8 +110,7 @@ function createSupabaseMock(fixtures: {
   return {
     from: vi.fn((table: string) => {
       if (table === "estimate_versions") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const versionId = builder.getState().eq.get("id");
           const projectId = builder.getState().eq.get("project_id");
 
@@ -134,8 +133,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "takeoff_jobs") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "estimate_version_id");
           if (batchError) {
             return {
@@ -159,8 +157,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "estimate_risk_alerts") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "version_id");
           if (batchError) {
             return {
@@ -193,8 +190,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "estimate_review_cycles") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "version_id");
           if (batchError) {
             return {
@@ -215,8 +211,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "approval_queue_reviewer_states") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "cycle_id");
           if (batchError) {
             return {
@@ -237,8 +232,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "affaire_register_entries") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "project_id");
           if (batchError) {
             return {
@@ -256,8 +250,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "takeoff_dpgf_links") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "takeoff_job_id");
           if (batchError) {
             return {
@@ -278,8 +271,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "takeoff_dpgf_review_decisions") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "takeoff_job_id");
           if (batchError) {
             return {
@@ -300,8 +292,7 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "estimate_items") {
-        let builder: ReturnType<typeof createBuilder>;
-        builder = createBuilder(() => {
+        const builder = createBuilder(() => {
           const batchError = getBatchLimitError(builder, "version_id");
           if (batchError) {
             return {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { formatCurrency } from "@/lib/money";
@@ -99,6 +99,19 @@ function computeComponentDsCents(component: GeneratedOuvrageSubdetailEditorCompo
 }
 
 export function GeneratedOuvrageSubdetailEditor({
+  subdetail,
+  ...props
+}: GeneratedOuvrageSubdetailEditorProps) {
+  return (
+    <GeneratedOuvrageSubdetailEditorForm
+      key={`${subdetail.draftId}:${subdetail.updatedAt}`}
+      subdetail={subdetail}
+      {...props}
+    />
+  );
+}
+
+function GeneratedOuvrageSubdetailEditorForm({
   candidateLabel,
   subdetail,
   isSaving,
@@ -108,11 +121,6 @@ export function GeneratedOuvrageSubdetailEditor({
     () => toEditableComponents(subdetail)
   );
   const [expandedComponentIndex, setExpandedComponentIndex] = useState(0);
-
-  useEffect(() => {
-    setComponents(toEditableComponents(subdetail));
-    setExpandedComponentIndex(0);
-  }, [subdetail]);
 
   const dsCents = components.reduce(
     (total, component) => total + computeComponentDsCents(component),

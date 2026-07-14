@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import {
@@ -109,7 +109,6 @@ export function IntakeCategoryCard({
   plansSynced,
   focusDocumentId = null,
 }: IntakeCategoryCardProps) {
-  const [expanded, setExpanded] = useState(false);
   const label = AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[category];
   const icon = CATEGORY_ICONS[category];
   const colorClass = CATEGORY_COLORS[category];
@@ -125,12 +124,16 @@ export function IntakeCategoryCard({
   const shouldFocusDocument =
     focusDocumentId !== null &&
     documents.some((document) => document.documentId === focusDocumentId);
+  const [expanded, setExpanded] = useState(shouldFocusDocument);
+  const [previousShouldFocusDocument, setPreviousShouldFocusDocument] =
+    useState(shouldFocusDocument);
 
-  useEffect(() => {
+  if (shouldFocusDocument !== previousShouldFocusDocument) {
+    setPreviousShouldFocusDocument(shouldFocusDocument);
     if (shouldFocusDocument) {
       setExpanded(true);
     }
-  }, [shouldFocusDocument]);
+  }
 
   return (
     <div className="rounded-xl border border-[var(--slate-200)] bg-surface transition-shadow hover:shadow-sm">

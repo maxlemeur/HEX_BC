@@ -106,7 +106,6 @@ import {
 } from "@/lib/estimates/tree-connectors";
 import {
   type SuggestionCorrectionPayload,
-  type SuggestionLearningRuleBoost,
   type SuggestionLearningState,
 } from "@/components/estimates/estimate-editor-table-types";
 import type { Database } from "@/types/database";
@@ -1545,6 +1544,7 @@ export function EstimateEditorTable({
       feedbackPendingByItemId,
       isReadOnly,
       selectedSuggestionByItemId,
+      setSelectedSuggestionByItemId,
     ]
   );
 

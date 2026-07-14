@@ -71,7 +71,21 @@ export function PricesManager({
   const [isCsvOpen, setIsCsvOpen] = useState(embedded);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
   const querySearch = searchParams.get("q") ?? "";
-  const [searchInput, setSearchInput] = useState(querySearch);
+  const [searchState, setSearchState] = useState(() => ({
+    querySearch,
+    value: querySearch,
+  }));
+  const searchInput =
+    searchState.querySearch === querySearch ? searchState.value : querySearch;
+  const setSearchInput = useCallback(
+    (value: string) =>
+      setSearchState((current) =>
+        current.querySearch === querySearch && current.value === value
+          ? current
+          : { querySearch, value }
+      ),
+    [querySearch]
+  );
   const page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
   const sizeParam = Number.parseInt(searchParams.get("size") ?? "25", 10);
   const pageSize = PRICE_PAGE_SIZES.includes(sizeParam as (typeof PRICE_PAGE_SIZES)[number])
@@ -103,7 +117,6 @@ export function PricesManager({
     [pathname, router, searchParams]
   );
 
-  useEffect(() => setSearchInput(querySearch), [querySearch]);
   useEffect(() => {
     if (searchInput === querySearch) return;
     const timeout = window.setTimeout(

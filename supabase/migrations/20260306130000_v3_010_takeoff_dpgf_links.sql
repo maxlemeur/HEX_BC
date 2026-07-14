@@ -1,6 +1,14 @@
 -- V3-010: liens manuels persistants entre lignes DPGF et items takeoff.
 -- Scope par version + job, avec garde-fous tenant/projet et RLS indexable.
 
+-- Commit enum additions before the following approval-workflow migration uses
+-- the new labels in policies and rule definitions.
+ALTER TYPE public.tenant_role ADD VALUE IF NOT EXISTS 'director';
+ALTER TYPE public.estimate_rule_type ADD VALUE IF NOT EXISTS 'critical_exceptions_max';
+ALTER TYPE public.estimate_rule_type ADD VALUE IF NOT EXISTS 'missing_line_evidence_max';
+ALTER TYPE public.estimate_rule_type ADD VALUE IF NOT EXISTS 'dpgf_coverage_min';
+ALTER TYPE public.estimate_rule_type ADD VALUE IF NOT EXISTS 'takeoff_evidence_coverage_min';
+
 create table if not exists public.takeoff_dpgf_links (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete restrict,

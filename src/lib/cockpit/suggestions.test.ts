@@ -69,7 +69,6 @@ function makeApprovalSummary(
 function makeIntakeWorkspace(
   overrides: Partial<AffaireIntakeWorkspace> = {},
 ): AffaireIntakeWorkspace {
-  const { documents: _documentsOverride, ...restOverrides } = overrides;
   const documents = (
     overrides.documents ?? [
       {
@@ -95,10 +94,10 @@ function makeIntakeWorkspace(
   return {
     projectId: "proj-42",
     uploadId: "upload-1",
-    documents,
     missingPieces: [],
     briefDraft: null,
-    ...restOverrides,
+    ...overrides,
+    documents,
   };
 }
 

@@ -312,6 +312,76 @@ export function AffaireImportBootstrapSection({
     };
   }, []);
 
+  const handleParsingComplete = useCallback(
+    async (importId: string) => {
+      setPhase("fetching_suggestions");
+
+      try {
+        const res = await fetch("/api/mappings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "suggestions", import_id: importId }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Impossible de charger les suggestions de mapping.");
+        }
+
+        const payload = await res.json();
+        const record = asRecord(payload);
+        const data = asRecord(record?.data) ?? record;
+        const suggestions =
+          data && typeof data.suggestions === "object" && data.suggestions
+            ? (data.suggestions as Record<string, string>)
+            : {};
+        const autoValidation = asRecord(data?.auto_validation);
+        const canAutoValidate = autoValidation?.can_auto_validate === true;
+
+        setPhase("creating");
+
+        if (canAutoValidate && Object.keys(suggestions).length > 0) {
+          const result = await startAffaireFromImport({
+            projectName: metadata.projectName.trim(),
+            clientName: metadata.clientName.trim() || null,
+            reference: metadata.reference.trim() || null,
+            importId,
+            mapping: suggestions,
+            versionTitle: versionTitle.trim() || null,
+            sectionTitle: sectionTitle.trim() || null,
+          });
+          router.push(result.redirectUrl);
+          router.refresh();
+          return;
+        }
+
+        const result = await startAffaireFromImport({
+          projectName: metadata.projectName.trim(),
+          clientName: metadata.clientName.trim() || null,
+          reference: metadata.reference.trim() || null,
+          importId: null,
+          linkImportId: importId,
+        });
+
+        router.push(result.redirectUrl);
+        router.refresh();
+      } catch (error) {
+        pendingImportIdRef.current = null;
+        setPhase("idle");
+        setServerError(
+          error instanceof Error ? error.message : "Erreur lors de la creation."
+        );
+      }
+    },
+    [
+      metadata.clientName,
+      metadata.projectName,
+      metadata.reference,
+      router,
+      sectionTitle,
+      versionTitle,
+    ]
+  );
+
   useEffect(() => {
     if (!selectedImportId) {
       return;
@@ -346,7 +416,7 @@ export function AffaireImportBootstrapSection({
       setPhase("idle");
       setServerError("Le fichier n'a pas pu etre analyse.");
     }
-  }, [imports, phase]);
+  }, [handleParsingComplete, imports, phase]);
 
   useEffect(() => {
     if (phase !== "parsing" || !pendingImportIdRef.current) {
@@ -425,56 +495,6 @@ export function AffaireImportBootstrapSection({
 
     router.push(result.redirectUrl);
     router.refresh();
-  }
-
-  async function handleParsingComplete(importId: string) {
-    setPhase("fetching_suggestions");
-
-    try {
-      const res = await fetch("/api/mappings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "suggestions", import_id: importId }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Impossible de charger les suggestions de mapping.");
-      }
-
-      const payload = await res.json();
-      const record = asRecord(payload);
-      const data = asRecord(record?.data) ?? record;
-      const suggestions =
-        data && typeof data.suggestions === "object" && data.suggestions
-          ? (data.suggestions as Record<string, string>)
-          : {};
-      const autoValidation = asRecord(data?.auto_validation);
-      const canAutoValidate = autoValidation?.can_auto_validate === true;
-
-      setPhase("creating");
-
-      if (canAutoValidate && Object.keys(suggestions).length > 0) {
-        await finalizeImport(importId, suggestions);
-        return;
-      }
-
-      const result = await startAffaireFromImport({
-        projectName: metadata.projectName.trim(),
-        clientName: metadata.clientName.trim() || null,
-        reference: metadata.reference.trim() || null,
-        importId: null,
-        linkImportId: importId,
-      });
-
-      router.push(result.redirectUrl);
-      router.refresh();
-    } catch (error) {
-      pendingImportIdRef.current = null;
-      setPhase("idle");
-      setServerError(
-        error instanceof Error ? error.message : "Erreur lors de la creation."
-      );
-    }
   }
 
   async function handleSubmitWithFile() {

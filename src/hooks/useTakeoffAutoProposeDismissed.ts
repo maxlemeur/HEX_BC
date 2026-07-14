@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 const STORAGE_KEY_PREFIX = "takeoff-auto-propose:v2";
+const STORAGE_CHANGE_EVENT = "takeoff-auto-propose:storage-change";
 const SNOOZE_DURATION_MS = 24 * 60 * 60 * 1000;
 
 type UseTakeoffAutoProposeDismissedOptions = {
@@ -72,6 +73,10 @@ function readSnooze(input: {
   }
 }
 
+function notifyStorageChange() {
+  window.dispatchEvent(new Event(STORAGE_CHANGE_EVENT));
+}
+
 export function useTakeoffAutoProposeDismissed(
   projectId: string,
   options: UseTakeoffAutoProposeDismissedOptions = {},
@@ -79,8 +84,6 @@ export function useTakeoffAutoProposeDismissed(
   const context = options.context ?? "hub";
   const profileId = options.profileId ?? null;
   const scopeKey = options.scopeKey ?? null;
-  const [dismissed, setDismissed] = useState(false);
-  const [snoozed, setSnoozed] = useState(false);
   const scopedStorageKeys = useMemo(
     () => ({
       dismissed: buildScopedKey({
@@ -98,39 +101,44 @@ export function useTakeoffAutoProposeDismissed(
     }),
     [context, profileId, projectId],
   );
-  const prevSyncKeyRef = useRef(
-    `${projectId}:${context}:${profileId ?? "anonymous"}:${scopeKey ?? "none"}`,
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const handleStorage = (event: StorageEvent) => {
+        if (
+          event.key === null ||
+          event.key === scopedStorageKeys.dismissed ||
+          event.key === scopedStorageKeys.snooze
+        ) {
+          onStoreChange();
+        }
+      };
+      window.addEventListener("storage", handleStorage);
+      window.addEventListener(STORAGE_CHANGE_EVENT, onStoreChange);
+      return () => {
+        window.removeEventListener("storage", handleStorage);
+        window.removeEventListener(STORAGE_CHANGE_EVENT, onStoreChange);
+      };
+    },
+    [scopedStorageKeys.dismissed, scopedStorageKeys.snooze],
   );
-
-  useEffect(() => {
-    const nextSyncKey = `${projectId}:${context}:${profileId ?? "anonymous"}:${scopeKey ?? "none"}`;
-    const nextDismissed = readDismissed({ projectId, context, profileId });
-    const nextSnoozed = readSnooze({
-      projectId,
-      context,
-      profileId,
-      scopeKey,
-    });
-
-    if (
-      prevSyncKeyRef.current !== nextSyncKey ||
-      nextDismissed !== dismissed ||
-      nextSnoozed !== snoozed
-    ) {
-      prevSyncKeyRef.current = nextSyncKey;
-      setDismissed(nextDismissed);
-      setSnoozed(nextSnoozed);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context, dismissed, profileId, projectId, scopeKey, snoozed]);
+  const getSnapshot = useCallback(
+    () =>
+      `${readDismissed({ projectId, context, profileId }) ? "1" : "0"}:${
+        readSnooze({ projectId, context, profileId, scopeKey }) ? "1" : "0"
+      }`,
+    [context, profileId, projectId, scopeKey],
+  );
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => "0:0");
+  const [dismissedValue, snoozedValue] = snapshot.split(":");
+  const dismissed = dismissedValue === "1";
+  const snoozed = snoozedValue === "1";
 
   const dismissPermanently = useCallback(() => {
     try {
       localStorage.setItem(scopedStorageKeys.dismissed, "1");
       localStorage.removeItem(scopedStorageKeys.snooze);
     } catch {}
-    setDismissed(true);
-    setSnoozed(false);
+    notifyStorageChange();
   }, [scopedStorageKeys.dismissed, scopedStorageKeys.snooze]);
 
   const dismissTemporarily = useCallback(() => {
@@ -142,14 +150,14 @@ export function useTakeoffAutoProposeDismissed(
     try {
       localStorage.setItem(scopedStorageKeys.snooze, JSON.stringify(payload));
     } catch {}
-    setSnoozed(true);
+    notifyStorageChange();
   }, [scopeKey, scopedStorageKeys.snooze]);
 
   const clearTemporaryDismissal = useCallback(() => {
     try {
       localStorage.removeItem(scopedStorageKeys.snooze);
     } catch {}
-    setSnoozed(false);
+    notifyStorageChange();
   }, [scopedStorageKeys.snooze]);
 
   return {
