@@ -2539,6 +2539,7 @@ function ResultCard({
 export function AffaireFlowHierarchyPanel(
   props: Readonly<AffaireFlowHierarchyPanelProps>,
 ) {
+  const [isEmptyUploadDragActive, setIsEmptyUploadDragActive] = useState(false);
   const model = buildPanelModel(props);
   const manualEstimateHref = buildManualEstimateHref({
     projectId: props.projectId,
@@ -2554,6 +2555,22 @@ export function AffaireFlowHierarchyPanel(
       actionId: "flow-empty-upload",
       surfaceId: "intake-upload",
       triggerFilePicker: true,
+    });
+  };
+
+  const handleEmptyUploadDrop = (event: React.DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsEmptyUploadDragActive(false);
+
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length === 0) return;
+
+    dispatchCockpitOpenSurface({
+      projectId: props.projectId,
+      actionId: "flow-empty-upload",
+      surfaceId: "intake-upload",
+      files,
     });
   };
 
@@ -2588,11 +2605,39 @@ export function AffaireFlowHierarchyPanel(
           <button
             type="button"
             onClick={handleOpenIntakeUpload}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setIsEmptyUploadDragActive(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (
+                event.relatedTarget instanceof Node &&
+                event.currentTarget.contains(event.relatedTarget)
+              ) {
+                return;
+              }
+              setIsEmptyUploadDragActive(false);
+            }}
+            onDrop={handleEmptyUploadDrop}
             className="group block w-full text-left"
             aria-label="Deposer les pieces pour lancer l'analyse"
           >
             <div className="relative overflow-hidden rounded-[1.5rem] border border-[#d5c6af] bg-[#e8dcc9] p-4 sm:p-6">
-              <div className="relative min-h-[20rem] overflow-hidden rounded-[1rem] border-2 border-dashed border-white/45 bg-[var(--foreground)] shadow-[0_24px_60px_rgba(15,23,42,0.28)] transition-transform duration-300 group-hover:scale-[1.01] sm:min-h-[24rem]">
+              <div
+                className={`relative min-h-[20rem] overflow-hidden rounded-[1rem] border-2 border-dashed bg-[var(--foreground)] shadow-[0_24px_60px_rgba(15,23,42,0.28)] transition duration-300 sm:min-h-[24rem] ${
+                  isEmptyUploadDragActive
+                    ? "scale-[1.01] border-sky-300 ring-4 ring-sky-300/35"
+                    : "border-white/45 group-hover:scale-[1.01]"
+                }`}
+              >
                 <div
                   className="absolute inset-0 opacity-45"
                   style={{
@@ -2643,7 +2688,9 @@ export function AffaireFlowHierarchyPanel(
                   </div>
 
                   <h3 className="max-w-3xl text-2xl font-bold text-white sm:text-4xl">
-                    Deposez vos pieces ici
+                    {isEmptyUploadDragActive
+                      ? "Relachez pour importer vos pieces"
+                      : "Deposez vos pieces ici"}
                   </h3>
                   <p className="mt-3 text-sm font-medium text-sky-50 sm:text-lg">
                     CCTP, DPGF, plans, courriers

@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
 } from "@/lib/affaires/intake";
+import {
+  COCKPIT_OPEN_SURFACE_EVENT,
+  type CockpitOpenSurfaceEventDetail,
+} from "@/lib/cockpit/events";
 import { AffaireFileDropSurface } from "./AffaireFileDropSurface";
 
 type FileResult = {
@@ -200,6 +204,26 @@ export function IntakeDropzone({
     },
     [projectId, onUploadComplete],
   );
+
+  useEffect(() => {
+    const handleOpenSurface = (event: Event) => {
+      const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>).detail;
+      if (
+        !detail ||
+        detail.projectId !== projectId ||
+        detail.surfaceId !== "intake-upload" ||
+        !detail.files?.length
+      ) {
+        return;
+      }
+
+      void handleFiles(detail.files);
+    };
+
+    document.addEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
+    return () =>
+      document.removeEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
+  }, [handleFiles, projectId]);
 
   const reset = useCallback(() => {
     setState({ phase: "idle" });

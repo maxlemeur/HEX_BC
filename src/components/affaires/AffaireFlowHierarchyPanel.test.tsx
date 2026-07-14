@@ -98,6 +98,56 @@ describe("AffaireFlowHierarchyPanel", () => {
     });
   });
 
+  it("forwards files dropped on the empty upload card to the intake upload flow", () => {
+    const dispatchEventSpy = vi.spyOn(document, "dispatchEvent");
+    const file = new File(["cctp"], "cctp.pdf", { type: "application/pdf" });
+
+    render(
+      <AffaireFlowHierarchyPanel
+        projectId="project-empty"
+        currentVersion={null}
+        versionZeroSummary={null}
+        takeoffEnabled
+        plansSummary={null}
+        intakeWorkspace={{
+          documents: [],
+          missingPieces: [],
+        }}
+        finishLineSummary={null}
+        cockpitSuggestions={[]}
+      />,
+    );
+
+    const dropzone = screen.getByRole("button", {
+      name: "Deposer les pieces pour lancer l'analyse",
+    });
+
+    fireEvent.dragEnter(dropzone, {
+      dataTransfer: { files: [file] },
+    });
+    expect(screen.getByText("Relachez pour importer vos pieces")).toBeInTheDocument();
+
+    fireEvent.drop(dropzone, {
+      dataTransfer: { files: [file] },
+    });
+
+    expect(screen.getByText("Deposez vos pieces ici")).toBeInTheDocument();
+    expect(dispatchEventSpy).toHaveBeenCalledTimes(1);
+    const event = dispatchEventSpy.mock.calls[0]?.[0] as CustomEvent<{
+      projectId: string;
+      actionId: string;
+      surfaceId: string;
+      files?: File[];
+    }>;
+    expect(event.type).toBe("cockpit-open-surface");
+    expect(event.detail).toMatchObject({
+      projectId: "project-empty",
+      actionId: "flow-empty-upload",
+      surfaceId: "intake-upload",
+      files: [file],
+    });
+  });
+
   it("prioritises documentary stabilisation over production aids and keeps the legacy fallback", () => {
     const dispatchEventSpy = vi.spyOn(document, "dispatchEvent");
     const addMissingPieces = buildSuggestion({
