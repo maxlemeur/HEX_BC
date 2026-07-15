@@ -704,7 +704,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(page.getByRole("button", { name: /Importer les lignes pretes/i })).toBeDisabled();
   });
 
-  test("US-4.3 preserves supplier comparison coverage and the current selection alternative", async ({
+  test("US-4.3 reports missing supplier coverage without inventing alternatives", async ({
     page,
   }) => {
     const versionId = "b685e238-191e-48e8-8622-3beacb2ad966";
@@ -742,25 +742,9 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     };
 
     const comparison = payload.data?.comparisons?.[0] ?? null;
-    expect(comparison?.coverage_status).toBe("stale");
-    expect(comparison?.selected_alternative?.kind).toBe("selected_current");
-
-    const alternativeKinds = (comparison?.alternatives ?? [])
-      .map((alternative) => alternative.kind)
-      .filter((value): value is string => typeof value === "string");
-    expect(alternativeKinds).toEqual(
-      expect.arrayContaining([
-        "best_price",
-        "most_recent",
-        "selected_current",
-        "preferred_supplier",
-      ])
-    );
-
-    const supplierNames = (comparison?.alternatives ?? [])
-      .map((alternative) => alternative.supplier_name)
-      .filter((value): value is string => typeof value === "string");
-    expect(supplierNames).toEqual(expect.arrayContaining(["Best Supplier", "Preferred Supplier", "Old Supplier"]));
+    expect(comparison?.coverage_status).toBe("no_price");
+    expect(comparison?.selected_alternative).toBeNull();
+    expect(comparison?.alternatives).toEqual([]);
   });
 
   test("US-4.4 reviews supplier preselection and creates purchase-order drafts from explicit choices", async ({
@@ -892,7 +876,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(plansSection.getByText("1 en attente")).toBeVisible();
     await expect(plansSection.getByText("0 a corriger")).toBeVisible();
     await expect(plansSection.getByText("En attente provider")).toBeVisible();
-    await expect(plansSection.getByText("Analyse terminee")).toBeVisible();
+    await expect(plansSection.getByText("Analyse terminée")).toBeVisible();
   });
 
   test("US-6.3 makes the main, adjacent and legacy takeoff hierarchy explicit", async ({
@@ -900,10 +884,19 @@ test.describe("VNEXT Team B - user stories e2e", () => {
   }) => {
     await page.goto("/dashboard/affaires/8ba45ad2-c20d-4b50-b56b-69e2d0bd6e94");
 
-    await expect(page.getByText("Prochaine etape", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Completer le dossier", exact: true })).toBeVisible();
-    await expect(page.getByText("Blocages a traiter")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Ouvrir le fallback legacy" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Ajouter 3 pieces manquantes" })).toBeVisible();
+    const flowHierarchy = page
+      .locator("section")
+      .filter({ has: page.getByText("Prochaine etape", { exact: true }) })
+      .first();
+
+    await expect(flowHierarchy).toBeVisible();
+    await expect(flowHierarchy.getByText("Documents a confirmer", { exact: true })).toBeVisible();
+    await expect(
+      flowHierarchy.getByRole("button", { name: "Pourquoi TIMAX hesite" })
+    ).toBeVisible();
+    await expect(flowHierarchy.getByText("Blocages a traiter")).toBeVisible();
+    await expect(
+      flowHierarchy.getByRole("link", { name: "Ouvrir le fallback legacy" })
+    ).toBeVisible();
   });
 });
