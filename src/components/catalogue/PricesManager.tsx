@@ -330,7 +330,7 @@ export function PricesManager({
           </div>
           <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">À jour</p>
-            <p className="mt-1 text-lg font-semibold text-emerald-600">{stats.fresh}</p>
+            <p className="mt-1 text-lg font-semibold text-emerald-700">{stats.fresh}</p>
           </div>
           <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Anciens (&gt; 90j)</p>

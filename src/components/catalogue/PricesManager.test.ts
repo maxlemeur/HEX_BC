@@ -100,6 +100,14 @@ describe("PricesManager paginé", () => {
     expect(swrMock.mock.calls[0]?.[0]).toContain("/api/prices?view=page");
   });
 
+  it("uses an accessible contrast color for the fresh-price counter", () => {
+    render(createElement(PricesManager));
+    const freshCounter = screen
+      .getByText("À jour", { selector: "p" })
+      .parentElement?.querySelector("p.text-lg");
+    expect(freshCounter).toHaveClass("text-emerald-700");
+  });
+
   it("changes server pages through the URL", async () => {
     const user = userEvent.setup();
     render(createElement(PricesManager));
