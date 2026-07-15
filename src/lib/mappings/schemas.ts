@@ -57,7 +57,8 @@ const optionalTextSchema = z
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
-  });
+  })
+  .optional();
 
 export const previewMappingSchema = z.object({
   action: z.literal("preview"),
