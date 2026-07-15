@@ -730,6 +730,12 @@ test.describe("V3-010 — DPGF review page", () => {
     const projectId = await extractProjectId(page, versionId);
     const tenantId = await getTenantIdForVersion(versionId);
 
+    await seedEstimateLines({
+      tenantId,
+      versionId,
+      lines: [],
+    });
+
     const seededJob = await seedCompletedTakeoffJob({
       tenantId,
       versionId,
@@ -757,6 +763,9 @@ test.describe("V3-010 — DPGF review page", () => {
 
     await page.getByRole("button", { name: "Appliquer au chiffrage" }).click();
     await expect(page.getByText("Cible d'application")).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: "Section cible" })
+    ).toHaveValue(/.+/);
 
     await page.getByRole("button", { name: "Suivant" }).click();
     await expect(page.getByRole("radio", { name: /Fusionner avec l'existant/i })).toBeVisible();
