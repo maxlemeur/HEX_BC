@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
+import { createRequire } from "node:module";
+import { join } from "node:path";
 import type { Worker as NodeWorker } from "node:worker_threads";
 
 import {
@@ -10,6 +12,21 @@ import {
 } from "@/lib/imports/tabular-pdf-extraction";
 
 describe("detectTabularPdfTablesFromLayout", () => {
+  it("resolves the PDF.js worker module from a filesystem URL", () => {
+    const requireFactory = vi.fn(createRequire);
+    const pdfJsModuleUrl = new URL(
+      __testing__.getPdfJsModuleUrl(requireFactory)
+    );
+
+    expect(requireFactory).toHaveBeenCalledWith(
+      join(process.cwd(), "package.json")
+    );
+    expect(pdfJsModuleUrl.protocol).toBe("file:");
+    expect(pdfJsModuleUrl.pathname).toMatch(
+      /\/pdfjs-dist\/legacy\/build\/pdf\.mjs$/
+    );
+  });
+
   it("detects a tabular block from layout-preserved PDF text", () => {
     const result = detectTabularPdfTablesFromLayout(
       [

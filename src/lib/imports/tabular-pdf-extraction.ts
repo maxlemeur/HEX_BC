@@ -786,6 +786,22 @@ function getStandardFontDataUrl() {
   )}/`;
 }
 
+function getPdfJsModuleUrl(
+  requireFactory: typeof createRequire = createRequire
+) {
+  const requireFromProject = requireFactory(
+    join(process.cwd(), "package.json")
+  );
+  const pdfJsModuleSpecifier = [
+    "pdfjs-dist",
+    "legacy",
+    "build",
+    "pdf.mjs",
+  ].join("/");
+
+  return pathToFileURL(requireFromProject.resolve(pdfJsModuleSpecifier)).href;
+}
+
 type PdfJsWorker = Pick<Worker, "once" | "terminate">;
 type PdfJsWorkerFactory = (
   fileBytes: ArrayBuffer
@@ -793,9 +809,7 @@ type PdfJsWorkerFactory = (
 
 async function createPdfJsWorker(fileBytes: ArrayBuffer): Promise<PdfJsWorker> {
   const { Worker } = await import("node:worker_threads");
-  const pdfJsModuleUrl = pathToFileURL(
-    createRequire(import.meta.url).resolve("pdfjs-dist/legacy/build/pdf.mjs")
-  ).href;
+  const pdfJsModuleUrl = getPdfJsModuleUrl();
 
   return new Worker(PDF_JS_WORKER_SCRIPT, {
     eval: true,
@@ -1023,6 +1037,7 @@ export const __testing__ = {
   buildPageLayoutText,
   extractLayoutTextFromPdf,
   extractLayoutTextFromPdfWithPdftotext,
+  getPdfJsModuleUrl,
   runPdfJsWorkerWithDeadline,
   waitWithinDeadline,
   PDF_EXTRACTION_MAX_LAYOUT_BYTES,
