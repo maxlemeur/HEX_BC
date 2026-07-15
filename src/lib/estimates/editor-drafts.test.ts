@@ -23,6 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -151,5 +152,40 @@ describe("estimate editor autosave drafts", () => {
 
     writeAutoSaveDraftToLocal("version-2", []);
     expect(readAutoSaveDraftFromLocal("version-2")).toBeNull();
+  });
+});
+
+describe("estimate editor draft storage failures", () => {
+  it("treats unavailable storage reads as missing drafts", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage disabled", "SecurityError");
+    });
+
+    expect(readConflictDraftFromSession("version-1")).toBeNull();
+    expect(readAutoSaveDraftFromLocal("version-1")).toBeNull();
+  });
+
+  it("keeps writes and cleanup best-effort when storage throws", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("Storage disabled", "SecurityError");
+    });
+
+    expect(() =>
+      writeConflictDraftToSession("version-1", {
+        settings: null,
+        items: [],
+        saved_at: FIXED_NOW,
+      })
+    ).not.toThrow();
+    expect(() =>
+      writeAutoSaveDraftToLocal("version-1", [
+        { id: "line-1", updates: { title: "Tube" } },
+      ])
+    ).not.toThrow();
+    expect(() => clearConflictDraftFromSession("version-1")).not.toThrow();
+    expect(() => clearAutoSaveDraftFromLocal("version-1")).not.toThrow();
   });
 });

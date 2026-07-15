@@ -97,6 +97,7 @@ export function useAutoSave({
     null
   );
 
+  const isMountedRef = useRef(true);
   const isSavingRef = useRef(isSaving);
   const enabledRef = useRef(enabled);
   const hasPendingRef = useRef(hasPendingChanges);
@@ -104,6 +105,16 @@ export function useAutoSave({
   const retryDelayMsRef = useRef(retryDelayMs);
   const maxAutomaticRetriesRef = useRef(maxAutomaticRetries);
   const onSaveRef = useRef(onSave);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      enabledRef.current = false;
+      queuedSaveAfterCurrentRef.current = false;
+      executeSaveRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     isSavingRef.current = isSaving;
@@ -153,6 +164,7 @@ export function useAutoSave({
   }, [clearDebounceTimer, clearRetryTimer]);
 
   const scheduleDebouncedSave = useCallback(() => {
+    if (!isMountedRef.current) return;
     if (!enabledRef.current) return;
     if (!hasPendingRef.current) return;
 
@@ -164,6 +176,7 @@ export function useAutoSave({
   }, [clearDebounceTimer]);
 
   const scheduleRetry = useCallback((force = false) => {
+    if (!isMountedRef.current) return;
     if (!enabledRef.current) return;
     if (!force && !hasPendingRef.current) return;
     if (retryTimeoutRef.current !== null) return;
@@ -183,6 +196,7 @@ export function useAutoSave({
 
   const executeSave = useCallback(
     async (reason: AutoSaveReason) => {
+      if (!isMountedRef.current) return;
       if (!enabledRef.current) return;
 
       if (isSavingRef.current) {
@@ -209,6 +223,8 @@ export function useAutoSave({
 
       try {
         const result = await onSaveRef.current(reason);
+        if (!isMountedRef.current) return;
+
         if (result === "error" || result === "blocked") {
           shouldRetry = shouldAutomaticallyRetry(result);
           setStatus("error");
@@ -217,10 +233,15 @@ export function useAutoSave({
           setStatus("saved");
         }
       } catch {
+        if (!isMountedRef.current) return;
         shouldRetry = true;
         setStatus("error");
       } finally {
         isSavingRef.current = false;
+        if (!isMountedRef.current) {
+          queuedSaveAfterCurrentRef.current = false;
+          return;
+        }
         setIsSaving(false);
 
         if (shouldRetry) {

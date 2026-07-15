@@ -19,6 +19,11 @@ type UseDraftLockOptions = {
   currentUserId?: string | null;
 };
 
+type DraftLockTarget = {
+  versionId: string;
+  generation: number;
+};
+
 export type UseDraftLockResult = {
   lock: EstimateDraftLock | null;
   holderName: string | null;
@@ -76,9 +81,13 @@ export function useDraftLock({
   const [isForcingUnlock, setIsForcingUnlock] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isMountedRef = useRef(true);
   const currentUserIdRef = useRef<string | null | undefined>(currentUserId);
   const isOwnedByCurrentUserRef = useRef(false);
+  const targetGenerationRef = useRef(0);
+  const activeTargetRef = useRef<DraftLockTarget | null>(null);
+  const releaseQueueByVersionRef = useRef(
+    new Map<string, Promise<unknown>>()
+  );
 
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
@@ -89,10 +98,80 @@ export function useDraftLock({
     setIsOwnedByCurrentUser(ownsLock);
   }, []);
 
+  const isCurrentTarget = useCallback((target: DraftLockTarget) => {
+    const activeTarget = activeTargetRef.current;
+    return (
+      activeTarget?.generation === target.generation &&
+      activeTarget.versionId === target.versionId
+    );
+  }, []);
+
+  const queueReleaseRequest = useCallback(
+    (
+      targetVersionId: string,
+      options: ReleaseEstimateDraftLockOptions
+    ) => {
+      const previousRelease =
+        releaseQueueByVersionRef.current.get(targetVersionId);
+      const releaseOperation = (async () => {
+        if (previousRelease) {
+          try {
+            await previousRelease;
+          } catch {
+            // A later release must still run after an earlier failed attempt.
+          }
+        }
+        return releaseEstimateDraftLock(targetVersionId, options);
+      })();
+
+      releaseQueueByVersionRef.current.set(targetVersionId, releaseOperation);
+      void releaseOperation.finally(() => {
+        if (
+          releaseQueueByVersionRef.current.get(targetVersionId) ===
+          releaseOperation
+        ) {
+          releaseQueueByVersionRef.current.delete(targetVersionId);
+        }
+      }).catch(() => undefined);
+      return releaseOperation;
+    },
+    []
+  );
+
+  const waitForQueuedReleases = useCallback((targetVersionId: string) => {
+    const initialRelease =
+      releaseQueueByVersionRef.current.get(targetVersionId);
+    if (!initialRelease) return null;
+
+    return (async () => {
+      let queuedRelease: Promise<unknown> | undefined = initialRelease;
+      while (queuedRelease) {
+        try {
+          await queuedRelease;
+        } catch {
+          // Acquisition can retry after the release failure has been observed.
+        }
+        queuedRelease =
+          releaseQueueByVersionRef.current.get(targetVersionId);
+      }
+    })();
+  }, []);
+
+  const releaseStaleOwnedTarget = useCallback(
+    (target: DraftLockTarget) => {
+      if (activeTargetRef.current?.versionId === target.versionId) return;
+      void queueReleaseRequest(target.versionId, {
+        keepalive: true,
+      }).catch(() => false);
+    },
+    [queueReleaseRequest]
+  );
+
   const releaseForVersion = useCallback(
     async (
       targetVersionId: string,
-      options: ReleaseEstimateDraftLockOptions = {}
+      options: ReleaseEstimateDraftLockOptions,
+      target: DraftLockTarget
     ): Promise<boolean> => {
       if (!targetVersionId) return false;
       if (
@@ -104,8 +183,8 @@ export function useDraftLock({
       }
 
       try {
-        const result = await releaseEstimateDraftLock(targetVersionId, options);
-        if (!isMountedRef.current) {
+        const result = await queueReleaseRequest(targetVersionId, options);
+        if (!isCurrentTarget(target)) {
           return result.released;
         }
 
@@ -117,7 +196,7 @@ export function useDraftLock({
 
         return result.released;
       } catch (releaseError) {
-        if (!options.keepalive && isMountedRef.current) {
+        if (!options.keepalive && isCurrentTarget(target)) {
           setError(
             resolveDraftLockErrorMessage(
               releaseError,
@@ -128,26 +207,30 @@ export function useDraftLock({
         return false;
       }
     },
-    [updateOwnershipState]
+    [isCurrentTarget, queueReleaseRequest, updateOwnershipState]
   );
 
-  const acquire = useCallback(async (): Promise<boolean> => {
-    if (!enabled || !versionId) return false;
+  const acquireForTarget = useCallback(async (target: DraftLockTarget) => {
+    if (!isCurrentTarget(target)) return false;
 
     setIsAcquiring(true);
     setError(null);
 
     try {
-      const result = await acquireEstimateDraftLock(versionId);
+      const releaseBarrier = waitForQueuedReleases(target.versionId);
+      if (releaseBarrier) {
+        await releaseBarrier;
+        if (!isCurrentTarget(target)) return false;
+      }
+
+      const result = await acquireEstimateDraftLock(target.versionId);
       const ownership = resolveLockOwnership(result.lock, currentUserIdRef.current);
       const lockedByOther = !result.acquired || ownership === false;
       const ownsLock = result.acquired && !lockedByOther;
 
-      if (!isMountedRef.current) {
+      if (!isCurrentTarget(target)) {
         if (ownsLock) {
-          void releaseEstimateDraftLock(versionId, { keepalive: true }).catch(
-            () => false
-          );
+          releaseStaleOwnedTarget(target);
         }
         return false;
       }
@@ -158,7 +241,7 @@ export function useDraftLock({
 
       return ownsLock;
     } catch (acquireError) {
-      if (!isMountedRef.current) return false;
+      if (!isCurrentTarget(target)) return false;
 
       updateOwnershipState(false);
       setIsLockedByOther(false);
@@ -171,24 +254,43 @@ export function useDraftLock({
       );
       return false;
     } finally {
-      if (isMountedRef.current) {
+      if (isCurrentTarget(target)) {
         setIsAcquiring(false);
       }
     }
-  }, [enabled, updateOwnershipState, versionId]);
+  }, [
+    isCurrentTarget,
+    releaseStaleOwnedTarget,
+    updateOwnershipState,
+    waitForQueuedReleases,
+  ]);
 
-  const renew = useCallback(async (): Promise<boolean> => {
-    if (!enabled || !versionId || !isOwnedByCurrentUser) {
+  const acquire = useCallback(async (): Promise<boolean> => {
+    const target = activeTargetRef.current;
+    if (!enabled || !versionId || !target || target.versionId !== versionId) {
+      return false;
+    }
+
+    return acquireForTarget(target);
+  }, [acquireForTarget, enabled, versionId]);
+
+  const renewForTarget = useCallback(async (target: DraftLockTarget) => {
+    if (!isCurrentTarget(target) || !isOwnedByCurrentUserRef.current) {
       return false;
     }
 
     try {
-      const result = await renewEstimateDraftLock(versionId);
-      if (!isMountedRef.current) return false;
-
+      const result = await renewEstimateDraftLock(target.versionId);
       const ownership = resolveLockOwnership(result.lock, currentUserIdRef.current);
       const lockedByOther = !result.renewed || ownership === false;
       const ownsLock = result.renewed && !lockedByOther;
+
+      if (!isCurrentTarget(target)) {
+        if (ownsLock) {
+          releaseStaleOwnedTarget(target);
+        }
+        return false;
+      }
 
       setLock((previous) => result.lock ?? previous);
       updateOwnershipState(ownsLock);
@@ -200,7 +302,7 @@ export function useDraftLock({
 
       return ownsLock;
     } catch (renewError) {
-      if (!isMountedRef.current) return false;
+      if (!isCurrentTarget(target)) return false;
 
       setError(
         resolveDraftLockErrorMessage(
@@ -210,38 +312,55 @@ export function useDraftLock({
       );
       return false;
     }
-  }, [enabled, isOwnedByCurrentUser, updateOwnershipState, versionId]);
+  }, [isCurrentTarget, releaseStaleOwnedTarget, updateOwnershipState]);
 
   const release = useCallback(
     async (options: ReleaseEstimateDraftLockOptions = {}) => {
-      if (!versionId) return false;
-      return releaseForVersion(versionId, options);
+      const target = activeTargetRef.current;
+      if (!versionId || !target || target.versionId !== versionId) return false;
+      return releaseForVersion(versionId, options, target);
     },
     [releaseForVersion, versionId]
   );
 
   const forceUnlockAndAcquire = useCallback(async (): Promise<boolean> => {
-    if (!versionId) return false;
+    const target = activeTargetRef.current;
+    if (!versionId || !target || target.versionId !== versionId) return false;
 
     setIsForcingUnlock(true);
     setError(null);
 
     try {
-      const released = await releaseForVersion(versionId, { force: true });
-      if (!released) {
+      const released = await releaseForVersion(
+        versionId,
+        { force: true },
+        target
+      );
+      if (!released || !isCurrentTarget(target)) {
         return false;
       }
 
-      return await acquire();
+      return await acquireForTarget(target);
     } finally {
-      if (isMountedRef.current) {
+      if (isCurrentTarget(target)) {
         setIsForcingUnlock(false);
       }
     }
-  }, [acquire, releaseForVersion, versionId]);
+  }, [acquireForTarget, isCurrentTarget, releaseForVersion, versionId]);
 
   useEffect(() => {
-    if (!enabled || !versionId) {
+    const target = enabled && versionId
+      ? {
+          versionId,
+          generation: targetGenerationRef.current + 1,
+        }
+      : null;
+    targetGenerationRef.current += 1;
+    activeTargetRef.current = target;
+
+    setIsForcingUnlock(false);
+
+    if (!target) {
       setLock(null);
       setError(null);
       updateOwnershipState(false);
@@ -250,32 +369,47 @@ export function useDraftLock({
       return;
     }
 
-    void acquire();
+    setLock(null);
+    setError(null);
+    updateOwnershipState(false);
+    setIsLockedByOther(false);
+    void acquireForTarget(target);
 
     return () => {
-      void releaseForVersion(versionId, { keepalive: true });
+      if (activeTargetRef.current?.generation === target.generation) {
+        activeTargetRef.current = null;
+      }
+      void releaseForVersion(
+        target.versionId,
+        { keepalive: true },
+        target
+      );
     };
-  }, [acquire, enabled, releaseForVersion, updateOwnershipState, versionId]);
+  }, [acquireForTarget, enabled, releaseForVersion, updateOwnershipState, versionId]);
 
   useEffect(() => {
     if (!enabled || !versionId || !isOwnedByCurrentUser) {
       return;
     }
+    const target = activeTargetRef.current;
+    if (!target || target.versionId !== versionId) return;
 
     const intervalId = window.setInterval(() => {
-      void renew();
+      void renewForTarget(target);
     }, HEARTBEAT_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [enabled, isOwnedByCurrentUser, renew, versionId]);
+  }, [enabled, isOwnedByCurrentUser, renewForTarget, versionId]);
 
   useEffect(() => {
     if (!enabled || !versionId) return;
+    const target = activeTargetRef.current;
+    if (!target || target.versionId !== versionId) return;
 
     const handleBeforeUnload = () => {
-      void releaseForVersion(versionId, { keepalive: true });
+      void releaseForVersion(versionId, { keepalive: true }, target);
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -284,13 +418,6 @@ export function useDraftLock({
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [enabled, releaseForVersion, versionId]);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
 
   const holderName = useMemo(() => {
     return lock?.holderName ?? null;

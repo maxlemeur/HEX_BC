@@ -33,12 +33,12 @@ export function readConflictDraftFromSession<TSettings, TItem>(
 ): EditorConflictDraft<TSettings, TItem> | null {
   if (!versionId || typeof window === "undefined") return null;
 
-  const raw = window.sessionStorage.getItem(
-    buildConflictDraftStorageKey(versionId)
-  );
-  if (!raw) return null;
-
   try {
+    const raw = window.sessionStorage.getItem(
+      buildConflictDraftStorageKey(versionId)
+    );
+    if (!raw) return null;
+
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed)) return null;
 
@@ -72,15 +72,23 @@ export function writeConflictDraftToSession<TSettings, TItem>(
 ) {
   if (!versionId || typeof window === "undefined") return;
 
-  window.sessionStorage.setItem(
-    buildConflictDraftStorageKey(versionId),
-    JSON.stringify(draft)
-  );
+  try {
+    window.sessionStorage.setItem(
+      buildConflictDraftStorageKey(versionId),
+      JSON.stringify(draft)
+    );
+  } catch {
+    // Storage can be unavailable or full; drafts must never break the editor.
+  }
 }
 
 export function clearConflictDraftFromSession(versionId: string) {
   if (!versionId || typeof window === "undefined") return;
-  window.sessionStorage.removeItem(buildConflictDraftStorageKey(versionId));
+  try {
+    window.sessionStorage.removeItem(buildConflictDraftStorageKey(versionId));
+  } catch {
+    // Best-effort cleanup when browser storage is unavailable.
+  }
 }
 
 export function readAutoSaveDraftFromLocal<TUpdate>(
@@ -88,10 +96,12 @@ export function readAutoSaveDraftFromLocal<TUpdate>(
 ): EditorAutoSaveDraft<TUpdate> | null {
   if (!versionId || typeof window === "undefined") return null;
 
-  const raw = window.localStorage.getItem(buildAutoSaveDraftStorageKey(versionId));
-  if (!raw) return null;
-
   try {
+    const raw = window.localStorage.getItem(
+      buildAutoSaveDraftStorageKey(versionId)
+    );
+    if (!raw) return null;
+
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed) || !Array.isArray(parsed.buffered_updates)) {
       return null;
@@ -139,13 +149,21 @@ export function writeAutoSaveDraftToLocal<TUpdate>(
     saved_at: new Date().toISOString(),
   };
 
-  window.localStorage.setItem(
-    buildAutoSaveDraftStorageKey(versionId),
-    JSON.stringify(payload)
-  );
+  try {
+    window.localStorage.setItem(
+      buildAutoSaveDraftStorageKey(versionId),
+      JSON.stringify(payload)
+    );
+  } catch {
+    // Storage can be unavailable or full; in-memory autosave remains active.
+  }
 }
 
 export function clearAutoSaveDraftFromLocal(versionId: string) {
   if (!versionId || typeof window === "undefined") return;
-  window.localStorage.removeItem(buildAutoSaveDraftStorageKey(versionId));
+  try {
+    window.localStorage.removeItem(buildAutoSaveDraftStorageKey(versionId));
+  } catch {
+    // Best-effort cleanup when browser storage is unavailable.
+  }
 }
