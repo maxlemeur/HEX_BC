@@ -26,7 +26,7 @@ Cette vision implique quatre capacités produit:
 - importer des données déjà structurées et gagner du temps sur la saisie
 - analyser des PDF/plans et récupérer des quantités, tableaux, postes ou indices utiles
 - rendre les résultats révisables et traçables avant injection dans le devis
-- convertir les résultats en données de chiffrage réellement exploitables: sections, lignes, catégories, prix, assemblages, comparaison aux sources, contrôle qualité
+- convertir les résultats en données de chiffrage réellement exploitables: sections, lignes, catégories, prix, ouvrages, comparaison aux sources, contrôle qualité
 
 ---
 
@@ -388,7 +388,7 @@ Evolution attendue:
 - meilleure catégorisation
 - pré-remplissage plus riche des prix/unités/catégories
 - insertion plus intelligente dans le devis
-- meilleur usage des assemblages
+- meilleur usage des ouvrages
 
 ### D. Valider la qualité métier du niveau C
 
@@ -463,7 +463,7 @@ Objectif:
 Stories candidates:
 - transformation automatique par lots / sections
 - enrichissement plus fort via mapping rules
-- assemblages automatiques pilotés par règles métier
+- ouvrages automatiques pilotés par règles métier
 - pré-affectation catégories, unités et destinations de section
 
 ### Lot 3 — Qualité métier et confiance

@@ -56,7 +56,7 @@ const ACTION_OPTIONS: Array<{
   {
     value: "apply_assembly",
     label: "Apply assembly",
-    description: "Applique un assemblage predefini.",
+    description: "Applique un ouvrage predefini.",
   },
   {
     value: "skip",
@@ -236,16 +236,16 @@ function validateFormState(
     const allowedAssemblyId =
       options.allowAssemblyIdOutsideLoadedList?.trim() ?? null;
     if (!normalizedAssemblyId) {
-      errors.applyAssemblyId = "Selectionnez un assemblage valide.";
+      errors.applyAssemblyId = "Selectionnez un ouvrage valide.";
     } else if (!UUID_PATTERN.test(normalizedAssemblyId)) {
-      errors.applyAssemblyId = "UUID d'assemblage invalide.";
+      errors.applyAssemblyId = "UUID d'ouvrage invalide.";
     } else if (
       assemblies.length > 0 &&
       !assemblies.some((assembly) => assembly.id === normalizedAssemblyId) &&
       normalizedAssemblyId !== allowedAssemblyId
     ) {
       errors.applyAssemblyId =
-        "L'assemblage selectionne est introuvable dans la liste chargee.";
+        "L'ouvrage selectionne est introuvable dans la liste chargee.";
     }
   }
 
@@ -733,7 +733,7 @@ export function MappingRuleEditor({
         {state.action === "apply_assembly" ? (
           <div>
             <label className="form-label" htmlFor="mapping-rule-action-assembly">
-              Assemblage
+              Ouvrage
             </label>
             <select
               id="mapping-rule-action-assembly"
@@ -749,12 +749,12 @@ export function MappingRuleEditor({
             >
               <option value="">
                 {assemblies.length === 0
-                  ? "Aucun assemblage disponible"
-                  : "Selectionner un assemblage"}
+                  ? "Aucun ouvrage disponible"
+                  : "Selectionner un ouvrage"}
               </option>
               {selectedAssemblyMissing ? (
                 <option value={state.applyAssemblyId}>
-                  Assemblage existant ({state.applyAssemblyId})
+                  Ouvrage existant ({state.applyAssemblyId})
                 </option>
               ) : null}
               {assemblies.map((assembly) => (
@@ -767,7 +767,7 @@ export function MappingRuleEditor({
               <p className="mt-1 text-xs text-rose-700">{errors.applyAssemblyId}</p>
             ) : (
               <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Charge depuis la bibliotheque d&apos;assemblages du tenant (limite 100).
+                Charge depuis la bibliotheque d&apos;ouvrages du tenant (limite 100).
               </p>
             )}
           </div>

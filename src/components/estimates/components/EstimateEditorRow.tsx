@@ -219,6 +219,7 @@ function areEstimateEditorRowPropsEqual(
     previous.hideEditingActions === next.hideEditingActions &&
     previous.isLaborSplitEnabled === next.isLaborSplitEnabled &&
     previous.isPendingCreate === next.isPendingCreate &&
+    previous.isHighlighted === next.isHighlighted &&
     previous.isSearchMatch === next.isSearchMatch &&
     areTreeConnectorMetaEqual(previous.treeConnectorMeta, next.treeConnectorMeta) &&
     previous.sectionLevel === next.sectionLevel &&
@@ -254,6 +255,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   isLaborSplitEnabled,
   visibleColumns,
   isPendingCreate = false,
+  isHighlighted = false,
   isSearchMatch,
   treeConnectorMeta,
   sectionLevel = null,
@@ -405,6 +407,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         isReadOnly={isReadOnly}
         hideEditingActions={hideEditingActions}
         isPendingCreate={isPendingCreate}
+        isHighlighted={isHighlighted}
         isAidEditorVisible={isAidEditorVisible}
         sectionTotals={sectionTotals}
         supplyTypeById={supplyTypeById}
@@ -632,6 +635,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       hideEditingActions={hideEditingActions}
       isLaborSplitEnabled={isLaborSplitEnabled}
       isPendingCreate={isPendingCreate}
+      isHighlighted={isHighlighted}
       isSearchMatch={isSearchMatch}
       lineTotal={item.line_total_ht_cents ?? 0}
       kFoValue={item.k_fo ?? 1}

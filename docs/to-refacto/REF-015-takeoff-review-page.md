@@ -24,5 +24,5 @@ La page est volumineuse surtout comme orchestrateur: navigation URL, chargements
 ## Definition of done
 
 - Les pipelines de chargement et d'autosave vivent dans des hooks.
-- La page reste le point d'assemblage.
+- La page reste le point d'ouvrage.
 - Aucun changement UX visible.

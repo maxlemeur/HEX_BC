@@ -683,7 +683,7 @@ export function LegacyEstimateEditorToolbar({
                     disabled={meta.isReadOnly}
                     data-testid="estimate-editor-quick-assembly-button"
                   >
-                    + Assemblage
+                    + Ouvrage
                   </button>
                 )}
                 <div className="my-1 border-t border-border" />
@@ -834,11 +834,11 @@ export function LegacyEstimateEditorToolbar({
               type="button"
               onClick={onToggleQuickAssemblyPicker}
               disabled={meta.isReadOnly}
-              title="Inserer un assemblage"
+              title="Inserer un ouvrage"
               data-testid="estimate-editor-quick-assembly-button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
-              <span className="text-xs">+ Assemblage</span>
+              <span className="text-xs">+ Ouvrage</span>
             </button>
             {quickAssemblyPickerNode}
           </div>
@@ -1093,7 +1093,7 @@ export function LegacyEstimateEditorToolbar({
                     disabled={meta.isReadOnly}
                     data-testid="estimate-editor-assemblies-button"
                   >
-                    Assemblages
+                    Ouvrages
                   </button>
                 </div>
               </div>,
@@ -1254,7 +1254,7 @@ const KEYBOARD_SHORTCUTS = [
   { keys: ["Ctrl", "Y"], description: "Refaire (Redo)" },
   { keys: ["Ctrl", "A"], description: "Sélectionner toutes les lignes" },
   { keys: ["Ctrl", "C"], description: "Copier les lignes sélectionnées" },
-  { keys: ["Ctrl", "Shift", "A"], description: "Ouvrir le sélecteur d'assemblages" },
+  { keys: ["Ctrl", "Shift", "A"], description: "Ouvrir le sélecteur d'ouvrages" },
   { keys: ["Delete"], description: "Supprimer les lignes sélectionnées" },
   { keys: ["Escape"], description: "Désélectionner / Annuler l'édition" },
   { keys: ["Tab"], description: "Cellule suivante" },

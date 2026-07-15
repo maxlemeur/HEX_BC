@@ -61,7 +61,7 @@
 | [EST-163](./EST-163.md) | Apprentissage des corrections | Non | - | Backlog | L | M2 | [EST-E09](../EST-E09-suggestions.md) |
 | [EST-164](./EST-164.md) | Suggestions depuis le catalogue | Oui | 3/3.1 | A | M | M2 | [EST-E09](../EST-E09-suggestions.md) |
 | [EST-181](./EST-181.md) | Templates de devis | Oui | 2/2.1 | A | L | M1 | [EST-E10](../EST-E10-reuse-templates.md) |
-| [EST-182](./EST-182.md) | Assemblages reutilisables | Oui | 2/2.1 | B | L | M1 | [EST-E10](../EST-E10-reuse-templates.md) |
+| [EST-182](./EST-182.md) | Ouvrages reutilisables | Oui | 2/2.1 | B | L | M1 | [EST-E10](../EST-E10-reuse-templates.md) |
 | [EST-183](./EST-183.md) | Duplication partielle (section) | Non | - | Backlog | M | M1 | [EST-E10](../EST-E10-reuse-templates.md) |
 | [EST-184](./EST-184.md) | Import depuis un autre devis | Non | - | Backlog | M | M1 | [EST-E10](../EST-E10-reuse-templates.md) |
 | [EST-201](./EST-201.md) | Generation PDF serveur | Oui | 3/3.1 | C | L | M2 | [EST-E11](../EST-E11-imports-exports.md) |

@@ -23,7 +23,7 @@ const RULE_WITH_OLD_ASSEMBLY: TakeoffMappingRule = {
   created_at: "2026-02-24T12:00:00.000Z",
   updated_at: "2026-02-24T12:00:00.000Z",
   created_by: null,
-  name: "Appliquer assemblage historique",
+  name: "Appliquer ouvrage historique",
   match_pattern: "historique",
   match_type: "contains",
   priority: 30,
@@ -79,17 +79,17 @@ describe("MappingRuleEditor", () => {
       />
     );
 
-    await user.type(screen.getByLabelText("Nom de la regle"), "Assemblage PVC");
+    await user.type(screen.getByLabelText("Nom de la regle"), "Ouvrage PVC");
     await user.type(screen.getByLabelText("Pattern de correspondance"), "pvc");
     await user.selectOptions(screen.getByLabelText("Action"), "apply_assembly");
 
     await user.click(screen.getByRole("button", { name: "Creer la regle" }));
 
-    expect(screen.getByText("Selectionnez un assemblage valide.")).toBeInTheDocument();
+    expect(screen.getByText("Selectionnez un ouvrage valide.")).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
 
     await user.selectOptions(
-      screen.getByLabelText("Assemblage"),
+      screen.getByLabelText("Ouvrage"),
       "11111111-1111-4111-8111-111111111111"
     );
     await user.click(screen.getByRole("button", { name: "Creer la regle" }));
@@ -99,7 +99,7 @@ describe("MappingRuleEditor", () => {
     });
 
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
-      name: "Assemblage PVC",
+      name: "Ouvrage PVC",
       match_pattern: "pvc",
       match_type: "contains",
       priority: 25,
@@ -126,7 +126,7 @@ describe("MappingRuleEditor", () => {
 
     expect(
       screen.getByRole("option", {
-        name: `Assemblage existant (${RULE_WITH_OLD_ASSEMBLY.action_params.assembly_id})`,
+        name: `Ouvrage existant (${RULE_WITH_OLD_ASSEMBLY.action_params.assembly_id})`,
       })
     ).toBeInTheDocument();
 
@@ -143,7 +143,7 @@ describe("MappingRuleEditor", () => {
       },
     });
     expect(
-      screen.queryByText("L'assemblage selectionne est introuvable dans la liste chargee.")
+      screen.queryByText("L'ouvrage selectionne est introuvable dans la liste chargee.")
     ).not.toBeInTheDocument();
   });
 });

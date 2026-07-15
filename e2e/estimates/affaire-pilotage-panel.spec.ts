@@ -582,7 +582,6 @@ async function seedSelectedSupplierPrice(input: {
   const sb = await getAuthenticatedSupabaseClient();
   const supplierId = randomUUID();
   const productId = randomUUID();
-  const supplierPriceId = randomUUID();
   const uniqueReference = `${input.supplierReference}-${productId.slice(0, 8)}`;
 
   const { error: supplierError } = await sb.from("suppliers").insert({
@@ -610,24 +609,36 @@ async function seedSelectedSupplierPrice(input: {
     throw new Error(`Seed product failed: ${productError.message}`);
   }
 
-  const { error: priceError } = await sb.from("supplier_pricebook").insert({
-    id: supplierPriceId,
-    tenant_id: input.tenantId,
-    supplier_id: supplierId,
-    product_id: productId,
-    supplier_sku: uniqueReference,
-    unit: "u",
-    min_quantity: 1,
-    unit_price_cents: input.unitPriceCents,
-    currency: "EUR",
-    valid_from: "2026-03-01",
-    valid_to: null,
-    is_active: true,
-    notes: "Seed US-5.3",
-  });
+  const { data: priceData, error: priceError } = await sb.rpc(
+    "create_supplier_catalog_price",
+    {
+      payload: {
+        supplier_id: supplierId,
+        product_id: productId,
+        supplier_sku: uniqueReference,
+        product_url: null,
+        price: {
+          unit: "u",
+          min_quantity: 1,
+          unit_price_cents: input.unitPriceCents,
+          currency: "EUR",
+          valid_from: "2026-03-01",
+          valid_to: null,
+          is_active: true,
+          notes: "Seed US-5.3",
+        },
+      },
+    }
+  );
+  const supplierPriceId =
+    priceData && typeof priceData === "object" && "id" in priceData
+      ? String(priceData.id)
+      : null;
 
-  if (priceError) {
-    throw new Error(`Seed supplier price failed: ${priceError.message}`);
+  if (priceError || !supplierPriceId) {
+    throw new Error(
+      `Seed supplier price failed: ${priceError?.message ?? "missing id"}`
+    );
   }
 
   const { error: lineError } = await sb

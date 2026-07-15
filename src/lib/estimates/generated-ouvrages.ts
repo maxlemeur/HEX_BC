@@ -1094,7 +1094,7 @@ async function loadLibraryFragments(input: {
       for (const row of assemblyResult.data as EstimateAssemblySummaryRow[]) {
         fragments.push({
           sourceKind: "library",
-          label: "Assemblage",
+          label: "Ouvrage",
           excerpt: [normalizeText(row.name, 180), toNullableText(row.description)]
             .filter((value): value is string => Boolean(value))
             .join(" | "),

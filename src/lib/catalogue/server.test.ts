@@ -5,6 +5,9 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import {
+  createSupplierPrice,
+  getSupplierCatalogItem,
+  updateSupplierCatalogItem,
   bulkCreateSupplierPricesAtomic,
   bulkUpsertMaterialIndices,
   createMissingPriceImportEntities,
@@ -15,6 +18,7 @@ import {
 } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+const SUPPLIER_CATALOG_ITEM_ID = "88888888-8888-4888-8888-888888888888";
 const IMPORT_ID = "44444444-4444-4444-8444-444444444444";
 const USER_ID = "55555555-5555-4555-8555-555555555555";
 const PRODUCT_ID = "66666666-6666-4666-8666-666666666666";
@@ -34,6 +38,176 @@ function createAuthenticatedSupabaseBase() {
     },
   };
 }
+
+describe("supplier catalogue price server", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("creates a price through the atomic supplier catalogue RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        id: "99999999-9999-4999-8999-999999999999",
+        supplier_catalog_item_id: SUPPLIER_CATALOG_ITEM_ID,
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+        supplier_sku: "ARC-42",
+        product_url: "https://example.test/arc-42",
+        unit_price_cents: 4200,
+      },
+      error: null,
+    });
+    const supabase = {
+      ...createAuthenticatedSupabaseBase(),
+      rpc,
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await createSupplierPrice({
+      supplier_id: SUPPLIER_ID,
+      new_supplier: undefined,
+      product_id: PRODUCT_ID,
+      catalogue_item_id: undefined,
+      new_product: undefined,
+      supplier_sku: "ARC-42",
+      product_url: "https://example.test/arc-42",
+      unit: "u",
+      min_quantity: 1,
+      unit_price_cents: 4200,
+      currency: "EUR",
+      valid_from: null,
+      valid_to: null,
+      is_active: true,
+      source_import_id: null,
+      source_mapped_row_id: null,
+      source: null,
+      notes: null,
+    });
+
+    expect(rpc).toHaveBeenCalledWith("create_supplier_catalog_price", {
+      payload: expect.objectContaining({
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+        supplier_sku: "ARC-42",
+        product_url: "https://example.test/arc-42",
+        price: expect.objectContaining({
+          unit_price_cents: 4200,
+          currency: "EUR",
+        }),
+      }),
+    });
+    expect(result.item).toMatchObject({
+      supplier_catalog_item_id: SUPPLIER_CATALOG_ITEM_ID,
+      supplier_id: SUPPLIER_ID,
+      product_id: PRODUCT_ID,
+    });
+  });
+
+  it("maps a contradictory supplier reference to an explicit conflict", async () => {
+    const supabase = {
+      ...createAuthenticatedSupabaseBase(),
+      rpc: vi.fn().mockResolvedValue({
+        data: null,
+        error: {
+          code: "P0001",
+          message: "SUPPLIER_CATALOG_REFERENCE_CONFLICT",
+          details: null,
+        },
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createSupplierPrice({
+        supplier_id: SUPPLIER_ID,
+        new_supplier: undefined,
+        product_id: PRODUCT_ID,
+        catalogue_item_id: undefined,
+        new_product: undefined,
+        supplier_sku: "CONFLICT",
+        product_url: null,
+        unit: "u",
+        min_quantity: 1,
+        unit_price_cents: 4200,
+        currency: "EUR",
+        valid_from: null,
+        valid_to: null,
+        is_active: true,
+        source_import_id: null,
+        source_mapped_row_id: null,
+        source: null,
+        notes: null,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "La référence fournisseur diffère de la fiche existante.",
+    });
+  });
+
+  it("loads the unique catalogue item for an article and supplier", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: {
+        id: SUPPLIER_CATALOG_ITEM_ID,
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+        supplier_sku: "ARC-42",
+      },
+      error: null,
+    });
+    const secondEq = vi.fn(() => ({ maybeSingle }));
+    const firstEq = vi.fn(() => ({ eq: secondEq }));
+    const select = vi.fn(() => ({ eq: firstEq }));
+    const supabase = {
+      ...createAuthenticatedSupabaseBase(),
+      from: vi.fn(() => ({ select })),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await getSupplierCatalogItem({
+      supplier_id: SUPPLIER_ID,
+      product_id: PRODUCT_ID,
+    });
+
+    expect(supabase.from).toHaveBeenCalledWith("supplier_catalog_items");
+    expect(firstEq).toHaveBeenCalledWith("supplier_id", SUPPLIER_ID);
+    expect(secondEq).toHaveBeenCalledWith("product_id", PRODUCT_ID);
+    expect(result.item?.id).toBe(SUPPLIER_CATALOG_ITEM_ID);
+  });
+
+  it("updates supplier metadata through its dedicated RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        id: SUPPLIER_CATALOG_ITEM_ID,
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+        supplier_sku: "ARC-43",
+        product_url: "https://example.test/arc-43",
+      },
+      error: null,
+    });
+    const supabase = {
+      ...createAuthenticatedSupabaseBase(),
+      rpc,
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await updateSupplierCatalogItem({
+      action: "update-supplier-item",
+      id: SUPPLIER_CATALOG_ITEM_ID,
+      supplier_sku: "ARC-43",
+      product_url: "https://example.test/arc-43",
+    });
+
+    expect(rpc).toHaveBeenCalledWith("update_supplier_catalog_item", {
+      p_item_id: SUPPLIER_CATALOG_ITEM_ID,
+      p_supplier_sku: "ARC-43",
+      p_product_url: "https://example.test/arc-43",
+    });
+  });
+});
 
 describe("catalogue server regressions", () => {
   beforeEach(() => {
@@ -257,9 +431,7 @@ describe("catalogue server regressions", () => {
     expect(result.upserted_count).toBe(1);
   });
 
-  it("rolls back previously inserted atomic price batches when a later batch fails", async () => {
-    const rollbackCalls: Array<{ column: string; marker: string }> = [];
-    const cleanupCalls: Array<{ column: string; marker: string }> = [];
+  it("sends an atomic price import in one transactional RPC", async () => {
     const atomicItemTemplate = {
       supplier_id: SUPPLIER_ID,
       product_id: PRODUCT_ID,
@@ -279,74 +451,37 @@ describe("catalogue server regressions", () => {
 
     const supabase = {
       ...createAuthenticatedSupabaseBase(),
-      rpc: vi
-        .fn()
-        .mockResolvedValueOnce({
-          data: 1,
-          error: null,
-        })
-        .mockResolvedValueOnce({
-          data: null,
-          error: {
-            code: "23505",
-            message: "duplicate key value violates unique constraint",
-            details: null,
-          },
-        }),
-      from: vi.fn((table: string) => {
-        if (table !== "supplier_pricebook") {
-          throw new Error(`Unexpected table: ${table}`);
-        }
-
-        return {
-          delete: vi.fn(() => ({
-            eq: vi.fn((column: string, marker: string) => {
-              rollbackCalls.push({ column, marker });
-              return Promise.resolve({
-                error: null,
-              });
-            }),
-          })),
-          update: vi.fn(() => ({
-            eq: vi.fn((column: string, marker: string) => {
-              cleanupCalls.push({ column, marker });
-              return Promise.resolve({
-                error: null,
-              });
-            }),
-          })),
-        };
-      }),
+      rpc: vi.fn().mockResolvedValue({ data: 2, error: null }),
     };
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    await expect(
-      bulkCreateSupplierPricesAtomic({
-        action: "bulk-create-atomic",
-        batch_size: 1,
-        items: [
-          {
-            ...atomicItemTemplate,
-            unit_price_cents: 100,
-          },
-          {
-            ...atomicItemTemplate,
-            unit_price_cents: 200,
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({
-      message: expect.stringContaining("Import annule: Echec du lot 2/2"),
+    const result = await bulkCreateSupplierPricesAtomic({
+      action: "bulk-create-atomic",
+      batch_size: 1,
+      items: [
+        {
+          ...atomicItemTemplate,
+          unit_price_cents: 100,
+        },
+        {
+          ...atomicItemTemplate,
+          unit_price_cents: 200,
+        },
+      ],
     });
 
-    expect(supabase.rpc).toHaveBeenCalledTimes(2);
-    expect(rollbackCalls).toHaveLength(1);
-    expect(rollbackCalls[0]).toMatchObject({
-      column: "notes",
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith("bulk_create_supplier_prices", {
+      price_rows: [
+        expect.objectContaining({ unit_price_cents: 100 }),
+        expect.objectContaining({ unit_price_cents: 200 }),
+      ],
     });
-    expect(rollbackCalls[0]?.marker).toMatch(/^__hex_atomic_price_import__:/);
-    expect(cleanupCalls).toHaveLength(0);
+    expect(result).toEqual({
+      created_count: 2,
+      mode: "atomic-rpc",
+    });
   });
 
   it("maps the paginated product RPC without changing the requested page", async () => {

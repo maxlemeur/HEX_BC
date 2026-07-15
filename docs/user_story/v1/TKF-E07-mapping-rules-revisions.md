@@ -5,7 +5,7 @@
 ## Objectif
 
 Enrichir le pipeline takeoff avec des regles de mapping configurables (conversion de
-designations, enrichissement automatique, assemblages) et un systeme de revision delta
+designations, enrichissement automatique, ouvrages) et un systeme de revision delta
 permettant de comparer deux extractions sur le meme document pour detecter les differences.
 
 ## Etat codebase au 2026-03-07
@@ -28,8 +28,8 @@ Le principal decalage n'est pas technique mais produit:
 - **Pipeline takeoff avance** : TKF-E01 a TKF-E06 — socle, niveau A livre, B/C largement codes,
   async, provenance.
 - **Apply Wizard** : `src/components/takeoff/TakeoffApplyWizard.tsx` — apply multi-etapes.
-- **Assemblages** : `src/lib/estimates/server.ts` — `insertAssemblyIntoVersion()`.
-- **Templates** : pattern templates/assemblages dans le module estimates (EST-E10).
+- **Ouvrages** : `src/lib/estimates/server.ts` — `insertAssemblyIntoVersion()`.
+- **Templates** : pattern templates/ouvrages dans le module estimates (EST-E10).
 - **Batch operations** : `src/lib/estimates/batch.ts`.
 
 ---
@@ -41,7 +41,7 @@ Le principal decalage n'est pas technique mais produit:
 ### User Story
 
 > En tant qu'admin, je veux definir des regles de mapping (correspondance de designations,
-> prix par defaut, assemblages automatiques), afin d'enrichir automatiquement les items
+> prix par defaut, ouvrages automatiques), afin d'enrichir automatiquement les items
 > extraits lors de l'application au devis.
 
 ### Criteres d'acceptation
@@ -95,7 +95,7 @@ Le principal decalage n'est pas technique mais produit:
 - [ ] Reordonnancement priorite:
   - drag/drop ou edition numerique
   - persistance atomique de l'ordre
-- [ ] Action `apply_assembly` propose selecteur d'assemblages valides
+- [ ] Action `apply_assembly` propose selecteur d'ouvrages valides
 - [ ] Preview regle disponible (test sur designation)
 - [ ] Suppression avec confirmation + feedback succes/erreur
 - [ ] Tests UI couvrent droits admin, CRUD, reorder, preview
@@ -112,7 +112,7 @@ Le principal decalage n'est pas technique mais produit:
 
 ---
 
-## TKF-031 — Apply avec mapping rules (conversion enrichie + assemblages)
+## TKF-031 — Apply avec mapping rules (conversion enrichie + ouvrages)
 
 **Priorite:** P2 | **Effort:** L
 
@@ -120,7 +120,7 @@ Le principal decalage n'est pas technique mais produit:
 
 > En tant que chiffreur, je veux que les regles de mapping s'appliquent automatiquement
 > lors de l'application des items takeoff au devis, afin d'obtenir des lignes enrichies
-> (designations normalisees, prix pre-remplis, assemblages automatiques) sans saisie
+> (designations normalisees, prix pre-remplis, ouvrages automatiques) sans saisie
 > supplementaire.
 
 ### Criteres d'acceptation
@@ -148,7 +148,7 @@ Le principal decalage n'est pas technique mais produit:
   - `src/app/api/takeoff/jobs/[jobId]/apply/route.ts` — integration mapping
   - `src/components/takeoff/TakeoffApplyWizard.tsx` — etape preview conversion
 - Reutiliser :
-  - `src/lib/estimates/server.ts` — `insertAssemblyIntoVersion()` pour assemblages
+  - `src/lib/estimates/server.ts` — `insertAssemblyIntoVersion()` pour ouvrages
   - `src/lib/estimates/batch.ts` — operations bulk
 - Dependances : TKF-013, TKF-029, TKF-030
 

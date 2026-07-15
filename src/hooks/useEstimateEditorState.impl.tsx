@@ -2213,6 +2213,7 @@ export function useEstimateEditorState({
     getVersionSnapshot,
     setItems,
     setTotalsOutOfSync,
+    highlightItems: highlightAiMutationItems,
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
     applyVersionToken,

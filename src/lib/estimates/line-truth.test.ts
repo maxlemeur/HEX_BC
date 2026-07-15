@@ -101,7 +101,7 @@ describe("resolveEstimateLineTruth", () => {
     expect(truth).toMatchObject({
       source: {
         kind: "assembly",
-        label: "Assemblage",
+        label: "Ouvrage",
       },
       qtyStatus: {
         code: "provisional",

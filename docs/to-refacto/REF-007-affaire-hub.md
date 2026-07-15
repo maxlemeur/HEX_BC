@@ -23,5 +23,5 @@ Le hub d'affaire melange orchestration de page, onboarding, logique cockpit, imp
 ## Definition of done
 
 - Les cartes locales deviennent des composants fichiers.
-- Le hub garde l'assemblage de page.
+- Le hub garde l'ouvrage de page.
 - Les flows onboarding, cockpit et import ne regressent pas.

@@ -104,7 +104,7 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
         { keys: ["Entrée"], label: "Éditer la cellule" },
         { keys: ["Suppr"], label: "Supprimer la sélection" },
         { keys: [mod, "C"], label: "Copier les lignes" },
-        { keys: [mod, "Shift", "A"], label: "Insérer un assemblage" },
+        { keys: [mod, "Shift", "A"], label: "Insérer un ouvrage" },
       ],
     },
     {

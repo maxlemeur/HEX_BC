@@ -82,7 +82,7 @@ export function QuickAssemblyPicker({
         setActionError(
           error instanceof Error
             ? error.message
-            : "Impossible d'inserer l'assemblage."
+            : "Impossible d'inserer l'ouvrage."
         );
       } finally {
         setIsInserting(false);
@@ -95,8 +95,8 @@ export function QuickAssemblyPicker({
     <QuickInsertPicker
       key={isOpen ? "assembly-open" : "assembly-closed"}
       isOpen={isOpen}
-      title="Inserer un assemblage"
-      emptyLabel="Aucun assemblage disponible."
+      title="Inserer un ouvrage"
+      emptyLabel="Aucun ouvrage disponible."
       items={filteredItems}
       isLoading={isLoading}
       isInserting={isInserting}

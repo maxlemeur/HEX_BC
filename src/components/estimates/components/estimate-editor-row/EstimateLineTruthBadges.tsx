@@ -56,7 +56,7 @@ function getCompactSourceLabel(
     case "cctp":
       return "CCTP";
     case "assembly":
-      return "Assemblage";
+      return "Ouvrage";
     case "mixed":
       return "Mixte";
     default:

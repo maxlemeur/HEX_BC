@@ -4,16 +4,19 @@ import {
   bulkCreateSupplierPrices,
   createSupplierPrice,
   deleteSupplierPrice,
+  getSupplierCatalogItem,
   listSupplierPrices,
   listSupplierPricesPage,
   ok,
   toErrorResponse,
   updateSupplierPrice,
+  updateSupplierCatalogItem,
 } from "@/lib/catalogue/server";
 import {
   pricesActionSchema,
   pricesListQuerySchema,
   pricesPageQuerySchema,
+  supplierCatalogItemLookupQuerySchema,
 } from "@/lib/catalogue/schemas";
 
 function parsePositiveInt(value: string | null): number | null {
@@ -39,6 +42,15 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const productIdParam =
       searchParams.get("product_id") ?? searchParams.get("catalogue_item_id");
+
+    if (searchParams.get("view") === "supplier-item") {
+      const lookupQuery = supplierCatalogItemLookupQuerySchema.parse({
+        supplier_id: searchParams.get("supplier_id"),
+        product_id: productIdParam,
+      });
+
+      return ok(await getSupplierCatalogItem(lookupQuery));
+    }
 
     if (searchParams.get("view") === "page") {
       const pageQuery = pricesPageQuerySchema.parse({
@@ -85,6 +97,10 @@ export async function POST(request: Request) {
       }
       case "delete": {
         const data = await deleteSupplierPrice(payload.id);
+        return ok(data);
+      }
+      case "update-supplier-item": {
+        const data = await updateSupplierCatalogItem(payload);
         return ok(data);
       }
       case "bulk-create": {

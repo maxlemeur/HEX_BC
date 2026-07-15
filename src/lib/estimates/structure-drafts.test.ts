@@ -40,10 +40,10 @@ describe("assembly-only weak signal mode", () => {
       isAssemblyOnlyWeakSignalMode([
         {
           kind: "assembly_library",
-          label: "Bibliotheque assemblages",
+          label: "Bibliotheque ouvrages",
           available: true,
           used: true,
-          detail: "4 assemblages explores",
+          detail: "4 ouvrages explores",
         },
         {
           kind: "confirmed_brief",
@@ -59,10 +59,10 @@ describe("assembly-only weak signal mode", () => {
       isAssemblyOnlyWeakSignalMode([
         {
           kind: "assembly_library",
-          label: "Bibliotheque assemblages",
+          label: "Bibliotheque ouvrages",
           available: true,
           used: true,
-          detail: "4 assemblages explores",
+          detail: "4 ouvrages explores",
         },
         {
           kind: "project_notes",
@@ -92,13 +92,13 @@ describe("assembly-only weak signal mode", () => {
         provenance: [
           {
             type: "assembly",
-            label: "Assemblage type",
+            label: "Ouvrage type",
             excerpt: "Bloc standard",
           },
         ],
-        facts: ["Assemblage disponible: Electricite"],
+        facts: ["Ouvrage disponible: Electricite"],
         hypotheses: [],
-        inferences: ["Regroupement propose a partir du catalogue d'assemblages."],
+        inferences: ["Regroupement propose a partir du catalogue d'ouvrages."],
         children: [],
       },
     ]);
@@ -109,7 +109,7 @@ describe("assembly-only weak signal mode", () => {
     });
     expect(result.confidence).toBeLessThanOrEqual(0.49);
     expect(result.hypotheses).toContain(
-      "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'assemblages, a confirmer humainement."
+      "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, a confirmer humainement."
     );
     expect(result.inferences).toContain(
       "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview."
@@ -133,13 +133,13 @@ describe("assembly-only weak signal mode", () => {
         provenance: [
           {
             type: "assembly",
-            label: "Assemblage type",
+            label: "Ouvrage type",
             excerpt: "Bloc standard",
           },
         ],
-        facts: ["Assemblage disponible: Electricite"],
+        facts: ["Ouvrage disponible: Electricite"],
         hypotheses: [],
-        inferences: ["Regroupement propose a partir du catalogue d'assemblages."],
+        inferences: ["Regroupement propose a partir du catalogue d'ouvrages."],
         children: [],
       },
     ]);

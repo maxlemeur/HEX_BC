@@ -93,7 +93,7 @@ export function sourceKindLabel(
     case "template_library":
       return "Templates";
     case "assembly_library":
-      return "Assemblages";
+      return "Ouvrages";
     case "project_notes":
       return "Notes affaire";
     case "confirmed_brief":
@@ -220,7 +220,7 @@ export function evidenceTypeLabel(
     case "template":
       return "Template";
     case "assembly":
-      return "Assemblage";
+      return "Ouvrage";
     case "brief":
       return "Brief";
     default:
@@ -261,7 +261,7 @@ export function buildSourceCoverageSummary(
 
   if (assemblyOnlyWeakSignalMode) {
     statements.push(
-      "Fait: la preview repose uniquement sur la bibliotheque d'assemblages disponible.",
+      "Fait: la preview repose uniquement sur la bibliotheque d'ouvrages disponible.",
     );
     statements.push(
       "Inference: les suggestions faibles sont de-priorisees et non preselectionnees jusqu'a validation humaine.",

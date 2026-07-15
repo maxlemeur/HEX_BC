@@ -15,6 +15,7 @@ type PricesTableProps = {
   onCreate: () => void;
   onEdit: (item: EnrichedPrice) => void;
   onDelete: (item: EnrichedPrice) => void;
+  onEditSupplierItem: (item: EnrichedPrice) => void;
   page: number;
   pageSize: number;
   pageSizes: readonly number[];
@@ -34,6 +35,7 @@ export function PricesTable({
   onCreate,
   onEdit,
   onDelete,
+  onEditSupplierItem,
   page,
   pageSize,
   pageSizes,
@@ -133,6 +135,17 @@ export function PricesTable({
                   </dd>
                 </div>
                 <div className="col-span-2">
+                  <dt className="text-xs text-[var(--slate-400)]">Référence fournisseur</dt>
+                  <dd className="mt-0.5 text-[var(--slate-700)]">
+                    {item.supplier_sku ?? "—"}
+                    {item.product_url ? (
+                      <a className="ml-2 text-[var(--brand-blue)] underline" href={item.product_url} target="_blank" rel="noopener noreferrer">
+                        Voir la fiche
+                      </a>
+                    ) : null}
+                  </dd>
+                </div>
+                <div className="col-span-2">
                   <dt className="text-xs text-[var(--slate-400)]">Validité</dt>
                   <dd className="mt-0.5 text-[var(--slate-700)]">
                     {item.valid_from || item.valid_to
@@ -143,11 +156,14 @@ export function PricesTable({
               </dl>
 
               <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--slate-100)] pt-4">
-                <button type="button" className="btn btn-secondary btn-sm min-h-11" onClick={() => onEdit(item)}>
-                  Modifier
+                <button type="button" className="btn btn-secondary btn-sm min-h-11" onClick={() => onEditSupplierItem(item)}>
+                  Fiche fournisseur
                 </button>
-                <button type="button" className="btn btn-danger btn-sm min-h-11" onClick={() => onDelete(item)}>
-                  Supprimer
+                <button type="button" className="btn btn-secondary btn-sm min-h-11" onClick={() => onEdit(item)}>
+                  Modifier le tarif
+                </button>
+                <button type="button" className="btn btn-danger btn-sm min-h-11 col-span-2" onClick={() => onDelete(item)}>
+                  Supprimer le tarif
                 </button>
               </div>
             </article>
@@ -171,7 +187,7 @@ export function PricesTable({
           ) : null}
           {!isLoading && totalItemsCount === 0 ? (
             <button type="button" className="btn btn-primary btn-sm mt-5 min-h-11" onClick={onCreate}>
-              Ajouter un prix
+              Ajouter un fournisseur / tarif
             </button>
           ) : null}
         </div>
@@ -183,6 +199,7 @@ export function PricesTable({
           <thead>
             <tr>
               <th scope="col">Fournisseur</th>
+              <th scope="col">Référence fournisseur</th>
               <th scope="col">Produit</th>
               <th scope="col">Prix HT</th>
               <th scope="col">Validité</th>
@@ -194,7 +211,7 @@ export function PricesTable({
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center">
+                <td colSpan={8} className="py-12 text-center">
                   {isLoading ? (
                     <div className="flex flex-col items-center gap-3">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
@@ -242,7 +259,7 @@ export function PricesTable({
                           <path d="M5 12h14" />
                           <path d="M12 5v14" />
                         </svg>
-                        Ajouter un prix
+                        Ajouter un fournisseur / tarif
                       </button>
                     </div>
                   ) : (
@@ -279,6 +296,19 @@ export function PricesTable({
                   style={{ animationDelay: `${index * 0.03}s` }}
                 >
                   <td className="font-semibold text-[var(--slate-800)]">{item._supplierName}</td>
+                  <td className="text-sm text-[var(--slate-700)]">
+                    {item.supplier_sku ?? "—"}
+                    {item.product_url ? (
+                      <a
+                        className="ml-2 text-[var(--brand-blue)] underline"
+                        href={item.product_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Lien
+                      </a>
+                    ) : null}
+                  </td>
                   <td className="text-sm text-[var(--slate-700)]">{item._productName}</td>
                   <td className="font-mono font-medium text-[var(--slate-900)]">
                     {typeof item.unit_price_cents === "number" ? formatEUR(item.unit_price_cents) : "-"}
@@ -300,6 +330,13 @@ export function PricesTable({
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
+                        onClick={() => onEditSupplierItem(item)}
+                      >
+                        Fiche
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
                         onClick={() => onEdit(item)}
                       >
                         <svg
@@ -313,7 +350,7 @@ export function PricesTable({
                         >
                           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                         </svg>
-                        Modifier
+                        Tarif
                       </button>
                       <button
                         type="button"

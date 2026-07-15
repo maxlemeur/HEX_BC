@@ -13,8 +13,8 @@ Require-AgentBrowser
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $project = "E2E-HEX-TI182-$stamp"
-$assemblyName = "Assemblage E2E $stamp"
-$lineTitle = "Ligne Assemblage $stamp"
+$assemblyName = "Ouvrage E2E $stamp"
+$lineTitle = "Ligne Ouvrage $stamp"
 
 function Wait-ForMainTextContains {
   param(
@@ -125,14 +125,14 @@ try {
     -Validite "30"
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/assemblies"
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Nouvel assemblage"
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Nouvel ouvrage"
   Invoke-AB $Session "fill" "#assembly-name" $assemblyName
   Invoke-AB $Session "fill" "[role='dialog'] tbody tr td:nth-child(1) input" $lineTitle
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Enregistrer"
 
   Wait-ForMainTextContains `
     -Session $Session `
-    -Expected "Assemblage cree." `
+    -Expected "Ouvrage cree." `
     -Message "assembly create success message" `
     -TimeoutSeconds 25
 
@@ -147,7 +147,7 @@ try {
   Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
   Go-EditorTab -Session $Session
 
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Assemblages"
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Ouvrages"
   Select-AssemblyFromDrawer -Session $Session -AssemblyName $assemblyName
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Inserer dans l'editeur"
 

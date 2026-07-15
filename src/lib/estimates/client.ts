@@ -3281,7 +3281,7 @@ function parseEstimateAssemblyDetail(payload: unknown): EstimateAssemblyDetail {
   const assemblyEntity = extractEntity(root, ["assembly"]);
   const summary = parseEstimateAssemblySummaryEntity(assemblyEntity);
   if (!summary) {
-    throw new Error("Impossible de recuperer l'assemblage.");
+    throw new Error("Impossible de recuperer l'ouvrage.");
   }
 
   const items = parseEstimateAssemblyItems(
@@ -5375,7 +5375,7 @@ export async function fetchEstimateAssemblies(options?: {
     {
       method: "GET",
     },
-    "Impossible de charger les assemblages."
+    "Impossible de charger les ouvrages."
   );
 
   return parseEstimateAssemblySummaryList(payload);
@@ -5390,7 +5390,7 @@ export async function fetchEstimateAssemblyOptions(): Promise<{
     {
       method: "GET",
     },
-    "Impossible de charger les options des assemblages."
+    "Impossible de charger les options des ouvrages."
   );
   const root = getRootPayload(payload);
   if (!isRecord(root)) {
@@ -5414,7 +5414,7 @@ export async function fetchEstimateAssembly(
     {
       method: "GET",
     },
-    "Impossible de charger l'assemblage."
+    "Impossible de charger l'ouvrage."
   );
 
   return parseEstimateAssemblyDetail(payload);
@@ -5438,7 +5438,7 @@ export async function createEstimateAssembly(
         items: input.items.map((item) => toAssemblyItemRequestPayload(item)),
       }),
     },
-    "Impossible de creer l'assemblage."
+    "Impossible de creer l'ouvrage."
   );
 
   return parseEstimateAssemblyDetail(payload);
@@ -5475,7 +5475,7 @@ export async function updateEstimateAssembly(
       },
       body: JSON.stringify(body),
     },
-    "Impossible de mettre a jour l'assemblage."
+    "Impossible de mettre a jour l'ouvrage."
   );
 
   return parseEstimateAssemblyDetail(payload);
@@ -5487,7 +5487,7 @@ export async function deleteEstimateAssembly(assemblyId: string): Promise<void> 
     {
       method: "DELETE",
     },
-    "Impossible de supprimer l'assemblage."
+    "Impossible de supprimer l'ouvrage."
   );
 }
 
@@ -5542,7 +5542,7 @@ export async function insertAssemblyIntoVersion(
         afterItemId: input.afterItemId ?? null,
       }),
     },
-    "Impossible d'inserer l'assemblage."
+    "Impossible d'inserer l'ouvrage."
   );
 
   return parseEstimateItems(payload);

@@ -27,6 +27,21 @@ const optionalTextUpdateSchema = z
     return trimmed.length > 0 ? trimmed : null;
   });
 
+const optionalHttpUrlSchema = optionalTextSchema.superRefine((value, ctx) => {
+  if (value === null) return;
+
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") return;
+  } catch {
+    // The issue below provides the stable API error.
+  }
+
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "L'URL doit utiliser HTTP ou HTTPS.",
+  });
+});
 const positiveIntegerSchema = z.number().int().min(1, "Valeur numerique invalide.");
 const positiveNumberSchema = z.number().gt(0, "Valeur numerique invalide.");
 const nonNegativeIntegerSchema = z.number().int().min(0, "Valeur numerique invalide.");
@@ -213,11 +228,47 @@ export const priceLookupsQuerySchema = z.object({
   limit: positiveIntegerSchema.max(50).default(50),
 });
 
-const supplierPriceWriteFieldsSchema = z.object({
+export const supplierCatalogItemLookupQuerySchema = z.object({
   supplier_id: z.string().uuid(UUID_ERROR_MESSAGE),
+  product_id: z.string().uuid(UUID_ERROR_MESSAGE),
+});
+
+const newSupplierSchema = z.object({
+  name: requiredTextSchema.max(255),
+  address: optionalTextSchema,
+  city: optionalTextSchema,
+  postal_code: optionalTextSchema,
+  country: optionalTextSchema,
+  email: optionalTextSchema,
+  phone: optionalTextSchema,
+  contact_name: optionalTextSchema,
+  siret: optionalTextSchema,
+  vat_number: optionalTextSchema,
+  payment_terms: optionalTextSchema,
+});
+
+const newProductSchema = z.object({
+  reference: optionalTextSchema,
+  designation: requiredTextSchema.max(500),
+  category: optionalTextSchema,
+  product_type: optionalTextSchema,
+  material: optionalTextSchema,
+  grade: optionalTextSchema,
+  dimensions: optionalTextSchema,
+  standard: optionalTextSchema,
+  unit: optionalTextSchema,
+  unit_price_cents: nonNegativeIntegerSchema.optional().default(0),
+  tax_rate_bp: nonNegativeIntegerSchema.max(10000).optional().default(2000),
+});
+
+const supplierPriceWriteFieldsSchema = z.object({
+  supplier_id: optionalUuidSchema,
+  new_supplier: newSupplierSchema.optional(),
   product_id: optionalUuidSchema,
   catalogue_item_id: optionalUuidSchema,
+  new_product: newProductSchema.optional(),
   supplier_sku: optionalTextSchema,
+  product_url: optionalHttpUrlSchema.optional(),
   unit: optionalTextSchema,
   min_quantity: optionalPositiveNumberSchema,
   unit_price_cents: nonNegativeIntegerSchema,
@@ -235,14 +286,31 @@ const ensureProductIdentifier = (
   payload: {
     product_id?: string | null;
     catalogue_item_id?: string | null;
+    new_product?: unknown;
   },
   ctx: z.RefinementCtx
 ) => {
-  if (payload.product_id || payload.catalogue_item_id) return;
+  const hasExisting = Boolean(payload.product_id || payload.catalogue_item_id);
+  const hasNew = payload.new_product !== undefined;
+  if (hasExisting !== hasNew) return;
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
     path: ["product_id"],
-    message: "Le champ product_id (ou catalogue_item_id) est requis.",
+    message: "Renseignez exactement un article existant ou un nouvel article.",
+  });
+};
+
+const ensureSupplierIdentifier = (
+  payload: { supplier_id?: string | null; new_supplier?: unknown },
+  ctx: z.RefinementCtx
+) => {
+  const hasExisting = Boolean(payload.supplier_id);
+  const hasNew = payload.new_supplier !== undefined;
+  if (hasExisting !== hasNew) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ["supplier_id"],
+    message: "Renseignez exactement un fournisseur existant ou un nouveau fournisseur.",
   });
 };
 
@@ -250,38 +318,39 @@ const supplierPriceCreateFieldsSchema = supplierPriceWriteFieldsSchema.extend({
   currency: z.string().trim().min(3).max(3).optional().default("EUR"),
 });
 
-const supplierPriceUpdateFieldsSchema = supplierPriceWriteFieldsSchema.extend({
-  supplier_sku: optionalTextUpdateSchema,
-  unit: optionalTextUpdateSchema,
-  valid_from: optionalDateUpdateSchema,
-  valid_to: optionalDateUpdateSchema,
-  source: optionalTextUpdateSchema,
-  notes: optionalTextUpdateSchema,
-});
+const supplierPriceUpdateFieldsSchema = supplierPriceWriteFieldsSchema
+  .omit({
+    supplier_id: true,
+    new_supplier: true,
+    product_id: true,
+    catalogue_item_id: true,
+    new_product: true,
+    supplier_sku: true,
+    product_url: true,
+  })
+  .extend({
+    unit: optionalTextUpdateSchema,
+    valid_from: optionalDateUpdateSchema,
+    valid_to: optionalDateUpdateSchema,
+    source: optionalTextUpdateSchema,
+    notes: optionalTextUpdateSchema,
+  });
 
 const createSupplierPriceBodySchema = supplierPriceCreateFieldsSchema.superRefine(
   (payload, ctx) => {
+    ensureSupplierIdentifier(payload, ctx);
     ensureProductIdentifier(payload, ctx);
   }
 );
 
 const updateSupplierPriceBodySchema = supplierPriceUpdateFieldsSchema.partial().superRefine(
   (payload, ctx) => {
-    if (Object.keys(payload).length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [],
-        message: "Aucun champ de mise a jour fourni.",
-      });
-    }
-
-    const hasProductIdentifier =
-      Object.prototype.hasOwnProperty.call(payload, "product_id") ||
-      Object.prototype.hasOwnProperty.call(payload, "catalogue_item_id");
-
-    if (hasProductIdentifier) {
-      ensureProductIdentifier(payload, ctx);
-    }
+    if (Object.keys(payload).length > 0) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [],
+      message: "Aucun champ de mise a jour fourni.",
+    });
   }
 );
 
@@ -301,8 +370,17 @@ export const deleteSupplierPriceSchema = z.object({
   id: z.string().uuid(UUID_ERROR_MESSAGE),
 });
 
+export const updateSupplierCatalogItemSchema = z.object({
+  action: z.literal("update-supplier-item"),
+  id: z.string().uuid(UUID_ERROR_MESSAGE),
+  supplier_sku: optionalTextSchema,
+  product_url: optionalHttpUrlSchema,
+});
+
 const bulkCreatePriceItemSchema = supplierPriceCreateFieldsSchema
+  .omit({ new_supplier: true, new_product: true })
   .extend({
+    supplier_id: z.string().uuid(UUID_ERROR_MESSAGE),
     external_ref: optionalTextSchema,
   })
   .superRefine((payload, ctx) => {
@@ -330,6 +408,7 @@ export const pricesActionSchema = z.discriminatedUnion("action", [
   createSupplierPriceSchema,
   updateSupplierPriceSchema,
   deleteSupplierPriceSchema,
+  updateSupplierCatalogItemSchema,
   bulkCreateSupplierPricesSchema,
   bulkCreateSupplierPricesAtomicSchema,
 ]);
@@ -491,6 +570,7 @@ export const createMissingPriceImportEntitiesSchema = z.object({
 
 export type CatalogueActionInput = z.infer<typeof catalogueActionSchema>;
 export type PricesActionInput = z.infer<typeof pricesActionSchema>;
+export type UpdateSupplierCatalogItemInput = z.infer<typeof updateSupplierCatalogItemSchema>;
 export type IndicesActionInput = z.infer<typeof indicesActionSchema>;
 
 export type LinkMappedRowsInput = z.infer<typeof linkMappedRowsSchema>;
@@ -504,6 +584,9 @@ export type IndicesListQueryInput = z.infer<typeof indicesListQuerySchema>;
 export type CreateCatalogueItemInput = z.infer<typeof createCatalogueItemSchema>["item"];
 export type UpdateCatalogueItemInput = z.infer<typeof updateCatalogueItemSchema>;
 
+export type SupplierCatalogItemLookupQueryInput = z.infer<
+  typeof supplierCatalogItemLookupQuerySchema
+>;
 export type CreateSupplierPriceInput = z.infer<typeof createSupplierPriceSchema>["item"];
 export type UpdateSupplierPriceInput = z.infer<typeof updateSupplierPriceSchema>;
 export type BulkCreateSupplierPricesInput = z.infer<typeof bulkCreateSupplierPricesSchema>["items"];

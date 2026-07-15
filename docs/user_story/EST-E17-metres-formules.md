@@ -72,5 +72,5 @@ Ajouter les formules de calcul dans les quantites (saisie d'expressions mathemat
 
 - Fichiers a creer : `src/lib/estimates/measurement-sheets.ts`, `src/components/estimates/MeasurementSheet.tsx`
 - Migration DB : table `measurement_sheets` (estimate_item_id, location, count, length, width, height, sign, comment, position)
-- Reutiliser : pattern panneau lateral des assemblages, `computeEstimateLineValues()` pour le recalcul
+- Reutiliser : pattern panneau lateral des ouvrages, `computeEstimateLineValues()` pour le recalcul
 - Dependances : EST-321 (coexistence formules/carnet)

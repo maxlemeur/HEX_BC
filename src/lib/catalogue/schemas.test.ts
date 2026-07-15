@@ -7,6 +7,7 @@ import {
   priceLookupsQuerySchema,
   pricesPageQuerySchema,
   updateCatalogueItemSchema,
+  updateSupplierCatalogItemSchema,
   updateSupplierPriceSchema,
 } from "@/lib/catalogue/schemas";
 
@@ -38,7 +39,11 @@ describe("catalogue update schemas", () => {
 
     expect(parsed.success).toBe(false);
     if (parsed.success) return;
-    expect(parsed.error.issues.some((issue) => issue.message.includes("Aucun champ"))).toBe(true);
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("Aucun champ"),
+      ),
+    ).toBe(true);
   });
 
   it("keeps create default for catalogue is_active", () => {
@@ -81,7 +86,11 @@ describe("supplier price update schemas", () => {
 
     expect(parsed.success).toBe(false);
     if (parsed.success) return;
-    expect(parsed.error.issues.some((issue) => issue.message.includes("Aucun champ"))).toBe(true);
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("Aucun champ"),
+      ),
+    ).toBe(true);
   });
 
   it("keeps create default for supplier currency", () => {
@@ -102,6 +111,106 @@ describe("supplier price update schemas", () => {
   });
 });
 
+describe("supplier catalogue item price creation", () => {
+  it("accepts a new supplier and a new article staged in the same creation", () => {
+    const parsed = createSupplierPriceSchema.safeParse({
+      action: "create",
+      item: {
+        new_supplier: { name: "Nouveau fournisseur" },
+        new_product: { designation: "Nouvel article" },
+        supplier_sku: "REF-FOURN-1",
+        product_url: "https://example.test/article",
+        unit_price_cents: 1299,
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects ambiguous existing and new supplier selections", () => {
+    const parsed = createSupplierPriceSchema.safeParse({
+      action: "create",
+      item: {
+        supplier_id: SUPPLIER_ID,
+        new_supplier: { name: "Doublon" },
+        product_id: PRODUCT_ID,
+        unit_price_cents: 1299,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("exactement un fournisseur"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects ambiguous existing and new article selections", () => {
+    const parsed = createSupplierPriceSchema.safeParse({
+      action: "create",
+      item: {
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+        new_product: { designation: "Doublon" },
+        unit_price_cents: 1299,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("exactement un article"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects non HTTP(S) supplier URLs", () => {
+    const parsed = createSupplierPriceSchema.safeParse({
+      action: "create",
+      item: {
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+        product_url: "javascript:alert(1)",
+        unit_price_cents: 1299,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) => issue.path.includes("product_url")),
+    ).toBe(true);
+  });
+
+  it("validates the dedicated supplier catalogue item update", () => {
+    const parsed = updateSupplierCatalogItemSchema.safeParse({
+      action: "update-supplier-item",
+      id: ID,
+      supplier_sku: "REF-2",
+      product_url: "https://example.test/ref-2",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("keeps supplier identity fields out of price updates", () => {
+    const parsed = updateSupplierPriceSchema.parse({
+      action: "update",
+      id: ID,
+      item: {
+        unit_price_cents: 1299,
+        supplier_id: SUPPLIER_ID,
+        product_id: PRODUCT_ID,
+      },
+    });
+
+    expect(parsed.item).not.toHaveProperty("supplier_id");
+    expect(parsed.item).not.toHaveProperty("product_id");
+  });
+});
 describe("catalogue and price pagination schemas", () => {
   it("accepts repeated product filters and the supported page sizes", () => {
     const parsed = cataloguePageQuerySchema.parse({
@@ -133,7 +242,7 @@ describe("catalogue and price pagination schemas", () => {
         product_id: null,
         page: 1,
         size: 10,
-      }).success
+      }).success,
     ).toBe(false);
   });
 
@@ -144,7 +253,7 @@ describe("catalogue and price pagination schemas", () => {
         q: "arc",
         selected_id: null,
         limit: 51,
-      }).success
+      }).success,
     ).toBe(false);
   });
 });

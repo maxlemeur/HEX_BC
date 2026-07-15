@@ -432,12 +432,74 @@ export type Database = {
         };
         Relationships: [];
       };
+      supplier_catalog_items: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          supplier_id: string;
+          product_id: string;
+          supplier_sku: string | null;
+          product_url: string | null;
+          is_active: boolean;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          supplier_id: string;
+          product_id: string;
+          supplier_sku?: string | null;
+          product_url?: string | null;
+          is_active?: boolean;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          supplier_id?: string;
+          product_id?: string;
+          supplier_sku?: string | null;
+          product_url?: string | null;
+          is_active?: boolean;
+          created_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "supplier_catalog_items_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "supplier_catalog_items_supplier_id_fkey";
+            columns: ["supplier_id"];
+            isOneToOne: false;
+            referencedRelation: "suppliers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "supplier_catalog_items_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       supplier_pricebook: {
         Row: {
           id: string;
           created_at: string;
           updated_at: string;
           tenant_id: string;
+          supplier_catalog_item_id: string;
           supplier_id: string;
           product_id: string;
           supplier_sku: string | null;
@@ -458,6 +520,7 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           tenant_id?: string;
+          supplier_catalog_item_id?: string;
           supplier_id: string;
           product_id: string;
           supplier_sku?: string | null;
@@ -478,6 +541,7 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           tenant_id?: string;
+          supplier_catalog_item_id?: string;
           supplier_id?: string;
           product_id?: string;
           supplier_sku?: string | null;
@@ -493,7 +557,15 @@ export type Database = {
           created_by?: string | null;
           notes?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "supplier_pricebook_supplier_catalog_item_id_fkey";
+            columns: ["supplier_catalog_item_id"];
+            isOneToOne: false;
+            referencedRelation: "supplier_catalog_items";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       material_indices: {
         Row: {
@@ -2707,9 +2779,11 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          supplier_catalog_item_id: string;
           supplier_id: string;
           product_id: string;
           supplier_sku: string | null;
+          product_url: string | null;
           unit: string;
           min_quantity: number;
           unit_price_cents: number;
@@ -2774,6 +2848,20 @@ export type Database = {
           application_count: number;
           linked_line_count: number;
         }[];
+      };
+      create_supplier_catalog_price: {
+        Args: {
+          payload: Json;
+        };
+        Returns: Json;
+      };
+      update_supplier_catalog_item: {
+        Args: {
+          p_item_id: string;
+          p_supplier_sku: string | null;
+          p_product_url: string | null;
+        };
+        Returns: Json;
       };
       bulk_create_supplier_prices: {
         Args: {

@@ -565,7 +565,7 @@ export async function listSupplierPriceEvidenceRows(input: {
 
   const { data, error } = await input.supabase
     .from("supplier_pricebook")
-    .select("id, supplier_sku, unit, unit_price_cents, currency, valid_from, valid_to, notes")
+    .select("id, supplier_sku, unit, unit_price_cents, currency, valid_from, valid_to, notes, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku)")
     .eq("tenant_id", input.tenantId)
     .in("id", uniqueIds);
 
@@ -582,16 +582,25 @@ export async function listSupplierPriceEvidenceRows(input: {
   const rows = Array.isArray(data) ? data : [];
   const normalizedRows = rows
     .filter((row): row is Record<string, unknown> => isRecord(row))
-    .map((row) => ({
-      id: String(row.id),
-      supplier_sku: asNullableString(row.supplier_sku),
-      unit: String(row.unit ?? ""),
-      unit_price_cents: Number(row.unit_price_cents ?? 0),
-      currency: String(row.currency ?? "EUR"),
-      valid_from: String(row.valid_from ?? ""),
-      valid_to: asNullableString(row.valid_to),
-      notes: asNullableString(row.notes),
-    }));
+    .map((row) => {
+      const joinedValue = row.supplier_catalog_items;
+      const joinedItem = Array.isArray(joinedValue)
+        ? joinedValue.find((value) => isRecord(value)) ?? null
+        : isRecord(joinedValue)
+          ? joinedValue
+          : null;
+
+      return {
+        id: String(row.id),
+        supplier_sku: asNullableString(joinedItem?.supplier_sku ?? row.supplier_sku),
+        unit: String(row.unit ?? ""),
+        unit_price_cents: Number(row.unit_price_cents ?? 0),
+        currency: String(row.currency ?? "EUR"),
+        valid_from: String(row.valid_from ?? ""),
+        valid_to: asNullableString(row.valid_to),
+        notes: asNullableString(row.notes),
+      };
+    });
 
   return new Map(normalizedRows.map((row) => [row.id, row] as const));
 }

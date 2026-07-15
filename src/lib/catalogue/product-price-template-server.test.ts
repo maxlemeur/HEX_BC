@@ -108,8 +108,13 @@ describe("product price template server", () => {
 
     expect(productSelectCount).toBe(2);
     expect(upsert).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: PRODUCT_ID, reference: "TUB-I4L-SOUDE-15" })],
-      { onConflict: "id" }
+      [
+        expect.objectContaining({
+          id: PRODUCT_ID,
+          reference: "TUB-I4L-SOUDE-15",
+        }),
+      ],
+      { onConflict: "id" },
     );
     expect(insert).not.toHaveBeenCalled();
     expect(rpc).toHaveBeenCalledWith("bulk_create_supplier_prices", {
@@ -118,9 +123,10 @@ describe("product price template server", () => {
           product_id: PRODUCT_ID,
           supplier_id: SUPPLIER_ID,
           supplier_sku: "TS304L 21.3X1.6",
+          product_url: "https://example.com/tube",
           currency: "EUR",
           valid_from: "2026-07-10",
-          notes: "Source: https://example.com/tube\nTarif catalogue",
+          notes: "Tarif catalogue",
         }),
       ],
     });
@@ -171,7 +177,10 @@ describe("product price template server", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const result = await importProductPriceTemplate({ products: [productRow], prices: [] });
+    const result = await importProductPriceTemplate({
+      products: [productRow],
+      prices: [],
+    });
 
     expect(insert).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -217,7 +226,10 @@ describe("product price template server", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      importProductPriceTemplate({ products: [productRow], prices: [priceRow] })
+      importProductPriceTemplate({
+        products: [productRow],
+        prices: [priceRow],
+      }),
     ).rejects.toMatchObject({
       code: "TEMPLATE_REFERENCES_UNRESOLVED",
       status: 400,
@@ -256,9 +268,12 @@ describe("product price template server", () => {
 
     await expect(
       importProductPriceTemplate({
-        products: [productRow, { ...productRow, reference: "tub-i4l-soude-15" }],
+        products: [
+          productRow,
+          { ...productRow, reference: "tub-i4l-soude-15" },
+        ],
         prices: [],
-      })
+      }),
     ).rejects.toMatchObject({
       code: "TEMPLATE_REFERENCES_UNRESOLVED",
       status: 400,
@@ -279,7 +294,7 @@ describe("product price template server", () => {
     } as never);
 
     await expect(
-      importProductPriceTemplate({ products: [productRow], prices: [] })
+      importProductPriceTemplate({ products: [productRow], prices: [] }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED", status: 401 });
   });
 });

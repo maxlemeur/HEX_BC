@@ -33,7 +33,7 @@
 | UX2-001 | Preference mode interface | [E01](./UX2-E01-navigation-persona.md) | S (1) | DB Back Front | Migration `profiles.ui_mode`, hook `useUiMode()`, Server Action `updateProfileUiMode()`. Persistence localStorage + sync DB. Toggle dans sidebar. | Aucune |
 | UX2-017 | Mode lecture viewer | [E04](./UX2-E04-editeur-simplifie.md) | S (1) | DB Front | Migration RLS `estimate_items` bloquant INSERT/UPDATE/DELETE pour `viewer`. Guard UI : masquer boutons edition, banniere "Mode consultation". | Aucune |
 | UX2-013 | Settings summary bar | [E04](./UX2-E04-editeur-simplifie.md) | M (2) | Front | Barre fixe au-dessus du tableau : marge %, TVA %, remise, total HT/TTC. Chaque valeur cliquable → section drawer. Calculs memoises sans effets. Mode Simplifie : HT + marge seulement. | Aucune |
-| UX2-022 | Acces rapide templates | [E05](./UX2-E05-outils-expert.md) | M (2) | Front | Boutons "+ Template" et "+ Assemblage" dans toolbar Row 2 (mode Expert). Picker inline avec recherche et preview. Insertion a la position curseur. Chargement conditionnel. | Aucune |
+| UX2-022 | Acces rapide templates | [E05](./UX2-E05-outils-expert.md) | M (2) | Front | Boutons "+ Template" et "+ Ouvrage" dans toolbar Row 2 (mode Expert). Picker inline avec recherche et preview. Insertion a la position curseur. Chargement conditionnel. | Aucune |
 | UX2-015 | Toolbar compacte | [E04](./UX2-E04-editeur-simplifie.md) | M (2) | Front | Refactoring toolbar en 2 rows : Row 1 = actions principales, Row 2 = filtres/options. Sticky au scroll. Mode Simplifie : Row 2 allegee. Mobile : Row 2 en overflow. `startTransition` sur filtres. | UX2-013, UX2-014 |
 | UX2-020 | Dashboard analytics | [E05](./UX2-E05-outils-expert.md) | L (3) | Back Front | Page `/dashboard/analytics` avec KPIs personnels (affaires actives, CA HT, taux acceptation, delai moyen). Graphique 6 mois. Top 10 affaires. Admin : stats tous chiffreurs. Requetes agregees + indexes. | UX2-005 |
 | UX2-016 | Split fichier editeur | [E04](./UX2-E04-editeur-simplifie.md) | L (3) | Front | Decoupe `edit/page.tsx` (~7000 lignes) en 5 modules : Page, Toolbar, Drawer, Alerts, useEditorState. Frontieres RSC. Sous-arbres memoises. Zero regression. | UX2-015 |
@@ -113,7 +113,7 @@ Sans dependances : UX2-017(FS-B), UX2-018(FE), UX2-019(FE),
 | Equipe | Stories | Points | Description |
 |--------|---------|--------|-------------|
 | **FS-A** | UX2-006 (L) + UX2-007 (M) | 5 | Hub affaire + liaison DPGF-projet |
-| **FS-B** | UX2-022 (M) + UX2-020 (L) | 5 | Pickers templates/assemblages + debut analytics |
+| **FS-B** | UX2-022 (M) + UX2-020 (L) | 5 | Pickers templates/ouvrages + debut analytics |
 | **FE** | UX2-002 (M) + UX2-014 (S) + UX2-004 (S) + UX2-019 (S) | 5 | NAV_GROUPS dynamique + preset essentiel + badge mode + raccourcis |
 
 **Livrable S2 :** Hub affaire navigable, DPGF lie au projet, sidebar adaptee au mode, preset colonnes conditionnel.

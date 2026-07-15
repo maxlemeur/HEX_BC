@@ -782,8 +782,37 @@ type SupplierPricebookRow = {
   created_at: string;
   notes: string | null;
   is_active: boolean;
+  product_url?: string | null;
+  supplier_catalog_items?:
+    | {
+        supplier_sku: string | null;
+        product_url: string | null;
+      }
+    | Array<{
+        supplier_sku: string | null;
+        product_url: string | null;
+      }>
+    | null;
 };
 
+
+function normalizeSupplierPricebookRow(row: SupplierPricebookRow): SupplierPricebookRow {
+  const joinedItem = Array.isArray(row.supplier_catalog_items)
+    ? row.supplier_catalog_items[0] ?? null
+    : row.supplier_catalog_items ?? null;
+
+  return {
+    ...row,
+    supplier_sku:
+      joinedItem && Object.prototype.hasOwnProperty.call(joinedItem, "supplier_sku")
+        ? joinedItem.supplier_sku
+        : row.supplier_sku,
+    product_url:
+      joinedItem && Object.prototype.hasOwnProperty.call(joinedItem, "product_url")
+        ? joinedItem.product_url
+        : row.product_url ?? null,
+  };
+}
 type HydratedSuggestedCatalogueCandidate = Omit<
   SuggestedCataloguePrice,
   "alternatives" | "supplier_offer_count"
@@ -1087,7 +1116,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         has_material_index_adjustment: hasMaterialIndexAdjustment,
         material_index_code: materialIndex?.index_code ?? null,
         material_index_value: materialIndex?.index_value ?? null,
-        catalogue_url: extractCatalogueUrl(row.notes),
+        catalogue_url: row.product_url ?? extractCatalogueUrl(row.notes),
       } satisfies HydratedSuggestedCatalogueCandidate;
     })
     .filter((candidate) =>
@@ -1161,7 +1190,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.selectedSupplierPriceId)
@@ -1174,7 +1203,9 @@ async function findSelectedSupplierComparisonCandidate(input: {
     );
   }
 
-  const selectedPrice = (selectedPriceData ?? null) as SupplierPricebookRow | null;
+  const selectedPrice = selectedPriceData
+    ? normalizeSupplierPricebookRow(selectedPriceData as unknown as SupplierPricebookRow)
+    : null;
   if (!selectedPrice) {
     return null;
   }
@@ -1182,7 +1213,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: productPriceData, error: productPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("product_id", selectedPrice.product_id)
@@ -1199,7 +1230,12 @@ async function findSelectedSupplierComparisonCandidate(input: {
 
   const selectedAndPeerRows = Array.from(
     new Map(
-      [selectedPrice, ...((productPriceData ?? []) as SupplierPricebookRow[])].map(
+      [
+        selectedPrice,
+        ...((productPriceData ?? []) as unknown as SupplierPricebookRow[]).map(
+          normalizeSupplierPricebookRow
+        ),
+      ].map(
         (row) => [row.id, row] as const
       )
     ).values()
@@ -1792,11 +1828,9 @@ function assertVersionConcurrencyToken(
   }
 
   if (!Number.isFinite(versionTimestamp) || tokenTimestamp !== versionTimestamp) {
-    throw conflict(
-      VERSION_CONFLICT_ERROR_MESSAGE,
-      { updated_at: versionUpdatedAt },
-      "VERSION_CONFLICT"
-    );
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: versionUpdatedAt,
+    });
   }
 }
 
@@ -2034,11 +2068,9 @@ async function transitionEstimateVersionStatusAtomically(input: {
       error.code === "40001" ||
       error.message.includes("ESTIMATE_VERSION_CONFLICT")
     ) {
-      throw conflict(
-        VERSION_CONFLICT_ERROR_MESSAGE,
-        { updated_at: input.expectedUpdatedAt },
-        "VERSION_CONFLICT"
-      );
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: input.expectedUpdatedAt,
+      });
     }
 
     throw mapSupabaseError(error, "Impossible de changer le statut.");
@@ -2046,11 +2078,9 @@ async function transitionEstimateVersionStatusAtomically(input: {
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
-    throw conflict(
-      VERSION_CONFLICT_ERROR_MESSAGE,
-      { updated_at: input.expectedUpdatedAt },
-      "VERSION_CONFLICT"
-    );
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: input.expectedUpdatedAt,
+    });
   }
 
   return row as unknown as EstimateVersionRow;
@@ -3346,7 +3376,7 @@ function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void 
 function throwAssemblyNameConflictIfNeeded(error: PostgrestError): never | void {
   if (error.code !== "23505") return;
   throw conflict(
-    "Un assemblage avec ce nom existe deja.",
+    "Un ouvrage avec ce nom existe deja.",
     error,
     "ESTIMATE_ASSEMBLY_NAME_CONFLICT"
   );
@@ -3515,11 +3545,11 @@ async function loadEstimateAssemblyOrThrow(input: {
 
   if (error || !data) {
     if (error && error.code !== "PGRST116") {
-      throw mapSupabaseError(error, "Impossible de charger l'assemblage.");
+      throw mapSupabaseError(error, "Impossible de charger l'ouvrage.");
     }
 
     throw notFound(
-      "Assemblage introuvable.",
+      "Ouvrage introuvable.",
       undefined,
       "ESTIMATE_ASSEMBLY_NOT_FOUND"
     );
@@ -3542,7 +3572,7 @@ async function loadEstimateAssemblyItems(input: {
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les lignes de l'assemblage.");
+    throw mapSupabaseError(error, "Impossible de charger les lignes de l'ouvrage.");
   }
 
   return (data ?? []) as EstimateAssemblyItemRow[];
@@ -3566,7 +3596,7 @@ async function loadAssemblyItemCountByAssemblyId(input: {
     .in("assembly_id", input.assemblyIds);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le comptage des assemblages.");
+    throw mapSupabaseError(error, "Impossible de charger le comptage des ouvrages.");
   }
 
   for (const row of (data ?? []) as Array<{ assembly_id: string }>) {
@@ -4946,7 +4976,7 @@ export async function updateEstimateTemplate(
     templateId,
   });
 
-  const payload: Database["public"]["Tables"]["estimate_templates"]["Update"] = {};
+  const payload: Record<string, unknown> = {};
 
   if ("name" in input) {
     payload.name = (input.name ?? "").trim();
@@ -5243,7 +5273,7 @@ export async function listEstimateAssemblies(
     .limit(query.limit);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les assemblages.");
+    throw mapSupabaseError(error, "Impossible de charger les ouvrages.");
   }
 
   const assemblies = (data ?? []) as EstimateAssemblyRow[];
@@ -5421,9 +5451,9 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
   if (assemblyError || !assemblyData) {
     if (assemblyError) {
       throwAssemblyNameConflictIfNeeded(assemblyError);
-      throw mapSupabaseError(assemblyError, "Impossible de creer l'assemblage.");
+      throw mapSupabaseError(assemblyError, "Impossible de creer l'ouvrage.");
     }
-    throw badRequest("Impossible de creer l'assemblage.");
+    throw badRequest("Impossible de creer l'ouvrage.");
   }
 
   const assembly = assemblyData as EstimateAssemblyRow;
@@ -5466,9 +5496,9 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
       .eq("id", assembly.id);
 
     if (itemsError) {
-      throw mapSupabaseError(itemsError, "Impossible de creer l'assemblage.");
+      throw mapSupabaseError(itemsError, "Impossible de creer l'ouvrage.");
     }
-    throw badRequest("Impossible de creer l'assemblage.");
+    throw badRequest("Impossible de creer l'ouvrage.");
   }
 
   return {
@@ -5518,9 +5548,9 @@ export async function updateEstimateAssembly(
     if (error || !data) {
       if (error) {
         throwAssemblyNameConflictIfNeeded(error);
-        throw mapSupabaseError(error, "Impossible de mettre a jour l'assemblage.");
+        throw mapSupabaseError(error, "Impossible de mettre a jour l'ouvrage.");
       }
-      throw badRequest("Impossible de mettre a jour l'assemblage.");
+      throw badRequest("Impossible de mettre a jour l'ouvrage.");
     }
     updatedAssembly = data as EstimateAssemblyRow;
   } else {
@@ -5565,7 +5595,7 @@ export async function updateEstimateAssembly(
     if (replaceItemsError) {
       throw mapSupabaseError(
         replaceItemsError,
-        "Impossible de mettre a jour l'assemblage."
+        "Impossible de mettre a jour l'ouvrage."
       );
     }
   }
@@ -5601,7 +5631,7 @@ export async function deleteEstimateAssembly(assemblyId: string) {
     .eq("id", assemblyId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de supprimer l'assemblage.");
+    throw mapSupabaseError(error, "Impossible de supprimer l'ouvrage.");
   }
 
   return {
@@ -5642,7 +5672,7 @@ export async function insertAssemblyIntoVersion(input: {
   });
 
   if (assemblyItems.length === 0) {
-    throw badRequest("Cet assemblage ne contient aucune ligne.");
+    throw badRequest("Cet ouvrage ne contient aucune ligne.");
   }
 
   const laborRoleIds = assemblyItems
@@ -5671,7 +5701,7 @@ export async function insertAssemblyIntoVersion(input: {
   if (error) {
     if (errorMessageContains(error, "estimate assembly not found")) {
       throw notFound(
-        "Assemblage introuvable.",
+        "Ouvrage introuvable.",
         error,
         "ESTIMATE_ASSEMBLY_NOT_FOUND"
       );
@@ -5682,7 +5712,7 @@ export async function insertAssemblyIntoVersion(input: {
     if (errorMessageContains(error, "after_item_id invalide")) {
       throw badRequest("afterItemId invalide.", error);
     }
-    throw mapSupabaseError(error, "Impossible d'inserer l'assemblage.");
+    throw mapSupabaseError(error, "Impossible d'inserer l'ouvrage.");
   }
 
   const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
@@ -5690,7 +5720,7 @@ export async function insertAssemblyIntoVersion(input: {
 
   if (insertedItemIds.length === 0) {
     throw internalError(
-      "Impossible d'inserer l'assemblage.",
+      "Impossible d'inserer l'ouvrage.",
       { data },
       "ESTIMATE_ASSEMBLY_INSERT_FAILED"
     );
@@ -5716,7 +5746,7 @@ export async function insertAssemblyIntoVersion(input: {
     if (clearRoleError) {
       throw mapSupabaseError(
         clearRoleError,
-        "Impossible d'inserer l'assemblage."
+        "Impossible d'inserer l'ouvrage."
       );
     }
   }
@@ -5729,7 +5759,7 @@ export async function insertAssemblyIntoVersion(input: {
     .in("id", insertedItemIds);
 
   if (reloadError) {
-    throw mapSupabaseError(reloadError, "Impossible d'inserer l'assemblage.");
+    throw mapSupabaseError(reloadError, "Impossible d'inserer l'ouvrage.");
   }
 
   const reloadedItemsById = new Map(
@@ -7045,7 +7075,7 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
@@ -7063,7 +7093,9 @@ export async function suggestEstimateCataloguePrices(
     );
   }
 
-  const supplierPrices = (supplierPricesData ?? []) as SupplierPricebookRow[];
+  const supplierPrices = ((supplierPricesData ?? []) as unknown as SupplierPricebookRow[]).map(
+    normalizeSupplierPricebookRow
+  );
 
   if (supplierPrices.length === 0) {
     return {
@@ -7436,21 +7468,17 @@ export async function patchEstimateVersion(
 
   if (error || !data) {
     if (error?.code === "PGRST116") {
-      throw conflict(
-        VERSION_CONFLICT_ERROR_MESSAGE,
-        { updated_at: version.updated_at },
-        "VERSION_CONFLICT"
-      );
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: version.updated_at,
+      });
     }
 
     if (error) {
       throw mapSupabaseError(error, "Impossible de mettre a jour la version.");
     }
-    throw conflict(
-      VERSION_CONFLICT_ERROR_MESSAGE,
-      { updated_at: version.updated_at },
-      "VERSION_CONFLICT"
-    );
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: version.updated_at,
+    });
   }
 
   return {
@@ -9026,11 +9054,9 @@ export async function claimEstimateBatchRevision(
       error.code === "40001" ||
       error.message.includes("ESTIMATE_BATCH_REVISION_CONFLICT")
     ) {
-      throw conflict(
-        VERSION_CONFLICT_ERROR_MESSAGE,
-        { updated_at: normalizedToken },
-        "VERSION_CONFLICT"
-      );
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: normalizedToken,
+      });
     }
     throw mapSupabaseError(
       error,
@@ -9040,11 +9066,9 @@ export async function claimEstimateBatchRevision(
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || typeof row !== "object") {
-    throw conflict(
-      VERSION_CONFLICT_ERROR_MESSAGE,
-      { updated_at: normalizedToken },
-      "VERSION_CONFLICT"
-    );
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: normalizedToken,
+    });
   }
 
   return row as unknown as { id: string; updated_at: string };

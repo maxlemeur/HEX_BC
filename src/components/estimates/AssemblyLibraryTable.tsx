@@ -90,7 +90,7 @@ function AssemblyContentPreview({
     <div className="ml-9">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-          Contenu de l&apos;assemblage
+          Contenu de l&apos;ouvrage
         </p>
         <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-[var(--slate-600)] shadow-sm">
           {formatLineCount(detail?.items.length ?? assembly.itemCount)}
@@ -208,7 +208,7 @@ function AssemblyContentPreview({
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-[var(--slate-300)] bg-surface px-4 py-5 text-sm text-[var(--slate-500)]">
-          Cet assemblage ne contient aucune ligne.
+          Cet ouvrage ne contient aucune ligne.
         </div>
       )}
     </div>
@@ -279,7 +279,7 @@ export function AssemblyLibraryTable({
         [assemblyId]:
           error instanceof Error
             ? error.message
-            : "Impossible de charger le contenu de l'assemblage.",
+            : "Impossible de charger le contenu de l'ouvrage.",
       }));
     } finally {
       loadingIdsRef.current.delete(assemblyId);
@@ -325,7 +325,7 @@ export function AssemblyLibraryTable({
                 colSpan={5}
                 className="py-10 text-center text-[var(--slate-500)]"
               >
-                Aucun assemblage disponible.
+                Aucun ouvrage disponible.
               </td>
             </tr>
           ) : (

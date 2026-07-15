@@ -510,7 +510,7 @@ export function MappingRulesManager() {
         <div className="alert alert-error">
           {toErrorMessage(
             assembliesLoadError,
-            "Impossible de charger les assemblages pour apply_assembly."
+            "Impossible de charger les ouvrages pour apply_assembly."
           )}
         </div>
       ) : null}
@@ -554,7 +554,7 @@ export function MappingRulesManager() {
               {isReordering ? "Sauvegarde..." : "Enregistrer l'ordre"}
             </button>
             <span className="text-xs text-[var(--slate-500)]">
-              {isAssembliesLoading ? "Assemblages: chargement..." : `${assemblies.length} assemblage(s)`}
+              {isAssembliesLoading ? "Ouvrages: chargement..." : `${assemblies.length} ouvrage(s)`}
             </span>
           </div>
         </div>

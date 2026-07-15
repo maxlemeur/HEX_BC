@@ -23,7 +23,7 @@ Promesse cible a analyser:
 8h00. Votre client vous envoie un DPGF de 3 000 lignes en PDF, quatre grilles tarifaires fournisseurs en Excel et un plan annote a la main. Classiquement, il faut trois jours pour tout ressaisir, croiser et chiffrer."
 
 "L'import intelligent.
-Glissez-deposez vos fichiers dans TIMAX. L'algorithme parse le DPGF, identifie chaque ligne article, nettoie les designations et structure le tout en matrice exploitable. Les assemblages techniques metier sont reconnus automatiquement, sans ressaisie. Ensuite les plans sont analyses par l'IA: metrage, tableaux, PDF complexes, confiance, preuves, pages source."
+Glissez-deposez vos fichiers dans TIMAX. L'algorithme parse le DPGF, identifie chaque ligne article, nettoie les designations et structure le tout en matrice exploitable. Les ouvrages techniques metier sont reconnus automatiquement, sans ressaisie. Ensuite les plans sont analyses par l'IA: metrage, tableaux, PDF complexes, confiance, preuves, pages source."
 
 "Ensuite cote devis, l'IA aide a structurer et preparer le contenu: arborescence, V0, lignes/lots, ouvrages suggeres, explications."
 

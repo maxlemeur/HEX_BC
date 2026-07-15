@@ -9,13 +9,13 @@
 
 ## Contexte
 
-HEX_BC est un logiciel de chiffrage BTP web (Next.js 16 + Supabase) avec un editeur performant, des templates/assemblages, du versioning, de l'import DPGF, du takeoff IA, et un bon socle technique (multi-tenant, audit, quality gating). L'objectif est d'identifier les fonctionnalites metier importantes absentes par rapport aux logiciels references du marche (DeviSOC, Batigest, Batiprix, ProDevis, Onaya, EBP Batiment).
+HEX_BC est un logiciel de chiffrage BTP web (Next.js 16 + Supabase) avec un editeur performant, des templates/ouvrages, du versioning, de l'import DPGF, du takeoff IA, et un bon socle technique (multi-tenant, audit, quality gating). L'objectif est d'identifier les fonctionnalites metier importantes absentes par rapport aux logiciels references du marche (DeviSOC, Batigest, Batiprix, ProDevis, Onaya, EBP Batiment).
 
 ---
 
 ## Fonctionnalites deja couvertes (resume)
 
-Editeur virtualise 3000+ lignes | Copier-coller Excel | Auto-save | Hierarchie sections/lignes avec sous-totaux | Numerotation auto | Templates + assemblages reutilisables | Suggestions IA depuis catalogue | Quality gating a l'envoi | Outlier detection | PDF serveur | DPGF round-trip | Versioning avec diff visuel + timeline + changelog | Variantes/scenarios | Rules engine marge/remise | Takeoff IA (Gemini) | Supplier pricebook | Multi-tenant RBAC | Audit trail | Material indices | Currency rates | Labor roles | Margin tiers | Analytics KPIs
+Editeur virtualise 3000+ lignes | Copier-coller Excel | Auto-save | Hierarchie sections/lignes avec sous-totaux | Numerotation auto | Templates + ouvrages reutilisables | Suggestions IA depuis catalogue | Quality gating a l'envoi | Outlier detection | PDF serveur | DPGF round-trip | Versioning avec diff visuel + timeline + changelog | Variantes/scenarios | Rules engine marge/remise | Takeoff IA (Gemini) | Supplier pricebook | Multi-tenant RBAC | Audit trail | Material indices | Currency rates | Labor roles | Margin tiers | Analytics KPIs
 
 ## Fonctionnalites planifiees (tickets existants, non livrees)
 
@@ -121,7 +121,7 @@ Tickets:
 **EST-E16 — Ouvrages composes & bibliotheque de prix**
 > Milestone: M5 | Priorite: P0
 
-Objectif: Transformer les assemblages existants en ouvrages composes au sens BTP (sous-detail de prix avec decomposition materiaux/MO/materiel/ST). Connecter aux bases de prix reference (Batiprix).
+Objectif: Transformer les ouvrages existants en ouvrages composes au sens BTP (sous-detail de prix avec decomposition materiaux/MO/materiel/ST). Connecter aux bases de prix reference (Batiprix).
 
 Tickets:
 - **EST-311** — Ouvrages composes avec sous-detail de prix (P0, L)
@@ -240,7 +240,7 @@ la roadmap V1.
 | EST-E07   | Structure (chapitres/lignes)       | M1        | P1       |
 | EST-E08   | Qualite (anomalies) + gating       | M2        | P1       |
 | EST-E09   | Aide a la saisie (suggestions)     | M2        | P1       |
-| EST-E10   | Reuse: templates, assemblages      | M2        | P1       |
+| EST-E10   | Reuse: templates, ouvrages      | M2        | P1       |
 | EST-E11   | Imports/Exports + documents        | M3        | P1       |
 | EST-E12   | Versioning: diff, changelog        | M3        | P1       |
 | EST-E13   | Lifecycle client: send/portal      | M4        | P1       |
@@ -407,7 +407,7 @@ Les themes suivants sont identifies mais ne necessitent pas de ticket immediat :
 | EST-163 | Apprentissage des corrections | Non | - | Backlog | L | M2 | EST-E09 |
 | EST-164 | Suggestions depuis le catalogue | Oui | 3/3.1 | A | M | M2 | EST-E09 |
 | EST-181 | Templates de devis | Oui | 2/2.1 | A | L | M1 | EST-E10 |
-| EST-182 | Assemblages reutilisables | Oui | 2/2.1 | B | L | M1 | EST-E10 |
+| EST-182 | Ouvrages reutilisables | Oui | 2/2.1 | B | L | M1 | EST-E10 |
 | EST-183 | Duplication partielle (section) | Non | - | Backlog | M | M1 | EST-E10 |
 | EST-184 | Import depuis un autre devis | Non | - | Backlog | M | M1 | EST-E10 |
 | EST-201 | Generation PDF serveur | Oui | 3/3.1 | C | L | M2 | EST-E11 |
@@ -2163,7 +2163,7 @@ Le vocabulaire metier applique a chaque niveau (Lot, Chapitre, Sous-chapitre, Ou
 
 ---
 
-# EST-182 — Assemblages reutilisables
+# EST-182 — Ouvrages reutilisables
 
 > Type: Ticket execution
 > Milestone: M1
@@ -2200,7 +2200,7 @@ Le vocabulaire metier applique a chaque niveau (Lot, Chapitre, Sous-chapitre, Ou
   - `POST /api/estimates/assemblies/[assemblyId]/insert?versionId=...`
 - UI:
   - Bibliotheque `/dashboard/estimates/assemblies`
-  - Drawer Assemblages dans l'editeur devis avec insertion ancree sur la cellule active
+  - Drawer Ouvrages dans l'editeur devis avec insertion ancree sur la cellule active
 - QA:
   - Tests schemas/client/server/routes ajoutes
   - Script E2E ajoute `e2e/hex/ti-182-assemblies.ps1`

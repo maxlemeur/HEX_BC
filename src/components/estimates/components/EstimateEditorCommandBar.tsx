@@ -98,9 +98,7 @@ export function EstimateEditorCommandBar({
   onToggleFinalizationPanel,
   isLaborSplitEnabled = false,
   onToggleQuickTemplatePicker,
-  onToggleQuickAssemblyPicker,
   quickTemplatePickerNode,
-  quickAssemblyPickerNode,
 }: EstimateEditorToolbarProps) {
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
@@ -246,21 +244,6 @@ export function EstimateEditorCommandBar({
                   Insérer un template
                 </button>
               ) : null}
-              {!isSimplifiedMode && onToggleQuickAssemblyPicker ? (
-                <button
-                  className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    insertClose();
-                    onToggleQuickAssemblyPicker();
-                  }}
-                  disabled={meta.isReadOnly}
-                  data-testid="estimate-editor-quick-assembly-button"
-                >
-                  Insérer un assemblage rapide
-                </button>
-              ) : null}
               <button
                 className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
                 type="button"
@@ -272,7 +255,7 @@ export function EstimateEditorCommandBar({
                 disabled={meta.isReadOnly}
                 data-testid="estimate-editor-assemblies-button"
               >
-                Ouvrir la bibliothèque d’assemblages
+                Ajouter un ouvrage
               </button>
               {onOpenImportFromEstimateDialog ? (
                 <button
@@ -333,7 +316,6 @@ export function EstimateEditorCommandBar({
             </div>
           ) : null}
           {quickTemplatePickerNode}
-          {quickAssemblyPickerNode}
         </div>
 
         <div className="relative shrink-0" ref={displayContainerRef}>

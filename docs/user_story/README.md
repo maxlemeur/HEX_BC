@@ -85,7 +85,7 @@ Convention :
 | EST-E07   | Structure (chapitres/lignes)       | M1        | P1       | [EST-E07-structure.md](./EST-E07-structure.md)                   |
 | EST-E08   | Qualite (anomalies) + gating       | M2        | P1       | [EST-E08-quality-gating.md](./EST-E08-quality-gating.md)         |
 | EST-E09   | Aide a la saisie (suggestions)     | M2        | P1       | [EST-E09-suggestions.md](./EST-E09-suggestions.md)               |
-| EST-E10   | Reuse: templates, assemblages      | M2        | P1       | [EST-E10-reuse-templates.md](./EST-E10-reuse-templates.md)       |
+| EST-E10   | Reuse: templates, ouvrages      | M2        | P1       | [EST-E10-reuse-templates.md](./EST-E10-reuse-templates.md)       |
 | EST-E11   | Imports/Exports + documents        | M3        | P1       | [EST-E11-imports-exports.md](./EST-E11-imports-exports.md)       |
 | EST-E12   | Versioning: diff, changelog        | M3        | P1       | [EST-E12-versioning.md](./EST-E12-versioning.md)                 |
 | EST-E13   | Lifecycle client: send/portal      | M4        | P1       | [EST-E13-lifecycle-client.md](./EST-E13-lifecycle-client.md)     |
@@ -266,7 +266,7 @@ Les themes suivants sont identifies mais ne necessitent pas de ticket immediat :
 | Code    | Nom                    | Avant      | Apres      | Raison                           |
 | ------- | ---------------------- | ---------- | ---------- | -------------------------------- |
 | EST-181 | Templates de devis     | M2 P1      | **M1 P1**  | Sprint 2 MVP = anti page blanche |
-| EST-182 | Assemblages            | M2 P1      | **M1 P1**  | Sprint 2 MVP = assemblages reutilisables |
+| EST-182 | Ouvrages            | M2 P1      | **M1 P1**  | Sprint 2 MVP = ouvrages reutilisables |
 | EST-161 | Scoring suggestions    | M2 P1      | **M1 P1**  | Sprint 2 MVP = suggestions v1    |
 | EST-162 | Bulk apply suggestions | M2 P1      | **M1 P1**  | Sprint 2 MVP = apply en masse    |
 | EST-201 | PDF serveur            | M3 P0      | **M2 P0**  | Sprint 4 MVP = send "lite"       |

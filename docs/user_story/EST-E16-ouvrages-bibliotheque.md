@@ -4,11 +4,11 @@
 
 ## Objectif
 
-Transformer les assemblages existants (`estimate_assemblies`) en ouvrages composes au sens BTP : sous-detail de prix decomposant un prix unitaire en composants elementaires (materiaux, main d'oeuvre, materiel, sous-traitance) avec quantites, unites et coefficients de perte. Connecter aux bases de prix reference (Batiprix, UNTEC) pour l'import d'ouvrages et la comparaison des prix marche.
+Transformer les ouvrages existants (`estimate_assemblies`) en ouvrages composes au sens BTP : sous-detail de prix decomposant un prix unitaire en composants elementaires (materiaux, main d'oeuvre, materiel, sous-traitance) avec quantites, unites et coefficients de perte. Connecter aux bases de prix reference (Batiprix, UNTEC) pour l'import d'ouvrages et la comparaison des prix marche.
 
 ## Ce qui existe deja
 
-- **Assemblages** : table `estimate_assemblies` + `estimate_assembly_items` — permet de regrouper des lignes reutilisables. Mais ne produit pas un sous-detail au sens BTP (pas de decomposition par nature de cout, pas de coefficient de perte).
+- **Ouvrages** : table `estimate_assemblies` + `estimate_assembly_items` — permet de regrouper des lignes reutilisables. Mais ne produit pas un sous-detail au sens BTP (pas de decomposition par nature de cout, pas de coefficient de perte).
 - **Catalogue fournisseur** : tables `supplier_pricebook`, `material_indices` — prix unitaires par fournisseur et indices materiaux.
 - **Suggestions IA** : `EST-E09` — scoring et application de suggestions depuis le catalogue.
 
@@ -53,7 +53,7 @@ Transformer les assemblages existants (`estimate_assemblies`) en ouvrages compos
 
 - Fichiers a modifier : `estimate_assemblies` et `estimate_assembly_items` (evolution schema), `src/components/estimates/EstimateEditorRow.tsx` (panneau sous-detail)
 - Migration DB : enrichir `estimate_assemblies` avec `reference_code`, `description`, `unit`, `performance_data` (JSONB), `avg_time_hours`, `avg_output_rate`, `avg_crew_size`. Ajouter `cost_type` enum, `loss_coeff_bp`, `unit` sur `estimate_assembly_items`. Colonnes calculees ou vues pour `ds_cents`, `fourni_pose_cents`, `pose_seule_cents`.
-- Reutiliser : pattern assemblages existant, `computeEstimateLineValues()` pour le calcul du DS
+- Reutiliser : pattern ouvrages existant, `computeEstimateLineValues()` pour le calcul du DS
 - Dependances : EST-301 (integration DS), EST-302 (coefficients de perte)
 
 ---
@@ -114,5 +114,5 @@ Transformer les assemblages existants (`estimate_assemblies`) en ouvrages compos
 
 - Fichiers a creer : `src/components/estimates/FavoritesPanel.tsx`
 - Migration DB : table `user_favorite_assemblies` (user_id, assembly_id, usage_count, last_used_at, position)
-- Reutiliser : pattern panneau lateral des assemblages (EST-182), bibliotheque ouvrages (EST-311)
+- Reutiliser : pattern panneau lateral des ouvrages (EST-182), bibliotheque ouvrages (EST-311)
 - Dependances : EST-311 (ouvrages composes — prerequis bibliotheque)

@@ -27,7 +27,7 @@ describe("ReferentielHubPage", () => {
 
     expect(markup).toContain('href="/dashboard/estimates/assemblies"');
     expect(markup).toContain("Kits métiers");
-    expect(markup).toContain("Assemblages réutilisables pour vos chiffrages");
+    expect(markup).toContain("Ouvrages réutilisables pour vos chiffrages");
     expect(markup).not.toContain("Consultation du catalogue fournisseur");
   });
 });

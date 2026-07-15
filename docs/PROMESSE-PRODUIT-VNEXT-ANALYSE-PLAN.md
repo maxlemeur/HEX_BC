@@ -401,7 +401,7 @@ Verdict:
 | Grilles fournisseurs / pricebook | catalogue + import CSV + supplier_pricebook | `existant` |
 | Grilles fournisseurs Excel dans le meme parcours | non prouve comme experience unifiee | `partiel` |
 | Lignes de devis normalisees | import-flow + computeEstimateLineValues | `existant` |
-| Assemblages techniques reconnus automatiquement | seulement indices indirects / structure-drafts | `partiel faible` |
+| Ouvrages techniques reconnus automatiquement | seulement indices indirects / structure-drafts | `partiel faible` |
 | Analyse plans PDF | takeoff robuste | `existant` |
 | Confidence / evidence / page source | surtout niveau C | `partiel fort` |
 | V0 depuis brief | version-zero | `existant` |

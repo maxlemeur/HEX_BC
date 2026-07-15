@@ -48,7 +48,7 @@ function createAssemblyDetail(
 
   return {
     id,
-    name: overrides.name ?? "Assemblage test",
+    name: overrides.name ?? "Ouvrage test",
     description: overrides.description ?? "Description test",
     createdBy: overrides.createdBy ?? null,
     createdAt: overrides.createdAt ?? "2026-01-01T00:00:00.000Z",
@@ -65,7 +65,7 @@ describe("AssemblyEditorModal", () => {
   it("resynchronizes form fields when initialValue changes on an open modal", async () => {
     const assemblyA = createAssemblyDetail({
       id: "assembly-a",
-      name: "Assemblage A",
+      name: "Ouvrage A",
       description: "Description A",
       items: [
         createAssemblyItem({
@@ -83,7 +83,7 @@ describe("AssemblyEditorModal", () => {
 
     const assemblyB = createAssemblyDetail({
       id: "assembly-b",
-      name: "Assemblage B",
+      name: "Ouvrage B",
       description: "Description B",
       items: [
         createAssemblyItem({
@@ -115,7 +115,7 @@ describe("AssemblyEditorModal", () => {
     const nameInput = document.getElementById("assembly-name") as HTMLInputElement;
     const lineTitleInput = screen.getByPlaceholderText("Désignation");
 
-    expect(nameInput).toHaveValue("Assemblage A");
+    expect(nameInput).toHaveValue("Ouvrage A");
     expect(lineTitleInput).toHaveValue("Ligne A");
 
     fireEvent.change(nameInput, { target: { value: "Valeur locale obsolete" } });
@@ -137,7 +137,7 @@ describe("AssemblyEditorModal", () => {
     ) as HTMLTextAreaElement;
     const refreshedLineTitleInput = screen.getByPlaceholderText("Désignation");
 
-    expect(refreshedNameInput).toHaveValue("Assemblage B");
+    expect(refreshedNameInput).toHaveValue("Ouvrage B");
     expect(refreshedDescriptionInput).toHaveValue("Description B");
     expect(refreshedLineTitleInput).toHaveValue("Ligne B");
 
@@ -146,7 +146,7 @@ describe("AssemblyEditorModal", () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith({
-      name: "Assemblage B",
+      name: "Ouvrage B",
       description: "Description B",
       items: [
         {

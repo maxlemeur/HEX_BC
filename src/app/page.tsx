@@ -1398,7 +1398,7 @@ const storyData = [
   },
   {
     title: "L\u2019import intelligent.",
-    text: "Glissez-déposez vos fichiers dans TIMAX. L\u2019algorithme parse le DPGF, identifie chaque ligne article, nettoie les désignations et structure le tout en matrice exploitable. Les assemblages techniques métier sont reconnus automatiquement \u2014 pas de ressaisie.",
+    text: "Glissez-déposez vos fichiers dans TIMAX. L\u2019algorithme parse le DPGF, identifie chaque ligne article, nettoie les désignations et structure le tout en matrice exploitable. Les ouvrages techniques métier sont reconnus automatiquement \u2014 pas de ressaisie.",
   },
   {
     title: "Le chiffrage au meilleur prix.",

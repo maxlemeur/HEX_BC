@@ -125,6 +125,7 @@ type LineRowProps = {
   hideEditingActions: boolean;
   isLaborSplitEnabled: boolean;
   isPendingCreate: boolean;
+  isHighlighted?: boolean;
   isSearchMatch?: boolean;
   lineTotal: number;
   kFoValue: number;
@@ -252,6 +253,7 @@ export function LineRow({
   hideEditingActions,
   isLaborSplitEnabled,
   isPendingCreate,
+  isHighlighted = false,
   isSearchMatch,
   lineTotal,
   kFoValue,
@@ -382,9 +384,10 @@ export function LineRow({
       style={style}
       className={`estimate-row${
         isLineSelected ? " estimate-row--selected" : ""
-      }${isSearchMatch ? " ring-2 ring-yellow-300 rounded" : ""}`}
+      }${isHighlighted ? " animate-pulse ring-2 ring-emerald-400 rounded" : ""}${isSearchMatch ? " ring-2 ring-yellow-300 rounded" : ""}`}
       data-estimate-item-id={item.id}
       data-testid="estimate-line-row"
+      data-highlighted={isHighlighted ? "true" : undefined}
       data-depth={depth}
       role="row"
       onMouseDown={handleRowModifierSelection}

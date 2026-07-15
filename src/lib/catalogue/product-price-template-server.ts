@@ -121,13 +121,6 @@ function mapDatabaseError(error: PostgrestError, fallbackMessage: string) {
   });
 }
 
-function buildPriceNotes(sourceUrl: string | null, comment: string | null) {
-  const parts: string[] = [];
-  if (sourceUrl) parts.push(`Source: ${sourceUrl}`);
-  if (comment) parts.push(comment);
-  return parts.length > 0 ? parts.join("\n") : null;
-}
-
 async function getAuthenticatedSupabase(): Promise<RuntimeSupabase> {
   const typedClient = await createSupabaseServerClient();
   const supabase = typedClient as unknown as RuntimeSupabase;
@@ -330,6 +323,7 @@ export async function importProductPriceTemplate(
       supplier_id: supplier.id,
       product_id: product.id,
       supplier_sku: price.supplier_sku,
+      product_url: price.source_url,
       unit: price.unit,
       min_quantity: price.min_quantity,
       unit_price_cents: price.unit_price_cents,
@@ -337,7 +331,7 @@ export async function importProductPriceTemplate(
       valid_from: price.valid_from,
       valid_to: null,
       is_active: true,
-      notes: buildPriceNotes(price.source_url, price.comment),
+      notes: price.comment,
     };
   });
 

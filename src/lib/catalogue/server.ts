@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
@@ -21,8 +20,10 @@ import type {
   PricesListQueryInput,
   PricesPageQueryInput,
   ResolvePriceImportSuggestionsInput,
+  SupplierCatalogItemLookupQueryInput,
   UpdateCatalogueItemInput,
   UpdateMaterialIndexInput,
+  UpdateSupplierCatalogItemInput,
   UpdateSupplierPriceInput,
 } from "./schemas";
 
@@ -75,6 +76,8 @@ export type SupplierPriceRecord = {
   supplier_id?: string | null;
   product_id?: string | null;
   catalogue_item_id?: string | null;
+  supplier_catalog_item_id?: string | null;
+  product_url?: string | null;
   supplier_sku?: string | null;
   unit?: string | null;
   min_quantity?: number | null;
@@ -86,6 +89,20 @@ export type SupplierPriceRecord = {
   source_import_id?: string | null;
   source_mapped_row_id?: string | null;
   notes?: string | null;
+  [key: string]: unknown;
+};
+
+export type SupplierCatalogItemRecord = {
+  id: string;
+  created_at?: string;
+  updated_at?: string;
+  tenant_id?: string;
+  supplier_id: string;
+  product_id: string;
+  supplier_sku?: string | null;
+  product_url?: string | null;
+  is_active?: boolean;
+  created_by?: string | null;
   [key: string]: unknown;
 };
 
@@ -233,6 +250,23 @@ function mapSupabaseError(
 
   if (error.code === "PGRST116") {
     return notFound("Ressource introuvable.", error, "NOT_FOUND");
+  }
+
+  if (
+    error.code === "P0001" &&
+    normalizedMessage.includes("supplier_catalog_reference_conflict")
+  ) {
+    return conflict(
+      "La référence fournisseur diffère de la fiche existante.",
+      error,
+    );
+  }
+
+  if (
+    error.code === "P0001" &&
+    normalizedMessage.includes("supplier_catalog_url_conflict")
+  ) {
+    return conflict("L'URL fournisseur diffère de la fiche existante.", error);
   }
 
   if (error.code === "23505") {
@@ -553,12 +587,14 @@ async function getAuthenticatedContext() {
 
 const CATALOGUE_TABLE = "products";
 const SUPPLIER_PRICES_TABLE = "supplier_pricebook";
+const SUPPLIER_CATALOG_ITEMS_TABLE = "supplier_catalog_items";
+const CREATE_SUPPLIER_CATALOG_PRICE_RPC = "create_supplier_catalog_price";
+const UPDATE_SUPPLIER_CATALOG_ITEM_RPC = "update_supplier_catalog_item";
 const MATERIAL_INDICES_TABLE = "material_indices";
 
 const BULK_CREATE_PRICES_RPC = "bulk_create_supplier_prices";
 const BULK_UPSERT_INDICES_RPC = "bulk_upsert_material_indices";
 const LINK_MAPPED_ROWS_RPC = "link_mapped_rows_to_catalogue";
-const BULK_CREATE_PRICES_ATOMIC_MARKER_PREFIX = "__hex_atomic_price_import__";
 
 function currentDateIso() {
   return new Date().toISOString().slice(0, 10);
@@ -1447,41 +1483,96 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   const { supabase } = await getAuthenticatedContext();
   const productId = resolveProductId(input);
 
-  if (!productId) {
-    throw badRequest("Le champ product_id est requis.");
+  const { data, error } = await supabase.rpc(CREATE_SUPPLIER_CATALOG_PRICE_RPC, {
+    payload: {
+      supplier_id: input.supplier_id,
+      new_supplier: input.new_supplier,
+      product_id: productId,
+      new_product: input.new_product,
+      supplier_sku: input.supplier_sku,
+      product_url: input.product_url,
+      price: {
+        unit: input.unit,
+        min_quantity: input.min_quantity,
+        unit_price_cents: input.unit_price_cents,
+        currency: input.currency,
+        valid_from: input.valid_from,
+        valid_to: input.valid_to,
+        is_active: input.is_active,
+        source_import_id: input.source_import_id,
+        source_mapped_row_id: input.source_mapped_row_id,
+        source: input.source,
+        notes: input.notes,
+      },
+    },
+  });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de creer le prix fournisseur.");
   }
 
-  const row = await insertSingleWithFallback(
-    supabase,
-    SUPPLIER_PRICES_TABLE,
-    {
-      supplier_id: input.supplier_id,
-      product_id: productId,
-      supplier_sku: input.supplier_sku,
-      unit: input.unit ?? undefined,
-      min_quantity: input.min_quantity ?? undefined,
-      unit_price_cents: input.unit_price_cents,
-      currency: input.currency,
-      valid_from: input.valid_from ?? undefined,
-      valid_to: input.valid_to,
-      is_active: input.is_active,
-      source_import_id: input.source_import_id,
-      source_mapped_row_id: input.source_mapped_row_id,
-      notes: input.notes ?? input.source,
-    },
-    "Impossible de creer le prix fournisseur.",
-  );
+  const row = asRecord(data);
+  if (!row) {
+    throw internalError("Le prix fournisseur a ete cree sans resultat exploitable.");
+  }
 
   return {
     item: normalizeSupplierPriceRecord(row),
   };
 }
 
+export async function getSupplierCatalogItem(
+  input: SupplierCatalogItemLookupQueryInput,
+) {
+  const { supabase } = await getAuthenticatedContext();
+  const { data, error } = await supabase
+    .from(SUPPLIER_CATALOG_ITEMS_TABLE)
+    .select("*")
+    .eq("supplier_id", input.supplier_id)
+    .eq("product_id", input.product_id)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger la fiche article-fournisseur.",
+    );
+  }
+
+  return {
+    item: data ? (data as SupplierCatalogItemRecord) : null,
+  };
+}
+
+export async function updateSupplierCatalogItem(
+  input: UpdateSupplierCatalogItemInput,
+) {
+  const { supabase } = await getAuthenticatedContext();
+  const { data, error } = await supabase.rpc(UPDATE_SUPPLIER_CATALOG_ITEM_RPC, {
+    p_item_id: input.id,
+    p_supplier_sku: input.supplier_sku,
+    p_product_url: input.product_url,
+  });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de mettre a jour la fiche article-fournisseur.",
+    );
+  }
+
+  const row = asRecord(data);
+  if (!row) {
+    throw notFound("Fiche article-fournisseur introuvable.");
+  }
+
+  return {
+    item: row as SupplierCatalogItemRecord,
+  };
+}
+
 export async function updateSupplierPrice(input: UpdateSupplierPriceInput) {
   const { supabase } = await getAuthenticatedContext();
-  const hasProductId =
-    Object.prototype.hasOwnProperty.call(input.item, "product_id") ||
-    Object.prototype.hasOwnProperty.call(input.item, "catalogue_item_id");
   const hasValidFrom = Object.prototype.hasOwnProperty.call(
     input.item,
     "valid_from",
@@ -1496,9 +1587,6 @@ export async function updateSupplierPrice(input: UpdateSupplierPriceInput) {
     SUPPLIER_PRICES_TABLE,
     input.id,
     {
-      supplier_id: input.item.supplier_id,
-      product_id: hasProductId ? resolveProductId(input.item) : undefined,
-      supplier_sku: input.item.supplier_sku,
       unit: input.item.unit ?? undefined,
       min_quantity: input.item.min_quantity ?? undefined,
       unit_price_cents: input.item.unit_price_cents,
@@ -1546,7 +1634,7 @@ export async function deleteSupplierPrice(id: string) {
   };
 }
 
-type BulkCreateSupplierPricesMode = "rpc" | "fallback-insert";
+type BulkCreateSupplierPricesMode = "rpc";
 
 function buildBulkCreateSupplierPricesPayload(
   input: BulkCreateSupplierPricesInput,
@@ -1563,6 +1651,7 @@ function buildBulkCreateSupplierPricesPayload(
       supplier_id: item.supplier_id,
       product_id: productId,
       supplier_sku: item.supplier_sku,
+      product_url: item.product_url,
       unit: item.unit ?? undefined,
       min_quantity: item.min_quantity ?? undefined,
       unit_price_cents: item.unit_price_cents,
@@ -1597,21 +1686,7 @@ async function bulkCreateSupplierPricesWithSupabase(
     };
   }
 
-  if (!isFunctionMissingError(error)) {
-    throw mapSupabaseError(error, fallbackMessage);
-  }
-
-  const insertedRows = await insertManyWithFallback(
-    supabase,
-    SUPPLIER_PRICES_TABLE,
-    rpcPayload,
-    fallbackMessage,
-  );
-
-  return {
-    created_count: insertedRows.length,
-    mode: "fallback-insert",
-  };
+  throw mapSupabaseError(error, fallbackMessage);
 }
 
 export async function bulkCreateSupplierPrices(
@@ -1626,94 +1701,17 @@ export async function bulkCreateSupplierPricesAtomic(
 ) {
   const { supabase } = await getAuthenticatedContext();
 
-  const hasManualNotes = input.items.some(
-    (item) => item.notes != null || item.source != null,
+  // A single PostgreSQL function call is one transaction. Do not split this
+  // path into client-side batches: catalogue metadata and prices must roll back
+  // together if any row fails.
+  const result = await bulkCreateSupplierPricesWithSupabase(
+    supabase,
+    input.items,
   );
-  if (hasManualNotes) {
-    throw badRequest(
-      "L'action bulk-create-atomic ne supporte pas les champs notes/source.",
-      undefined,
-      "ATOMIC_IMPORT_UNSUPPORTED_FIELDS",
-    );
-  }
-
-  const marker = `${BULK_CREATE_PRICES_ATOMIC_MARKER_PREFIX}:${randomUUID()}`;
-  const itemsWithMarker: BulkCreateSupplierPricesInput = input.items.map(
-    (item) => ({
-      ...item,
-      source: null,
-      notes: marker,
-    }),
-  );
-  const batches = chunkItems(itemsWithMarker, input.batch_size);
-
-  let totalCreated = 0;
-  const responseModes = new Set<BulkCreateSupplierPricesMode>();
-
-  try {
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-      const batch = batches[batchIndex];
-
-      try {
-        const result = await bulkCreateSupplierPricesWithSupabase(
-          supabase,
-          batch,
-        );
-        totalCreated += result.created_count;
-        responseModes.add(result.mode);
-      } catch (batchError) {
-        const details =
-          batchError instanceof Error
-            ? batchError.message
-            : "Erreur inconnue pendant le bulk-create.";
-        throw new Error(
-          `Echec du lot ${batchIndex + 1}/${batches.length}: ${details}`,
-        );
-      }
-    }
-  } catch (importError) {
-    const { error: rollbackError } = await supabase
-      .from(SUPPLIER_PRICES_TABLE)
-      .delete()
-      .eq("notes", marker);
-
-    if (rollbackError) {
-      throw internalError(
-        "Echec de l'import et du rollback automatique des lots precedents.",
-        {
-          import_error:
-            importError instanceof Error
-              ? importError.message
-              : "Erreur inconnue.",
-          rollback_error: rollbackError,
-        },
-        "ATOMIC_IMPORT_ROLLBACK_FAILED",
-      );
-    }
-
-    const details =
-      importError instanceof Error ? importError.message : "Erreur inconnue.";
-    throw badRequest(
-      `Import annule: ${details}`,
-      undefined,
-      "ATOMIC_IMPORT_FAILED",
-    );
-  }
-
-  const { error: cleanupError } = await supabase
-    .from(SUPPLIER_PRICES_TABLE)
-    .update({ notes: null })
-    .eq("notes", marker);
-
-  if (cleanupError) {
-    console.error("Failed to clear atomic import marker", cleanupError);
-  }
-
-  const modeSummary = Array.from(responseModes).join("+");
 
   return {
-    created_count: totalCreated,
-    mode: `atomic-${modeSummary || "rpc"}`,
+    created_count: result.created_count,
+    mode: "atomic-rpc",
   };
 }
 

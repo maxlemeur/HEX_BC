@@ -15,7 +15,8 @@ import type {
 } from "@/components/TableFilterBar";
 import { BulkJsonPanel } from "@/components/catalogue/prices-manager/BulkJsonPanel";
 import { DeletePriceModal } from "@/components/catalogue/prices-manager/DeletePriceModal";
-import { PriceFormModal } from "@/components/catalogue/prices-manager/PriceFormModal";
+import { SupplierCatalogItemModal } from "@/components/catalogue/prices-manager/SupplierCatalogItemModal";
+import { SupplierOfferFormModal } from "@/components/catalogue/prices-manager/SupplierOfferFormModal";
 import { PricesTable } from "@/components/catalogue/prices-manager/PricesTable";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceLookups";
@@ -67,6 +68,7 @@ export function PricesManager({
   // --- Delete confirmation state ---
   const [deleteTarget, setDeleteTarget] = useState<EnrichedPrice | null>(null);
 
+  const [supplierItemTarget, setSupplierItemTarget] = useState<EnrichedPrice | null>(null);
   // --- CSV import collapsible ---
   const [isCsvOpen, setIsCsvOpen] = useState(embedded);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
@@ -197,6 +199,10 @@ export function PricesManager({
     void refresh().catch(() => undefined);
   }, [refresh]);
 
+  function openSupplierItemForm(item: EnrichedPrice) {
+    setSupplierItemTarget(item);
+  }
+
   return (
     <div className="space-y-6">
       {!embedded ? (
@@ -226,7 +232,7 @@ export function PricesManager({
               <path d="M5 12h14" />
               <path d="M12 5v14" />
             </svg>
-            Ajouter un prix
+            Ajouter un fournisseur / tarif
           </button>
         </div>
       ) : null}
@@ -377,6 +383,7 @@ export function PricesManager({
         onEdit={openEditForm}
         onDelete={setDeleteTarget}
         page={page}
+        onEditSupplierItem={openSupplierItemForm}
         pageSize={pageSize}
         pageSizes={PRICE_PAGE_SIZES}
         totalPages={totalPages}
@@ -388,7 +395,7 @@ export function PricesManager({
 
       <BulkJsonPanel onCompleted={refresh} />
 
-      <PriceFormModal
+      <SupplierOfferFormModal
         open={isFormOpen}
         item={editingItem}
         supplierOptions={supplierOptions}
@@ -399,6 +406,12 @@ export function PricesManager({
         onProductQueryChange={searchProducts}
         defaultProductId={productId}
         onClose={closeForm}
+        onSaved={refresh}
+      />
+
+      <SupplierCatalogItemModal
+        item={supplierItemTarget}
+        onClose={() => setSupplierItemTarget(null)}
         onSaved={refresh}
       />
 

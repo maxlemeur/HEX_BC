@@ -1068,7 +1068,7 @@ const ESTIMATE_STRUCTURE_STRONG_SIGNAL_SOURCE_KINDS = new Set<
 ]);
 
 const ESTIMATE_STRUCTURE_WEAK_SIGNAL_HYPOTHESIS =
-  "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'assemblages, a confirmer humainement.";
+  "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, a confirmer humainement.";
 const ESTIMATE_STRUCTURE_WEAK_SIGNAL_INFERENCE =
   "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview.";
 
@@ -1581,7 +1581,7 @@ async function loadStructureDraftSourceBundle(input: {
   if (assembliesResult.error) {
     throw mapSupabaseError(
       assembliesResult.error,
-      "Impossible de charger la bibliotheque d'assemblages."
+      "Impossible de charger la bibliotheque d'ouvrages."
     );
   }
 
@@ -1823,27 +1823,27 @@ async function loadStructureDraftSourceBundle(input: {
         label,
         path: truncatePath([label]),
         excerpt: assembly.description,
-        fact: `Assemblage disponible: ${label}`,
-        hypothesis: "L'assemblage peut constituer un lot autonome ou un sous-chapitre.",
-        inference: "Regroupement propose a partir du catalogue d'assemblages.",
+        fact: `Ouvrage disponible: ${label}`,
+        hypothesis: "L'ouvrage peut constituer un lot autonome ou un sous-chapitre.",
+        inference: "Regroupement propose a partir du catalogue d'ouvrages.",
         weight: 0.85,
       });
     });
 
     sourceSummaries.push({
       kind: "assembly_library",
-      label: "Bibliotheque assemblages",
+      label: "Bibliotheque ouvrages",
       available: true,
       used: assemblyRows.length > 0,
-      detail: `${assemblyRows.length} assemblage(s) explores`,
+      detail: `${assemblyRows.length} ouvrage(s) explores`,
     });
   } else {
     sourceSummaries.push({
       kind: "assembly_library",
-      label: "Bibliotheque assemblages",
+      label: "Bibliotheque ouvrages",
       available: false,
       used: false,
-      detail: "Aucun assemblage disponible.",
+      detail: "Aucun ouvrage disponible.",
     });
   }
 

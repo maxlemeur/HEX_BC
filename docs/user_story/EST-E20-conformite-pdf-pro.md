@@ -119,7 +119,7 @@ Assurer la conformite reglementaire des devis avec la multi-TVA (taux reduits re
 
 - Fichiers a creer : `src/lib/clauses/`, `src/components/clauses/`, `src/app/dashboard/settings/clauses/`
 - Migration DB : tables `clause_templates` (tenant_id, title, content, category, position), `estimate_clauses` (estimate_version_id, clause_template_id, content_override, position)
-- Reutiliser : pattern bibliotheque des assemblages, editeur rich text existant ou a integrer
+- Reutiliser : pattern bibliotheque des ouvrages, editeur rich text existant ou a integrer
 - Dependances : aucune
 
 ---

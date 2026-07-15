@@ -121,8 +121,8 @@ const templateNameSchema = z
 const assemblyNameSchema = z
   .string()
   .trim()
-  .min(1, "Nom de l'assemblage obligatoire.")
-  .max(160, "Nom de l'assemblage trop long.");
+  .min(1, "Nom de l'ouvrage obligatoire.")
+  .max(160, "Nom de l'ouvrage trop long.");
 
 export const estimateStatusSchema = z.enum([
   "draft",
@@ -1389,8 +1389,8 @@ const estimateAssemblyItemSchema = z.preprocess(
 
 const estimateAssemblyItemsSchema = z
   .array(estimateAssemblyItemSchema)
-  .min(1, "Un assemblage doit contenir au moins 1 ligne.")
-  .max(50, "Un assemblage ne peut pas contenir plus de 50 lignes.")
+  .min(1, "Un ouvrage doit contenir au moins 1 ligne.")
+  .max(50, "Un ouvrage ne peut pas contenir plus de 50 lignes.")
   .superRefine((items, ctx) => {
     const positions = new Set<number>();
 

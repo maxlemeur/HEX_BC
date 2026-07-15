@@ -38,6 +38,7 @@ type SectionRowProps = {
   isReadOnly: boolean;
   hideEditingActions: boolean;
   isPendingCreate: boolean;
+  isHighlighted?: boolean;
   isAidEditorVisible: boolean;
   sectionTotals: SectionTotals | null;
   supplyTypeById: Map<string, SupplyType>;
@@ -123,6 +124,7 @@ export function SectionRow({
   isReadOnly,
   hideEditingActions,
   isPendingCreate,
+  isHighlighted = false,
   isAidEditorVisible,
   sectionTotals,
   supplyTypeById,
@@ -175,9 +177,12 @@ export function SectionRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="estimate-row estimate-row--section"
+      className={`estimate-row estimate-row--section${
+        isHighlighted ? " animate-pulse ring-2 ring-emerald-400 rounded" : ""
+      }`}
       data-estimate-item-id={item.id}
       data-testid="estimate-section-row"
+      data-highlighted={isHighlighted ? "true" : undefined}
       data-depth={depth}
       data-section-level={sectionLevel ?? undefined}
       role="row"

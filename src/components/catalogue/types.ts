@@ -17,6 +17,8 @@ export type SupplierPrice = {
   created_at?: string;
   updated_at?: string;
   supplier_id: string;
+  supplier_catalog_item_id?: string | null;
+  product_url?: string | null;
   product_id: string;
   catalogue_item_id?: string | null;
   supplier_sku?: string | null;
@@ -32,6 +34,19 @@ export type SupplierPrice = {
   source?: string | null;
   notes?: string | null;
   [key: string]: unknown;
+};
+
+export type SupplierCatalogItem = {
+  id: string;
+  created_at?: string;
+  updated_at?: string;
+  tenant_id?: string;
+  supplier_id: string;
+  product_id: string;
+  supplier_sku?: string | null;
+  product_url?: string | null;
+  is_active?: boolean;
+  created_by?: string | null;
 };
 
 export type MaterialIndex = {

@@ -209,7 +209,7 @@ export function EstimateEditorTableSectionDialogs({
             onClick={onOpenSaveAsAssemblyDialog}
             data-testid="estimate-section-context-save-as-assembly-button"
           >
-            Enregistrer comme assemblage
+            Enregistrer comme ouvrage
           </button>
           <div className="estimate-section-context-menu__separator" />
           <button
@@ -335,10 +335,10 @@ export function EstimateEditorTableSectionDialogs({
                   id="save-as-assembly-dialog-title"
                   className="text-lg font-semibold text-[var(--slate-800)]"
                 >
-                  Enregistrer comme assemblage
+                  Enregistrer comme ouvrage
                 </h2>
                 <p className="mt-1 text-sm text-[var(--slate-500)]">
-                  Les lignes de cette section seront enregistrées comme assemblage réutilisable.
+                  Les lignes de cette section seront enregistrées comme ouvrage réutilisable.
                 </p>
               </div>
               <button
@@ -352,7 +352,7 @@ export function EstimateEditorTableSectionDialogs({
             </div>
 
             <label className="form-label block">
-              Nom de l&apos;assemblage
+              Nom de l&apos;ouvrage
               <input
                 ref={saveAsAssemblyNameInputRef}
                 className="input mt-2 w-full"

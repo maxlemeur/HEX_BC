@@ -31,7 +31,7 @@ const SUPPLY_TYPES = [
 const ASSEMBLY: EstimateAssemblyDetail = {
   id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   name: "Pose de cloison",
-  description: "Assemblage avec main-d’œuvre",
+  description: "Ouvrage avec main-d’œuvre",
   referenceCode: "ASM-CLOISON",
   unit: "m²",
   pricingSource: "manual",
@@ -104,7 +104,7 @@ describe("AssemblyEditorDialog", () => {
       />
     );
 
-    const dialog = screen.getByRole("dialog", { name: "Modifier l'assemblage" });
+    const dialog = screen.getByRole("dialog", { name: "Modifier l'ouvrage" });
     expect(dialog.closest("[data-ui-modal-root]")).not.toBeNull();
     expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
     expect(screen.queryByText(/Rôle MO \(UUID\)/i)).not.toBeInTheDocument();
@@ -125,7 +125,7 @@ describe("AssemblyEditorDialog", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit).toHaveBeenCalledWith({
       name: "Pose de cloison",
-      description: "Assemblage avec main-d’œuvre",
+      description: "Ouvrage avec main-d’œuvre",
       referenceCode: "ASM-CLOISON",
       unit: "m²",
       items: [
@@ -298,7 +298,7 @@ describe("AssemblyEditorDialog", () => {
       />
     );
 
-    await user.type(screen.getByLabelText("Nom de l'assemblage *"), "Kit inox");
+    await user.type(screen.getByLabelText("Nom de l'ouvrage *"), "Kit inox");
     await user.type(screen.getByLabelText("Désignation *"), "Tube inox");
     const laborRoleSelect = screen.getByLabelText("Rôle de main-d’œuvre");
     expect(laborRoleSelect).toBeEnabled();

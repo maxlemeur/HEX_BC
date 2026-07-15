@@ -85,7 +85,7 @@ Uniformise a 90 jours (MVP) au lieu de 6 mois (PRD). Configurable par feature fl
 
 ### Sprint 2 — Templates + Suggestions v1 (M1)
 - [ ] EST-181 : Templates de devis (promu M1) — picker creation, instantiate API
-- [ ] EST-182 : Assemblages reutilisables (promu M1) — drawer editeur, insert API
+- [ ] EST-182 : Ouvrages reutilisables (promu M1) — drawer editeur, insert API
 - [ ] EST-161 : Scoring et classement suggestions (promu M1)
 - [ ] EST-162 : Bulk apply suggestions (promu M1)
 

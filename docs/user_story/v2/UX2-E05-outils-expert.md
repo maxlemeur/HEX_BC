@@ -4,7 +4,7 @@
 
 ## Objectif
 
-Enrichir l'experience pour le chiffreur senior : acces rapide aux templates/assemblages
+Enrichir l'experience pour le chiffreur senior : acces rapide aux templates/ouvrages
 depuis l'editeur, raccourcis clavier documentes, command palette pour la recherche rapide,
 analytics personnels et analyse de marge par affaire. Ces fonctionnalites sont visibles
 principalement en mode Expert et constituent le differentiel de productivite pour les
@@ -16,7 +16,7 @@ utilisateurs avances.
   implementes (Ctrl+S, Ctrl+Z/Y, Tab, Enter, Suppr, arrows), inline editing, DnD,
   multi-select, bulk operations
 - **`src/hooks/useSpreadsheetNavigation.ts`** : Navigation clavier dans le spreadsheet
-- **`src/app/dashboard/estimates/assemblies/page.tsx`** : Page gestion des assemblages
+- **`src/app/dashboard/estimates/assemblies/page.tsx`** : Page gestion des ouvrages
   avec CRUD complet
 - **`src/app/dashboard/estimates/templates/page.tsx`** : Page gestion des templates
   de chiffrage
@@ -195,32 +195,32 @@ utilisateurs avances.
 
 ---
 
-## UX2-022 — Acces rapide templates & assemblages dans l'editeur
+## UX2-022 — Acces rapide templates & ouvrages dans l'editeur
 
 **Priorite:** P1 | **Effort:** M | **Couches:** `[Front]`
 
 ### User Story
 
-> En tant que chiffreur senior, je veux inserer un template ou un assemblage directement
+> En tant que chiffreur senior, je veux inserer un template ou un ouvrage directement
 > depuis l'editeur via un bouton dans la toolbar, afin de ne pas quitter l'editeur pour
 > aller chercher un modele sur une autre page.
 
 ### Criteres d'acceptation
 
 - [ ] En mode Expert, la toolbar Row 2 affiche un bouton "+ Template" et
-      un bouton "+ Assemblage"
+      un bouton "+ Ouvrage"
 - [ ] Clic sur "+ Template" ouvre un picker inline (dropdown ou petit modal) avec :
   - Recherche par nom
   - Liste des 10 derniers templates utilises
   - Preview rapide (nombre de sections/lignes)
 - [ ] Selection d'un template insere les items a la position courante du curseur
       (ou a la fin si pas de selection)
-- [ ] Meme comportement pour "+ Assemblage" avec la liste des assemblages
+- [ ] Meme comportement pour "+ Ouvrage" avec la liste des ouvrages
 - [ ] Les pages `/dashboard/estimates/templates` et `/dashboard/estimates/assemblies`
       restent accessibles pour la gestion complete
 - [ ] En mode Simplifie, ces boutons ne sont pas visibles (mais la fonctionnalite
       est accessible via la Command Palette Ctrl+K)
-- [ ] Les pickers Template/Assemblage sont charges conditionnellement a l'ouverture
+- [ ] Les pickers Template/Ouvrage sont charges conditionnellement a l'ouverture
       (`bundle-conditional`)
 
 ### Notes techniques
@@ -230,7 +230,7 @@ utilisateurs avances.
   - `src/components/estimates/editor/QuickAssemblyPicker.tsx`
 - Reutiliser :
   - Les fetchers existants pour templates (`/api/estimates/templates`)
-    et assemblages (`/api/estimates/assemblies`)
+    et ouvrages (`/api/estimates/assemblies`)
   - La logique d'insertion existante dans le `ImportFromEstimateDialog`
   - `useUiMode()` pour la visibilite conditionnelle
 - Dependances : Aucune

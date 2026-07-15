@@ -35,7 +35,6 @@ import { EstimateEditorTableSectionDialogs } from "@/components/estimates/compon
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
 import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
 import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
-import { QuickAssemblyPicker } from "@/components/estimates/editor/QuickAssemblyPicker";
 import {
   SupplierComparisonPanel,
   type SupplierComparisonAlternative,
@@ -296,6 +295,7 @@ type EstimateEditorTableProps = {
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
 const EMPTY_SECTION_DUPLICATE_TARGETS: EstimateSectionDuplicateTarget[] = [];
+const EMPTY_HIGHLIGHTED_ITEM_IDS = new Set<string>();
 
 type ConversionReassignedChild = {
   id: string;
@@ -813,6 +813,7 @@ export function EstimateEditorTable({
   scrollToItemId,
   onScrollToItemHandled,
   virtualization,
+  highlightedItemIds = EMPTY_HIGHLIGHTED_ITEM_IDS,
   headerRight,
   isFinalizationPanelOpen = false,
   onToggleFinalizationPanel,
@@ -826,7 +827,6 @@ export function EstimateEditorTable({
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
   const [isQuickTemplatePickerOpen, setIsQuickTemplatePickerOpen] = useState(false);
-  const [isQuickAssemblyPickerOpen, setIsQuickAssemblyPickerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
@@ -1805,6 +1805,7 @@ export function EstimateEditorTable({
           isLaborSplitEnabled={isLaborSplitEnabled}
           isPendingCreate={isPendingCreateItem(item)}
           visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
+          isHighlighted={highlightedItemIds.has(item.id)}
           isSearchMatch={
             normalizedSearchTerm.length > 0 &&
             item.item_type === "line" &&
@@ -1827,6 +1828,7 @@ export function EstimateEditorTable({
       columnVisibility.visibleColumns,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
+      highlightedItemIds,
       itemNumberById,
       isLaborSplitEnabled,
       isViewerMode,
@@ -2092,12 +2094,6 @@ export function EstimateEditorTable({
                 isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
                 onToggleQuickTemplatePicker={() => {
                   setIsQuickTemplatePickerOpen((prev) => !prev);
-                  setIsQuickAssemblyPickerOpen(false);
-                }}
-                isQuickAssemblyPickerOpen={isQuickAssemblyPickerOpen}
-                onToggleQuickAssemblyPicker={() => {
-                  setIsQuickAssemblyPickerOpen((prev) => !prev);
-                  setIsQuickTemplatePickerOpen(false);
                 }}
                 quickTemplatePickerNode={
                   <QuickTemplatePicker
@@ -2107,16 +2103,6 @@ export function EstimateEditorTable({
                       onInsertTemplate(templateId, insertionAnchorItemId)
                     }
                     onClose={() => setIsQuickTemplatePickerOpen(false)}
-                  />
-                }
-                quickAssemblyPickerNode={
-                  <QuickAssemblyPicker
-                    isOpen={isQuickAssemblyPickerOpen}
-                    isReadOnly={isReadOnly}
-                    onInsert={(assemblyId) =>
-                      onInsertAssembly(assemblyId, insertionAnchorItemId)
-                    }
-                    onClose={() => setIsQuickAssemblyPickerOpen(false)}
                   />
                 }
               />
@@ -2259,6 +2245,7 @@ export function EstimateEditorTable({
         isOpen={isAssemblyPickerOpen}
         isReadOnly={isReadOnly}
         anchorItemId={insertionAnchorItemId}
+        anchorLabel={activeLineBreadcrumb}
         onClose={() => setIsAssemblyPickerOpen(false)}
         onInsert={(assemblyId) =>
           onInsertAssembly(assemblyId, insertionAnchorItemId)

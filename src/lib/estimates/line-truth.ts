@@ -206,8 +206,8 @@ function resolveSource(input: {
     case "generated_ouvrage":
       return {
         kind: "assembly" as const,
-        label: "Assemblage",
-        detail: "Quantite issue d'un ouvrage compose ou d'un assemblage IA.",
+        label: "Ouvrage",
+        detail: "Quantite issue d'un ouvrage compose ou d'un ouvrage IA.",
       };
     case "version_zero_draft":
       return {

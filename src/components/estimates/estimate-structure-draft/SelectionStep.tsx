@@ -87,7 +87,7 @@ export function SelectionStep({
                   ) : null}
                   {isWeakSignalNode(node) ? (
                     <p className="mt-1 text-xs text-[var(--rose-700)]">
-                      Suggestion issue des assemblages seuls, non preselectionnee par defaut.
+                      Suggestion issue des ouvrages seuls, non preselectionnee par defaut.
                     </p>
                   ) : null}
                 </div>

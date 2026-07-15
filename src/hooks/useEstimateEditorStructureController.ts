@@ -41,6 +41,7 @@ type EstimateEditorStructureControllerInput = {
   getVersionSnapshot: () => EstimateVersionRow | null;
   setItems: Dispatch<SetStateAction<EditorEstimateItem[]>>;
   setTotalsOutOfSync: (value: boolean) => void;
+  highlightItems?: (itemIds: readonly string[]) => void;
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   applyVersionToken: (updatedAt: string) => void;
@@ -61,6 +62,7 @@ export function useEstimateEditorStructureController({
   getVersionSnapshot,
   setItems,
   setTotalsOutOfSync,
+  highlightItems = () => undefined,
   reportError,
   resolveErrorMessage,
   applyVersionToken,
@@ -273,6 +275,7 @@ export function useEstimateEditorStructureController({
           });
           setItems([...shiftedExistingItems, ...insertedItems]);
           setTotalsOutOfSync(false);
+          highlightItems([...insertedIds]);
         } catch (error) {
           if (!isCurrentMutation(mutationScope)) return;
           if (!handleVersionConflict(error, { persistDraft: true })) {
@@ -280,7 +283,7 @@ export function useEstimateEditorStructureController({
               resolveErrorMessage(
                 error instanceof Error
                   ? error.message
-                  : "Impossible d'inserer l'assemblage."
+                  : "Impossible d'insérer l'ouvrage."
               )
             );
           }
@@ -290,7 +293,7 @@ export function useEstimateEditorStructureController({
         await refreshVersionToken(
           targetVersionId,
           () => isCurrentMutation(mutationScope),
-          "Impossible de rafraichir le jeton de version apres insertion d'assemblage."
+          "Impossible de rafraichir le jeton de version apres insertion d'ouvrage."
         );
         if (!isCurrentMutation(mutationScope)) return;
 
@@ -368,7 +371,7 @@ export function useEstimateEditorStructureController({
               await refreshVersionToken(
                 historyScope.version.id,
                 () => isCurrentHistoryMutation(historyScope, context),
-                "Impossible de rafraichir le jeton de version apres reinsertion d'assemblage."
+                "Impossible de rafraichir le jeton de version apres reinsertion d'ouvrage."
               );
             } finally {
               finishMutation(historyScope);
@@ -388,6 +391,7 @@ export function useEstimateEditorStructureController({
       isCurrentHistoryMutation,
       isCurrentMutation,
       pushHistoryCommand,
+      highlightItems,
       refreshVersionToken,
       reportError,
       resolveErrorMessage,

@@ -116,9 +116,9 @@ export function TakeoffApplyWizardConfirmationStep({
               hint="ajustements manuels qui seront envoyes"
             />
             <PreviewImpactCard
-              label="Assemblages"
+              label="Ouvrages"
               value={previewData?.summary.assembly_insertions_count ?? 0}
-              hint="insertions d'assemblage detectees"
+              hint="insertions d'ouvrage detectees"
             />
           </div>
 

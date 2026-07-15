@@ -497,7 +497,7 @@ describe("applyTakeoffJob", () => {
       mappingRules: [
         {
           id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-          name: "Assemblage cloisons",
+          name: "Ouvrage cloisons",
           match_pattern: "tube pvc",
           match_type: "contains",
           action: "apply_assembly",
@@ -560,7 +560,7 @@ describe("applyTakeoffJob", () => {
       mappingRules: [
         {
           id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-          name: "Assemblage cloisons",
+          name: "Ouvrage cloisons",
           match_pattern: "tube pvc",
           match_type: "contains",
           action: "apply_assembly",
@@ -627,7 +627,7 @@ describe("applyTakeoffJob", () => {
       mappingRules: [
         {
           id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-          name: "Assemblage cloisons",
+          name: "Ouvrage cloisons",
           match_pattern: "tube pvc",
           match_type: "contains",
           action: "apply_assembly",

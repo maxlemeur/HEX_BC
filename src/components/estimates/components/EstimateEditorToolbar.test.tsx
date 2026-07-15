@@ -193,6 +193,23 @@ describe("EstimateEditorToolbar option 3", () => {
     expect(callbacks.onOpenImportFromEstimateDialog).toHaveBeenCalledTimes(1);
   });
 
+  it("offers a single explicit entry point to add an ouvrage", () => {
+    const { callbacks } = renderToolbar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Insérer" }));
+    const menu = screen.getByRole("menu", {
+      name: "Insérer dans le chiffrage",
+    });
+    expect(
+      within(menu).queryByTestId("estimate-editor-quick-assembly-button"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: "Ajouter un ouvrage" }),
+    );
+    expect(callbacks.onOpenAssemblyPicker).toHaveBeenCalledTimes(1);
+  });
+
   it("groups structure, columns, quality and advanced controls under Afficher", () => {
     const { callbacks } = renderToolbar();
 

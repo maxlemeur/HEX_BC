@@ -40,6 +40,7 @@ import {
   estimateExplanationDetailQueryParamSchema,
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
+import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 export type OpenApiHttpMethod = "get" | "post" | "patch" | "delete";
@@ -2662,7 +2663,7 @@ const templateIdPathParameter = pathParameter({
 
 const assemblyIdPathParameter = pathParameter({
   name: "assemblyId",
-  description: "Identifiant UUID de l'assemblage.",
+  description: "Identifiant UUID de l'ouvrage.",
   schemaName: "AssemblyIdPathParameter",
   schema: uuidSchema,
 });
@@ -2873,7 +2874,7 @@ const templatesOrderQueryParameter = queryParameter({
 
 const assembliesSearchQueryParameter = queryParameter({
   name: "search",
-  description: "Recherche textuelle sur le nom de l'assemblage.",
+  description: "Recherche textuelle sur le nom de l'ouvrage.",
   schemaName: "AssembliesSearchQueryParameter",
   schema: listEstimateAssembliesQuerySchema.shape.search,
   required: false,
@@ -2889,7 +2890,7 @@ const assembliesLimitQueryParameter = queryParameter({
 
 const assembliesOrderQueryParameter = queryParameter({
   name: "order",
-  description: "Ordre de tri des assemblages.",
+  description: "Ordre de tri des ouvrages.",
   schemaName: "AssembliesOrderQueryParameter",
   schema: listEstimateAssembliesQuerySchema.shape.order,
   required: false,
@@ -3030,7 +3031,7 @@ const anomalyHistoryDateToQueryParameter = queryParameter({
 
 const insertAssemblyVersionIdQueryParameter = queryParameter({
   name: "versionId",
-  description: "UUID de la version recevant l'insertion de l'assemblage.",
+  description: "UUID de la version recevant l'insertion de l'ouvrage.",
   schemaName: "InsertAssemblyVersionIdQueryParameter",
   schema: uuidSchema,
   required: true,
@@ -3064,6 +3065,13 @@ const createEstimateBody = jsonBody({
   name: "CreateEstimateRequest",
   description: "Payload de creation d'un chiffrage.",
   schema: createEstimateSchema,
+});
+
+const supplierPricesActionBody = jsonBody({
+  name: "SupplierPricesActionBody",
+  description:
+    "Cree un article, un fournisseur, leur fiche unique et un tarif de facon atomique, ou modifie une ressource existante.",
+  schema: pricesActionSchema,
 });
 
 const patchEstimateVersionBody = jsonBody({
@@ -3242,19 +3250,19 @@ const duplicateTemplateBody = jsonBody({
 
 const createAssemblyBody = jsonBody({
   name: "CreateEstimateAssemblyRequest",
-  description: "Creation d'un assemblage de lignes.",
+  description: "Creation d'un ouvrage de lignes.",
   schema: createEstimateAssemblySchema,
 });
 
 const updateAssemblyBody = jsonBody({
   name: "UpdateEstimateAssemblyRequest",
-  description: "Mise a jour d'un assemblage.",
+  description: "Mise a jour d'un ouvrage.",
   schema: updateEstimateAssemblySchema,
 });
 
 const insertAssemblyBody = jsonBody({
   name: "InsertAssemblyIntoVersionBodyRequest",
-  description: "Position optionnelle d'insertion de l'assemblage.",
+  description: "Position optionnelle d'insertion de l'ouvrage.",
   schema: insertAssemblyIntoVersionBodySchema,
   required: false,
 });
@@ -3431,6 +3439,39 @@ const apiOutlierStateSchemaDefinition =
 const apiPdfStatusSchemaDefinition = openApiSharedSchemaDefinitions.apiPdfStatusResponse;
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
+  {
+    method: "post",
+    path: "/api/prices",
+    summary: "Gerer les prix fournisseurs",
+    description:
+      "Cree atomiquement un article et/ou un fournisseur inconnus, leur fiche fournisseur unique et un tarif. Permet aussi de modifier un tarif ou sa fiche fournisseur par des actions distinctes.",
+    tags: ["Catalogue"],
+    requestBody: supplierPricesActionBody,
+    responses: {
+      "200": jsonResponse("Ressource mise a jour avec succes."),
+      "201": jsonResponse("Tarif fournisseur cree avec succes."),
+      "400": jsonResponse(
+        "Requete invalide ou payload non conforme.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
+      "401": jsonResponse(
+        "Authentification requise.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
+      "403": jsonResponse(
+        "Acces interdit.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
+      "409": jsonResponse(
+        "Conflit de reference ou d'URL avec la fiche fournisseur existante.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
+      "500": jsonResponse(
+        "Erreur interne serveur.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
+    },
+  },
   {
     method: "post",
     path: "/api/takeoff/jobs",
@@ -4807,8 +4848,8 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "get",
     path: "/api/estimates/assemblies",
-    summary: "Lister les assemblages",
-    description: "Retourne la liste des assemblages reutilisables.",
+    summary: "Lister les ouvrages",
+    description: "Retourne la liste des ouvrages reutilisables.",
     tags: ["Estimate Assemblies"],
     parameters: [
       assembliesSearchQueryParameter,
@@ -4817,7 +4858,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     ],
     responses: {
       "200": jsonResponse(
-        "Assemblages retournes.",
+        "Ouvrages retournes.",
         apiEstimateAssembliesSchemaDefinition
       ),
     },
@@ -4825,13 +4866,13 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "post",
     path: "/api/estimates/assemblies",
-    summary: "Creer un assemblage",
-    description: "Cree un nouvel assemblage de lignes.",
+    summary: "Creer un ouvrage",
+    description: "Cree un nouvel ouvrage de lignes.",
     tags: ["Estimate Assemblies"],
     requestBody: createAssemblyBody,
     responses: {
       "201": jsonResponse(
-        "Assemblage cree avec succes.",
+        "Ouvrage cree avec succes.",
         apiEstimateAssemblySchemaDefinition
       ),
     },
@@ -4839,13 +4880,13 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "get",
     path: "/api/estimates/assemblies/{assemblyId}",
-    summary: "Recuperer un assemblage",
-    description: "Retourne le detail complet d'un assemblage.",
+    summary: "Recuperer un ouvrage",
+    description: "Retourne le detail complet d'un ouvrage.",
     tags: ["Estimate Assemblies"],
     parameters: [assemblyIdPathParameter],
     responses: {
       "200": jsonResponse(
-        "Assemblage retourne.",
+        "Ouvrage retourne.",
         apiEstimateAssemblySchemaDefinition
       ),
     },
@@ -4853,14 +4894,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "patch",
     path: "/api/estimates/assemblies/{assemblyId}",
-    summary: "Modifier un assemblage",
-    description: "Met a jour le nom, la description et/ou les lignes d'un assemblage.",
+    summary: "Modifier un ouvrage",
+    description: "Met a jour le nom, la description et/ou les lignes d'un ouvrage.",
     tags: ["Estimate Assemblies"],
     parameters: [assemblyIdPathParameter],
     requestBody: updateAssemblyBody,
     responses: {
       "200": jsonResponse(
-        "Assemblage mis a jour.",
+        "Ouvrage mis a jour.",
         apiEstimateAssemblySchemaDefinition
       ),
     },
@@ -4868,13 +4909,13 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "delete",
     path: "/api/estimates/assemblies/{assemblyId}",
-    summary: "Supprimer un assemblage",
-    description: "Supprime un assemblage existant.",
+    summary: "Supprimer un ouvrage",
+    description: "Supprime un ouvrage existant.",
     tags: ["Estimate Assemblies"],
     parameters: [assemblyIdPathParameter],
     responses: {
       "200": jsonResponse(
-        "Assemblage supprime.",
+        "Ouvrage supprime.",
         apiDeletedIdSchemaDefinition
       ),
     },
@@ -4882,15 +4923,15 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "post",
     path: "/api/estimates/assemblies/{assemblyId}/insert",
-    summary: "Inserer un assemblage dans une version",
+    summary: "Inserer un ouvrage dans une version",
     description:
-      "Insere un assemblage dans une version cible, optionnellement apres un item.",
+      "Insere un ouvrage dans une version cible, optionnellement apres un item.",
     tags: ["Estimate Assemblies"],
     parameters: [assemblyIdPathParameter, insertAssemblyVersionIdQueryParameter],
     requestBody: insertAssemblyBody,
     responses: {
       "200": jsonResponse(
-        "Assemblage insere dans la version.",
+        "Ouvrage insere dans la version.",
         apiEstimateItemsSchemaDefinition
       ),
     },

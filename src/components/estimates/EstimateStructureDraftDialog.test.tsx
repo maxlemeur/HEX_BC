@@ -102,10 +102,10 @@ const weakAssemblyOnlyDraftFixture = {
   sources: [
     {
       kind: "assembly_library" as const,
-      label: "Bibliotheque assemblages",
+      label: "Bibliotheque ouvrages",
       available: true,
       used: true,
-      detail: "4 assemblages explores",
+      detail: "4 ouvrages explores",
     },
     {
       kind: "confirmed_brief" as const,
@@ -145,13 +145,13 @@ const weakAssemblyOnlyDraftFixture = {
       provenance: [
         {
           type: "assembly" as const,
-          label: "Assemblage CFO",
+          label: "Ouvrage CFO",
           excerpt: "Bloc standard",
         },
       ],
-      facts: ["Assemblage disponible: Electricite"],
+      facts: ["Ouvrage disponible: Electricite"],
       hypotheses: [
-        "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'assemblages, a confirmer humainement.",
+        "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, a confirmer humainement.",
       ],
       inferences: [
         "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview.",
@@ -364,7 +364,7 @@ describe("EstimateStructureDraftDialog", () => {
     const weakCheckbox = screen.getByRole("checkbox");
     expect(weakCheckbox).not.toBeChecked();
     expect(
-      screen.getByText(/Suggestion issue des assemblages seuls, non preselectionnee par defaut/i)
+      screen.getByText(/Suggestion issue des ouvrages seuls, non preselectionnee par defaut/i)
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Continuer" })

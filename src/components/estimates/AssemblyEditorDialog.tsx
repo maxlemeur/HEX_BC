@@ -328,7 +328,7 @@ export function AssemblyEditorDialog({
   );
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const modalTitle = isEditMode ? "Modifier l'assemblage" : "Nouvel assemblage";
+  const modalTitle = isEditMode ? "Modifier l'ouvrage" : "Nouvel ouvrage";
   const directCostCents = useMemo(
     () =>
       items.reduce(
@@ -379,14 +379,14 @@ export function AssemblyEditorDialog({
 
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setValidationError("Le nom de l'assemblage est obligatoire.");
+      setValidationError("Le nom de l'ouvrage est obligatoire.");
       return;
     }
     if (items.length === 0 || items.length > 50) {
       setValidationError(
         items.length === 0
-          ? "L'assemblage doit contenir au moins une ligne."
-          : "L'assemblage ne peut pas contenir plus de 50 lignes."
+          ? "L'ouvrage doit contenir au moins une ligne."
+          : "L'ouvrage ne peut pas contenir plus de 50 lignes."
       );
       return;
     }
@@ -467,7 +467,7 @@ export function AssemblyEditorDialog({
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="md:col-span-2">
               <label className="form-label" htmlFor="assembly-name">
-                Nom de l&apos;assemblage *
+                Nom de l&apos;ouvrage *
               </label>
               <input
                 id="assembly-name"

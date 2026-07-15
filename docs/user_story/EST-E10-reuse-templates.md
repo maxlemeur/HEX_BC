@@ -1,11 +1,11 @@
-# EST-E10 — Reutilisation — templates et assemblages
+# EST-E10 — Reutilisation — templates et ouvrages
 
 > Milestone: M1 | Priorite: P1 | Statut: A faire
 
 ## Objectif
 
 Permettre la reutilisation du contenu de chiffrage a travers des modeles de devis (templates
-complets) et des assemblages (groupes de lignes pre-configures). Ces mecanismes reduisent
+complets) et des ouvrages (groupes de lignes pre-configures). Ces mecanismes reduisent
 drastiquement le temps de creation d'un nouveau devis en capitalisant sur le travail deja
 realise par l'equipe.
 
@@ -21,7 +21,7 @@ realise par l'equipe.
 - **Structure sections/lignes** : les items de devis supportent une hierarchie
   section > ligne via `parent_id` et `position` dans `estimate_items`
 - **`src/lib/estimates/server.ts`** : fonctions `createEstimate()`, `createEstimateItem()`,
-  `bulkUpdateEstimateItems()` reutilisables pour la creation depuis template/assemblage
+  `bulkUpdateEstimateItems()` reutilisables pour la creation depuis template/ouvrage
 
 ---
 
@@ -81,42 +81,42 @@ realise par l'equipe.
 
 ---
 
-## EST-182 — Assemblages reutilisables
+## EST-182 — Ouvrages reutilisables
 
 **Priorite:** P1 | **Effort:** L | **Milestone:** M1
 
 ### User Story
 
-> En tant que chiffreur, je veux creer des assemblages (groupes de lignes pre-configures,
+> En tant que chiffreur, je veux creer des ouvrages (groupes de lignes pre-configures,
 > ex: "pose carrelage"), afin de les inserer en un clic dans n'importe quel devis.
 
 ### Criteres d'acceptation
 
-**Assemblage de base :**
-- [ ] Un assemblage est un groupe nomme de lignes avec des valeurs par defaut
+**Ouvrage de base :**
+- [ ] Un ouvrage est un groupe nomme de lignes avec des valeurs par defaut
       (designation, unite, coefficients k_fo/k_mo, role MO, quantite par defaut optionnelle)
-- [ ] Une page bibliotheque d'assemblages `/dashboard/estimates/assemblies` permet le
+- [ ] Une page bibliotheque d'ouvrages `/dashboard/estimates/assemblies` permet le
       CRUD complet : creation, edition, duplication, suppression
-- [ ] L'insertion d'un assemblage dans un devis en cours d'edition cree automatiquement
-      une section portant le nom de l'assemblage et les lignes correspondantes
-- [ ] Un composant picker (dialog) permet de rechercher et selectionner un assemblage
+- [ ] L'insertion d'un ouvrage dans un devis en cours d'edition cree automatiquement
+      une section portant le nom de l'ouvrage et les lignes correspondantes
+- [ ] Un composant picker (dialog) permet de rechercher et selectionner un ouvrage
       depuis l'editeur de devis
-- [ ] Les assemblages sont scopes au tenant courant (RLS policy)
-- [ ] Un assemblage peut contenir entre 1 et 50 lignes
-- [ ] L'insertion preserve la `position` des lignes tel que defini dans l'assemblage
+- [ ] Les ouvrages sont scopes au tenant courant (RLS policy)
+- [ ] Un ouvrage peut contenir entre 1 et 50 lignes
+- [ ] L'insertion preserve la `position` des lignes tel que defini dans l'ouvrage
 - [ ] Les valeurs inserees sont modifiables apres insertion (pas de lien dynamique
-      avec l'assemblage source)
-- [ ] Drawer lateral "Assemblages" accessible depuis la toolbar editeur (bouton persistant)
-- [ ] Recherche debounced (300ms) dans le drawer, filtre sur nom assemblage et designations lignes
+      avec l'ouvrage source)
+- [ ] Drawer lateral "Ouvrages" accessible depuis la toolbar editeur (bouton persistant)
+- [ ] Recherche debounced (300ms) dans le drawer, filtre sur nom ouvrage et designations lignes
 - [ ] Insertion respecte la position courante (insert after focused row)
 - [ ] Apres insertion, recalcul version declenche immediatement
 - [ ] Route POST `/api/estimates/assemblies/[assemblyId]/insert?versionId=...` — insertion atomique, retourne items[] inseres
 
-**Macro-ouvrages (assemblages d'ouvrages composes) :**
-- [ ] Un assemblage peut contenir des references a des ouvrages composes (EST-311) en plus de lignes simples : chaque item a un champ optionnel `source_assembly_work_id` pointant vers un ouvrage de la bibliotheque
-- [ ] Champ `reference_code` sur l'assemblage : code unique d'identification (ex: "MAC-CLOI-BA13-048")
-- [ ] Champ `description` sur l'assemblage : descriptif detaille de la prestation couverte par le macro-ouvrage (texte long ou rich text)
-- [ ] Prix global auto-calcule : somme des prix de tous les ouvrages et lignes composant l'assemblage (`total_ds_cents`, `total_fourni_pose_cents`)
+**Macro-ouvrages (ouvrages d'ouvrages composes) :**
+- [ ] Un ouvrage peut contenir des references a des ouvrages composes (EST-311) en plus de lignes simples : chaque item a un champ optionnel `source_assembly_work_id` pointant vers un ouvrage de la bibliotheque
+- [ ] Champ `reference_code` sur l'ouvrage : code unique d'identification (ex: "MAC-CLOI-BA13-048")
+- [ ] Champ `description` sur l'ouvrage : descriptif detaille de la prestation couverte par le macro-ouvrage (texte long ou rich text)
+- [ ] Prix global auto-calcule : somme des prix de tous les ouvrages et lignes composant l'ouvrage (`total_ds_cents`, `total_fourni_pose_cents`)
 - [ ] Temps d'execution global auto-calcule : somme des `avg_time_hours` de chaque ouvrage composant, affiche dans le drawer et la bibliotheque
 - [ ] Lors de l'insertion d'un macro-ouvrage, chaque ouvrage reference est insere avec son sous-detail complet (composants materiaux/MO/materiel)
 - [ ] Le code de chaque ouvrage composant est affiche dans le drawer (colonne "Ref.") pour faciliter la recherche et la comparaison
@@ -131,18 +131,18 @@ realise par l'equipe.
     `assembly_id`, `title`, `unit`, `k_fo`, `k_mo`, `labor_role_id`,
     `default_quantity`, `source_assembly_work_id`, `position`) avec RLS policies
     scope tenant
-  - `src/app/dashboard/estimates/assemblies/page.tsx` — page bibliotheque assemblages
+  - `src/app/dashboard/estimates/assemblies/page.tsx` — page bibliotheque ouvrages
   - `src/app/api/estimates/assemblies/route.ts` — GET (liste), POST (creer)
   - `src/app/api/estimates/assemblies/[assemblyId]/route.ts` — GET, PATCH, DELETE
-  - `src/components/estimates/AssemblyPicker.tsx` — dialog de selection d'assemblage
+  - `src/components/estimates/AssemblyPicker.tsx` — dialog de selection d'ouvrage
     avec recherche et apercu des lignes
 - Fichiers a modifier :
   - `src/lib/estimates/server.ts` — nouvelle fonction `insertAssemblyIntoVersion()`
     incluant l'expansion des ouvrages composes references
-  - `src/lib/estimates/client.ts` — wrappers client pour les endpoints assemblages
-  - `src/lib/estimates/schemas.ts` — schemas Zod pour assemblages et items
+  - `src/lib/estimates/client.ts` — wrappers client pour les endpoints ouvrages
+  - `src/lib/estimates/schemas.ts` — schemas Zod pour ouvrages et items
   - `src/components/estimates/EstimateEditorTable.tsx` — bouton d'insertion
-    d'assemblage dans la toolbar
+    d'ouvrage dans la toolbar
 - Reutiliser :
   - `src/lib/estimates/server.ts` — `createEstimateItem()` pour l'insertion des lignes
   - `src/lib/estimates/errors.ts` — gestion d'erreurs

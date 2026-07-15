@@ -89,17 +89,17 @@ export default function EstimateAssembliesPage() {
       try {
         if (editingAssembly) {
           await updateEstimateAssembly(editingAssembly.id, input);
-          setSuccessMessage("Assemblage mis à jour.");
+          setSuccessMessage("Ouvrage mis à jour.");
         } else {
           await createEstimateAssembly(input);
-          setSuccessMessage("Assemblage créé.");
+          setSuccessMessage("Ouvrage créé.");
         }
         setIsModalOpen(false);
         setEditingAssembly(null);
         await mutate();
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Impossible d'enregistrer l'assemblage."
+          error instanceof Error ? error.message : "Impossible d'enregistrer l'ouvrage."
         );
       } finally {
         setIsModalSubmitting(false);
@@ -118,7 +118,7 @@ export default function EstimateAssembliesPage() {
       setIsModalOpen(true);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible de charger l'assemblage."
+        error instanceof Error ? error.message : "Impossible de charger l'ouvrage."
       );
     } finally {
       setBusyAssemblyId(null);
@@ -141,11 +141,11 @@ export default function EstimateAssembliesPage() {
       setRenamingAssembly(null);
       try {
         await updateEstimateAssembly(renamingAssembly.id, { name: nextName });
-        setSuccessMessage("Assemblage renommé.");
+        setSuccessMessage("Ouvrage renommé.");
         await mutate();
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Impossible de renommer l'assemblage."
+          error instanceof Error ? error.message : "Impossible de renommer l'ouvrage."
         );
       } finally {
         setBusyAssemblyId(null);
@@ -167,11 +167,11 @@ export default function EstimateAssembliesPage() {
       setDuplicatingAssembly(null);
       try {
         await duplicateEstimateAssembly(duplicatingAssembly.id, { name: duplicateName });
-        setSuccessMessage("Assemblage dupliqué.");
+        setSuccessMessage("Ouvrage dupliqué.");
         await mutate();
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Impossible de dupliquer l'assemblage."
+          error instanceof Error ? error.message : "Impossible de dupliquer l'ouvrage."
         );
       } finally {
         setBusyAssemblyId(null);
@@ -192,11 +192,11 @@ export default function EstimateAssembliesPage() {
     setDeletingAssembly(null);
     try {
       await deleteEstimateAssembly(deletingAssembly.id);
-      setSuccessMessage("Assemblage supprimé.");
+      setSuccessMessage("Ouvrage supprimé.");
       await mutate();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible de supprimer l'assemblage."
+        error instanceof Error ? error.message : "Impossible de supprimer l'ouvrage."
       );
     } finally {
       setBusyAssemblyId(null);
@@ -207,14 +207,14 @@ export default function EstimateAssembliesPage() {
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Bibliothèque d&apos;assemblages</h1>
+          <h1 className="page-title">Bibliothèque d&apos;ouvrages</h1>
           <p className="page-description">
             Créez et réutilisez des groupes de lignes préconfigurés dans vos chiffrages.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button className="btn btn-primary btn-sm" onClick={openCreateModal}>
-            Nouvel assemblage
+            Nouvel ouvrage
           </button>
           <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
             Retour
@@ -251,7 +251,7 @@ export default function EstimateAssembliesPage() {
 
         {isLoading ? (
           <div className="px-6 py-8 text-sm text-[var(--slate-500)]">
-            Chargement des assemblages...
+            Chargement des ouvrages...
           </div>
         ) : (
           <AssemblyLibraryTable
@@ -281,7 +281,7 @@ export default function EstimateAssembliesPage() {
 
       <PromptModal
         open={renamingAssembly !== null}
-        title="Renommer l'assemblage"
+        title="Renommer l'ouvrage"
         label="Nouveau nom"
         defaultValue={renamingAssembly?.name ?? ""}
         confirmLabel="Renommer"
@@ -290,7 +290,7 @@ export default function EstimateAssembliesPage() {
       />
       <PromptModal
         open={duplicatingAssembly !== null}
-        title="Dupliquer l'assemblage"
+        title="Dupliquer l'ouvrage"
         label="Nom de la copie"
         defaultValue={duplicatingAssembly ? `${duplicatingAssembly.name} (copie)` : ""}
         confirmLabel="Dupliquer"
@@ -299,8 +299,8 @@ export default function EstimateAssembliesPage() {
       />
       <ConfirmModal
         open={deletingAssembly !== null}
-        title="Supprimer l'assemblage"
-        message={`Supprimer l'assemblage "${deletingAssembly?.name ?? ""}" ? Cette action est irréversible.`}
+        title="Supprimer l'ouvrage"
+        message={`Supprimer l'ouvrage "${deletingAssembly?.name ?? ""}" ? Cette action est irréversible.`}
         confirmLabel="Supprimer"
         variant="danger"
         onConfirm={() => void confirmDelete()}

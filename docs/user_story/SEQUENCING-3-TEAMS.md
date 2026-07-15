@@ -143,7 +143,7 @@ Ce document planifie l'ordre d'implementation des tickets MVP "Game Changer" pou
 | Equipe | Ticket | Titre | Couches | Effort | Dep |
 |--------|--------|-------|---------|--------|-----|
 | **A** | EST-181 | Templates de devis (picker, instantiate) | `[DB]` `[Back]` `[Front]` | L | — |
-| **B** | EST-182 | Assemblages reutilisables (drawer, insert) | `[DB]` `[Back]` `[Front]` | L | — |
+| **B** | EST-182 | Ouvrages reutilisables (drawer, insert) | `[DB]` `[Back]` `[Front]` | L | — |
 | **C** | EST-161 | Scoring et classement suggestions | `[DB]` `[Back]` `[Front]` | M | — |
 
 ### Vague 2.2 — Suite logique
@@ -162,7 +162,7 @@ Ce document planifie l'ordre d'implementation des tickets MVP "Game Changer" pou
   - Bulk apply (atomicite, rollback sur echec partiel).
 - `[E2E]` :
   - Creation devis depuis template.
-  - Insertion assemblage reutilisable dans un devis existant.
+  - Insertion ouvrage reutilisable dans un devis existant.
   - Application en masse des suggestions sur lot de lignes.
 - `Gate P2` :
   - Aucune perte de donnees sur create/apply.

@@ -47,6 +47,9 @@
       "name": "Estimate Templates"
     },
     {
+      "name": "Catalogue"
+    },
+    {
       "name": "Takeoff"
     }
   ],
@@ -4882,13 +4885,13 @@
         "tags": [
           "Estimate Assemblies"
         ],
-        "summary": "Lister les assemblages",
-        "description": "Retourne la liste des assemblages reutilisables.",
+        "summary": "Lister les ouvrages",
+        "description": "Retourne la liste des ouvrages reutilisables.",
         "parameters": [
           {
             "name": "search",
             "in": "query",
-            "description": "Recherche textuelle sur le nom de l'assemblage.",
+            "description": "Recherche textuelle sur le nom de l'ouvrage.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/AssembliesSearchQueryParameter"
@@ -4906,7 +4909,7 @@
           {
             "name": "order",
             "in": "query",
-            "description": "Ordre de tri des assemblages.",
+            "description": "Ordre de tri des ouvrages.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/AssembliesOrderQueryParameter"
@@ -4915,7 +4918,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Assemblages retournes.",
+            "description": "Ouvrages retournes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4990,10 +4993,10 @@
         "tags": [
           "Estimate Assemblies"
         ],
-        "summary": "Creer un assemblage",
-        "description": "Cree un nouvel assemblage de lignes.",
+        "summary": "Creer un ouvrage",
+        "description": "Cree un nouvel ouvrage de lignes.",
         "requestBody": {
-          "description": "Creation d'un assemblage de lignes.",
+          "description": "Creation d'un ouvrage de lignes.",
           "required": true,
           "content": {
             "application/json": {
@@ -5005,7 +5008,7 @@
         },
         "responses": {
           "201": {
-            "description": "Assemblage cree avec succes.",
+            "description": "Ouvrage cree avec succes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5082,13 +5085,13 @@
         "tags": [
           "Estimate Assemblies"
         ],
-        "summary": "Recuperer un assemblage",
-        "description": "Retourne le detail complet d'un assemblage.",
+        "summary": "Recuperer un ouvrage",
+        "description": "Retourne le detail complet d'un ouvrage.",
         "parameters": [
           {
             "name": "assemblyId",
             "in": "path",
-            "description": "Identifiant UUID de l'assemblage.",
+            "description": "Identifiant UUID de l'ouvrage.",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/AssemblyIdPathParameter"
@@ -5097,7 +5100,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Assemblage retourne.",
+            "description": "Ouvrage retourne.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5172,13 +5175,13 @@
         "tags": [
           "Estimate Assemblies"
         ],
-        "summary": "Modifier un assemblage",
-        "description": "Met a jour le nom, la description et/ou les lignes d'un assemblage.",
+        "summary": "Modifier un ouvrage",
+        "description": "Met a jour le nom, la description et/ou les lignes d'un ouvrage.",
         "parameters": [
           {
             "name": "assemblyId",
             "in": "path",
-            "description": "Identifiant UUID de l'assemblage.",
+            "description": "Identifiant UUID de l'ouvrage.",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/AssemblyIdPathParameter"
@@ -5186,7 +5189,7 @@
           }
         ],
         "requestBody": {
-          "description": "Mise a jour d'un assemblage.",
+          "description": "Mise a jour d'un ouvrage.",
           "required": true,
           "content": {
             "application/json": {
@@ -5198,7 +5201,7 @@
         },
         "responses": {
           "200": {
-            "description": "Assemblage mis a jour.",
+            "description": "Ouvrage mis a jour.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5273,13 +5276,13 @@
         "tags": [
           "Estimate Assemblies"
         ],
-        "summary": "Supprimer un assemblage",
-        "description": "Supprime un assemblage existant.",
+        "summary": "Supprimer un ouvrage",
+        "description": "Supprime un ouvrage existant.",
         "parameters": [
           {
             "name": "assemblyId",
             "in": "path",
-            "description": "Identifiant UUID de l'assemblage.",
+            "description": "Identifiant UUID de l'ouvrage.",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/AssemblyIdPathParameter"
@@ -5288,7 +5291,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Assemblage supprime.",
+            "description": "Ouvrage supprime.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5365,13 +5368,13 @@
         "tags": [
           "Estimate Assemblies"
         ],
-        "summary": "Inserer un assemblage dans une version",
-        "description": "Insere un assemblage dans une version cible, optionnellement apres un item.",
+        "summary": "Inserer un ouvrage dans une version",
+        "description": "Insere un ouvrage dans une version cible, optionnellement apres un item.",
         "parameters": [
           {
             "name": "assemblyId",
             "in": "path",
-            "description": "Identifiant UUID de l'assemblage.",
+            "description": "Identifiant UUID de l'ouvrage.",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/AssemblyIdPathParameter"
@@ -5380,7 +5383,7 @@
           {
             "name": "versionId",
             "in": "query",
-            "description": "UUID de la version recevant l'insertion de l'assemblage.",
+            "description": "UUID de la version recevant l'insertion de l'ouvrage.",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/InsertAssemblyVersionIdQueryParameter"
@@ -5388,7 +5391,7 @@
           }
         ],
         "requestBody": {
-          "description": "Position optionnelle d'insertion de l'assemblage.",
+          "description": "Position optionnelle d'insertion de l'ouvrage.",
           "required": false,
           "content": {
             "application/json": {
@@ -5400,7 +5403,7 @@
         },
         "responses": {
           "200": {
-            "description": "Assemblage insere dans la version.",
+            "description": "Ouvrage insere dans la version.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6140,6 +6143,108 @@
           },
           "409": {
             "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prices": {
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Gerer les prix fournisseurs",
+        "description": "Cree atomiquement un article et/ou un fournisseur inconnus, leur fiche fournisseur unique et un tarif. Permet aussi de modifier un tarif ou sa fiche fournisseur par des actions distinctes.",
+        "requestBody": {
+          "description": "Cree un article, un fournisseur, leur fiche unique et un tarif de facon atomique, ou modifie une ressource existante.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierPricesActionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ressource mise a jour avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSuccessUnknown"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Tarif fournisseur cree avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSuccessUnknown"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit de reference ou d'URL avec la fiche fournisseur existante.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22202,6 +22307,1025 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "SupplierPricesActionBody": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "create"
+              },
+              "item": {
+                "type": "object",
+                "properties": {
+                  "supplier_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "new_supplier": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                      },
+                      "address": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "city": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "postal_code": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "country": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "email": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "phone": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "contact_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "siret": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "vat_number": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "payment_terms": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  },
+                  "product_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "catalogue_item_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "new_product": {
+                    "type": "object",
+                    "properties": {
+                      "reference": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "designation": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "category": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "product_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "material": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "grade": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "dimensions": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "standard": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "unit": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {}
+                        ]
+                      },
+                      "unit_price_cents": {
+                        "default": 0,
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "tax_rate_bp": {
+                        "default": 2000,
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
+                      }
+                    },
+                    "required": [
+                      "designation"
+                    ]
+                  },
+                  "supplier_sku": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "product_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "unit": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "min_quantity": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "unit_price_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "currency": {
+                    "default": "EUR",
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                  },
+                  "valid_from": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "valid_to": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "is_active": {
+                    "type": "boolean"
+                  },
+                  "source_import_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "source_mapped_row_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  }
+                },
+                "required": [
+                  "unit_price_cents"
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "item"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "update"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "item": {
+                "type": "object",
+                "properties": {
+                  "unit": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "min_quantity": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "unit_price_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                  },
+                  "valid_from": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "valid_to": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "is_active": {
+                    "type": "boolean"
+                  },
+                  "source_import_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "source_mapped_row_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  }
+                }
+              }
+            },
+            "required": [
+              "action",
+              "id",
+              "item"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "delete"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "action",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "update-supplier-item"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "supplier_sku": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {}
+                ]
+              },
+              "product_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {}
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "bulk-create"
+              },
+              "items": {
+                "minItems": 1,
+                "maxItems": 5000,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "supplier_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "product_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "catalogue_item_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "supplier_sku": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "product_url": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "unit": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "min_quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "unit_price_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "default": "EUR",
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 3
+                    },
+                    "valid_from": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "valid_to": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "source_import_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "source_mapped_row_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "source": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "notes": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "external_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    }
+                  },
+                  "required": [
+                    "supplier_id",
+                    "unit_price_cents"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "action",
+              "items"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "bulk-create-atomic"
+              },
+              "items": {
+                "minItems": 1,
+                "maxItems": 50000,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "supplier_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "product_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "catalogue_item_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "supplier_sku": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "product_url": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "unit": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "min_quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "unit_price_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "default": "EUR",
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 3
+                    },
+                    "valid_from": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "valid_to": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "source_import_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "source_mapped_row_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "source": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "notes": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    },
+                    "external_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {}
+                      ]
+                    }
+                  },
+                  "required": [
+                    "supplier_id",
+                    "unit_price_cents"
+                  ]
+                }
+              },
+              "batch_size": {
+                "default": 5000,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5000
+              }
+            },
+            "required": [
+              "action",
+              "items"
+            ]
+          }
+        ]
       },
       "TakeoffJobEstimateVersionIdQueryParameter": {
         "type": "string",

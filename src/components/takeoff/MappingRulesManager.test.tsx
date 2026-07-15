@@ -184,7 +184,7 @@ describe("MappingRulesManager", () => {
     expect(await screen.findByText("Renommer PVC")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Nouvelle regle" }));
-    await user.type(screen.getByLabelText("Nom de la regle"), "Assemblage auto");
+    await user.type(screen.getByLabelText("Nom de la regle"), "Ouvrage auto");
     await user.type(screen.getByLabelText("Pattern de correspondance"), "cloison");
     await user.selectOptions(screen.getByLabelText("Action"), "skip");
     await user.click(screen.getByRole("button", { name: "Creer la regle" }));
@@ -192,10 +192,10 @@ describe("MappingRulesManager", () => {
     await waitFor(() => {
       expect(createTakeoffMappingRule).toHaveBeenCalledTimes(1);
     });
-    expect(await screen.findByText("Assemblage auto")).toBeInTheDocument();
+    expect(await screen.findByText("Ouvrage auto")).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "Supprimer Assemblage auto" })
+      screen.getByRole("button", { name: "Supprimer Ouvrage auto" })
     );
     await user.click(screen.getByRole("button", { name: "Supprimer la regle" }));
 

@@ -426,7 +426,7 @@ export default function EstimatesPage() {
                 <span className="text-[11px] text-[var(--slate-400)]">Modèles de chiffrage complets</span>
               </Link>
               <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/estimates/assemblies">
-                <span className="font-medium text-[var(--slate-800)]">Assemblages</span>
+                <span className="font-medium text-[var(--slate-800)]">Ouvrages</span>
                 <span className="text-[11px] text-[var(--slate-400)]">Groupes de lignes prédéfinis</span>
               </Link>
             </div>

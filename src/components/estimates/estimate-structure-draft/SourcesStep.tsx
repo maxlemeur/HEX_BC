@@ -90,7 +90,7 @@ export function SourcesStep({
             {isAssemblyOnlyWeakMode ? (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 Contexte pauvre detecte: aucune source metier forte n&apos;alimente la preview.
-                Les suggestions issues uniquement des assemblages sont marquees en faible confiance
+                Les suggestions issues uniquement des ouvrages sont marquees en faible confiance
                 et ne sont pas preselectionnees.
               </div>
             ) : null}
@@ -99,7 +99,7 @@ export function SourcesStep({
                 <p className="font-semibold">Aucune suggestion defendable</p>
                 <p className="mt-1">
                   {isAssemblyOnlyWeakMode
-                    ? "Les assemblages disponibles restent visibles comme contexte, mais aucun lot n'est propose sans corroboration affaire plus solide."
+                    ? "Les ouvrages disponibles restent visibles comme contexte, mais aucun lot n'est propose sans corroboration affaire plus solide."
                     : "Les sources disponibles ne permettent pas de proposer une structure IA suffisamment explicable pour cette version."}
                 </p>
               </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 
 import {
@@ -14,6 +15,7 @@ type AssemblyPickerProps = {
   isOpen: boolean;
   isReadOnly: boolean;
   anchorItemId: string | null;
+  anchorLabel?: string | null;
   onClose: () => void;
   onInsert: (assemblyId: string) => Promise<void>;
 };
@@ -22,10 +24,25 @@ function normalizedText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+function formatCurrency(cents: number | null | undefined) {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format((cents ?? 0) / 100);
+}
+
+function formatHours(value: number | null | undefined) {
+  return new Intl.NumberFormat("fr-FR", {
+    maximumFractionDigits: 2,
+  }).format(value ?? 0);
+}
+
 export function AssemblyPicker({
   isOpen,
   isReadOnly,
   anchorItemId,
+  anchorLabel,
   onClose,
   onInsert,
 }: AssemblyPickerProps) {
@@ -149,7 +166,7 @@ export function AssemblyPicker({
       })
       .catch(() => {
         if (!active) return;
-        setActionError("Impossible de charger l'aperu de l'assemblage.");
+        setActionError("Impossible de charger l'aperçu de l'ouvrage.");
       });
 
     return () => {
@@ -159,6 +176,9 @@ export function AssemblyPicker({
 
   const selectedDetail =
     selectedAssemblyId ? detailById[selectedAssemblyId] ?? null : null;
+  const selectedAssembly = selectedAssemblyId
+    ? assemblies.find((assembly) => assembly.id === selectedAssemblyId) ?? null
+    : null;
 
   async function handleInsert() {
     if (!selectedAssemblyId || isInserting) return;
@@ -169,7 +189,7 @@ export function AssemblyPicker({
       onClose();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible d'inserer l'assemblage."
+        error instanceof Error ? error.message : "Impossible d'insérer l'ouvrage."
       );
     } finally {
       setIsInserting(false);
@@ -184,17 +204,21 @@ export function AssemblyPicker({
         type="button"
         className="absolute inset-0 bg-[rgba(2,6,23,0.35)]"
         onClick={onClose}
-        aria-label="Fermer le picker assemblages"
+        aria-label="Fermer le sélecteur d'ouvrages"
       />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-3xl flex-col bg-surface shadow-2xl">
         <div className="flex items-start justify-between border-b border-[var(--slate-200)] px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-[var(--slate-800)]">Assemblages</h2>
+            <h2 className="text-lg font-semibold text-[var(--slate-800)]">
+              Ajouter un ouvrage
+            </h2>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Inserer un groupe de lignes apres la ligne active.
+              Recherchez un ouvrage, vérifiez son coût puis ajoutez-le au chiffrage.
             </p>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Ancre d&apos;insertion: {anchorItemId ?? "fin de racine"}
+            <p className="mt-1 text-xs font-medium text-[var(--slate-600)]">
+              Emplacement :{" "}
+              {anchorLabel ??
+                (anchorItemId ? "après la ligne active" : "à la fin du devis")}
             </p>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
@@ -213,7 +237,7 @@ export function AssemblyPicker({
                 className="form-input"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Nom ou designation de ligne"
+                placeholder="Nom, référence ou composant"
               />
             </div>
             <div className="max-h-[calc(100vh-220px)] overflow-auto px-2 pb-3">
@@ -223,7 +247,7 @@ export function AssemblyPicker({
                 <div className="px-3 py-4 text-sm text-rose-600">{loadError.message}</div>
               ) : filteredAssemblies.length === 0 ? (
                 <div className="px-3 py-4 text-sm text-[var(--slate-500)]">
-                  Aucun assemblage.
+                  Aucun ouvrage trouvé.
                 </div>
               ) : (
                 filteredAssemblies.map((assembly) => (
@@ -238,8 +262,12 @@ export function AssemblyPicker({
                     onClick={() => setSelectedAssemblyId(assembly.id)}
                   >
                     <div className="font-medium text-[var(--slate-800)]">{assembly.name}</div>
-                    <div className="text-xs text-[var(--slate-500)]">
-                      {assembly.itemCount} ligne(s)
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--slate-500)]">
+                      <span>
+                        {assembly.itemCount} composant{assembly.itemCount > 1 ? "s" : ""}
+                      </span>
+                      {assembly.unit ? <span>· {assembly.unit}</span> : null}
+                      <span>· {formatCurrency(assembly.targetPriceCents)}</span>
                     </div>
                   </button>
                 ))
@@ -251,10 +279,10 @@ export function AssemblyPicker({
             <div className="flex-1 overflow-auto p-4">
               {!selectedAssemblyId ? (
                 <div className="text-sm text-[var(--slate-500)]">
-                  Selectionnez un assemblage pour afficher son apercu.
+                  Sélectionnez un ouvrage pour afficher son aperçu et son impact financier.
                 </div>
               ) : !selectedDetail ? (
-                <div className="text-sm text-[var(--slate-500)]">Chargement de l&apos;apercu...</div>
+                <div className="text-sm text-[var(--slate-500)]">Chargement de l&apos;aperçu...</div>
               ) : (
                 <div>
                   <h3 className="text-base font-semibold text-[var(--slate-800)]">
@@ -263,6 +291,33 @@ export function AssemblyPicker({
                   <p className="mt-1 text-sm text-[var(--slate-500)]">
                     {selectedDetail.description?.trim() || "Sans description"}
                   </p>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
+                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+                      <p className="text-xs text-[var(--slate-500)]">Coût direct</p>
+                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                        {formatCurrency(selectedDetail.directCostCents)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+                      <p className="text-xs text-[var(--slate-500)]">Temps MO</p>
+                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                        {formatHours(selectedDetail.averageTimeHours)} h
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+                      <p className="text-xs text-[var(--slate-500)]">Prix cible HT</p>
+                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                        {formatCurrency(selectedDetail.targetPriceCents)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+                      <p className="text-xs text-[var(--slate-500)]">Composants</p>
+                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                        {selectedDetail.items.length}
+                      </p>
+                    </div>
+                  </div>
 
                   <div className="mt-4 table-scroll rounded-lg border border-[var(--slate-200)]">
                     <table className="data-table">
@@ -273,7 +328,8 @@ export function AssemblyPicker({
                           <th>U</th>
                           <th>K FO</th>
                           <th>K MO</th>
-                          <th>Qte defaut</th>
+                          <th>Qte défaut</th>
+                          <th>Coût unitaire</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -285,6 +341,7 @@ export function AssemblyPicker({
                             <td>{item.k_fo ?? 1}</td>
                             <td>{item.k_mo ?? 1}</td>
                             <td>{item.default_quantity ?? 1}</td>
+                            <td>{formatCurrency(item.unit_cost_ht_cents)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -296,7 +353,14 @@ export function AssemblyPicker({
 
             <div className="border-t border-[var(--slate-200)] p-4">
               {actionError ? <div className="alert alert-error mb-3">{actionError}</div> : null}
-              <div className="flex items-center justify-end gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Link
+                  href="/dashboard/estimates/assemblies"
+                  className="text-sm font-medium text-[var(--brand-blue)] hover:underline"
+                >
+                  Gérer la bibliothèque d&apos;ouvrages
+                </Link>
+                <div className="flex items-center gap-3">
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -311,8 +375,15 @@ export function AssemblyPicker({
                   onClick={() => void handleInsert()}
                   disabled={!selectedAssemblyId || isInserting || isReadOnly}
                 >
-                  {isInserting ? "Insertion..." : "Inserer dans l'editeur"}
+                  {isInserting
+                    ? "Ajout en cours..."
+                    : selectedAssembly
+                      ? `Ajouter « ${selectedAssembly.name} » — ${formatCurrency(
+                          selectedAssembly.targetPriceCents
+                        )}`
+                      : "Ajouter l'ouvrage"}
                 </button>
+                </div>
               </div>
             </div>
           </div>

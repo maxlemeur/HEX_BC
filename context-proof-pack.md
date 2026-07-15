@@ -773,7 +773,7 @@ Lecture:
 
 - stock-aware pricing
 - fermeture complete de la boucle pricing sans intervention
-- assemblages techniques metier reconnus de facon explicite et generalisee dans le flux canonique
+- ouvrages techniques metier reconnus de facon explicite et generalisee dans le flux canonique
 - promesse "zero erreur de nomenclature" comme garantie forte
 
 ## 9. Conclusion pour la promesse produit
