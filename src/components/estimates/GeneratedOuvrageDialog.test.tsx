@@ -241,6 +241,9 @@ const defaultProps: GeneratedOuvrageDialogProps = {
       title: "Lot 1 - Gros oeuvre",
     },
   ],
+  isMutationBlocked: false,
+  mutationBlockedMessage: "Mutation interdite.",
+  ensureMutationCanProceed: vi.fn().mockResolvedValue(true),
   onClose: vi.fn(),
 };
 
@@ -828,6 +831,148 @@ describe("GeneratedOuvrageDialog", () => {
     await waitFor(() => {
       expect(screen.getByText("Insere")).toBeInTheDocument();
     });
+  });
+
+  it("blocks Header, Footer, and Escape close while insertion is pending", async () => {
+    const draftResult = makeDraftResult();
+    const insertDeferred = createDeferred<InsertGeneratedOuvragesResult>();
+    const onClose = vi.fn();
+    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
+    mockInsertGeneratedOuvrages.mockReturnValueOnce(insertDeferred.promise);
+    mockFetchGeneratedOuvrageDraft.mockResolvedValueOnce(
+      makeDraftResult(
+        { status: "partially_applied" },
+        [
+          { ...draftResult.candidates[0], resolutionStatus: "inserted" },
+          draftResult.candidates[1],
+          draftResult.candidates[2],
+        ]
+      )
+    );
+
+    render(<GeneratedOuvrageDialog {...defaultProps} onClose={onClose} />);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Texte source"), "Test");
+    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
+    await screen.findByText("Mur en beton");
+    await user.click(
+      within(screen.getByTestId("candidate-card-c1")).getByRole("checkbox")
+    );
+    await reviewSubdetailForCandidate(user, "c1");
+    await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
+
+    await waitFor(() => {
+      expect(mockInsertGeneratedOuvrages).toHaveBeenCalledTimes(1);
+    });
+    const closeButtons = screen.getAllByRole("button", { name: "Fermer" });
+    expect(closeButtons).toHaveLength(2);
+    closeButtons.forEach((button) => expect(button).toBeDisabled());
+    expect(
+      screen.getByRole("button", { name: "Nouvelle generation" })
+    ).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    for (const button of closeButtons) {
+      await user.click(button);
+    }
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      insertDeferred.resolve({
+        ok: true,
+        insertedCount: 1,
+        draftStatus: "partially_applied",
+        projectId: "p1",
+        versionId: "v1",
+      });
+      await insertDeferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(mockFetchGeneratedOuvrageDraft).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getAllByRole("button", { name: "Fermer" })[0]
+      ).toBeEnabled();
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("does not call the insertion API when the async mutation barrier refuses", async () => {
+    const draftResult = makeDraftResult();
+    const ensureMutationCanProceed = vi.fn().mockResolvedValue(false);
+    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
+
+    render(
+      <GeneratedOuvrageDialog
+        {...defaultProps}
+        ensureMutationCanProceed={ensureMutationCanProceed}
+      />
+    );
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Texte source"), "Test");
+    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
+    await screen.findByText("Mur en beton");
+    await user.click(
+      within(screen.getByTestId("candidate-card-c1")).getByRole("checkbox")
+    );
+    await reviewSubdetailForCandidate(user, "c1");
+    await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
+
+    await waitFor(() => {
+      expect(ensureMutationCanProceed).toHaveBeenCalledWith(
+        "inserer les ouvrages generes"
+      );
+      expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
+    });
+    expect(mockInsertGeneratedOuvrages).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the mutation block after the async insertion barrier", async () => {
+    const draftResult = makeDraftResult();
+    const barrier = createDeferred<boolean>();
+    const ensureMutationCanProceed = vi.fn().mockReturnValue(barrier.promise);
+    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
+
+    const { rerender } = render(
+      <GeneratedOuvrageDialog
+        {...defaultProps}
+        ensureMutationCanProceed={ensureMutationCanProceed}
+      />
+    );
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Texte source"), "Test");
+    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
+    await screen.findByText("Mur en beton");
+    await user.click(
+      within(screen.getByTestId("candidate-card-c1")).getByRole("checkbox")
+    );
+    await reviewSubdetailForCandidate(user, "c1");
+    await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
+    await waitFor(() => {
+      expect(ensureMutationCanProceed).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <GeneratedOuvrageDialog
+        {...defaultProps}
+        isMutationBlocked
+        mutationBlockedMessage="Conflit de version."
+        ensureMutationCanProceed={ensureMutationCanProceed}
+      />
+    );
+    await act(async () => {
+      barrier.resolve(true);
+      await barrier.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Conflit de version.")).toHaveLength(2);
+    });
+    expect(mockInsertGeneratedOuvrages).not.toHaveBeenCalled();
+    expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeDisabled();
   });
 
   it("shows the explicit fallback section when lotId is null", async () => {

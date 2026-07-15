@@ -272,9 +272,11 @@ describe("executeEstimateBatch", () => {
 
   it("propagates optimistic concurrency conflicts from the token precheck", async () => {
     vi.mocked(bulkUpdateEstimateItems).mockRejectedValue(
-      conflict("Version modifiee par un autre utilisateur.", {
-        updated_at: "2026-02-21T10:00:01.000Z",
-      })
+      conflict(
+        "Version modifiee par un autre utilisateur.",
+        { updated_at: "2026-02-21T10:00:01.000Z" },
+        "VERSION_CONFLICT"
+      )
     );
 
     await expect(
@@ -291,7 +293,7 @@ describe("executeEstimateBatch", () => {
         }
       )
     ).rejects.toMatchObject({
-      code: "CONFLICT",
+      code: "VERSION_CONFLICT",
     });
 
     expect(vi.mocked(createEstimateItem)).not.toHaveBeenCalled();
@@ -306,9 +308,11 @@ describe("executeEstimateBatch", () => {
       version: { id: VERSION_ID, updated_at: UPDATED_AT },
     } as never);
     vi.mocked(claimEstimateBatchRevision).mockRejectedValue(
-      conflict("Version modifiee par un autre utilisateur.", {
-        updated_at: UPDATED_AT,
-      })
+      conflict(
+        "Version modifiee par un autre utilisateur.",
+        { updated_at: UPDATED_AT },
+        "VERSION_CONFLICT"
+      )
     );
 
     await expect(
@@ -317,7 +321,7 @@ describe("executeEstimateBatch", () => {
         [{ op: "delete", id: ITEM_ID }],
         { concurrencyToken: UPDATED_AT }
       )
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
 
     expect(deleteEstimateItem).not.toHaveBeenCalled();
     expect(createEstimateItem).not.toHaveBeenCalled();

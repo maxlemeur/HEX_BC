@@ -87,17 +87,25 @@ async function openEstimateEditor(page: Page, versionId: string) {
       .getByText("Chargement du chiffrage...")
       .waitFor({ state: "hidden", timeout: 30_000 })
       .catch(() => {});
-    await expect(
-      page.getByTestId("estimate-editor-open-generated-ouvrage-button")
-    ).toBeVisible({ timeout: 30_000 });
+    await revealGeneratedOuvrageButton(page);
   });
 }
 
+async function revealGeneratedOuvrageButton(page: Page) {
+  const openButton = page.getByTestId(
+    "estimate-editor-open-generated-ouvrage-button"
+  );
+  if (await openButton.isVisible().catch(() => false)) return openButton;
+
+  await page.getByRole("button", { name: "Insérer", exact: true }).click();
+  await expect(openButton).toBeVisible({ timeout: 30_000 });
+  return openButton;
+}
+
 async function openGeneratedOuvrageDialog(page: Page) {
-  const openButton = page.getByTestId("estimate-editor-open-generated-ouvrage-button");
-  await expect(openButton).toBeVisible({ timeout: 60_000 });
+  const openButton = await revealGeneratedOuvrageButton(page);
   await openButton.click();
-  const dialog = page.getByRole("dialog", { name: /Generer des ouvrages/i });
+  const dialog = page.getByRole("dialog", { name: "Générer des ouvrages" });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -199,11 +207,14 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
       timeout: 60_000,
     });
 
-    await dialog
+    const subdetailEditor = dialog
+      .locator("section")
+      .filter({ hasText: /Sous-detail compose/i })
+      .first();
+    await subdetailEditor
       .getByRole("button", { name: /^Valider le sous-detail$/i })
-      .nth(1)
       .click();
-    await expect(dialog.getByText(/Sous-detail valide/i)).toBeVisible({
+    await expect(firstCard.getByText(/Ouvrage pret/i)).toBeVisible({
       timeout: 60_000,
     });
 
@@ -214,6 +225,24 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
     await expect(dialog.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
 
     await activateButton(dialog.getByTestId("generated-ouvrage-insert-button"));
+    await expect
+      .poll(
+        async () => {
+          if (!(await dialog.isVisible().catch(() => false))) return "closed";
+          const partialInsertVisible = await dialog
+            .getByText(/ouvrage\(s\) insere\(s\)/i)
+            .isVisible()
+            .catch(() => false);
+          return partialInsertVisible ? "partial" : "pending";
+        },
+        { timeout: 120_000 }
+      )
+      .not.toBe("pending");
+    if (await dialog.isVisible().catch(() => false)) {
+      const closeButton = dialog.getByRole("button", { name: "Fermer" }).last();
+      await expect(closeButton).toBeEnabled();
+      await closeButton.click();
+    }
     await expect(dialog).toBeHidden({ timeout: 120_000 });
 
     await expect

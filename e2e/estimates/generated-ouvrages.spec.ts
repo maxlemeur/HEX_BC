@@ -97,17 +97,25 @@ async function openEstimateEditor(page: Page, versionId: string) {
       .getByText("Chargement du chiffrage...")
       .waitFor({ state: "hidden", timeout: 30_000 })
       .catch(() => {});
-    await expect(
-      page.getByTestId("estimate-editor-open-generated-ouvrage-button")
-    ).toBeVisible({ timeout: 30_000 });
+    await revealGeneratedOuvrageButton(page);
   });
 }
 
+async function revealGeneratedOuvrageButton(page: Page) {
+  const openButton = page.getByTestId(
+    "estimate-editor-open-generated-ouvrage-button"
+  );
+  if (await openButton.isVisible().catch(() => false)) return openButton;
+
+  await page.getByRole("button", { name: "Insérer", exact: true }).click();
+  await expect(openButton).toBeVisible({ timeout: 30_000 });
+  return openButton;
+}
+
 async function openGeneratedOuvrageDialog(page: Page) {
-  const openButton = page.getByTestId("estimate-editor-open-generated-ouvrage-button");
-  await expect(openButton).toBeVisible({ timeout: 60_000 });
+  const openButton = await revealGeneratedOuvrageButton(page);
   await openButton.click();
-  const dialog = page.getByRole("dialog", { name: /Generer des ouvrages/i });
+  const dialog = page.getByRole("dialog", { name: "Générer des ouvrages" });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -161,14 +169,24 @@ async function loadEstimateItems(page: Page, versionId: string) {
   return payload.data?.items ?? [];
 }
 
-async function findGeneratedFallbackSection(page: Page, versionId: string) {
+async function findGeneratedFallbackInsertion(page: Page, versionId: string) {
   const items = await loadEstimateItems(page, versionId);
-  return items.find(
+  const fallbackSection = items.find(
     (item) =>
       item.item_type === "section" &&
       item.parent_id === null &&
       item.title === "A classer"
   );
+  if (!fallbackSection) return null;
+
+  const generatedLine = items.find(
+    (item) =>
+      item.item_type === "line" &&
+      item.parent_id === fallbackSection.id &&
+      item.source_provider === "generated_ouvrage"
+  );
+
+  return generatedLine ? { fallbackSection, generatedLine } : null;
 }
 
 test.describe("EST-381 - generated ouvrages review", () => {
@@ -246,37 +264,62 @@ test.describe("EST-381 - generated ouvrages review", () => {
     await expect(insertableCard).toBeVisible();
     await activateButton(insertableCard.getByRole("button", { name: /^Modifier$/i }));
     await dialog.getByTestId("edit-lot").first().selectOption("");
-    await activateButton(dialog.getByRole("button", { name: /^Valider$/i }).first());
     await activateButton(
       dialog
-        .locator('[data-testid^="candidate-card-"]')
-        .filter({ hasText: /Quantite\s*:/i })
+        .getByRole("button", { name: /^Valider(?: la ligne)?$/i })
         .first()
-        .getByRole("button", { name: /^Selectionner$/i })
     );
+    await activateButton(
+      insertableCard.getByRole("button", {
+        name: /^(Sous-detail|Valider le sous-detail)$/i,
+      })
+    );
+    await expect(dialog.getByText(/Sous-detail compose/i)).toBeVisible({
+      timeout: 60_000,
+    });
+    const subdetailEditor = dialog
+      .locator("section")
+      .filter({ hasText: /Sous-detail compose/i })
+      .first();
+    await subdetailEditor
+      .getByRole("button", { name: /^Valider le sous-detail$/i })
+      .click();
+    await expect(insertableCard.getByText(/Ouvrage pret/i)).toBeVisible({
+      timeout: 60_000,
+    });
+    await activateButton(
+      insertableCard.getByRole("button", {
+        name: /^Selectionner(?: pour insertion)?$/i,
+      })
+    );
+    await expect(insertableCard.getByRole("checkbox")).toBeChecked();
+    await expect(dialog.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
 
     await activateButton(dialog.getByTestId("generated-ouvrage-insert-button"));
+    await expect
+      .poll(
+        async () => {
+          if (!(await dialog.isVisible().catch(() => false))) return "closed";
+          const partialInsertVisible = await dialog
+            .getByText(/ouvrage\(s\) insere\(s\)/i)
+            .isVisible()
+            .catch(() => false);
+          return partialInsertVisible ? "partial" : "pending";
+        },
+        { timeout: 120_000 }
+      )
+      .not.toBe("pending");
 
     await expect
-      .poll(async () => findGeneratedFallbackSection(page, versionId), {
+      .poll(async () => findGeneratedFallbackInsertion(page, versionId), {
         timeout: 120_000,
       })
       .toBeTruthy();
 
-    const items = await loadEstimateItems(page, versionId);
-    const fallbackSection = await findGeneratedFallbackSection(page, versionId);
+    const insertion = await findGeneratedFallbackInsertion(page, versionId);
 
-    expect(fallbackSection, "fallback section should be created at root level").toBeTruthy();
-    expect(fallbackSection?.source_provider).toBe("generated_ouvrage");
-
-    const generatedLine = items.find(
-      (item) =>
-        item.item_type === "line" &&
-        item.parent_id === fallbackSection?.id &&
-        item.source_provider === "generated_ouvrage"
-    );
-
-    expect(generatedLine, "generated line should be inserted under fallback section").toBeTruthy();
-    expect(generatedLine?.source_metadata?.kind).toBe("generated_ouvrage");
+    expect(insertion, "fallback insertion should be visible through the items API").toBeTruthy();
+    expect(insertion?.fallbackSection.source_provider).toBe("generated_ouvrage");
+    expect(insertion?.generatedLine.source_metadata?.kind).toBe("generated_ouvrage");
   });
 });

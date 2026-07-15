@@ -1,6 +1,13 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import {
+  startTransition,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   fetchVersionZeroReview,
@@ -26,6 +33,9 @@ export type VersionZeroDraftDialogProps = {
   isOpen: boolean;
   versionId: string;
   summary: VersionZeroDraftSummary | null;
+  isMutationBlocked: boolean;
+  mutationBlockedMessage: string;
+  ensureMutationCanProceed: (actionLabel: string) => Promise<boolean>;
   onClose: (result?: { materialized?: boolean }) => void;
 };
 
@@ -80,6 +90,9 @@ export function VersionZeroDraftDialog({
   isOpen,
   versionId,
   summary,
+  isMutationBlocked,
+  mutationBlockedMessage,
+  ensureMutationCanProceed,
   onClose,
 }: VersionZeroDraftDialogProps) {
   const [selectedLots, setSelectedLots] = useState<string[]>([]);
@@ -98,9 +111,22 @@ export function VersionZeroDraftDialog({
       }
     >
   >({});
+  const isBusyRef = useRef(false);
+  const mutationBlockRef = useRef({
+    isBlocked: isMutationBlocked,
+    message: mutationBlockedMessage,
+  });
+
+  useLayoutEffect(() => {
+    mutationBlockRef.current = {
+      isBlocked: isMutationBlocked,
+      message: mutationBlockedMessage,
+    };
+  }, [isMutationBlocked, mutationBlockedMessage]);
 
   useEffect(() => {
     if (!isOpen) {
+      isBusyRef.current = false;
       setSelectedLots(summary?.availableLots ?? []);
       setReview(null);
       setIsBusy(false);
@@ -118,6 +144,7 @@ export function VersionZeroDraftDialog({
       return;
     }
 
+    isBusyRef.current = true;
     setIsBusy(true);
     void fetchVersionZeroReview(versionId, summary.activeDraft.id)
       .then((result) => {
@@ -131,6 +158,7 @@ export function VersionZeroDraftDialog({
         );
       })
       .finally(() => {
+        isBusyRef.current = false;
         setIsBusy(false);
       });
   }, [isOpen, summary, versionId]);
@@ -153,6 +181,12 @@ export function VersionZeroDraftDialog({
   const canMaterialize = activeDraft?.counts.pending === 0;
 
   async function handleGenerate() {
+    if (isMutationBlocked) {
+      setErrorMessage(mutationBlockedMessage);
+      return;
+    }
+
+    isBusyRef.current = true;
     setIsBusy(true);
     setErrorMessage(null);
     try {
@@ -166,6 +200,7 @@ export function VersionZeroDraftDialog({
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Impossible de generer la V0.");
     } finally {
+      isBusyRef.current = false;
       setIsBusy(false);
     }
   }
@@ -175,6 +210,10 @@ export function VersionZeroDraftDialog({
     reviewStatus: "accepted" | "edited" | "rejected"
   ) {
     if (!review) return;
+    if (isMutationBlocked) {
+      setErrorMessage(mutationBlockedMessage);
+      return;
+    }
 
     const edits = editingByLineId[line.id];
     let editedQuantity: number | null | undefined;
@@ -190,6 +229,7 @@ export function VersionZeroDraftDialog({
       editedQuantity = parsedQuantity.quantity;
     }
 
+    isBusyRef.current = true;
     setIsBusy(true);
     setErrorMessage(null);
     try {
@@ -217,23 +257,52 @@ export function VersionZeroDraftDialog({
         error instanceof Error ? error.message : "Impossible de mettre a jour la ligne."
       );
     } finally {
+      isBusyRef.current = false;
       setIsBusy(false);
     }
   }
 
   async function handleMaterialize() {
     if (!review) return;
+    if (isMutationBlocked) {
+      setErrorMessage(mutationBlockedMessage);
+      return;
+    }
+
+    isBusyRef.current = true;
     setIsBusy(true);
     setErrorMessage(null);
     try {
+      const canProceed = await ensureMutationCanProceed(
+        "materialiser la version zero"
+      );
+      if (!canProceed) {
+        isBusyRef.current = false;
+        setIsBusy(false);
+        return;
+      }
+
+      if (mutationBlockRef.current.isBlocked) {
+        setErrorMessage(mutationBlockRef.current.message);
+        isBusyRef.current = false;
+        setIsBusy(false);
+        return;
+      }
+
       await materializeVersionZeroDraft(versionId, review.draft.id);
       onClose({ materialized: true });
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Impossible de materialiser la V0."
       );
+      isBusyRef.current = false;
       setIsBusy(false);
     }
+  }
+
+  function handleClose() {
+    if (isBusyRef.current) return;
+    onClose();
   }
 
   return (
@@ -259,7 +328,8 @@ export function VersionZeroDraftDialog({
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={() => onClose()}
+            onClick={handleClose}
+            disabled={isBusy}
           >
             Fermer
           </button>
@@ -323,7 +393,12 @@ export function VersionZeroDraftDialog({
                     type="button"
                     className="btn btn-primary btn-sm"
                     onClick={() => void handleGenerate()}
-                    disabled={isBusy || selectedLots.length === 0 || !summary?.canGenerate}
+                    disabled={
+                      isBusy ||
+                      isMutationBlocked ||
+                      selectedLots.length === 0 ||
+                      !summary?.canGenerate
+                    }
                   >
                     {isBusy ? "Generation..." : "Generer V0"}
                   </button>
@@ -479,7 +554,7 @@ export function VersionZeroDraftDialog({
                                   type="button"
                                   className="btn btn-secondary btn-sm"
                                   onClick={() => void handleReviewLine(line, "accepted")}
-                                  disabled={isBusy}
+                                  disabled={isBusy || isMutationBlocked}
                                 >
                                   Accepter
                                 </button>
@@ -487,7 +562,7 @@ export function VersionZeroDraftDialog({
                                   type="button"
                                   className="btn btn-secondary btn-sm"
                                   onClick={() => void handleReviewLine(line, "rejected")}
-                                  disabled={isBusy}
+                                  disabled={isBusy || isMutationBlocked}
                                 >
                                   Rejeter
                                 </button>
@@ -495,7 +570,7 @@ export function VersionZeroDraftDialog({
                                   type="button"
                                   className="btn btn-primary btn-sm"
                                   onClick={() => void handleReviewLine(line, "edited")}
-                                  disabled={isBusy}
+                                  disabled={isBusy || isMutationBlocked}
                                 >
                                   Valider l&apos;edition
                                 </button>
@@ -625,7 +700,7 @@ export function VersionZeroDraftDialog({
                   type="button"
                   className="btn btn-primary btn-sm"
                   onClick={() => void handleMaterialize()}
-                  disabled={isBusy || !canMaterialize}
+                  disabled={isBusy || isMutationBlocked || !canMaterialize}
                 >
                   {isBusy ? "Application..." : "Materialiser dans le devis"}
                 </button>

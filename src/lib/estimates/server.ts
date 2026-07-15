@@ -1792,9 +1792,11 @@ function assertVersionConcurrencyToken(
   }
 
   if (!Number.isFinite(versionTimestamp) || tokenTimestamp !== versionTimestamp) {
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: versionUpdatedAt,
-    });
+    throw conflict(
+      VERSION_CONFLICT_ERROR_MESSAGE,
+      { updated_at: versionUpdatedAt },
+      "VERSION_CONFLICT"
+    );
   }
 }
 
@@ -2032,9 +2034,11 @@ async function transitionEstimateVersionStatusAtomically(input: {
       error.code === "40001" ||
       error.message.includes("ESTIMATE_VERSION_CONFLICT")
     ) {
-      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-        updated_at: input.expectedUpdatedAt,
-      });
+      throw conflict(
+        VERSION_CONFLICT_ERROR_MESSAGE,
+        { updated_at: input.expectedUpdatedAt },
+        "VERSION_CONFLICT"
+      );
     }
 
     throw mapSupabaseError(error, "Impossible de changer le statut.");
@@ -2042,9 +2046,11 @@ async function transitionEstimateVersionStatusAtomically(input: {
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: input.expectedUpdatedAt,
-    });
+    throw conflict(
+      VERSION_CONFLICT_ERROR_MESSAGE,
+      { updated_at: input.expectedUpdatedAt },
+      "VERSION_CONFLICT"
+    );
   }
 
   return row as unknown as EstimateVersionRow;
@@ -7391,17 +7397,21 @@ export async function patchEstimateVersion(
 
   if (error || !data) {
     if (error?.code === "PGRST116") {
-      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-        updated_at: version.updated_at,
-      });
+      throw conflict(
+        VERSION_CONFLICT_ERROR_MESSAGE,
+        { updated_at: version.updated_at },
+        "VERSION_CONFLICT"
+      );
     }
 
     if (error) {
       throw mapSupabaseError(error, "Impossible de mettre a jour la version.");
     }
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: version.updated_at,
-    });
+    throw conflict(
+      VERSION_CONFLICT_ERROR_MESSAGE,
+      { updated_at: version.updated_at },
+      "VERSION_CONFLICT"
+    );
   }
 
   return {
@@ -8977,9 +8987,11 @@ export async function claimEstimateBatchRevision(
       error.code === "40001" ||
       error.message.includes("ESTIMATE_BATCH_REVISION_CONFLICT")
     ) {
-      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-        updated_at: normalizedToken,
-      });
+      throw conflict(
+        VERSION_CONFLICT_ERROR_MESSAGE,
+        { updated_at: normalizedToken },
+        "VERSION_CONFLICT"
+      );
     }
     throw mapSupabaseError(
       error,
@@ -8989,9 +9001,11 @@ export async function claimEstimateBatchRevision(
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || typeof row !== "object") {
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: normalizedToken,
-    });
+    throw conflict(
+      VERSION_CONFLICT_ERROR_MESSAGE,
+      { updated_at: normalizedToken },
+      "VERSION_CONFLICT"
+    );
   }
 
   return row as unknown as { id: string; updated_at: string };

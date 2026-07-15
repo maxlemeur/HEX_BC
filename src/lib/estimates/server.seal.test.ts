@@ -431,7 +431,7 @@ describe("estimate status seal flow", () => {
       patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT)
     ).rejects.toMatchObject({
       status: 409,
-      code: "CONFLICT",
+      code: "VERSION_CONFLICT",
       message: "Version modifiee par un autre utilisateur",
       details: {
         updated_at: UPDATED_AT,

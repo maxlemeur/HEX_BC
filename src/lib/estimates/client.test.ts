@@ -439,13 +439,13 @@ describe("estimate client optimistic concurrency", () => {
     expect(result.updated_at).toBe(NEXT_UPDATED_AT);
   });
 
-  it("exposes status and details for 409 conflicts", async () => {
+  it("exposes status, code and details for version conflicts", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           ok: false,
           error: {
-            code: "CONFLICT",
+            code: "VERSION_CONFLICT",
             message: "Version modifiee par un autre utilisateur",
             details: {
               updated_at: NEXT_UPDATED_AT,
@@ -478,7 +478,7 @@ describe("estimate client optimistic concurrency", () => {
       }
 
       expect(error.status).toBe(409);
-      expect(error.code).toBe("CONFLICT");
+      expect(error.code).toBe("VERSION_CONFLICT");
       expect(error.details).toEqual({
         updated_at: NEXT_UPDATED_AT,
       });

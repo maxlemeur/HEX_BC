@@ -1,6 +1,13 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { useToast } from "@/components/ui/Toast";
@@ -36,6 +43,9 @@ export type GeneratedOuvrageDialogProps = {
   targetVersionId: string;
   projectId: string;
   existingSections: ExistingSection[];
+  isMutationBlocked: boolean;
+  mutationBlockedMessage: string;
+  ensureMutationCanProceed: (actionLabel: string) => Promise<boolean>;
   onClose: (result?: { insertedCount?: number }) => void;
 };
 
@@ -65,6 +75,9 @@ export function GeneratedOuvrageDialog({
   targetVersionId,
   projectId,
   existingSections,
+  isMutationBlocked,
+  mutationBlockedMessage,
+  ensureMutationCanProceed,
   onClose,
 }: GeneratedOuvrageDialogProps) {
   const toast = useToast();
@@ -85,8 +98,20 @@ export function GeneratedOuvrageDialog({
     Record<string, GeneratedOuvrageSubdetailUiState>
   >({});
   const totalInsertedRef = useRef(0);
+  const insertionPendingRef = useRef(false);
   const isOpenRef = useRef(isOpen);
   const generateRequestRef = useRef(0);
+  const mutationBlockRef = useRef({
+    isBlocked: isMutationBlocked,
+    message: mutationBlockedMessage,
+  });
+
+  useLayoutEffect(() => {
+    mutationBlockRef.current = {
+      isBlocked: isMutationBlocked,
+      message: mutationBlockedMessage,
+    };
+  }, [isMutationBlocked, mutationBlockedMessage]);
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -96,6 +121,7 @@ export function GeneratedOuvrageDialog({
   useEffect(() => {
     if (!isOpen) {
       generateRequestRef.current += 1;
+      insertionPendingRef.current = false;
       setStep("input");
       setErrorMessage(null);
       setCandidates([]);
@@ -116,7 +142,7 @@ export function GeneratedOuvrageDialog({
     if (el) el.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !insertionPendingRef.current) {
         onClose(
           totalInsertedRef.current > 0
             ? { insertedCount: totalInsertedRef.current }
@@ -215,7 +241,11 @@ export function GeneratedOuvrageDialog({
   );
 
   const handleInsertSelected = useCallback(async () => {
-    if (!draftId) return;
+    if (!draftId || insertionPendingRef.current) return;
+    if (isMutationBlocked) {
+      setStatusMessage(mutationBlockedMessage);
+      return;
+    }
     const selected = candidates.filter(
       (c) => c.selected && c.resolutionStatus === "pending"
     );
@@ -239,9 +269,24 @@ export function GeneratedOuvrageDialog({
       return;
     }
 
+    insertionPendingRef.current = true;
     setStep("inserting");
     setStatusMessage(null);
     try {
+      const canProceed = await ensureMutationCanProceed(
+        "inserer les ouvrages generes"
+      );
+      if (!canProceed) {
+        setStep("review");
+        return;
+      }
+
+      if (mutationBlockRef.current.isBlocked) {
+        setStep("review");
+        setStatusMessage(mutationBlockRef.current.message);
+        return;
+      }
+
       const insertResult = await insertGeneratedOuvrages({
         versionId: targetVersionId,
         draftId,
@@ -285,12 +330,17 @@ export function GeneratedOuvrageDialog({
       setStatusMessage(
         err instanceof Error ? err.message : "Erreur lors de l'insertion."
       );
+    } finally {
+      insertionPendingRef.current = false;
     }
   }, [
     draftId,
     candidates,
     targetVersionId,
     applyDraftResult,
+    ensureMutationCanProceed,
+    isMutationBlocked,
+    mutationBlockedMessage,
     toast,
     onClose,
   ]);
@@ -540,6 +590,7 @@ export function GeneratedOuvrageDialog({
   );
 
   const handleClose = useCallback(() => {
+    if (insertionPendingRef.current) return;
     onClose(
       totalInsertedRef.current > 0
         ? { insertedCount: totalInsertedRef.current }
@@ -591,6 +642,7 @@ export function GeneratedOuvrageDialog({
             className="btn btn-ghost btn-sm btn-square"
             onClick={handleClose}
             aria-label="Fermer"
+            disabled={step === "inserting"}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -666,6 +718,8 @@ export function GeneratedOuvrageDialog({
                 canInsertSelected={canInsertSelected}
                 draftStatus={draftStatus}
                 isInserting={step === "inserting"}
+                isMutationBlocked={isMutationBlocked}
+                mutationBlockedMessage={mutationBlockedMessage}
                 onNewGeneration={handleNewGeneration}
                 onClose={handleClose}
                 onInsertSelected={handleInsertSelected}

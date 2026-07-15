@@ -2,10 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import {
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,8 +24,6 @@ import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEdi
 import {
   EstimateEditorTable,
   type EstimateSectionDuplicateTarget,
-  type SuggestionCorrectionPayload,
-  type SuggestionLearningState,
 } from "@/components/estimates/EstimateEditorTable";
 import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
@@ -34,16 +32,35 @@ import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
-import {
-  type SuggestionRuleCreatePayload,
-} from "@/components/estimates/EstimateSuggestionRulesManager";
 import { useUserContext } from "@/components/UserContext";
-import { useAutoSave } from "@/hooks/useAutoSave";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
+import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
+import {
+  formatEstimateEditorAuditTimestamp,
+  useEstimateEditorActivityController,
+} from "@/hooks/useEstimateEditorActivityController";
+import { useEstimateEditorAiDialogsController } from "@/hooks/useEstimateEditorAiDialogsController";
+import {
+  resolveEstimateEditorAutoOpenDialogs,
+  useEstimateEditorAiImportCoordinator,
+} from "@/hooks/useEstimateEditorAiImportCoordinator";
+import { useEstimateEditorBulkController } from "@/hooks/useEstimateEditorBulkController";
+import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
+import { useEstimateEditorImportController } from "@/hooks/useEstimateEditorImportController";
+import { useEstimateEditorItemsController } from "@/hooks/useEstimateEditorItemsController";
+import { useEstimateEditorOrderingController } from "@/hooks/useEstimateEditorOrderingController";
+import { useEstimateEditorPasteController } from "@/hooks/useEstimateEditorPasteController";
+import { useEstimateEditorQualityController } from "@/hooks/useEstimateEditorQualityController";
+import { useEstimateEditorStructureController } from "@/hooks/useEstimateEditorStructureController";
+import { useEstimateEditorSupplierController } from "@/hooks/useEstimateEditorSupplierController";
+import { useEstimateEditorStatusController } from "@/hooks/useEstimateEditorStatusController";
+import { useEstimateEditorSuggestionsController } from "@/hooks/useEstimateEditorSuggestionsController";
+import {
+  useEstimateEditorSyncController,
+  type EstimateEditorConflictDraft,
+} from "@/hooks/useEstimateEditorSyncController";
 import { useUiMode } from "@/hooks/useUiMode";
-import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { useUndoRedo, type UndoRedoCommand } from "@/hooks/useUndoRedo";
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
@@ -54,86 +71,25 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import {
-  applyBufferedUpdatesToItems,
-  rehydrateBufferedUpdates,
-  serializeBufferedUpdates,
-  shouldFlushBufferedUpdates,
-  upsertBufferedUpdate,
-} from "@/lib/estimates/bulk-buffer";
-import {
-  buildBulkSuggestPreview,
-  type BulkSuggestPreviewItem,
-} from "@/lib/estimates/bulk-suggest";
-import {
-  clearAutoSaveDraftFromLocal,
-  clearConflictDraftFromSession,
-  readAutoSaveDraftFromLocal,
-  readConflictDraftFromSession,
-  writeAutoSaveDraftToLocal,
-  writeConflictDraftToSession,
-  type EditorConflictDraft,
-} from "@/lib/estimates/editor-drafts";
-import {
   DEFAULT_ESTIMATE_CURRENCY,
   resolveEstimateCurrency,
 } from "@/lib/estimates/editor-export";
 import {
   LABOR_SPLIT_FIELD_KEYS,
-  applyInterParentMoveOptimistically,
-  buildEstimateItemInsertPayload,
   buildEstimateItemUpdatePayload,
-  buildVersionTotalsPatch,
-  createOptimisticLineItem,
-  createOptimisticSectionItem,
-  createTempEstimateItemId,
   hasLaborSplitFields,
-  isPendingCreateEstimateItem,
-  isTempEstimateItemId,
   readLaborSplitFields,
   resolveLaborRoleHourlyRate,
   type EditorEstimateItem,
   type EstimateItem,
-  type EstimateItemInsertPayload,
-  type EstimateItemMovePayload,
-  type EstimateItemUpdatePayload,
   type EstimateVersionRow,
+  type EstimateVersionTotalsPatch,
   type LaborRole,
   type LaborSplitItemFields,
 } from "@/lib/estimates/editor-items";
 import {
-  isRecord,
-  parseNullableNumericValue,
   toFiniteNumber,
-  toNonEmptyString,
-  type JsonRecord,
 } from "@/lib/estimates/editor-values";
-import type {
-  EstimateSupplierComparisonAlternativeContract,
-  EstimateSupplierComparisonAlternativeKind,
-  EstimateSupplierComparisonCoverageStatus,
-  EstimateSupplierPreselectionException,
-  EstimateSupplierPreselectionExceptionReason,
-  EstimateSupplierPreselectionProposal,
-  EstimateSupplierPreselectionReview,
-  EstimateSupplierPreselectionSummary,
-} from "@/lib/estimates/supplier-preselection";
-import {
-  computeEstimateChecklist,
-  type EstimateChecklistCriterion,
-} from "@/lib/estimates/checklist";
-import {
-  countEstimateQualityFlags,
-  computeEstimateQualityFlagsByItemId,
-  type EstimateQualityFlagKey,
-} from "@/lib/estimate-quality";
-import {
-  DEFAULT_ESTIMATE_OUTLIER_CONFIG,
-  detectEstimateOutliers,
-  type EstimateOutlierDetectionConfig,
-  type EstimateOutlierFlagKey,
-  type EstimateOutlierFlagsByItemId,
-  type EstimateOutlierMethod,
-} from "@/lib/estimates/outlier-detection";
 import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
@@ -143,64 +99,24 @@ import {
   type EstimateEditorVirtualizationRuntimeConfig,
 } from "@/lib/estimate-editor-virtualization";
 import {
-  batchEstimateOperations,
   acquireEstimateDraftLock,
-  applyEstimateStructureDraft,
   bulkUpdateEstimateItems,
-  createEstimateItem,
   createEstimateLaborRole,
-  createEstimateSuggestionRule,
   createMarginTier as createMarginTierClient,
   updateMarginTier as updateMarginTierClient,
   deleteMarginTier as deleteMarginTierClient,
-  deleteEstimateItem,
   duplicateEstimateSection,
-  fetchEstimateSendGating,
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
-  type ApplyEstimateStructureDraftPayload,
-  fetchAffaireLinkedDpgfSource,
-  fetchEstimateOutlierDismissedFlags,
-  fetchEstimateVersionEvents,
-  importLinkedDpgfSource,
-  importEstimateSections,
-  insertAssemblyIntoVersion,
-  insertTemplateIntoVersion,
-  isEstimateApiError,
-  moveEstimateItem,
-  reorderEstimateItems,
+  fetchEstimateSuggestionLearnings,
   releaseEstimateDraftLock,
   saveEstimateVersion,
-  sendEstimateSuggestionRuleFeedback,
-  toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
-  type AffaireLinkedDpgfSource,
-  type ImportLinkedDpgfSourceResult,
-  type ImportEstimateSectionsPayload,
-  type EstimateVersionEvent,
-  type EstimateSendGatingResponse,
   type VersionZeroDraftSummary,
-  updateEstimateStatus,
-  updateEstimateSuggestionRule,
+  type SuggestionLearningState as SuggestionLearningClientState,
 } from "@/lib/estimates/client";
-import {
-  markTempItemsRemoved,
-  reconcileCreatedItemWithLocalDraft,
-  rollbackRemovedTempItems,
-} from "@/lib/estimates/editor-optimistic";
-import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
-import { refreshVersionTokenAfterAssemblyInsert } from "@/lib/estimates/editor-version-refresh";
-import { useDraftLock } from "@/hooks/useDraftLock";
 import type { Database } from "@/types/database";
-import {
-  applyOptimisticTemplateInsertion,
-  buildSiblingOrderByParent,
-  collectSubtreeItemIds,
-  createTopLevelItemIdsTracker,
-  resolveTopLevelItemIds,
-  sortItemsForTreeRecreation,
-} from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
 
 function deferEffectStateUpdate(
   update: () => void | (() => void)
@@ -224,97 +140,16 @@ type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
-type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFlagKey;
-
 type EstimateVersionView = EstimateVersionRow & {
   estimate_projects: { name: string } | { name: string }[] | null;
 };
 
-type ItemPatch = Partial<
-  Pick<
-    EstimateItem,
-    | "title"
-    | "aid"
-    | "description"
-    | "quantity"
-    | "unit_price_ht_cents"
-    | "tax_rate_bp"
-    | "k_fo"
-    | "h_mo"
-    | "h_mo_majoration"
-    | "k_mo"
-    | "pu_ht_cents"
-    | "labor_role_id"
-    | "category_id"
-    | "supply_type_id"
-    | "selected_supplier_price_id"
-  >
-> &
-  LaborSplitItemFields;
-
-type AuditLogEntry = Pick<
-  Database["public"]["Tables"]["audit_logs"]["Row"],
-  "id" | "created_at" | "action" | "table_name" | "record_id"
->;
-
-type EstimateConflictState = {
-  message: string;
-  details: unknown;
-};
-type EstimateConflictDraft = EditorConflictDraft<
-  EstimateSettingsState,
-  EstimateItem
->;
-type BulkSuggestProgressState = {
-  processed: number;
-  total: number;
-  percentage: number;
-};
-type BulkSuggestUndoState = {
-  previousItems: EstimateItem[];
-  appliedItemIds: string[];
-};
-type SupplierPreselectionSelectableProposal = EstimateSupplierPreselectionProposal;
-type EstimateUndoRedoCommand = UndoRedoCommand & {
-  label?: string;
-};
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
   EstimateEditorTableProps["virtualization"]
 >;
 
-const SUPPLIER_PRESELECTION_ALTERNATIVE_KINDS = [
-  "best_price",
-  "most_recent",
-  "preferred_supplier",
-  "selected_current",
-] as const satisfies EstimateSupplierComparisonAlternativeKind[];
 
-const SUPPLIER_PRESELECTION_EXCEPTION_REASONS = [
-  "divergence",
-  "stale",
-  "ambiguous",
-  "no_price",
-] as const satisfies EstimateSupplierPreselectionExceptionReason[];
-
-const SUPPLIER_PRESELECTION_COVERAGE_STATUSES = [
-  "covered",
-  "ambiguous",
-  "no_price",
-  "stale",
-] as const satisfies EstimateSupplierComparisonCoverageStatus[];
-type SuggestionLearningOverrides =
-  SuggestionLearningState["by_rule_id"][string]["overrides"];
-type SuggestionLearningTrackResult = SuggestionLearningState & {
-  tracked_count: number;
-};
-
-const AUDIT_LOG_LIMIT = 25;
-const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
-const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
-const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
-const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
 const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
@@ -326,24 +161,6 @@ const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRun
     overscan: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_OVERSCAN,
     maxHeight: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_CONTAINER_HEIGHT,
   });
-const EMPTY_SUGGESTION_LEARNING_STATE: SuggestionLearningState = {
-  enabled: false,
-  by_rule_id: {},
-};
-const EMPTY_SUPPLIER_PRESELECTION_REVIEW: EstimateSupplierPreselectionReview = {
-  summary: {
-    total_items: 0,
-    proposed_items: 0,
-    exception_items: 0,
-    already_selected_items: 0,
-    divergence_items: 0,
-    stale_items: 0,
-    ambiguous_items: 0,
-    no_price_items: 0,
-  },
-  proposals: [],
-  exceptions: [],
-};
 
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
@@ -364,412 +181,6 @@ function normalizeCascadeDiscountSteps(steps: number[] | undefined): number[] {
     .slice(0, MAX_CASCADE_DISCOUNT_STEPS);
 }
 
-function toApiDataRecord(payload: unknown): JsonRecord | null {
-  if (!isRecord(payload)) return null;
-  if (isRecord(payload.data)) return payload.data;
-  return payload;
-}
-
-function resolveSuggestionLearningErrorMessage(payload: unknown, fallback: string) {
-  if (!isRecord(payload)) return fallback;
-  const nestedError = isRecord(payload.error) ? payload.error : null;
-  return (
-    toNonEmptyString(nestedError?.message) ??
-    toNonEmptyString(payload.message) ??
-    fallback
-  );
-}
-
-function normalizeSuggestionLearningOverrides(value: unknown): SuggestionLearningOverrides {
-  if (!isRecord(value)) return {};
-
-  const overrides: SuggestionLearningOverrides = {};
-
-  if ("description" in value) {
-    overrides.description = toNonEmptyString(value.description);
-  }
-  if ("category_id" in value) {
-    overrides.category_id = toNonEmptyString(value.category_id);
-  }
-  if ("k_fo" in value) {
-    overrides.k_fo = parseNullableNumericValue(value.k_fo);
-  }
-  if ("k_mo" in value) {
-    overrides.k_mo = parseNullableNumericValue(value.k_mo);
-  }
-  if ("labor_role_id" in value) {
-    overrides.labor_role_id = toNonEmptyString(value.labor_role_id);
-  }
-  if ("supply_type_id" in value) {
-    overrides.supply_type_id = toNonEmptyString(value.supply_type_id);
-  }
-
-  return overrides;
-}
-
-function normalizeSuggestionLearningState(payload: unknown): SuggestionLearningState {
-  const data = toApiDataRecord(payload);
-  if (!data) return EMPTY_SUGGESTION_LEARNING_STATE;
-
-  const byRuleSource = isRecord(data.by_rule_id) ? data.by_rule_id : {};
-  const byRuleId: SuggestionLearningState["by_rule_id"] = {};
-
-  Object.entries(byRuleSource).forEach(([ruleIdFromKey, value]) => {
-    if (!isRecord(value)) return;
-
-    const ruleId = toNonEmptyString(value.rule_id) ?? ruleIdFromKey;
-    if (!ruleId) return;
-
-    byRuleId[ruleId] = {
-      rule_id: ruleId,
-      learning_boost: Math.max(toFiniteNumber(value.learning_boost, 0), 0),
-      overrides: normalizeSuggestionLearningOverrides(value.overrides),
-    };
-  });
-
-  const configRecord = isRecord(data.config) ? data.config : null;
-  return {
-    enabled: configRecord?.enabled === true,
-    by_rule_id: byRuleId,
-  };
-}
-
-async function fetchSuggestionLearningState(
-  versionId: string
-): Promise<SuggestionLearningState> {
-  if (!versionId) return EMPTY_SUGGESTION_LEARNING_STATE;
-
-  const response = await fetch(`/api/estimates/${versionId}/suggestion-learning`, {
-    method: "GET",
-    cache: "no-store",
-  });
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-  if (!response.ok) {
-    throw new Error(
-      resolveSuggestionLearningErrorMessage(
-        payload,
-        "Impossible de charger les apprentissages de suggestions."
-      )
-    );
-  }
-
-  return normalizeSuggestionLearningState(payload);
-}
-
-async function trackSuggestionCorrectionsForVersion(input: {
-  versionId: string;
-  corrections: SuggestionCorrectionPayload[];
-}): Promise<SuggestionLearningTrackResult> {
-  if (!input.versionId || input.corrections.length === 0) {
-    return {
-      ...EMPTY_SUGGESTION_LEARNING_STATE,
-      tracked_count: 0,
-    };
-  }
-
-  const response = await fetch(`/api/estimates/${input.versionId}/suggestion-learning`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-    body: JSON.stringify({
-      corrections: input.corrections,
-    }),
-  });
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-  if (!response.ok) {
-    throw new Error(
-      resolveSuggestionLearningErrorMessage(
-        payload,
-        "Impossible d'enregistrer les corrections de suggestion."
-      )
-    );
-  }
-
-  const data = toApiDataRecord(payload);
-  return {
-    ...normalizeSuggestionLearningState(payload),
-    tracked_count: Math.max(0, Math.trunc(toFiniteNumber(data?.tracked_count, 0))),
-  };
-}
-
-function normalizeSupplierPreselectionAlternative(
-  value: unknown
-): EstimateSupplierComparisonAlternativeContract | null {
-  if (!isRecord(value)) return null;
-
-  const supplierPriceId = toNonEmptyString(value.supplier_price_id);
-  const supplierId = toNonEmptyString(value.supplier_id);
-  const supplierName = toNonEmptyString(value.supplier_name);
-  const productDesignation = toNonEmptyString(value.product_designation);
-  const rawKind = toNonEmptyString(value.kind);
-
-  if (
-    !supplierPriceId ||
-    !supplierId ||
-    !supplierName ||
-    !productDesignation ||
-    !rawKind ||
-    !SUPPLIER_PRESELECTION_ALTERNATIVE_KINDS.includes(
-      rawKind as EstimateSupplierComparisonAlternativeKind
-    )
-  ) {
-    return null;
-  }
-
-  const kind = rawKind as EstimateSupplierComparisonAlternativeKind;
-
-  return {
-    kind,
-    supplier_price_id: supplierPriceId,
-    supplier_id: supplierId,
-    supplier_name: supplierName,
-    adjusted_unit_price_cents: toFiniteNumber(
-      value.adjusted_unit_price_cents,
-      0
-    ),
-    supplier_reference: toNonEmptyString(value.supplier_reference),
-    catalogue_url: toNonEmptyString(value.catalogue_url),
-    updated_at: toNonEmptyString(value.updated_at),
-    is_stale: value.is_stale === true,
-    product_designation: productDesignation,
-    is_selected: value.is_selected === true,
-  };
-}
-
-function normalizeSupplierPreselectionSummary(
-  value: unknown
-): EstimateSupplierPreselectionSummary {
-  const record = isRecord(value) ? value : {};
-  return {
-    total_items: Math.max(0, Math.floor(toFiniteNumber(record.total_items, 0))),
-    proposed_items: Math.max(0, Math.floor(toFiniteNumber(record.proposed_items, 0))),
-    exception_items: Math.max(0, Math.floor(toFiniteNumber(record.exception_items, 0))),
-    already_selected_items: Math.max(
-      0,
-      Math.floor(toFiniteNumber(record.already_selected_items, 0))
-    ),
-    divergence_items: Math.max(0, Math.floor(toFiniteNumber(record.divergence_items, 0))),
-    stale_items: Math.max(0, Math.floor(toFiniteNumber(record.stale_items, 0))),
-    ambiguous_items: Math.max(0, Math.floor(toFiniteNumber(record.ambiguous_items, 0))),
-    no_price_items: Math.max(0, Math.floor(toFiniteNumber(record.no_price_items, 0))),
-  };
-}
-
-function normalizeSupplierPreselectionProposal(
-  value: unknown
-): EstimateSupplierPreselectionProposal | null {
-  if (!isRecord(value)) return null;
-
-  const itemId = toNonEmptyString(value.item_id);
-  const itemTitle = toNonEmptyString(value.item_title);
-  const proposedAlternative = normalizeSupplierPreselectionAlternative(
-    value.proposed_alternative
-  );
-  const currentAlternative = normalizeSupplierPreselectionAlternative(
-    value.current_alternative
-  );
-  const patchRecord = isRecord(value.patch) ? value.patch : null;
-  const selectedSupplierPriceId = patchRecord
-    ? toNonEmptyString(patchRecord.selected_supplier_price_id)
-    : null;
-  const reason = toNonEmptyString(value.reason);
-  const explanation = toNonEmptyString(value.explanation);
-
-  if (
-    !itemId ||
-    !itemTitle ||
-    !proposedAlternative ||
-    !patchRecord ||
-    !selectedSupplierPriceId ||
-    reason !== "single_clear_option" ||
-    !explanation
-  ) {
-    return null;
-  }
-
-  return {
-    item_id: itemId,
-    item_title: itemTitle,
-    current_alternative: currentAlternative,
-    proposed_alternative: proposedAlternative,
-    patch: {
-      unit_price_ht_cents: Math.max(
-        0,
-        Math.floor(toFiniteNumber(patchRecord.unit_price_ht_cents, 0))
-      ),
-      selected_supplier_price_id: selectedSupplierPriceId,
-    },
-    reason,
-    explanation,
-    is_reversible: true,
-  };
-}
-
-function normalizeSupplierPreselectionException(
-  value: unknown
-): EstimateSupplierPreselectionException | null {
-  if (!isRecord(value)) return null;
-
-  const itemId = toNonEmptyString(value.item_id);
-  const itemTitle = toNonEmptyString(value.item_title);
-  const rawReason = toNonEmptyString(value.reason);
-  const rawCoverageStatus = toNonEmptyString(value.coverage_status);
-
-  if (
-    !itemId ||
-    !itemTitle ||
-    !rawReason ||
-    !rawCoverageStatus ||
-    !SUPPLIER_PRESELECTION_EXCEPTION_REASONS.includes(
-      rawReason as EstimateSupplierPreselectionExceptionReason
-    ) ||
-    !SUPPLIER_PRESELECTION_COVERAGE_STATUSES.includes(
-      rawCoverageStatus as EstimateSupplierComparisonCoverageStatus
-    )
-  ) {
-    return null;
-  }
-
-  const reason = rawReason as EstimateSupplierPreselectionExceptionReason;
-  const coverageStatus =
-    rawCoverageStatus as EstimateSupplierComparisonCoverageStatus;
-
-  const riskFlags = Array.isArray(value.risk_flags)
-    ? value.risk_flags
-        .map((entry) => toNonEmptyString(entry))
-        .filter((entry): entry is string => Boolean(entry))
-        .filter(
-          (entry): entry is EstimateSupplierPreselectionException["risk_flags"][number] =>
-            [
-              "multiple_alternatives",
-              "selection_missing",
-              "selected_stale",
-              "selected_not_best_price",
-            ].includes(entry)
-        )
-    : [];
-
-  const alternatives = Array.isArray(value.alternatives)
-    ? value.alternatives
-        .map((entry) => normalizeSupplierPreselectionAlternative(entry))
-        .filter(
-          (
-            entry
-          ): entry is EstimateSupplierComparisonAlternativeContract => entry !== null
-        )
-    : [];
-
-  return {
-    item_id: itemId,
-    item_title: itemTitle,
-    reason,
-    coverage_status: coverageStatus,
-    risk_flags: riskFlags,
-    selected_alternative: normalizeSupplierPreselectionAlternative(
-      value.selected_alternative
-    ),
-    alternatives,
-  };
-}
-
-function normalizeSupplierPreselectionReview(
-  payload: unknown
-): EstimateSupplierPreselectionReview {
-  const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
-  const container =
-    data && isRecord(data.bulk_preselection)
-      ? data.bulk_preselection
-      : isRecord(payload) && isRecord(payload.bulk_preselection)
-        ? payload.bulk_preselection
-        : null;
-
-  if (!container) {
-    return {
-      summary: normalizeSupplierPreselectionSummary(null),
-      proposals: [],
-      exceptions: [],
-    };
-  }
-
-  return {
-    summary: normalizeSupplierPreselectionSummary(container.summary),
-    proposals: Array.isArray(container.proposals)
-      ? container.proposals
-          .map((entry) => normalizeSupplierPreselectionProposal(entry))
-          .filter(
-            (
-              entry
-            ): entry is EstimateSupplierPreselectionProposal => entry !== null
-          )
-      : [],
-    exceptions: Array.isArray(container.exceptions)
-      ? container.exceptions
-          .map((entry) => normalizeSupplierPreselectionException(entry))
-          .filter(
-            (
-              entry
-            ): entry is EstimateSupplierPreselectionException => entry !== null
-          )
-      : [],
-  };
-}
-
-function resolveAuditErrorMessage(payload: unknown, fallback: string) {
-  if (!isRecord(payload)) return fallback;
-  return (
-    toNonEmptyString(payload.error) ??
-    toNonEmptyString(payload.message) ??
-    fallback
-  );
-}
-
-function normalizeAuditLogs(payload: unknown): AuditLogEntry[] {
-  if (!isRecord(payload)) return [];
-  if (!Array.isArray(payload.data)) return [];
-
-  return payload.data
-    .map((entry) => {
-      if (!isRecord(entry)) return null;
-
-      const id = toNonEmptyString(entry.id);
-      const createdAt = toNonEmptyString(entry.created_at);
-      const action = toNonEmptyString(entry.action);
-      const tableName = toNonEmptyString(entry.table_name);
-      const recordId = toNonEmptyString(entry.record_id);
-
-      if (!id || !createdAt || !action || !tableName || !recordId) {
-        return null;
-      }
-
-      return {
-        id,
-        created_at: createdAt,
-        action,
-        table_name: tableName,
-        record_id: recordId,
-      };
-    })
-    .filter((entry): entry is AuditLogEntry => entry !== null);
-}
-
-function formatAuditTimestamp(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return parsed.toLocaleString("fr-FR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
 function formatSectionDuplicateTargetLabel(input: {
   versionNumber: number;
   title: string | null;
@@ -787,20 +198,6 @@ function resolveEstimateActionError(message: string) {
     return "Cette version est en lecture seule.";
   }
   return message;
-}
-
-function hasImportableLinkedDpgfSource(
-  source: AffaireLinkedDpgfSource
-): source is NonNullable<AffaireLinkedDpgfSource> {
-  return Boolean(
-    source &&
-      source.importStatus === "completed" &&
-      source.mappedRowCount > 0
-  );
-}
-
-function isVersionConflictError(error: unknown): boolean {
-  return isEstimateApiError(error) && error.status === 409;
 }
 
 export type EstimateEditorStateModel = {
@@ -876,7 +273,16 @@ export function useEstimateEditorState({
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
+  const {
+    autoOpenVersionZero: shouldAutoOpenVersionZero,
+    autoOpenStructureDraft: shouldAutoOpenStructureDraft,
+  } = resolveEstimateEditorAutoOpenDialogs({
+    autoOpenVersionZero,
+    autoOpenStructureDraft,
+  });
   const { profile } = useUserContext();
+  const isAdmin = profile?.role === "admin";
+  const isViewerReadOnly = profile?.tenant_role === "viewer";
   const { isExpert } = useUiMode();
   const { enabled: isLaborSplitEnabled } = useFeatureFlag(LABOR_SPLIT_FLAG_KEY);
   const {
@@ -895,240 +301,207 @@ export function useEstimateEditorState({
   const [categories, setCategories] = useState<EstimateCategory[]>([]);
   const [supplyTypes, setSupplyTypes] = useState<SupplyType[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
-  const [suggestionRules, setSuggestionRules] = useState<SuggestionRule[]>([]);
-  const [suggestionLearningState, setSuggestionLearningState] =
-    useState<SuggestionLearningState>(EMPTY_SUGGESTION_LEARNING_STATE);
-  const [dismissedOutlierFlagsByItemId, setDismissedOutlierFlagsByItemId] =
-    useState<EstimateOutlierFlagsByItemId>({});
-  const [outlierActionPendingByItemId, setOutlierActionPendingByItemId] =
-    useState<Record<string, boolean>>({});
-  const [outlierConfig, setOutlierConfig] = useState<EstimateOutlierDetectionConfig>(
-    DEFAULT_ESTIMATE_OUTLIER_CONFIG
-  );
-  const [qualityFilter, setQualityFilter] =
-    useState<EstimateQualityFilter>("all_lines");
+  const [suggestionsHydration, setSuggestionsHydration] = useState<{
+    versionId: string;
+    rules: SuggestionRule[];
+    learning: SuggestionLearningClientState | null;
+  } | null>(null);
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
-  const [isFinalizationPanelOpen, setIsFinalizationPanelOpen] = useState(false);
-  const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(true);
-  const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
-    useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [isSavingRules, setIsSavingRules] = useState(false);
+  const settingsSaveGenerationRef = useRef(0);
+  const settingsSaveRouteRef = useRef(resolvedVersionId);
+  const [activeSettingsSave, setActiveSettingsSave] = useState<{
+    routeVersionId: string;
+    operationId: number;
+  } | null>(null);
+  const isSavingSettings =
+    activeSettingsSave?.routeVersionId === resolvedVersionId &&
+    activeSettingsSave.operationId === settingsSaveGenerationRef.current;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [rulesError, setRulesError] = useState<string | null>(null);
   const [isSavingMarginTiers, setIsSavingMarginTiers] = useState(false);
   const [marginTiersError, setMarginTiersError] = useState<string | null>(null);
-  const [statusError, setStatusError] = useState<string | null>(null);
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [sendGating, setSendGating] =
-    useState<EstimateSendGatingResponse | null>(null);
-  const [isSendGatingDialogOpen, setIsSendGatingDialogOpen] = useState(false);
-  const [sendWorkflowPhase, setSendWorkflowPhase] = useState<
-    "verification" | "pdf" | "sealing" | null
-  >(null);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
-  const [auditError, setAuditError] = useState<string | null>(null);
-  const [isAuditLoading, setIsAuditLoading] = useState(false);
-  const [timelineEvents, setTimelineEvents] = useState<EstimateVersionEvent[]>([]);
-  const [timelineError, setTimelineError] = useState<string | null>(null);
-  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
   const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
-  const [hasPendingBufferedUpdates, setHasPendingBufferedUpdates] = useState(false);
-  const [conflictState, setConflictState] = useState<EstimateConflictState | null>(
-    null
-  );
-  const [restorableDraft, setRestorableDraft] =
-    useState<EstimateConflictDraft | null>(null);
-  const [isBulkSuggestDialogOpen, setIsBulkSuggestDialogOpen] = useState(false);
-  const [selectedBulkSuggestItemIds, setSelectedBulkSuggestItemIds] = useState<
-    string[]
-  >([]);
-  const [bulkSuggestDialogError, setBulkSuggestDialogError] =
-    useState<string | null>(null);
-  const [isApplyingBulkSuggest, setIsApplyingBulkSuggest] = useState(false);
-  const [bulkSuggestProgress, setBulkSuggestProgress] =
-    useState<BulkSuggestProgressState | null>(null);
-  const [bulkSuggestUndoState, setBulkSuggestUndoState] =
-    useState<BulkSuggestUndoState | null>(null);
-  const [isUndoingBulkSuggest, setIsUndoingBulkSuggest] = useState(false);
-  const [isSupplierPreselectionDialogOpen, setIsSupplierPreselectionDialogOpen] =
-    useState(false);
-  const [supplierPreselectionReview, setSupplierPreselectionReview] =
-    useState<EstimateSupplierPreselectionReview>(EMPTY_SUPPLIER_PRESELECTION_REVIEW);
-  const [selectedSupplierPreselectionItemIds, setSelectedSupplierPreselectionItemIds] =
-    useState<string[]>([]);
-  const [supplierPreselectionDialogError, setSupplierPreselectionDialogError] =
-    useState<string | null>(null);
-  const [isLoadingSupplierPreselection, setIsLoadingSupplierPreselection] =
-    useState(false);
-  const [isApplyingSupplierPreselection, setIsApplyingSupplierPreselection] =
-    useState(false);
-  const [isReloadingVersion, setIsReloadingVersion] = useState(false);
-  const [reloadNonce, setReloadNonce] = useState(0);
   const [sectionDuplicateTargets, setSectionDuplicateTargets] = useState<
     EstimateSectionDuplicateTarget[]
   >([]);
-  const [isImportFromEstimateDialogOpen, setIsImportFromEstimateDialogOpen] =
-    useState(false);
-  const [
-    isEstimateStructureDraftDialogOpen,
-    setIsEstimateStructureDraftDialogOpen,
-  ] = useState(false);
-  const [isGeneratedOuvrageDialogOpen, setIsGeneratedOuvrageDialogOpen] =
-    useState(false);
-  const [isVersionZeroDialogOpen, setIsVersionZeroDialogOpen] = useState(false);
-  const [versionZeroSummary, setVersionZeroSummary] =
-    useState<VersionZeroDraftSummary | null>(null);
-  const [importSummaryMessage, setImportSummaryMessage] =
-    useState<string | null>(null);
-  const [highlightedItemIds, setHighlightedItemIds] = useState<Set<string>>(new Set());
-  const [linkedDpgfSource, setLinkedDpgfSource] =
-    useState<AffaireLinkedDpgfSource>(null);
-  const [isLoadingLinkedDpgfSource, setIsLoadingLinkedDpgfSource] =
-    useState(false);
-  const [isImportingDpgfSource, setIsImportingDpgfSource] = useState(false);
+  const historyController = useEstimateEditorHistoryController({
+    scopeKey: resolvedVersionId,
+    reportError: setActionError,
+  });
   const {
-    push: pushHistoryCommand,
-    undo: executeUndo,
-    redo: executeRedo,
-    clear: clearUndoRedoHistory,
     canUndo,
     canRedo,
     isExecuting: isUndoRedoBusy,
-  } = useUndoRedo<EstimateUndoRedoCommand>({
-    maxStackSize: 50,
-  });
+  } = historyController.state;
+  const {
+    push: pushHistoryCommand,
+    clear: clearUndoRedoHistory,
+    undo: handleUndo,
+    redo: handleRedo,
+  } = historyController.actions;
 
   const itemsRef = useRef<EditorEstimateItem[]>([]);
   const versionRef = useRef<EstimateVersionView | null>(null);
+  const activeRouteVersionIdRef = useRef(resolvedVersionId);
   const persistedTotalsRef = useRef<EstimateTotals | null>(null);
-  const isSaveBlockedRef = useRef(false);
-  const isUndoRedoBusyRef = useRef(false);
-  const pendingItemUpdatesRef = useRef<Map<string, EstimateItemUpdatePayload>>(
-    new Map()
+  const hydrateAiVersionZeroSummaryRef = useRef<
+    (
+      targetVersionId: string,
+      summary: VersionZeroDraftSummary | null,
+      options?: { autoOpen?: boolean }
+    ) => void
+  >(() => undefined);
+  const highlightAiMutationItemsRef = useRef<
+    (itemIds: readonly string[]) => void
+  >(() => undefined);
+
+  useLayoutEffect(() => {
+    activeRouteVersionIdRef.current = resolvedVersionId;
+    if (settingsSaveRouteRef.current !== resolvedVersionId) {
+      settingsSaveRouteRef.current = resolvedVersionId;
+      settingsSaveGenerationRef.current += 1;
+    }
+  }, [resolvedVersionId]);
+
+  const getItemsSnapshot = useCallback(() => itemsRef.current, []);
+  const getVersionSnapshot = useCallback(() => versionRef.current, []);
+  const getPersistedTotals = useCallback(() => persistedTotalsRef.current, []);
+  const applyRestoredDraft = useCallback(
+    (draft: EstimateEditorConflictDraft) => {
+      if (draft.settings) {
+        setSettings({
+          ...draft.settings,
+          currency: resolveEstimateCurrency(
+            (draft.settings as { currency?: string | null }).currency
+          ),
+        });
+      }
+      setItems(draft.items);
+    },
+    []
   );
-  const queuedPatchesByTempIdRef = useRef<Map<string, EstimateItemUpdatePayload>>(
-    new Map()
-  );
-  const removedTempItemIdsRef = useRef<Set<string>>(new Set());
-  const pendingBufferedUpdateCountRef = useRef(0);
-  const isFlushingBufferedUpdatesRef = useRef(false);
-  const applyPendingBufferedUpdatesToItems = useCallback(
-    (sourceItems: EditorEstimateItem[]) =>
-      applyBufferedUpdatesToItems(
-        sourceItems,
-        serializeBufferedUpdates(pendingItemUpdatesRef.current)
-      ),
+  const applyVersionFlushResult = useCallback(
+    ({
+      versionId,
+      totalsPatch,
+      updatedAt,
+    }: {
+      versionId: string;
+      totalsPatch: EstimateVersionTotalsPatch | undefined;
+      updatedAt: string;
+    }) => {
+      setVersion((previous) =>
+        previous?.id === versionId
+          ? {
+              ...previous,
+              ...(totalsPatch ?? {}),
+              updated_at: updatedAt,
+            }
+          : previous
+      );
+      if (versionRef.current?.id === versionId) {
+        versionRef.current = {
+          ...versionRef.current,
+          ...(totalsPatch ?? {}),
+          updated_at: updatedAt,
+        };
+      }
+    },
     []
   );
 
-  useEffect(() => {
-    if (!focusItemId) {
-      return;
-    }
+  const syncController = useEstimateEditorSyncController({
+    routeVersionId: resolvedVersionId,
+    activeVersion: version
+      ? {
+          id: version.id,
+          status: version.status,
+        }
+      : null,
+    currentUserId: profile?.id ?? null,
+    isViewerReadOnly,
+    items,
+    settings,
+    getVersionSnapshot,
+    getPersistedTotals,
+    replaceItems: setItems,
+    applyRestoredDraft,
+    applyVersionFlushResult,
+    setTotalsOutOfSync,
+    clearHistory: clearUndoRedoHistory,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+  });
+  const {
+    autoSaveStatus,
+    autoSaveStatusLabel,
+    conflict: conflictState,
+    isReloadingVersion,
+    hasRestorableDraft,
+    isDraftLockedByOther,
+    isDraftLockAcquiring,
+    isForcingDraftUnlock,
+    draftLockError,
+  } = syncController.state;
+  const {
+    overlayPendingUpdates: applyPendingBufferedUpdatesToItems,
+    enqueueItemUpdate: enqueueBufferedItemUpdate,
+    flushBufferedItemUpdates,
+    ensureGroupedActionCanProceed,
+    retryTotalsSave,
+    isFlushInProgress,
+    hasPendingUpdatesNow,
+    handleVersionConflict,
+    clearConflictState,
+    clearConflictDraft,
+    triggerVersionReload,
+    markVersionReloadFinished,
+    reloadAfterConflict: handleReloadAfterConflict,
+    restoreConflictDraft: handleRestoreConflictDraft,
+    forceUnlockDraftLock: handleForceUnlockDraftLock,
+    releaseDraftLock,
+  } = syncController.actions;
+  const {
+    reloadToken: reloadNonce,
+    isStatusReadOnly,
+    isDraftLockPending,
+    isReadOnly,
+    isConflictLocked,
+    isSaveBlocked,
+    readOnlyActionErrorMessage,
+    lockHolderLabel,
+  } = syncController.meta;
+  const settingsSaveGuardRef = useRef({
+    isBlocked: isReadOnly || isConflictLocked,
+    message: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+  });
 
-    return deferEffectStateUpdate(() => {
-      setChecklistScrollTargetItemId(focusItemId);
-      setHighlightedItemIds(new Set([focusItemId]));
-      const timeoutId = window.setTimeout(() => {
-        setHighlightedItemIds(new Set());
-      }, 5000);
-
-      return () => window.clearTimeout(timeoutId);
-    });
-  }, [focusItemId]);
-
-  useEffect(() => {
-    isUndoRedoBusyRef.current = isUndoRedoBusy;
-  }, [isUndoRedoBusy]);
-
-  const registerVersionConflict = useCallback((error: unknown) => {
-    if (!isVersionConflictError(error) || !isEstimateApiError(error)) {
-      return false;
-    }
-
-    const message = resolveEstimateActionError(error.message);
-    setConflictState({
-      message,
-      details: error.details,
-    });
-    setActionError(message);
-    return true;
-  }, []);
+  useLayoutEffect(() => {
+    settingsSaveGuardRef.current = {
+      isBlocked: isReadOnly || isConflictLocked,
+      message: isConflictLocked
+        ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+        : readOnlyActionErrorMessage,
+    };
+  }, [
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+  ]);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
   useEffect(() => {
-    const lineIds = new Set(
-      items.filter((item) => item.item_type === "line").map((item) => item.id)
-    );
-
-    return deferEffectStateUpdate(() => {
-      setDismissedOutlierFlagsByItemId((prev) => {
-        let changed = false;
-        const next: EstimateOutlierFlagsByItemId = {};
-
-        Object.entries(prev).forEach(([itemId, flags]) => {
-          if (!lineIds.has(itemId)) {
-            changed = true;
-            return;
-          }
-
-          const deduped = flags.filter(
-            (flag, index) => flags.indexOf(flag) === index
-          );
-          if (deduped.length !== flags.length) {
-            changed = true;
-          }
-          if (deduped.length === 0) {
-            changed = true;
-            return;
-          }
-          next[itemId] = deduped;
-        });
-
-        return changed ? next : prev;
-      });
-
-      setOutlierActionPendingByItemId((prev) => {
-        let changed = false;
-        const next: Record<string, boolean> = {};
-
-        Object.entries(prev).forEach(([itemId, isPending]) => {
-          if (!isPending) return;
-          if (!lineIds.has(itemId)) {
-            changed = true;
-            return;
-          }
-          next[itemId] = true;
-        });
-
-        return changed ? next : prev;
-      });
-    });
-  }, [items]);
-
-  useEffect(() => {
-    return deferEffectStateUpdate(() => {
-      setRestorableDraft(
-        resolvedVersionId
-          ? readConflictDraftFromSession<EstimateSettingsState, EstimateItem>(
-              resolvedVersionId
-            )
-          : null
-      );
-    });
-  }, [resolvedVersionId]);
-
-  useEffect(() => {
     if (!resolvedVersionId) {
       return deferEffectStateUpdate(() => {
-        setSuggestionLearningState(EMPTY_SUGGESTION_LEARNING_STATE);
+        setSuggestionsHydration(null);
       });
     }
 
@@ -1137,22 +510,22 @@ export function useEstimateEditorState({
     async function load() {
       setIsLoading(true);
       setLoadError(null);
-      setSuggestionLearningState(EMPTY_SUGGESTION_LEARNING_STATE);
+      setSuggestionsHydration(null);
 
       try {
         const [data, learning] = await Promise.all([
           fetchEstimateEditorData(resolvedVersionId),
-          fetchSuggestionLearningState(resolvedVersionId).catch((error) => {
+          fetchEstimateSuggestionLearnings(resolvedVersionId).catch((error) => {
             console.error(
               "Impossible de charger les apprentissages de suggestions.",
               error
             );
-            return EMPTY_SUGGESTION_LEARNING_STATE;
+            return null;
           }),
         ]);
         if (!active) return;
 
-        let versionRow = data.version as EstimateVersionView;
+        const versionRow = data.version as EstimateVersionView;
         const itemsRows = data.items ?? [];
         const rolesData = data.laborRoles ?? [];
 
@@ -1204,26 +577,23 @@ export function useEstimateEditorState({
         };
 
         setVersion(versionRow);
-        setVersionZeroSummary(data.versionZeroSummary ?? null);
+        hydrateAiVersionZeroSummaryRef.current(
+          versionRow.id,
+          data.versionZeroSummary ?? null,
+          { autoOpen: shouldAutoOpenVersionZero }
+        );
         setItems(applyPendingBufferedUpdatesToItems(normalizedItems));
         setCategories(data.categories ?? []);
         setSupplyTypes(data.supplyTypes ?? []);
         setLaborRoles(rolesData);
-        setSuggestionRules(data.suggestionRules ?? []);
-        setSuggestionLearningState(learning);
+        setSuggestionsHydration({
+          versionId: versionRow.id,
+          rules: data.suggestionRules ?? [],
+          learning,
+        });
         setSettings(initialSettings);
         setSavedSettings(initialSettings);
-        setConflictState(null);
-        if (
-          autoOpenVersionZero &&
-          (data.versionZeroSummary?.activeDraft || data.versionZeroSummary?.canGenerate)
-        ) {
-          setIsVersionZeroDialogOpen(true);
-        }
-        if (autoOpenStructureDraft && versionRow.status === "draft") {
-          setIsEstimateStructureDraftDialogOpen(true);
-        }
-
+        clearConflictState();
         if (versionRow.status === "draft") {
           const originalById = new Map(
             itemsRows.map((item) => [item.id, item])
@@ -1251,56 +621,23 @@ export function useEstimateEditorState({
             );
           });
 
-          if (updates.length > 0) {
-            try {
-              const bulkResult = await bulkUpdateEstimateItems(
-                resolvedVersionId,
-                versionRow.updated_at,
-                updates.map((item) => ({
-                  id: item.id,
-                updates: {
-                  tax_rate_bp: item.tax_rate_bp,
-                  k_fo: item.k_fo,
-                  h_mo: item.h_mo,
-                  h_mo_majoration: item.h_mo_majoration,
-                  k_mo: item.k_mo,
-                  supply_type_id: item.supply_type_id,
-                  ...(isLaborSplitEnabled || hasLaborSplitFields(item)
-                    ? (readLaborSplitFields(item) as LaborSplitItemFields)
-                    : {}),
-                  pu_ht_cents: item.pu_ht_cents,
-                  line_total_ht_cents: item.line_total_ht_cents,
-                  line_tax_cents: item.line_tax_cents,
-                  line_total_ttc_cents: item.line_total_ttc_cents,
-                },
-                }))
-              );
-
-              versionRow = {
-                ...versionRow,
-                updated_at: bulkResult.versionToken.updated_at,
-              };
-              if (active) {
-                setVersion((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        updated_at: bulkResult.versionToken.updated_at,
-                      }
-                    : prev
-                );
-              }
-            } catch (error) {
-              if (active) {
-                if (!registerVersionConflict(error)) {
-                  setActionError("Impossible de mettre a jour les lignes.");
-                } else {
-                  setIsReloadingVersion(true);
-                  setReloadNonce((prev) => prev + 1);
-                }
-              }
-            }
-          }
+          updates.forEach((item) => {
+            enqueueBufferedItemUpdate(item.id, {
+              tax_rate_bp: item.tax_rate_bp,
+              k_fo: item.k_fo,
+              h_mo: item.h_mo,
+              h_mo_majoration: item.h_mo_majoration,
+              k_mo: item.k_mo,
+              supply_type_id: item.supply_type_id,
+              ...(isLaborSplitEnabled || hasLaborSplitFields(item)
+                ? (readLaborSplitFields(item) as LaborSplitItemFields)
+                : {}),
+              pu_ht_cents: item.pu_ht_cents,
+              line_total_ht_cents: item.line_total_ht_cents,
+              line_tax_cents: item.line_tax_cents,
+              line_total_ttc_cents: item.line_total_ttc_cents,
+            });
+          });
         }
       } catch (error) {
         if (!active) return;
@@ -1312,7 +649,7 @@ export function useEstimateEditorState({
       } finally {
         if (active) {
           setIsLoading(false);
-          setIsReloadingVersion(false);
+          markVersionReloadFinished();
         }
       }
     }
@@ -1323,106 +660,15 @@ export function useEstimateEditorState({
       active = false;
     };
   }, [
-    autoOpenStructureDraft,
-    autoOpenVersionZero,
     applyPendingBufferedUpdatesToItems,
+    clearConflictState,
+    enqueueBufferedItemUpdate,
     isLaborSplitEnabled,
-    registerVersionConflict,
+    markVersionReloadFinished,
     reloadNonce,
     resolvedVersionId,
+    shouldAutoOpenVersionZero,
   ]);
-
-  useEffect(() => {
-    const projectId = version?.project_id ?? null;
-    if (!projectId) {
-      return deferEffectStateUpdate(() => {
-        setLinkedDpgfSource(null);
-        setIsLoadingLinkedDpgfSource(false);
-      });
-    }
-    const targetProjectId = projectId;
-
-    let active = true;
-
-    async function loadLinkedDpgfSource() {
-      setIsLoadingLinkedDpgfSource(true);
-      try {
-        const source = await fetchAffaireLinkedDpgfSource(targetProjectId);
-        if (!active) return;
-        setLinkedDpgfSource(source);
-      } catch (error) {
-        if (!active) return;
-        console.error("Impossible de charger la source DPGF liee.", error);
-        setLinkedDpgfSource(null);
-      } finally {
-        if (active) {
-          setIsLoadingLinkedDpgfSource(false);
-        }
-      }
-    }
-
-    void loadLinkedDpgfSource();
-
-    return () => {
-      active = false;
-    };
-  }, [version?.project_id]);
-
-  useEffect(() => {
-    if (!resolvedVersionId) {
-      return deferEffectStateUpdate(() => {
-        setDismissedOutlierFlagsByItemId({});
-        setOutlierActionPendingByItemId({});
-      });
-    }
-
-    let active = true;
-
-    async function loadDismissedOutliers() {
-      try {
-        const dismissed = await fetchEstimateOutlierDismissedFlags(resolvedVersionId);
-        if (!active) return;
-        setDismissedOutlierFlagsByItemId(dismissed);
-      } catch {
-        if (!active) return;
-        setDismissedOutlierFlagsByItemId({});
-      }
-    }
-
-    void loadDismissedOutliers();
-
-    return () => {
-      active = false;
-    };
-  }, [reloadNonce, resolvedVersionId]);
-
-  useEffect(() => {
-    if (!version || version.status !== "draft") {
-      return deferEffectStateUpdate(() => {
-        setSendGating(null);
-      });
-    }
-    const currentVersionId = version.id;
-
-    let active = true;
-
-    async function loadSendGating() {
-      try {
-        const gating = await fetchEstimateSendGating(currentVersionId);
-        if (!active) return;
-        setSendGating(gating);
-      } catch {
-        if (!active) return;
-        setSendGating(null);
-      }
-    }
-
-    void loadSendGating();
-
-    return () => {
-      active = false;
-    };
-  }, [reloadNonce, version]);
 
   useEffect(() => {
     if (!resolvedVersionId) {
@@ -1460,77 +706,11 @@ export function useEstimateEditorState({
     };
   }, [reloadNonce, resolvedVersionId]);
 
-  const {
-    holderName: draftLockHolderName,
-    isOwnedByCurrentUser: isDraftLockOwnedByCurrentUser,
-    isLockedByOther: isDraftLockedByOther,
-    isAcquiring: isDraftLockAcquiring,
-    isForcingUnlock: isForcingDraftUnlock,
-    error: draftLockError,
-    release: releaseDraftLock,
-    forceUnlockAndAcquire: forceUnlockAndAcquireDraftLock,
-  } = useDraftLock({
-    versionId: resolvedVersionId,
-    enabled: Boolean(resolvedVersionId && version?.status === "draft"),
-    currentUserId: profile?.id ?? null,
-  });
-
   const projectName = getProjectName(version?.estimate_projects ?? null);
-  const isAdmin = profile?.role === "admin";
-  const isViewerReadOnly = profile?.tenant_role === "viewer";
-  const lockHolderLabel = draftLockHolderName ?? "un autre utilisateur";
-  const isStatusReadOnly = version ? version.status !== "draft" : false;
-  const isDraftLockPending =
-    version?.status === "draft" &&
-    !isDraftLockedByOther &&
-    !isDraftLockOwnedByCurrentUser;
-  const isReadOnly =
-    isStatusReadOnly || isDraftLockedByOther || isDraftLockPending || isViewerReadOnly;
-  const isConflictLocked = conflictState !== null;
-  const isSaveBlocked = isReadOnly || isConflictLocked;
-  const readOnlyActionErrorMessage =
-    isViewerReadOnly
-      ? "Mode consultation active."
-      : isDraftLockPending && !isDraftLockedByOther
-      ? "Acquisition du verrou de brouillon en cours."
-      : isDraftLockedByOther
-        ? `Verrouille par ${lockHolderLabel}.`
-        : "Cette version est en lecture seule.";
-  const canSend = version?.status === "draft" && !isViewerReadOnly;
-  const hasKnownBlockingSendFlags = (sendGating?.blockingFlags.length ?? 0) > 0;
-  const isSendBlockedForCurrentUser =
-    sendGating !== null && !sendGating.canSend && hasKnownBlockingSendFlags && !isAdmin;
-  const sendWorkflowPhaseLabel =
-    sendWorkflowPhase === "verification"
-      ? "Verification..."
-      : sendWorkflowPhase === "pdf"
-        ? "Generation PDF..."
-        : sendWorkflowPhase === "sealing"
-          ? "Scellement..."
-          : null;
-  const canAccept = version?.status === "sent";
-  const canArchive = version?.status !== "archived";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     versionRef.current = version;
   }, [version]);
-
-  useEffect(() => {
-    isSaveBlockedRef.current = isSaveBlocked;
-  }, [isSaveBlocked]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!hasPendingBufferedUpdates) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [hasPendingBufferedUpdates]);
   const editorTableBaseConfig = useMemo(
     () => ({
       marginMultiplier: settings?.margin_multiplier ?? 1,
@@ -1573,35 +753,30 @@ export function useEstimateEditorState({
     virtualizationAutoThresholdFlagValue,
     virtualizationModeFlagValue,
   ]);
-  const handleQualityFilterChange = useCallback(
-    (nextFilter: EstimateQualityFilter) => {
-      startTransition(() => {
-        setQualityFilter(nextFilter);
-      });
-    },
-    []
-  );
-  const handleOutlierMethodChange = useCallback((nextMethod: EstimateOutlierMethod) => {
-    startTransition(() => {
-      setOutlierConfig((previous) => ({
-        ...previous,
-        method: nextMethod,
-      }));
-    });
-  }, []);
-  const handleOutlierThresholdChange = useCallback((nextThreshold: number) => {
-    if (!Number.isFinite(nextThreshold) || nextThreshold <= 0) return;
-    startTransition(() => {
-      setOutlierConfig((previous) => ({
-        ...previous,
-        threshold: nextThreshold,
-      }));
-    });
-  }, []);
   const handleOpenSettingsDrawer = useCallback((section?: SettingsSection) => {
     setIsSettingsDrawerOpen(true);
     setDrawerScrollTarget(section ?? null);
   }, []);
+  const activityController = useEstimateEditorActivityController({
+    routeVersionId: resolvedVersionId,
+    isAdmin,
+  });
+  const {
+    audit: {
+      entries: auditLogs,
+      error: auditError,
+      isLoading: isAuditLoading,
+    },
+    timeline: {
+      events: timelineEvents,
+      error: timelineError,
+      isLoading: isTimelineLoading,
+    },
+  } = activityController.state;
+  const {
+    refreshAudit: loadAuditLogs,
+    refreshTimeline: loadTimelineEvents,
+  } = activityController.actions;
   const drawerScrollTargetRef = useRef<SettingsSection | null>(null);
   useEffect(() => {
     drawerScrollTargetRef.current = drawerScrollTarget;
@@ -1641,267 +816,6 @@ export function useEstimateEditorState({
     const timers = delays.map((delay) => setTimeout(scrollToTarget, delay));
     return () => timers.forEach(clearTimeout);
   }, [isSettingsDrawerOpen]);
-  const handleChecklistCriterionClick = useCallback(
-    (criterion: EstimateChecklistCriterion) => {
-      if (!criterion.targetItemId) {
-        handleOpenSettingsDrawer();
-        return;
-      }
-      const qualityFlag = criterion.qualityFlag;
-      if (qualityFlag) {
-        // Keep this update urgent so checklist navigation scrolls on the same
-        // render where filtered rows include the target item.
-        setQualityFilter(qualityFlag);
-      }
-      setChecklistScrollTargetItemId(criterion.targetItemId);
-    },
-    [handleOpenSettingsDrawer]
-  );
-  const handleChecklistScrollHandled = useCallback(() => {
-    setChecklistScrollTargetItemId(null);
-  }, []);
-  const persistConflictDraft = useCallback(() => {
-    if (!resolvedVersionId) return;
-
-    const draft: EstimateConflictDraft = {
-      settings,
-      items,
-      saved_at: new Date().toISOString(),
-    };
-
-    writeConflictDraftToSession(resolvedVersionId, draft);
-    setRestorableDraft(draft);
-  }, [items, resolvedVersionId, settings]);
-
-  const clearBufferedItemUpdates = useCallback((options?: { clearPersisted?: boolean }) => {
-    pendingItemUpdatesRef.current.clear();
-    pendingBufferedUpdateCountRef.current = 0;
-    setHasPendingBufferedUpdates(false);
-    if (options?.clearPersisted && resolvedVersionId) {
-      clearAutoSaveDraftFromLocal(resolvedVersionId);
-    }
-  }, [resolvedVersionId]);
-
-  const persistBufferedItemUpdatesToLocal = useCallback(() => {
-    if (!resolvedVersionId) return;
-
-    const bufferedEntries = serializeBufferedUpdates(pendingItemUpdatesRef.current);
-    writeAutoSaveDraftToLocal(
-      resolvedVersionId,
-      bufferedEntries.map((entry) => ({
-        id: entry.id,
-        updates: entry.updates,
-      }))
-    );
-  }, [resolvedVersionId]);
-
-  useEffect(() => {
-    if (!resolvedVersionId) return;
-
-    const draft = readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(
-      resolvedVersionId
-    );
-    if (!draft) return;
-
-    const rehydration = rehydrateBufferedUpdates(
-      itemsRef.current,
-      draft.buffered_updates,
-      pendingItemUpdatesRef.current
-    );
-    pendingBufferedUpdateCountRef.current = rehydration.pendingUpdateCount;
-    const hasPendingUpdates = rehydration.hasPendingUpdates;
-    setHasPendingBufferedUpdates(hasPendingUpdates);
-    setItems(rehydration.mergedItems);
-
-    if (hasPendingUpdates) {
-      setTotalsOutOfSync(true);
-      setActionError(
-        "Des modifications locales ont ete recuperees et seront re-sauvegardees automatiquement."
-      );
-    }
-  }, [resolvedVersionId]);
-
-  const triggerVersionReload = useCallback(() => {
-    if (!resolvedVersionId) return;
-    setIsReloadingVersion(true);
-    setReloadNonce((prev) => prev + 1);
-  }, [resolvedVersionId]);
-
-  const handleVersionConflict = useCallback(
-    (error: unknown, options?: { persistDraft?: boolean }) => {
-      if (!registerVersionConflict(error)) return false;
-      if (options?.persistDraft) {
-        persistConflictDraft();
-      }
-      clearBufferedItemUpdates({ clearPersisted: true });
-      triggerVersionReload();
-      return true;
-    },
-    [
-      clearBufferedItemUpdates,
-      persistConflictDraft,
-      registerVersionConflict,
-      triggerVersionReload,
-    ]
-  );
-
-  const handleReloadAfterConflict = useCallback(() => {
-    if (!resolvedVersionId) return;
-
-    persistConflictDraft();
-    setConflictState(null);
-    setActionError(null);
-    triggerVersionReload();
-  }, [persistConflictDraft, resolvedVersionId, triggerVersionReload]);
-
-  const handleForceUnlockDraftLock = useCallback(async () => {
-    setActionError(null);
-
-    const acquired = await forceUnlockAndAcquireDraftLock();
-    if (!acquired) {
-      setActionError(
-        draftLockError ??
-          "Impossible de forcer le deverrouillage de cette version."
-      );
-      return;
-    }
-
-    setConflictState(null);
-    triggerVersionReload();
-  }, [draftLockError, forceUnlockAndAcquireDraftLock, triggerVersionReload]);
-
-  const handleRestoreConflictDraft = useCallback(() => {
-    if (!restorableDraft) return;
-
-    if (restorableDraft.settings) {
-      setSettings({
-        ...restorableDraft.settings,
-        currency: resolveEstimateCurrency(
-          (restorableDraft.settings as { currency?: string | null }).currency
-        ),
-      });
-    }
-    setItems(restorableDraft.items);
-    clearConflictDraftFromSession(resolvedVersionId);
-    setRestorableDraft(null);
-    setActionError(
-      "Modifications locales restaurees. Pensez a enregistrer le parametrage."
-    );
-  }, [resolvedVersionId, restorableDraft]);
-
-  const loadAuditLogs = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!resolvedVersionId || !isAdmin) return;
-
-      setIsAuditLoading(true);
-      setAuditError(null);
-
-      try {
-        const response = await fetch(
-          `/api/audit?estimate_version_id=${encodeURIComponent(
-            resolvedVersionId
-          )}&limit=${AUDIT_LOG_LIMIT}`,
-          {
-            credentials: "same-origin",
-            signal,
-          }
-        );
-
-        const payload = (await response.json().catch(() => null)) as unknown;
-
-        if (!response.ok) {
-          throw new Error(
-            resolveAuditErrorMessage(
-              payload,
-              "Impossible de charger les logs d'audit."
-            )
-          );
-        }
-
-        setAuditLogs(normalizeAuditLogs(payload));
-      } catch (error) {
-        if (signal?.aborted) return;
-        setAuditError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de charger les logs d'audit."
-        );
-        setAuditLogs([]);
-      } finally {
-        if (!signal?.aborted) {
-          setIsAuditLoading(false);
-        }
-      }
-    },
-    [isAdmin, resolvedVersionId]
-  );
-
-  const loadTimelineEvents = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!resolvedVersionId || !isAdmin) return;
-
-      setIsTimelineLoading(true);
-      setTimelineError(null);
-
-      try {
-        const events = await fetchEstimateVersionEvents(resolvedVersionId);
-        if (signal?.aborted) return;
-        setTimelineEvents(events);
-      } catch (error) {
-        if (signal?.aborted) return;
-        setTimelineError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de charger la timeline des evenements."
-        );
-        setTimelineEvents([]);
-      } finally {
-        if (!signal?.aborted) {
-          setIsTimelineLoading(false);
-        }
-      }
-    },
-    [isAdmin, resolvedVersionId]
-  );
-
-  useEffect(() => {
-    if (!isAdmin || !resolvedVersionId) {
-      return deferEffectStateUpdate(() => {
-        setAuditLogs([]);
-        setAuditError(null);
-        setIsAuditLoading(false);
-      });
-    }
-
-    return deferEffectStateUpdate(() => {
-      const abortController = new AbortController();
-      void loadAuditLogs(abortController.signal);
-
-      return () => {
-        abortController.abort();
-      };
-    });
-  }, [isAdmin, loadAuditLogs, resolvedVersionId]);
-
-  useEffect(() => {
-    if (!isAdmin || !resolvedVersionId) {
-      return deferEffectStateUpdate(() => {
-        setTimelineEvents([]);
-        setTimelineError(null);
-        setIsTimelineLoading(false);
-      });
-    }
-
-    return deferEffectStateUpdate(() => {
-      const abortController = new AbortController();
-      void loadTimelineEvents(abortController.signal);
-
-      return () => {
-        abortController.abort();
-      };
-    });
-  }, [isAdmin, loadTimelineEvents, resolvedVersionId]);
-
   const laborRateById = useMemo(() => {
     const map = new Map<string, number>();
     laborRoles.forEach((role) => {
@@ -1956,67 +870,68 @@ export function useEstimateEditorState({
 
   const deferredItems = useDeferredValue(items);
 
-  const bulkSuggestPreview = useMemo(
-    () =>
-      buildBulkSuggestPreview({
-        items: deferredItems,
-        suggestionRules,
-        categories,
+  const handleQualityVersionConflict = useCallback(
+    (error: unknown) =>
+      handleVersionConflict(error, {
+        persistDraft: true,
       }),
-    [categories, deferredItems, suggestionRules]
+    [handleVersionConflict]
   );
+  const qualityController = useEstimateEditorQualityController({
+    routeVersionId: resolvedVersionId,
+    activeVersionId: version?.id ?? null,
+    reloadToken: reloadNonce,
+    items,
+    deferredItems,
+    categories,
+    settings,
+    isReadOnly,
+    readOnlyErrorMessage: readOnlyActionErrorMessage,
+    isConflictLocked,
+    conflictMessage: conflictState?.message ?? null,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    onVersionConflict: handleQualityVersionConflict,
+    openSettings: handleOpenSettingsDrawer,
+  });
+  const {
+    qualityFilter,
+    outlierConfig,
+    dismissedOutlierFlagsByItemId,
+    outlierActionPendingByItemId,
+    isFinalizationPanelOpen,
+    isChecklistCollapsed,
+    scrollTargetItemId: checklistScrollTargetItemId,
+  } = qualityController.state;
+  const {
+    changeQualityFilter: handleQualityFilterChange,
+    changeOutlierMethod: handleOutlierMethodChange,
+    changeOutlierThreshold: handleOutlierThresholdChange,
+    toggleOutlierDismiss: handleToggleOutlierDismiss,
+    toggleFinalizationPanel: handleToggleFinalizationPanel,
+    toggleChecklistCollapsed: handleToggleChecklistCollapsed,
+    selectChecklistCriterion: handleChecklistCriterionClick,
+    showChecklistAnomalies: handleShowChecklistAnomalies,
+    focusItem: handleChecklistFocusItem,
+    markScrollHandled: handleChecklistScrollHandled,
+  } = qualityController.actions;
+  const {
+    detectedOutlierFlagsByItemId,
+    qualityFlagsByItemId,
+    qualityCounts,
+    checklist,
+  } = qualityController.meta;
 
-  const bulkSuggestionEligibleCount = bulkSuggestPreview.length;
-  const supplierPreselectionEligibleCount = useMemo(
-    () => items.filter((item) => item.item_type === "line").length,
-    [items]
-  );
-
-  const detectedOutlierFlagsByItemId = useMemo(
-    () =>
-      detectEstimateOutliers({
-        items: deferredItems,
-        categories,
-        config: outlierConfig,
-      }),
-    [categories, deferredItems, outlierConfig]
-  );
-
-  const qualityFlagsByItemId = useMemo(
-    () =>
-      computeEstimateQualityFlagsByItemId(deferredItems, {
-        outlierFlagsByItemId: detectedOutlierFlagsByItemId,
-        dismissedOutlierFlagsByItemId,
-      }),
-    [deferredItems, detectedOutlierFlagsByItemId, dismissedOutlierFlagsByItemId]
-  );
-
-  const qualityCounts = useMemo(
-    () => countEstimateQualityFlags(qualityFlagsByItemId),
-    [qualityFlagsByItemId]
-  );
-
-  const checklist = useMemo(
-    () =>
-      computeEstimateChecklist({
-        items: deferredItems,
-        qualityFlagsByItemId,
-        settings,
-      }),
-    [deferredItems, qualityFlagsByItemId, settings]
-  );
-
-  const handleShowChecklistAnomalies = useCallback(() => {
-    setQualityFilter("with_anomalies");
-    const firstAffectedLine = deferredItems.find(
-      (item) =>
-        item.item_type === "line" &&
-        (qualityFlagsByItemId[item.id]?.length ?? 0) > 0
-    );
-    if (firstAffectedLine) {
-      setChecklistScrollTargetItemId(firstAffectedLine.id);
+  useEffect(() => {
+    if (!focusItemId) {
+      return;
     }
-  }, [deferredItems, qualityFlagsByItemId]);
+
+    return deferEffectStateUpdate(() => {
+      handleChecklistFocusItem(focusItemId);
+      highlightAiMutationItemsRef.current([focusItemId]);
+    });
+  }, [focusItemId, handleChecklistFocusItem]);
 
   const buildLineCalculationInput = useCallback(
     (
@@ -2194,14 +1109,6 @@ export function useEstimateEditorState({
     loadingLabel: exportLoadingLabel,
   } = exportController.meta;
 
-  const hasLinkedDpgfSource = hasImportableLinkedDpgfSource(linkedDpgfSource);
-  const isImportDpgfSourceDisabled =
-    !hasLinkedDpgfSource ||
-    isLoadingLinkedDpgfSource ||
-    isImportingDpgfSource ||
-    isSaveBlocked ||
-    isExporting;
-
   const persistedTotals: EstimateTotals | null = useMemo(() => {
     if (!savedSettings) return null;
     const lineItems = items
@@ -2228,939 +1135,12 @@ export function useEstimateEditorState({
     persistedTotalsRef.current = persistedTotals;
   }, [persistedTotals]);
 
-  const selectedBulkSuggestPreview = useMemo(() => {
-    if (selectedBulkSuggestItemIds.length === 0) {
-      return [] as BulkSuggestPreviewItem[];
-    }
-
-    const selectedIdSet = new Set(selectedBulkSuggestItemIds);
-    return bulkSuggestPreview.filter((previewItem) =>
-      selectedIdSet.has(previewItem.itemId)
-    );
-  }, [bulkSuggestPreview, selectedBulkSuggestItemIds]);
-
-  const showBulkSuggestProgress = useMemo(() => {
-    const progressTotal = bulkSuggestProgress?.total ?? selectedBulkSuggestPreview.length;
-    return progressTotal > BULK_SUGGEST_PROGRESS_THRESHOLD;
-  }, [bulkSuggestProgress, selectedBulkSuggestPreview.length]);
-
-  useEffect(() => {
-    return deferEffectStateUpdate(() => {
-      setSelectedBulkSuggestItemIds((previous) => {
-        if (previous.length === 0) return previous;
-
-        const eligibleItemIds = new Set(
-          bulkSuggestPreview.map((previewItem) => previewItem.itemId)
-        );
-        const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
-        return next.length === previous.length ? previous : next;
-      });
-    });
-  }, [bulkSuggestPreview]);
-
-  useEffect(() => {
-    return deferEffectStateUpdate(() => {
-      setBulkSuggestUndoState((previous) => {
-        if (!previous) return previous;
-
-        const lineItemIds = new Set(
-          items
-            .filter((item) => item.item_type === "line")
-            .map((item) => item.id)
-        );
-        const stillValid = previous.previousItems.filter((item) =>
-          lineItemIds.has(item.id)
-        );
-        if (stillValid.length === previous.previousItems.length) {
-          return previous;
-        }
-        if (stillValid.length === 0) {
-          return null;
-        }
-        return {
-          previousItems: stillValid,
-          appliedItemIds: stillValid.map((item) => item.id),
-        };
-      });
-    });
-  }, [items]);
-
-  const handleOpenBulkSuggestDialog = useCallback(() => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    if (bulkSuggestPreview.length === 0) return;
-
-    setActionError(null);
-    setBulkSuggestDialogError(null);
-    setBulkSuggestProgress(null);
-    setSelectedBulkSuggestItemIds(
-      bulkSuggestPreview.map((previewItem) => previewItem.itemId)
-    );
-    setIsBulkSuggestDialogOpen(true);
-  }, [
-    bulkSuggestPreview,
-    conflictState?.message,
-    isConflictLocked,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-  ]);
-
-  const handleCloseBulkSuggestDialog = useCallback(() => {
-    if (isApplyingBulkSuggest) return;
-    setIsBulkSuggestDialogOpen(false);
-    setBulkSuggestDialogError(null);
-    setBulkSuggestProgress(null);
-  }, [isApplyingBulkSuggest]);
-
-  const handleToggleBulkSuggestItem = useCallback(
-    (itemId: string, checked: boolean) => {
-      setSelectedBulkSuggestItemIds((previous) => {
-        if (checked) {
-          if (previous.includes(itemId)) return previous;
-          return [...previous, itemId];
-        }
-        if (!previous.includes(itemId)) return previous;
-        return previous.filter((id) => id !== itemId);
-      });
-    },
-    []
-  );
-
-  const handleToggleAllBulkSuggestItems = useCallback(
-    (checked: boolean) => {
-      if (!checked) {
-        setSelectedBulkSuggestItemIds([]);
-        return;
-      }
-
-      setSelectedBulkSuggestItemIds(
-        bulkSuggestPreview.map((previewItem) => previewItem.itemId)
-      );
-    },
-    [bulkSuggestPreview]
-  );
-
-  const handleApplyBulkSuggest = useCallback(async () => {
-    if (isApplyingBulkSuggest) return;
-
-    if (isReadOnly) {
-      setBulkSuggestDialogError(readOnlyActionErrorMessage);
-      return;
-    }
-
-    if (isConflictLocked) {
-      setBulkSuggestDialogError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot) {
-      setBulkSuggestDialogError("Version introuvable.");
-      return;
-    }
-
-    const selectedPreviewByItemId = new Map(
-      selectedBulkSuggestPreview.map((previewItem) => [previewItem.itemId, previewItem])
-    );
-
-    if (selectedPreviewByItemId.size === 0) {
-      setBulkSuggestDialogError("Selectionnez au moins une suggestion.");
-      return;
-    }
-
-    const snapshot = itemsRef.current;
-    const selectedLines = snapshot.filter(
-      (item): item is EstimateItem =>
-        item.item_type === "line" && selectedPreviewByItemId.has(item.id)
-    );
-
-    if (selectedLines.length === 0) {
-      setBulkSuggestDialogError("Aucune ligne eligible selectionnee.");
-      return;
-    }
-
-    const marginMultiplier = settings?.margin_multiplier ?? 1;
-    const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
-
-    const updatedLines = selectedLines.map((item) => {
-      const previewItem = selectedPreviewByItemId.get(item.id);
-      if (!previewItem) return item;
-
-      const nextItem: EstimateItem = {
-        ...item,
-        ...previewItem.patch,
-      };
-      const taxRate = nextItem.tax_rate_bp ?? fallbackTaxRateBp;
-      const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextItem, {
-        marginMultiplier,
-        taxRateBp: taxRate,
-      });
-
-      return {
-        ...nextItem,
-        tax_rate_bp: lineInput.tax_rate_bp,
-        k_fo: lineInput.k_fo,
-        h_mo: lineInput.h_mo,
-        h_mo_majoration: lineInput.h_mo_majoration,
-        k_mo: lineInput.k_mo,
-        ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-          ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-          : {}),
-        pu_ht_cents: lineValues.puHtCents,
-        line_total_ht_cents: lineValues.saleLineCents,
-        line_tax_cents: lineValues.taxLineCents,
-        line_total_ttc_cents: lineValues.ttcLineCents,
-      };
-    });
-
-    const updatesPayload = updatedLines.map((item) => ({
-      id: item.id,
-      updates: buildEstimateItemUpdatePayload(item),
-    }));
-
-    if (updatesPayload.length === 0) {
-      setBulkSuggestDialogError("Aucune mise a jour a appliquer.");
-      return;
-    }
-
-    const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
-    const previousItems = selectedLines.map((item) => ({ ...item }));
-    const shouldTrackProgress =
-      updatesPayload.length > BULK_SUGGEST_PROGRESS_THRESHOLD;
-
-    setBulkSuggestDialogError(null);
-    setIsApplyingBulkSuggest(true);
-    setBulkSuggestProgress(
-      shouldTrackProgress
-        ? {
-            processed: 0,
-            total: updatesPayload.length,
-            percentage: 0,
-          }
-        : null
-    );
-    setItems((previous) =>
-      previous.map((item) => updatedById.get(item.id) ?? item)
-    );
-
-    try {
-      const bulkResult = await bulkUpdateEstimateItems(
-        versionSnapshot.id,
-        versionSnapshot.updated_at,
-        updatesPayload
-      );
-      const nextVersionToken = bulkResult.versionToken.updated_at;
-
-      if (shouldTrackProgress) {
-        setBulkSuggestProgress({
-          processed: updatesPayload.length,
-          total: updatesPayload.length,
-          percentage: 100,
-        });
-      }
-
-      const suggestionUsageByRuleId = selectedBulkSuggestPreview.reduce<
-        Record<string, number>
-      >((accumulator, previewItem) => {
-        accumulator[previewItem.ruleId] =
-          (accumulator[previewItem.ruleId] ?? 0) + 1;
-        return accumulator;
-      }, {});
-
-      const suggestionUsageEntries = Object.entries(suggestionUsageByRuleId);
-      if (suggestionUsageEntries.length > 0) {
-        const feedbackResults = await Promise.allSettled(
-          suggestionUsageEntries.map(([ruleId, count]) =>
-            sendEstimateSuggestionRuleFeedback(
-              versionSnapshot.id,
-              ruleId,
-              "accept",
-              count
-            )
-          )
-        );
-
-        const failedFeedbackCount = feedbackResults.filter(
-          (result) => result.status === "rejected"
-        ).length;
-
-        if (failedFeedbackCount > 0) {
-          setActionError(
-            `${failedFeedbackCount} compteur(s) de suggestions n'ont pas pu etre mis a jour.`
-          );
-        }
-      }
-
-      setVersion((previous) =>
-        previous
-          ? {
-              ...previous,
-              updated_at: nextVersionToken,
-            }
-          : previous
-      );
-      if (versionRef.current) {
-        versionRef.current = {
-          ...versionRef.current,
-          updated_at: nextVersionToken,
-        };
-      }
-
-      setBulkSuggestUndoState({
-        previousItems,
-        appliedItemIds: previousItems.map((item) => item.id),
-      });
-      setTotalsOutOfSync(false);
-      setIsBulkSuggestDialogOpen(false);
-      setSelectedBulkSuggestItemIds([]);
-      setBulkSuggestDialogError(null);
-    } catch (error) {
-      setItems(snapshot);
-      if (!handleVersionConflict(error, { persistDraft: true })) {
-        setBulkSuggestDialogError(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible d'appliquer les suggestions en lot."
-          )
-        );
-      } else {
-        setIsBulkSuggestDialogOpen(false);
-      }
-    } finally {
-      setIsApplyingBulkSuggest(false);
-      setBulkSuggestProgress(null);
-    }
-  }, [
-    computeLineValuesWithLaborContext,
-    conflictState?.message,
-    handleVersionConflict,
-    isApplyingBulkSuggest,
-    isConflictLocked,
-    isLaborSplitEnabled,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-    selectedBulkSuggestPreview,
-    settings?.margin_multiplier,
-    settings?.tax_rate_bp,
-  ]);
-
-  const selectedSupplierPreselectionProposals = useMemo(() => {
-    if (selectedSupplierPreselectionItemIds.length === 0) {
-      return [] as SupplierPreselectionSelectableProposal[];
-    }
-
-    const selectedIdSet = new Set(selectedSupplierPreselectionItemIds);
-    return supplierPreselectionReview.proposals.filter((proposal) =>
-      selectedIdSet.has(proposal.item_id)
-    );
-  }, [selectedSupplierPreselectionItemIds, supplierPreselectionReview]);
-
-  useEffect(() => {
-    return deferEffectStateUpdate(() => {
-      setSelectedSupplierPreselectionItemIds((previous) => {
-        if (previous.length === 0) return previous;
-
-        const eligibleItemIds = new Set(
-          supplierPreselectionReview.proposals.map(
-            (proposal) => proposal.item_id
-          )
-        );
-        const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
-        return next.length === previous.length ? previous : next;
-      });
-    });
-  }, [supplierPreselectionReview]);
-
-  const handleOpenSupplierPreselectionDialog = useCallback(async () => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    if (!resolvedVersionId) {
-      setActionError("Version introuvable.");
-      return;
-    }
-
-    const lineItems = itemsRef.current.filter(
-      (item): item is EstimateItem => item.item_type === "line"
-    );
-    if (lineItems.length === 0) {
-      setActionError("Aucune ligne de devis disponible.");
-      return;
-    }
-
-    setActionError(null);
-    setSupplierPreselectionDialogError(null);
-    setSupplierPreselectionReview(EMPTY_SUPPLIER_PRESELECTION_REVIEW);
-    setSelectedSupplierPreselectionItemIds([]);
-    setIsSupplierPreselectionDialogOpen(true);
-    setIsLoadingSupplierPreselection(true);
-
-    try {
-      const response = await fetch(
-        `/api/estimates/${resolvedVersionId}/supplier-comparisons`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          cache: "no-store",
-          body: JSON.stringify({
-            all_items: true,
-          }),
-        }
-      );
-
-      const payload = (await response.json().catch(() => null)) as unknown;
-      if (!response.ok) {
-        const apiErrorMessage =
-          isRecord(payload) && isRecord(payload.error)
-            ? toNonEmptyString(payload.error.message)
-            : null;
-        throw new Error(
-          apiErrorMessage ?? "Impossible de charger la preselection fournisseurs."
-        );
-      }
-
-      const review = normalizeSupplierPreselectionReview(payload);
-      setSupplierPreselectionReview(review);
-      setSelectedSupplierPreselectionItemIds(
-        review.proposals.map((proposal) => proposal.item_id)
-      );
-    } catch (error) {
-      setSupplierPreselectionDialogError(
-        resolveEstimateActionError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de charger la preselection fournisseurs."
-        )
-      );
-    } finally {
-      setIsLoadingSupplierPreselection(false);
-    }
-  }, [
-    conflictState?.message,
-    isConflictLocked,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-    resolvedVersionId,
-  ]);
-
-  const handleCloseSupplierPreselectionDialog = useCallback(() => {
-    if (isApplyingSupplierPreselection) return;
-
-    setIsSupplierPreselectionDialogOpen(false);
-    setSupplierPreselectionDialogError(null);
-    setIsLoadingSupplierPreselection(false);
-  }, [isApplyingSupplierPreselection]);
-
-  const handleToggleSupplierPreselectionItem = useCallback(
-    (itemId: string, checked: boolean) => {
-      setSelectedSupplierPreselectionItemIds((previous) => {
-        if (checked) {
-          if (previous.includes(itemId)) return previous;
-          return [...previous, itemId];
-        }
-
-        if (!previous.includes(itemId)) return previous;
-        return previous.filter((id) => id !== itemId);
-      });
-    },
-    []
-  );
-
-  const handleToggleAllSupplierPreselectionItems = useCallback(
-    (checked: boolean) => {
-      if (!checked) {
-        setSelectedSupplierPreselectionItemIds([]);
-        return;
-      }
-
-      setSelectedSupplierPreselectionItemIds(
-        supplierPreselectionReview.proposals.map((proposal) => proposal.item_id)
-      );
-    },
-    [supplierPreselectionReview]
-  );
-
-  const handleApplySupplierPreselection = useCallback(async () => {
-    if (isApplyingSupplierPreselection) return;
-
-    if (isReadOnly) {
-      setSupplierPreselectionDialogError(readOnlyActionErrorMessage);
-      return;
-    }
-
-    if (isConflictLocked) {
-      setSupplierPreselectionDialogError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot) {
-      setSupplierPreselectionDialogError("Version introuvable.");
-      return;
-    }
-
-    const selectedProposalByItemId = new Map(
-      selectedSupplierPreselectionProposals.map((proposal) => [proposal.item_id, proposal])
-    );
-
-    if (selectedProposalByItemId.size === 0) {
-      setSupplierPreselectionDialogError(
-        "Selectionnez au moins une preselection fournisseur."
-      );
-      return;
-    }
-
-    const snapshot = itemsRef.current;
-    const selectedLines = snapshot.filter(
-      (item): item is EstimateItem =>
-        item.item_type === "line" && selectedProposalByItemId.has(item.id)
-    );
-
-    if (selectedLines.length === 0) {
-      setSupplierPreselectionDialogError("Aucune ligne eligible selectionnee.");
-      return;
-    }
-
-    const marginMultiplier = settings?.margin_multiplier ?? 1;
-    const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
-
-    const updatedLines = selectedLines.map((item) => {
-      const proposal = selectedProposalByItemId.get(item.id);
-      if (!proposal) return item;
-
-      const nextItem: EstimateItem = {
-        ...item,
-        ...proposal.patch,
-      };
-      const taxRate = nextItem.tax_rate_bp ?? fallbackTaxRateBp;
-      const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextItem, {
-        marginMultiplier,
-        taxRateBp: taxRate,
-      });
-
-      return {
-        ...nextItem,
-        tax_rate_bp: lineInput.tax_rate_bp,
-        k_fo: lineInput.k_fo,
-        h_mo: lineInput.h_mo,
-        h_mo_majoration: lineInput.h_mo_majoration,
-        k_mo: lineInput.k_mo,
-        ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-          ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-          : {}),
-        pu_ht_cents: lineValues.puHtCents,
-        line_total_ht_cents: lineValues.saleLineCents,
-        line_tax_cents: lineValues.taxLineCents,
-        line_total_ttc_cents: lineValues.ttcLineCents,
-      };
-    });
-
-    const updatesPayload = updatedLines.map((item) => ({
-      id: item.id,
-      updates: buildEstimateItemUpdatePayload(item),
-    }));
-
-    if (updatesPayload.length === 0) {
-      setSupplierPreselectionDialogError("Aucune mise a jour a appliquer.");
-      return;
-    }
-
-    const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
-
-    setSupplierPreselectionDialogError(null);
-    setIsApplyingSupplierPreselection(true);
-    setItems((previous) =>
-      previous.map((item) => updatedById.get(item.id) ?? item)
-    );
-
-    try {
-      const bulkResult = await bulkUpdateEstimateItems(
-        versionSnapshot.id,
-        versionSnapshot.updated_at,
-        updatesPayload
-      );
-      const nextVersionToken = bulkResult.versionToken.updated_at;
-
-      setVersion((previous) =>
-        previous
-          ? {
-              ...previous,
-              updated_at: nextVersionToken,
-            }
-          : previous
-      );
-      if (versionRef.current) {
-        versionRef.current = {
-          ...versionRef.current,
-          updated_at: nextVersionToken,
-        };
-      }
-
-      setTotalsOutOfSync(false);
-      setIsSupplierPreselectionDialogOpen(false);
-      setSelectedSupplierPreselectionItemIds([]);
-      setSupplierPreselectionDialogError(null);
-    } catch (error) {
-      setItems(snapshot);
-      if (!handleVersionConflict(error, { persistDraft: true })) {
-        setSupplierPreselectionDialogError(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible d'appliquer la preselection fournisseurs."
-          )
-        );
-      } else {
-        setIsSupplierPreselectionDialogOpen(false);
-      }
-    } finally {
-      setIsApplyingSupplierPreselection(false);
-    }
-  }, [
-    computeLineValuesWithLaborContext,
-    conflictState?.message,
-    handleVersionConflict,
-    isApplyingSupplierPreselection,
-    isConflictLocked,
-    isLaborSplitEnabled,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-    selectedSupplierPreselectionProposals,
-    settings?.margin_multiplier,
-    settings?.tax_rate_bp,
-  ]);
-
-  const handleConfirmSupplierPreselection = useCallback(() => {
-    void handleApplySupplierPreselection();
-  }, [handleApplySupplierPreselection]);
-
-  const handleUndoBulkSuggest = useCallback(async () => {
-    if (!bulkSuggestUndoState || isUndoingBulkSuggest) return;
-
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot) {
-      setActionError("Version introuvable.");
-      return;
-    }
-
-    const currentItemsSnapshot = itemsRef.current;
-    const previousById = new Map(
-      bulkSuggestUndoState.previousItems.map((item) => [item.id, item])
-    );
-    const updatesPayload = bulkSuggestUndoState.previousItems.map((item) => ({
-      id: item.id,
-      updates: buildEstimateItemUpdatePayload(item),
-    }));
-
-    setActionError(null);
-    setIsUndoingBulkSuggest(true);
-    setItems((previous) =>
-      previous.map((item) => previousById.get(item.id) ?? item)
-    );
-
-    try {
-      const bulkResult = await bulkUpdateEstimateItems(
-        versionSnapshot.id,
-        versionSnapshot.updated_at,
-        updatesPayload
-      );
-      const nextVersionToken = bulkResult.versionToken.updated_at;
-
-      setVersion((previous) =>
-        previous
-          ? {
-              ...previous,
-              updated_at: nextVersionToken,
-            }
-          : previous
-      );
-      if (versionRef.current) {
-        versionRef.current = {
-          ...versionRef.current,
-          updated_at: nextVersionToken,
-        };
-      }
-
-      setBulkSuggestUndoState(null);
-      setTotalsOutOfSync(false);
-    } catch (error) {
-      setItems(currentItemsSnapshot);
-      if (!handleVersionConflict(error, { persistDraft: true })) {
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible d'annuler les suggestions."
-          )
-        );
-      } else {
-        setBulkSuggestUndoState(null);
-      }
-    } finally {
-      setIsUndoingBulkSuggest(false);
-    }
-  }, [
-    bulkSuggestUndoState,
-    conflictState?.message,
-    handleVersionConflict,
-    isConflictLocked,
-    isReadOnly,
-    isUndoingBulkSuggest,
-    readOnlyActionErrorMessage,
-  ]);
-
-  const flushBufferedItemUpdates = useCallback(async () => {
-    if (isFlushingBufferedUpdatesRef.current) return "noop" as const;
-    if (isSaveBlockedRef.current) {
-      return pendingItemUpdatesRef.current.size > 0
-        ? ("blocked" as const)
-        : ("noop" as const);
-    }
-
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot) {
-      return pendingItemUpdatesRef.current.size > 0
-        ? ("blocked" as const)
-        : ("noop" as const);
-    }
-
-    const bufferedEntries = serializeBufferedUpdates(pendingItemUpdatesRef.current);
-    if (bufferedEntries.length === 0) {
-      setHasPendingBufferedUpdates(false);
-      return "noop" as const;
-    }
-
-    pendingItemUpdatesRef.current.clear();
-    pendingBufferedUpdateCountRef.current = 0;
-
-    isFlushingBufferedUpdatesRef.current = true;
-
-    const versionTotalsPatch = buildVersionTotalsPatch(persistedTotalsRef.current);
-    const batchOperations = bufferedEntries.map((entry) => ({
-      op: "update" as const,
-      id: entry.id,
-      data: entry.updates,
-    }));
-
-    try {
-      const batchResult = await batchEstimateOperations(
-        versionSnapshot.id,
-        versionSnapshot.updated_at,
-        batchOperations
-      );
-
-      if (!batchResult.committed) {
-        const failedResult = batchResult.results.find(
-          (result) => result.status === "error"
-        );
-        throw new Error(
-          failedResult?.message ??
-            "Une operation de sauvegarde groupee a echoue."
-        );
-      }
-
-      let nextVersionToken = versionSnapshot.updated_at;
-      if (versionTotalsPatch) {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          batchResult.versionToken.updated_at,
-          [],
-          versionTotalsPatch
-        );
-        nextVersionToken = bulkResult.versionToken.updated_at;
-      } else {
-        nextVersionToken = batchResult.versionToken.updated_at;
-      }
-
-      setTotalsOutOfSync(false);
-      setVersion((prev) =>
-        prev
-          ? {
-              ...prev,
-              ...(versionTotalsPatch ?? {}),
-              updated_at: nextVersionToken,
-            }
-          : prev
-      );
-      const nextVersionSnapshot = versionRef.current
-        ? {
-            ...versionRef.current,
-            ...(versionTotalsPatch ?? {}),
-            updated_at: nextVersionToken,
-          }
-        : null;
-      if (nextVersionSnapshot) {
-        versionRef.current = nextVersionSnapshot;
-      }
-      persistBufferedItemUpdatesToLocal();
-      setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
-      clearUndoRedoHistory();
-      return "saved" as const;
-    } catch (error) {
-      bufferedEntries.forEach((entry) => {
-        const existing = pendingItemUpdatesRef.current.get(entry.id) ?? {};
-        pendingItemUpdatesRef.current.set(entry.id, {
-          ...entry.updates,
-          ...existing,
-        });
-      });
-      pendingBufferedUpdateCountRef.current += bufferedEntries.length;
-      setHasPendingBufferedUpdates(true);
-      persistBufferedItemUpdatesToLocal();
-
-      const hasConflict = handleVersionConflict(error, { persistDraft: true });
-      if (hasConflict) {
-        setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
-        return "blocked" as const;
-      }
-
-      setTotalsOutOfSync(true);
-      setActionError(
-        resolveEstimateActionError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de mettre a jour les lignes."
-        )
-      );
-      return "error" as const;
-    } finally {
-      isFlushingBufferedUpdatesRef.current = false;
-    }
-  }, [clearUndoRedoHistory, handleVersionConflict, persistBufferedItemUpdatesToLocal]);
-
-  const ensureGroupedActionCanProceed = useCallback(
-    async (actionLabel: string) => {
-      const flushResult = await flushBufferedItemUpdates();
-
-      if (flushResult === "blocked") {
-        setActionError(
-          `Impossible de ${actionLabel} tant que les modifications locales ne sont pas synchronisees. Rechargez la version puis reessayez.`
-        );
-        return false;
-      }
-
-      if (flushResult === "error") {
-        setActionError(
-          `Impossible de synchroniser les modifications locales avant de ${actionLabel}. Corrigez les erreurs puis reessayez.`
-        );
-        return false;
-      }
-
-      if (flushResult === "noop" && pendingItemUpdatesRef.current.size > 0) {
-        setActionError(
-          "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
-        );
-        return false;
-      }
-
-      return true;
-    },
-    [flushBufferedItemUpdates]
-  );
-
-  const {
-    status: autoSaveStatus,
-    statusLabel: autoSaveStatusLabel,
-    isSaving: isAutoSaveSaving,
-    flushNow: flushAutoSaveNow,
-    scheduleSave: scheduleAutoSave,
-  } = useAutoSave({
-    enabled: Boolean(resolvedVersionId && !isSaveBlocked),
-    hasPendingChanges: hasPendingBufferedUpdates,
-    debounceMs: BULK_AUTOSAVE_DEBOUNCE_MS,
-    onSave: flushBufferedItemUpdates,
-  });
-
-  const handleBlockedNavigation = useCallback(() => {
-    setActionError(
-      "Des modifications locales sont en attente de sauvegarde automatique. Patientez la fin de la synchronisation avant de quitter cette page."
-    );
-  }, []);
-
-  useAutoSaveNavigationGuard({
-    enabled: Boolean(resolvedVersionId),
-    hasPendingChanges: hasPendingBufferedUpdates,
-    isSaving: isAutoSaveSaving,
-    onBlockedNavigation: handleBlockedNavigation,
-  });
-
   const autoSaveStatusClassName = useMemo(() => {
     if (autoSaveStatus === "saving") return "status-badge status-sent";
     if (autoSaveStatus === "error") return "status-badge status-canceled";
     if (autoSaveStatus === "saved") return "status-badge status-accepted";
     return "status-badge status-draft";
   }, [autoSaveStatus]);
-
-  const enqueueBufferedItemUpdate = useCallback(
-    (itemId: string, payload: EstimateItemUpdatePayload) => {
-      upsertBufferedUpdate(pendingItemUpdatesRef.current, itemId, payload);
-      setHasPendingBufferedUpdates(true);
-      persistBufferedItemUpdatesToLocal();
-
-      pendingBufferedUpdateCountRef.current += 1;
-      if (
-        shouldFlushBufferedUpdates(
-          pendingBufferedUpdateCountRef.current,
-          BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES
-        )
-      ) {
-        void flushAutoSaveNow();
-        return;
-      }
-
-      scheduleAutoSave();
-    },
-    [flushAutoSaveNow, persistBufferedItemUpdatesToLocal, scheduleAutoSave]
-  );
-
-  const retryTotalsSave = useCallback(async () => {
-    await flushAutoSaveNow();
-  }, [flushAutoSaveNow]);
-
-  useEffect(() => {
-    return () => {
-      persistBufferedItemUpdatesToLocal();
-      clearBufferedItemUpdates();
-    };
-  }, [clearBufferedItemUpdates, persistBufferedItemUpdatesToLocal]);
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -3169,36 +1149,58 @@ export function useEstimateEditorState({
     []
   );
 
-  const reloadItems = useCallback(async () => {
-    if (!resolvedVersionId) return;
-    try {
-      const itemsRows = await fetchEstimateItemsForVersion(resolvedVersionId);
-      if (!version) {
-        setItems(applyPendingBufferedUpdatesToItems(itemsRows));
-        return;
+  const normalizeReloadedItems = useCallback(
+    (targetVersionId: string, itemsRows: EstimateItem[]) => {
+      const activeVersion =
+        versionRef.current?.id === targetVersionId
+          ? versionRef.current
+          : null;
+      if (!activeVersion) {
+        return applyPendingBufferedUpdatesToItems(itemsRows);
       }
 
       const normalizedItems =
-        version.status === "draft"
+        activeVersion.status === "draft"
           ? normalizeDraftItems({
               items: itemsRows,
-              version,
+              version: activeVersion,
               rateById: laborRateById,
             })
           : itemsRows;
 
-      setItems(applyPendingBufferedUpdatesToItems(normalizedItems));
+      return applyPendingBufferedUpdatesToItems(normalizedItems);
+    },
+    [applyPendingBufferedUpdatesToItems, laborRateById]
+  );
+
+  const reloadItems = useCallback(async () => {
+    if (!resolvedVersionId) return;
+    const targetVersionId = resolvedVersionId;
+    try {
+      const itemsRows = await fetchEstimateItemsForVersion(targetVersionId);
+      if (activeRouteVersionIdRef.current !== targetVersionId) return;
+      setItems(normalizeReloadedItems(targetVersionId, itemsRows));
     } catch (error) {
+      if (activeRouteVersionIdRef.current !== targetVersionId) return;
       const message =
         error instanceof Error
           ? resolveEstimateActionError(error.message)
           : "Impossible de charger les lignes.";
       setActionError(message);
     }
-  }, [applyPendingBufferedUpdatesToItems, laborRateById, resolvedVersionId, version]);
+  }, [normalizeReloadedItems, resolvedVersionId]);
+
+  const reloadItemsForStructuralMutation = useCallback(async () => {
+    if (!resolvedVersionId) return;
+    const targetVersionId = resolvedVersionId;
+    const itemsRows = await fetchEstimateItemsForVersion(targetVersionId);
+    if (activeRouteVersionIdRef.current !== targetVersionId) return;
+    setItems(normalizeReloadedItems(targetVersionId, itemsRows));
+  }, [normalizeReloadedItems, resolvedVersionId]);
 
   async function handleSaveSettings() {
     if (!settings || !version || !totals) return;
+    if (version.id !== resolvedVersionId) return;
     if (isReadOnly) {
       setActionError(readOnlyActionErrorMessage);
       return;
@@ -3209,156 +1211,209 @@ export function useEstimateEditorState({
       );
       return;
     }
-    setIsSavingSettings(true);
+
+    const targetRouteVersionId = resolvedVersionId;
+    const targetVersionId = version.id;
+    const settingsSnapshot = settings;
+    const totalsSnapshot = totals;
+    const operationId = settingsSaveGenerationRef.current + 1;
+    settingsSaveGenerationRef.current = operationId;
+    const settingsSaveScope = {
+      routeVersionId: targetRouteVersionId,
+      versionId: targetVersionId,
+      generation: operationId,
+    };
+    setActiveSettingsSave({
+      routeVersionId: targetRouteVersionId,
+      operationId,
+    });
     setActionError(null);
 
-    const discountBase = totals.saleSubtotalCents;
-    const discountBp =
-      discountBase > 0
-        ? Math.round((totals.discountCents / discountBase) * 10000)
-        : 0;
-    const discountMode: DiscountMode =
-      settings.discount_mode === "cascade" ? "cascade" : "simple";
-    const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
-      settings.discount_steps
-    );
-    const cascadeDiscountSteps =
-      discountMode === "cascade"
-        ? normalizedCascadeDiscountSteps
-        : [];
-    const globalCoefficient = Math.max(settings.global_coefficient ?? 1, 0);
-
-    const payload: Database["public"]["Tables"]["estimate_versions"]["Update"] = {
-      title: settings.title.trim() || null,
-      date_devis: settings.date_devis,
-      validite_jours: settings.validite_jours,
-      currency: settings.currency,
-      margin_multiplier: totals.appliedMarginMultiplier,
-      margin_mode: settings.margin_mode ?? "fixed",
-      discount_bp: discountBp,
-      discount_mode: discountMode,
-      discount_steps: cascadeDiscountSteps,
-      global_coefficient: discountMode === "cascade" ? globalCoefficient : 1,
-      tax_rate_bp: settings.tax_rate_bp,
-      rounding_mode: settings.rounding_mode,
-      rounding_step_cents: settings.rounding_step_cents,
-      total_ht_cents: totals.saleTotalCents,
-      total_tax_cents: totals.adjustedTaxCents,
-      total_ttc_cents: totals.roundedTtcCents,
-    };
-
-    let updatedVersion: EstimateVersionRow;
-    try {
-      updatedVersion = await saveEstimateVersion(
-        version.id,
-        payload,
-        version.updated_at
-      );
-    } catch (error) {
-      if (!handleVersionConflict(error, { persistDraft: true })) {
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible de sauvegarder le chiffrage."
-          )
-        );
-      }
-      setIsSavingSettings(false);
-      return;
-    }
-
-    setVersion((prev) =>
-      prev
-        ? {
-            ...prev,
-            ...payload,
-            ...updatedVersion,
-          }
-        : prev
-    );
-
-    const nextSavedSettings = {
-      ...settings,
-      margin_multiplier: totals.appliedMarginMultiplier,
-      margin_mode: settings.margin_mode ?? "fixed",
-      discount_cents: totals.discountCents,
-      discount_mode: discountMode as DiscountMode,
-      discount_steps: cascadeDiscountSteps,
-      global_coefficient: discountMode === "cascade" ? globalCoefficient : 1,
-    } as EstimateSettingsState;
-    setSavedSettings(nextSavedSettings);
-    setSettings(nextSavedSettings);
-    let latestVersionToken = updatedVersion.updated_at;
-
-    const shouldUpdateLines =
-      settings.tax_rate_bp !== version.tax_rate_bp ||
-      totals.appliedMarginMultiplier !== version.margin_multiplier;
-
-    if (shouldUpdateLines) {
-      const lineItems = itemsRef.current.filter(
-        (item) => item.item_type === "line"
-      );
-      const updatedLines = lineItems.map((item) => {
-        const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
-          marginMultiplier: totals.appliedMarginMultiplier,
-          taxRateBp: settings.tax_rate_bp,
-        });
-        return {
-          ...item,
-          tax_rate_bp: lineInput.tax_rate_bp,
-          k_fo: lineInput.k_fo,
-          h_mo: lineInput.h_mo,
-          k_mo: lineInput.k_mo,
-          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-            : {}),
-          pu_ht_cents: lineValues.puHtCents,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
+    const isCurrentSettingsSave = () =>
+      isEstimateEditorOperationScopeCurrent(settingsSaveScope, {
+        routeVersionId: activeRouteVersionIdRef.current,
+        versionId: versionRef.current?.id ?? null,
+        generation: settingsSaveGenerationRef.current,
       });
 
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.item_type !== "line") return item;
-          const updated = updatedLines.find((line) => line.id === item.id);
-          return updated ?? item;
-        })
-      );
-
-      try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          version.id,
-          latestVersionToken,
-          updatedLines.map((item) => ({
-            id: item.id,
-            updates: buildEstimateItemUpdatePayload(item),
-          }))
-        );
-
-        latestVersionToken = bulkResult.versionToken.updated_at;
-        setVersion((prev) =>
-          prev
-            ? {
-                ...prev,
-                updated_at: latestVersionToken,
-              }
-            : prev
-        );
-      } catch (error) {
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError("Impossible de mettre a jour les lignes.");
-        }
-        setIsSavingSettings(false);
+    try {
+      if (!(await ensureGroupedActionCanProceed("sauvegarder les parametres"))) {
         return;
       }
-    }
+      if (!isCurrentSettingsSave()) return;
 
-    clearConflictDraftFromSession(resolvedVersionId);
-    setRestorableDraft(null);
-    setIsSavingSettings(false);
+      const currentGuard = settingsSaveGuardRef.current;
+      if (currentGuard.isBlocked) {
+        setActionError(currentGuard.message);
+        return;
+      }
+
+      const versionSnapshot = getVersionSnapshot();
+      if (!versionSnapshot || versionSnapshot.id !== targetVersionId) return;
+      const lineItemsSnapshot = itemsRef.current.filter(
+        (item): item is EstimateItem =>
+          item.item_type === "line" && item.version_id === targetVersionId
+      );
+      const discountBase = totalsSnapshot.saleSubtotalCents;
+      const discountBp =
+        discountBase > 0
+          ? Math.round(
+              (totalsSnapshot.discountCents / discountBase) * 10000
+            )
+          : 0;
+      const discountMode: DiscountMode =
+        settingsSnapshot.discount_mode === "cascade" ? "cascade" : "simple";
+      const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
+        settingsSnapshot.discount_steps
+      );
+      const cascadeDiscountSteps =
+        discountMode === "cascade" ? normalizedCascadeDiscountSteps : [];
+      const globalCoefficient = Math.max(
+        settingsSnapshot.global_coefficient ?? 1,
+        0
+      );
+      const payload: Database["public"]["Tables"]["estimate_versions"]["Update"] = {
+        title: settingsSnapshot.title.trim() || null,
+        date_devis: settingsSnapshot.date_devis,
+        validite_jours: settingsSnapshot.validite_jours,
+        currency: settingsSnapshot.currency,
+        margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
+        margin_mode: settingsSnapshot.margin_mode ?? "fixed",
+        discount_bp: discountBp,
+        discount_mode: discountMode,
+        discount_steps: cascadeDiscountSteps,
+        global_coefficient:
+          discountMode === "cascade" ? globalCoefficient : 1,
+        tax_rate_bp: settingsSnapshot.tax_rate_bp,
+        rounding_mode: settingsSnapshot.rounding_mode,
+        rounding_step_cents: settingsSnapshot.rounding_step_cents,
+        total_ht_cents: totalsSnapshot.saleTotalCents,
+        total_tax_cents: totalsSnapshot.adjustedTaxCents,
+        total_ttc_cents: totalsSnapshot.roundedTtcCents,
+      };
+
+      let updatedVersion: EstimateVersionRow;
+      try {
+        updatedVersion = await saveEstimateVersion(
+          targetVersionId,
+          payload,
+          versionSnapshot.updated_at
+        );
+      } catch (error) {
+        if (!isCurrentSettingsSave()) return;
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible de sauvegarder le chiffrage."
+            )
+          );
+        }
+        return;
+      }
+      if (!isCurrentSettingsSave()) return;
+
+      const mergedVersion = {
+        ...versionSnapshot,
+        ...payload,
+        ...updatedVersion,
+      } as EstimateVersionView;
+      versionRef.current = mergedVersion;
+      setVersion((previous) =>
+        previous?.id === targetVersionId ? mergedVersion : previous
+      );
+
+      const nextSavedSettings = {
+        ...settingsSnapshot,
+        margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
+        margin_mode: settingsSnapshot.margin_mode ?? "fixed",
+        discount_cents: totalsSnapshot.discountCents,
+        discount_mode: discountMode,
+        discount_steps: cascadeDiscountSteps,
+        global_coefficient:
+          discountMode === "cascade" ? globalCoefficient : 1,
+      } as EstimateSettingsState;
+      setSavedSettings(nextSavedSettings);
+      setSettings(nextSavedSettings);
+
+      const shouldUpdateLines =
+        settingsSnapshot.tax_rate_bp !== versionSnapshot.tax_rate_bp ||
+        totalsSnapshot.appliedMarginMultiplier !==
+          versionSnapshot.margin_multiplier;
+      if (shouldUpdateLines) {
+        const updatedLines = lineItemsSnapshot.map((item) => {
+          const { lineInput, lineValues } =
+            computeLineValuesWithLaborContext(item, {
+              marginMultiplier: totalsSnapshot.appliedMarginMultiplier,
+              taxRateBp: settingsSnapshot.tax_rate_bp,
+            });
+          return {
+            ...item,
+            tax_rate_bp: lineInput.tax_rate_bp,
+            k_fo: lineInput.k_fo,
+            h_mo: lineInput.h_mo,
+            k_mo: lineInput.k_mo,
+            ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+              ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+              : {}),
+            pu_ht_cents: lineValues.puHtCents,
+            line_total_ht_cents: lineValues.saleLineCents,
+            line_tax_cents: lineValues.taxLineCents,
+            line_total_ttc_cents: lineValues.ttcLineCents,
+          };
+        });
+
+        setItems((previous) => {
+          if (!isCurrentSettingsSave()) return previous;
+          const updatedLineById = new Map(
+            updatedLines.map((line) => [line.id, line])
+          );
+          return previous.map((item) => updatedLineById.get(item.id) ?? item);
+        });
+
+        try {
+          const bulkResult = await bulkUpdateEstimateItems(
+            targetVersionId,
+            updatedVersion.updated_at,
+            updatedLines.map((item) => ({
+              id: item.id,
+              updates: buildEstimateItemUpdatePayload(item),
+            }))
+          );
+          if (!isCurrentSettingsSave()) return;
+
+          const latestVersionToken = bulkResult.versionToken.updated_at;
+          if (versionRef.current?.id === targetVersionId) {
+            versionRef.current = {
+              ...versionRef.current,
+              updated_at: latestVersionToken,
+            };
+          }
+          setVersion((previous) =>
+            previous?.id === targetVersionId
+              ? { ...previous, updated_at: latestVersionToken }
+              : previous
+          );
+        } catch (error) {
+          if (!isCurrentSettingsSave()) return;
+          if (!handleVersionConflict(error, { persistDraft: true })) {
+            setActionError("Impossible de mettre a jour les lignes.");
+          }
+          return;
+        }
+      }
+
+      if (isCurrentSettingsSave()) {
+        clearConflictDraft();
+      }
+    } finally {
+      if (isCurrentSettingsSave()) {
+        setActiveSettingsSave((previous) =>
+          previous?.operationId === operationId ? null : previous
+        );
+      }
+    }
   }
 
   const handleCreateRole = useCallback(
@@ -3609,153 +1664,83 @@ export function useEstimateEditorState({
     }
   }, []);
 
-  const handleCreateSuggestionRule = useCallback(
-    async (payload: SuggestionRuleCreatePayload) => {
-      setRulesError(null);
-      if (isReadOnly) {
-        setRulesError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setRulesError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-        return;
-      }
-      if (!profile?.id) {
-        setRulesError("Impossible de charger votre profil.");
-        return;
-      }
-
-      setIsSavingRules(true);
-      const nextPosition =
-        suggestionRules.reduce((max, rule) => Math.max(max, rule.position), 0) +
-        1;
-      const position =
-        payload.position && payload.position > 0 ? payload.position : nextPosition;
-
-      if (!version?.id) {
-        setIsSavingRules(false);
-        setRulesError("Version introuvable.");
-        return;
-      }
-
-      let data: SuggestionRule;
-      try {
-        data = await createEstimateSuggestionRule(version.id, {
-          name: payload.name,
-          match_type: "keyword",
-          match_value: payload.match_value,
-          unit: payload.unit,
-          category_id: payload.category_id,
-          k_fo: payload.k_fo,
-          k_mo: payload.k_mo,
-          labor_role_id: payload.labor_role_id,
-          position,
-          is_active: payload.is_active,
-        });
-      } catch (error) {
-        setIsSavingRules(false);
-        setRulesError(
-          error instanceof Error ? error.message : "Impossible de creer la regle."
-        );
-        return;
-      }
-
-      setIsSavingRules(false);
-
-      setSuggestionRules((prev) =>
-        [...prev, data].sort((a, b) => a.position - b.position)
-      );
+  const normalizePatchedItem = useCallback(
+    (item: EditorEstimateItem) => {
+      if (item.item_type !== "line") return item;
+      const taxRate =
+        item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
+      const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
+        marginMultiplier: settings?.margin_multiplier ?? 1,
+        taxRateBp: taxRate,
+      });
+      return {
+        ...item,
+        tax_rate_bp: lineInput.tax_rate_bp,
+        k_fo: lineInput.k_fo,
+        h_mo: lineInput.h_mo,
+        k_mo: lineInput.k_mo,
+        ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+          ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+          : {}),
+        pu_ht_cents: lineValues.puHtCents,
+        line_total_ht_cents: lineValues.saleLineCents,
+        line_tax_cents: lineValues.taxLineCents,
+        line_total_ttc_cents: lineValues.ttcLineCents,
+      };
     },
     [
-      conflictState?.message,
-      isConflictLocked,
-      isReadOnly,
-      profile,
-      readOnlyActionErrorMessage,
-      suggestionRules,
-      version?.id,
+      computeLineValuesWithLaborContext,
+      isLaborSplitEnabled,
+      settings?.margin_multiplier,
+      settings?.tax_rate_bp,
     ]
   );
 
-  const handleUpdateSuggestionRule = useCallback(
-    async (id: string, updates: Partial<SuggestionRule>) => {
-      setRulesError(null);
-      if (isReadOnly) {
-        setRulesError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setRulesError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-        return;
-      }
-      if (!version?.id) {
-        setRulesError("Version introuvable.");
-        return;
-      }
+  const itemsController = useEstimateEditorItemsController({
+    version,
+    settings,
+    isLaborSplitEnabled,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    setItems,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    normalizePatchedItem,
+    enqueueItemUpdate: enqueueBufferedItemUpdate,
+    pushHistoryCommand,
+    reloadItems,
+  });
+  const {
+    addSection: handleAddSection,
+    addLine: handleAddLine,
+    deleteItem: handleDeleteItem,
+    patchItem: handlePatchItem,
+    recreateItemsFromSnapshots,
+    applySiblingOrder,
+  } = itemsController.actions;
 
-      let data: SuggestionRule | null = null;
-      try {
-        data = await updateEstimateSuggestionRule(version.id, id, updates);
-      } catch (error) {
-        setRulesError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de mettre a jour la regle."
-        );
-        return;
-      }
-
-      setSuggestionRules((prev) =>
-        prev
-          .map((rule) => (rule.id === id ? (data ?? { ...rule, ...updates }) : rule))
-          .sort((a, b) => a.position - b.position)
-      );
-    },
-    [
-      conflictState?.message,
-      isConflictLocked,
-      isReadOnly,
-      readOnlyActionErrorMessage,
-      version,
-    ]
-  );
-
-  const getNextPosition = useCallback((parentId: string | null) => {
-    const siblings = itemsRef.current.filter(
-      (item) => item.parent_id === parentId
-    );
-    const maxPosition = siblings.reduce(
-      (max, item) => Math.max(max, item.position),
-      0
-    );
-    return maxPosition + 1;
-  }, []);
-
-  const resolveParentSectionLevel = useCallback((parentId: string | null) => {
-    if (!parentId) return 0;
-
-    const itemById = new Map(itemsRef.current.map((item) => [item.id, item]));
-    let level = 0;
-    let cursorId: string | null = parentId;
-    let guard = 0;
-
-    while (cursorId && guard < 200) {
-      guard += 1;
-      const parent = itemById.get(cursorId);
-      if (!parent || parent.item_type !== "section") {
-        break;
-      }
-
-      level += 1;
-      cursorId = parent.parent_id;
-    }
-
-    return level;
-  }, []);
+  const orderingController = useEstimateEditorOrderingController({
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    setItems,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    pushHistoryCommand,
+  });
+  const {
+    reorder: handleReorder,
+    move: handleMoveItem,
+  } = orderingController.actions;
 
   const applyVersionToken = useCallback((updatedAt: string) => {
     setVersion((previous) =>
@@ -3774,804 +1759,451 @@ export function useEstimateEditorState({
     }
   }, []);
 
-  const applyBulkLineState = useCallback(
-    async (
-      targetLines: EstimateItem[],
-      failureMessage: string
-    ) => {
-      const snapshot = itemsRef.current;
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        throw new Error("Version introuvable.");
+  const importController = useEstimateEditorImportController({
+    routeVersionId: resolvedVersionId,
+    activeVersion: version,
+    autoOpenStructureDraft: shouldAutoOpenStructureDraft,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    getVersionSnapshot,
+    ensureGroupedActionCanProceed,
+    applyVersionToken,
+    handleVersionConflict,
+    reloadItems: reloadItemsForStructuralMutation,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+  });
+  const {
+    isLoadingLinkedDpgfSource,
+    isImportingDpgfSource,
+    isImportFromEstimateDialogOpen,
+    isEstimateStructureDraftDialogOpen,
+    importSummaryMessage,
+  } = importController.state;
+  const {
+    importLinkedDpgfSource: handleImportDpgfSource,
+    openImportFromEstimateDialog: openImportFromEstimateDialogAction,
+    closeImportFromEstimateDialog,
+    confirmImportFromEstimate: handleConfirmImportFromEstimateDialog,
+    openEstimateStructureDraftDialog:
+      openEstimateStructureDraftDialogAction,
+    closeEstimateStructureDraftDialog:
+      closeEstimateStructureDraftDialogAction,
+    applyEstimateStructureDraft: handleConfirmEstimateStructureDraftDialog,
+    clearImportSummary,
+  } = importController.actions;
+  const {
+    hasLinkedDpgfSource,
+    isImportDpgfSourceDisabled: isImportControllerDpgfSourceDisabled,
+  } = importController.meta;
+  const isImportDpgfSourceDisabled =
+    isImportControllerDpgfSourceDisabled || isSaveBlocked || isExporting;
+
+  const refreshAiVersionZeroSummary = useCallback(
+    async (targetVersionId: string) => {
+      const refreshed = await fetchEstimateEditorData(targetVersionId);
+      if (refreshed.version.id !== targetVersionId) {
+        throw new Error("Resume V0 incoherent avec la version active.");
       }
-
-      const updatedById = new Map(targetLines.map((line) => [line.id, line]));
-      setItems((previous) =>
-        previous.map((item) => updatedById.get(item.id) ?? item)
-      );
-
-      const updatesPayload = targetLines.map((line) => ({
-        id: line.id,
-        updates: buildEstimateItemUpdatePayload(line),
-      }));
-
-      try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          versionSnapshot.updated_at,
-          updatesPayload
-        );
-        applyVersionToken(bulkResult.versionToken.updated_at);
-        setTotalsOutOfSync(false);
-      } catch (error) {
-        setItems(snapshot);
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error ? error.message : failureMessage
-            )
-          );
-        }
-        throw error;
-      }
+      return refreshed.versionZeroSummary ?? null;
     },
-    [applyVersionToken, handleVersionConflict]
+    []
   );
 
-  const recreateItemsFromSnapshots = useCallback(
-    async (versionId: string, snapshots: EstimateItem[]) => {
-      const idMap = new Map<string, string>();
-      const createdItems: EstimateItem[] = [];
-      const sortedSnapshots = sortItemsForTreeRecreation(snapshots);
-
-      for (const snapshotItem of sortedSnapshots) {
-        const mappedParentId = snapshotItem.parent_id
-          ? (idMap.get(snapshotItem.parent_id) ?? snapshotItem.parent_id)
-          : null;
-        const createPayload = buildEstimateItemInsertPayload(versionId, snapshotItem, {
-          parentId: mappedParentId,
-          position: snapshotItem.position,
-          title: snapshotItem.title,
-        });
-        const created = await createEstimateItem(versionId, createPayload);
-        idMap.set(snapshotItem.id, created.id);
-        createdItems.push(created);
+  const refreshAfterAiMutation = useCallback(
+    async (targetVersionId: string) => {
+      const refreshed = await fetchEstimateEditorData(targetVersionId);
+      if (refreshed.version.id !== targetVersionId) {
+        throw new Error("Version rafraichie incoherente.");
       }
+
+      const refreshedVersion = refreshed.version as EstimateVersionView;
+      const refreshedItems = refreshed.items ?? [];
+      const normalizedItems =
+        refreshedVersion.status === "draft"
+          ? normalizeDraftItems({
+              items: refreshedItems,
+              version: refreshedVersion,
+              rateById: laborRateById,
+            })
+          : refreshedItems;
 
       return {
-        idMap,
-        createdItems,
+        items: applyPendingBufferedUpdatesToItems(normalizedItems),
+        updatedAt: refreshedVersion.updated_at,
       };
     },
+    [applyPendingBufferedUpdatesToItems, laborRateById]
+  );
+
+  const applyAiMutationRefresh = useCallback(
+    ({
+      items: refreshedItems,
+      updatedAt,
+    }: {
+      items: EditorEstimateItem[];
+      updatedAt: string;
+    }) => {
+      setItems(refreshedItems);
+      applyVersionToken(updatedAt);
+    },
+    [applyVersionToken]
+  );
+
+  const aiDialogActionsRef = useRef<{
+    openGeneratedOuvrageDialog: () => boolean;
+    openVersionZeroDialog: () => boolean;
+    dismissDialogs: () => void;
+  }>({
+    openGeneratedOuvrageDialog: () => false,
+    openVersionZeroDialog: () => false,
+    dismissDialogs: () => undefined,
+  });
+  const openGeneratedOuvrageDialogFromRef = useCallback(
+    () => aiDialogActionsRef.current.openGeneratedOuvrageDialog(),
+    []
+  );
+  const openVersionZeroDialogFromRef = useCallback(
+    () => aiDialogActionsRef.current.openVersionZeroDialog(),
+    []
+  );
+  const dismissAiDialogsFromRef = useCallback(
+    () => aiDialogActionsRef.current.dismissDialogs(),
     []
   );
 
-  const applySiblingOrder = useCallback(
-    async (
-      versionId: string,
-      siblingOrderByParent: Map<string | null, string[]>,
-      idMap: Map<string, string> = new Map()
-    ) => {
-      if (siblingOrderByParent.size === 0) return;
+  const aiImportCoordinator = useEstimateEditorAiImportCoordinator({
+    routeVersionId: resolvedVersionId,
+    autoOpenVersionZero: shouldAutoOpenVersionZero,
+    autoOpenStructureDraft: shouldAutoOpenStructureDraft,
+    ensureGroupedActionCanProceed,
+    openGeneratedOuvrageDialog: openGeneratedOuvrageDialogFromRef,
+    openVersionZeroDialog: openVersionZeroDialogFromRef,
+    dismissAiDialogs: dismissAiDialogsFromRef,
+    openImportFromEstimateDialog: openImportFromEstimateDialogAction,
+    closeImportFromEstimateDialog,
+    openEstimateStructureDraftDialog:
+      openEstimateStructureDraftDialogAction,
+    closeEstimateStructureDraftDialog:
+      closeEstimateStructureDraftDialogAction,
+    clearImportSummary,
+    refreshAfterAiMutation,
+    applyAiMutationRefresh,
+  });
+  const {
+    invalidateAfterAiMutation,
+    openGeneratedOuvrageDialog: handleOpenGeneratedOuvrageDialog,
+    openVersionZeroDialog: handleOpenVersionZeroDialog,
+    openImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
+    openEstimateStructureDraftDialog:
+      handleOpenEstimateStructureDraftDialog,
+  } = aiImportCoordinator.actions;
 
-      const currentItemIds = new Set(itemsRef.current.map((item) => item.id));
-      const nextPositionById = new Map<string, number>();
+  const aiDialogsController = useEstimateEditorAiDialogsController({
+    routeVersionId: resolvedVersionId,
+    activeVersion: version,
+    items,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    ensureMutationCanProceed: ensureGroupedActionCanProceed,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    refreshVersionZeroSummary: refreshAiVersionZeroSummary,
+    invalidateAfterMutation: invalidateAfterAiMutation,
+  });
+  const {
+    isGeneratedOuvrageDialogOpen,
+    isVersionZeroDialogOpen,
+    highlightedItemIds,
+  } = aiDialogsController.state;
+  const {
+    openGeneratedOuvrageDialog,
+    openVersionZeroDialog,
+    dismissDialogs: dismissAiDialogs,
+    hydrateVersionZeroSummary: hydrateAiVersionZeroSummary,
+    highlightItems: highlightAiMutationItems,
+  } = aiDialogsController.actions;
+  const {
+    existingSections: existingAiSections,
+    generatedOuvrageDialogProps,
+    versionZeroDraftDialogProps,
+    versionZeroActionLabel,
+    isVersionZeroActionDisabled,
+  } = aiDialogsController.meta;
 
-      for (const [parentId, orderedIds] of siblingOrderByParent.entries()) {
-        const mappedOrderedIds = orderedIds
-          .map((itemId) => idMap.get(itemId) ?? itemId)
-          .filter((itemId) => currentItemIds.has(itemId));
-
-        if (mappedOrderedIds.length === 0) continue;
-        await reorderEstimateItems(versionId, parentId, mappedOrderedIds);
-        mappedOrderedIds.forEach((itemId, index) => {
-          nextPositionById.set(itemId, index + 1);
-        });
-      }
-
-      if (nextPositionById.size === 0) return;
-      setItems((previous) =>
-        previous.map((item) =>
-          nextPositionById.has(item.id)
-            ? { ...item, position: nextPositionById.get(item.id) ?? item.position }
-            : item
-        )
-      );
-    },
-    []
-  );
-
-  const persistMoveItem = useCallback(
-    async (versionId: string, move: EstimateItemMovePayload) => {
-      await moveEstimateItem(versionId, {
-        item_id: move.itemId,
-        from_parent_id: move.fromParentId,
-        to_parent_id: move.toParentId,
-        ordered_source_ids: move.orderedSourceIds,
-        ordered_target_ids: move.orderedTargetIds,
-      });
-    },
-    []
-  );
-
-  const handleAddSection = useCallback(
-    async (parentId: string | null) => {
-      if (!version) return;
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      setActionError(null);
-      const position = getNextPosition(parentId);
-      const nextSectionLevel = resolveParentSectionLevel(parentId) + 1;
-      const tempId = createTempEstimateItemId();
-      const optimisticSection = createOptimisticSectionItem({
-        tempId,
-        tenantId: version.tenant_id,
-        versionId: version.id,
-        parentId,
-        position,
-        title: getDefaultSectionTitleForLevel(nextSectionLevel),
-      });
-
-      setItems((prev) => [...prev, optimisticSection]);
-
-      try {
-        const created = await createEstimateItem(version.id, {
-          version_id: version.id,
-          parent_id: parentId,
-          item_type: "section",
-          position,
-          title: optimisticSection.title,
-        });
-
-        if (removedTempItemIdsRef.current.has(tempId)) {
-          removedTempItemIdsRef.current.delete(tempId);
-          queuedPatchesByTempIdRef.current.delete(tempId);
-          try {
-            await deleteEstimateItem(version.id, created.id);
-          } catch {
-            // Best effort cleanup only.
-          }
-          return;
-        }
-
-        const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
-        queuedPatchesByTempIdRef.current.delete(tempId);
-
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === tempId
-              ? (reconcileCreatedItemWithLocalDraft(
-                  created,
-                  buildEstimateItemUpdatePayload(item),
-                  queuedPatch
-                ) as EditorEstimateItem)
-              : item
-          )
-        );
-
-        if (queuedPatch) {
-          enqueueBufferedItemUpdate(created.id, queuedPatch);
-        }
-
-        let currentSectionId = created.id;
-        pushHistoryCommand({
-          label: "add-section",
-          undo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const snapshot = itemsRef.current;
-            const idsToRemove = collectSubtreeItemIds(snapshot, currentSectionId);
-            setItems((previous) =>
-              previous.filter((item) => !idsToRemove.has(item.id))
-            );
-
-            try {
-              await deleteEstimateItem(versionSnapshot.id, currentSectionId);
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(snapshot);
-              throw error;
-            }
-          },
-          redo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const payload = buildEstimateItemInsertPayload(versionSnapshot.id, created, {
-              parentId,
-              position: created.position,
-              title: created.title,
-            });
-            const recreated = await createEstimateItem(versionSnapshot.id, payload);
-            currentSectionId = recreated.id;
-            setItems((previous) => [...previous, recreated]);
-            setTotalsOutOfSync(false);
-          },
-        });
-      } catch (error) {
-        queuedPatchesByTempIdRef.current.delete(tempId);
-        setItems((previous) => previous.filter((item) => item.id !== tempId));
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error ? error.message : "Impossible de creer le chapitre."
-          )
-        );
-      }
-    },
-    [
-      enqueueBufferedItemUpdate,
-      getNextPosition,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      resolveParentSectionLevel,
-      version,
-    ]
-  );
-
-  const handleAddLine = useCallback(
-    async (parentId: string | null) => {
-      if (!version || !settings) return;
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      setActionError(null);
-      const position = getNextPosition(parentId);
-      const newLineInput = {
-        quantity: 1,
-        unit_price_ht_cents: 0,
-        tax_rate_bp: settings.tax_rate_bp,
-        k_fo: 1,
-        h_mo: 0,
-        h_mo_majoration: 1,
-        k_mo: 1,
-        pu_ht_cents: 0,
-        labor_role_hourly_rate_cents: 0,
-        h_mo_atelier: 0,
-        k_mo_atelier: 1,
-        labor_role_atelier_id: null,
-        labor_role_atelier_hourly_rate_cents: 0,
-        h_mo_chantier: 0,
-        k_mo_chantier: 1,
-        labor_role_chantier_id: null,
-        labor_role_chantier_hourly_rate_cents: 0,
+  useLayoutEffect(() => {
+    aiDialogActionsRef.current = {
+      openGeneratedOuvrageDialog,
+      openVersionZeroDialog,
+      dismissDialogs: dismissAiDialogs,
+    };
+    hydrateAiVersionZeroSummaryRef.current = hydrateAiVersionZeroSummary;
+    highlightAiMutationItemsRef.current = highlightAiMutationItems;
+    return () => {
+      aiDialogActionsRef.current = {
+        openGeneratedOuvrageDialog: () => false,
+        openVersionZeroDialog: () => false,
+        dismissDialogs: () => undefined,
       };
-      const lineComputationOptions = {
-        marginMultiplier: settings.margin_multiplier,
-        taxRateBp: settings.tax_rate_bp,
-        isLaborSplitEnabled,
+      hydrateAiVersionZeroSummaryRef.current = () => undefined;
+      highlightAiMutationItemsRef.current = () => undefined;
+    };
+  }, [
+    dismissAiDialogs,
+    highlightAiMutationItems,
+    hydrateAiVersionZeroSummary,
+    openGeneratedOuvrageDialog,
+    openVersionZeroDialog,
+  ]);
+
+  const suggestionsController = useEstimateEditorSuggestionsController({
+    routeVersionId: resolvedVersionId,
+    currentUserId: profile?.id ?? null,
+    previewItems: deferredItems,
+    categories,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    setItems,
+    normalizeLine: normalizePatchedItem,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    ensureGroupedActionCanProceed,
+    applyVersionToken,
+    handleVersionConflict,
+  });
+  const {
+    rules: suggestionRules,
+    learningState: suggestionLearningState,
+    isSavingRules,
+    rulesError,
+    isDialogOpen: isBulkSuggestDialogOpen,
+    selectedItemIds: selectedBulkSuggestItemIds,
+    dialogError: bulkSuggestDialogError,
+    isApplying: isApplyingBulkSuggest,
+    progress: bulkSuggestProgress,
+    isUndoing: isUndoingBulkSuggest,
+  } = suggestionsController.state;
+  const {
+    hydrate: hydrateSuggestions,
+    createRule: handleCreateSuggestionRule,
+    updateRule: handleUpdateSuggestionRule,
+    trackCorrections: handleTrackSuggestionCorrections,
+    openDialog: handleOpenBulkSuggestDialog,
+    closeDialog: handleCloseBulkSuggestDialog,
+    toggleItem: handleToggleBulkSuggestItem,
+    toggleAll: handleToggleAllBulkSuggestItems,
+    applySelected: handleApplyBulkSuggest,
+    undoLastApply: handleUndoBulkSuggest,
+  } = suggestionsController.actions;
+  const {
+    preview: bulkSuggestPreview,
+    eligibleCount: bulkSuggestionEligibleCount,
+    showProgress: showBulkSuggestProgress,
+    appliedCount: bulkSuggestAppliedCount,
+  } = suggestionsController.meta;
+
+  useEffect(() => {
+    if (!suggestionsHydration) return;
+    return deferEffectStateUpdate(() => {
+      hydrateSuggestions(suggestionsHydration);
+    });
+  }, [hydrateSuggestions, suggestionsHydration]);
+
+  const applyStatusVersion = useCallback((updatedVersion: EstimateVersionRow) => {
+    setVersion((previous) =>
+      previous?.id === updatedVersion.id
+        ? {
+            ...previous,
+            status: updatedVersion.status,
+            updated_at: updatedVersion.updated_at,
+            seal_hash: updatedVersion.seal_hash ?? previous.seal_hash,
+          }
+        : previous
+    );
+    if (versionRef.current?.id === updatedVersion.id) {
+      versionRef.current = {
+        ...versionRef.current,
+        status: updatedVersion.status,
+        updated_at: updatedVersion.updated_at,
+        seal_hash: updatedVersion.seal_hash ?? versionRef.current.seal_hash,
       };
-      const lineValues = computeEstimateLineValues(
-        newLineInput,
-        lineComputationOptions
-      );
-      const tempId = createTempEstimateItemId();
-      const optimisticLine = createOptimisticLineItem({
-        tempId,
-        tenantId: version.tenant_id,
-        versionId: version.id,
-        parentId,
-        position,
-        title: "Nouvelle ligne",
-        quantity: 1,
-        taxRateBp: settings.tax_rate_bp,
-        puHtCents: lineValues.puHtCents,
-        lineTotalHtCents: lineValues.saleLineCents,
-        lineTaxCents: lineValues.taxLineCents,
-        lineTotalTtcCents: lineValues.ttcLineCents,
-        isLaborSplitEnabled,
-      });
+    }
+  }, []);
 
-      setItems((prev) => [...prev, optimisticLine]);
-
-      try {
-        const createPayload: Database["public"]["Tables"]["estimate_items"]["Insert"] &
-          LaborSplitItemFields = {
-          version_id: version.id,
-          parent_id: parentId,
-          item_type: "line",
-          position,
-          title: optimisticLine.title,
-          description: null,
-          quantity: 1,
-          unit_price_ht_cents: 0,
-          tax_rate_bp: settings.tax_rate_bp,
-          k_fo: 1,
-          h_mo: 0,
-          h_mo_majoration: 1,
-          k_mo: 1,
-          pu_ht_cents: lineValues.puHtCents,
-          labor_role_id: null,
-          category_id: null,
-          supply_type_id: null,
-          selected_supplier_price_id: null,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-        if (isLaborSplitEnabled) {
-          createPayload.h_mo_atelier = 0;
-          createPayload.k_mo_atelier = 1;
-          createPayload.labor_role_atelier_id = null;
-          createPayload.h_mo_chantier = 0;
-          createPayload.k_mo_chantier = 1;
-          createPayload.labor_role_chantier_id = null;
+  const statusController = useEstimateEditorStatusController({
+    routeVersionId: resolvedVersionId,
+    activeVersion: version
+      ? {
+          id: version.id,
+          status: version.status,
+          updated_at: version.updated_at,
         }
+      : null,
+    gatingReloadToken: reloadNonce,
+    getVersionSnapshot,
+    applyUpdatedVersion: applyStatusVersion,
+    isAdmin,
+    isViewerReadOnly,
+    isConflictLocked,
+    conflictMessage: conflictState?.message ?? null,
+    isDraftLockPending,
+    isDraftLockedByOther,
+    draftLockedByOtherMessage: `Verrouille par ${lockHolderLabel}.`,
+    isDraftLockAcquiring,
+    isForcingDraftUnlock,
+    isFlushInProgress,
+    flushBufferedItemUpdates,
+    hasPendingUpdatesNow,
+    releaseDraftLock,
+    handleVersionConflict,
+    resolveErrorMessage: resolveEstimateActionError,
+    refreshTimeline: loadTimelineEvents,
+  });
+  const {
+    error: statusError,
+    isUpdatingStatus,
+    sendGating,
+    isSendGatingDialogOpen,
+  } = statusController.state;
+  const {
+    confirmSend: handleConfirmSend,
+    changeStatus: handleStatusChange,
+    closeSendGatingDialog,
+  } = statusController.actions;
+  const {
+    canSend: canSendForStatus,
+    canAccept,
+    canArchive,
+    isStatusActionsDisabled,
+    isSendBlockedForCurrentUser,
+    sendWorkflowPhaseLabel,
+  } = statusController.meta;
+  const canSend = canSendForStatus && !isViewerReadOnly;
 
-        const created = await createEstimateItem(version.id, createPayload);
+  const supplierController = useEstimateEditorSupplierController({
+    routeVersionId: resolvedVersionId,
+    items,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    normalizeLine: normalizePatchedItem,
+    setItems,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    applyVersionToken,
+    ensureGroupedActionCanProceed,
+    handleVersionConflict,
+  });
+  const {
+    isOpen: isSupplierPreselectionDialogOpen,
+    review: supplierPreselectionReview,
+    selectedItemIds: selectedSupplierPreselectionItemIds,
+    error: supplierPreselectionDialogError,
+    isLoading: isLoadingSupplierPreselection,
+    isApplying: isApplyingSupplierPreselection,
+  } = supplierController.state;
+  const {
+    open: handleOpenSupplierPreselectionDialog,
+    close: handleCloseSupplierPreselectionDialog,
+    toggleItem: handleToggleSupplierPreselectionItem,
+    toggleAll: handleToggleAllSupplierPreselectionItems,
+    apply: handleApplySupplierPreselection,
+  } = supplierController.actions;
+  const { eligibleCount: supplierPreselectionEligibleCount } =
+    supplierController.meta;
+  const handleConfirmSupplierPreselection = handleApplySupplierPreselection;
 
-        if (removedTempItemIdsRef.current.has(tempId)) {
-          removedTempItemIdsRef.current.delete(tempId);
-          queuedPatchesByTempIdRef.current.delete(tempId);
-          try {
-            await deleteEstimateItem(version.id, created.id);
-          } catch {
-            // Best effort cleanup only.
-          }
-          return;
-        }
+  const bulkController = useEstimateEditorBulkController({
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    isLaborSplitEnabled,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    setItems,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    normalizeLine: normalizePatchedItem,
+    applyVersionToken,
+    ensureGroupedActionCanProceed,
+    handleVersionConflict,
+    triggerVersionReload,
+    pushHistoryCommand,
+    recreateItemsFromSnapshots,
+    applySiblingOrder,
+    reloadItems,
+  });
+  const {
+    applyBulkMajoration: handleApplyBulkMajoration,
+    bulkDeleteLines: handleBulkDeleteLines,
+    bulkMoveLines: handleBulkMoveLines,
+    bulkSetCategory: handleBulkSetCategory,
+    bulkSetLaborRole: handleBulkSetLaborRole,
+  } = bulkController.actions;
 
-        const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
-        queuedPatchesByTempIdRef.current.delete(tempId);
+  const pasteController = useEstimateEditorPasteController({
+    settings,
+    isLaborSplitEnabled,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    supplyTypeIdByLowerName,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    setItems,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    applyVersionToken,
+    ensureGroupedActionCanProceed,
+    handleVersionConflict,
+    triggerVersionReload,
+    pushHistoryCommand,
+    recreateItemsFromSnapshots,
+    reloadItems,
+  });
+  const { pasteRows: handlePasteRows } = pasteController.actions;
 
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === tempId
-              ? (reconcileCreatedItemWithLocalDraft(
-                  created,
-                  buildEstimateItemUpdatePayload(item),
-                  queuedPatch
-                ) as EditorEstimateItem)
-              : item
-          )
-        );
-
-        if (queuedPatch) {
-          enqueueBufferedItemUpdate(created.id, queuedPatch);
-        }
-
-        let currentLineId = created.id;
-        pushHistoryCommand({
-          label: "add-line",
-          undo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const snapshot = itemsRef.current;
-            setItems((previous) =>
-              previous.filter((item) => item.id !== currentLineId)
-            );
-            try {
-              await deleteEstimateItem(versionSnapshot.id, currentLineId);
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(snapshot);
-              throw error;
-            }
-          },
-          redo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const payload = buildEstimateItemInsertPayload(versionSnapshot.id, created, {
-              parentId,
-              position: created.position,
-              title: created.title,
-            });
-            const recreated = await createEstimateItem(versionSnapshot.id, payload);
-            currentLineId = recreated.id;
-            setItems((previous) => [...previous, recreated]);
-            setTotalsOutOfSync(false);
-          },
-        });
-      } catch (error) {
-        queuedPatchesByTempIdRef.current.delete(tempId);
-        setItems((previous) => previous.filter((item) => item.id !== tempId));
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error ? error.message : "Impossible d'ajouter la ligne."
-          )
-        );
-      }
-    },
-    [
-      enqueueBufferedItemUpdate,
-      getNextPosition,
-      isLaborSplitEnabled,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      settings,
-      version,
-    ]
-  );
-
-  const handleInsertAssembly = useCallback(
-    async (assemblyId: string, afterItemId: string | null) => {
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        return;
-      }
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-        return;
-      }
-
-      setActionError(null);
-      const snapshot = itemsRef.current;
-      let insertedItems: EstimateItem[] = [];
-
-      try {
-        insertedItems = await insertAssemblyIntoVersion(assemblyId, {
-          versionId: version.id,
-          afterItemId,
-        });
-
-        if (insertedItems.length === 0) {
-          return;
-        }
-
-        const insertedIds = new Set(insertedItems.map((item) => item.id));
-        const insertedSection =
-          insertedItems.find((item) => item.item_type === "section") ??
-          insertedItems[0];
-
-        const targetParentId = insertedSection.parent_id ?? null;
-        const targetPosition = insertedSection.position;
-
-        const shiftedExistingItems = snapshot.map((item) => {
-          if (insertedIds.has(item.id)) return item;
-          if ((item.parent_id ?? null) !== targetParentId) return item;
-          if (item.position < targetPosition) return item;
-          return {
-            ...item,
-            position: item.position + 1,
-          };
-        });
-
-        setItems([...shiftedExistingItems, ...insertedItems]);
-        setTotalsOutOfSync(false);
-      } catch (error) {
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible d'inserer l'assemblage."
-            )
-          );
-        }
-        return;
-      }
-
-      await refreshVersionTokenAfterAssemblyInsert(version.id, {
-        fetchEstimateEditorData,
-        onVersionToken: (updatedAt) => {
-          applyVersionToken(updatedAt);
-        },
-        onError: (error) => {
-          console.error(
-            "Impossible de rafraichir le jeton de version apres insertion d'assemblage.",
-            error
-          );
-        },
-      });
-
-      if (insertedItems.length === 0) return;
-
-      let latestInsertedRoots = resolveTopLevelItemIds(insertedItems);
-      pushHistoryCommand({
-        label: "insert-assembly",
-        undo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const undoSnapshot = itemsRef.current;
-          const idsToRemove = new Set<string>();
-          latestInsertedRoots.forEach((rootId) => {
-            collectSubtreeItemIds(undoSnapshot, rootId).forEach((id) => {
-              idsToRemove.add(id);
-            });
-          });
-          setItems((previous) =>
-            previous.filter((item) => !idsToRemove.has(item.id))
-          );
-
-          try {
-            for (const rootId of latestInsertedRoots) {
-              await deleteEstimateItem(versionSnapshot.id, rootId);
-            }
-            setTotalsOutOfSync(false);
-          } catch (error) {
-            setItems(undoSnapshot);
-            throw error;
-          }
-        },
-        redo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const redoSnapshot = itemsRef.current;
-          const recreated = await insertAssemblyIntoVersion(assemblyId, {
-            versionId: versionSnapshot.id,
-            afterItemId,
-          });
-          if (recreated.length === 0) return;
-
-          latestInsertedRoots = resolveTopLevelItemIds(recreated);
-          const recreatedIds = new Set(recreated.map((item) => item.id));
-          const insertedSection =
-            recreated.find((item) => item.item_type === "section") ?? recreated[0];
-          const targetParentId = insertedSection?.parent_id ?? null;
-          const targetPosition = insertedSection?.position ?? 1;
-
-          const shiftedExistingItems = redoSnapshot.map((item) => {
-            if (recreatedIds.has(item.id)) return item;
-            if ((item.parent_id ?? null) !== targetParentId) return item;
-            if (item.position < targetPosition) return item;
-            return {
-              ...item,
-              position: item.position + 1,
-            };
-          });
-
-          setItems([...shiftedExistingItems, ...recreated]);
-          setTotalsOutOfSync(false);
-
-          await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-            fetchEstimateEditorData,
-            onVersionToken: (updatedAt) => {
-              applyVersionToken(updatedAt);
-            },
-            onError: (error) => {
-              console.error(
-                "Impossible de rafraichir le jeton de version apres reinsertion d'assemblage.",
-                error
-              );
-            },
-          });
-        },
-      });
-    },
-    [
-      applyVersionToken,
-      conflictState?.message,
-      handleVersionConflict,
-      isConflictLocked,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      version,
-    ]
-  );
-
-  const handleInsertTemplate = useCallback(
-    async (templateId: string, afterItemId: string | null) => {
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        return;
-      }
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-        return;
-      }
-
-      setActionError(null);
-      const snapshot = itemsRef.current;
-      let insertedItems: EstimateItem[] = [];
-      let insertedRootsTracker = createTopLevelItemIdsTracker([]);
-
-      try {
-        insertedItems = await insertTemplateIntoVersion(templateId, {
-          versionId: version.id,
-          afterItemId,
-        });
-
-        if (insertedItems.length === 0) {
-          return;
-        }
-
-        insertedRootsTracker = createTopLevelItemIdsTracker(insertedItems);
-        setItems(applyOptimisticTemplateInsertion(snapshot, insertedItems));
-        setTotalsOutOfSync(false);
-      } catch (error) {
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible d'inserer le template."
-            )
-          );
-        }
-        return;
-      }
-
-      await refreshVersionTokenAfterAssemblyInsert(version.id, {
-        fetchEstimateEditorData,
-        onVersionToken: (updatedAt) => {
-          applyVersionToken(updatedAt);
-        },
-        onError: (error) => {
-          console.error(
-            "Impossible de rafraichir le jeton de version apres insertion de template.",
-            error
-          );
-        },
-      });
-
-      if (insertedItems.length === 0) return;
-
-      pushHistoryCommand({
-        label: "insert-template",
-        undo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const undoSnapshot = itemsRef.current;
-          const idsToRemove = new Set<string>();
-          const latestInsertedRoots = insertedRootsTracker.getCurrent();
-          latestInsertedRoots.forEach((rootId) => {
-            collectSubtreeItemIds(undoSnapshot, rootId).forEach((id) => {
-              idsToRemove.add(id);
-            });
-          });
-          setItems((previous) =>
-            previous.filter((item) => !idsToRemove.has(item.id))
-          );
-
-          try {
-            for (const rootId of latestInsertedRoots) {
-              await deleteEstimateItem(versionSnapshot.id, rootId);
-            }
-            setTotalsOutOfSync(false);
-          } catch (error) {
-            setItems(undoSnapshot);
-            throw error;
-          }
-        },
-        redo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const redoSnapshot = itemsRef.current;
-          const recreated = await insertTemplateIntoVersion(templateId, {
-            versionId: versionSnapshot.id,
-            afterItemId,
-          });
-          if (recreated.length === 0) return;
-
-          insertedRootsTracker.replace(recreated);
-          setItems(applyOptimisticTemplateInsertion(redoSnapshot, recreated));
-          setTotalsOutOfSync(false);
-
-          await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-            fetchEstimateEditorData,
-            onVersionToken: (updatedAt) => {
-              applyVersionToken(updatedAt);
-            },
-            onError: (error) => {
-              console.error(
-                "Impossible de rafraichir le jeton de version apres reinsertion de template.",
-                error
-              );
-            },
-          });
-        },
-      });
-    },
-    [
-      applyVersionToken,
-      conflictState?.message,
-      handleVersionConflict,
-      isConflictLocked,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      version,
-    ]
-  );
-
-  const handleDuplicateSection = useCallback<
-    NonNullable<EstimateEditorTableProps["onDuplicateSection"]>
-  >(
-    async (sectionId) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      setActionError(null);
-
-      try {
-        const result = await duplicateEstimateSection(versionSnapshot.id, sectionId);
-        await reloadItems();
-        setTotalsOutOfSync(false);
-
-        if (result.versionToken?.updated_at) {
-          applyVersionToken(result.versionToken.updated_at);
-          return;
-        }
-
-        await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-          fetchEstimateEditorData,
-          onVersionToken: (updatedAt) => {
-            applyVersionToken(updatedAt);
-          },
-          onError: (error) => {
-            console.error(
-              "Impossible de rafraichir le jeton de version apres duplication de section.",
-              error
-            );
-          },
-        });
-      } catch (error) {
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible de dupliquer la section."
-            )
-          );
-        }
-      }
-    },
-    [
-      applyVersionToken,
-      conflictState?.message,
-      handleVersionConflict,
-      isConflictLocked,
-      isReadOnly,
-      readOnlyActionErrorMessage,
-      reloadItems,
-    ]
-  );
+  const structureController = useEstimateEditorStructureController({
+    routeVersionId: resolvedVersionId,
+    isMutationBlocked: isReadOnly || isConflictLocked,
+    mutationBlockedMessage: isConflictLocked
+      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      : readOnlyActionErrorMessage,
+    getItemsSnapshot,
+    getVersionSnapshot,
+    setItems,
+    setTotalsOutOfSync,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+    applyVersionToken,
+    handleVersionConflict,
+    ensureGroupedActionCanProceed,
+    pushHistoryCommand,
+    reloadItems,
+  });
+  const {
+    insertAssembly: handleInsertAssembly,
+    insertTemplate: handleInsertTemplate,
+    duplicateSection: handleDuplicateSection,
+  } = structureController.actions;
 
   const handleDuplicateSectionToVersion = useCallback<
     NonNullable<EstimateEditorTableProps["onDuplicateSectionToVersion"]>
@@ -4650,1989 +2282,6 @@ export function useEstimateEditorState({
     ]
   );
 
-  const handleOpenImportFromEstimateDialog = useCallback(() => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    if (!versionRef.current?.id) {
-      setActionError("Version introuvable.");
-      return;
-    }
-
-    setActionError(null);
-    setImportSummaryMessage(null);
-    setIsImportFromEstimateDialogOpen(true);
-  }, [
-    conflictState?.message,
-    isConflictLocked,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-  ]);
-
-  const handleConfirmImportFromEstimateDialog = useCallback(
-    async (input: ImportEstimateSectionsPayload) => {
-      if (isReadOnly) {
-        throw new Error(readOnlyActionErrorMessage);
-      }
-      if (isConflictLocked) {
-        throw new Error(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot?.id) {
-        throw new Error("Version introuvable.");
-      }
-
-      setActionError(null);
-      setImportSummaryMessage(null);
-
-      const result = await importEstimateSections(versionSnapshot.id, input);
-      await reloadItems();
-      setTotalsOutOfSync(false);
-
-      setImportSummaryMessage(
-        `${result.importedSectionsCount} section(s) et ${result.importedLinesCount} ligne(s) importees.`
-      );
-
-      if (result.versionToken?.updated_at) {
-        applyVersionToken(result.versionToken.updated_at);
-        return;
-      }
-
-      await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-        fetchEstimateEditorData,
-        onVersionToken: (updatedAt) => {
-          applyVersionToken(updatedAt);
-        },
-        onError: (error) => {
-          console.error(
-            "Impossible de rafraichir le jeton de version apres import de sections.",
-            error
-          );
-        },
-      });
-    },
-    [
-      applyVersionToken,
-      conflictState?.message,
-      isConflictLocked,
-      isReadOnly,
-      readOnlyActionErrorMessage,
-      reloadItems,
-    ]
-  );
-
-  const handleOpenEstimateStructureDraftDialog = useCallback(() => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-
-    if (!versionRef.current?.id) {
-      setActionError("Version introuvable.");
-      return;
-    }
-
-    setActionError(null);
-    setImportSummaryMessage(null);
-    setIsEstimateStructureDraftDialogOpen(true);
-  }, [
-    conflictState?.message,
-    isConflictLocked,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-  ]);
-
-  const handleOpenGeneratedOuvrageDialog = useCallback(() => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-    if (!versionRef.current?.id) {
-      setActionError("Version introuvable.");
-      return;
-    }
-    setActionError(null);
-    setImportSummaryMessage(null);
-    setIsGeneratedOuvrageDialogOpen(true);
-  }, [
-    conflictState?.message,
-    isConflictLocked,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-  ]);
-
-  const handleOpenVersionZeroDialog = useCallback(() => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-    if (!versionRef.current?.id) {
-      setActionError("Version introuvable.");
-      return;
-    }
-    setActionError(null);
-    setImportSummaryMessage(null);
-    setIsVersionZeroDialogOpen(true);
-  }, [
-    conflictState?.message,
-    isConflictLocked,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-  ]);
-
-  const handleConfirmEstimateStructureDraftDialog = useCallback(
-    async (draftId: string, input: ApplyEstimateStructureDraftPayload) => {
-      if (isReadOnly) {
-        throw new Error(readOnlyActionErrorMessage);
-      }
-      if (isConflictLocked) {
-        throw new Error(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot?.id) {
-        throw new Error("Version introuvable.");
-      }
-
-      setActionError(null);
-      setImportSummaryMessage(null);
-
-      const result = await applyEstimateStructureDraft(
-        versionSnapshot.id,
-        draftId,
-        input
-      );
-      await reloadItems();
-      setTotalsOutOfSync(false);
-
-      setImportSummaryMessage(
-        `${result.createdCount} section(s) creee(s), ${result.mergedCount} fusion(s), ${result.skippedCount} ignoree(s).`
-      );
-
-      if (result.versionToken?.updated_at) {
-        applyVersionToken(result.versionToken.updated_at);
-      } else {
-        await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-          fetchEstimateEditorData,
-          onVersionToken: (updatedAt) => {
-            applyVersionToken(updatedAt);
-          },
-          onError: (error) => {
-            console.error(
-              "Impossible de rafraichir le jeton de version apres application de structure IA.",
-              error
-            );
-          },
-        });
-      }
-
-      return result;
-    },
-    [
-      applyVersionToken,
-      conflictState?.message,
-      isConflictLocked,
-      isReadOnly,
-      readOnlyActionErrorMessage,
-      reloadItems,
-    ]
-  );
-
-  const handleImportDpgfSource = useCallback(async () => {
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
-      );
-      return;
-    }
-    if (isImportingDpgfSource) {
-      return;
-    }
-    if (!hasLinkedDpgfSource) {
-      setActionError("Aucune source DPGF importable n'est liee a cette affaire.");
-      return;
-    }
-
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot?.id) {
-      setActionError("Version introuvable.");
-      return;
-    }
-
-    setActionError(null);
-    setImportSummaryMessage(null);
-    setIsImportingDpgfSource(true);
-
-    try {
-      const result: ImportLinkedDpgfSourceResult =
-        await importLinkedDpgfSource(versionSnapshot.id);
-
-      await reloadItems();
-      setTotalsOutOfSync(false);
-
-      if (result.importedLinesCount >= 0) {
-        const suffix = result.importedLinesCount > 1 ? "s" : "";
-        setImportSummaryMessage(
-          `${result.importedLinesCount} ligne${suffix} importee${suffix} depuis le DPGF source.`
-        );
-      } else {
-        setImportSummaryMessage("Import du DPGF source termine.");
-      }
-
-      if (result.versionToken?.updated_at) {
-        applyVersionToken(result.versionToken.updated_at);
-        return;
-      }
-
-      await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-        fetchEstimateEditorData,
-        onVersionToken: (updatedAt) => {
-          applyVersionToken(updatedAt);
-        },
-        onError: (error) => {
-          console.error(
-            "Impossible de rafraichir le jeton de version apres import du DPGF source.",
-            error
-          );
-        },
-      });
-    } catch (error) {
-      console.error("Erreur lors de l'import du DPGF source lie.", error);
-      setActionError(
-        resolveEstimateActionError(
-          error instanceof Error
-            ? error.message
-            : "Impossible d'importer le DPGF source lie."
-        )
-      );
-    } finally {
-      setIsImportingDpgfSource(false);
-    }
-  }, [
-    applyVersionToken,
-    conflictState?.message,
-    hasLinkedDpgfSource,
-    isConflictLocked,
-    isImportingDpgfSource,
-    isReadOnly,
-    readOnlyActionErrorMessage,
-    reloadItems,
-  ]);
-
-  const handleDeleteItem = useCallback(
-    async (itemId: string) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      const snapshot = itemsRef.current;
-      const idsToRemove = collectSubtreeItemIds(snapshot, itemId);
-      const impactedCount = idsToRemove.size;
-      const impactedLabel =
-        impactedCount > 1
-          ? `${impactedCount} elements (cet element + ${impactedCount - 1} enfant${
-              impactedCount - 1 > 1 ? "s" : ""
-            })`
-          : "cet element";
-      if (!window.confirm(`Supprimer ${impactedLabel} ?`)) return;
-      setActionError(null);
-
-      const deletedSnapshots = snapshot.filter((item) => idsToRemove.has(item.id));
-      const allSiblingOrders = buildSiblingOrderByParent(snapshot);
-      const siblingOrderByParent = new Map<string | null, string[]>();
-      const affectedParentIds = new Set<string | null>();
-      deletedSnapshots.forEach((item) => {
-        affectedParentIds.add(item.parent_id ?? null);
-      });
-      affectedParentIds.forEach((parentId) => {
-        const order = allSiblingOrders.get(parentId);
-        if (order) {
-          siblingOrderByParent.set(parentId, order);
-        }
-      });
-      setItems((prev) => prev.filter((item) => !idsToRemove.has(item.id)));
-
-      const removedTempIds = Array.from(idsToRemove).filter((id) =>
-        isTempEstimateItemId(id)
-      );
-      const removedTempQueuedPatches = markTempItemsRemoved(
-        removedTempIds,
-        removedTempItemIdsRef.current,
-        queuedPatchesByTempIdRef.current
-      );
-      const rollbackRemovedTempIds = () => {
-        rollbackRemovedTempItems(
-          removedTempIds,
-          removedTempQueuedPatches,
-          removedTempItemIdsRef.current,
-          queuedPatchesByTempIdRef.current
-        );
-      };
-
-      if (isTempEstimateItemId(itemId)) {
-        setTotalsOutOfSync(false);
-        return;
-      }
-
-      if (!version?.id) {
-        rollbackRemovedTempIds();
-        setActionError("Version introuvable.");
-        await reloadItems();
-        return;
-      }
-
-      try {
-        await deleteEstimateItem(version.id, itemId);
-        let currentDeletedRootId = itemId;
-        pushHistoryCommand({
-          label: "delete-item",
-          undo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const undoSnapshot = itemsRef.current;
-            try {
-              const recreated = await recreateItemsFromSnapshots(
-                versionSnapshot.id,
-                deletedSnapshots
-              );
-
-              setItems([...undoSnapshot, ...recreated.createdItems]);
-              try {
-                await applySiblingOrder(
-                  versionSnapshot.id,
-                  siblingOrderByParent,
-                  recreated.idMap
-                );
-              } catch (error) {
-                console.error(
-                  "Impossible de restaurer l'ordre exact apres annulation de suppression.",
-                  error
-                );
-              }
-              currentDeletedRootId =
-                recreated.idMap.get(itemId) ?? currentDeletedRootId;
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              await reloadItems();
-              throw error;
-            }
-          },
-          redo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const redoSnapshot = itemsRef.current;
-            const redoIdsToRemove = collectSubtreeItemIds(
-              redoSnapshot,
-              currentDeletedRootId
-            );
-            setItems((previous) =>
-              previous.filter((item) => !redoIdsToRemove.has(item.id))
-            );
-            try {
-              await deleteEstimateItem(versionSnapshot.id, currentDeletedRootId);
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(redoSnapshot);
-              throw error;
-            }
-          },
-        });
-      } catch (error) {
-        rollbackRemovedTempIds();
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error ? error.message : "Impossible de supprimer la ligne."
-          )
-        );
-        await reloadItems();
-      }
-    },
-    [
-      applySiblingOrder,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      recreateItemsFromSnapshots,
-      reloadItems,
-      version,
-    ]
-  );
-
-  const handlePatchItem = useCallback(
-    async (
-      itemId: string,
-      patch: ItemPatch,
-      options?: { persist?: boolean }
-    ) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      const persist = options?.persist ?? false;
-      const snapshot = itemsRef.current;
-      const current = snapshot.find((item) => item.id === itemId);
-      if (!current) return;
-      const previousItem = current;
-
-      let updated: EditorEstimateItem = { ...current, ...patch };
-
-      if (updated.item_type === "line") {
-        const taxRate =
-          updated.tax_rate_bp ??
-          settings?.tax_rate_bp ??
-          current.tax_rate_bp ??
-          0;
-        const marginMultiplier = settings?.margin_multiplier ?? 1;
-        const { lineInput, lineValues } = computeLineValuesWithLaborContext(updated, {
-          marginMultiplier,
-          taxRateBp: taxRate,
-        });
-        updated = {
-          ...updated,
-          tax_rate_bp: lineInput.tax_rate_bp,
-          k_fo: lineInput.k_fo,
-          h_mo: lineInput.h_mo,
-          k_mo: lineInput.k_mo,
-          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-            : {}),
-          pu_ht_cents: lineValues.puHtCents,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-      }
-
-      const applyLocalItemPatch = () => {
-        setItems((prev) =>
-          prev.map((item) => (item.id === itemId ? updated : item))
-        );
-      };
-
-      if (!persist) {
-        // Draft keystrokes must update synchronously to preserve the native caret
-        // position in controlled inputs (titles, AID, numeric cells).
-        applyLocalItemPatch();
-        return;
-      }
-
-      applyLocalItemPatch();
-
-      if (isTempEstimateItemId(itemId) || isPendingCreateEstimateItem(current)) {
-        const queuedPayload = buildEstimateItemUpdatePayload(updated);
-        const existingPayload = queuedPatchesByTempIdRef.current.get(itemId) ?? {};
-        queuedPatchesByTempIdRef.current.set(itemId, {
-          ...existingPayload,
-          ...queuedPayload,
-        });
-        setTotalsOutOfSync(false);
-        return;
-      }
-
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        setItems(snapshot);
-        return;
-      }
-
-      enqueueBufferedItemUpdate(itemId, buildEstimateItemUpdatePayload(updated));
-      setTotalsOutOfSync(false);
-      pushHistoryCommand({
-        label: "patch-item",
-        undo: async () => {
-          setItems((previous) =>
-            previous.map((item) => (item.id === itemId ? previousItem : item))
-          );
-          enqueueBufferedItemUpdate(
-            itemId,
-            buildEstimateItemUpdatePayload(previousItem)
-          );
-          setTotalsOutOfSync(false);
-        },
-        redo: async () => {
-          setItems((previous) =>
-            previous.map((item) => (item.id === itemId ? updated : item))
-          );
-          enqueueBufferedItemUpdate(
-            itemId,
-            buildEstimateItemUpdatePayload(updated)
-          );
-          setTotalsOutOfSync(false);
-        },
-      });
-    },
-    [
-      enqueueBufferedItemUpdate,
-      computeLineValuesWithLaborContext,
-      isLaborSplitEnabled,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      settings?.margin_multiplier,
-      settings?.tax_rate_bp,
-      version?.id,
-    ]
-  );
-
-  const handleApplyBulkMajoration = useCallback(
-    async (itemIds: string[], coefficient: number) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-
-      const canProceed = await ensureGroupedActionCanProceed(
-        "appliquer la majoration en lot"
-      );
-      if (!canProceed) {
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      const normalizedCoefficient = Math.max(toFiniteNumber(coefficient, 1), 0);
-      const selectedIds = new Set(itemIds);
-      const snapshot = itemsRef.current;
-
-      const selectedLines = snapshot.filter(
-        (item): item is EstimateItem =>
-          item.item_type === "line" && selectedIds.has(item.id)
-      );
-
-      if (selectedLines.length === 0) {
-        return;
-      }
-
-      setActionError(null);
-
-      const marginMultiplier = settings?.margin_multiplier ?? 1;
-      const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
-
-      const updatedLines = selectedLines.map((item) => {
-        const nextItem: EstimateItem = {
-          ...item,
-          h_mo_majoration: normalizedCoefficient,
-        };
-
-        const taxRate = nextItem.tax_rate_bp ?? fallbackTaxRateBp;
-        const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextItem, {
-          marginMultiplier,
-          taxRateBp: taxRate,
-        });
-
-        return {
-          ...nextItem,
-          tax_rate_bp: lineInput.tax_rate_bp,
-          k_fo: lineInput.k_fo,
-          h_mo: lineInput.h_mo,
-          h_mo_majoration: lineInput.h_mo_majoration,
-          k_mo: lineInput.k_mo,
-          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-            : {}),
-          pu_ht_cents: lineValues.puHtCents,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-      });
-
-      try {
-        await applyBulkLineState(
-          updatedLines,
-          "Impossible d'appliquer la majoration en lot."
-        );
-        pushHistoryCommand({
-          label: "bulk-majoration",
-          undo: async () => {
-            await applyBulkLineState(
-              selectedLines,
-              "Impossible d'annuler la majoration en lot."
-            );
-          },
-          redo: async () => {
-            await applyBulkLineState(
-              updatedLines,
-              "Impossible de reappliquer la majoration en lot."
-            );
-          },
-        });
-      } catch (error) {
-        void error;
-      }
-    },
-    [
-      applyBulkLineState,
-      computeLineValuesWithLaborContext,
-      ensureGroupedActionCanProceed,
-      isLaborSplitEnabled,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      settings?.margin_multiplier,
-      settings?.tax_rate_bp,
-    ]
-  );
-
-  const handleBulkDeleteLines = useCallback(
-    async (itemIds: string[]) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-
-      const canProceed = await ensureGroupedActionCanProceed(
-        "supprimer les lignes selectionnees"
-      );
-      if (!canProceed) {
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      const selectedIdSet = new Set(itemIds);
-      const snapshot = itemsRef.current;
-      const selectedLines = snapshot.filter(
-        (item) => item.item_type === "line" && selectedIdSet.has(item.id)
-      );
-
-      if (selectedLines.length === 0) return;
-      const siblingOrderByParent = new Map<string | null, string[]>();
-      const allSiblingOrders = buildSiblingOrderByParent(snapshot);
-      selectedLines.forEach((line) => {
-        const parentId = line.parent_id ?? null;
-        const orderedIds = allSiblingOrders.get(parentId);
-        if (!orderedIds) return;
-        siblingOrderByParent.set(parentId, orderedIds);
-      });
-
-      setActionError(null);
-      setItems((previous) =>
-        previous.filter((item) => !selectedIdSet.has(item.id))
-      );
-
-      let deletedCount = 0;
-      try {
-        for (const line of selectedLines) {
-          await deleteEstimateItem(versionSnapshot.id, line.id);
-          deletedCount += 1;
-        }
-        setTotalsOutOfSync(false);
-        let currentDeletedLineIds = selectedLines.map((line) => line.id);
-        pushHistoryCommand({
-          label: "bulk-delete-lines",
-          undo: async () => {
-            const currentVersionSnapshot = versionRef.current;
-            if (!currentVersionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const undoSnapshot = itemsRef.current;
-            try {
-              const recreated = await recreateItemsFromSnapshots(
-                currentVersionSnapshot.id,
-                selectedLines
-              );
-              setItems([...undoSnapshot, ...recreated.createdItems]);
-              await applySiblingOrder(
-                currentVersionSnapshot.id,
-                siblingOrderByParent,
-                recreated.idMap
-              );
-              currentDeletedLineIds = selectedLines.map(
-                (line) => recreated.idMap.get(line.id) ?? line.id
-              );
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              await reloadItems();
-              throw error;
-            }
-          },
-          redo: async () => {
-            const currentVersionSnapshot = versionRef.current;
-            if (!currentVersionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const redoSnapshot = itemsRef.current;
-            const toDelete = new Set(currentDeletedLineIds);
-            setItems((previous) =>
-              previous.filter((item) => !toDelete.has(item.id))
-            );
-
-            try {
-              for (const lineId of currentDeletedLineIds) {
-                await deleteEstimateItem(currentVersionSnapshot.id, lineId);
-              }
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(redoSnapshot);
-              throw error;
-            }
-          },
-        });
-      } catch (error) {
-        setItems(snapshot);
-        if (deletedCount > 0) {
-          const hasConflict = handleVersionConflict(error, { persistDraft: true });
-          if (!hasConflict) {
-            triggerVersionReload();
-          }
-
-          const baseMessage = resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible de supprimer toutes les lignes selectionnees."
-          );
-          setActionError(
-            `Suppression partielle detectee (${deletedCount}/${selectedLines.length}) : ${baseMessage}. La version a ete rechargee; verifiez les lignes puis reessayez.`
-          );
-          return;
-        }
-
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible de supprimer les lignes selectionnees."
-            )
-          );
-        }
-      }
-    },
-    [
-      ensureGroupedActionCanProceed,
-      handleVersionConflict,
-      isReadOnly,
-      pushHistoryCommand,
-      recreateItemsFromSnapshots,
-      applySiblingOrder,
-      readOnlyActionErrorMessage,
-      reloadItems,
-      triggerVersionReload,
-    ]
-  );
-
-  const handleBulkMoveLines = useCallback(
-    async (itemIds: string[], targetParentId: string | null) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-
-      const canProceed = await ensureGroupedActionCanProceed(
-        "deplacer les lignes selectionnees"
-      );
-      if (!canProceed) {
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      const selectedIdSet = new Set(itemIds);
-      const snapshot = itemsRef.current;
-      const lineById = new Map(
-        snapshot
-          .filter((item): item is EstimateItem => item.item_type === "line")
-          .map((item) => [item.id, item])
-      );
-      const selectedLines = itemIds
-        .map((itemId) => lineById.get(itemId) ?? null)
-        .filter((item): item is EstimateItem => item !== null);
-
-      if (selectedLines.length === 0) return;
-
-      setActionError(null);
-      let nextPosition =
-        snapshot
-          .filter(
-            (item) =>
-              item.parent_id === targetParentId && !selectedIdSet.has(item.id)
-          )
-          .reduce((max, item) => Math.max(max, item.position), 0) + 1;
-
-      const movedLines = selectedLines.map((line) => {
-        const moved = {
-          ...line,
-          parent_id: targetParentId,
-          position: nextPosition,
-        };
-        nextPosition += 1;
-        return moved;
-      });
-
-      try {
-        await applyBulkLineState(
-          movedLines,
-          "Impossible de deplacer les lignes selectionnees."
-        );
-        pushHistoryCommand({
-          label: "bulk-move-lines",
-          undo: async () => {
-            await applyBulkLineState(
-              selectedLines,
-              "Impossible d'annuler le deplacement des lignes."
-            );
-          },
-          redo: async () => {
-            await applyBulkLineState(
-              movedLines,
-              "Impossible de reappliquer le deplacement des lignes."
-            );
-          },
-        });
-      } catch (error) {
-        void error;
-      }
-    },
-    [
-      applyBulkLineState,
-      ensureGroupedActionCanProceed,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-    ]
-  );
-
-  const handleBulkSetCategory = useCallback(
-    async (itemIds: string[], categoryId: string | null) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-
-      const canProceed = await ensureGroupedActionCanProceed(
-        "appliquer la categorie en lot"
-      );
-      if (!canProceed) {
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      const selectedIdSet = new Set(itemIds);
-      const snapshot = itemsRef.current;
-      const selectedLines = snapshot.filter(
-        (item): item is EstimateItem =>
-          item.item_type === "line" && selectedIdSet.has(item.id)
-      );
-
-      if (selectedLines.length === 0) return;
-
-      const updatedLines = selectedLines.map((line) => ({
-        ...line,
-        category_id: categoryId,
-      }));
-
-      setActionError(null);
-      try {
-        await applyBulkLineState(
-          updatedLines,
-          "Impossible d'appliquer la categorie en lot."
-        );
-        pushHistoryCommand({
-          label: "bulk-set-category",
-          undo: async () => {
-            await applyBulkLineState(
-              selectedLines,
-              "Impossible d'annuler la categorie en lot."
-            );
-          },
-          redo: async () => {
-            await applyBulkLineState(
-              updatedLines,
-              "Impossible de reappliquer la categorie en lot."
-            );
-          },
-        });
-      } catch (error) {
-        void error;
-      }
-    },
-    [
-      applyBulkLineState,
-      ensureGroupedActionCanProceed,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-    ]
-  );
-
-  const handleBulkSetLaborRole = useCallback(
-    async (itemIds: string[], laborRoleId: string | null) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-
-      const canProceed = await ensureGroupedActionCanProceed(
-        "appliquer le role MO en lot"
-      );
-      if (!canProceed) {
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      const selectedIdSet = new Set(itemIds);
-      const snapshot = itemsRef.current;
-      const selectedLines = snapshot.filter(
-        (item): item is EstimateItem =>
-          item.item_type === "line" && selectedIdSet.has(item.id)
-      );
-
-      if (selectedLines.length === 0) return;
-
-      setActionError(null);
-      const marginMultiplier = settings?.margin_multiplier ?? 1;
-      const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
-
-      const updatedLines = selectedLines.map((line) => {
-        const nextLine: EstimateItem = {
-          ...line,
-          labor_role_id: laborRoleId,
-          ...(isLaborSplitEnabled
-            ? {
-                labor_role_atelier_id: laborRoleId,
-                labor_role_chantier_id: laborRoleId,
-              }
-            : {}),
-        };
-        const taxRate = nextLine.tax_rate_bp ?? fallbackTaxRateBp;
-        const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextLine, {
-          marginMultiplier,
-          taxRateBp: taxRate,
-        });
-
-        return {
-          ...nextLine,
-          tax_rate_bp: lineInput.tax_rate_bp,
-          k_fo: lineInput.k_fo,
-          h_mo: lineInput.h_mo,
-          h_mo_majoration: lineInput.h_mo_majoration,
-          k_mo: lineInput.k_mo,
-          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-            : {}),
-          pu_ht_cents: lineValues.puHtCents,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-      });
-
-      try {
-        await applyBulkLineState(
-          updatedLines,
-          "Impossible d'appliquer le role MO en lot."
-        );
-        pushHistoryCommand({
-          label: "bulk-set-labor-role",
-          undo: async () => {
-            await applyBulkLineState(
-              selectedLines,
-              "Impossible d'annuler le role MO en lot."
-            );
-          },
-          redo: async () => {
-            await applyBulkLineState(
-              updatedLines,
-              "Impossible de reappliquer le role MO en lot."
-            );
-          },
-        });
-      } catch (error) {
-        void error;
-      }
-    },
-    [
-      applyBulkLineState,
-      computeLineValuesWithLaborContext,
-      ensureGroupedActionCanProceed,
-      isLaborSplitEnabled,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      settings?.margin_multiplier,
-      settings?.tax_rate_bp,
-    ]
-  );
-
-  const handleToggleOutlierDismiss = useCallback(
-    async (
-      itemId: string,
-      flagKey: EstimateOutlierFlagKey,
-      dismissed: boolean
-    ) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
-        );
-        return;
-      }
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      setActionError(null);
-      setOutlierActionPendingByItemId((prev) => ({
-        ...prev,
-        [itemId]: true,
-      }));
-
-      try {
-        const nextDismissed = await toggleEstimateOutlierDismissedFlag(version.id, {
-          itemId,
-          flagKey,
-          dismissed,
-        });
-        setDismissedOutlierFlagsByItemId(nextDismissed);
-      } catch (error) {
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible de mettre a jour l'acceptation de l'outlier."
-            )
-          );
-        }
-      } finally {
-        setOutlierActionPendingByItemId((prev) => {
-          if (!prev[itemId]) return prev;
-          const next = { ...prev };
-          delete next[itemId];
-          return next;
-        });
-      }
-    },
-    [
-      conflictState?.message,
-      handleVersionConflict,
-      isConflictLocked,
-      isReadOnly,
-      readOnlyActionErrorMessage,
-      version,
-    ]
-  );
-
-  const handleReorder = useCallback(
-    async (parentId: string | null, orderedIds: string[]) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      const snapshot = itemsRef.current;
-      const hasPendingCreation = orderedIds.some((id) => {
-        const item = snapshot.find((candidate) => candidate.id === id);
-        if (!item) return false;
-        return isPendingCreateEstimateItem(item) || isTempEstimateItemId(item.id);
-      });
-      if (hasPendingCreation) {
-        setActionError(
-          "Impossible de reordonner tant que des elements en creation ne sont pas synchronises."
-        );
-        return;
-      }
-      const previousOrderedIds = snapshot
-        .filter((item) => item.parent_id === parentId)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.id);
-      if (previousOrderedIds.join("|") === orderedIds.join("|")) {
-        return;
-      }
-      const updated = snapshot.map((item) => {
-        if (item.parent_id !== parentId) return item;
-        const index = orderedIds.indexOf(item.id);
-        if (index === -1) return item;
-        return { ...item, position: index + 1 };
-      });
-
-      setItems(updated);
-
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        setItems(snapshot);
-        return;
-      }
-
-      try {
-        await reorderEstimateItems(version.id, parentId, orderedIds);
-        pushHistoryCommand({
-          label: "reorder",
-          undo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const undoSnapshot = itemsRef.current;
-            const undoItems = undoSnapshot.map((item) => {
-              if (item.parent_id !== parentId) return item;
-              const index = previousOrderedIds.indexOf(item.id);
-              if (index === -1) return item;
-              return { ...item, position: index + 1 };
-            });
-            setItems(undoItems);
-            try {
-              await reorderEstimateItems(
-                versionSnapshot.id,
-                parentId,
-                previousOrderedIds
-              );
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(undoSnapshot);
-              throw error;
-            }
-          },
-          redo: async () => {
-            const versionSnapshot = versionRef.current;
-            if (!versionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const redoSnapshot = itemsRef.current;
-            const redoItems = redoSnapshot.map((item) => {
-              if (item.parent_id !== parentId) return item;
-              const index = orderedIds.indexOf(item.id);
-              if (index === -1) return item;
-              return { ...item, position: index + 1 };
-            });
-            setItems(redoItems);
-            try {
-              await reorderEstimateItems(versionSnapshot.id, parentId, orderedIds);
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(redoSnapshot);
-              throw error;
-            }
-          },
-        });
-      } catch {
-        setActionError("Impossible de reordonner les lignes.");
-        setItems(snapshot);
-      }
-    },
-    [isReadOnly, pushHistoryCommand, readOnlyActionErrorMessage, version]
-  );
-
-  const handleMoveItem = useCallback<EstimateEditorTableProps["onMoveItem"]>(
-    async (
-      itemId,
-      fromParentId,
-      toParentId,
-      orderedSourceIds,
-      orderedTargetIds
-    ) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (fromParentId === toParentId) {
-        await handleReorder(fromParentId, orderedTargetIds);
-        return;
-      }
-
-      const snapshot = itemsRef.current;
-      const hasPendingCreation = [itemId, ...orderedSourceIds, ...orderedTargetIds].some(
-        (id) => {
-          const item = snapshot.find((candidate) => candidate.id === id);
-          if (!item) return false;
-          return isPendingCreateEstimateItem(item) || isTempEstimateItemId(item.id);
-        }
-      );
-      if (hasPendingCreation) {
-        setActionError(
-          "Impossible de deplacer tant que des elements en creation ne sont pas synchronises."
-        );
-        return;
-      }
-      const movedItem = snapshot.find((item) => item.id === itemId);
-      if (!movedItem) return;
-
-      const previousSourceOrderedIds = snapshot
-        .filter((item) => item.parent_id === fromParentId)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.id);
-      const previousTargetOrderedIds = snapshot
-        .filter((item) => item.parent_id === toParentId)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.id);
-
-      const movePayload: EstimateItemMovePayload = {
-        itemId,
-        fromParentId,
-        toParentId,
-        orderedSourceIds: [...orderedSourceIds],
-        orderedTargetIds: [...orderedTargetIds],
-      };
-      const undoSourceOrderedIds = movePayload.orderedTargetIds.filter(
-        (targetItemId) => targetItemId !== itemId
-      );
-      const undoTargetOrderedIds = movePayload.orderedSourceIds.filter(
-        (sourceItemId) => sourceItemId !== itemId
-      );
-      const previousSourceIndex = previousSourceOrderedIds.indexOf(itemId);
-      const undoTargetInsertIndex =
-        previousSourceIndex === -1
-          ? undoTargetOrderedIds.length
-          : Math.min(previousSourceIndex, undoTargetOrderedIds.length);
-      undoTargetOrderedIds.splice(undoTargetInsertIndex, 0, itemId);
-      const undoMovePayload: EstimateItemMovePayload = {
-        itemId,
-        fromParentId: toParentId,
-        toParentId: fromParentId,
-        orderedSourceIds: undoSourceOrderedIds,
-        orderedTargetIds: undoTargetOrderedIds,
-      };
-      const parentUnchanged = (movedItem.parent_id ?? null) === toParentId;
-      const sourceOrderUnchanged =
-        previousSourceOrderedIds.join("|") === orderedSourceIds.join("|");
-      const targetOrderUnchanged =
-        previousTargetOrderedIds.join("|") === orderedTargetIds.join("|");
-      if (parentUnchanged && sourceOrderUnchanged && targetOrderUnchanged) {
-        return;
-      }
-
-      const optimisticItems = applyInterParentMoveOptimistically(snapshot, movePayload);
-      setActionError(null);
-      setItems(optimisticItems);
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        setItems(snapshot);
-        return;
-      }
-
-      try {
-        await persistMoveItem(versionSnapshot.id, movePayload);
-        setTotalsOutOfSync(false);
-        pushHistoryCommand({
-          label: "move-item",
-          undo: async () => {
-            const undoVersionSnapshot = versionRef.current;
-            if (!undoVersionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const undoSnapshot = itemsRef.current;
-            setItems(applyInterParentMoveOptimistically(undoSnapshot, undoMovePayload));
-
-            try {
-              await persistMoveItem(undoVersionSnapshot.id, undoMovePayload);
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(undoSnapshot);
-              throw error;
-            }
-          },
-          redo: async () => {
-            const redoVersionSnapshot = versionRef.current;
-            if (!redoVersionSnapshot) {
-              throw new Error("Version introuvable.");
-            }
-
-            const redoSnapshot = itemsRef.current;
-            setItems(applyInterParentMoveOptimistically(redoSnapshot, movePayload));
-
-            try {
-              await persistMoveItem(redoVersionSnapshot.id, movePayload);
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              setItems(redoSnapshot);
-              throw error;
-            }
-          },
-        });
-      } catch (error) {
-        setItems(snapshot);
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error ? error.message : "Impossible de deplacer l'element."
-          )
-        );
-      }
-    },
-    [
-      handleReorder,
-      isReadOnly,
-      persistMoveItem,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-    ]
-  );
-
-  const handlePasteRows = useCallback<EstimateEditorTableProps["onPasteRows"]>(
-    async ({ anchorRowId, rows }) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot || !settings) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      const validRows = rows.filter(
-        (row) =>
-          typeof row.designation === "string" && row.designation.trim().length > 0
-      );
-      if (validRows.length === 0) {
-        setActionError("Aucune ligne valide a inserer.");
-        return;
-      }
-
-      setActionError(null);
-      const snapshot = itemsRef.current;
-      const anchorItem = anchorRowId
-        ? snapshot.find((item) => item.id === anchorRowId) ?? null
-        : null;
-      const targetParentId = anchorItem
-        ? anchorItem.item_type === "section"
-          ? anchorItem.id
-          : (anchorItem.parent_id ?? null)
-        : null;
-      const insertAfterId =
-        anchorItem && anchorItem.item_type === "line" ? anchorItem.id : null;
-      const beforeOrderedIds = snapshot
-        .filter((item) => item.parent_id === targetParentId)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.id);
-
-      let nextPosition =
-        snapshot
-          .filter((item) => item.parent_id === targetParentId)
-          .reduce((max, item) => Math.max(max, item.position), 0) + 1;
-
-      const createdItems: EstimateItem[] = [];
-      const createPayloads: EstimateItemInsertPayload[] = [];
-      let nextVersionToken = versionSnapshot.updated_at;
-      try {
-        for (const row of validRows) {
-          const designation = row.designation?.trim() || "Nouvelle ligne";
-          const quantity = Math.max(toFiniteNumber(row.quantity, 1), 0);
-          const unitPriceHt = Math.max(toFiniteNumber(row.unit_price_ht, 0), 0);
-          const unitPriceHtCents = Math.round(unitPriceHt * 100);
-          const kFo = Math.max(toFiniteNumber(row.k_fo, 1), 0);
-          const hMo = Math.max(toFiniteNumber(row.h_mo, 0), 0);
-          const kMo = Math.max(toFiniteNumber(row.k_mo, 1), 0);
-          const hMoMajoration = Math.max(
-            toFiniteNumber(row.h_mo_majoration, 1),
-            0
-          );
-          const supplyTypeId =
-            row.supply_type && row.supply_type.trim().length > 0
-              ? (supplyTypeIdByLowerName.get(row.supply_type.trim().toLowerCase()) ??
-                null)
-              : null;
-
-          const lineInput = {
-            quantity,
-            unit_price_ht_cents: unitPriceHtCents,
-            tax_rate_bp: settings.tax_rate_bp,
-            k_fo: kFo,
-            h_mo: hMo,
-            h_mo_majoration: hMoMajoration,
-            k_mo: kMo,
-            pu_ht_cents: 0,
-            labor_role_hourly_rate_cents: 0,
-            h_mo_atelier: 0,
-            k_mo_atelier: 1,
-            labor_role_atelier_id: null,
-            labor_role_atelier_hourly_rate_cents: 0,
-            h_mo_chantier: 0,
-            k_mo_chantier: 1,
-            labor_role_chantier_id: null,
-            labor_role_chantier_hourly_rate_cents: 0,
-          };
-          const lineValues = computeEstimateLineValues(lineInput, {
-            marginMultiplier: settings.margin_multiplier,
-            taxRateBp: settings.tax_rate_bp,
-            isLaborSplitEnabled,
-          });
-
-          const createPayload: EstimateItemInsertPayload = {
-            version_id: versionSnapshot.id,
-            parent_id: targetParentId,
-            item_type: "line",
-            position: nextPosition,
-            title: designation,
-            description: row.unit?.trim() || null,
-            quantity,
-            unit_price_ht_cents: unitPriceHtCents,
-            tax_rate_bp: settings.tax_rate_bp,
-            k_fo: kFo,
-            h_mo: hMo,
-            h_mo_majoration: hMoMajoration,
-            k_mo: kMo,
-            pu_ht_cents: lineValues.puHtCents,
-            labor_role_id: null,
-            category_id: null,
-            supply_type_id: supplyTypeId,
-            selected_supplier_price_id: null,
-            line_total_ht_cents: lineValues.saleLineCents,
-            line_tax_cents: lineValues.taxLineCents,
-            line_total_ttc_cents: lineValues.ttcLineCents,
-          };
-
-          if (isLaborSplitEnabled) {
-            createPayload.h_mo_atelier = 0;
-            createPayload.k_mo_atelier = 1;
-            createPayload.labor_role_atelier_id = null;
-            createPayload.h_mo_chantier = 0;
-            createPayload.k_mo_chantier = 1;
-            createPayload.labor_role_chantier_id = null;
-          }
-
-          createPayloads.push(createPayload);
-          nextPosition += 1;
-        }
-
-        for (
-          let startIndex = 0;
-          startIndex < createPayloads.length;
-          startIndex += PASTE_CREATE_BATCH_MAX_OPERATIONS
-        ) {
-          const payloadChunk = createPayloads.slice(
-            startIndex,
-            startIndex + PASTE_CREATE_BATCH_MAX_OPERATIONS
-          );
-          const batchResult = await batchEstimateOperations(
-            versionSnapshot.id,
-            nextVersionToken,
-            payloadChunk.map((payload) => ({
-              op: "create" as const,
-              data: payload,
-            }))
-          );
-
-          if (!batchResult.committed) {
-            const failedResult = batchResult.results.find(
-              (result) => result.status === "error"
-            );
-            throw new Error(
-              failedResult?.message ??
-                "Une operation de creation groupee a echoue."
-            );
-          }
-          nextVersionToken = batchResult.versionToken.updated_at;
-
-          const createdItemsByChunkIndex = new Map<number, EstimateItem>();
-          batchResult.results.forEach((result) => {
-            if (result.status !== "ok" || result.op !== "create") {
-              return;
-            }
-            if (!isRecord(result.data) || !isRecord(result.data.item)) {
-              return;
-            }
-            createdItemsByChunkIndex.set(
-              result.index,
-              result.data.item as EstimateItem
-            );
-          });
-
-          for (let chunkIndex = 0; chunkIndex < payloadChunk.length; chunkIndex += 1) {
-            const createdItem = createdItemsByChunkIndex.get(chunkIndex);
-            if (!createdItem) {
-              throw new Error("Impossible de recuperer les lignes collees.");
-            }
-            createdItems.push(createdItem);
-          }
-        }
-      } catch (error) {
-        if (createdItems.length > 0) {
-          await Promise.allSettled(
-            createdItems.map((item) => deleteEstimateItem(versionSnapshot.id, item.id))
-          );
-        }
-        throw new Error(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible d'inserer les lignes collees."
-          )
-        );
-      }
-
-      if (nextVersionToken !== versionSnapshot.updated_at) {
-        setVersion((previous) =>
-          previous
-            ? {
-                ...previous,
-                updated_at: nextVersionToken,
-              }
-            : previous
-        );
-        if (versionRef.current) {
-          versionRef.current = {
-            ...versionRef.current,
-            updated_at: nextVersionToken,
-          };
-        }
-      }
-
-      const insertedIds = createdItems.map((item) => item.id);
-      const mergedItems = [...snapshot, ...createdItems];
-      setItems(mergedItems);
-
-      const currentOrderedIds = mergedItems
-        .filter((item) => item.parent_id === targetParentId)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.id);
-
-      let afterOrderedIds = currentOrderedIds;
-      if (insertAfterId) {
-        const withoutInserted = currentOrderedIds.filter(
-          (itemId) => !insertedIds.includes(itemId)
-        );
-        const anchorIndex = withoutInserted.indexOf(insertAfterId);
-        if (anchorIndex >= 0) {
-          afterOrderedIds = [
-            ...withoutInserted.slice(0, anchorIndex + 1),
-            ...insertedIds,
-            ...withoutInserted.slice(anchorIndex + 1),
-          ];
-        } else {
-          afterOrderedIds = [...withoutInserted, ...insertedIds];
-        }
-      }
-
-      if (afterOrderedIds.join("|") !== currentOrderedIds.join("|")) {
-        try {
-          await reorderEstimateItems(
-            versionSnapshot.id,
-            targetParentId,
-            afterOrderedIds
-          );
-          const nextPositionById = new Map<string, number>();
-          afterOrderedIds.forEach((itemId, index) => {
-            nextPositionById.set(itemId, index + 1);
-          });
-          setItems((previous) =>
-            previous.map((item) =>
-              nextPositionById.has(item.id)
-                ? {
-                    ...item,
-                    position: nextPositionById.get(item.id) ?? item.position,
-                  }
-                : item
-            )
-          );
-        } catch (error) {
-          await reloadItems();
-          throw new Error(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible de repositionner les lignes collees."
-            )
-          );
-        }
-      }
-      setTotalsOutOfSync(false);
-
-      let currentInsertedIds = [...insertedIds];
-      pushHistoryCommand({
-        label: "paste-insert",
-        undo: async () => {
-          const undoVersionSnapshot = versionRef.current;
-          if (!undoVersionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const undoSnapshot = itemsRef.current;
-          const idsToDelete = new Set(currentInsertedIds);
-          setItems((previous) =>
-            previous.filter((item) => !idsToDelete.has(item.id))
-          );
-
-          try {
-            for (const itemId of currentInsertedIds) {
-              await deleteEstimateItem(undoVersionSnapshot.id, itemId);
-            }
-
-            const survivingIds = new Set(
-              undoSnapshot
-                .filter((item) => !idsToDelete.has(item.id))
-                .map((item) => item.id)
-            );
-            const restoredBeforeOrder = beforeOrderedIds.filter((itemId) =>
-              survivingIds.has(itemId)
-            );
-            if (restoredBeforeOrder.length > 0) {
-              await reorderEstimateItems(
-                undoVersionSnapshot.id,
-                targetParentId,
-                restoredBeforeOrder
-              );
-              const nextPositionById = new Map<string, number>();
-              restoredBeforeOrder.forEach((itemId, index) => {
-                nextPositionById.set(itemId, index + 1);
-              });
-              setItems((previous) =>
-                previous.map((item) =>
-                  nextPositionById.has(item.id)
-                    ? {
-                        ...item,
-                        position: nextPositionById.get(item.id) ?? item.position,
-                      }
-                    : item
-                )
-              );
-            }
-            setTotalsOutOfSync(false);
-          } catch (error) {
-            setItems(undoSnapshot);
-            throw error;
-          }
-        },
-        redo: async () => {
-          const redoVersionSnapshot = versionRef.current;
-          if (!redoVersionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const redoSnapshot = itemsRef.current;
-          const recreated = await recreateItemsFromSnapshots(
-            redoVersionSnapshot.id,
-            createdItems
-          );
-          const remappedAfterOrder = afterOrderedIds.map(
-            (itemId) => recreated.idMap.get(itemId) ?? itemId
-          );
-
-          setItems([...redoSnapshot, ...recreated.createdItems]);
-          currentInsertedIds = createdItems.map(
-            (item) => recreated.idMap.get(item.id) ?? item.id
-          );
-
-          try {
-            await reorderEstimateItems(
-              redoVersionSnapshot.id,
-              targetParentId,
-              remappedAfterOrder
-            );
-            const nextPositionById = new Map<string, number>();
-            remappedAfterOrder.forEach((itemId, index) => {
-              nextPositionById.set(itemId, index + 1);
-            });
-            setItems((previous) =>
-              previous.map((item) =>
-                nextPositionById.has(item.id)
-                  ? {
-                      ...item,
-                      position: nextPositionById.get(item.id) ?? item.position,
-                    }
-                  : item
-              )
-            );
-            setTotalsOutOfSync(false);
-          } catch (error) {
-            setItems(redoSnapshot);
-            throw error;
-          }
-        },
-      });
-    },
-    [
-      isLaborSplitEnabled,
-      isReadOnly,
-      pushHistoryCommand,
-      readOnlyActionErrorMessage,
-      recreateItemsFromSnapshots,
-      reloadItems,
-      settings,
-      supplyTypeIdByLowerName,
-    ]
-  );
-
-  const handleUndo = useCallback<EstimateEditorTableProps["onUndo"]>(async () => {
-    if (isUndoRedoBusyRef.current || !canUndo) return;
-    const didUndo = await executeUndo();
-    if (!didUndo) {
-      setActionError("Impossible d'annuler la derniere action.");
-    }
-  }, [canUndo, executeUndo]);
-
-  const handleRedo = useCallback<EstimateEditorTableProps["onRedo"]>(async () => {
-    if (isUndoRedoBusyRef.current || !canRedo) return;
-    const didRedo = await executeRedo();
-    if (!didRedo) {
-      setActionError("Impossible de retablir la derniere action.");
-    }
-  }, [canRedo, executeRedo]);
-
-  async function prepareStatusTransition() {
-    if (!version || isUpdatingStatus) return null;
-    if (isDraftLockPending) {
-      setStatusError("Acquisition du verrou de brouillon en cours.");
-      return null;
-    }
-    if (isDraftLockedByOther) {
-      setStatusError(`Verrouille par ${lockHolderLabel}.`);
-      return null;
-    }
-    setStatusError(null);
-
-    if (isFlushingBufferedUpdatesRef.current) {
-      setStatusError(
-        "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
-      );
-      return null;
-    }
-
-    const flushResult = await flushBufferedItemUpdates();
-    if (flushResult === "blocked" || flushResult === "error") {
-      setStatusError(
-        flushResult === "blocked"
-          ? "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisees."
-          : "Impossible de synchroniser les modifications avant changement de statut."
-      );
-      return null;
-    }
-    if (flushResult === "noop" && pendingItemUpdatesRef.current.size > 0) {
-      setStatusError(
-        "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
-      );
-      return null;
-    }
-
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot) {
-      setStatusError("Version introuvable.");
-      return null;
-    }
-
-    return versionSnapshot;
-  }
-
-  async function applyUpdatedVersion(updatedVersion: EstimateVersionRow) {
-    setVersion((prev) =>
-      prev
-        ? {
-            ...prev,
-            status: updatedVersion.status,
-            updated_at: updatedVersion.updated_at,
-            seal_hash: updatedVersion.seal_hash ?? prev.seal_hash,
-          }
-        : prev
-    );
-
-    if (updatedVersion.status !== "draft") {
-      try {
-        await releaseDraftLock({
-          keepalive: true,
-        });
-      } catch {
-        // Non bloquant: le lock expirera via timeout si la release echoue.
-      }
-    }
-
-    if (isAdmin) {
-      void loadTimelineEvents();
-    }
-  }
-
-  async function handlePrepareSend() {
-    const versionSnapshot = await prepareStatusTransition();
-    if (!versionSnapshot) return;
-
-    setIsUpdatingStatus(true);
-    setSendWorkflowPhase("verification");
-
-    try {
-      const gatingResult = await fetchEstimateSendGating(versionSnapshot.id);
-      setSendGating(gatingResult);
-      setIsSendGatingDialogOpen(true);
-    } catch (error) {
-      setStatusError(
-        resolveEstimateActionError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de verifier les preconditions d'envoi."
-        )
-      );
-    } finally {
-      setSendWorkflowPhase(null);
-      setIsUpdatingStatus(false);
-    }
-  }
-
-  async function handleConfirmSend(force: boolean) {
-    const versionSnapshot = versionRef.current;
-    if (!versionSnapshot || versionSnapshot.status !== "draft") {
-      setStatusError("Version introuvable.");
-      return;
-    }
-
-    setStatusError(null);
-    setIsUpdatingStatus(true);
-    setSendWorkflowPhase("pdf");
-
-    let sealingTimer: ReturnType<typeof setTimeout> | null = null;
-
-    try {
-      const updatePromise = updateEstimateStatus(
-        versionSnapshot.id,
-        "sent",
-        versionSnapshot.updated_at,
-        { force }
-      );
-      sealingTimer = setTimeout(() => {
-        setSendWorkflowPhase("sealing");
-      }, 250);
-      const updatedVersion = await updatePromise;
-      setSendGating(null);
-      setIsSendGatingDialogOpen(false);
-      await applyUpdatedVersion(updatedVersion);
-    } catch (error) {
-      if (
-        isEstimateApiError(error) &&
-        error.code === "ESTIMATE_GATING_BLOCKED"
-      ) {
-        try {
-          const gatingResult = await fetchEstimateSendGating(versionSnapshot.id);
-          setSendGating(gatingResult);
-          setIsSendGatingDialogOpen(true);
-        } catch {
-          setSendGating(null);
-        }
-      }
-      setStatusError(
-        resolveEstimateActionError(
-          error instanceof Error ? error.message : "Impossible de mettre a jour le statut."
-        )
-      );
-    } finally {
-      if (sealingTimer !== null) {
-        clearTimeout(sealingTimer);
-      }
-      setSendWorkflowPhase(null);
-      setIsUpdatingStatus(false);
-    }
-  }
-
-  async function handleStatusChange(nextStatus: EstimateStatus) {
-    if (nextStatus === "sent") {
-      await handlePrepareSend();
-      return;
-    }
-
-    const versionSnapshot = await prepareStatusTransition();
-    if (!versionSnapshot) return;
-
-    setIsUpdatingStatus(true);
-    try {
-      const updatedVersion = await updateEstimateStatus(
-        versionSnapshot.id,
-        nextStatus,
-        versionSnapshot.updated_at
-      );
-      await applyUpdatedVersion(updatedVersion);
-    } catch (error) {
-      setStatusError(
-        resolveEstimateActionError(
-          error instanceof Error ? error.message : "Impossible de mettre a jour le statut."
-        )
-      );
-    } finally {
-      setIsUpdatingStatus(false);
-    }
-  }
-
-  const handleTrackSuggestionCorrections = useCallback<
-    NonNullable<EstimateEditorTableProps["onTrackSuggestionCorrections"]>
-  >(
-    async (corrections) => {
-      if (corrections.length === 0) return;
-
-      const currentVersionId = versionRef.current?.id ?? resolvedVersionId;
-      if (!currentVersionId) return;
-
-      const trackingResult = await trackSuggestionCorrectionsForVersion({
-        versionId: currentVersionId,
-        corrections,
-      });
-
-      setSuggestionLearningState({
-        enabled: trackingResult.enabled,
-        by_rule_id: trackingResult.by_rule_id,
-      });
-    },
-    [resolvedVersionId]
-  );
-
   const editorTableProps = useMemo<EstimateEditorTableProps>(
     () => ({
       versionId: version?.id ?? resolvedVersionId,
@@ -6701,17 +2350,14 @@ export function useEstimateEditorState({
       highlightedItemIds,
       onOpenSettings: () => handleOpenSettingsDrawer(),
       isFinalizationPanelOpen,
-      onToggleFinalizationPanel: () =>
-        setIsFinalizationPanelOpen((previous) => !previous),
+      onToggleFinalizationPanel: handleToggleFinalizationPanel,
       headerRight: isFinalizationPanelOpen ? (
         <EstimateChecklist
           checklist={checklist}
           isCollapsed={isChecklistCollapsed}
           anomalyCount={qualityCounts.totalFlagsCount}
           affectedLineCount={qualityCounts.linesWithAnomaliesCount}
-          onToggleCollapsed={() =>
-            setIsChecklistCollapsed((previous) => !previous)
-          }
+          onToggleCollapsed={handleToggleChecklistCollapsed}
           onCriterionClick={handleChecklistCriterionClick}
           onShowAnomalies={handleShowChecklistAnomalies}
         />
@@ -6780,6 +2426,8 @@ export function useEstimateEditorState({
       isFinalizationPanelOpen,
       isChecklistCollapsed,
       handleChecklistCriterionClick,
+      handleToggleChecklistCollapsed,
+      handleToggleFinalizationPanel,
       handleShowChecklistAnomalies,
       settings?.currency,
       totals?.appliedMarginMultiplier,
@@ -6792,55 +2440,21 @@ export function useEstimateEditorState({
   const closeSettingsDrawer = useCallback(() => {
     setIsSettingsDrawerOpen(false);
   }, []);
-  const closeImportFromEstimateDialog = useCallback(() => {
-    setIsImportFromEstimateDialogOpen(false);
-  }, []);
   const closeEstimateStructureDraftDialog = useCallback(
     (result?: { createdItemIds?: string[]; mergedItemIds?: string[] }) => {
-      setIsEstimateStructureDraftDialogOpen(false);
+      closeEstimateStructureDraftDialogAction();
       if (result) {
-        const ids = new Set([
+        const ids = [
           ...(result.createdItemIds ?? []),
           ...(result.mergedItemIds ?? []),
-        ]);
-        if (ids.size > 0) {
-          setHighlightedItemIds(ids);
-          setTimeout(() => setHighlightedItemIds(new Set()), 5000);
+        ];
+        if (ids.length > 0) {
+          highlightAiMutationItems(ids);
         }
       }
     },
-    []
+    [closeEstimateStructureDraftDialogAction, highlightAiMutationItems]
   );
-  const closeGeneratedOuvrageDialog = useCallback(
-    (result?: { insertedCount?: number }) => {
-      setIsGeneratedOuvrageDialogOpen(false);
-      if (result?.insertedCount && result.insertedCount > 0) {
-        void reloadItems();
-      }
-    },
-    [reloadItems]
-  );
-  const closeVersionZeroDialog = useCallback(
-    (result?: { materialized?: boolean }) => {
-      setIsVersionZeroDialogOpen(false);
-      void fetchEstimateEditorData(resolvedVersionId)
-        .then((data) => {
-          setVersionZeroSummary(data.versionZeroSummary ?? null);
-        })
-        .catch((error) => {
-          console.error("Impossible de rafraichir le resume V0.", error);
-        });
-      if (result?.materialized) {
-        void reloadItems();
-      }
-    },
-    [reloadItems, resolvedVersionId]
-  );
-  const closeSendGatingDialog = useCallback(() => {
-    if (isUpdatingStatus) return;
-    setIsSendGatingDialogOpen(false);
-  }, [isUpdatingStatus]);
-
   const toolbarProps: ComponentProps<typeof EstimateEditorToolbar> | null = version
     ? {
         projectName,
@@ -6853,11 +2467,7 @@ export function useEstimateEditorState({
         canSend,
         canAccept,
         canArchive,
-        isStatusActionsDisabled:
-          isUpdatingStatus ||
-          isDraftLockedByOther ||
-          isDraftLockAcquiring ||
-          isForcingDraftUnlock,
+        isStatusActionsDisabled,
         isUpdatingStatus,
         isDraftLockedByOther,
         isDraftLockAcquiring,
@@ -6872,11 +2482,8 @@ export function useEstimateEditorState({
         onImportDpgfSource: () => void handleImportDpgfSource(),
         showImportDpgfSource: hasLinkedDpgfSource || isLoadingLinkedDpgfSource,
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
-        versionZeroActionLabel: versionZeroSummary?.activeDraft
-          ? "Revoir le brouillon IA"
-          : "Préparer un brouillon IA",
-        isVersionZeroActionDisabled:
-          !versionZeroSummary?.activeDraft && !versionZeroSummary?.canGenerate,
+        versionZeroActionLabel,
+        isVersionZeroActionDisabled,
         isExportDisabled,
         isExporting,
         exportLoadingLabel,
@@ -6903,13 +2510,13 @@ export function useEstimateEditorState({
       conflictMessage: conflictState?.message ?? null,
       isReloadingVersion,
       onReloadAfterConflict: handleReloadAfterConflict,
-      hasRestorableDraft: Boolean(restorableDraft),
+      hasRestorableDraft,
       onRestoreConflictDraft: handleRestoreConflictDraft,
       totalsOutOfSync,
       isSaveBlocked,
       onRetryTotalsSave: retryTotalsSave,
       isStatusReadOnly,
-      bulkSuggestAppliedCount: bulkSuggestUndoState?.appliedItemIds.length ?? null,
+      bulkSuggestAppliedCount,
       onUndoBulkSuggest: handleUndoBulkSuggest,
       isUndoingBulkSuggest,
       isUndoBulkSuggestDisabled: isSaveBlocked,
@@ -6918,7 +2525,7 @@ export function useEstimateEditorState({
     }),
     [
       actionError,
-      bulkSuggestUndoState?.appliedItemIds.length,
+      bulkSuggestAppliedCount,
       canSend,
       conflictState?.message,
       draftLockError,
@@ -6931,6 +2538,7 @@ export function useEstimateEditorState({
       isDraftLockAcquiring,
       isDraftLockedByOther,
       isForcingDraftUnlock,
+      hasRestorableDraft,
       isReloadingVersion,
       isSaveBlocked,
       isSendBlockedForCurrentUser,
@@ -6938,7 +2546,6 @@ export function useEstimateEditorState({
       isUndoingBulkSuggest,
       isViewerReadOnly,
       lockHolderLabel,
-      restorableDraft,
       retryTotalsSave,
       statusError,
       totalsOutOfSync,
@@ -7003,7 +2610,7 @@ export function useEstimateEditorState({
           onRefreshAuditLogs: () => {
             void loadAuditLogs();
           },
-          formatAuditTimestamp,
+          formatAuditTimestamp: formatEstimateEditorAuditTimestamp,
         }
       : null;
 
@@ -7079,104 +2686,23 @@ export function useEstimateEditorState({
         return null;
       }
 
-      const sectionItems = items.filter((item) => item.item_type === "section");
-      const sectionById = new Map(sectionItems.map((item) => [item.id, item] as const));
-      const computePath = (itemId: string) => {
-        const parts: string[] = [];
-        let cursor = sectionById.get(itemId);
-        while (cursor) {
-          parts.unshift(cursor.title ?? "Section");
-          cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
-        }
-        return parts.join(" > ");
-      };
-      const computeLevel = (itemId: string) => {
-        let level = 0;
-        let cursor = sectionById.get(itemId);
-        while (cursor) {
-          level += 1;
-          cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
-        }
-        return Math.max(1, level);
-      };
-
       return {
         isOpen: true,
         targetVersionId: version.id,
         hasExistingItems: items.length > 0,
-        existingSections: sectionItems.map((item) => ({
-          id: item.id,
-          path: computePath(item.id),
-          hierarchyLevel: computeLevel(item.id),
-          parentId: item.parent_id,
-          title: item.title ?? "Section",
-        })),
+        existingSections: existingAiSections,
         onClose: closeEstimateStructureDraftDialog,
         onConfirm: handleConfirmEstimateStructureDraftDialog,
       };
     },
     [
       closeEstimateStructureDraftDialog,
+      existingAiSections,
       handleConfirmEstimateStructureDraftDialog,
       isEstimateStructureDraftDialogOpen,
       items,
       version,
     ]
-  );
-
-  const generatedOuvrageDialogProps = useMemo(
-    () => {
-      if (!isGeneratedOuvrageDialogOpen || !version) {
-        return null;
-      }
-
-      const sectionItems = items.filter((item) => item.item_type === "section");
-      const sectionById = new Map(sectionItems.map((item) => [item.id, item] as const));
-      const computePath = (itemId: string) => {
-        const parts: string[] = [];
-        let cursor = sectionById.get(itemId);
-        while (cursor) {
-          parts.unshift(cursor.title ?? "Section");
-          cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
-        }
-        return parts.join(" > ");
-      };
-
-      return {
-        isOpen: true,
-        targetVersionId: version.id,
-        projectId: version.project_id ?? "",
-        existingSections: sectionItems.map((item) => ({
-          id: item.id,
-          path: computePath(item.id),
-          hierarchyLevel: 1,
-          parentId: item.parent_id,
-          title: item.title ?? "Section",
-        })),
-        onClose: closeGeneratedOuvrageDialog,
-      };
-    },
-    [
-      closeGeneratedOuvrageDialog,
-      isGeneratedOuvrageDialogOpen,
-      items,
-      version,
-    ]
-  );
-
-  const versionZeroDraftDialogProps = useMemo<
-    ComponentProps<typeof VersionZeroDraftDialog> | null
-  >(
-    () =>
-      isVersionZeroDialogOpen && version
-        ? {
-            isOpen: true,
-            versionId: version.id,
-            summary: versionZeroSummary,
-            onClose: closeVersionZeroDialog,
-          }
-        : null,
-    [closeVersionZeroDialog, isVersionZeroDialogOpen, version, versionZeroSummary]
   );
 
   const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {

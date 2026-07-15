@@ -10,6 +10,8 @@ type GeneratedOuvrageFooterBarProps = {
   canInsertSelected: boolean;
   draftStatus: string;
   isInserting: boolean;
+  isMutationBlocked: boolean;
+  mutationBlockedMessage: string;
   onNewGeneration: () => void;
   onClose: () => void;
   onInsertSelected: () => void;
@@ -23,6 +25,8 @@ export function GeneratedOuvrageFooterBar({
   canInsertSelected,
   draftStatus,
   isInserting,
+  isMutationBlocked,
+  mutationBlockedMessage,
   onNewGeneration,
   onClose,
   onInsertSelected,
@@ -33,7 +37,10 @@ export function GeneratedOuvrageFooterBar({
   let statusCopy: string;
   let statusVariant: "amber" | "green" | "slate";
 
-  if (isDiscarded) {
+  if (isMutationBlocked) {
+    statusCopy = mutationBlockedMessage;
+    statusVariant = "amber";
+  } else if (isDiscarded) {
     statusCopy = "Toutes les propositions ont ete ecartees.";
     statusVariant = "slate";
   } else if (selectedCount === 0) {
@@ -72,6 +79,7 @@ export function GeneratedOuvrageFooterBar({
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={onNewGeneration}
+            disabled={isInserting}
           >
             Nouvelle generation
           </button>
@@ -79,6 +87,7 @@ export function GeneratedOuvrageFooterBar({
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={onClose}
+            disabled={isInserting}
           >
             Fermer
           </button>
@@ -87,7 +96,9 @@ export function GeneratedOuvrageFooterBar({
               type="button"
               className="btn btn-primary btn-sm col-span-2 w-full sm:w-auto"
               onClick={onInsertSelected}
-              disabled={!canInsertSelected || isInserting}
+              disabled={
+                !canInsertSelected || isInserting || isMutationBlocked
+              }
               data-testid="generated-ouvrage-insert-button"
             >
               Inserer les ouvrages selectionnes

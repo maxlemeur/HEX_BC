@@ -102,7 +102,6 @@ describe("estimate editor responsive grid", () => {
       join(process.cwd(), "src/hooks/useEstimateEditorState.impl.tsx"),
       "utf8",
     );
-
     expect(chromeSource).toContain(
       "grid gap-2 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-x-3",
     );
@@ -116,7 +115,7 @@ describe("estimate editor responsive grid", () => {
       "h-fit w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4",
     );
     expect(editorStateSource).toContain(
-      "const [isFinalizationPanelOpen, setIsFinalizationPanelOpen] = useState(false);",
+      "onToggleFinalizationPanel: handleToggleFinalizationPanel,",
     );
     expect(editorStateSource).toContain(
       "headerRight: isFinalizationPanelOpen ? (",

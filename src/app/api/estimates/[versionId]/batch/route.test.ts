@@ -156,11 +156,13 @@ describe("POST /api/estimates/[versionId]/batch", () => {
     expect(vi.mocked(executeEstimateBatch)).not.toHaveBeenCalled();
   });
 
-  it("returns 409 CONFLICT when token precheck fails", async () => {
+  it("returns 409 VERSION_CONFLICT when token precheck fails", async () => {
     vi.mocked(executeEstimateBatch).mockRejectedValue(
-      conflict("Version modifiee par un autre utilisateur.", {
-        updated_at: "2026-02-21T10:00:01.000Z",
-      })
+      conflict(
+        "Version modifiee par un autre utilisateur.",
+        { updated_at: "2026-02-21T10:00:01.000Z" },
+        "VERSION_CONFLICT"
+      )
     );
 
     const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/batch`, {
@@ -188,7 +190,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
     };
 
     expect(response.status).toBe(409);
-    expect(payload.error.code).toBe("CONFLICT");
+    expect(payload.error.code).toBe("VERSION_CONFLICT");
   });
 
   it("rejects invalid dry_run query values", async () => {

@@ -8,6 +8,7 @@ export type ApiErrorCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "VERSION_CONFLICT"
   | "VALIDATION_ERROR"
   | "INTERNAL_ERROR"
   | "READ_ONLY"

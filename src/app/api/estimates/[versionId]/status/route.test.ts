@@ -48,9 +48,11 @@ describe("estimate status route", () => {
 
   it("forwards token and maps conflict errors", async () => {
     vi.mocked(patchEstimateStatus).mockRejectedValue(
-      conflict("Version modifiee par un autre utilisateur", {
-        updated_at: "2026-02-21T11:00:00.000Z",
-      })
+      conflict(
+        "Version modifiee par un autre utilisateur",
+        { updated_at: "2026-02-21T11:00:00.000Z" },
+        "VERSION_CONFLICT"
+      )
     );
 
     const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/status`, {
@@ -81,7 +83,7 @@ describe("estimate status route", () => {
       expect.objectContaining({
         ok: false,
         error: expect.objectContaining({
-          code: "CONFLICT",
+          code: "VERSION_CONFLICT",
         }),
       })
     );
