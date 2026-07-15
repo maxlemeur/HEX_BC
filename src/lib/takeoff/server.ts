@@ -3133,9 +3133,9 @@ function normalizeDpgfComparisonEstimateItems(input: {
       description: row.description,
       quantity: row.quantity as number,
       unit:
-        (typeof row.source_page === "number"
+        typeof row.source_page === "number"
           ? input.unitByRowIndex.get(row.source_page) ?? null
-          : null) ?? null,
+          : null,
       source_page: row.source_page,
       source_file_name: row.source_file_name,
       position: row.position,

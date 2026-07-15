@@ -1,6 +1,6 @@
 import { createElement } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { useUserContextMock } = vi.hoisted(() => ({
   useUserContextMock: vi.fn(),
@@ -52,13 +52,12 @@ function createMembershipPayload() {
   };
 }
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("MembershipsManager", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     useUserContextMock.mockReturnValue({
       profile: {
@@ -76,49 +75,26 @@ describe("MembershipsManager", () => {
   });
 
   it("renders searchable user select and role badges", async () => {
-    let renderer: ReactTestRenderer;
+    const { container } = render(createElement(MembershipsManager));
 
-    await act(async () => {
-      renderer = create(createElement(MembershipsManager));
-    });
+    const combobox = await screen.findByRole("combobox", { name: "Utilisateur" });
+    fireEvent.focus(combobox);
+    fireEvent.change(combobox, { target: { value: "Alice" } });
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    const combobox = renderer!.root.findByProps({ role: "combobox", id: "membership-user" });
-    expect(combobox).toBeDefined();
-
-    await act(async () => {
-      combobox.props.onFocus();
-      combobox.props.onChange({ target: { value: "Alice" } });
-    });
-
-    const options = renderer!.root.findAllByProps({ role: "option" });
-    expect(options.length).toBeGreaterThan(0);
-
-    const badges = renderer!.root.findAll(
-      (node) => node.type === "span" && typeof node.props.className === "string" && node.props.className.includes("ui-badge")
-    );
-    expect(badges.length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".ui-badge").length).toBeGreaterThan(0);
   });
 
   it("offers the director role in membership selectors", async () => {
-    let renderer: ReactTestRenderer;
+    render(createElement(MembershipsManager));
 
-    await act(async () => {
-      renderer = create(createElement(MembershipsManager));
-    });
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    const options = renderer!.root.findAllByType("option");
-    const directorOptions = options.filter((option) => option.props.value === "director");
+    await screen.findByRole("combobox", { name: "Utilisateur" });
+    const directorOptions = screen
+      .getAllByRole("option")
+      .filter((option) => (option as HTMLOptionElement).value === "director");
 
     expect(directorOptions).toHaveLength(2);
-    expect(directorOptions.every((option) => option.children.includes("Directeur"))).toBe(
+    expect(directorOptions.every((option) => option.textContent === "Directeur")).toBe(
       true
     );
   });

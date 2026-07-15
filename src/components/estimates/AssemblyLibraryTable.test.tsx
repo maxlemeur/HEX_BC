@@ -1,6 +1,6 @@
 import { createElement } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AssemblyLibraryTable } from "@/components/estimates/AssemblyLibraryTable";
 import type {
@@ -8,12 +8,6 @@ import type {
   EstimateAssemblyItem,
   EstimateAssemblySummary,
 } from "@/lib/estimates/client";
-
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function createAssemblyItem(
   overrides: Partial<EstimateAssemblyItem> = {},
@@ -85,41 +79,36 @@ function createAssemblyDetail(
 }
 
 describe("AssemblyLibraryTable", () => {
+  afterEach(cleanup);
+
   it("charge et conserve le contenu affiché dans la ligne dépliée", async () => {
     const assembly = createAssemblySummary();
     const loadAssembly =
       vi.fn<(assemblyId: string) => Promise<EstimateAssemblyDetail>>();
     loadAssembly.mockResolvedValue(createAssemblyDetail(assembly));
 
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(AssemblyLibraryTable, {
-          assemblies: [assembly],
-          busyAssemblyId: null,
-          onEdit: vi.fn(),
-          onRename: vi.fn(),
-          laborRoles: [],
-          onDuplicate: vi.fn(),
-          onDelete: vi.fn(),
-          loadAssembly,
-        }),
-      );
-    });
+    const { container } = render(
+      createElement(AssemblyLibraryTable, {
+        assemblies: [assembly],
+        busyAssemblyId: null,
+        onEdit: vi.fn(),
+        onRename: vi.fn(),
+        laborRoles: [],
+        onDuplicate: vi.fn(),
+        onDelete: vi.fn(),
+        loadAssembly,
+      })
+    );
 
-    const getToggle = () =>
-      renderer!.root.findByProps({
-        "aria-controls": "assembly-preview-assembly-test",
-      });
+    const getShowToggle = () =>
+      screen.getByRole("button", { name: /Afficher le contenu de Faux plafond/i });
 
-    expect(getToggle().props["aria-expanded"]).toBe(false);
+    expect(getShowToggle()).toHaveAttribute("aria-expanded", "false");
 
-    await act(async () => {
-      getToggle().props.onClick();
-      await Promise.resolve();
-    });
+    fireEvent.click(getShowToggle());
+    await screen.findByText("Main-d’œuvre – Ossature métallique");
 
-    const renderedContent = JSON.stringify(renderer!.toJSON());
+    const renderedContent = container.textContent ?? "";
     expect(loadAssembly).toHaveBeenCalledOnce();
     expect(loadAssembly).toHaveBeenCalledWith("assembly-test");
     expect(renderedContent).toContain("Ouvrage composé généré depuis un test");
@@ -134,16 +123,18 @@ describe("AssemblyLibraryTable", () => {
     expect(renderedContent).not.toContain("Qté / temps");
     expect(renderedContent).not.toContain("ligne(s)");
 
-    await act(async () => {
-      getToggle().props.onClick();
-    });
-    expect(getToggle().props["aria-expanded"]).toBe(false);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Masquer le contenu de Faux plafond/i })
+    );
+    expect(getShowToggle()).toHaveAttribute("aria-expanded", "false");
 
-    await act(async () => {
-      getToggle().props.onClick();
-    });
+    fireEvent.click(getShowToggle());
 
-    expect(getToggle().props["aria-expanded"]).toBe(true);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Masquer le contenu de Faux plafond/i })
+      ).toHaveAttribute("aria-expanded", "true")
+    );
     expect(loadAssembly).toHaveBeenCalledOnce();
   });
 });

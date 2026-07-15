@@ -1,5 +1,11 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { createElement, useEffect } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider, useToast } from "@/components/ui/Toast";
@@ -24,33 +30,25 @@ function ToastHarness({ captureToast }: { captureToast: (toast: ToastApi) => voi
   );
 }
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
 });
 
 async function renderHarness() {
-  let renderer: ReactTestRenderer;
   let toastApi: ToastApi | null = null;
 
-  await act(async () => {
-    renderer = create(
-      createElement(
-        ToastProvider,
-        null,
-        createElement(ToastHarness, {
-          captureToast: (toast) => {
-            toastApi = toast;
-          },
-        })
-      )
-    );
-  });
+  render(
+    createElement(
+      ToastProvider,
+      null,
+      createElement(ToastHarness, {
+        captureToast: (toast) => {
+          toastApi = toast;
+        },
+      })
+    )
+  );
 
   const getToastApi = () => {
     if (!toastApi) {
@@ -59,26 +57,19 @@ async function renderHarness() {
     return toastApi;
   };
 
-  return { renderer: renderer!, getToastApi };
+  return { getToastApi };
 }
 
 /* ── Helpers ── */
 
-function countToasts(renderer: ReactTestRenderer) {
-  return renderer.root.findAll(
-    (node) => node.props && node.props["data-toast-id"]
-  ).length;
+function countToasts() {
+  return document.querySelectorAll("[data-toast-id]").length;
 }
 
-function getToastTitles(renderer: ReactTestRenderer) {
-  return renderer.root
-    .findAll(
-      (node) =>
-        node.type === "p" &&
-        node.props.className?.includes("font-semibold") &&
-        typeof node.children[0] === "string"
-    )
-    .map((n) => n.children[0] as string);
+function getToastTitles() {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-toast-id] p.font-semibold")
+  ).map((node) => node.textContent ?? "");
 }
 
 /* ── Tests ── */
@@ -88,15 +79,13 @@ describe("ui/Toast", () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     let toastApi: ToastApi | null = null;
 
-    await act(async () => {
-      create(
-        createElement(ToastHarness, {
-          captureToast: (toast) => {
-            toastApi = toast;
-          },
-        })
-      );
-    });
+    render(
+      createElement(ToastHarness, {
+        captureToast: (toast) => {
+          toastApi = toast;
+        },
+      })
+    );
 
     expect(toastApi).not.toBeNull();
     expect(toastApi!.success({ title: "Saved" })).toBe("missing-toast-provider");
@@ -108,15 +97,11 @@ describe("ui/Toast", () => {
   it("pushes and auto-dismisses toasts", async () => {
     vi.useFakeTimers();
 
-    const { renderer } = await renderHarness();
+    await renderHarness();
 
-    const trigger = renderer.root.findByProps({ id: "trigger-toast" });
+    fireEvent.click(screen.getByRole("button", { name: "Trigger" }));
 
-    await act(async () => {
-      trigger.props.onClick();
-    });
-
-    expect(countToasts(renderer)).toBe(1);
+    expect(countToasts()).toBe(1);
 
     // Auto-dismiss fires after durationMs (100ms)
     await act(async () => {
@@ -128,13 +113,13 @@ describe("ui/Toast", () => {
       vi.advanceTimersByTime(250);
     });
 
-    expect(countToasts(renderer)).toBe(0);
+    expect(countToasts()).toBe(0);
   });
 
   it("limits visible toasts to 3 (queues the rest)", async () => {
     vi.useFakeTimers();
 
-    const { renderer, getToastApi } = await renderHarness();
+    const { getToastApi } = await renderHarness();
     const toastApi = getToastApi();
 
     // Push 5 toasts with long duration so they don't auto-dismiss
@@ -145,14 +130,14 @@ describe("ui/Toast", () => {
     });
 
     // Only 3 should be rendered
-    expect(countToasts(renderer)).toBe(3);
-    expect(getToastTitles(renderer)).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
+    expect(countToasts()).toBe(3);
+    expect(getToastTitles()).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
   });
 
   it("advances queue when a visible toast is dismissed", async () => {
     vi.useFakeTimers();
 
-    const { renderer, getToastApi } = await renderHarness();
+    const { getToastApi } = await renderHarness();
     const toastApi = getToastApi();
 
     const ids: string[] = [];
@@ -163,7 +148,7 @@ describe("ui/Toast", () => {
       }
     });
 
-    expect(countToasts(renderer)).toBe(3);
+    expect(countToasts()).toBe(3);
 
     // Dismiss first toast
     await act(async () => {
@@ -176,14 +161,14 @@ describe("ui/Toast", () => {
     });
 
     // Toast 3 should now be visible
-    expect(countToasts(renderer)).toBe(3);
-    expect(getToastTitles(renderer)).toEqual(["Toast 1", "Toast 2", "Toast 3"]);
+    expect(countToasts()).toBe(3);
+    expect(getToastTitles()).toEqual(["Toast 1", "Toast 2", "Toast 3"]);
   });
 
   it("dismisses a queued toast by id without rendering it as exiting", async () => {
     vi.useFakeTimers();
 
-    const { renderer, getToastApi } = await renderHarness();
+    const { getToastApi } = await renderHarness();
     const toastApi = getToastApi();
 
     const ids: string[] = [];
@@ -193,16 +178,16 @@ describe("ui/Toast", () => {
       }
     });
 
-    expect(countToasts(renderer)).toBe(3);
-    expect(getToastTitles(renderer)).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
+    expect(countToasts()).toBe(3);
+    expect(getToastTitles()).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
 
     // Dismiss queued toast (Toast 3). It must not appear briefly as exiting.
     await act(async () => {
       toastApi.dismiss(ids[3]);
     });
 
-    expect(countToasts(renderer)).toBe(3);
-    expect(getToastTitles(renderer)).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
+    expect(countToasts()).toBe(3);
+    expect(getToastTitles()).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
 
     // Dismissing a visible toast should no longer promote Toast 3 because it is already removed.
     await act(async () => {
@@ -213,14 +198,14 @@ describe("ui/Toast", () => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(countToasts(renderer)).toBe(2);
-    expect(getToastTitles(renderer)).toEqual(["Toast 1", "Toast 2"]);
+    expect(countToasts()).toBe(2);
+    expect(getToastTitles()).toEqual(["Toast 1", "Toast 2"]);
   });
 
   it("handles rapid-fire pushes via functional setState", async () => {
     vi.useFakeTimers();
 
-    const { renderer, getToastApi } = await renderHarness();
+    const { getToastApi } = await renderHarness();
     const toastApi = getToastApi();
 
     // Push 3 toasts in one batch
@@ -231,14 +216,14 @@ describe("ui/Toast", () => {
     });
 
     // All 3 should be visible (within max)
-    expect(countToasts(renderer)).toBe(3);
-    expect(getToastTitles(renderer)).toEqual(["A", "B", "C"]);
+    expect(countToasts()).toBe(3);
+    expect(getToastTitles()).toEqual(["A", "B", "C"]);
   });
 
   it("queued toast gets its own auto-dismiss timer only when promoted", async () => {
     vi.useFakeTimers();
 
-    const { renderer, getToastApi } = await renderHarness();
+    const { getToastApi } = await renderHarness();
     const toastApi = getToastApi();
 
     // Push 4 toasts: first 3 with 200ms, 4th with 500ms
@@ -249,7 +234,7 @@ describe("ui/Toast", () => {
       toastApi.info({ title: "Slow 4", durationMs: 500 });
     });
 
-    expect(countToasts(renderer)).toBe(3);
+    expect(countToasts()).toBe(3);
 
     // After 200ms, first 3 start exiting
     await act(async () => {
@@ -261,8 +246,8 @@ describe("ui/Toast", () => {
       vi.advanceTimersByTime(250);
     });
 
-    expect(countToasts(renderer)).toBe(1);
-    expect(getToastTitles(renderer)).toEqual(["Slow 4"]);
+    expect(countToasts()).toBe(1);
+    expect(getToastTitles()).toEqual(["Slow 4"]);
 
     // Slow 4 gets its own 500ms timer starting NOW (when promoted)
     // So it should still be visible after 300ms
@@ -270,7 +255,7 @@ describe("ui/Toast", () => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(countToasts(renderer)).toBe(1);
+    expect(countToasts()).toBe(1);
 
     // After 200ms more (total 500ms from promotion), it starts exiting
     await act(async () => {
@@ -282,6 +267,6 @@ describe("ui/Toast", () => {
       vi.advanceTimersByTime(250);
     });
 
-    expect(countToasts(renderer)).toBe(0);
+    expect(countToasts()).toBe(0);
   });
 });

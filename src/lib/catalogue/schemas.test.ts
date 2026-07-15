@@ -53,6 +53,7 @@ describe("catalogue update schemas", () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.item.is_active).toBe(true);
+    expect(parsed.data.item.notes).toBeNull();
   });
 });
 
@@ -96,6 +97,8 @@ describe("supplier price update schemas", () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.item.currency).toBe("EUR");
+    expect(parsed.data.item.catalogue_item_id).toBeUndefined();
+    expect(parsed.data.item.valid_from).toBeNull();
   });
 });
 

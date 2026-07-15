@@ -1063,14 +1063,14 @@ async function loadLibraryFragments(input: {
         .from("estimate_templates")
         .select("id, name, description, updated_at")
         .eq("tenant_id", input.tenantId)
-        .eq("user_id", input.ownerUserId)
+        .eq("created_by", input.ownerUserId)
         .order("updated_at", { ascending: false })
         .limit(LIBRARY_FRAGMENT_LIMIT),
       input.supabase
         .from("estimate_assemblies")
         .select("id, name, description, updated_at")
         .eq("tenant_id", input.tenantId)
-        .eq("user_id", input.ownerUserId)
+        .eq("created_by", input.ownerUserId)
         .order("updated_at", { ascending: false })
         .limit(LIBRARY_FRAGMENT_LIMIT),
     ]);

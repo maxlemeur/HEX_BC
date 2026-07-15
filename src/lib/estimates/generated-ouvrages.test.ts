@@ -504,6 +504,13 @@ describe("generateOuvragesFromText", () => {
       type: "text",
       label: "Texte libre saisi",
     });
+    for (const table of ["estimate_templates", "estimate_assemblies"]) {
+      const libraryQuery = supabase.__history.find(
+        (entry) => entry.table === table && entry.operation === "select"
+      );
+      expect(libraryQuery?.builder.eq).toHaveBeenCalledWith("created_by", USER_ID);
+      expect(libraryQuery?.builder.eq).not.toHaveBeenCalledWith("user_id", USER_ID);
+    }
     expect(vi.mocked(callGeminiStructured)).toHaveBeenCalledTimes(1);
   });
 

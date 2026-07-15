@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-dom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-dom")>();
@@ -34,13 +34,9 @@ vi.mock("@/lib/supabase/client", () => ({
 
 import { SupplierCreateModal } from "@/components/SupplierCreateModal";
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("SupplierCreateModal", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     singleMock.mockReset();
     selectMock.mockClear();
@@ -66,32 +62,28 @@ describe("SupplierCreateModal", () => {
     const onClose = vi.fn();
     const onCreated = vi.fn();
 
-    let renderer: ReactTestRenderer;
+    render(
+      createElement(SupplierCreateModal, {
+        open: true,
+        onClose,
+        onCreated,
+      })
+    );
 
-    await act(async () => {
-      renderer = create(
-        createElement(SupplierCreateModal, {
-          open: true,
-          onClose,
-          onCreated,
-        })
-      );
-    });
+    const nameInput = document.getElementById("modal-supplier-name");
+    const emailInput = document.getElementById("modal-supplier-email");
+    const cityInput = document.getElementById("modal-supplier-city");
 
-    const nameInput = renderer!.root.findByProps({ id: "modal-supplier-name" });
-    const emailInput = renderer!.root.findByProps({ id: "modal-supplier-email" });
-    const cityInput = renderer!.root.findByProps({ id: "modal-supplier-city" });
+    expect(nameInput).toBeInstanceOf(HTMLInputElement);
+    expect(emailInput).toBeInstanceOf(HTMLInputElement);
+    expect(cityInput).toBeInstanceOf(HTMLInputElement);
 
-    await act(async () => {
-      nameInput.props.onChange({ target: { value: "  Hydro Supplier  " } });
-      emailInput.props.onChange({ target: { value: "contact@hydro.test" } });
-      cityInput.props.onChange({ target: { value: "Paris" } });
-    });
+    fireEvent.change(nameInput!, { target: { value: "  Hydro Supplier  " } });
+    fireEvent.change(emailInput!, { target: { value: "contact@hydro.test" } });
+    fireEvent.change(cityInput!, { target: { value: "Paris" } });
+    fireEvent.submit(nameInput!.closest("form")!);
 
-    const form = renderer!.root.findByType("form");
-    await act(async () => {
-      await form.props.onSubmit({ preventDefault: () => undefined });
-    });
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
 
     expect(fromMock).toHaveBeenCalledWith("suppliers");
     expect(insertMock).toHaveBeenCalledWith({

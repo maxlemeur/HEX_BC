@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/ui/Toast";
 
@@ -19,13 +19,9 @@ vi.mock("@/lib/estimates/client", () => ({
 
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("SaveAsTemplateButton", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     createEstimateTemplateMock.mockReset();
   });
@@ -33,34 +29,27 @@ describe("SaveAsTemplateButton", () => {
   it("shows success toast after successful save", async () => {
     createEstimateTemplateMock.mockResolvedValue(undefined);
 
-    let renderer: ReactTestRenderer;
+    render(
+      createElement(
+        ToastProvider,
+        null,
+        createElement(SaveAsTemplateButton, { versionId: "version-1" })
+      )
+    );
 
-    await act(async () => {
-      renderer = create(
-        createElement(
-          ToastProvider,
-          null,
-          createElement(SaveAsTemplateButton, { versionId: "version-1" })
-        )
-      );
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Sauvegarder comme modele" }));
 
-    const openButton = renderer!.root.findAllByType("button")[0];
+    const nameInput = document.getElementById("template-name") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Template test" } });
+    fireEvent.submit(nameInput.closest("form")!);
 
-    await act(async () => {
-      openButton.props.onClick();
-    });
-
-    const nameInput = renderer!.root.findByProps({ id: "template-name" });
-
-    await act(async () => {
-      nameInput.props.onChange({ target: { value: "Template test" } });
-    });
-
-    const form = renderer!.root.findByType("form");
-    await act(async () => {
-      await form.props.onSubmit({ preventDefault: () => undefined });
-    });
+    await waitFor(() =>
+      expect(createEstimateTemplateMock).toHaveBeenCalledWith({
+        sourceVersionId: "version-1",
+        name: "Template test",
+        description: null,
+      })
+    );
 
     expect(createEstimateTemplateMock).toHaveBeenCalledWith({
       sourceVersionId: "version-1",
@@ -68,47 +57,26 @@ describe("SaveAsTemplateButton", () => {
       description: null,
     });
 
-    const successToast = renderer!.root.findAll(
-      (node) => node.type === "p" && node.children.join("") === "Template enregistre"
-    );
-    expect(successToast).toHaveLength(1);
+    expect(await screen.findByText("Template enregistre")).toBeInTheDocument();
   });
 
   it("shows error toast when save fails", async () => {
     createEstimateTemplateMock.mockRejectedValue(new Error("Boom"));
 
-    let renderer: ReactTestRenderer;
-
-    await act(async () => {
-      renderer = create(
-        createElement(
-          ToastProvider,
-          null,
-          createElement(SaveAsTemplateButton, { versionId: "version-1" })
-        )
-      );
-    });
-
-    const openButton = renderer!.root.findAllByType("button")[0];
-
-    await act(async () => {
-      openButton.props.onClick();
-    });
-
-    const nameInput = renderer!.root.findByProps({ id: "template-name" });
-
-    await act(async () => {
-      nameInput.props.onChange({ target: { value: "Template test" } });
-    });
-
-    const form = renderer!.root.findByType("form");
-    await act(async () => {
-      await form.props.onSubmit({ preventDefault: () => undefined });
-    });
-
-    const errorToast = renderer!.root.findAll(
-      (node) => node.type === "p" && node.children.join("") === "Enregistrement impossible"
+    render(
+      createElement(
+        ToastProvider,
+        null,
+        createElement(SaveAsTemplateButton, { versionId: "version-1" })
+      )
     );
-    expect(errorToast).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sauvegarder comme modele" }));
+
+    const nameInput = document.getElementById("template-name") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Template test" } });
+    fireEvent.submit(nameInput.closest("form")!);
+
+    expect(await screen.findByText("Enregistrement impossible")).toBeInTheDocument();
   });
 });

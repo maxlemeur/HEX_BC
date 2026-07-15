@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import path from "node:path";
 
 import { NextResponse } from "next/server";
 
@@ -9,45 +8,27 @@ export const dynamic = "force-dynamic";
 
 const moduleRequire = createRequire(import.meta.url);
 
-type SwaggerUiDistModule = {
-  getAbsoluteFSPath?: () => string;
-  absolutePath?: string | (() => string);
+type SwaggerUiAsset = {
+  contentType: string;
+  filePath: string;
 };
 
-function resolveSwaggerUiDistRoot(): string {
-  const swaggerUiDist = moduleRequire("swagger-ui-dist") as SwaggerUiDistModule;
-
-  if (typeof swaggerUiDist.getAbsoluteFSPath === "function") {
-    return swaggerUiDist.getAbsoluteFSPath();
-  }
-
-  if (typeof swaggerUiDist.absolutePath === "function") {
-    return swaggerUiDist.absolutePath();
-  }
-
-  if (typeof swaggerUiDist.absolutePath === "string") {
-    return swaggerUiDist.absolutePath;
-  }
-
-  throw new Error("Unable to resolve swagger-ui-dist absolute path.");
-}
-
-const swaggerUiDistRoot = resolveSwaggerUiDistRoot();
-
-const SWAGGER_UI_ASSETS = new Map<string, string>([
-  ["swagger-ui.css", "text/css; charset=utf-8"],
-  ["swagger-ui-bundle.js", "application/javascript; charset=utf-8"],
+const SWAGGER_UI_ASSETS = new Map<string, SwaggerUiAsset>([
+  [
+    "swagger-ui.css",
+    {
+      contentType: "text/css; charset=utf-8",
+      filePath: moduleRequire.resolve("swagger-ui-dist/swagger-ui.css"),
+    },
+  ],
+  [
+    "swagger-ui-bundle.js",
+    {
+      contentType: "application/javascript; charset=utf-8",
+      filePath: moduleRequire.resolve("swagger-ui-dist/swagger-ui-bundle.js"),
+    },
+  ],
 ]);
-
-function isValidAssetName(asset: string): boolean {
-  return (
-    asset.length > 0 &&
-    !asset.includes("/") &&
-    !asset.includes("\\") &&
-    !asset.includes("\0") &&
-    asset === path.basename(asset)
-  );
-}
 
 function buildNotFoundResponse() {
   return NextResponse.json(
@@ -73,27 +54,17 @@ export async function GET(
 ) {
   const { asset } = await params;
 
-  if (!isValidAssetName(asset)) {
-    return buildNotFoundResponse();
-  }
-
-  const contentType = SWAGGER_UI_ASSETS.get(asset);
-  if (!contentType) {
-    return buildNotFoundResponse();
-  }
-
-  const candidatePath = path.resolve(swaggerUiDistRoot, asset);
-  const relativePath = path.relative(swaggerUiDistRoot, candidatePath);
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+  const swaggerUiAsset = SWAGGER_UI_ASSETS.get(asset);
+  if (!swaggerUiAsset) {
     return buildNotFoundResponse();
   }
 
   try {
-    const payload = await readFile(candidatePath);
+    const payload = await readFile(swaggerUiAsset.filePath);
     return new NextResponse(payload, {
       status: 200,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": swaggerUiAsset.contentType,
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
       },
     });

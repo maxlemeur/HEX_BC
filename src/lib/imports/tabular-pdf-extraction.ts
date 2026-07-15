@@ -311,10 +311,8 @@ async function extractLayoutText() {
     standardFontDataUrl: workerData.standardFontDataUrl,
     useWorkerFetch: false,
   });
-  let document = null;
-
   try {
-    document = await loadingTask.promise;
+    const document = await loadingTask.promise;
     if (document.numPages > limits.maxPages) {
       throw budgetError(
         "Le PDF depasse la limite de " + limits.maxPages + " pages."
@@ -344,11 +342,7 @@ async function extractLayoutText() {
 
     return layoutText;
   } finally {
-    if (document) {
-      await document.destroy();
-    } else {
-      loadingTask.destroy();
-    }
+    await loadingTask.destroy();
   }
 }
 

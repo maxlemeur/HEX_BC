@@ -51,6 +51,11 @@ function createEstimateItem(overrides: Partial<EstimateItem> = {}): EstimateItem
     line_tax_cents: 0,
     line_total_ttc_cents: 0,
     ...overrides,
+    source_provider: overrides.source_provider ?? null,
+    source_job_id: overrides.source_job_id ?? null,
+    source_file_name: overrides.source_file_name ?? null,
+    source_page: overrides.source_page ?? null,
+    source_metadata: overrides.source_metadata ?? {},
   };
 }
 

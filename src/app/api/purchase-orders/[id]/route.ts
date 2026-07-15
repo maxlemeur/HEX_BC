@@ -227,7 +227,7 @@ export async function PUT(
   const parsedPayload = payload as UpdatePurchaseOrderPayload;
 
   // Build update object for header fields
-  const headerUpdate: Record<string, unknown> = {};
+  const headerUpdate: Database["public"]["Tables"]["purchase_orders"]["Update"] = {};
 
   if (parsedPayload.supplierId !== undefined) {
     headerUpdate.supplier_id = parsedPayload.supplierId;

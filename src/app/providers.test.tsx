@@ -1,6 +1,8 @@
-import { createElement, useEffect } from "react";
-import { act, create } from "react-test-renderer";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import AppProviders from "@/app/providers";
 import { useToast } from "@/components/ui/Toast";
@@ -22,29 +24,27 @@ function ToastContextHarness({
 }
 
 describe("app/providers", () => {
-  it("provides toast context to descendants", async () => {
-    let toastApi: ToastApi | null = null;
+  afterEach(() => {
+    cleanup();
+  });
 
-    await act(async () => {
-      create(
-        createElement(
-          AppProviders,
-          null,
-          createElement(ToastContextHarness, {
-            onReady: (toast) => {
-              toastApi = toast;
-            },
-          })
-        )
-      );
+  it("provides toast context to descendants", async () => {
+    const readyToastApis: ToastApi[] = [];
+
+    render(
+      <AppProviders>
+        <ToastContextHarness
+          onReady={(toast) => {
+            readyToastApis.push(toast);
+          }}
+        />
+      </AppProviders>
+    );
+
+    await waitFor(() => {
+      expect(readyToastApis).toHaveLength(1);
     });
 
-    if (!toastApi) {
-      throw new Error("Toast API unavailable");
-    }
-
-    const resolvedToastApi = toastApi as ToastApi;
-
-    expect(typeof resolvedToastApi.success).toBe("function");
+    expect(typeof readyToastApis[0]?.success).toBe("function");
   });
 });

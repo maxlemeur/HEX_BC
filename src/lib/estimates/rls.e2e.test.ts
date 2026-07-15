@@ -457,7 +457,40 @@ async function createOwnedRowForOperation(table: MatrixTable) {
   }
 }
 
-function buildInsertPayload(table: MatrixTable, actorUserId: string) {
+type MatrixInsert<Table extends MatrixTable> =
+  Database["public"]["Tables"][Table]["Insert"];
+type MatrixInsertPayload = {
+  [Table in MatrixTable]: MatrixInsert<Table>;
+}[MatrixTable];
+
+function buildInsertPayload(
+  table: "estimate_versions",
+  actorUserId: string
+): MatrixInsert<"estimate_versions">;
+function buildInsertPayload(
+  table: "estimate_items",
+  actorUserId: string
+): MatrixInsert<"estimate_items">;
+function buildInsertPayload(
+  table: "estimate_categories",
+  actorUserId: string
+): MatrixInsert<"estimate_categories">;
+function buildInsertPayload(
+  table: "labor_roles",
+  actorUserId: string
+): MatrixInsert<"labor_roles">;
+function buildInsertPayload(
+  table: "estimate_suggestion_rules",
+  actorUserId: string
+): MatrixInsert<"estimate_suggestion_rules">;
+function buildInsertPayload(
+  table: "audit_logs",
+  actorUserId: string
+): MatrixInsert<"audit_logs">;
+function buildInsertPayload(
+  table: MatrixTable,
+  actorUserId: string
+): MatrixInsertPayload {
   switch (table) {
     case "estimate_versions":
       return {
@@ -559,13 +592,58 @@ async function runInsert(
   table: MatrixTable,
   actorUserId: string
 ): Promise<OperationResult> {
-  const payload = buildInsertPayload(table, actorUserId);
-  const { data, error } = await asAnyClient(client).from(table).insert(payload).select("id").maybeSingle();
+  let result;
+  switch (table) {
+    case "estimate_versions":
+      result = await client
+        .from("estimate_versions")
+        .insert(buildInsertPayload(table, actorUserId))
+        .select("id")
+        .maybeSingle();
+      break;
+    case "estimate_items":
+      result = await client
+        .from("estimate_items")
+        .insert(buildInsertPayload(table, actorUserId))
+        .select("id")
+        .maybeSingle();
+      break;
+    case "estimate_categories":
+      result = await client
+        .from("estimate_categories")
+        .insert(buildInsertPayload(table, actorUserId))
+        .select("id")
+        .maybeSingle();
+      break;
+    case "labor_roles":
+      result = await client
+        .from("labor_roles")
+        .insert(buildInsertPayload(table, actorUserId))
+        .select("id")
+        .maybeSingle();
+      break;
+    case "estimate_suggestion_rules":
+      result = await client
+        .from("estimate_suggestion_rules")
+        .insert(buildInsertPayload(table, actorUserId))
+        .select("id")
+        .maybeSingle();
+      break;
+    case "audit_logs":
+      result = await client
+        .from("audit_logs")
+        .insert(buildInsertPayload(table, actorUserId))
+        .select("id")
+        .maybeSingle();
+      break;
+  }
+
+  const { data, error } = result;
   if (error) {
     return { allowed: false, errorCode: error.code, errorMessage: error.message };
   }
 
-  const insertedId = data?.id as string | undefined;
+  const insertedId = data?.id;
   if (insertedId) {
     trackRow(table, insertedId);
   }

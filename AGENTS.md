@@ -37,7 +37,7 @@ For scan `91386191-6320-4d8c-83c2-a51fbfba12b1`, `docs/security-remediation-9138
 
 ## Runtime and Installation
 
-Use Node.js 20 to match GitHub Actions.
+Use Node.js 24 LTS to match GitHub Actions and Vercel. The `.nvmrc` file pins the local major version.
 
 - `npm ci`: reproducible installation from `package-lock.json`; preferred on a clean checkout.
 - `npm install`: use when intentionally changing dependencies or refreshing the lockfile.

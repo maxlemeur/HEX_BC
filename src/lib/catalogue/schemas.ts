@@ -10,7 +10,8 @@ const requiredTextSchema = z
   .min(1, "Ce champ est requis.");
 
 const optionalTextSchema = z
-  .union([z.string(), z.null(), z.undefined()])
+  .union([z.string(), z.null()])
+  .optional()
   .transform((value) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
@@ -33,17 +34,16 @@ const nonNegativeNumberSchema = z.number().min(0, "Valeur numerique invalide.");
 const optionalUuidSchema = z.union([
   z.string().uuid(UUID_ERROR_MESSAGE),
   z.null(),
-  z.undefined(),
-]);
+]).optional();
 const optionalNonNegativeNumberSchema = z.union([
   nonNegativeNumberSchema,
   z.null(),
-  z.undefined(),
-]);
-const optionalPositiveNumberSchema = z.union([positiveNumberSchema, z.null(), z.undefined()]);
+]).optional();
+const optionalPositiveNumberSchema = z.union([positiveNumberSchema, z.null()]).optional();
 
 const optionalDateSchema = z
-  .union([z.string(), z.null(), z.undefined()])
+  .union([z.string(), z.null()])
+  .optional()
   .transform((value, ctx) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();

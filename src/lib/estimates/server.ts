@@ -1199,7 +1199,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
 
   const selectedAndPeerRows = Array.from(
     new Map(
-      [selectedPrice, ...(((productPriceData ?? []) as SupplierPricebookRow[]) ?? [])].map(
+      [selectedPrice, ...((productPriceData ?? []) as SupplierPricebookRow[])].map(
         (row) => [row.id, row] as const
       )
     ).values()
@@ -4940,7 +4940,7 @@ export async function updateEstimateTemplate(
     templateId,
   });
 
-  const payload: Record<string, unknown> = {};
+  const payload: Database["public"]["Tables"]["estimate_templates"]["Update"] = {};
 
   if ("name" in input) {
     payload.name = (input.name ?? "").trim();

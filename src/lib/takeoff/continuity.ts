@@ -100,10 +100,9 @@ export function buildTakeoffContinuitySnapshot(input: {
     return null;
   }
 
-  const latestJob =
-    (input.latestJobId
-      ? sortedJobs.find((job) => job.jobId === input.latestJobId) ?? null
-      : null) ?? sortedJobs[0];
+  const latestJob = input.latestJobId
+    ? sortedJobs.find((job) => job.jobId === input.latestJobId) ?? sortedJobs[0]
+    : sortedJobs[0];
   if (!latestJob) {
     return null;
   }

@@ -1,6 +1,6 @@
 import { createElement } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { useUserContextMock } = vi.hoisted(() => ({
   useUserContextMock: vi.fn(),
@@ -37,13 +37,12 @@ function createTenantMembershipPayload() {
   };
 }
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("TenantMembershipManager", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     useUserContextMock.mockReturnValue({
       profile: {
@@ -61,20 +60,14 @@ describe("TenantMembershipManager", () => {
   });
 
   it("offers the director role in tenant membership selectors", async () => {
-    let renderer: ReactTestRenderer;
+    render(createElement(TenantMembershipManager));
 
-    await act(async () => {
-      renderer = create(createElement(TenantMembershipManager));
-    });
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    const options = renderer!.root.findAllByType("option");
-    const directorOptions = options.filter((option) => option.props.value === "director");
+    await screen.findByText("Admin User");
+    const directorOptions = screen
+      .getAllByRole("option")
+      .filter((option) => (option as HTMLOptionElement).value === "director");
 
     expect(directorOptions).toHaveLength(1);
-    expect(directorOptions[0]?.children).toContain("Directeur");
+    expect(directorOptions[0]).toHaveTextContent("Directeur");
   });
 });

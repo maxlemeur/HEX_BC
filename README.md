@@ -8,7 +8,7 @@ Application interne pour :
 
 ## Prérequis
 
-- Node.js / npm
+- Node.js 24 LTS / npm 11
 - Un projet Supabase (cloud) ou Supabase local
 
 ## Mise en place Supabase

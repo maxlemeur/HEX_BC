@@ -1,18 +1,12 @@
 import { createElement } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AssemblyEditorModal, type AssemblyEditorInput } from "@/components/estimates/AssemblyEditorModal";
 import type {
   EstimateAssemblyDetail,
   EstimateAssemblyItem,
 } from "@/lib/estimates/client";
-
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function createAssemblyItem(overrides: Partial<EstimateAssemblyItem> = {}): EstimateAssemblyItem {
   return {
@@ -65,6 +59,8 @@ function createAssemblyDetail(
 }
 
 describe("AssemblyEditorModal", () => {
+  afterEach(cleanup);
+
   it("resynchronizes form fields when initialValue changes on an open modal", async () => {
     const assemblyA = createAssemblyDetail({
       id: "assembly-a",
@@ -105,69 +101,47 @@ describe("AssemblyEditorModal", () => {
     const onSubmit = vi.fn<(input: AssemblyEditorInput) => Promise<void>>();
     onSubmit.mockResolvedValue(undefined);
 
-    let renderer: ReactTestRenderer;
+    const renderResult = render(
+      createElement(AssemblyEditorModal, {
+        key: assemblyA.id,
+        isSubmitting: false,
+        initialValue: assemblyA,
+        onClose: () => undefined,
+        onSubmit,
+      })
+    );
 
-    await act(async () => {
-      renderer = create(
-        createElement(AssemblyEditorModal, {
-          key: assemblyA.id,
-          isSubmitting: false,
-          initialValue: assemblyA,
-          onClose: () => undefined,
-          onSubmit,
-        })
-      );
-    });
+    const nameInput = document.getElementById("assembly-name") as HTMLInputElement;
+    const lineTitleInput = screen.getByPlaceholderText("Désignation");
 
-    const nameInput = renderer!.root.findByProps({ id: "assembly-name" });
-    const lineTitleInput = renderer!.root.findAll(
-      (node) =>
-        node.type === "input" &&
-        typeof node.props.placeholder === "string" &&
-        node.props.placeholder === "Désignation"
-    )[0];
+    expect(nameInput).toHaveValue("Assemblage A");
+    expect(lineTitleInput).toHaveValue("Ligne A");
 
-    expect(nameInput.props.value).toBe("Assemblage A");
-    expect(lineTitleInput.props.value).toBe("Ligne A");
+    fireEvent.change(nameInput, { target: { value: "Valeur locale obsolete" } });
+    fireEvent.change(lineTitleInput, { target: { value: "Ligne locale obsolete" } });
 
-    await act(async () => {
-      nameInput.props.onChange({ target: { value: "Valeur locale obsolete" } });
-      lineTitleInput.props.onChange({ target: { value: "Ligne locale obsolete" } });
-    });
+    renderResult.rerender(
+      createElement(AssemblyEditorModal, {
+        key: assemblyB.id,
+        isSubmitting: false,
+        initialValue: assemblyB,
+        onClose: () => undefined,
+        onSubmit,
+      })
+    );
 
-    await act(async () => {
-      renderer!.update(
-        createElement(AssemblyEditorModal, {
-          key: assemblyB.id,
-          isSubmitting: false,
-          initialValue: assemblyB,
-          onClose: () => undefined,
-          onSubmit,
-        })
-      );
-    });
+    const refreshedNameInput = document.getElementById("assembly-name") as HTMLInputElement;
+    const refreshedDescriptionInput = document.getElementById(
+      "assembly-description"
+    ) as HTMLTextAreaElement;
+    const refreshedLineTitleInput = screen.getByPlaceholderText("Désignation");
 
-    const refreshedNameInput = renderer!.root.findByProps({ id: "assembly-name" });
-    const refreshedDescriptionInput = renderer!.root.findByProps({
-      id: "assembly-description",
-    });
-    const refreshedLineTitleInput = renderer!.root.findAll(
-      (node) =>
-        node.type === "input" &&
-        typeof node.props.placeholder === "string" &&
-        node.props.placeholder === "Désignation"
-    )[0];
+    expect(refreshedNameInput).toHaveValue("Assemblage B");
+    expect(refreshedDescriptionInput).toHaveValue("Description B");
+    expect(refreshedLineTitleInput).toHaveValue("Ligne B");
 
-    expect(refreshedNameInput.props.value).toBe("Assemblage B");
-    expect(refreshedDescriptionInput.props.value).toBe("Description B");
-    expect(refreshedLineTitleInput.props.value).toBe("Ligne B");
-
-    const form = renderer!.root.findByType("form");
-    await act(async () => {
-      await form.props.onSubmit({
-        preventDefault: () => undefined,
-      });
-    });
+    fireEvent.submit(refreshedNameInput.closest("form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith({

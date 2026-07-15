@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const parseFileMock = vi.hoisted(() => vi.fn());
@@ -17,12 +17,6 @@ vi.mock("@/components/catalogue/api", () => ({
 
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
 const TEST_LOOKUPS = {
   suppliers: [{ id: "supplier-1", name: "CEDEO" }],
   products: [{ id: "product-1", reference: "TUBE-INOX-28", designation: "Tube inox 28" }],
@@ -32,13 +26,27 @@ const TEST_IMPORT_RESPONSE = {
   filename: "mm.csv",
 };
 
-function extractText(node: ReactTestInstance | string): string {
-  if (typeof node === "string") return node;
-  if (!node.children) return "";
-  return node.children.map((child) => extractText(child as ReactTestInstance | string)).join("");
+function renderImporter(onImported = vi.fn()) {
+  return render(
+    createElement(PriceBookCsvImport, {
+      onImported,
+      lookups: TEST_LOOKUPS,
+    })
+  );
+}
+
+function selectCsvFile(file: File) {
+  const fileInput = document.getElementById("price-book-csv-input");
+  expect(fileInput).toBeInstanceOf(HTMLInputElement);
+  fireEvent.change(fileInput!, { target: { files: [file] } });
+}
+
+function analyzeSelectedFile() {
+  fireEvent.click(screen.getByRole("button", { name: /Analyser/i }));
 }
 
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
 });
 
@@ -49,20 +57,8 @@ describe("PriceBookCsvImport", () => {
   });
 
   it("renders the guided assistant steps", async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(PriceBookCsvImport, {
-          onImported: vi.fn(),
-          lookups: TEST_LOOKUPS,
-        })
-      );
-    });
-
-    const treeText = renderer!.root
-      .findAll((node) => typeof node.type === "string")
-      .map(extractText)
-      .join(" ");
+    const { container } = renderImporter();
+    const treeText = container.textContent ?? "";
 
     expect(treeText).toContain("Charger");
     expect(treeText).toContain("Detection");
@@ -95,25 +91,10 @@ describe("PriceBookCsvImport", () => {
       }) as unknown as typeof document.createElement
     );
 
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(PriceBookCsvImport, {
-          onImported: vi.fn(),
-          lookups: TEST_LOOKUPS,
-        })
-      );
-    });
-
-    const templateButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Télécharger un modèle CSV"));
-
-    expect(templateButton).toBeDefined();
-
-    await act(async () => {
-      templateButton!.props.onClick();
-    });
+    renderImporter();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Télécharger un modèle CSV/i })
+    );
 
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
     const csvBlob = createObjectURLMock.mock.calls[0][0];
@@ -154,38 +135,14 @@ describe("PriceBookCsvImport", () => {
       rowLineNumbers: [2],
     });
 
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(PriceBookCsvImport, {
-          onImported: vi.fn(),
-          lookups: TEST_LOOKUPS,
-        })
-      );
+    const { container } = renderImporter();
+    selectCsvFile(new File(["header"], "mm.csv", { type: "text/csv" }));
+    analyzeSelectedFile();
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("Format BDC detecte");
+      expect(container.textContent).toContain("Encodage: windows-1252");
     });
-
-    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
-    await act(async () => {
-      fileInput.props.onChange({
-        target: {
-          files: [new File(["header"], "mm.csv", { type: "text/csv" })],
-        },
-      });
-    });
-
-    const analyzeButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Analyser"));
-
-    expect(analyzeButton).toBeDefined();
-
-    await act(async () => {
-      await analyzeButton!.props.onClick();
-    });
-
-    const treeText = renderer!.root.findAll((node) => typeof node.type === "string").map(extractText).join(" ");
-    expect(treeText).toContain("Format BDC detecte");
-    expect(treeText).toContain("Encodage: windows-1252");
   });
 
   it("exports correction CSV with expected columns for rows to fix", async () => {
@@ -228,53 +185,20 @@ describe("PriceBookCsvImport", () => {
       }) as unknown as typeof document.createElement
     );
 
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(PriceBookCsvImport, {
-          onImported: vi.fn(),
-          lookups: TEST_LOOKUPS,
-        })
-      );
+    const { container } = renderImporter();
+    selectCsvFile(new File(["header"], "unknown.csv", { type: "text/csv" }));
+    analyzeSelectedFile();
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("Total detecte");
+      expect(container.textContent).toContain("Importables");
+      expect(container.textContent).toContain("Ignorees (hors perimetre)");
+      expect(container.textContent).toContain("A corriger");
     });
 
-    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
-    await act(async () => {
-      fileInput.props.onChange({
-        target: {
-          files: [new File(["header"], "unknown.csv", { type: "text/csv" })],
-        },
-      });
-    });
-
-    const analyzeButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Analyser"));
-
-    expect(analyzeButton).toBeDefined();
-
-    await act(async () => {
-      await analyzeButton!.props.onClick();
-    });
-
-    const treeText = renderer!.root
-      .findAll((node) => typeof node.type === "string")
-      .map(extractText)
-      .join(" ");
-    expect(treeText).toContain("Total detecte");
-    expect(treeText).toContain("Importables");
-    expect(treeText).toContain("Ignorees (hors perimetre)");
-    expect(treeText).toContain("A corriger");
-
-    const exportButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Exporter les corrections CSV"));
-
-    expect(exportButton).toBeDefined();
-
-    await act(async () => {
-      exportButton!.props.onClick();
-    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Exporter les corrections CSV/i })
+    );
 
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
     const csvBlob = createObjectURLMock.mock.calls[0][0];
@@ -319,52 +243,21 @@ describe("PriceBookCsvImport", () => {
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(PriceBookCsvImport, {
-          onImported: vi.fn(),
-          lookups: TEST_LOOKUPS,
-        })
-      );
-    });
+    const { container } = renderImporter();
+    selectCsvFile(
+      new File(["header"], "unknown-both.csv", { type: "text/csv" })
+    );
+    analyzeSelectedFile();
 
-    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
-    await act(async () => {
-      fileInput.props.onChange({
-        target: {
-          files: [new File(["header"], "unknown-both.csv", { type: "text/csv" })],
-        },
-      });
-    });
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        "Fournisseurs inconnus: 1 | Produits inconnus: 1"
+      )
+    );
 
-    const analyzeButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Analyser"));
+    fireEvent.click(screen.getByRole("button", { name: /Creer les inconnus/i }));
 
-    expect(analyzeButton).toBeDefined();
-
-    await act(async () => {
-      await analyzeButton!.props.onClick();
-    });
-
-    const countsText = renderer!.root
-      .findAll((node) => typeof node.type === "string")
-      .map(extractText)
-      .join(" ");
-    expect(countsText).toContain("Fournisseurs inconnus: 1 | Produits inconnus: 1");
-
-    const createMissingButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Creer les inconnus"));
-
-    expect(createMissingButton).toBeDefined();
-
-    await act(async () => {
-      await createMissingButton!.props.onClick();
-    });
-
-    expect(fetchApiMock).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(fetchApiMock).toHaveBeenCalledTimes(2));
     expect(fetchApiMock).toHaveBeenNthCalledWith(
       2,
       "/api/prices/import/create-missing",
@@ -403,36 +296,12 @@ describe("PriceBookCsvImport", () => {
 
     const onImported = vi.fn();
 
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        createElement(PriceBookCsvImport, {
-          onImported,
-          lookups: TEST_LOOKUPS,
-        })
-      );
-    });
-
-    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
+    renderImporter(onImported);
     const file = new File(["header"], "mm.csv", { type: "text/csv" });
+    selectCsvFile(file);
+    analyzeSelectedFile();
 
-    await act(async () => {
-      fileInput.props.onChange({
-        target: {
-          files: [file],
-        },
-      });
-    });
-
-    const analyzeButton = renderer!.root
-      .findAllByType("button")
-      .find((button) => extractText(button).includes("Analyser"));
-
-    expect(analyzeButton).toBeDefined();
-
-    await act(async () => {
-      await analyzeButton!.props.onClick();
-    });
+    await waitFor(() => expect(fetchApiMock).toHaveBeenCalledTimes(1));
 
     const importCall = fetchApiMock.mock.calls[0];
     expect(importCall?.[0]).toBe("/api/imports");

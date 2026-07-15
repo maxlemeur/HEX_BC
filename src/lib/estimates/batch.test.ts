@@ -84,6 +84,11 @@ function createLineItemSnapshot(
     line_tax_cents: 200,
     line_total_ttc_cents: 1200,
     ...overrides,
+    source_provider: overrides.source_provider ?? null,
+    source_job_id: overrides.source_job_id ?? null,
+    source_file_name: overrides.source_file_name ?? null,
+    source_page: overrides.source_page ?? null,
+    source_metadata: overrides.source_metadata ?? {},
   };
 }
 
@@ -123,6 +128,11 @@ function createSectionItemSnapshot(
     line_tax_cents: null,
     line_total_ttc_cents: null,
     ...overrides,
+    source_provider: overrides.source_provider ?? null,
+    source_job_id: overrides.source_job_id ?? null,
+    source_file_name: overrides.source_file_name ?? null,
+    source_page: overrides.source_page ?? null,
+    source_metadata: overrides.source_metadata ?? {},
   };
 }
 
