@@ -79,6 +79,7 @@ function createVersion(
     approval_summary: {},
     approval_evaluated_at: null,
     title: "Devis principal",
+    exclusions: null,
     date_devis: "2026-07-15",
     validite_jours: 30,
     margin_multiplier: 1.2,
@@ -154,6 +155,7 @@ function createSettings(
 ): EstimateSettingsState {
   return {
     title: "Devis principal",
+    exclusions: "",
     date_devis: "2026-07-15",
     validite_jours: 30,
     currency: "EUR",

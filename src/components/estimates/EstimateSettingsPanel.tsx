@@ -20,6 +20,7 @@ export type DiscountMode = "simple" | "cascade";
 export type EstimateSettingsState = {
   title: string;
   date_devis: string;
+  exclusions: string;
   validite_jours: number;
   currency: SupportedEstimateCurrency;
   margin_multiplier: number;
@@ -307,6 +308,25 @@ export function EstimateSettingsPanel({
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="mt-8" data-testid="estimate-exclusions-section">
+        <label className="form-label" htmlFor="estimate-exclusions">
+          Exclusions du devis
+        </label>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Precisez les prestations, fournitures ou limites de perimetre qui ne sont pas
+          comprises dans cette offre. Elles apparaitront sur le PDF du devis.
+        </p>
+        <textarea
+          id="estimate-exclusions"
+          className="form-input min-h-32 resize-y py-3"
+          value={settings.exclusions}
+          disabled={isReadOnly}
+          maxLength={5000}
+          placeholder="Ex. : alimentation electrique en amont, percements structurels, reprises de peinture..."
+          onChange={(event) => onChange({ exclusions: event.target.value })}
+        />
       </div>
 
       <div className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3">

@@ -52,7 +52,7 @@ function normalizeMapping(
 export const mappingRecordSchema = mappingRecordRawSchema.transform(normalizeMapping);
 
 const optionalTextSchema = z
-  .union([z.string(), z.null(), z.undefined()])
+  .union([z.string(), z.null()])
   .transform((value) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();

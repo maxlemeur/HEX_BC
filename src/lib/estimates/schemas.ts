@@ -58,6 +58,14 @@ const optionalNullableTextSchema = z
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
   });
+const optionalNullableExclusionsSchema = z
+  .union([z.string().max(5000, "Exclusions trop longues."), z.null()])
+  .transform((value) => {
+    if (value === null) return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  });
+
 
 const optionalAidSchema = z
   .union([z.string().max(64, AID_TOO_LONG_ERROR_MESSAGE), z.null()])
@@ -256,6 +264,7 @@ export const patchEstimateVersionSchema = z
   .object({
     title: optionalNullableTextSchema.optional(),
     date_devis: dateOnlySchema.optional(),
+    exclusions: optionalNullableExclusionsSchema.optional(),
     validite_jours: positiveIntegerSchema.optional(),
     margin_multiplier: nonNegativeNumberSchema.optional(),
     margin_mode: estimateMarginModeSchema.optional(),

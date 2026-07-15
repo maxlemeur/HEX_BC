@@ -36,6 +36,7 @@ function ControlledEstimateSettingsPanel({
 
 const baseSettings: EstimateSettingsState = {
   title: "Version test",
+  exclusions: "",
   date_devis: "2026-03-10",
   validite_jours: 30,
   currency: "EUR",
@@ -56,6 +57,12 @@ describe("EstimateSettingsPanel", () => {
     const user = userEvent.setup();
 
     render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} />);
+
+    const exclusionsInput = screen.getByLabelText("Exclusions du devis");
+    await user.type(exclusionsInput, "Peinture hors perimetre");
+    expect((exclusionsInput as HTMLTextAreaElement).value).toBe(
+      "Peinture hors perimetre"
+    );
 
     const validityInput = screen.getByLabelText("Validite (jours)");
     await user.clear(validityInput);

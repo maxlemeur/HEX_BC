@@ -13,6 +13,7 @@ export type SettingsSection =
   | "discount"
   | "tax"
   | "rounding"
+  | "exclusions"
   | "general";
 
 type EstimateSettingsSummaryBarProps = {

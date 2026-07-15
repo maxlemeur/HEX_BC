@@ -386,6 +386,7 @@ const estimateVersionSchema = z
     version_number: z.number().int(),
     status: estimateStatusSchema,
     title: z.string().nullable().optional(),
+    exclusions: z.string().nullable().optional(),
     date_devis: z.string().optional(),
     validite_jours: z.number().int().optional(),
     margin_multiplier: z.number().optional(),

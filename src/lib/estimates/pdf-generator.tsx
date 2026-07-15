@@ -61,6 +61,7 @@ type VersionWithProject = Pick<
   | "version_number"
   | "date_devis"
   | "validite_jours"
+  | "exclusions"
   | "margin_multiplier"
   | "margin_mode"
   | "discount_bp"
@@ -192,6 +193,23 @@ const styles = StyleSheet.create({
     display: "flex",
     flexDirection: "row",
     justifyContent: "space-between",
+  },
+  exclusionsCard: {
+    border: "1px solid #cbd5e1",
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    backgroundColor: "#f8fafc",
+  },
+  exclusionsTitle: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: "#1e3a5f",
+    marginBottom: 4,
+  },
+  exclusionsText: {
+    fontSize: 9,
+    color: "#334155",
   },
   table: {
     border: "1px solid #cbd5e1",
@@ -555,7 +573,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)"
+      "id, tenant_id, project_id, version_number, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -738,6 +756,13 @@ function buildPdfDocument(input: {
             </View>
           </View>
         </View>
+
+        {input.version.exclusions?.trim() ? (
+          <View style={styles.exclusionsCard}>
+            <Text style={styles.exclusionsTitle}>Exclusions</Text>
+            <Text style={styles.exclusionsText}>{input.version.exclusions.trim()}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.table}>
           <View style={styles.tableHead}>

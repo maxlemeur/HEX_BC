@@ -192,6 +192,7 @@ type EstimateEditorToolbarProps = {
   isForcingDraftUnlock: boolean;
   onSend: () => void;
   onAccept: () => void;
+  onOpenExclusions: () => void;
   onArchive: () => void;
   onExportExcel: () => void;
   onExportCSV: () => void;
@@ -225,6 +226,7 @@ export function EstimateEditorToolbar({
   isStatusActionsDisabled,
   onSend,
   onAccept,
+  onOpenExclusions,
   onArchive,
   onExportExcel,
   onExportCSV,
@@ -336,6 +338,14 @@ export function EstimateEditorToolbar({
             Accepter
           </button>
         ) : null}
+        <button
+          className="btn btn-secondary btn-sm"
+          type="button"
+          onClick={onOpenExclusions}
+          data-testid="estimate-page-toolbar-exclusions-button"
+        >
+          Exclusions
+        </button>
         <MoreActionsDropdown
           onExportDpgf={onExportDpgf}
           onExportBdc={onExportBdc}

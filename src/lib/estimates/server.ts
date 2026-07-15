@@ -224,6 +224,7 @@ type VersionAccessRow = Pick<
   | "project_id"
   | "status"
   | "margin_mode"
+  | "exclusions"
   | "margin_multiplier"
   | "max_section_depth"
   | "tax_rate_bp"
@@ -1830,7 +1831,7 @@ function assertVersionConcurrencyToken(
   if (!Number.isFinite(versionTimestamp) || tokenTimestamp !== versionTimestamp) {
     throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
       updated_at: versionUpdatedAt,
-    });
+    }, "VERSION_CONFLICT");
   }
 }
 
@@ -2070,7 +2071,7 @@ async function transitionEstimateVersionStatusAtomically(input: {
     ) {
       throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
         updated_at: input.expectedUpdatedAt,
-      });
+      }, "VERSION_CONFLICT");
     }
 
     throw mapSupabaseError(error, "Impossible de changer le statut.");
@@ -2080,7 +2081,7 @@ async function transitionEstimateVersionStatusAtomically(input: {
   if (!row) {
     throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
       updated_at: input.expectedUpdatedAt,
-    });
+    }, "VERSION_CONFLICT");
   }
 
   return row as unknown as EstimateVersionRow;
@@ -3639,7 +3640,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, exclusions, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -5952,7 +5953,7 @@ export async function duplicateEstimateVersion(
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
-  await getVersionAccessOrThrow(supabase, versionId, context);
+  const { version: sourceVersion } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
     source_version_id: versionId,
@@ -5966,6 +5967,18 @@ export async function duplicateEstimateVersion(
   const duplicatedVersionId = toRpcUuid(data);
   if (!duplicatedVersionId) {
     throw badRequest("Impossible de dupliquer le chiffrage.");
+  }
+
+  if (sourceVersion.exclusions) {
+    const { error: exclusionsError } = await supabase
+      .from("estimate_versions")
+      .update({ exclusions: sourceVersion.exclusions })
+      .eq("id", duplicatedVersionId)
+      .eq("tenant_id", tenantId);
+
+    if (exclusionsError) {
+      throw mapSupabaseError(exclusionsError, "Impossible de dupliquer les exclusions.");
+    }
   }
 
   await tryCarryOverTakeoffJobsToNewVersion({
@@ -7387,6 +7400,9 @@ export async function patchEstimateVersion(
   if ("title" in input) {
     payload.title = toNullableText(input.title);
   }
+  if ("exclusions" in input) {
+    payload.exclusions = toNullableText(input.exclusions);
+  }
   if ("date_devis" in input) {
     payload.date_devis = input.date_devis;
   }
@@ -7470,7 +7486,7 @@ export async function patchEstimateVersion(
     if (error?.code === "PGRST116") {
       throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
         updated_at: version.updated_at,
-      });
+      }, "VERSION_CONFLICT");
     }
 
     if (error) {
@@ -7478,7 +7494,7 @@ export async function patchEstimateVersion(
     }
     throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
       updated_at: version.updated_at,
-    });
+    }, "VERSION_CONFLICT");
   }
 
   return {
@@ -9056,7 +9072,7 @@ export async function claimEstimateBatchRevision(
     ) {
       throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
         updated_at: normalizedToken,
-      });
+      }, "VERSION_CONFLICT");
     }
     throw mapSupabaseError(
       error,
@@ -9068,7 +9084,7 @@ export async function claimEstimateBatchRevision(
   if (!row || typeof row !== "object") {
     throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
       updated_at: normalizedToken,
-    });
+    }, "VERSION_CONFLICT");
   }
 
   return row as unknown as { id: string; updated_at: string };

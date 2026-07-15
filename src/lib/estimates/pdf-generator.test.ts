@@ -75,6 +75,7 @@ function createSupabasePdfMock(input?: {
     eq: vi.fn(),
     single: vi.fn().mockResolvedValue({
       data: {
+        exclusions: "Peinture et percements structurels hors perimetre.",
         id: VERSION_ID,
         tenant_id: TENANT_ID,
         project_id: PROJECT_ID,
@@ -250,6 +251,12 @@ describe("estimate pdf generator", () => {
       .update(buffer)
       .digest("hex")
       .toLowerCase();
+
+    const renderedDocument = vi.mocked(renderToBuffer).mock.calls[0]?.[0];
+    expect(JSON.stringify(renderedDocument)).toContain("Exclusions");
+    expect(JSON.stringify(renderedDocument)).toContain(
+      "Peinture et percements structurels hors perimetre."
+    );
 
     expect(supabase.__mocks.upload).toHaveBeenCalledWith(
       expectedPath,

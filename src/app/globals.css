@@ -2157,39 +2157,68 @@ body {
   cursor: default;
 }
 
-/* Hover-reveal container for section add buttons */
-.estimate-section-hover-actions {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* Keep section creation actions outside the title input hit area. */
+.estimate-section-quick-actions {
+  flex: 0 0 28px;
+  justify-content: flex-end;
   opacity: 0;
   transition: opacity 0.15s ease;
-  flex-shrink: 0;
   z-index: 4;
-  background: linear-gradient(to right, transparent, var(--row-bg, white) 12px);
-  padding-left: 16px;
   pointer-events: none;
 }
 
-.estimate-row--section .estimate-cell--designation:hover .estimate-section-hover-actions {
+.estimate-row--section .estimate-cell--designation:hover .estimate-section-quick-actions,
+.estimate-row--section .estimate-cell--designation:focus-within .estimate-section-quick-actions {
   opacity: 1;
   pointer-events: auto;
 }
 
 /* Hide action buttons only while editing the title, not when the cell is merely focused. */
-.estimate-row--section .estimate-cell--designation.estimate-cell--editing .estimate-section-hover-actions {
+.estimate-row--section .estimate-cell--designation.estimate-cell--editing .estimate-section-quick-actions {
   opacity: 0;
   pointer-events: none;
+}
+
+.estimate-section-quick-actions__trigger {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--blue-300, #93c5fd);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--blue-600, #2563eb);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.estimate-section-quick-actions__trigger:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: var(--blue-400, #60a5fa);
+}
+
+.estimate-section-quick-actions__trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.estimate-section-quick-actions__menu {
+  padding: 6px;
+}
+
+.estimate-section-quick-actions__items {
+  display: grid;
+  min-width: 150px;
+  gap: 4px;
 }
 
 /* Individual hover button style */
 .estimate-section-hover-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   padding: 2px 8px;
   border: 1px solid var(--blue-300, #93c5fd);
   border-radius: 6px;

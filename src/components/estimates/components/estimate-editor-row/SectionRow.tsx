@@ -247,41 +247,59 @@ export function SectionRow({
             </div>
           </div>
           {!hideEditingActions ? (
-            <div className="estimate-section-hover-actions">
-              {canAddLine ? (
+            <Popover
+              placement="bottom"
+              className="estimate-section-quick-actions"
+              contentClassName="estimate-section-quick-actions__menu"
+              trigger={
                 <button
-                  className="estimate-section-hover-btn"
+                  className="estimate-section-quick-actions__trigger"
                   type="button"
-                  onClick={() => onAddLine(item.id)}
+                  aria-label={`Ajouter dans ${item.title}`}
+                  title="Ajouter"
                   disabled={isReadOnly}
-                  data-testid="estimate-section-add-line-button"
+                  data-testid="estimate-section-quick-actions-trigger"
                 >
-                  {addLineLabel}
+                  +
                 </button>
-              ) : null}
-              {canAddSection ? (
-                <button
-                  className="estimate-section-hover-btn"
-                  type="button"
-                  onClick={() => onAddSection(item.id)}
-                  disabled={isReadOnly}
-                  data-testid="estimate-section-add-section-button"
-                >
-                  {addSectionLabel}
-                </button>
-              ) : null}
-              {!isAidEditorVisible ? (
-                <button
-                  className="estimate-section-hover-btn"
-                  type="button"
-                  onClick={onRevealAidEditor}
-                  disabled={isReadOnly}
-                  data-testid="estimate-section-add-aid-button"
-                >
-                  + AID
-                </button>
-              ) : null}
-            </div>
+              }
+            >
+              <div className="estimate-section-quick-actions__items">
+                {canAddLine ? (
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={() => onAddLine(item.id)}
+                    disabled={isReadOnly}
+                    data-testid="estimate-section-add-line-button"
+                  >
+                    {addLineLabel}
+                  </button>
+                ) : null}
+                {canAddSection ? (
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={() => onAddSection(item.id)}
+                    disabled={isReadOnly}
+                    data-testid="estimate-section-add-section-button"
+                  >
+                    {addSectionLabel}
+                  </button>
+                ) : null}
+                {!isAidEditorVisible ? (
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={onRevealAidEditor}
+                    disabled={isReadOnly}
+                    data-testid="estimate-section-add-aid-button"
+                  >
+                    + AID
+                  </button>
+                ) : null}
+              </div>
+            </Popover>
           ) : null}
         </div>
       </div>

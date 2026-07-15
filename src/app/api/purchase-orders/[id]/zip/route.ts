@@ -1,4 +1,4 @@
-import { ZipArchive } from "archiver";
+import archiver from "archiver";
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 
@@ -306,7 +306,7 @@ export async function GET(
   const devis = (devisResult.data ?? []) as DevisRow[];
   const orderHtml = buildOrderHtml(order, items);
 
-  const archive = new ZipArchive({ zlib: { level: 9 } });
+  const archive = archiver("zip", { zlib: { level: 9 } });
   archive.append(orderHtml, { name: "bon-de-commande.html" });
 
   const usedNames = new Set<string>();

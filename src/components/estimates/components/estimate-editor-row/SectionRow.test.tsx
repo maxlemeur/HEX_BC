@@ -176,6 +176,7 @@ describe("SectionRow", () => {
     );
     expect(screen.getByText(SECTION_FO_TOTAL_HELP)).toBeInTheDocument();
 
+    fireEvent.click(screen.getByTestId("estimate-section-quick-actions-trigger"));
     fireEvent.click(screen.getByTestId("estimate-section-add-line-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-section-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-aid-button"));

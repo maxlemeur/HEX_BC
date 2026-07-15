@@ -1008,6 +1008,7 @@ export type Database = {
           approval_summary: Json;
           approval_evaluated_at: string | null;
           title: string | null;
+          exclusions: string | null;
           date_devis: string;
           validite_jours: number;
           margin_multiplier: number;
@@ -1046,6 +1047,7 @@ export type Database = {
           approval_summary?: Json;
           approval_evaluated_at?: string | null;
           title?: string | null;
+          exclusions?: string | null;
           date_devis?: string;
           validite_jours?: number;
           margin_multiplier?: number;
@@ -1084,6 +1086,7 @@ export type Database = {
           approval_summary?: Json;
           approval_evaluated_at?: string | null;
           title?: string | null;
+          exclusions?: string | null;
           date_devis?: string;
           validite_jours?: number;
           margin_multiplier?: number;

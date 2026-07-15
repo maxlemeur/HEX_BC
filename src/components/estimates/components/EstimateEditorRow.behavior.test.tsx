@@ -242,6 +242,7 @@ describe("EstimateEditorRow behavior", () => {
     });
 
     const row = screen.getByTestId("estimate-section-row");
+    fireEvent.click(screen.getByTestId("estimate-section-quick-actions-trigger"));
     fireEvent.click(screen.getByTestId("estimate-section-add-line-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-section-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-aid-button"));

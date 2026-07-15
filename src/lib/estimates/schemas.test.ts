@@ -271,11 +271,13 @@ describe("patchEstimateVersionSchema", () => {
   it("normalizes trimmed values for patch payloads", () => {
     const parsed = patchEstimateVersionSchema.parse({
       title: "  Version revisee  ",
+      exclusions: "  Peinture hors perimetre  ",
       currency: "  EUR  ",
       updated_at: `  ${UPDATED_AT}  `,
     });
 
     expect(parsed.title).toBe("Version revisee");
+    expect(parsed.exclusions).toBe("Peinture hors perimetre");
     expect(parsed.currency).toBe("EUR");
     expect(parsed.updated_at).toBe(UPDATED_AT);
   });
@@ -283,10 +285,20 @@ describe("patchEstimateVersionSchema", () => {
   it("keeps nullable text fields as null when blanks are sent", () => {
     const parsed = patchEstimateVersionSchema.parse({
       title: "   ",
+      exclusions: "   ",
       updated_at: UPDATED_AT,
     });
 
     expect(parsed.title).toBeNull();
+    expect(parsed.exclusions).toBeNull();
+  });
+
+  it("rejects exclusions longer than 5000 characters", () => {
+    const parsed = patchEstimateVersionSchema.safeParse({
+      exclusions: "x".repeat(5001),
+    });
+
+    expect(parsed.success).toBe(false);
   });
 
   it("rejects negative integer totals", () => {

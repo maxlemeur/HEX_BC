@@ -191,6 +191,7 @@ describe("EstimateEditorPage", () => {
       focusItemId: null,
       autoOpenVersionZero: false,
       autoOpenStructureDraft: false,
+      autoOpenSettingsSection: null,
     });
   });
 
@@ -277,6 +278,7 @@ describe("EstimateEditorPage", () => {
       focusItemId: "line-9",
       autoOpenVersionZero: true,
       autoOpenStructureDraft: true,
+      autoOpenSettingsSection: null,
     });
   });
 

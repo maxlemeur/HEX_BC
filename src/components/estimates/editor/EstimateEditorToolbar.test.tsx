@@ -27,6 +27,7 @@ function renderToolbar(versionZeroActionLabel?: string) {
       isForcingDraftUnlock={false}
       onSend={vi.fn()}
       onAccept={vi.fn()}
+      onOpenExclusions={vi.fn()}
       onArchive={vi.fn()}
       onExportExcel={vi.fn()}
       onExportCSV={vi.fn()}
@@ -54,6 +55,9 @@ describe("EstimateEditorToolbar page actions", () => {
 
     expect(
       screen.getByRole("button", { name: "Préparer un brouillon IA" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Exclusions" })
     ).toBeInTheDocument();
     expect(screen.queryByText("Assistant optionnel")).not.toBeInTheDocument();
     expect(screen.queryByText(/V0/)).not.toBeInTheDocument();

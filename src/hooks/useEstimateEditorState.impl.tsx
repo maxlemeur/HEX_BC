@@ -563,6 +563,7 @@ export function useEstimateEditorState({
 
         const initialSettings = {
           title: versionRow.title ?? "",
+          exclusions: versionRow.exclusions ?? "",
           date_devis: versionRow.date_devis,
           validite_jours: versionRow.validite_jours,
           currency: resolveEstimateCurrency(versionRow.currency),
@@ -814,6 +815,7 @@ export function useEstimateEditorState({
       discount: "estimate-discount",
       tax: "estimate-tax",
       rounding: "estimate-rounding",
+      exclusions: "estimate-exclusions",
       general: "estimate-project-name",
     };
     const targetId = sectionIdMap[target];
@@ -1296,6 +1298,7 @@ export function useEstimateEditorState({
       );
       const payload: Database["public"]["Tables"]["estimate_versions"]["Update"] = {
         title: settingsSnapshot.title.trim() || null,
+        exclusions: settingsSnapshot.exclusions.trim() || null,
         date_devis: settingsSnapshot.date_devis,
         validite_jours: settingsSnapshot.validite_jours,
         currency: settingsSnapshot.currency,
@@ -2497,6 +2500,7 @@ export function useEstimateEditorState({
         isForcingDraftUnlock,
         onSend: () => void handleStatusChange("sent"),
         onAccept: () => void handleStatusChange("accepted"),
+        onOpenExclusions: () => handleOpenSettingsDrawer("exclusions"),
         onArchive: () => void handleStatusChange("archived"),
         onExportExcel: () => void handleExportExcel(),
         onExportCSV: () => void handleExportCSV(),

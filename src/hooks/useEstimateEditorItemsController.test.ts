@@ -66,6 +66,7 @@ function createVersion(
     approval_evaluated_at: null,
     title: "Devis principal",
     date_devis: "2026-07-15",
+    exclusions: null,
     validite_jours: 30,
     margin_multiplier: 1.2,
     margin_mode: "fixed",

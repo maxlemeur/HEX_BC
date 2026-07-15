@@ -63,6 +63,7 @@ function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
 function createSettings(): EstimateSettingsState {
   return {
     title: "Devis principal",
+    exclusions: "",
     date_devis: "2026-07-15",
     validite_jours: 30,
     currency: "EUR",
