@@ -39,6 +39,7 @@ import {
 } from "@/components/estimates/EstimateSuggestionRulesManager";
 import { useUserContext } from "@/components/UserContext";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import { useUiMode } from "@/hooks/useUiMode";
 import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -63,6 +64,49 @@ import {
   buildBulkSuggestPreview,
   type BulkSuggestPreviewItem,
 } from "@/lib/estimates/bulk-suggest";
+import {
+  clearAutoSaveDraftFromLocal,
+  clearConflictDraftFromSession,
+  readAutoSaveDraftFromLocal,
+  readConflictDraftFromSession,
+  writeAutoSaveDraftToLocal,
+  writeConflictDraftToSession,
+  type EditorConflictDraft,
+} from "@/lib/estimates/editor-drafts";
+import {
+  DEFAULT_ESTIMATE_CURRENCY,
+  resolveEstimateCurrency,
+} from "@/lib/estimates/editor-export";
+import {
+  LABOR_SPLIT_FIELD_KEYS,
+  applyInterParentMoveOptimistically,
+  buildEstimateItemInsertPayload,
+  buildEstimateItemUpdatePayload,
+  buildVersionTotalsPatch,
+  createOptimisticLineItem,
+  createOptimisticSectionItem,
+  createTempEstimateItemId,
+  hasLaborSplitFields,
+  isPendingCreateEstimateItem,
+  isTempEstimateItemId,
+  readLaborSplitFields,
+  resolveLaborRoleHourlyRate,
+  type EditorEstimateItem,
+  type EstimateItem,
+  type EstimateItemInsertPayload,
+  type EstimateItemMovePayload,
+  type EstimateItemUpdatePayload,
+  type EstimateVersionRow,
+  type LaborRole,
+  type LaborSplitItemFields,
+} from "@/lib/estimates/editor-items";
+import {
+  isRecord,
+  parseNullableNumericValue,
+  toFiniteNumber,
+  toNonEmptyString,
+  type JsonRecord,
+} from "@/lib/estimates/editor-values";
 import type {
   EstimateSupplierComparisonAlternativeContract,
   EstimateSupplierComparisonAlternativeKind,
@@ -80,7 +124,6 @@ import {
 import {
   countEstimateQualityFlags,
   computeEstimateQualityFlagsByItemId,
-  ESTIMATE_QUALITY_FLAG_META,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
 import {
@@ -99,15 +142,6 @@ import {
   resolveEstimateEditorVirtualizationRuntimeConfig,
   type EstimateEditorVirtualizationRuntimeConfig,
 } from "@/lib/estimate-editor-virtualization";
-import {
-  exportToCSV,
-  type ExportColumn,
-} from "@/lib/export";
-import {
-  formatCurrency,
-  normalizeEstimateCurrency,
-  type SupportedEstimateCurrency,
-} from "@/lib/money";
 import {
   batchEstimateOperations,
   acquireEstimateDraftLock,
@@ -129,7 +163,6 @@ import {
   fetchAffaireLinkedDpgfSource,
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
-  exportEstimate,
   importLinkedDpgfSource,
   importEstimateSections,
   insertAssemblyIntoVersion,
@@ -142,7 +175,6 @@ import {
   sendEstimateSuggestionRuleFeedback,
   toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
-  type EstimateExportMode,
   type AffaireLinkedDpgfSource,
   type ImportLinkedDpgfSourceResult,
   type ImportEstimateSectionsPayload,
@@ -170,15 +202,6 @@ import {
   sortItemsForTreeRecreation,
 } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
 
-type EstimateVersionRow =
-  Database["public"]["Tables"]["estimate_versions"]["Row"];
-type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
-type EditorEstimateItem = EstimateItem & {
-  _optimistic?: boolean;
-  _pendingCreate?: boolean;
-  _tempId?: string;
-};
-
 function deferEffectStateUpdate(
   update: () => void | (() => void)
 ): () => void {
@@ -198,7 +221,6 @@ function deferEffectStateUpdate(
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
-type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
@@ -207,15 +229,6 @@ type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFla
 
 type EstimateVersionView = EstimateVersionRow & {
   estimate_projects: { name: string } | { name: string }[] | null;
-};
-
-type LaborSplitItemFields = {
-  h_mo_atelier?: number | null;
-  k_mo_atelier?: number | null;
-  labor_role_atelier_id?: string | null;
-  h_mo_chantier?: number | null;
-  k_mo_chantier?: number | null;
-  labor_role_chantier_id?: string | null;
 };
 
 type ItemPatch = Partial<
@@ -240,100 +253,19 @@ type ItemPatch = Partial<
 > &
   LaborSplitItemFields;
 
-type EstimateItemUpdatePayload =
-  Database["public"]["Tables"]["estimate_items"]["Update"] &
-    LaborSplitItemFields;
-type EstimateItemInsertPayload =
-  Database["public"]["Tables"]["estimate_items"]["Insert"] &
-    LaborSplitItemFields;
-type EstimateVersionTotalsPatch = Pick<
-  EstimateVersionRow,
-  "total_ht_cents" | "total_tax_cents" | "total_ttc_cents"
->;
-
-type EstimateRecapExportRow = {
-  project_name: string;
-  version_id: string;
-  version_number: number;
-  status: EstimateStatus;
-  date_devis: string;
-  validite_jours: number;
-  margin_multiplier: number;
-  discount_cents: number;
-  discount_bp: number;
-  tax_rate_bp: number;
-  rounding_mode: EstimateVersionRow["rounding_mode"];
-  rounding_step_cents: number;
-  sale_subtotal_cents: number;
-  sale_total_cents: number;
-  tax_cents: number;
-  ttc_cents: number;
-  quality_lines_count: number;
-  quality_flags_count: number;
-};
-
-type EstimateLineExportRow = {
-  section_path: string;
-  designation: string;
-  quality_flags: string;
-  unit: string;
-  quantity: number | "";
-  unit_price_ht_cents: number | "";
-  supply_type: string;
-  supplier_1: string;
-  supplier_2: string;
-  supplier_3: string;
-  k_fo: number | "";
-  h_mo: number | "";
-  h_mo_majoration_pct: number | "";
-  labor_role: string;
-  k_mo: number | "";
-  h_mo_atelier: number | "";
-  labor_role_atelier: string;
-  k_mo_atelier: number | "";
-  h_mo_chantier: number | "";
-  labor_role_chantier: string;
-  k_mo_chantier: number | "";
-  pu_ht_cents: number | "";
-  line_total_ht_cents: number | "";
-  tax_rate_bp: number | "";
-  line_total_ttc_cents: number | "";
-};
-
-type SupplierComparisonAlternative = {
-  supplier_name: string;
-  adjusted_unit_price_cents: number | null;
-  unit_price_cents: number | null;
-  currency: string | null;
-  supplier_reference: string | null;
-  catalogue_url: string | null;
-  updated_at: string | null;
-};
-
-type SupplierComparisonsByItemId = Map<string, SupplierComparisonAlternative[]>;
-
 type AuditLogEntry = Pick<
   Database["public"]["Tables"]["audit_logs"]["Row"],
   "id" | "created_at" | "action" | "table_name" | "record_id"
 >;
 
-type JsonRecord = Record<string, unknown>;
 type EstimateConflictState = {
   message: string;
   details: unknown;
 };
-type EstimateConflictDraft = {
-  settings: EstimateSettingsState | null;
-  items: EstimateItem[];
-  saved_at: string;
-};
-type EstimateAutoSaveDraft = {
-  buffered_updates: {
-    id: string;
-    updates: EstimateItemUpdatePayload;
-  }[];
-  saved_at: string;
-};
+type EstimateConflictDraft = EditorConflictDraft<
+  EstimateSettingsState,
+  EstimateItem
+>;
 type BulkSuggestProgressState = {
   processed: number;
   total: number;
@@ -346,13 +278,6 @@ type BulkSuggestUndoState = {
 type SupplierPreselectionSelectableProposal = EstimateSupplierPreselectionProposal;
 type EstimateUndoRedoCommand = UndoRedoCommand & {
   label?: string;
-};
-type EstimateItemMovePayload = {
-  itemId: string;
-  fromParentId: string | null;
-  toParentId: string | null;
-  orderedSourceIds: string[];
-  orderedTargetIds: string[];
 };
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
@@ -386,24 +311,12 @@ type SuggestionLearningTrackResult = SuggestionLearningState & {
 };
 
 const AUDIT_LOG_LIMIT = 25;
-const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
-const AUTOSAVE_BUFFER_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
 const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
 const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
 const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
 const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
-const DEFAULT_ESTIMATE_CURRENCY: SupportedEstimateCurrency = "EUR";
-const LABOR_SPLIT_FIELD_KEYS = [
-  "h_mo_atelier",
-  "k_mo_atelier",
-  "labor_role_atelier_id",
-  "h_mo_chantier",
-  "k_mo_chantier",
-  "labor_role_chantier_id",
-] as const;
-type LaborSplitFieldKey = (typeof LABOR_SPLIT_FIELD_KEYS)[number];
 const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
   resolveEstimateEditorVirtualizationConfig({
     enabled: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ENABLED,
@@ -440,21 +353,6 @@ function getProjectName(
   return value.name ?? "";
 }
 
-function sanitizeFilename(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/-+/g, "-")
-    .replace(/^[_-]+|[_-]+$/g, "");
-}
-
-function resolveItemTitle(value: string | null | undefined, fallback: string) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : fallback;
-}
-
 function clampCascadeDiscountStepBp(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(Math.max(Math.round(value), 0), 10000);
@@ -464,166 +362,6 @@ function normalizeCascadeDiscountSteps(steps: number[] | undefined): number[] {
   return (steps ?? [])
     .map((step) => clampCascadeDiscountStepBp(step))
     .slice(0, MAX_CASCADE_DISCOUNT_STEPS);
-}
-
-function resolveEstimateCurrency(value: string | null | undefined) {
-  return normalizeEstimateCurrency(value) ?? DEFAULT_ESTIMATE_CURRENCY;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function buildConflictDraftStorageKey(versionId: string) {
-  return `${CONFLICT_DRAFT_STORAGE_PREFIX}${versionId}`;
-}
-
-function buildAutoSaveDraftStorageKey(versionId: string) {
-  return `${AUTOSAVE_BUFFER_STORAGE_PREFIX}${versionId}`;
-}
-
-function readConflictDraftFromSession(versionId: string): EstimateConflictDraft | null {
-  if (!versionId || typeof window === "undefined") return null;
-
-  const raw = window.sessionStorage.getItem(buildConflictDraftStorageKey(versionId));
-  if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) return null;
-
-    const settingsValue = parsed.settings;
-    if (settingsValue !== null && settingsValue !== undefined && !isRecord(settingsValue)) {
-      return null;
-    }
-
-    if (!Array.isArray(parsed.items)) return null;
-
-    return {
-      settings:
-        settingsValue === null || settingsValue === undefined
-          ? null
-          : (settingsValue as EstimateSettingsState),
-      items: parsed.items as EstimateItem[],
-      saved_at: toNonEmptyString(parsed.saved_at) ?? new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeConflictDraftToSession(
-  versionId: string,
-  draft: EstimateConflictDraft
-) {
-  if (!versionId || typeof window === "undefined") return;
-
-  window.sessionStorage.setItem(
-    buildConflictDraftStorageKey(versionId),
-    JSON.stringify(draft)
-  );
-}
-
-function clearConflictDraftFromSession(versionId: string) {
-  if (!versionId || typeof window === "undefined") return;
-  window.sessionStorage.removeItem(buildConflictDraftStorageKey(versionId));
-}
-
-function readAutoSaveDraftFromLocal(versionId: string): EstimateAutoSaveDraft | null {
-  if (!versionId || typeof window === "undefined") return null;
-
-  const raw = window.localStorage.getItem(buildAutoSaveDraftStorageKey(versionId));
-  if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed) || !Array.isArray(parsed.buffered_updates)) {
-      return null;
-    }
-
-    const bufferedUpdates = parsed.buffered_updates
-      .map((entry) => {
-        if (!isRecord(entry)) return null;
-        if (typeof entry.id !== "string" || !entry.id) return null;
-        if (!isRecord(entry.updates)) return null;
-        return {
-          id: entry.id,
-          updates: entry.updates as EstimateItemUpdatePayload,
-        };
-      })
-      .filter((value): value is EstimateAutoSaveDraft["buffered_updates"][number] =>
-        value !== null
-      );
-
-    if (bufferedUpdates.length === 0) return null;
-
-    return {
-      buffered_updates: bufferedUpdates,
-      saved_at: toNonEmptyString(parsed.saved_at) ?? new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeAutoSaveDraftToLocal(
-  versionId: string,
-  bufferedUpdates: EstimateAutoSaveDraft["buffered_updates"]
-) {
-  if (!versionId || typeof window === "undefined") return;
-
-  if (bufferedUpdates.length === 0) {
-    clearAutoSaveDraftFromLocal(versionId);
-    return;
-  }
-
-  const payload: EstimateAutoSaveDraft = {
-    buffered_updates: bufferedUpdates,
-    saved_at: new Date().toISOString(),
-  };
-
-  window.localStorage.setItem(
-    buildAutoSaveDraftStorageKey(versionId),
-    JSON.stringify(payload)
-  );
-}
-
-function clearAutoSaveDraftFromLocal(versionId: string) {
-  if (!versionId || typeof window === "undefined") return;
-  window.localStorage.removeItem(buildAutoSaveDraftStorageKey(versionId));
-}
-
-function toNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function createTempEstimateItemId() {
-  return `tmp:${crypto.randomUUID()}`;
-}
-
-function isTempEstimateItemId(itemId: string) {
-  return itemId.startsWith("tmp:");
-}
-
-function isPendingCreateEstimateItem(
-  item: EstimateItem | (EstimateItem & { _pendingCreate?: boolean })
-) {
-  return (item as EstimateItem & { _pendingCreate?: boolean })._pendingCreate === true;
-}
-
-function toFiniteNumber(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function toNullableFiniteNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
 }
 
 function toApiDataRecord(payload: unknown): JsonRecord | null {
@@ -640,15 +378,6 @@ function resolveSuggestionLearningErrorMessage(payload: unknown, fallback: strin
     toNonEmptyString(payload.message) ??
     fallback
   );
-}
-
-function parseNullableNumericValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number.parseFloat(trimmed.replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeSuggestionLearningOverrides(value: unknown): SuggestionLearningOverrides {
@@ -765,120 +494,6 @@ async function trackSuggestionCorrectionsForVersion(input: {
     ...normalizeSuggestionLearningState(payload),
     tracked_count: Math.max(0, Math.trunc(toFiniteNumber(data?.tracked_count, 0))),
   };
-}
-
-function formatSupplierComparisonDate(value: string | null) {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value.slice(0, 10);
-  }
-  return parsed.toISOString().slice(0, 10);
-}
-
-function normalizeSupplierComparisonAlternative(
-  value: unknown
-): SupplierComparisonAlternative | null {
-  if (!isRecord(value)) return null;
-
-  return {
-    supplier_name:
-      toNonEmptyString(value.supplier_name) ??
-      toNonEmptyString(value.name) ??
-      "Fournisseur",
-    adjusted_unit_price_cents: toNullableFiniteNumber(value.adjusted_unit_price_cents),
-    unit_price_cents: toNullableFiniteNumber(value.unit_price_cents),
-    currency: toNonEmptyString(value.currency),
-    supplier_reference:
-      toNonEmptyString(value.supplier_reference) ??
-      toNonEmptyString(value.reference),
-    catalogue_url: toNonEmptyString(value.catalogue_url) ?? toNonEmptyString(value.url),
-    updated_at: toNonEmptyString(value.updated_at) ?? toNonEmptyString(value.date),
-  };
-}
-
-function normalizeSupplierComparisonAlternatives(
-  value: unknown
-): SupplierComparisonAlternative[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => normalizeSupplierComparisonAlternative(entry))
-    .filter((entry): entry is SupplierComparisonAlternative => entry !== null)
-    .slice(0, 3);
-}
-
-function readSupplierComparisonEntry(
-  entry: unknown,
-  fallbackItemId?: string
-): { itemId: string; alternatives: SupplierComparisonAlternative[] } | null {
-  if (!isRecord(entry)) return null;
-
-  const itemId =
-    toNonEmptyString(entry.item_id) ??
-    toNonEmptyString(entry.itemId) ??
-    toNonEmptyString(entry.estimate_item_id) ??
-    fallbackItemId ??
-    null;
-
-  if (!itemId) return null;
-
-  const alternatives =
-    [
-      normalizeSupplierComparisonAlternatives(entry.alternatives),
-      normalizeSupplierComparisonAlternatives(entry.suppliers),
-      normalizeSupplierComparisonAlternatives(entry.options),
-    ].find((candidate) => candidate.length > 0) ?? [];
-
-  if (alternatives.length === 0) return null;
-
-  return { itemId, alternatives };
-}
-
-function normalizeSupplierComparisonsByItemId(
-  payload: unknown
-): SupplierComparisonsByItemId {
-  const map: SupplierComparisonsByItemId = new Map();
-
-  const pushEntry = (entry: unknown, fallbackItemId?: string) => {
-    const parsed = readSupplierComparisonEntry(entry, fallbackItemId);
-    if (!parsed) return;
-    map.set(parsed.itemId, parsed.alternatives);
-  };
-
-  const readContainer = (container: unknown) => {
-    if (Array.isArray(container)) {
-      container.forEach((entry) => pushEntry(entry));
-      return;
-    }
-
-    if (!isRecord(container)) return;
-
-    if (
-      toNonEmptyString(container.item_id) ||
-      toNonEmptyString(container.itemId) ||
-      toNonEmptyString(container.estimate_item_id)
-    ) {
-      pushEntry(container);
-    }
-
-    const arrayKeys = ["comparisons", "items", "lines", "results", "data"];
-    arrayKeys.forEach((key) => {
-      if (Array.isArray(container[key])) {
-        (container[key] as unknown[]).forEach((entry) => pushEntry(entry));
-      }
-    });
-
-    Object.entries(container).forEach(([itemId, value]) => {
-      pushEntry(value, itemId);
-    });
-  };
-
-  readContainer(payload);
-  if (isRecord(payload)) {
-    readContainer(payload.data);
-  }
-
-  return map;
 }
 
 function normalizeSupplierPreselectionAlternative(
@@ -1103,71 +718,6 @@ function normalizeSupplierPreselectionReview(
   };
 }
 
-function formatSupplierAlternativeCompact(
-  alternative: SupplierComparisonAlternative | undefined,
-  estimateCurrency: SupportedEstimateCurrency
-) {
-  if (!alternative) return "";
-
-  const unitPriceCents =
-    alternative.adjusted_unit_price_cents ?? alternative.unit_price_cents;
-  const currency = resolveEstimateCurrency(alternative.currency ?? estimateCurrency);
-  const priceLabel =
-    unitPriceCents === null ? "-" : formatCurrency(unitPriceCents, currency);
-  const supplierReference = toNonEmptyString(alternative.supplier_reference) ?? "-";
-  const catalogueUrl = toNonEmptyString(alternative.catalogue_url) ?? "-";
-  const updatedAt = formatSupplierComparisonDate(alternative.updated_at);
-
-  return `${alternative.supplier_name} | ${priceLabel} | ${supplierReference} | ${catalogueUrl} | ${updatedAt}`;
-}
-
-function readLaborSplitFields(
-  source: EstimateItem | Record<string, unknown>
-): Required<LaborSplitItemFields> {
-  const record = source as Record<string, unknown>;
-  return {
-    h_mo_atelier: toFiniteNumber(record.h_mo_atelier, 0),
-    k_mo_atelier: toFiniteNumber(record.k_mo_atelier, 1),
-    labor_role_atelier_id: toNonEmptyString(record.labor_role_atelier_id),
-    h_mo_chantier: toFiniteNumber(record.h_mo_chantier, 0),
-    k_mo_chantier: toFiniteNumber(record.k_mo_chantier, 1),
-    labor_role_chantier_id: toNonEmptyString(record.labor_role_chantier_id),
-  };
-}
-
-function hasLaborSplitFields(source: EstimateItem | Record<string, unknown>) {
-  const record = source as Record<string, unknown>;
-  return LABOR_SPLIT_FIELD_KEYS.some((key) => key in record);
-}
-
-function appendLaborSplitFields(
-  source: EstimateItem | Record<string, unknown>,
-  target: EstimateItemUpdatePayload | Record<string, unknown>
-) {
-  const sourceRecord = source as Record<string, unknown>;
-  const targetRecord = target as Record<string, unknown>;
-
-  LABOR_SPLIT_FIELD_KEYS.forEach((key) => {
-    if (!(key in sourceRecord)) return;
-    targetRecord[key] = sourceRecord[key as LaborSplitFieldKey] ?? null;
-  });
-}
-
-function resolveLaborRoleHourlyRate(
-  role: LaborRole | Record<string, unknown>,
-  scope: "default" | "atelier" | "chantier"
-) {
-  const record = role as Record<string, unknown>;
-  const fallbackRate = toFiniteNumber(record.hourly_rate_cents, 0);
-  if (scope === "atelier") {
-    return toFiniteNumber(record.hourly_rate_atelier_cents, fallbackRate);
-  }
-  if (scope === "chantier") {
-    return toFiniteNumber(record.hourly_rate_chantier_cents, fallbackRate);
-  }
-  return fallbackRate;
-}
-
 function resolveAuditErrorMessage(payload: unknown, fallback: string) {
   if (!isRecord(payload)) return fallback;
   return (
@@ -1220,88 +770,6 @@ function formatAuditTimestamp(value: string) {
   });
 }
 
-function buildSectionPathResolver(items: EstimateItem[]) {
-  const byId = new Map<string, EstimateItem>();
-  items.forEach((item) => {
-    byId.set(item.id, item);
-  });
-
-  const cache = new Map<string, string>();
-
-  return (item: EstimateItem) => {
-    if (item.item_type !== "line") return "";
-    const cached = cache.get(item.id);
-    if (cached !== undefined) return cached;
-
-    const parts: string[] = [];
-    let currentParentId = item.parent_id;
-    while (currentParentId) {
-      const parent = byId.get(currentParentId);
-      if (!parent) break;
-      if (parent.item_type === "section") {
-        parts.push(resolveItemTitle(parent.title, "Sans titre"));
-      }
-      currentParentId = parent.parent_id;
-    }
-
-    const path = parts.reverse().join(" > ");
-    cache.set(item.id, path);
-    return path;
-  };
-}
-
-const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
-  { key: "section_path", header: "Chemin chapitre" },
-  { key: "designation", header: "Designation" },
-  { key: "quality_flags", header: "Flags qualite" },
-  { key: "unit", header: "Unite" },
-  { key: "quantity", header: "Quantite" },
-  {
-    key: "unit_price_ht_cents",
-    header: "Prix unitaire HT (EUR)",
-    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
-  },
-  { key: "supply_type", header: "Type FO" },
-  { key: "supplier_1", header: "Fournisseur 1" },
-  { key: "supplier_2", header: "Fournisseur 2" },
-  { key: "supplier_3", header: "Fournisseur 3" },
-  { key: "k_fo", header: "K FO" },
-  { key: "h_mo", header: "h MO" },
-  { key: "h_mo_majoration_pct", header: "Majoration MO (%)" },
-  { key: "labor_role", header: "Role MO" },
-  { key: "k_mo", header: "K MO" },
-  {
-    key: "pu_ht_cents",
-    header: "PU HT (EUR)",
-    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
-  },
-  {
-    key: "line_total_ht_cents",
-    header: "Total HT (EUR)",
-    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
-  },
-  {
-    key: "tax_rate_bp",
-    header: "TVA (%)",
-    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
-  },
-  {
-    key: "line_total_ttc_cents",
-    header: "Total TTC (EUR)",
-    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
-  },
-];
-
-const LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[] = [
-  ...LINE_EXPORT_COLUMNS,
-  { key: "h_mo_atelier", header: "h MO atelier" },
-  { key: "labor_role_atelier", header: "Role MO atelier" },
-  { key: "k_mo_atelier", header: "K MO atelier" },
-  { key: "h_mo_chantier", header: "h MO chantier" },
-  { key: "labor_role_chantier", header: "Role MO chantier" },
-  { key: "k_mo_chantier", header: "K MO chantier" },
-];
-
 function formatSectionDuplicateTargetLabel(input: {
   versionNumber: number;
   title: string | null;
@@ -1333,265 +801,6 @@ function hasImportableLinkedDpgfSource(
 
 function isVersionConflictError(error: unknown): boolean {
   return isEstimateApiError(error) && error.status === 409;
-}
-
-function buildVersionTotalsPatch(
-  totals: EstimateTotals | null
-): EstimateVersionTotalsPatch | undefined {
-  if (!totals) return undefined;
-  return {
-    total_ht_cents: totals.saleTotalCents,
-    total_tax_cents: totals.adjustedTaxCents,
-    total_ttc_cents: totals.roundedTtcCents,
-  };
-}
-
-function buildEstimateItemUpdatePayload(item: EstimateItem): EstimateItemUpdatePayload {
-  if (item.item_type === "line") {
-    const payload: EstimateItemUpdatePayload = {
-      title: item.title,
-      aid: item.aid ?? null,
-      description: item.description ?? null,
-      quantity: item.quantity,
-      unit_price_ht_cents: item.unit_price_ht_cents,
-      tax_rate_bp: item.tax_rate_bp,
-      k_fo: item.k_fo,
-      h_mo: item.h_mo,
-      h_mo_majoration: item.h_mo_majoration,
-      k_mo: item.k_mo,
-      pu_ht_cents: item.pu_ht_cents,
-      labor_role_id: item.labor_role_id,
-      category_id: item.category_id,
-      supply_type_id: item.supply_type_id,
-      selected_supplier_price_id: item.selected_supplier_price_id,
-      line_total_ht_cents: item.line_total_ht_cents,
-      line_tax_cents: item.line_tax_cents,
-      line_total_ttc_cents: item.line_total_ttc_cents,
-    };
-
-    appendLaborSplitFields(item, payload);
-    return payload;
-  }
-
-  return {
-    title: item.title,
-    aid: item.aid ?? null,
-  };
-}
-
-function buildEstimateItemInsertPayload(
-  versionId: string,
-  item: EstimateItem,
-  overrides?: {
-    parentId?: string | null;
-    position?: number;
-    title?: string;
-  }
-): EstimateItemInsertPayload {
-  const parentId =
-    overrides?.parentId !== undefined
-      ? overrides.parentId
-      : (item.parent_id ?? null);
-  const position = overrides?.position ?? item.position;
-  const title = overrides?.title ?? item.title;
-
-  if (item.item_type === "section") {
-    return {
-      version_id: versionId,
-      parent_id: parentId,
-      item_type: "section",
-      position,
-      title,
-      aid: item.aid ?? null,
-    };
-  }
-
-  const payload: EstimateItemInsertPayload = {
-    version_id: versionId,
-    parent_id: parentId,
-    item_type: "line",
-    position,
-    title,
-    aid: item.aid ?? null,
-    description: item.description ?? null,
-    quantity: item.quantity,
-    unit_price_ht_cents: item.unit_price_ht_cents,
-    tax_rate_bp: item.tax_rate_bp,
-    k_fo: item.k_fo,
-    h_mo: item.h_mo,
-    h_mo_majoration: item.h_mo_majoration,
-    k_mo: item.k_mo,
-    pu_ht_cents: item.pu_ht_cents,
-    labor_role_id: item.labor_role_id,
-    category_id: item.category_id,
-    supply_type_id: item.supply_type_id,
-    selected_supplier_price_id: item.selected_supplier_price_id,
-    line_total_ht_cents: item.line_total_ht_cents,
-    line_tax_cents: item.line_tax_cents,
-    line_total_ttc_cents: item.line_total_ttc_cents,
-  };
-
-  appendLaborSplitFields(item, payload);
-  return payload;
-}
-
-function createOptimisticSectionItem(input: {
-  tempId: string;
-  tenantId: string;
-  versionId: string;
-  parentId: string | null;
-  position: number;
-  title: string;
-}): EditorEstimateItem {
-  const timestamp = new Date().toISOString();
-  return {
-    id: input.tempId,
-    created_at: timestamp,
-    updated_at: timestamp,
-    tenant_id: input.tenantId,
-    version_id: input.versionId,
-    parent_id: input.parentId,
-    item_type: "section",
-    position: input.position,
-    title: input.title,
-    aid: null,
-    description: null,
-    quantity: null,
-    unit_price_ht_cents: null,
-    tax_rate_bp: null,
-    k_fo: null,
-    h_mo: null,
-    h_mo_majoration: 1,
-    k_mo: null,
-    h_mo_atelier: null,
-    k_mo_atelier: null,
-    labor_role_atelier_id: null,
-    h_mo_chantier: null,
-    k_mo_chantier: null,
-    labor_role_chantier_id: null,
-    pu_ht_cents: null,
-    labor_role_id: null,
-    category_id: null,
-    supply_type_id: null,
-    selected_supplier_price_id: null,
-    source_provider: null,
-    source_job_id: null,
-    source_file_name: null,
-    source_page: null,
-    source_metadata: {},
-    line_total_ht_cents: null,
-    line_tax_cents: null,
-    line_total_ttc_cents: null,
-    _optimistic: true,
-    _pendingCreate: true,
-    _tempId: input.tempId,
-  };
-}
-
-function createOptimisticLineItem(input: {
-  tempId: string;
-  tenantId: string;
-  versionId: string;
-  parentId: string | null;
-  position: number;
-  title: string;
-  quantity: number;
-  taxRateBp: number;
-  puHtCents: number;
-  lineTotalHtCents: number;
-  lineTaxCents: number;
-  lineTotalTtcCents: number;
-  isLaborSplitEnabled: boolean;
-}): EditorEstimateItem {
-  const timestamp = new Date().toISOString();
-  return {
-    id: input.tempId,
-    created_at: timestamp,
-    updated_at: timestamp,
-    tenant_id: input.tenantId,
-    version_id: input.versionId,
-    parent_id: input.parentId,
-    item_type: "line",
-    position: input.position,
-    title: input.title,
-    aid: null,
-    description: null,
-    quantity: input.quantity,
-    unit_price_ht_cents: 0,
-    tax_rate_bp: input.taxRateBp,
-    k_fo: 1,
-    h_mo: 0,
-    h_mo_majoration: 1,
-    k_mo: 1,
-    h_mo_atelier: input.isLaborSplitEnabled ? 0 : null,
-    k_mo_atelier: input.isLaborSplitEnabled ? 1 : null,
-    labor_role_atelier_id: null,
-    h_mo_chantier: input.isLaborSplitEnabled ? 0 : null,
-    k_mo_chantier: input.isLaborSplitEnabled ? 1 : null,
-    labor_role_chantier_id: null,
-    pu_ht_cents: input.puHtCents,
-    labor_role_id: null,
-    category_id: null,
-    supply_type_id: null,
-    selected_supplier_price_id: null,
-    source_provider: null,
-    source_job_id: null,
-    source_file_name: null,
-    source_page: null,
-    source_metadata: {},
-    line_total_ht_cents: input.lineTotalHtCents,
-    line_tax_cents: input.lineTaxCents,
-    line_total_ttc_cents: input.lineTotalTtcCents,
-    _optimistic: true,
-    _pendingCreate: true,
-    _tempId: input.tempId,
-  };
-}
-
-function applyInterParentMoveOptimistically(
-  sourceItems: EstimateItem[],
-  move: EstimateItemMovePayload
-) {
-  const sourcePositionById = new Map(
-    move.orderedSourceIds.map((itemId, index) => [itemId, index + 1])
-  );
-  const targetPositionById = new Map(
-    move.orderedTargetIds.map((itemId, index) => [itemId, index + 1])
-  );
-
-  return sourceItems.map((item) => {
-    if (item.id === move.itemId) {
-      const nextPosition = targetPositionById.get(item.id);
-      if (nextPosition === undefined) return item;
-      return {
-        ...item,
-        parent_id: move.toParentId,
-        position: nextPosition,
-      };
-    }
-
-    if ((item.parent_id ?? null) === move.fromParentId) {
-      const nextPosition = sourcePositionById.get(item.id);
-      if (nextPosition !== undefined) {
-        return {
-          ...item,
-          position: nextPosition,
-        };
-      }
-    }
-
-    if ((item.parent_id ?? null) === move.toParentId) {
-      const nextPosition = targetPositionById.get(item.id);
-      if (nextPosition !== undefined) {
-        return {
-          ...item,
-          position: nextPosition,
-        };
-      }
-    }
-
-    return item;
-  });
 }
 
 export type EstimateEditorStateModel = {
@@ -1707,10 +916,6 @@ export function useEstimateEditorState({
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingRules, setIsSavingRules] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [activeExportMode, setActiveExportMode] = useState<
-    EstimateExportMode | "csv" | null
-  >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
@@ -1912,7 +1117,9 @@ export function useEstimateEditorState({
     return deferEffectStateUpdate(() => {
       setRestorableDraft(
         resolvedVersionId
-          ? readConflictDraftFromSession(resolvedVersionId)
+          ? readConflictDraftFromSession<EstimateSettingsState, EstimateItem>(
+              resolvedVersionId
+            )
           : null
       );
     });
@@ -2491,7 +1698,9 @@ export function useEstimateEditorState({
   useEffect(() => {
     if (!resolvedVersionId) return;
 
-    const draft = readAutoSaveDraftFromLocal(resolvedVersionId);
+    const draft = readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(
+      resolvedVersionId
+    );
     if (!draft) return;
 
     const rehydration = rehydrateBufferedUpdates(
@@ -2955,301 +2164,36 @@ export function useEstimateEditorState({
     version,
   ]);
 
-  const buildExportFilename = useCallback(() => {
-    const dateLabel = new Date().toISOString().split("T")[0];
-    const namePart = projectName.trim() || "chiffrage";
-    const versionLabel = version ? `V${version.version_number}` : "";
-    const raw = [namePart, versionLabel, dateLabel].filter(Boolean).join("_");
-    const sanitized = sanitizeFilename(raw);
-    return sanitized || `chiffrage_${dateLabel}`;
-  }, [projectName, version]);
-
-  const buildRecapRow = useCallback((): EstimateRecapExportRow | null => {
-    if (!version || !settings || !totals) return null;
-    const discountBase = totals.saleSubtotalCents;
-    const discountBp =
-      discountBase > 0
-        ? Math.round((totals.discountCents / discountBase) * 10000)
-        : 0;
-
-    return {
-      project_name: projectName || "Chiffrage",
-      version_id: version.id,
-      version_number: version.version_number,
-      status: version.status,
-      date_devis: settings.date_devis,
-      validite_jours: settings.validite_jours,
-      margin_multiplier: totals.appliedMarginMultiplier,
-      discount_cents: totals.discountCents,
-      discount_bp: discountBp,
-      tax_rate_bp: settings.tax_rate_bp,
-      rounding_mode: settings.rounding_mode,
-      rounding_step_cents: settings.rounding_step_cents,
-      sale_subtotal_cents: totals.saleSubtotalCents,
-      sale_total_cents: totals.saleTotalCents,
-      tax_cents: totals.adjustedTaxCents,
-      ttc_cents: totals.roundedTtcCents,
-      quality_lines_count: qualityCounts.linesWithAnomaliesCount,
-      quality_flags_count: qualityCounts.totalFlagsCount,
-    };
-  }, [projectName, qualityCounts, settings, totals, version]);
-
-  const fetchSupplierComparisonsByItemId = useCallback(async () => {
-    const lineItemIds = Array.from(
-      new Set(
-        items
-      .filter((item) => item.item_type === "line")
-          .map((item) => item.id)
-      )
-    );
-
-    if (!resolvedVersionId || lineItemIds.length === 0) {
-      return new Map<string, SupplierComparisonAlternative[]>();
-    }
-
-    const requestChunkSize = 200;
-    const resultMap: SupplierComparisonsByItemId = new Map();
-    let hadRequestError = false;
-
-    for (
-      let startIndex = 0;
-      startIndex < lineItemIds.length;
-      startIndex += requestChunkSize
-    ) {
-      const chunk = lineItemIds.slice(startIndex, startIndex + requestChunkSize);
-
-      try {
-        const response = await fetch(
-          `/api/estimates/${resolvedVersionId}/supplier-comparisons`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              item_ids: chunk,
-            }),
-          }
-        );
-
-        const payload = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          hadRequestError = true;
-          console.error(
-            "Erreur lors du chargement des comparaisons fournisseur pour l'export.",
-            {
-              status: response.status,
-              payload,
-              chunk_size: chunk.length,
-            }
-          );
-          continue;
-        }
-
-        const chunkMap = normalizeSupplierComparisonsByItemId(payload);
-        chunkMap.forEach((alternatives, itemId) => {
-          resultMap.set(itemId, alternatives);
-        });
-      } catch (error) {
-        hadRequestError = true;
-        console.error(
-          "Erreur lors du chargement des comparaisons fournisseur pour l'export.",
-          error
-        );
-      }
-    }
-
-    if (hadRequestError) {
-      setActionError(
-        "Certaines comparaisons fournisseurs n'ont pas pu etre chargees pour l'export."
-      );
-    }
-
-    return resultMap;
-  }, [items, resolvedVersionId]);
-
-  const buildLineRows = useCallback(
-    (
-      supplierComparisonsByItemId?: SupplierComparisonsByItemId
-    ): EstimateLineExportRow[] => {
-      const estimateCurrency = settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY;
-      const resolveSectionPath = buildSectionPathResolver(items);
-      const comparisonsByItemId =
-        supplierComparisonsByItemId ?? new Map<string, SupplierComparisonAlternative[]>();
-
-      return items
-        .filter((item) => item.item_type === "line")
-        .map((item) => {
-          const splitFields = readLaborSplitFields(item);
-          const supplyTypeLabel = item.supply_type_id
-            ? supplyTypeById.get(item.supply_type_id)?.name ?? ""
-            : "";
-          const laborLabel = item.labor_role_id
-            ? laborRoleById.get(item.labor_role_id)?.name ?? ""
-            : "";
-          const laborAtelierLabel = splitFields.labor_role_atelier_id
-            ? laborRoleById.get(splitFields.labor_role_atelier_id)?.name ?? ""
-            : "";
-          const laborChantierLabel = splitFields.labor_role_chantier_id
-            ? laborRoleById.get(splitFields.labor_role_chantier_id)?.name ?? ""
-            : "";
-          const qualityFlagsLabel = (qualityFlagsByItemId[item.id] ?? [])
-            .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
-            .join(" | ");
-          const supplierAlternatives = comparisonsByItemId.get(item.id) ?? [];
-
-          return {
-            section_path: resolveSectionPath(item),
-            designation: resolveItemTitle(item.title, "Sans titre"),
-            quality_flags: qualityFlagsLabel,
-            unit: item.description?.trim() ?? "",
-            quantity: item.quantity ?? "",
-            unit_price_ht_cents: item.unit_price_ht_cents ?? "",
-            supply_type: supplyTypeLabel,
-            supplier_1: formatSupplierAlternativeCompact(
-              supplierAlternatives[0],
-              estimateCurrency
-            ),
-            supplier_2: formatSupplierAlternativeCompact(
-              supplierAlternatives[1],
-              estimateCurrency
-            ),
-            supplier_3: formatSupplierAlternativeCompact(
-              supplierAlternatives[2],
-              estimateCurrency
-            ),
-            k_fo: item.k_fo ?? "",
-            h_mo: item.h_mo ?? "",
-            h_mo_majoration_pct:
-              item.h_mo_majoration === null || item.h_mo_majoration === undefined
-                ? ""
-                : Math.round(item.h_mo_majoration * 10000) / 100,
-            labor_role: laborLabel,
-            k_mo: item.k_mo ?? "",
-            h_mo_atelier: splitFields.h_mo_atelier ?? "",
-            labor_role_atelier: laborAtelierLabel,
-            k_mo_atelier: splitFields.k_mo_atelier ?? "",
-            h_mo_chantier: splitFields.h_mo_chantier ?? "",
-            labor_role_chantier: laborChantierLabel,
-            k_mo_chantier: splitFields.k_mo_chantier ?? "",
-            pu_ht_cents: item.pu_ht_cents ?? "",
-            line_total_ht_cents: item.line_total_ht_cents ?? "",
-            tax_rate_bp: item.tax_rate_bp ?? "",
-            line_total_ttc_cents: item.line_total_ttc_cents ?? "",
-          };
-        });
-    },
-    [items, laborRoleById, qualityFlagsByItemId, settings?.currency, supplyTypeById]
-  );
-
-  const lineExportColumns = useMemo(
-    () =>
-      isLaborSplitEnabled
-        ? LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT
-        : LINE_EXPORT_COLUMNS,
-    [isLaborSplitEnabled]
-  );
-
-  let exportLoadingLabel = "Export XLSX...";
-  if (activeExportMode === "dpgf") {
-    exportLoadingLabel = "Export DPGF...";
-  } else if (activeExportMode === "bdc") {
-    exportLoadingLabel = "Export BDC V1.1...";
-  } else if (activeExportMode === "csv") {
-    exportLoadingLabel = "Export CSV...";
-  }
-
-  const runStreamingExport = useCallback(
-    async (options: {
-      mode: EstimateExportMode;
-      includeModeQueryParam: boolean;
-      logMessage: string;
-      fallbackMessage: string;
-    }) => {
-      if (isExporting || !resolvedVersionId) return;
-
-      setIsExporting(true);
-      setActiveExportMode(options.mode);
-      try {
-        if (options.includeModeQueryParam) {
-          await exportEstimate(resolvedVersionId, "xlsx", {
-            mode: options.mode,
-          });
-        } else {
-          await exportEstimate(resolvedVersionId, "xlsx");
-        }
-      } catch (error) {
-        console.error(options.logMessage, error);
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error ? error.message : options.fallbackMessage
-          )
-        );
-      } finally {
-        setIsExporting(false);
-        setActiveExportMode(null);
-      }
-    },
-    [isExporting, resolvedVersionId]
-  );
-
-  const handleExportExcel = useCallback(async () => {
-    await runStreamingExport({
-      mode: "standard",
-      includeModeQueryParam: false,
-      logMessage: "Erreur lors de l'export Excel streaming.",
-      fallbackMessage: "Impossible d'exporter le devis en Excel.",
-    });
-  }, [runStreamingExport]);
-
-  const handleExportDpgf = useCallback(async () => {
-    await runStreamingExport({
-      mode: "dpgf",
-      includeModeQueryParam: true,
-      logMessage: "Erreur lors de l'export DPGF streaming.",
-      fallbackMessage: "Impossible d'exporter le DPGF.",
-    });
-  }, [runStreamingExport]);
-
-  const handleExportBdc = useCallback(async () => {
-    await runStreamingExport({
-      mode: "bdc",
-      includeModeQueryParam: true,
-      logMessage: "Erreur lors de l'export BDC V1.1 streaming.",
-      fallbackMessage: "Impossible d'exporter le BDC V1.1.",
-    });
-  }, [runStreamingExport]);
-
-  const handleExportCSV = useCallback(async () => {
-    if (isExporting) return;
-    const recapRow = buildRecapRow();
-    if (!recapRow) return;
-
-    setIsExporting(true);
-    setActiveExportMode("csv");
-    try {
-      const supplierComparisonsByItemId =
-        await fetchSupplierComparisonsByItemId();
-      const lines = buildLineRows(supplierComparisonsByItemId);
-      const filename = buildExportFilename();
-      exportToCSV(lines, lineExportColumns, { filename });
-    } catch (error) {
-      console.error("Erreur lors de l'export CSV.", error);
-    } finally {
-      setIsExporting(false);
-      setActiveExportMode(null);
-    }
-  }, [
-    buildExportFilename,
-    buildLineRows,
-    buildRecapRow,
-    fetchSupplierComparisonsByItemId,
+  const exportController = useEstimateEditorExportController({
+    versionId: resolvedVersionId,
+    projectName,
+    version,
+    settings,
+    totals,
+    items,
+    supplyTypeById,
+    laborRoleById,
+    qualityFlagsByItemId,
+    qualityCounts,
+    isLaborSplitEnabled,
+    reportError: setActionError,
+    resolveErrorMessage: resolveEstimateActionError,
+  });
+  const {
     isExporting,
-    lineExportColumns,
-  ]);
+    activeMode: activeExportMode,
+  } = exportController.state;
+  const {
+    exportExcel: handleExportExcel,
+    exportCsv: handleExportCSV,
+    exportDpgf: handleExportDpgf,
+    exportBdc: handleExportBdc,
+  } = exportController.actions;
+  const {
+    isDisabled: isExportDisabled,
+    loadingLabel: exportLoadingLabel,
+  } = exportController.meta;
 
-  const isExportDisabled = isExporting || !version || !settings || !totals;
   const hasLinkedDpgfSource = hasImportableLinkedDpgfSource(linkedDpgfSource);
   const isImportDpgfSourceDisabled =
     !hasLinkedDpgfSource ||

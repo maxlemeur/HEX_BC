@@ -52,32 +52,35 @@ export function EstimateEditorPage({
     autoOpenStructureDraft,
   });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
+  const alertsProps = readyMeta?.alertsProps ?? null;
+  const editorTableProps = readyMeta?.editorTableProps ?? null;
+  const drawerProps = readyMeta?.drawerProps ?? null;
   const alertsRegion = useMemo(
     () =>
-      readyMeta ? (
+      alertsProps ? (
         <div data-testid="estimate-editor-alerts-region">
-          <MemoizedEstimateEditorAlerts {...readyMeta.alertsProps} />
+          <MemoizedEstimateEditorAlerts {...alertsProps} />
         </div>
       ) : null,
-    [readyMeta]
+    [alertsProps]
   );
   const tableRegion = useMemo(
     () =>
-      readyMeta ? (
+      editorTableProps ? (
         <div className="mt-6" data-testid="estimate-editor-table-region">
-          <MemoizedEstimateEditorTable {...readyMeta.editorTableProps} />
+          <MemoizedEstimateEditorTable {...editorTableProps} />
         </div>
       ) : null,
-    [readyMeta]
+    [editorTableProps]
   );
   const drawerRegion = useMemo(
     () =>
-      readyMeta ? (
+      drawerProps ? (
         <div data-testid="estimate-editor-drawer-region">
-          <MemoizedEstimateEditorDrawer {...readyMeta.drawerProps} />
+          <MemoizedEstimateEditorDrawer {...drawerProps} />
         </div>
       ) : null,
-    [readyMeta]
+    [drawerProps]
   );
 
   if (model.meta.kind === "missing-version") {
