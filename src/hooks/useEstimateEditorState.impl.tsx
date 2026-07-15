@@ -178,6 +178,23 @@ type EditorEstimateItem = EstimateItem & {
   _pendingCreate?: boolean;
   _tempId?: string;
 };
+
+function deferEffectStateUpdate(
+  update: () => void | (() => void)
+): () => void {
+  let isActive = true;
+  let cleanup: void | (() => void);
+
+  queueMicrotask(() => {
+    if (!isActive) return;
+    cleanup = update();
+  });
+
+  return () => {
+    isActive = false;
+    if (cleanup) cleanup();
+  };
+}
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
@@ -1808,13 +1825,15 @@ export function useEstimateEditorState({
       return;
     }
 
-    setChecklistScrollTargetItemId(focusItemId);
-    setHighlightedItemIds(new Set([focusItemId]));
-    const timeoutId = window.setTimeout(() => {
-      setHighlightedItemIds(new Set());
-    }, 5000);
+    return deferEffectStateUpdate(() => {
+      setChecklistScrollTargetItemId(focusItemId);
+      setHighlightedItemIds(new Set([focusItemId]));
+      const timeoutId = window.setTimeout(() => {
+        setHighlightedItemIds(new Set());
+      }, 5000);
 
-    return () => window.clearTimeout(timeoutId);
+      return () => window.clearTimeout(timeoutId);
+    });
   }, [focusItemId]);
 
   useEffect(() => {
@@ -1844,60 +1863,66 @@ export function useEstimateEditorState({
       items.filter((item) => item.item_type === "line").map((item) => item.id)
     );
 
-    setDismissedOutlierFlagsByItemId((prev) => {
-      let changed = false;
-      const next: EstimateOutlierFlagsByItemId = {};
+    return deferEffectStateUpdate(() => {
+      setDismissedOutlierFlagsByItemId((prev) => {
+        let changed = false;
+        const next: EstimateOutlierFlagsByItemId = {};
 
-      Object.entries(prev).forEach(([itemId, flags]) => {
-        if (!lineIds.has(itemId)) {
-          changed = true;
-          return;
-        }
+        Object.entries(prev).forEach(([itemId, flags]) => {
+          if (!lineIds.has(itemId)) {
+            changed = true;
+            return;
+          }
 
-        const deduped = flags.filter((flag, index) => flags.indexOf(flag) === index);
-        if (deduped.length !== flags.length) {
-          changed = true;
-        }
-        if (deduped.length === 0) {
-          changed = true;
-          return;
-        }
-        next[itemId] = deduped;
+          const deduped = flags.filter(
+            (flag, index) => flags.indexOf(flag) === index
+          );
+          if (deduped.length !== flags.length) {
+            changed = true;
+          }
+          if (deduped.length === 0) {
+            changed = true;
+            return;
+          }
+          next[itemId] = deduped;
+        });
+
+        return changed ? next : prev;
       });
 
-      return changed ? next : prev;
-    });
+      setOutlierActionPendingByItemId((prev) => {
+        let changed = false;
+        const next: Record<string, boolean> = {};
 
-    setOutlierActionPendingByItemId((prev) => {
-      let changed = false;
-      const next: Record<string, boolean> = {};
+        Object.entries(prev).forEach(([itemId, isPending]) => {
+          if (!isPending) return;
+          if (!lineIds.has(itemId)) {
+            changed = true;
+            return;
+          }
+          next[itemId] = true;
+        });
 
-      Object.entries(prev).forEach(([itemId, isPending]) => {
-        if (!isPending) return;
-        if (!lineIds.has(itemId)) {
-          changed = true;
-          return;
-        }
-        next[itemId] = true;
+        return changed ? next : prev;
       });
-
-      return changed ? next : prev;
     });
   }, [items]);
 
   useEffect(() => {
-    if (!resolvedVersionId) {
-      setRestorableDraft(null);
-      return;
-    }
-
-    setRestorableDraft(readConflictDraftFromSession(resolvedVersionId));
+    return deferEffectStateUpdate(() => {
+      setRestorableDraft(
+        resolvedVersionId
+          ? readConflictDraftFromSession(resolvedVersionId)
+          : null
+      );
+    });
   }, [resolvedVersionId]);
 
   useEffect(() => {
     if (!resolvedVersionId) {
-      setSuggestionLearningState(EMPTY_SUGGESTION_LEARNING_STATE);
-      return;
+      return deferEffectStateUpdate(() => {
+        setSuggestionLearningState(EMPTY_SUGGESTION_LEARNING_STATE);
+      });
     }
 
     let active = true;
@@ -2103,16 +2128,17 @@ export function useEstimateEditorState({
   useEffect(() => {
     const projectId = version?.project_id ?? null;
     if (!projectId) {
-      setLinkedDpgfSource(null);
-      setIsLoadingLinkedDpgfSource(false);
-      return;
+      return deferEffectStateUpdate(() => {
+        setLinkedDpgfSource(null);
+        setIsLoadingLinkedDpgfSource(false);
+      });
     }
     const targetProjectId = projectId;
 
     let active = true;
-    setIsLoadingLinkedDpgfSource(true);
 
     async function loadLinkedDpgfSource() {
+      setIsLoadingLinkedDpgfSource(true);
       try {
         const source = await fetchAffaireLinkedDpgfSource(targetProjectId);
         if (!active) return;
@@ -2137,9 +2163,10 @@ export function useEstimateEditorState({
 
   useEffect(() => {
     if (!resolvedVersionId) {
-      setDismissedOutlierFlagsByItemId({});
-      setOutlierActionPendingByItemId({});
-      return;
+      return deferEffectStateUpdate(() => {
+        setDismissedOutlierFlagsByItemId({});
+        setOutlierActionPendingByItemId({});
+      });
     }
 
     let active = true;
@@ -2164,8 +2191,9 @@ export function useEstimateEditorState({
 
   useEffect(() => {
     if (!version || version.status !== "draft") {
-      setSendGating(null);
-      return;
+      return deferEffectStateUpdate(() => {
+        setSendGating(null);
+      });
     }
     const currentVersionId = version.id;
 
@@ -2191,8 +2219,9 @@ export function useEstimateEditorState({
 
   useEffect(() => {
     if (!resolvedVersionId) {
-      setSectionDuplicateTargets([]);
-      return;
+      return deferEffectStateUpdate(() => {
+        setSectionDuplicateTargets([]);
+      });
     }
 
     let active = true;
@@ -2628,34 +2657,40 @@ export function useEstimateEditorState({
 
   useEffect(() => {
     if (!isAdmin || !resolvedVersionId) {
-      setAuditLogs([]);
-      setAuditError(null);
-      setIsAuditLoading(false);
-      return;
+      return deferEffectStateUpdate(() => {
+        setAuditLogs([]);
+        setAuditError(null);
+        setIsAuditLoading(false);
+      });
     }
 
-    const abortController = new AbortController();
-    void loadAuditLogs(abortController.signal);
+    return deferEffectStateUpdate(() => {
+      const abortController = new AbortController();
+      void loadAuditLogs(abortController.signal);
 
-    return () => {
-      abortController.abort();
-    };
+      return () => {
+        abortController.abort();
+      };
+    });
   }, [isAdmin, loadAuditLogs, resolvedVersionId]);
 
   useEffect(() => {
     if (!isAdmin || !resolvedVersionId) {
-      setTimelineEvents([]);
-      setTimelineError(null);
-      setIsTimelineLoading(false);
-      return;
+      return deferEffectStateUpdate(() => {
+        setTimelineEvents([]);
+        setTimelineError(null);
+        setIsTimelineLoading(false);
+      });
     }
 
-    const abortController = new AbortController();
-    void loadTimelineEvents(abortController.signal);
+    return deferEffectStateUpdate(() => {
+      const abortController = new AbortController();
+      void loadTimelineEvents(abortController.signal);
 
-    return () => {
-      abortController.abort();
-    };
+      return () => {
+        abortController.abort();
+      };
+    });
   }, [isAdmin, loadTimelineEvents, resolvedVersionId]);
 
   const laborRateById = useMemo(() => {
@@ -3266,39 +3301,43 @@ export function useEstimateEditorState({
   }, [bulkSuggestProgress, selectedBulkSuggestPreview.length]);
 
   useEffect(() => {
-    setSelectedBulkSuggestItemIds((previous) => {
-      if (previous.length === 0) return previous;
+    return deferEffectStateUpdate(() => {
+      setSelectedBulkSuggestItemIds((previous) => {
+        if (previous.length === 0) return previous;
 
-      const eligibleItemIds = new Set(
-        bulkSuggestPreview.map((previewItem) => previewItem.itemId)
-      );
-      const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
-      return next.length === previous.length ? previous : next;
+        const eligibleItemIds = new Set(
+          bulkSuggestPreview.map((previewItem) => previewItem.itemId)
+        );
+        const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
+        return next.length === previous.length ? previous : next;
+      });
     });
   }, [bulkSuggestPreview]);
 
   useEffect(() => {
-    setBulkSuggestUndoState((previous) => {
-      if (!previous) return previous;
+    return deferEffectStateUpdate(() => {
+      setBulkSuggestUndoState((previous) => {
+        if (!previous) return previous;
 
-      const lineItemIds = new Set(
-        items
-          .filter((item) => item.item_type === "line")
-          .map((item) => item.id)
-      );
-      const stillValid = previous.previousItems.filter((item) =>
-        lineItemIds.has(item.id)
-      );
-      if (stillValid.length === previous.previousItems.length) {
-        return previous;
-      }
-      if (stillValid.length === 0) {
-        return null;
-      }
-      return {
-        previousItems: stillValid,
-        appliedItemIds: stillValid.map((item) => item.id),
-      };
+        const lineItemIds = new Set(
+          items
+            .filter((item) => item.item_type === "line")
+            .map((item) => item.id)
+        );
+        const stillValid = previous.previousItems.filter((item) =>
+          lineItemIds.has(item.id)
+        );
+        if (stillValid.length === previous.previousItems.length) {
+          return previous;
+        }
+        if (stillValid.length === 0) {
+          return null;
+        }
+        return {
+          previousItems: stillValid,
+          appliedItemIds: stillValid.map((item) => item.id),
+        };
+      });
     });
   }, [items]);
 
@@ -3586,14 +3625,18 @@ export function useEstimateEditorState({
   }, [selectedSupplierPreselectionItemIds, supplierPreselectionReview]);
 
   useEffect(() => {
-    setSelectedSupplierPreselectionItemIds((previous) => {
-      if (previous.length === 0) return previous;
+    return deferEffectStateUpdate(() => {
+      setSelectedSupplierPreselectionItemIds((previous) => {
+        if (previous.length === 0) return previous;
 
-      const eligibleItemIds = new Set(
-        supplierPreselectionReview.proposals.map((proposal) => proposal.item_id)
-      );
-      const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
-      return next.length === previous.length ? previous : next;
+        const eligibleItemIds = new Set(
+          supplierPreselectionReview.proposals.map(
+            (proposal) => proposal.item_id
+          )
+        );
+        const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
+        return next.length === previous.length ? previous : next;
+      });
     });
   }, [supplierPreselectionReview]);
 
@@ -3868,6 +3911,10 @@ export function useEstimateEditorState({
     settings?.margin_multiplier,
     settings?.tax_rate_bp,
   ]);
+
+  const handleConfirmSupplierPreselection = useCallback(() => {
+    void handleApplySupplierPreselection();
+  }, [handleApplySupplierPreselection]);
 
   const handleUndoBulkSuggest = useCallback(async () => {
     if (!bulkSuggestUndoState || isUndoingBulkSuggest) return;
@@ -4519,7 +4566,7 @@ export function useEstimateEditorState({
       isReadOnly,
       readOnlyActionErrorMessage,
       settings,
-      version?.id,
+      version,
       computeLineValuesWithLaborContext,
       isLaborSplitEnabled,
     ]
@@ -4729,7 +4776,7 @@ export function useEstimateEditorState({
       isConflictLocked,
       isReadOnly,
       readOnlyActionErrorMessage,
-      version?.id,
+      version,
     ]
   );
 
@@ -5373,7 +5420,7 @@ export function useEstimateEditorState({
       isReadOnly,
       pushHistoryCommand,
       readOnlyActionErrorMessage,
-      version?.id,
+      version,
     ]
   );
 
@@ -5510,7 +5557,7 @@ export function useEstimateEditorState({
       isReadOnly,
       pushHistoryCommand,
       readOnlyActionErrorMessage,
-      version?.id,
+      version,
     ]
   );
 
@@ -6104,7 +6151,7 @@ export function useEstimateEditorState({
       readOnlyActionErrorMessage,
       recreateItemsFromSnapshots,
       reloadItems,
-      version?.id,
+      version,
     ]
   );
 
@@ -6788,7 +6835,7 @@ export function useEstimateEditorState({
       isConflictLocked,
       isReadOnly,
       readOnlyActionErrorMessage,
-      version?.id,
+      version,
     ]
   );
 
@@ -6890,7 +6937,7 @@ export function useEstimateEditorState({
         setItems(snapshot);
       }
     },
-    [isReadOnly, pushHistoryCommand, readOnlyActionErrorMessage, version?.id]
+    [isReadOnly, pushHistoryCommand, readOnlyActionErrorMessage, version]
   );
 
   const handleMoveItem = useCallback<EstimateEditorTableProps["onMoveItem"]>(
@@ -8045,36 +8092,20 @@ export function useEstimateEditorState({
     ]
   );
 
-  const supplierPreselectionDialogProps = useMemo<
-    ComponentProps<typeof SupplierPreselectionDialog>
-  >(
-    () => ({
-      isOpen: isSupplierPreselectionDialogOpen,
-      review: supplierPreselectionReview,
-      selectedItemIds: selectedSupplierPreselectionItemIds,
-      estimateCurrency: settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY,
-      isLoading: isLoadingSupplierPreselection,
-      isApplying: isApplyingSupplierPreselection,
-      error: supplierPreselectionDialogError,
-      onClose: handleCloseSupplierPreselectionDialog,
-      onConfirm: () => void handleApplySupplierPreselection(),
-      onToggleItem: handleToggleSupplierPreselectionItem,
-      onToggleAll: handleToggleAllSupplierPreselectionItems,
-    }),
-    [
-      handleApplySupplierPreselection,
-      handleCloseSupplierPreselectionDialog,
-      handleToggleAllSupplierPreselectionItems,
-      handleToggleSupplierPreselectionItem,
-      isApplyingSupplierPreselection,
-      isLoadingSupplierPreselection,
-      isSupplierPreselectionDialogOpen,
-      settings?.currency,
-      selectedSupplierPreselectionItemIds,
-      supplierPreselectionDialogError,
-      supplierPreselectionReview,
-    ]
-  );
+  const supplierPreselectionDialogProps: ComponentProps<
+    typeof SupplierPreselectionDialog
+  > = {
+    isOpen: isSupplierPreselectionDialogOpen,
+    review: supplierPreselectionReview,
+    selectedItemIds: selectedSupplierPreselectionItemIds,
+    isLoading: isLoadingSupplierPreselection,
+    isApplying: isApplyingSupplierPreselection,
+    error: supplierPreselectionDialogError,
+    onClose: handleCloseSupplierPreselectionDialog,
+    onConfirm: handleConfirmSupplierPreselection,
+    onToggleItem: handleToggleSupplierPreselectionItem,
+    onToggleAll: handleToggleAllSupplierPreselectionItems,
+  };
 
   const importFromEstimateDialogProps = useMemo<
     ComponentProps<typeof ImportFromEstimateDialog> | null
@@ -8259,7 +8290,7 @@ export function useEstimateEditorState({
     };
   }
 
-  if (loadError || !version || !settings || !toolbarProps || !summaryBarProps || !drawerProps) {
+  if (loadError || !version || !settings) {
     return {
       state: stateModel,
       actions: actionsModel,
@@ -8276,11 +8307,11 @@ export function useEstimateEditorState({
     meta: {
       kind: "ready",
       projectId: version.project_id ?? null,
-      toolbarProps,
+      toolbarProps: toolbarProps!,
       alertsProps,
-      summaryBarProps,
+      summaryBarProps: summaryBarProps!,
       editorTableProps,
-      drawerProps,
+      drawerProps: drawerProps!,
       bulkSuggestDialogProps,
       supplierPreselectionDialogProps,
       importFromEstimateDialogProps,

@@ -89,7 +89,7 @@ describe("AssemblyEditorDialog", () => {
     expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
     expect(screen.queryByText(/Rôle MO \(UUID\)/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Temps MO (h)")).toHaveValue(2);
-    expect(screen.getByLabelText("Coût unitaire HT (€)")).toHaveValue(45);
+    expect(screen.getByLabelText("Prix unitaire HT (€)")).toHaveValue(45);
     expect(
       screen.getByRole("option", { name: /Compagnon.*45,00.*€\/h/ })
     ).toBeInTheDocument();
@@ -181,7 +181,7 @@ describe("AssemblyEditorDialog", () => {
     });
 
     expect(screen.getByLabelText("Unité")).toHaveValue("ml");
-    expect(screen.getByLabelText("Coût unitaire HT (€)")).toHaveValue(12.34);
+    expect(screen.getByLabelText("Prix unitaire HT (€)")).toHaveValue(12.34);
   });
 
   it("separates quantity from labor time and uses coefficients instead of losses", async () => {

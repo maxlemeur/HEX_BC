@@ -406,7 +406,6 @@ export function useSpreadsheetNavigation({
 
   const navigationModel = useMemo(() => createSpreadsheetNavigationModel(rows), [rows]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (disabled || navigationModel.flatIds.length === 0) {
       setActiveCellId(null);
@@ -431,7 +430,6 @@ export function useSpreadsheetNavigation({
       return null;
     });
   }, [disabled, navigationModel.flatIdSet, navigationModel.flatIds]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (disabled) return;

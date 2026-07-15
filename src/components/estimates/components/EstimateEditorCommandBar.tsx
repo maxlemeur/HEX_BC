@@ -97,9 +97,7 @@ export function EstimateEditorCommandBar({
   isFinalizationPanelOpen = false,
   onToggleFinalizationPanel,
   isLaborSplitEnabled = false,
-  isQuickTemplatePickerOpen,
   onToggleQuickTemplatePicker,
-  isQuickAssemblyPickerOpen,
   onToggleQuickAssemblyPicker,
   quickTemplatePickerNode,
   quickAssemblyPickerNode,
@@ -749,6 +747,7 @@ export function EstimateEditorCommandBar({
                     type="button"
                     onClick={() => void onApplyBulkMajoration()}
                     disabled={meta.isReadOnly}
+                    aria-label="Appliquer majoration"
                     data-testid="estimate-editor-bulk-majoration-apply-button"
                   >
                     Appliquer
