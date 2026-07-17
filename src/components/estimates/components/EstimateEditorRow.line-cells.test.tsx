@@ -161,7 +161,10 @@ function renderRow(isLaborSplitEnabled: boolean) {
   );
 }
 
-function renderRowWithItem(item: EstimateItem) {
+function renderRowWithItem(
+  item: EstimateItem,
+  laborRateCents = 4500,
+) {
   return render(
     <EstimateEditorRow
       versionId="version-1"
@@ -182,7 +185,7 @@ function renderRowWithItem(item: EstimateItem) {
           name: "Poseur",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          hourly_rate_cents: 4500,
+          hourly_rate_cents: laborRateCents,
           is_active: true,
           position: 1,
         },
@@ -244,5 +247,23 @@ describe("EstimateEditorRow line cells", () => {
     expect(
       row.getByText("Confiance moyenne", { selector: ".sr-only" })
     ).toBeInTheDocument();
+  });
+
+  it("shows the hourly rate and warns when a zero rate neutralizes K MO", () => {
+    const view = renderRowWithItem(createItem(), 0);
+
+    const roleSelect = within(view.container).getByRole("combobox", {
+      name: "Rôle de main-d'œuvre pour Ligne test",
+    });
+    const kMoInput = within(view.container).getByRole("spinbutton", {
+      name: "Coefficient main-d'œuvre K MO pour Ligne test",
+    });
+
+    expect(roleSelect).toHaveTextContent("Poseur — 0,00 €/h");
+    expect(roleSelect).toHaveAttribute("aria-invalid", "true");
+    expect(kMoInput).toHaveAttribute(
+      "title",
+      "Le taux horaire de Poseur est à 0 €/h : renseignez-le dans Paramétrage pour que h MO et K MO entrent dans le P.U."
+    );
   });
 });

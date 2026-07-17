@@ -36,6 +36,28 @@ export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"]
 export type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 export type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 
+export function formatLaborRoleOptionLabel(role: LaborRole) {
+  const hourlyRate = new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.max(role.hourly_rate_cents, 0) / 100);
+
+  return `${role.name} — ${hourlyRate} €/h${
+    !role.is_active ? " (inactif)" : ""
+  }`;
+}
+
+export function getMissingLaborRateMessage(
+  role: LaborRole | undefined,
+  laborHours: number | null | undefined
+) {
+  if (!role || (laborHours ?? 0) <= 0 || role.hourly_rate_cents > 0) {
+    return null;
+  }
+
+  return `Le taux horaire de ${role.name} est à 0 €/h : renseignez-le dans Paramétrage pour que h MO et K MO entrent dans le P.U.`;
+}
+
 export type LaborSplitItemFields = {
   h_mo_atelier?: number | null;
   k_mo_atelier?: number | null;

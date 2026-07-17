@@ -11,6 +11,8 @@ import {
   type LaborRole,
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
+  formatLaborRoleOptionLabel,
+  getMissingLaborRateMessage,
   parseMajorationPercentToCoefficient,
   parseNumberInput,
   toCellClassName,
@@ -70,6 +72,14 @@ export function StandardMoCells({
   kMoEditorProps,
   onPatchItem,
 }: StandardMoCellsProps) {
+  const selectedLaborRole = laborRoles.find(
+    (role) => role.id === item.labor_role_id
+  );
+  const missingLaborRateMessage = getMissingLaborRateMessage(
+    selectedLaborRole,
+    item.h_mo
+  );
+
   return (
     <>
       <div
@@ -173,7 +183,8 @@ export function StandardMoCells({
             navigation,
             laborRoleCell,
             `estimate-cell estimate-col--mo${
-              qualityFlags.includes("missing_labor_role")
+              qualityFlags.includes("missing_labor_role") ||
+              missingLaborRateMessage
                 ? " estimate-cell--warning-empty"
                 : ""
             }`
@@ -184,6 +195,9 @@ export function StandardMoCells({
             ref={laborRoleEditorProps.ref}
             tabIndex={laborRoleEditorProps.tabIndex}
             value={item.labor_role_id ?? ""}
+            aria-label={`Rôle de main-d'œuvre pour ${item.title || "sans titre"}`}
+            aria-invalid={missingLaborRateMessage ? true : undefined}
+            title={missingLaborRateMessage ?? undefined}
             onFocus={laborRoleEditorProps.onFocus}
             onBlur={laborRoleEditorProps.onBlur}
             onKeyDown={laborRoleEditorProps.onKeyDown}
@@ -203,8 +217,7 @@ export function StandardMoCells({
                 value={role.id}
                 disabled={!role.is_active}
               >
-                {role.name}
-                {!role.is_active ? " (inactif)" : ""}
+                {formatLaborRoleOptionLabel(role)}
               </option>
             ))}
           </select>
@@ -229,6 +242,12 @@ export function StandardMoCells({
             step="0.01"
             min={0}
             value={kMoValue}
+            aria-label={`Coefficient main-d'œuvre K MO pour ${item.title || "sans titre"}`}
+            aria-invalid={missingLaborRateMessage ? true : undefined}
+            title={
+              missingLaborRateMessage ??
+              "K MO multiplie le taux horaire du rôle de main-d'œuvre."
+            }
             onFocus={kMoEditorProps.onFocus}
             onKeyDown={kMoEditorProps.onKeyDown}
             onChange={(event) =>
