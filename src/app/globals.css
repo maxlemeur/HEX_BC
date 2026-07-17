@@ -2078,12 +2078,17 @@ body {
   border-bottom-color: transparent;
 }
 
-/* Section rows stay sticky too; their actions remain clipped inside the cell. */
+/* Section rows stay sticky; clip long content until the quick-add menu opens. */
 .estimate-row--section .estimate-cell--designation {
   position: sticky;
   left: 0;
   z-index: 3;
   overflow: hidden;
+}
+
+.estimate-row--section .estimate-cell--designation:has(.estimate-section-quick-actions__menu) {
+  z-index: 20;
+  overflow: visible;
 }
 
 .estimate-row .estimate-cell--designation.estimate-cell--focusable:focus-visible,

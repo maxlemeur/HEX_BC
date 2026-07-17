@@ -76,6 +76,9 @@ describe("estimate editor responsive grid", () => {
       /\.estimate-row--section \.estimate-cell--designation \{[\s\S]*?position: sticky;/,
     );
     expect(css).toMatch(
+      /\.estimate-row--section \.estimate-cell--designation:has\(\.estimate-section-quick-actions__menu\) \{[\s\S]*?z-index: 20;[\s\S]*?overflow: visible;/,
+    );
+    expect(css).toMatch(
       /\.estimate-line-truth__badge \{[\s\S]*?white-space: nowrap;/,
     );
     expect(css).toMatch(
