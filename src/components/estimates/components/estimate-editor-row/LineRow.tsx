@@ -148,10 +148,7 @@ type LineRowProps = {
   handleLineTitleFocus: (event: FocusEvent<HTMLInputElement>) => void;
   handleLineTitleBlur: (event: FocusEvent<HTMLInputElement>) => void;
   handleLineTitleKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
-  aidInput: ReactNode;
-  isAidEditorVisible: boolean;
   dragHandle: ReactNode;
-  onRevealAidEditor: () => void;
   onPatchItem: (
     itemId: string,
     patch: ItemPatch,
@@ -273,10 +270,7 @@ export function LineRow({
   handleLineTitleFocus,
   handleLineTitleBlur,
   handleLineTitleKeyDown,
-  aidInput,
-  isAidEditorVisible,
   dragHandle,
-  onRevealAidEditor,
   onPatchItem,
   onUnitChange,
   onUnitCommit,
@@ -362,15 +356,6 @@ export function LineRow({
   };
 
   const handleLineContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement;
-    if (
-      target.closest(
-        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']",
-      )
-    ) {
-      return;
-    }
-
     event.preventDefault();
     onOpenSupplierComparisonContextMenu(item.id, {
       x: event.clientX,
@@ -487,19 +472,6 @@ export function LineRow({
                     : undefined
                 }
               />
-              {!isAidEditorVisible ? (
-                <div className="estimate-line-hover-actions">
-                  <button
-                    className="estimate-section-hover-btn"
-                    type="button"
-                    onClick={onRevealAidEditor}
-                    disabled={isReadOnly}
-                    data-testid="estimate-line-add-aid-button"
-                  >
-                    + AID
-                  </button>
-                </div>
-              ) : null}
               {showCatalogueSuggestions ? (
                 <CatalogueSuggestionsPopover
                   itemId={item.id}
@@ -518,7 +490,6 @@ export function LineRow({
               ) : null}
             </div>
             <div className="estimate-line-designation__support">
-              <div className="estimate-designation-meta">{aidInput}</div>
               <EstimateLineTruthBadges item={item} />
               <TakeoffSourceBadge
                 versionId={versionId}

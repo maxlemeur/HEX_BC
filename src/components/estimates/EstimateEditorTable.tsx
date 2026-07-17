@@ -32,6 +32,7 @@ import {
 } from "@/components/estimates/components/EstimateSuggestionRow";
 import { EstimateEditorTableChrome } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableChrome";
 import { EstimateEditorTableSectionDialogs } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs";
+import { EstimateEditorTableLineContextMenu } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
 import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
 import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
@@ -2179,40 +2180,26 @@ export function EstimateEditorTable({
           />
 
       {supplierComparisonMenu ? (
-        <div
-          className="estimate-supplier-comparison-context-menu"
-          role="menu"
-          aria-label="Actions de comparaison fournisseurs"
-          data-testid="estimate-supplier-comparison-context-menu"
-          style={{
-            left: `${supplierComparisonMenu.x}px`,
-            top: `${supplierComparisonMenu.y}px`,
+        <EstimateEditorTableLineContextMenu
+          itemId={supplierComparisonMenu.itemId}
+          aid={itemById.get(supplierComparisonMenu.itemId)?.aid ?? null}
+          x={supplierComparisonMenu.x}
+          y={supplierComparisonMenu.y}
+          isReadOnly={isReadOnly}
+          isViewerMode={isViewerMode}
+          isItemConversionPending={isItemConversionPending}
+          onPatchAid={(itemId, aid, options) =>
+            onPatchItem(itemId, { aid }, options)
+          }
+          onCompareSuppliers={(itemId) => {
+            openSupplierComparisonPanel(itemId);
+            closeSupplierComparisonContextMenu();
           }}
-        >
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={() => {
-              openSupplierComparisonPanel(supplierComparisonMenu.itemId);
-              closeSupplierComparisonContextMenu();
-            }}
-            disabled={isItemConversionPending}
-          >
-            Comparer fournisseurs
-          </button>
-          {!isViewerMode ? (
-            <button
-              type="button"
-              className="estimate-supplier-comparison-context-menu__action"
-              role="menuitem"
-              onClick={() => void handleConvertLineToSection(supplierComparisonMenu.itemId)}
-              disabled={isReadOnly || isItemConversionPending}
-            >
-              Convertir en section
-            </button>
-          ) : null}
-        </div>
+          onConvertToSection={(itemId) => {
+            closeSupplierComparisonContextMenu();
+            void handleConvertLineToSection(itemId);
+          }}
+        />
       ) : null}
 
       <SupplierComparisonPanel

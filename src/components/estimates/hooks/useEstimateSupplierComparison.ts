@@ -138,7 +138,7 @@ export function useEstimateSupplierComparison({
       if (!item || item.item_type !== "line") return;
 
       const menuWidth = 240;
-      const menuHeight = 96;
+      const menuHeight = 176;
       const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
       const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
 

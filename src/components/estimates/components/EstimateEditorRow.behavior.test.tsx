@@ -346,7 +346,7 @@ describe("EstimateEditorRow behavior", () => {
     expect(container.querySelectorAll('input[placeholder="0.0"]')).toHaveLength(2);
   });
 
-  it("keeps metadata below the title and its compact AID action", () => {
+  it("keeps line metadata compact and exposes the context menu from the title", () => {
     const { container } = renderRow(
       createItem({
         id: "line-responsive-designation",
@@ -364,12 +364,16 @@ describe("EstimateEditorRow behavior", () => {
       container.querySelectorAll(".estimate-line-truth__badge")
     );
     const truthGroup = screen.getByTestId("estimate-line-truth");
-    const addAidButton = screen.getByTestId("estimate-line-add-aid-button");
 
     expect(primaryRow).toContainElement(titleInput);
     expect(supportRow).not.toContainElement(titleInput);
-    expect(primaryRow).toContainElement(addAidButton);
-    expect(supportRow).not.toContainElement(addAidButton);
+    expect(screen.queryByText("+ AID")).not.toBeInTheDocument();
+    expect(container.querySelector(".estimate-aid-inline")).not.toBeInTheDocument();
+    fireEvent.contextMenu(titleInput, { clientX: 30, clientY: 40 });
+    expect(rowActionSpies.onOpenSupplierComparisonContextMenu).toHaveBeenCalledWith(
+      "line-responsive-designation",
+      { x: 30, y: 40 },
+    );
     expect(truthBadges).toHaveLength(3);
     truthBadges.forEach((badge) => {
       expect(badge).toHaveClass("estimate-line-truth__badge");
