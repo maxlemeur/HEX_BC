@@ -93,7 +93,7 @@ describe("SectionRow", () => {
 
     render(
       <SectionRow
-        item={createSectionItem()}
+        item={createSectionItem({ title: "Nouveau chapitre" })}
         itemNumber="1"
         depth={1}
         estimateCurrency="EUR"
@@ -166,7 +166,16 @@ describe("SectionRow", () => {
     const row = screen.getByTestId("estimate-section-row");
     expect(row).toHaveAttribute("data-estimate-item-id", "section-1");
     expect(screen.getByTestId("drag-handle")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Lot gros oeuvre")).toBeInTheDocument();
+    const titleInput = screen.getByDisplayValue("Nouveau chapitre") as HTMLInputElement;
+    expect(titleInput).toBeInTheDocument();
+    titleInput.setSelectionRange(3, 3);
+    fireEvent.focus(titleInput);
+    expect(titleInput.selectionStart).toBe(0);
+    expect(titleInput.selectionEnd).toBe(titleInput.value.length);
+    titleInput.setSelectionRange(4, 4);
+    fireEvent.click(titleInput);
+    expect(titleInput.selectionStart).toBe(0);
+    expect(titleInput.selectionEnd).toBe(titleInput.value.length);
     expect(screen.getByText(/FO/)).toBeInTheDocument();
     expect(screen.getByText(/MO/)).toBeInTheDocument();
     expect(screen.getByText(/HT/)).toBeInTheDocument();

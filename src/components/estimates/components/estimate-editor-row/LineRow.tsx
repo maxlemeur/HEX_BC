@@ -454,7 +454,17 @@ export function LineRow({
                 disabled={isReadOnly}
                 data-testid="estimate-line-title-input"
                 placeholder="Obligatoire"
-                onFocus={handleLineTitleFocus}
+                onFocus={(event) => {
+                  handleLineTitleFocus(event);
+                  if (item.title === "Nouvelle ligne") {
+                    event.currentTarget.select();
+                  }
+                }}
+                onClick={(event) => {
+                  if (item.title === "Nouvelle ligne") {
+                    event.currentTarget.select();
+                  }
+                }}
                 onKeyDown={handleLineTitleKeyDown}
                 onChange={(event) =>
                   onPatchItem(

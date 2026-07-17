@@ -219,6 +219,25 @@ describe("EstimateEditorRow behavior", () => {
     ]);
   });
 
+  it("selects the generated line title on focus and click", () => {
+    renderRow(
+      createItem({
+        id: "line-default-title",
+        title: "Nouvelle ligne",
+      })
+    );
+
+    const titleInput = screen.getByTestId("estimate-line-title-input") as HTMLInputElement;
+    titleInput.setSelectionRange(3, 3);
+    fireEvent.focus(titleInput);
+    expect(titleInput.selectionStart).toBe(0);
+    expect(titleInput.selectionEnd).toBe(titleInput.value.length);
+    titleInput.setSelectionRange(4, 4);
+    fireEvent.click(titleInput);
+    expect(titleInput.selectionStart).toBe(0);
+    expect(titleInput.selectionEnd).toBe(titleInput.value.length);
+  });
+
   it("preserves section actions through the public row component", () => {
     const sectionItem = createItem({
       id: "section-1",

@@ -29,11 +29,11 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(320px, 3fr) 80px 80px 110px 140px 88px 80px 130px 130px 92px 110px 120px 50px",
+        "minmax(260px, 3fr) 64px 54px 88px 112px 64px 64px 104px 112px 64px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(240px, 3fr) 70px 70px 90px 120px 76px 70px 110px 110px 80px 90px 100px 44px",
-      "--estimate-desktop-min-width": "1530px",
-      "--estimate-tablet-min-width": "1270px",
+        "minmax(220px, 3fr) 58px 50px 80px 100px 60px 60px 96px 100px 60px 82px 94px 40px",
+      "--estimate-desktop-min-width": "1216px",
+      "--estimate-tablet-min-width": "1100px",
     });
     expect(style).not.toHaveProperty("--estimate-grid");
   });
@@ -45,10 +45,10 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(320px, 3fr) 80px 80px 110px 80px 110px 120px 50px",
+        "minmax(260px, 3fr) 64px 54px 88px 64px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(240px, 3fr) 70px 70px 90px 70px 90px 100px 44px",
-      "--estimate-desktop-min-width": "950px",
+        "minmax(220px, 3fr) 58px 50px 80px 60px 82px 94px 40px",
+      "--estimate-desktop-min-width": "760px",
       "--estimate-tablet-min-width": "900px",
     });
   });
@@ -66,6 +66,12 @@ describe("estimate editor responsive grid", () => {
     );
 
     expect(css).toContain("--estimate-grid: var(--estimate-grid-desktop);");
+    expect(css).toContain("--density-row-h: 30px;");
+    expect(css).toContain("--density-cell-px: 6px;");
+    expect(css).toContain("--density-cell-py: 2px;");
+    expect(css).toMatch(
+      /@media \(min-width: 1025px\)[\s\S]*?\.estimate-table \.estimate-line-designation \{[\s\S]*?flex-direction: row;[\s\S]*?\.estimate-table \.estimate-line-truth__badge \{[\s\S]*?width: 10px;/,
+    );
     expect(css).toMatch(
       /@media \(min-width: 768px\) and \(max-width: 1024px\)[\s\S]*?--estimate-grid: var\(--estimate-grid-tablet\);/,
     );

@@ -705,10 +705,10 @@ export function resolveEstimateEditorGridStyle(
     return undefined;
   }
 
-  const desktopColumns = ["minmax(320px, 3fr)", "80px", "80px", "110px"];
-  const tabletColumns = ["minmax(240px, 3fr)", "70px", "70px", "90px"];
-  let desktopMinWidth = 320 + 80 + 80 + 110;
-  let tabletMinWidth = 240 + 70 + 70 + 90;
+  const desktopColumns = ["minmax(260px, 3fr)", "64px", "54px", "88px"];
+  const tabletColumns = ["minmax(220px, 3fr)", "58px", "50px", "80px"];
+  let desktopMinWidth = 260 + 64 + 54 + 88;
+  let tabletMinWidth = 220 + 58 + 50 + 80;
 
   const addOptionalColumn = (
     column: ColumnKey,
@@ -725,22 +725,22 @@ export function resolveEstimateEditorGridStyle(
     tabletMinWidth += tabletWidth;
   };
 
-  addOptionalColumn("supply_type", 140, 120);
-  addOptionalColumn("k_fo", 88, 76);
+  addOptionalColumn("supply_type", 112, 100);
+  addOptionalColumn("k_fo", 64, 60);
 
-  desktopColumns.push("80px");
-  tabletColumns.push("70px");
-  desktopMinWidth += 80;
-  tabletMinWidth += 70;
+  desktopColumns.push("64px");
+  tabletColumns.push("60px");
+  desktopMinWidth += 64;
+  tabletMinWidth += 60;
 
-  addOptionalColumn("h_mo_majoration", 130, 110);
-  addOptionalColumn("labor_role", 130, 110);
-  addOptionalColumn("k_mo", 92, 80);
+  addOptionalColumn("h_mo_majoration", 104, 96);
+  addOptionalColumn("labor_role", 112, 100);
+  addOptionalColumn("k_mo", 64, 60);
 
-  desktopColumns.push("110px", "120px", "50px");
-  tabletColumns.push("90px", "100px", "44px");
-  desktopMinWidth += 110 + 120 + 50;
-  tabletMinWidth += 90 + 100 + 44;
+  desktopColumns.push("88px", "100px", "42px");
+  tabletColumns.push("82px", "94px", "40px");
+  desktopMinWidth += 88 + 100 + 42;
+  tabletMinWidth += 82 + 94 + 40;
 
   return {
     "--estimate-grid-desktop": desktopColumns.join(" "),

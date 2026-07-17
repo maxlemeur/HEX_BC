@@ -9,6 +9,7 @@ import { Popover } from "@/components/ui/Popover";
 
 import { type SectionTotals, UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-calculations";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
+import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
 import { type TreeConnectorMeta, buildTreeConnectorSegments } from "@/lib/estimates/tree-connectors";
 import {
   type SpreadsheetCell,
@@ -148,6 +149,8 @@ export function SectionRow({
   setNodeRef,
   treeConnectorMeta,
 }: SectionRowProps) {
+  const defaultSectionTitle = getDefaultSectionTitleForLevel(sectionLevel ?? 1);
+  const shouldSelectTitleOnInteraction = item.title === defaultSectionTitle;
   const supplyTypeTotals = sectionTotals?.supplyTypeFoTotalsCents ?? {};
   const supplyTypeEntries = Object.entries(supplyTypeTotals).sort(
     ([, leftValue], [, rightValue]) => rightValue - leftValue
@@ -233,7 +236,17 @@ export function SectionRow({
                 title={item.title}
                 disabled={isReadOnly}
                 data-testid="estimate-section-title-input"
-                onFocus={titleEditorProps.onFocus}
+                onFocus={(event) => {
+                  titleEditorProps.onFocus(event);
+                  if (shouldSelectTitleOnInteraction) {
+                    event.currentTarget.select();
+                  }
+                }}
+                onClick={(event) => {
+                  if (shouldSelectTitleOnInteraction) {
+                    event.currentTarget.select();
+                  }
+                }}
                 onKeyDown={titleEditorProps.onKeyDown}
                 onChange={(event) =>
                   onPatchItem(item.id, { title: event.target.value }, { persist: false })
