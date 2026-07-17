@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   useDraftLock: vi.fn(),
   releaseDraftLock: vi.fn(),
   forceUnlockAndAcquireDraftLock: vi.fn(),
+  acquireDraftLock: vi.fn(),
 }));
 
 vi.mock("@/lib/estimates/client", () => ({
@@ -265,6 +266,7 @@ beforeEach(() => {
   });
   mocks.releaseDraftLock.mockResolvedValue(true);
   mocks.forceUnlockAndAcquireDraftLock.mockResolvedValue(true);
+  mocks.acquireDraftLock.mockResolvedValue(true);
   mocks.useDraftLock.mockReturnValue({
     holderName: null,
     isOwnedByCurrentUser: true,
@@ -274,6 +276,7 @@ beforeEach(() => {
     error: null,
     release: mocks.releaseDraftLock,
     forceUnlockAndAcquire: mocks.forceUnlockAndAcquireDraftLock,
+    acquire: mocks.acquireDraftLock,
   });
 });
 
@@ -324,6 +327,7 @@ describe("useEstimateEditorSyncController contract", () => {
       "isFlushInProgress",
       "markVersionReloadFinished",
       "overlayPendingUpdates",
+      "recoverDraftLock",
       "registerVersionConflict",
       "releaseDraftLock",
       "reloadAfterConflict",
@@ -573,6 +577,41 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(
       window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}version-1`)
     ).toBeNull();
+  });
+
+  it("reacquires a missing draft lock and retries the buffered save", async () => {
+    const lockRequiredError = {
+      __estimateApiError: true,
+      name: "EstimateApiError",
+      message: "Un verrou actif est requis.",
+      status: 409,
+      details: { lock: null },
+      code: "LOCK_REQUIRED",
+    };
+    mocks.batchEstimateOperations.mockRejectedValueOnce(lockRequiredError);
+    const input = createInput();
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate("line-1", {
+        unit_price_ht_cents: 1201,
+      });
+    });
+
+    let flushResult: string | undefined;
+    await act(async () => {
+      flushResult =
+        await result.current.actions.flushBufferedItemUpdates();
+    });
+
+    expect(flushResult).toBe("saved");
+    expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(1);
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(2);
+    expect(input.reportError).not.toHaveBeenCalledWith(lockRequiredError.message);
   });
 
   it("preserves edits typed while a flush is in flight", async () => {

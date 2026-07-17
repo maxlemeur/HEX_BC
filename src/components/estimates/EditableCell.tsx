@@ -33,6 +33,7 @@ export type EditableCellProps<TCommitValue = string> = {
   formatDisplayValue?: (value: EditableCellValue) => string;
   parseOnCommit?: (value: string) => TCommitValue;
   type?: EditableCellInputType;
+  inputMode?: "decimal" | "numeric" | "text";
   step?: number | string;
   min?: number | string;
   max?: number | string;
@@ -71,6 +72,7 @@ export function EditableCell<TCommitValue = string>({
   formatDisplayValue,
   parseOnCommit,
   type = "text",
+  inputMode,
   step,
   min,
   max,
@@ -176,6 +178,7 @@ export function EditableCell<TCommitValue = string>({
         ref={handleEditorRef}
         tabIndex={editorProps.tabIndex}
         type={type}
+        inputMode={inputMode}
         value={inputValue}
         className={inputClassName}
         placeholder={placeholder}

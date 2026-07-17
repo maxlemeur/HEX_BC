@@ -224,7 +224,6 @@ type VersionAccessRow = Pick<
   | "project_id"
   | "status"
   | "margin_mode"
-  | "exclusions"
   | "margin_multiplier"
   | "max_section_depth"
   | "tax_rate_bp"
@@ -3640,7 +3639,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, exclusions, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -5953,7 +5952,24 @@ export async function duplicateEstimateVersion(
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
-  const { version: sourceVersion } = await getVersionAccessOrThrow(supabase, versionId, context);
+  await getVersionAccessOrThrow(supabase, versionId, context);
+
+  const { data: sourceVersion, error: sourceVersionError } = await supabase
+    .from("estimate_versions")
+    .select("exclusions")
+    .eq("id", versionId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (sourceVersionError || !sourceVersion) {
+    if (sourceVersionError) {
+      throw mapSupabaseError(
+        sourceVersionError,
+        "Impossible de charger les exclusions du chiffrage."
+      );
+    }
+    throw notFound("Version de chiffrage introuvable.");
+  }
 
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
     source_version_id: versionId,
@@ -7377,6 +7393,17 @@ export async function getEstimateSupplierComparisons(
   };
 }
 
+function isMissingEstimateExclusionsColumnError(
+  error: { code?: string | null; message?: string | null } | null
+) {
+  return (
+    error?.code === "PGRST204" &&
+    (error.message ?? "").includes("'exclusions'") &&
+    (error.message ?? "").includes("'estimate_versions'")
+  );
+}
+
+
 export async function patchEstimateVersion(
   versionId: string,
   input: PatchEstimateVersionInput,
@@ -7473,14 +7500,31 @@ export async function patchEstimateVersion(
     patch: input,
   });
 
-  const { data, error } = await supabase
-    .from("estimate_versions")
-    .update(payload)
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .eq("updated_at", version.updated_at)
-    .select("*")
-    .single();
+  const updateVersion = (updatePayload: EstimateVersionUpdate) =>
+    supabase
+      .from("estimate_versions")
+      .update(updatePayload)
+      .eq("id", versionId)
+      .eq("tenant_id", tenantId)
+      .eq("updated_at", version.updated_at)
+      .select("*")
+      .single();
+
+  let { data, error } = await updateVersion(payload);
+
+  if (isMissingEstimateExclusionsColumnError(error)) {
+    if (payload.exclusions !== null) {
+      throw badRequest(
+        "Les exclusions ne peuvent pas etre enregistrees tant que la migration de la base de donnees n'est pas appliquee.",
+        error,
+        "SCHEMA_MIGRATION_REQUIRED"
+      );
+    }
+
+    const compatiblePayload = { ...payload };
+    delete compatiblePayload.exclusions;
+    ({ data, error } = await updateVersion(compatiblePayload));
+  }
 
   if (error || !data) {
     if (error?.code === "PGRST116") {

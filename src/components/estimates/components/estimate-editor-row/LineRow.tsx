@@ -718,9 +718,8 @@ export function LineRow({
           }${!item.unit_price_ht_cents ? " estimate-cell--required-empty" : ""}`,
         )}
         inputClassName="estimate-input"
-        type="number"
-        step="0.01"
-        min={0}
+        type="text"
+        inputMode="decimal"
         placeholder="Obligatoire"
         ariaLabel={`Prix unitaire pour ${item.title || "sans titre"}`}
         formatDisplayValue={(value) =>
@@ -729,26 +728,30 @@ export function LineRow({
             maxDecimals: 2,
           })
         }
-        onChange={(value) =>
+        onChange={(value) => {
+          const unitPriceCents = parseCurrencyToCents(
+            value,
+            estimateCurrency,
+          );
+          if (unitPriceCents === null) return;
           onPatchItem(
             item.id,
-            {
-              unit_price_ht_cents:
-                parseCurrencyToCents(value, estimateCurrency) ?? 0,
-            },
+            { unit_price_ht_cents: unitPriceCents },
             { persist: false },
-          )
-        }
-        onCommit={(value) =>
+          );
+        }}
+        onCommit={(value) => {
+          const unitPriceCents = parseCurrencyToCents(
+            value,
+            estimateCurrency,
+          );
+          if (unitPriceCents === null) return;
           onPatchItem(
             item.id,
-            {
-              unit_price_ht_cents:
-                parseCurrencyToCents(value, estimateCurrency) ?? 0,
-            },
+            { unit_price_ht_cents: unitPriceCents },
             { persist: true },
-          )
-        }
+          );
+        }}
       />
       {!visibleColumns ||
       visibleColumns.has("supply_type") ||

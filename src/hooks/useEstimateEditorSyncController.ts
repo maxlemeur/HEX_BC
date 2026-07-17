@@ -111,6 +111,7 @@ export type EstimateEditorSyncController = {
     flushBufferedItemUpdates: () => Promise<AutoSaveResult>;
     ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
     retryTotalsSave: () => Promise<void>;
+    recoverDraftLock: () => Promise<boolean>;
     isFlushInProgress: () => boolean;
     hasPendingUpdatesNow: () => boolean;
     clearBufferedItemUpdates: (options?: {
@@ -169,6 +170,9 @@ function isVersionConflictError(error: unknown) {
   );
 }
 
+function isDraftLockRequiredError(error: unknown) {
+  return isEstimateApiError(error) && error.code === "LOCK_REQUIRED";
+}
 export function useEstimateEditorSyncController({
   routeVersionId,
   activeVersion,
@@ -414,6 +418,7 @@ export function useEstimateEditorSyncController({
     isAcquiring: isActiveDraftLockAcquiring,
     isForcingUnlock: isActivelyForcingDraftUnlock,
     error: activeDraftLockError,
+    acquire: reacquireDraftLock,
     release: releaseDraftLock,
     forceUnlockAndAcquire: forceUnlockAndAcquireDraftLock,
   } = useDraftLock({
@@ -421,6 +426,20 @@ export function useEstimateEditorSyncController({
     enabled: Boolean(routeVersionId && isDraftVersion),
     currentUserId,
   });
+
+  const runWithDraftLockRecovery = useCallback(
+    async <T>(operation: () => Promise<T>): Promise<T> => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (!isDraftLockRequiredError(error)) throw error;
+        const acquired = await reacquireDraftLock();
+        if (!acquired) throw error;
+        return operation();
+      }
+    },
+    [reacquireDraftLock]
+  );
   const draftLockHolderName = isDraftVersion
     ? activeDraftLockHolderName
     : null;
@@ -546,10 +565,12 @@ export function useEstimateEditorSyncController({
       routeVersionIdRef.current === flushVersionId;
 
     try {
-      const batchResult = await batchEstimateOperations(
-        flushVersionId,
-        versionSnapshot.updated_at,
-        batchOperations
+      const batchResult = await runWithDraftLockRecovery(() =>
+        batchEstimateOperations(
+          flushVersionId,
+          versionSnapshot.updated_at,
+          batchOperations
+        )
       );
 
       if (!batchResult.committed) {
@@ -564,11 +585,13 @@ export function useEstimateEditorSyncController({
 
       let nextVersionToken = batchResult.versionToken.updated_at;
       if (versionTotalsPatch) {
-        const bulkResult = await bulkUpdateEstimateItems(
-          flushVersionId,
-          nextVersionToken,
-          [],
-          versionTotalsPatch
+        const bulkResult = await runWithDraftLockRecovery(() =>
+          bulkUpdateEstimateItems(
+            flushVersionId,
+            nextVersionToken,
+            [],
+            versionTotalsPatch
+          )
         );
         nextVersionToken = bulkResult.versionToken.updated_at;
       }
@@ -644,6 +667,7 @@ export function useEstimateEditorSyncController({
     persistBufferedItemUpdatesToLocal,
     reportError,
     resolveErrorMessage,
+    runWithDraftLockRecovery,
     routeVersionId,
     setTotalsOutOfSync,
   ]);
@@ -805,6 +829,7 @@ export function useEstimateEditorSyncController({
       flushBufferedItemUpdates,
       ensureGroupedActionCanProceed,
       retryTotalsSave,
+      recoverDraftLock: reacquireDraftLock,
       isFlushInProgress,
       hasPendingUpdatesNow,
       clearBufferedItemUpdates,
@@ -836,6 +861,7 @@ export function useEstimateEditorSyncController({
       releaseDraftLock,
       reloadAfterConflict,
       restoreConflictDraft,
+      reacquireDraftLock,
       retryTotalsSave,
       triggerVersionReload,
     ]

@@ -78,6 +78,7 @@ function createSupabaseMock(input: {
       | null;
   };
   draftLockUserId?: string | null;
+  rejectExclusionsColumn?: boolean;
 }) {
   const tenantMembershipBuilder = {
     eq: vi.fn(),
@@ -160,7 +161,25 @@ function createSupabaseMock(input: {
     select: vi.fn(() => estimateVersionUpdateSelect),
   };
 
-  const estimateVersionUpdate = vi.fn(() => estimateVersionUpdateBuilder);
+  const estimateVersionUpdate = vi.fn((payload: Record<string, unknown>) => {
+    if (
+      input.rejectExclusionsColumn &&
+      Object.prototype.hasOwnProperty.call(payload, "exclusions")
+    ) {
+      estimateVersionUpdateSingle.mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST204",
+          message:
+            "Could not find the 'exclusions' column of 'estimate_versions' in the schema cache",
+          details: null,
+          hint: null,
+        },
+      });
+    }
+
+    return estimateVersionUpdateBuilder;
+  });
 
   estimateVersionUpdateBuilder.eq.mockReturnValue(estimateVersionUpdateBuilder);
 
@@ -223,6 +242,24 @@ function createSupabaseMock(input: {
       if (table === "estimate_versions") {
         const selectEstimateVersions = vi.fn((columns?: string) => {
           if (columns?.includes("estimate_projects")) {
+            if (
+              input.rejectExclusionsColumn &&
+              columns.includes("exclusions")
+            ) {
+              return {
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn().mockResolvedValue({
+                  data: null,
+                  error: {
+                    code: "PGRST204",
+                    message:
+                      "Could not find the 'exclusions' column of 'estimate_versions' in the schema cache",
+                    details: null,
+                    hint: null,
+                  },
+                }),
+              };
+            }
             return estimateVersionAccessBuilder;
           }
 
@@ -554,6 +591,30 @@ describe("bulkUpdateEstimateItems regressions", () => {
     vi.clearAllMocks();
   });
 
+  it("keeps batch preflight independent from the optional exclusions column", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: null,
+        error: null,
+      },
+      rejectExclusionsColumn: true,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(VERSION_ID, [], VERSION_UPDATED_AT)
+    ).resolves.toEqual({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
   it("maps stale bulk update RPC errors to a 409 conflict with parsed counts", async () => {
     const supabase = createSupabaseMock({
       rpcResult: {
@@ -881,6 +942,89 @@ describe("patchEstimateVersion optimistic concurrency", () => {
         updated_at: NEXT_VERSION_UPDATED_AT,
       },
     });
+  });
+
+  it("retries without empty exclusions when the schema column is unavailable", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+      rejectExclusionsColumn: true,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          title: "Maj",
+          exclusions: null,
+        },
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+
+    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledTimes(2);
+    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        exclusions: null,
+        title: "Maj",
+      })
+    );
+    expect(
+      supabase.__mocks.estimateVersionUpdate.mock.calls[1]?.[0]
+    ).not.toHaveProperty("exclusions");
+  });
+
+  it("reports the missing migration when non-empty exclusions cannot be persisted", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+      rejectExclusionsColumn: true,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          exclusions: "Peinture hors perimetre",
+        },
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "SCHEMA_MIGRATION_REQUIRED",
+      message:
+        "Les exclusions ne peuvent pas etre enregistrees tant que la migration de la base de donnees n'est pas appliquee.",
+    });
+
+    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes patch currency values to uppercase", async () => {

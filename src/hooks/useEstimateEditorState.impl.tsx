@@ -100,6 +100,7 @@ import {
 } from "@/lib/estimate-editor-virtualization";
 import {
   acquireEstimateDraftLock,
+  isEstimateApiError,
   bulkUpdateEstimateItems,
   createEstimateLaborRole,
   createMarginTier as createMarginTierClient,
@@ -200,6 +201,9 @@ function resolveEstimateActionError(message: string) {
   return message;
 }
 
+function isDraftLockRequiredError(error: unknown) {
+  return isEstimateApiError(error) && error.code === "LOCK_REQUIRED";
+}
 export type EstimateEditorStateModel = {
   state: {
     versionId: string;
@@ -453,6 +457,7 @@ export function useEstimateEditorState({
     flushBufferedItemUpdates,
     ensureGroupedActionCanProceed,
     retryTotalsSave,
+    recoverDraftLock,
     isFlushInProgress,
     hasPendingUpdatesNow,
     handleVersionConflict,
@@ -1317,13 +1322,23 @@ export function useEstimateEditorState({
         total_ttc_cents: totalsSnapshot.roundedTtcCents,
       };
 
-      let updatedVersion: EstimateVersionRow;
-      try {
-        updatedVersion = await saveEstimateVersion(
+      const persistSettings = () =>
+        saveEstimateVersion(
           targetVersionId,
           payload,
           versionSnapshot.updated_at
         );
+
+      let updatedVersion: EstimateVersionRow;
+      try {
+        try {
+          updatedVersion = await persistSettings();
+        } catch (error) {
+          if (!isDraftLockRequiredError(error)) throw error;
+          const reacquired = await recoverDraftLock();
+          if (!reacquired) throw error;
+          updatedVersion = await persistSettings();
+        }
       } catch (error) {
         if (!isCurrentSettingsSave()) return;
         if (!handleVersionConflict(error, { persistDraft: true })) {

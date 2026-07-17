@@ -49,14 +49,23 @@ vi.mock("@/components/estimates/EditableCell", () => ({
   EditableCell: ({
     cell,
     className,
+    type,
+    inputMode,
+    value,
   }: {
     cell: { rowId: string; columnKey: string };
     className?: string;
+    type?: string;
+    inputMode?: string;
+    value?: string | number | null;
   }) => (
     <div
       role="gridcell"
       className={className}
       data-cell-id={`${cell.rowId}::${cell.columnKey}`}
+      data-input-type={type}
+      data-input-mode={inputMode}
+      data-input-value={String(value ?? "")}
     />
   ),
 }));
@@ -219,6 +228,22 @@ describe("EstimateEditorRow behavior", () => {
     ]);
   });
 
+  it("uses a selectable decimal text input for PR. FO", () => {
+    const { container } = renderRow(
+      createItem({
+        id: "line-money",
+        unit_price_ht_cents: 1201,
+      })
+    );
+
+    const priceCell = container.querySelector(
+      '[data-cell-id="line-money::unit_price"]'
+    );
+    expect(priceCell).toHaveAttribute("data-input-type", "text");
+    expect(priceCell).toHaveAttribute("data-input-mode", "decimal");
+    expect(priceCell).toHaveAttribute("data-input-value", "12.01");
+
+  });
   it("selects the generated line title on focus and click", () => {
     renderRow(
       createItem({
