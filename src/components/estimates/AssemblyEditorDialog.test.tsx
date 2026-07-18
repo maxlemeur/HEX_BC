@@ -205,6 +205,64 @@ describe("AssemblyEditorDialog", () => {
     expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveValue(12.34);
   });
 
+  it("restores catalogue prices when an older replacement erased every stored cost", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        data: {
+          items: [
+            {
+              id: "catalogue-inox",
+              reference: "DB_I4Lsoude__Tub.I4S.50",
+              designation:
+                "Tube DN50 60,3x2 — Tube Inox 304L roulé soudé - soudé",
+              unit: "ml",
+              unit_price_cents: 998,
+            },
+          ],
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AssemblyEditorDialog
+        isSubmitting={false}
+        initialValue={{
+          ...ASSEMBLY,
+          directCostCents: 0,
+          items: [
+            {
+              ...ASSEMBLY.items[0],
+              title: "Tube DN50 60,3x2 — Tube Inox 304L roulé soudé - soudé",
+              unit: "ml",
+              cost_type: "material",
+              default_quantity: 1,
+              h_mo: 0,
+              k_fo: 0.5,
+              labor_role_id: null,
+              unit_cost_ht_cents: 0,
+            },
+          ],
+        }}
+        supplyTypes={SUPPLY_TYPES}
+        laborRoles={[]}
+        onClose={() => undefined}
+        onSubmit={() => undefined}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveValue(9.98)
+    );
+    expect(screen.getAllByText(/4,99/)).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("search=Tube+DN50+60"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
   it("separates quantity from labor time and uses coefficients instead of losses", async () => {
     const user = userEvent.setup();
     render(

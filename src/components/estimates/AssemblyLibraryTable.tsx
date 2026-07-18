@@ -12,6 +12,7 @@ type AssemblyLibraryTableProps = {
   assemblies: EstimateAssemblySummary[];
   busyAssemblyId: string | null;
   laborRoles: EstimateAssemblyLaborRole[];
+  refreshedAssemblies?: Readonly<Record<string, EstimateAssemblyDetail>>;
   onEdit: (assembly: EstimateAssemblySummary) => void;
   onRename: (assembly: EstimateAssemblySummary) => void;
   onDuplicate: (assembly: EstimateAssemblySummary) => void;
@@ -40,6 +41,40 @@ function formatCurrency(cents: number | null | undefined) {
     currency: "EUR",
     maximumFractionDigits: 2,
   }).format((cents ?? 0) / 100);
+}
+
+function computePreviewMetrics(
+  detail: EstimateAssemblyDetail,
+  laborRoles: EstimateAssemblyLaborRole[],
+) {
+  let directCostCents = 0;
+  let laborHours = 0;
+
+  detail.items.forEach((item) => {
+    const quantity = Math.max(item.default_quantity ?? 0, 0);
+    const unitCostCents = Math.max(item.unit_cost_ht_cents ?? 0, 0);
+    const isLabor = (item.cost_type ?? "material") === "labor";
+    const itemLaborHours = Math.max(
+      item.h_mo ?? (isLabor ? quantity : 0),
+      0,
+    );
+    const supplyCostCents = isLabor
+      ? 0
+      : quantity * unitCostCents * Math.max(item.k_fo ?? 1, 0);
+    const laborRateCents =
+      laborRoles.find((role) => role.id === item.labor_role_id)
+        ?.hourly_rate_cents ?? (isLabor ? unitCostCents : 0);
+    const laborCostCents =
+      itemLaborHours * laborRateCents * Math.max(item.k_mo ?? 1, 0);
+
+    directCostCents += Math.round(supplyCostCents + laborCostCents);
+    laborHours += itemLaborHours;
+  });
+
+  return {
+    directCostCents,
+    laborHours,
+  };
 }
 
 function formatCostType(value: EstimateAssemblyDetail["items"][number]["cost_type"]) {
@@ -86,6 +121,8 @@ function AssemblyContentPreview({
   error,
   onRetry,
 }: AssemblyContentPreviewProps) {
+  const metrics = detail ? computePreviewMetrics(detail, laborRoles) : null;
+
   return (
     <div className="ml-9">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -107,13 +144,13 @@ function AssemblyContentPreview({
         <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
           <span className="text-xs text-[var(--slate-500)]">Coût direct</span>
           <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
-            {formatCurrency(detail?.directCostCents ?? assembly.directCostCents)}
+            {formatCurrency(metrics?.directCostCents ?? assembly.directCostCents)}
           </p>
         </div>
         <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
           <span className="text-xs text-[var(--slate-500)]">Temps MO total</span>
           <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
-            {formatNumber(detail?.averageTimeHours ?? assembly.averageTimeHours, "0")} h
+            {formatNumber(metrics?.laborHours ?? assembly.averageTimeHours, "0")} h
           </p>
         </div>
         <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
@@ -146,10 +183,9 @@ function AssemblyContentPreview({
         </div>
       ) : detail?.items.length ? (
         <div className="overflow-x-auto rounded-lg border border-[var(--slate-200)] bg-surface">
-          <table className="w-full min-w-[1040px] text-sm">
+          <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="bg-[var(--slate-50)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-                <th className="px-4 py-2.5">Position</th>
                 <th className="px-4 py-2.5">Désignation</th>
                 <th className="px-4 py-2.5">Type</th>
                 <th className="px-4 py-2.5">Unité</th>
@@ -166,9 +202,6 @@ function AssemblyContentPreview({
                 .sort((first, second) => first.position - second.position)
                 .map((item) => (
                   <tr key={item.id}>
-                    <td className="px-4 py-3 font-mono text-[var(--slate-500)]">
-                      {item.position}
-                    </td>
                     <td className="px-4 py-3 font-medium text-[var(--slate-800)]">
                       {formatLegacyGeneratedText(item.title)}
                     </td>
@@ -219,6 +252,7 @@ export function AssemblyLibraryTable({
   assemblies,
   busyAssemblyId,
   laborRoles,
+  refreshedAssemblies,
   onEdit,
   onRename,
   onDuplicate,
@@ -293,6 +327,8 @@ export function AssemblyLibraryTable({
 
   function toggleAssembly(assembly: EstimateAssemblySummary) {
     const shouldExpand = !expandedIds.has(assembly.id);
+    const detail =
+      refreshedAssemblies?.[assembly.id] ?? detailById[assembly.id];
 
     setExpandedIds((previous) => {
       const next = new Set(previous);
@@ -301,7 +337,7 @@ export function AssemblyLibraryTable({
       return next;
     });
 
-    if (shouldExpand && !detailById[assembly.id]) {
+    if (shouldExpand && !detail) {
       void loadAssemblyDetail(assembly.id);
     }
   }
@@ -332,7 +368,8 @@ export function AssemblyLibraryTable({
             assemblies.map((assembly) => {
               const isBusy = busyAssemblyId === assembly.id;
               const isExpanded = expandedIds.has(assembly.id);
-              const detail = detailById[assembly.id];
+              const detail =
+                refreshedAssemblies?.[assembly.id] ?? detailById[assembly.id];
               const isLoadingDetail = loadingIds.has(assembly.id);
               const loadError = loadErrorById[assembly.id];
               const previewId = "assembly-preview-" + assembly.id;

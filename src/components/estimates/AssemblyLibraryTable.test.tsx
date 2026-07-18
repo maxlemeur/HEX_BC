@@ -83,7 +83,11 @@ describe("AssemblyLibraryTable", () => {
   afterEach(cleanup);
 
   it("charge et conserve le contenu affiché dans la ligne dépliée", async () => {
-    const assembly = createAssemblySummary();
+    const assembly = {
+      ...createAssemblySummary(),
+      directCostCents: 1647,
+      averageTimeHours: 99,
+    };
     const loadAssembly =
       vi.fn<(assemblyId: string) => Promise<EstimateAssemblyDetail>>();
     loadAssembly.mockResolvedValue(createAssemblyDetail(assembly));
@@ -115,11 +119,16 @@ describe("AssemblyLibraryTable", () => {
     expect(renderedContent).toContain("Ouvrage composé généré depuis un test");
     expect(renderedContent).toContain("Main-d’œuvre – Ossature métallique");
     expect(renderedContent).toContain("Matériel de pose – Pose de plaques");
+    expect(screen.getByText("Coût direct").parentElement).toHaveTextContent("0,00 €");
+    expect(screen.getByText("Temps MO total").parentElement).toHaveTextContent("10 h");
     expect(renderedContent.indexOf("Main-d’œuvre")).toBeLessThan(
       renderedContent.indexOf("Matériel de pose"),
     );
     expect(renderedContent).toContain("Qté");
     expect(renderedContent).toContain("H MO");
+    expect(
+      screen.queryByRole("columnheader", { name: "Position" }),
+    ).not.toBeInTheDocument();
     expect(renderedContent).toContain("10 h");
     expect(renderedContent).not.toContain("Qté / temps");
     expect(renderedContent).not.toContain("ligne(s)");
@@ -136,6 +145,58 @@ describe("AssemblyLibraryTable", () => {
         screen.getByRole("button", { name: /Masquer le contenu de Faux plafond/i })
       ).toHaveAttribute("aria-expanded", "true")
     );
+    expect(loadAssembly).toHaveBeenCalledOnce();
+  });
+
+  it("remplace immédiatement le détail déplié après une mise à jour", async () => {
+    const assembly = createAssemblySummary();
+    const initialDetail = createAssemblyDetail(assembly);
+    const refreshedDetail: EstimateAssemblyDetail = {
+      ...initialDetail,
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      items: initialDetail.items.map((item) =>
+        item.id === "item-1"
+          ? { ...item, title: "Main d'oeuvre - Ligne actualisée", h_mo: 7 }
+          : item,
+      ),
+    };
+    const loadAssembly = vi.fn().mockResolvedValue(initialDetail);
+    const sharedProps = {
+      assemblies: [assembly],
+      busyAssemblyId: null,
+      onEdit: vi.fn(),
+      onRename: vi.fn(),
+      laborRoles: [],
+      onDuplicate: vi.fn(),
+      onDelete: vi.fn(),
+      loadAssembly,
+    };
+
+    const { rerender } = render(
+      createElement(AssemblyLibraryTable, sharedProps),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Afficher le contenu de Faux plafond/i }),
+    );
+    await screen.findByText("Main-d’œuvre – Ossature métallique");
+
+    rerender(
+      createElement(AssemblyLibraryTable, {
+        ...sharedProps,
+        refreshedAssemblies: {
+          [refreshedDetail.id]: refreshedDetail,
+        },
+      }),
+    );
+
+    expect(await screen.findByText("Main-d’œuvre – Ligne actualisée")).toBeVisible();
+    expect(screen.getByText("Temps MO total").parentElement).toHaveTextContent(
+      "7 h",
+    );
+    expect(
+      screen.queryByText("Main-d’œuvre – Ossature métallique"),
+    ).not.toBeInTheDocument();
     expect(loadAssembly).toHaveBeenCalledOnce();
   });
 });

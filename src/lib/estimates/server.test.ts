@@ -2589,6 +2589,10 @@ function createAssemblyUpdateSupabaseMock(input?: {
     hint: string | null;
   } | null;
 }) {
+  const rpc = vi.fn().mockResolvedValue({
+    data: 1,
+    error: input?.rpcError ?? null,
+  });
   const tenantMembershipBuilder = {
     eq: vi.fn(),
     order: vi.fn(),
@@ -2618,6 +2622,8 @@ function createAssemblyUpdateSupabaseMock(input?: {
         created_by: USER_ID,
         name: "Mur",
         description: null,
+        ds_cents: 1647,
+        avg_time_hours: 0.5,
         created_at: VERSION_UPDATED_AT,
         updated_at: VERSION_UPDATED_AT,
       },
@@ -2626,26 +2632,49 @@ function createAssemblyUpdateSupabaseMock(input?: {
   };
   assemblyBuilder.eq.mockReturnValue(assemblyBuilder);
 
+  let latestDirectCostCents = 1647;
+  let latestLaborHours: number | null = 0.5;
   const assemblyUpdateBuilder = {
     eq: vi.fn(),
     select: vi.fn(),
-    single: vi.fn().mockResolvedValue({
+    single: vi.fn().mockImplementation(async () => ({
       data: {
         id: ASSEMBLY_ID,
         tenant_id: TENANT_ID,
         created_by: USER_ID,
         name: "Mur",
         description: null,
-        ds_cents: 0,
-        avg_time_hours: null,
+        ds_cents: latestDirectCostCents,
+        avg_time_hours: latestLaborHours,
         created_at: VERSION_UPDATED_AT,
         updated_at: VERSION_UPDATED_AT,
       },
       error: null,
-    }),
+    })),
   };
   assemblyUpdateBuilder.eq.mockReturnValue(assemblyUpdateBuilder);
   assemblyUpdateBuilder.select.mockReturnValue(assemblyUpdateBuilder);
+  const assemblyUpdate = vi.fn(
+    (payload: { ds_cents?: number; avg_time_hours?: number | null }) => {
+      if ("ds_cents" in payload) {
+        latestDirectCostCents = payload.ds_cents ?? 0;
+      }
+      if ("avg_time_hours" in payload) {
+        latestLaborHours = payload.avg_time_hours ?? null;
+      }
+      return assemblyUpdateBuilder;
+    }
+  );
+
+  const laborRolesBuilder = {
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  laborRolesBuilder.eq.mockReturnValue(laborRolesBuilder);
+  laborRolesBuilder.in.mockResolvedValue({
+    data: [{ id: LABOR_ROLE_ID, hourly_rate_cents: 3000 }],
+    error: null,
+  });
 
   let assemblyItemsOrderCalls = 0;
   const assemblyItemsBuilder = {
@@ -2678,6 +2707,11 @@ function createAssemblyUpdateSupabaseMock(input?: {
   };
   assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
 
+  const assemblyItemsUpsert = vi.fn().mockResolvedValue({
+    data: null,
+    error: null,
+  });
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -2698,20 +2732,27 @@ function createAssemblyUpdateSupabaseMock(input?: {
       if (table === "estimate_assemblies") {
         return {
           select: vi.fn(() => assemblyBuilder),
-          update: vi.fn(() => assemblyUpdateBuilder),
+          update: assemblyUpdate,
         };
       }
       if (table === "estimate_assembly_items") {
         return {
           select: vi.fn(() => assemblyItemsBuilder),
+          upsert: assemblyItemsUpsert,
+        };
+      }
+      if (table === "labor_roles") {
+        return {
+          select: vi.fn(() => laborRolesBuilder),
         };
       }
       throw new Error(`Unexpected table: ${table}`);
     }),
-    rpc: vi.fn().mockResolvedValue({
-      data: 1,
-      error: input?.rpcError ?? null,
-    }),
+    rpc,
+    __mocks: {
+      assemblyUpdate,
+      assemblyItemsUpsert,
+    },
   };
 
   return supabase;
@@ -3263,6 +3304,13 @@ describe("estimate assemblies updates", () => {
           title: "Ligne",
           labor_role_id: LABOR_ROLE_ID,
           supply_type_id: SUPPLY_TYPE_ID,
+          unit: "ml",
+          k_fo: 0.5,
+          k_mo: 1.1,
+          default_quantity: 1,
+          h_mo: 0.5,
+          cost_type: "material",
+          unit_cost_ht_cents: 998,
           position: 1,
         },
       ],
@@ -3273,16 +3321,16 @@ describe("estimate assemblies updates", () => {
       p_items: [
         {
           title: "Ligne",
-          unit: null,
-          k_fo: 1,
-          k_mo: 1,
+          unit: "ml",
+          k_fo: 0.5,
+          k_mo: 1.1,
           labor_role_id: LABOR_ROLE_ID,
           supply_type_id: SUPPLY_TYPE_ID,
-          default_quantity: null,
-          h_mo: 0,
+          default_quantity: 1,
+          h_mo: 0.5,
           position: 1,
           cost_type: "material",
-          unit_cost_ht_cents: 0,
+          unit_cost_ht_cents: 998,
           loss_coeff_bp: 0,
           yield_value: null,
           yield_unit: null,
@@ -3290,7 +3338,37 @@ describe("estimate assemblies updates", () => {
         },
       ],
     });
+    expect(supabase.__mocks.assemblyItemsUpsert).toHaveBeenCalledWith(
+      [
+        {
+          tenant_id: TENANT_ID,
+          assembly_id: ASSEMBLY_ID,
+          title: "Ligne",
+          unit: "ml",
+          k_fo: 0.5,
+          k_mo: 1.1,
+          labor_role_id: LABOR_ROLE_ID,
+          supply_type_id: SUPPLY_TYPE_ID,
+          default_quantity: 1,
+          h_mo: 0.5,
+          position: 1,
+          cost_type: "material",
+          unit_cost_ht_cents: 998,
+          loss_coeff_bp: 0,
+          yield_value: null,
+          yield_unit: null,
+          source_metadata: {},
+        },
+      ],
+      { onConflict: "assembly_id,position" }
+    );
+    expect(supabase.__mocks.assemblyUpdate).toHaveBeenCalledWith({
+      ds_cents: 2149,
+      avg_time_hours: 0.5,
+    });
     expect(result.assembly.id).toBe(ASSEMBLY_ID);
     expect(result.assembly.items).toHaveLength(1);
+    expect(result.assembly.ds_cents).toBe(2149);
+    expect(result.assembly.avg_time_hours).toBe(0.5);
   });
 });

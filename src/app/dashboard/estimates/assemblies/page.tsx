@@ -33,6 +33,9 @@ export default function EstimateAssembliesPage() {
   const [editingAssembly, setEditingAssembly] = useState<EstimateAssemblyDetail | null>(
     null
   );
+  const [refreshedAssemblies, setRefreshedAssemblies] = useState<
+    Record<string, EstimateAssemblyDetail>
+  >({});
   const [renamingAssembly, setRenamingAssembly] = useState<{ id: string; name: string } | null>(null);
   const [duplicatingAssembly, setDuplicatingAssembly] = useState<{ id: string; name: string } | null>(null);
   const [deletingAssembly, setDeletingAssembly] = useState<{ id: string; name: string } | null>(null);
@@ -87,13 +90,18 @@ export default function EstimateAssembliesPage() {
       setIsModalSubmitting(true);
 
       try {
+        let savedAssembly: EstimateAssemblyDetail;
         if (editingAssembly) {
-          await updateEstimateAssembly(editingAssembly.id, input);
+          savedAssembly = await updateEstimateAssembly(editingAssembly.id, input);
           setSuccessMessage("Ouvrage mis à jour.");
         } else {
-          await createEstimateAssembly(input);
+          savedAssembly = await createEstimateAssembly(input);
           setSuccessMessage("Ouvrage créé.");
         }
+        setRefreshedAssemblies((previous) => ({
+          ...previous,
+          [savedAssembly.id]: savedAssembly,
+        }));
         setIsModalOpen(false);
         setEditingAssembly(null);
         await mutate();
@@ -140,7 +148,13 @@ export default function EstimateAssembliesPage() {
       setBusyAssemblyId(renamingAssembly.id);
       setRenamingAssembly(null);
       try {
-        await updateEstimateAssembly(renamingAssembly.id, { name: nextName });
+        const renamedAssembly = await updateEstimateAssembly(renamingAssembly.id, {
+          name: nextName,
+        });
+        setRefreshedAssemblies((previous) => ({
+          ...previous,
+          [renamedAssembly.id]: renamedAssembly,
+        }));
         setSuccessMessage("Ouvrage renommé.");
         await mutate();
       } catch (error) {
@@ -257,6 +271,7 @@ export default function EstimateAssembliesPage() {
           <AssemblyLibraryTable
             assemblies={assemblies}
             laborRoles={laborRoles}
+            refreshedAssemblies={refreshedAssemblies}
             busyAssemblyId={busyAssemblyId}
             onEdit={handleEdit}
             onRename={handleRename}

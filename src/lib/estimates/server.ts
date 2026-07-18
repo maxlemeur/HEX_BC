@@ -5584,6 +5584,33 @@ export async function updateEstimateAssembly(
       source_metadata: (item.source_metadata ?? {}) as Json,
     }));
 
+    const laborRoleIds = Array.from(
+      new Set(
+        input.items
+          .map((item) => item.labor_role_id)
+          .filter((roleId): roleId is string => Boolean(roleId))
+      )
+    );
+    const laborRatesById = new Map<string, number>();
+    if (laborRoleIds.length > 0) {
+      const { data: laborRoles, error: laborRolesError } = await supabase
+        .from("labor_roles")
+        .select("id, hourly_rate_cents")
+        .eq("tenant_id", tenantId)
+        .in("id", laborRoleIds);
+
+      if (laborRolesError) {
+        throw mapSupabaseError(
+          laborRolesError,
+          "Impossible de charger les taux de main-d’œuvre."
+        );
+      }
+      (laborRoles ?? []).forEach((role) => {
+        laborRatesById.set(role.id, role.hourly_rate_cents);
+      });
+    }
+    const metrics = computeAssemblyMetrics(input.items, laborRatesById);
+
     const { error: replaceItemsError } = await supabase.rpc(
       "replace_estimate_assembly_items",
       {
@@ -5598,6 +5625,46 @@ export async function updateEstimateAssembly(
         "Impossible de mettre a jour l'ouvrage."
       );
     }
+
+    const { error: preserveItemDetailsError } = await supabase
+      .from("estimate_assembly_items")
+      .upsert(
+        itemsPayload.map((item) => ({
+          tenant_id: tenantId,
+          assembly_id: assemblyId,
+          ...item,
+        })),
+        { onConflict: "assembly_id,position" }
+      );
+
+    if (preserveItemDetailsError) {
+      throw mapSupabaseError(
+        preserveItemDetailsError,
+        "Impossible de conserver les prix et les temps de l'ouvrage."
+      );
+    }
+
+    const { data: metricsAssembly, error: metricsUpdateError } = await supabase
+      .from("estimate_assemblies")
+      .update({
+        ds_cents: metrics.directCostCents,
+        avg_time_hours: metrics.laborHours,
+      })
+      .eq("tenant_id", tenantId)
+      .eq("id", assemblyId)
+      .select("*")
+      .single();
+
+    if (metricsUpdateError || !metricsAssembly) {
+      if (metricsUpdateError) {
+        throw mapSupabaseError(
+          metricsUpdateError,
+          "Impossible de mettre a jour les totaux de l'ouvrage."
+        );
+      }
+      throw badRequest("Impossible de mettre a jour les totaux de l'ouvrage.");
+    }
+    updatedAssembly = metricsAssembly as EstimateAssemblyRow;
   }
 
   const items = await loadEstimateAssemblyItems({

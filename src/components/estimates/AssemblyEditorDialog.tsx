@@ -186,6 +186,15 @@ function formatCatalogueOptionLabel(item: CatalogueItem) {
   return [details, price].filter(Boolean).join(" · ");
 }
 
+function toCatalogueRecoveryQuery(title: string) {
+  return title
+    .replace(/[%_,]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 3)
+    .join(" ");
+}
+
 function AssemblyCatalogueInput({
   id,
   className,
@@ -327,6 +336,85 @@ export function AssemblyEditorDialog({
     toDraftItems(initialValue)
   );
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialValue) return;
+
+    const initialItems = toDraftItems(initialValue);
+    const candidates = initialItems
+      .map((item, index) => ({ index, item }))
+      .filter(
+        ({ item }) =>
+          item.costType !== "labor" &&
+          readFiniteNumber(item.unitCostEuros, 0) === 0 &&
+          item.title.trim().length >= 2
+      );
+    if (candidates.length === 0) return;
+
+    const abortController = new AbortController();
+    let cancelled = false;
+
+    void Promise.all(
+      candidates.map(async ({ index, item }) => {
+        const searchParams = new URLSearchParams({
+          search: toCatalogueRecoveryQuery(item.title),
+          limit: "8",
+        });
+
+        try {
+          const payload = await fetchApi<{ items: CatalogueItem[] }>(
+            `/api/catalogue?${searchParams.toString()}`,
+            { signal: abortController.signal }
+          );
+          const exactMatch = (payload.items ?? []).find(
+            (suggestion) =>
+              suggestion.designation.trim().toLocaleLowerCase("fr") ===
+              item.title.trim().toLocaleLowerCase("fr")
+          );
+          if (
+            !exactMatch ||
+            typeof exactMatch.unit_price_cents !== "number" ||
+            exactMatch.unit_price_cents <= 0
+          ) {
+            return null;
+          }
+          return {
+            index,
+            item,
+            catalogueItem: exactMatch,
+            unitPriceCents: exactMatch.unit_price_cents,
+          };
+        } catch {
+          return null;
+        }
+      })
+    ).then((recoveries) => {
+      if (cancelled) return;
+      setItems((previous) =>
+        previous.map((item, index) => {
+          const recovery = recoveries.find((entry) => entry?.index === index);
+          if (
+            !recovery ||
+            item.title.trim().toLocaleLowerCase("fr") !==
+              recovery.item.title.trim().toLocaleLowerCase("fr") ||
+            readFiniteNumber(item.unitCostEuros, 0) !== 0
+          ) {
+            return item;
+          }
+          return {
+            ...item,
+            unit: item.unit || recovery.catalogueItem.unit?.trim() || "",
+            unitCostEuros: String(recovery.unitPriceCents / 100),
+          };
+        })
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
+  }, [initialValue]);
 
   const modalTitle = isEditMode ? "Modifier l'ouvrage" : "Nouvel ouvrage";
   const directCostCents = useMemo(
