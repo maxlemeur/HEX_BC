@@ -94,6 +94,8 @@ test.describe("EST-262 - parcours critique (creation, edition, statut, sortie)",
     }
 
     await exportEstimateAsXlsx(page, versionId);
+    await exportEstimateAsXlsx(page, versionId, "dpgf");
+    await exportEstimateAsXlsx(page, versionId, "bdc");
     await openPrintPage(page, versionId);
 
     await expect(page.getByText(projectName).first()).toBeVisible();

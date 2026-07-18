@@ -15,6 +15,7 @@ import {
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { formatEUR } from "@/lib/money";
+import { classifyEstimatePdfStorageFailure } from "@/lib/estimates/pdf-storage-error";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
@@ -661,7 +662,15 @@ async function createSignedUrlOrThrow(input: {
     .createSignedUrl(input.filePath, SIGNED_URL_TTL_SECONDS);
 
   if (error || !data?.signedUrl) {
-    throw internalError("Impossible de creer le lien de telechargement du PDF.", error);
+    const failure = classifyEstimatePdfStorageFailure(
+      error ?? new Error("Missing signed PDF URL."),
+      "sign"
+    );
+    throw internalError(
+      failure.message,
+      { reason: failure.reason },
+      "PDF_GENERATION_FAILED"
+    );
   }
 
   return data.signedUrl;
@@ -1034,7 +1043,12 @@ export async function generateEstimatePdfNow(
       });
 
     if (uploadError) {
-      throw internalError("Impossible de televerser le PDF dans le storage.", uploadError);
+      const failure = classifyEstimatePdfStorageFailure(uploadError, "upload");
+      throw internalError(
+        failure.message,
+        { reason: failure.reason },
+        "PDF_GENERATION_FAILED"
+      );
     }
 
     const sha256Hash = createHash("sha256").update(pdfBuffer).digest("hex").toLowerCase();

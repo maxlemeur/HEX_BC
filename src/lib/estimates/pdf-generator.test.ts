@@ -444,7 +444,9 @@ describe("estimate pdf generator", () => {
 
     const supabase = createSupabasePdfMock({
       uploadError: {
-        message: "storage down",
+        statusCode: "404",
+        error: "Bucket not found",
+        message: "Bucket not found",
       },
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -454,8 +456,11 @@ describe("estimate pdf generator", () => {
         force: true,
       })
     ).rejects.toMatchObject({
-      code: "INTERNAL_ERROR",
-      message: "Impossible de televerser le PDF dans le storage.",
+      code: "PDF_GENERATION_FAILED",
+      message: "Le stockage PDF n'est pas configure pour cet environnement.",
+      details: {
+        reason: "bucket_missing",
+      },
     });
 
     const upsertPayloads = vi
@@ -469,6 +474,7 @@ describe("estimate pdf generator", () => {
         }),
         expect.objectContaining({
           status: "failed",
+          last_error: "Le stockage PDF n'est pas configure pour cet environnement.",
           file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
         }),
       ])

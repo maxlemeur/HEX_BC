@@ -1,3 +1,4 @@
+import { downloadBlob } from "@/lib/browser-download";
 import type { Database } from "@/types/database";
 import {
   isEstimateApprovalDecisionFilter,
@@ -1968,22 +1969,6 @@ function extractFilenameFromContentDisposition(
   const asciiMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
   if (!asciiMatch?.[1]) return null;
   return toStringValue(asciiMatch[1]);
-}
-
-function triggerDownload(blob: Blob, filename: string) {
-  if (typeof document === "undefined") {
-    return;
-  }
-
-  const downloadUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = downloadUrl;
-  link.download = filename;
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(downloadUrl);
 }
 
 function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
@@ -4032,7 +4017,7 @@ export async function downloadEstimateApprovalDecisionJournalCsv(
       response.headers.get("Content-Disposition")
     ) ?? `approval-journal-${versionId}.csv`;
 
-  triggerDownload(blob, filename);
+  downloadBlob(blob, filename);
 
   return {
     filename,
@@ -4511,7 +4496,7 @@ export async function exportEstimate(
       response.headers.get("content-disposition")
     ) ?? `devis-${versionId}.${format}`;
 
-  triggerDownload(blob, filename);
+  downloadBlob(blob, filename);
 
   return {
     filename,

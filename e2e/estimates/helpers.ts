@@ -811,24 +811,62 @@ export async function expectCurrentStatus(
   ).toBeVisible({ timeout: 25_000 });
 }
 
-export async function exportEstimateAsXlsx(page: Page, versionId: string) {
+export async function exportEstimateAsXlsx(
+  page: Page,
+  versionId: string,
+  mode: "standard" | "dpgf" | "bdc" = "standard"
+) {
   const exportRequest = page.waitForResponse((response) => {
-    const url = response.url();
+    const url = new URL(response.url());
     return (
       response.request().method() === "GET" &&
       response.status() === 200 &&
-      url.includes(`/api/estimates/${versionId}/export`) &&
-      url.includes("format=xlsx")
+      url.pathname === `/api/estimates/${versionId}/export` &&
+      url.searchParams.get("format") === "xlsx" &&
+      (url.searchParams.get("mode") ?? "standard") === mode
     );
   });
+  const downloadRequest = page.waitForEvent("download");
 
-  await page.getByRole("button", { name: /^Exporter$/ }).click();
-  await expect(page.getByRole("button", { name: /Excel \(\.xlsx\)/i })).toBeVisible();
-  await page.getByRole("button", { name: /Excel \(\.xlsx\)/i }).click();
+  if (mode === "standard") {
+    await page.getByRole("button", { name: /^Exporter$/ }).click();
+    const excelButton = page.getByRole("button", {
+      name: /Excel \(\.xlsx\)/i,
+    });
+    await expect(excelButton).toBeVisible();
+    await excelButton.click();
+  } else {
+    await page
+      .getByTestId("estimate-page-toolbar-more-actions-button")
+      .click();
+    const exportButton = page.getByTestId(
+      mode === "dpgf"
+        ? "estimate-page-toolbar-export-dpgf-button"
+        : "estimate-page-toolbar-export-bdc-button"
+    );
+    await expect(exportButton).toBeVisible();
+    await exportButton.click();
+  }
 
-  const response = await exportRequest;
+  const [response, download] = await Promise.all([
+    exportRequest,
+    downloadRequest,
+  ]);
   const disposition = response.headers()["content-disposition"] ?? "";
   expect(disposition.toLowerCase()).toContain(".xlsx");
+
+  expect(await download.failure()).toBeNull();
+  expect(download.suggestedFilename()).toMatch(
+    mode === "standard"
+      ? /\.xlsx$/i
+      : mode === "dpgf"
+        ? /-dpgf\.xlsx$/i
+        : /-bdc-v1_1\.xlsx$/i
+  );
+
+  const downloadPath = await download.path();
+  expect(downloadPath).not.toBeNull();
+  expect(fs.statSync(downloadPath as string).size).toBeGreaterThan(0);
 }
 
 export async function ensureEstimatePdfReady(page: Page, versionId: string) {
