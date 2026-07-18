@@ -210,13 +210,30 @@ describe("EstimateEditorRow line cells", () => {
     expect(container.querySelector('[data-cell-id="line-1::h_mo_atelier"]')).toBeNull();
     expect(container.querySelectorAll("select.estimate-select")).toHaveLength(1);
 
-    const kFoInput = within(container).getByRole("spinbutton", {
+    const kFoInput = within(container).getByRole("textbox", {
       name: "Coefficient fourniture K FO pour Ligne test",
     });
     expect(kFoInput).toHaveAttribute(
       "title",
       "K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
     );
+    expect(kFoInput).toHaveClass("estimate-input--compact-number");
+    expect(kFoInput).toHaveAttribute("type", "text");
+    expect(kFoInput).toHaveAttribute("inputmode", "decimal");
+
+    const hMoInput = container.querySelector<HTMLInputElement>(
+      '[data-cell-id="line-1::h_mo"] input'
+    );
+    expect(hMoInput).toHaveClass("estimate-input--compact-number");
+    expect(hMoInput).toHaveAttribute("type", "text");
+    expect(hMoInput).toHaveAttribute("inputmode", "decimal");
+
+    const kMoInput = within(container).getByRole("textbox", {
+      name: "Coefficient main-d'œuvre K MO pour Ligne test",
+    });
+    expect(kMoInput).toHaveClass("estimate-input--compact-number");
+    expect(kMoInput).toHaveAttribute("type", "text");
+    expect(kMoInput).toHaveAttribute("inputmode", "decimal");
   });
 
   it("renders split labor cells when labor split is enabled", () => {
@@ -255,7 +272,7 @@ describe("EstimateEditorRow line cells", () => {
     const roleSelect = within(view.container).getByRole("combobox", {
       name: "Rôle de main-d'œuvre pour Ligne test",
     });
-    const kMoInput = within(view.container).getByRole("spinbutton", {
+    const kMoInput = within(view.container).getByRole("textbox", {
       name: "Coefficient main-d'œuvre K MO pour Ligne test",
     });
 

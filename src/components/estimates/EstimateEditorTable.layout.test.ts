@@ -29,11 +29,11 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 112px 64px 64px 104px 112px 64px 88px 100px 42px",
+        "minmax(260px, 3fr) 64px 54px 88px 112px 56px 56px 104px 112px 56px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(220px, 3fr) 58px 50px 80px 100px 60px 60px 96px 100px 60px 82px 94px 40px",
-      "--estimate-desktop-min-width": "1216px",
-      "--estimate-tablet-min-width": "1100px",
+        "minmax(220px, 3fr) 58px 50px 80px 100px 56px 56px 96px 100px 56px 82px 94px 40px",
+      "--estimate-desktop-min-width": "1192px",
+      "--estimate-tablet-min-width": "1088px",
     });
     expect(style).not.toHaveProperty("--estimate-grid");
   });
@@ -45,10 +45,10 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 64px 88px 100px 42px",
+        "minmax(260px, 3fr) 64px 54px 88px 56px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(220px, 3fr) 58px 50px 80px 60px 82px 94px 40px",
-      "--estimate-desktop-min-width": "760px",
+        "minmax(220px, 3fr) 58px 50px 80px 56px 82px 94px 40px",
+      "--estimate-desktop-min-width": "752px",
       "--estimate-tablet-min-width": "900px",
     });
   });

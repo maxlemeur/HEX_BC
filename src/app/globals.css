@@ -1738,12 +1738,12 @@ body {
 }
 
 .estimate-table {
-  --estimate-grid-desktop: minmax(260px, 3fr) 64px 54px 88px 112px 64px 64px 104px 112px 64px 88px 100px 42px;
-  --estimate-grid-tablet: minmax(220px, 3fr) 58px 50px 80px 100px 60px 60px 96px 100px 60px 82px 94px 40px;
+  --estimate-grid-desktop: minmax(260px, 3fr) 64px 54px 88px 112px 56px 56px 104px 112px 56px 88px 100px 42px;
+  --estimate-grid-tablet: minmax(220px, 3fr) 58px 50px 80px 100px 56px 56px 96px 100px 56px 82px 94px 40px;
   --estimate-grid: var(--estimate-grid-desktop);
-  --estimate-desktop-min-width: 1216px;
+  --estimate-desktop-min-width: 1192px;
   --estimate-min-width: var(--estimate-desktop-min-width);
-  --estimate-tablet-min-width: 1100px;
+  --estimate-tablet-min-width: 1088px;
   --density-row-h: 30px;
   --density-cell-px: 6px;
   --density-cell-py: 2px;
@@ -2283,6 +2283,10 @@ body {
 }
 
 .estimate-input[type="number"] {
+  text-align: right;
+}
+
+.estimate-input--compact-number {
   text-align: right;
 }
 

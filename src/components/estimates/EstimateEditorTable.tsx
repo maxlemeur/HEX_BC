@@ -727,16 +727,16 @@ export function resolveEstimateEditorGridStyle(
   };
 
   addOptionalColumn("supply_type", 112, 100);
-  addOptionalColumn("k_fo", 64, 60);
+  addOptionalColumn("k_fo", 56, 56);
 
-  desktopColumns.push("64px");
-  tabletColumns.push("60px");
-  desktopMinWidth += 64;
-  tabletMinWidth += 60;
+  desktopColumns.push("56px");
+  tabletColumns.push("56px");
+  desktopMinWidth += 56;
+  tabletMinWidth += 56;
 
   addOptionalColumn("h_mo_majoration", 104, 96);
   addOptionalColumn("labor_role", 112, 100);
-  addOptionalColumn("k_mo", 64, 60);
+  addOptionalColumn("k_mo", 56, 56);
 
   desktopColumns.push("88px", "100px", "42px");
   tabletColumns.push("82px", "94px", "40px");

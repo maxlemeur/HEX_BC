@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { EditableCell } from "@/components/estimates/EditableCell";
+import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
 import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
 import {
@@ -768,33 +769,30 @@ export function LineRow({
             "estimate-cell estimate-col--fo",
           )}
         >
-          <input
-            className="estimate-input"
+          <DecimalDraftInput
+            className="estimate-input estimate-input--compact-number"
             ref={kFoEditorProps.ref}
             tabIndex={kFoEditorProps.tabIndex}
-            type="number"
-            step="0.01"
-            min={0}
             value={kFoValue}
             aria-label={`Coefficient fourniture K FO pour ${item.title || "sans titre"}`}
             title="K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
             onFocus={kFoEditorProps.onFocus}
             onKeyDown={kFoEditorProps.onKeyDown}
-            onChange={(event) =>
+            onValueChange={(value) =>
               onPatchItem(
                 item.id,
-                { k_fo: parseNumberInput(event.target.value) },
+                { k_fo: value },
                 { persist: false },
               )
             }
-            onBlur={(event) => {
-              kFoEditorProps.onBlur(event);
+            onBlur={kFoEditorProps.onBlur}
+            onValueCommit={(value) =>
               onPatchItem(
                 item.id,
-                { k_fo: parseNumberInput(event.target.value) },
+                { k_fo: value },
                 { persist: true },
-              );
-            }}
+              )
+            }
             placeholder="1.00"
             disabled={isReadOnly}
           />

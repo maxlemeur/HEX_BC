@@ -4,6 +4,7 @@ import {
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
 import { type SpreadsheetCellProps, type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
+import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
   type ColumnVisibilitySet,
   type EstimateItem,
@@ -14,7 +15,6 @@ import {
   formatLaborRoleOptionLabel,
   getMissingLaborRateMessage,
   parseMajorationPercentToCoefficient,
-  parseNumberInput,
   toCellClassName,
   toCellKeyDownHandler,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -96,31 +96,28 @@ export function StandardMoCells({
           }`
         )}
       >
-        <input
-          className="estimate-input"
+        <DecimalDraftInput
+          className="estimate-input estimate-input--compact-number"
           ref={hMoEditorProps.ref}
           tabIndex={hMoEditorProps.tabIndex}
-          type="number"
-          step="0.1"
-          min={0}
           value={hMoValue}
           onFocus={hMoEditorProps.onFocus}
           onKeyDown={hMoEditorProps.onKeyDown}
-          onChange={(event) =>
+          onValueChange={(value) =>
             onPatchItem(
               item.id,
-              { h_mo: parseNumberInput(event.target.value) },
+              { h_mo: value },
               { persist: false }
             )
           }
-          onBlur={(event) => {
-            hMoEditorProps.onBlur(event);
+          onBlur={hMoEditorProps.onBlur}
+          onValueCommit={(value) =>
             onPatchItem(
               item.id,
-              { h_mo: parseNumberInput(event.target.value) },
+              { h_mo: value },
               { persist: true }
-            );
-          }}
+            )
+          }
           placeholder="0.0"
           disabled={isReadOnly}
         />
@@ -234,13 +231,10 @@ export function StandardMoCells({
             "estimate-cell estimate-col--mo"
           )}
         >
-          <input
-            className="estimate-input"
+          <DecimalDraftInput
+            className="estimate-input estimate-input--compact-number"
             ref={kMoEditorProps.ref}
             tabIndex={kMoEditorProps.tabIndex}
-            type="number"
-            step="0.01"
-            min={0}
             value={kMoValue}
             aria-label={`Coefficient main-d'œuvre K MO pour ${item.title || "sans titre"}`}
             aria-invalid={missingLaborRateMessage ? true : undefined}
@@ -250,21 +244,21 @@ export function StandardMoCells({
             }
             onFocus={kMoEditorProps.onFocus}
             onKeyDown={kMoEditorProps.onKeyDown}
-            onChange={(event) =>
+            onValueChange={(value) =>
               onPatchItem(
                 item.id,
-                { k_mo: parseNumberInput(event.target.value) },
+                { k_mo: value },
                 { persist: false }
               )
             }
-            onBlur={(event) => {
-              kMoEditorProps.onBlur(event);
+            onBlur={kMoEditorProps.onBlur}
+            onValueCommit={(value) =>
               onPatchItem(
                 item.id,
-                { k_mo: parseNumberInput(event.target.value) },
+                { k_mo: value },
                 { persist: true }
-              );
-            }}
+              )
+            }
             placeholder="1.00"
             disabled={isReadOnly}
           />
