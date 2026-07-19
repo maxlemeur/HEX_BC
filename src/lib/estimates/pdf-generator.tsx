@@ -42,6 +42,10 @@ import {
   type EstimateTermsTemplate,
 } from "@/lib/estimates/pdf-terms";
 import {
+  buildEstimatePdfFilename,
+  formatEstimateReference,
+} from "@/lib/estimates/reference";
+import {
   formatCurrency,
   formatEUR,
   normalizeEstimateCurrency,
@@ -93,7 +97,13 @@ type LaborRoleRate = Pick<
 
 type EmbeddedProject = Pick<
   EstimateProjectRow,
-  "id" | "tenant_id" | "user_id" | "name" | "reference" | "client_name"
+  | "id"
+  | "tenant_id"
+  | "user_id"
+  | "name"
+  | "reference"
+  | "estimate_reference"
+  | "client_name"
 >;
 
 type VersionWithProject = Pick<
@@ -746,7 +756,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)",
+      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1012,8 +1022,16 @@ function toFilePath(input: {
   tenantId: string;
   estimateId: string;
   versionId: string;
+  estimateReference: string | null;
+  versionNumber: number;
 }) {
-  return `${input.tenantId}/${input.estimateId}/${input.versionId}.pdf`;
+  const filename = buildEstimatePdfFilename({
+    baseReference: input.estimateReference,
+    versionNumber: input.versionNumber,
+    fallback: input.versionId,
+  });
+
+  return `${input.tenantId}/${input.estimateId}/${filename}`;
 }
 
 function PdfPageChrome() {
@@ -1336,6 +1354,10 @@ export function buildEstimatePdfDocument(input: {
   totalTtcCents: number;
 }) {
   const currency = normalizeEstimateCurrency(input.version.currency) ?? "EUR";
+  const formattedEstimateReference = formatEstimateReference(
+    input.project.estimate_reference,
+    input.version.version_number,
+  );
   const conditionsText = input.version.exclusions?.trim() ?? "";
   const conditionsOnNewPage =
     conditionsText.length > 0 &&
@@ -1392,8 +1414,11 @@ export function buildEstimatePdfDocument(input: {
             <Text style={businessPdfStyles.fieldValue}>
               {input.project.name}
             </Text>
+            {formattedEstimateReference ? (
+              <Text>Reference devis : {formattedEstimateReference}</Text>
+            ) : null}
             {input.project.reference ? (
-              <Text>Reference : {input.project.reference}</Text>
+              <Text>Reference projet : {input.project.reference}</Text>
             ) : null}
           </View>
           <View style={businessPdfStyles.infoCard}>
@@ -1515,6 +1540,8 @@ export async function markEstimatePdfProcessing(
         tenantId: context.tenantId,
         estimateId: access.project.id,
         versionId,
+        estimateReference: access.project.estimate_reference,
+        versionNumber: access.version.version_number,
       }),
       sha256_hash: null,
       file_size_bytes: null,
@@ -1542,6 +1569,8 @@ export async function markEstimatePdfFailed(
         tenantId: context.tenantId,
         estimateId: access.project.id,
         versionId,
+        estimateReference: access.project.estimate_reference,
+        versionNumber: access.version.version_number,
       }),
     },
   });
@@ -1564,6 +1593,8 @@ export async function generateEstimatePdfNow(
     tenantId: context.tenantId,
     estimateId: access.project.id,
     versionId,
+    estimateReference: access.project.estimate_reference,
+    versionNumber: access.version.version_number,
   });
 
   if (
@@ -1930,6 +1961,8 @@ export async function getEstimatePdfStatus(
     tenantId: context.tenantId,
     estimateId: access.project.id,
     versionId,
+    estimateReference: access.project.estimate_reference,
+    versionNumber: access.version.version_number,
   });
   if (row.file_path !== expectedFilePath) {
     return {

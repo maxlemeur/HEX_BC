@@ -81,15 +81,18 @@ export function ProjectStep({
 
       <div>
         <label className="form-label" htmlFor="wiz-reference">
-          Reference
+          Reference projet
         </label>
         <input
           id="wiz-reference"
           className="form-input"
-          placeholder="Ref. projet"
+          placeholder="Reference projet (optionnelle)"
           value={data.reference}
           onChange={(event) => updateField("reference", event.target.value)}
         />
+        <p className="mt-1 text-xs text-muted-foreground">
+          La reference du devis sera generee automatiquement.
+        </p>
       </div>
 
       <div className="sm:col-span-2">

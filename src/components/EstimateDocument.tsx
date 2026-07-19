@@ -16,6 +16,7 @@ import {
   parseEstimateTermsClauses,
   type EstimateTermsSnapshot,
 } from "@/lib/estimates/pdf-terms";
+import { formatEstimateReference } from "@/lib/estimates/reference";
 import {
   formatCurrency,
   normalizeEstimateCurrency,
@@ -26,6 +27,7 @@ export type EstimateDocumentProps = {
   projectName: string;
   projectClient?: string | null;
   projectReference?: string | null;
+  estimateReference?: string | null;
   portalUrl?: string | null;
   versionNumber: number;
   dateDevis: string;
@@ -170,6 +172,7 @@ export function EstimateDocument({
   projectName,
   projectClient,
   projectReference,
+  estimateReference,
   portalUrl,
   versionNumber,
   dateDevis,
@@ -196,6 +199,10 @@ export function EstimateDocument({
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
 
+  const formattedEstimateReference = formatEstimateReference(
+    estimateReference,
+    versionNumber
+  );
   const {
     rows,
     numberingById,
@@ -301,9 +308,14 @@ export function EstimateDocument({
             <p className="mt-1 text-[15px] font-semibold leading-snug text-secondary-foreground">
               {projectName || "Projet"}
             </p>
+            {formattedEstimateReference ? (
+              <p className="mt-2 text-sm font-semibold text-secondary-foreground">
+                Reference devis : {formattedEstimateReference}
+              </p>
+            ) : null}
             {projectReference?.trim() ? (
               <p className="mt-2 text-sm text-muted-foreground">
-                Reference : {projectReference}
+                Reference projet : {projectReference}
               </p>
             ) : null}
           </section>

@@ -4,6 +4,7 @@ import { EstimateDocument } from "@/components/EstimateDocument";
 import { PortalActions } from "@/components/portal/PortalActions";
 import { PortalHeader } from "@/components/portal/PortalHeader";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { formatEstimateReference } from "@/lib/estimates/reference";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -15,8 +16,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "client_name">
-      | Pick<EstimateProject, "name" | "reference" | "client_name">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">[]
       | null;
   };
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -74,7 +75,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     supabase
       .from("estimate_versions")
       .select(
-        "project_id, tenant_id, version_number, status, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
+        "project_id, tenant_id, version_number, status, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )"
       )
       .eq("id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
@@ -197,12 +198,16 @@ export default async function PortalPage({ params }: PortalPageProps) {
     : computedTotals.roundedTtcCents;
 
   const totalTtcFormatted = formatCurrency(totalTtcCents, selectedCurrency);
+  const estimateReference = formatEstimateReference(
+    project?.estimate_reference,
+    version.version_number
+  );
 
   return (
     <div className="space-y-6">
       <PortalHeader
         projectName={project?.name ?? "Devis"}
-        projectReference={project?.reference ?? null}
+        projectReference={estimateReference}
         versionNumber={version.version_number}
         totalTtcCents={totalTtcCents}
         currency={selectedCurrency}
@@ -215,6 +220,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
           projectName={project?.name ?? "Devis"}
           projectClient={project?.client_name}
           projectReference={project?.reference}
+          estimateReference={project?.estimate_reference}
           versionNumber={version.version_number}
           dateDevis={version.date_devis}
           validiteJours={version.validite_jours}
@@ -235,7 +241,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
         token={token}
         status={effectiveStatus}
         totalTtcFormatted={totalTtcFormatted}
-        projectReference={project?.reference}
+        projectReference={estimateReference}
       />
     </div>
   );

@@ -131,6 +131,7 @@ function createSupabasePdfMock(input?: {
           user_id: USER_ID,
           name: "Projet test",
           reference: "REF-001",
+          estimate_reference: "HEX_D26001MM",
           client_name: "Client test",
         },
       },
@@ -322,16 +323,18 @@ describe("estimate pdf generator", () => {
       triggeredBy: "manual",
     });
 
-    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`;
+    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`;
     const expectedHash = createHash("sha256")
       .update(buffer)
       .digest("hex")
       .toLowerCase();
 
     const renderedDocument = vi.mocked(renderToBuffer).mock.calls[0]?.[0];
-    expect(JSON.stringify(renderedDocument)).toContain(
+    const renderedDocumentJson = JSON.stringify(renderedDocument);
+    expect(renderedDocumentJson).toContain(
       "Peinture et percements structurels hors perimetre."
     );
+    expect(renderedDocumentJson).toContain("HEX_D26001MM");
 
     expect(supabase.__mocks.upload).toHaveBeenCalledWith(
       expectedPath,
@@ -563,7 +566,7 @@ describe("estimate pdf generator", () => {
     const supabase = createSupabasePdfMock({
       existingDocument: {
         status: "ready",
-        file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+        file_path: `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`,
         generated_at: "2026-02-21T00:00:00.000Z",
         terms_snapshot: storedSnapshot,
       },
@@ -607,7 +610,7 @@ describe("estimate pdf generator", () => {
     const supabase = createSupabasePdfMock({
       existingDocument: {
         status: "ready",
-        file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+        file_path: `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`,
         sha256_hash: "a".repeat(64),
         file_size_bytes: 42,
         generated_at: "2026-02-21T00:00:00.000Z",
@@ -637,7 +640,7 @@ describe("estimate pdf generator", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const result = await generateEstimatePdfNow(VERSION_ID);
-    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`;
+    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`;
 
     expect(supabase.__mocks.upload).toHaveBeenCalledWith(
       expectedPath,
@@ -757,7 +760,7 @@ describe("estimate pdf generator", () => {
         expect.objectContaining({
           status: "failed",
           last_error: "Le stockage PDF n'est pas configure pour cet environnement.",
-          file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+          file_path: `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`,
         }),
       ])
     );

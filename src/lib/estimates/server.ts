@@ -214,6 +214,7 @@ type EmbeddedProjectAccess = Pick<
   | "name"
   | "reference"
   | "client_name"
+  | "estimate_reference"
   | "notes"
   | "is_archived"
 >;
@@ -3639,7 +3640,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -4603,7 +4604,7 @@ export async function listEstimateVersionVariants(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", tenantId)
@@ -6898,7 +6899,7 @@ export async function getEstimateVersionDetails(versionId: string) {
   const { data: versionData, error: versionError } = await supabase
     .from("estimate_versions")
     .select(
-      "*, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "*, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", tenantId)

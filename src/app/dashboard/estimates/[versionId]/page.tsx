@@ -46,8 +46,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "client_name">
-      | Pick<EstimateProject, "name" | "reference" | "client_name">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">[]
       | null;
   };
 type EstimateItem =
@@ -440,6 +440,7 @@ export default async function EstimateDetailPage({
             projectName={project?.name ?? "Projet"}
             projectClient={project?.client_name}
             projectReference={project?.reference}
+            estimateReference={project?.estimate_reference}
             versionNumber={version.version_number}
             dateDevis={version.date_devis}
             validiteJours={version.validite_jours}

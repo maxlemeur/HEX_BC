@@ -10,6 +10,7 @@ import {
   notFound,
   unauthorized,
 } from "@/lib/estimates/errors";
+import { buildEstimatePdfFilename } from "@/lib/estimates/reference";
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
 import {
   patchEstimateStatus,
@@ -34,8 +35,8 @@ type EstimateVersionForEmail = Pick<
   | "updated_at"
 > & {
   estimate_projects:
-    | Pick<EstimateProjectRow, "name">
-    | Pick<EstimateProjectRow, "name">[]
+    | Pick<EstimateProjectRow, "name" | "estimate_reference">
+    | Pick<EstimateProjectRow, "name" | "estimate_reference">[]
     | null;
 };
 
@@ -47,27 +48,11 @@ type SendEstimateEmailInput = {
 
 const ESTIMATE_DOCUMENTS_BUCKET = "estimate-documents";
 const DEFAULT_FALLBACK_PROJECT_NAME = "Votre projet";
-const DEFAULT_FALLBACK_FILENAME = "devis";
 
 function resolveProject(value: EstimateVersionForEmail["estimate_projects"]) {
   if (!value) return null;
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
-}
-
-function sanitizeFilename(value: string) {
-  return value
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/-+/g, "-")
-    .replace(/^[_-]+|[_-]+$/g, "");
-}
-
-function buildAttachmentFilename(projectName: string, versionNumber: number) {
-  const baseName = sanitizeFilename(projectName) || DEFAULT_FALLBACK_FILENAME;
-  return `${baseName}_V${versionNumber}.pdf`;
 }
 
 function resolvePortalUrl(versionId: string, requestUrl: string) {
@@ -107,7 +92,7 @@ async function loadVersionForEmail(versionId: string): Promise<EstimateVersionFo
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, version_number, total_ttc_cents, currency, status, updated_at, estimate_projects(name)"
+      "id, tenant_id, version_number, total_ttc_cents, currency, status, updated_at, estimate_projects(name, estimate_reference)"
     )
     .eq("id", versionId)
     .single();
@@ -191,9 +176,8 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
   });
   const pdfBuffer = await loadPdfBuffer(generatedPdf.file_path);
 
-  const projectName =
-    resolveProject(version.estimate_projects)?.name?.trim() ||
-    DEFAULT_FALLBACK_PROJECT_NAME;
+  const project = resolveProject(version.estimate_projects);
+  const projectName = project?.name?.trim() || DEFAULT_FALLBACK_PROJECT_NAME;
   const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const totalTtcFormatted = formatCurrency(version.total_ttc_cents ?? 0, currency);
   const portalUrl = resolvePortalUrl(input.versionId, input.requestUrl);
@@ -214,7 +198,11 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
     }),
     attachments: [
       {
-        filename: buildAttachmentFilename(projectName, version.version_number),
+        filename: buildEstimatePdfFilename({
+          baseReference: project?.estimate_reference,
+          versionNumber: version.version_number,
+          fallback: projectName,
+        }),
         content: pdfBuffer,
       },
     ],

@@ -57,7 +57,10 @@ function createSupabaseMock(status: "draft" | "sent" | "accepted" | "archived") 
                   currency: "EUR",
                   status,
                   updated_at: UPDATED_AT,
-                  estimate_projects: { name: "Projet test" },
+                  estimate_projects: {
+                    name: "Projet test",
+                    estimate_reference: "HEX_D26001MM",
+                  },
                 },
                 error: null,
               }),
@@ -173,5 +176,14 @@ describe("sendEstimateEmail workflow security", () => {
       triggeredBy: "send",
     });
     expect(resendMocks.send).toHaveBeenCalledTimes(1);
+    expect(resendMocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            filename: "HEX_D26001MM_V2.pdf",
+          }),
+        ],
+      })
+    );
   });
 });

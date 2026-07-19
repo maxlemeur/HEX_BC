@@ -933,6 +933,7 @@ export type Database = {
           user_id: string;
           name: string;
           reference: string | null;
+          estimate_reference: string | null;
           client_name: string | null;
           notes: string | null;
           is_archived: boolean;
@@ -945,6 +946,7 @@ export type Database = {
           user_id: string;
           name: string;
           reference?: string | null;
+          estimate_reference?: string | null;
           client_name?: string | null;
           notes?: string | null;
           is_archived?: boolean;
@@ -957,6 +959,7 @@ export type Database = {
           user_id?: string;
           name?: string;
           reference?: string | null;
+          estimate_reference?: string | null;
           client_name?: string | null;
           notes?: string | null;
           is_archived?: boolean;

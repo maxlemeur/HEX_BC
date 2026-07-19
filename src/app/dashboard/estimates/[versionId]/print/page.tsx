@@ -15,6 +15,7 @@ import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import {
   resolveEstimatePdfPreviewLayout,
 } from "@/lib/estimates/pdf-generator";
+import { formatEstimateReference } from "@/lib/estimates/reference";
 import {
   describeEstimatePdfLayout,
   parseEstimatePdfLayoutSearchParams,
@@ -30,8 +31,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "client_name">
-      | Pick<EstimateProject, "name" | "reference" | "client_name">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">[]
       | null;
   };
 type EstimateItem =
@@ -109,7 +110,7 @@ export default async function PrintEstimatePage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -247,13 +248,19 @@ export default async function PrintEstimatePage({
     }
   }
 
-  const rawTitle = [
-    project?.name ?? "devis",
-    `V${version.version_number}`,
-    formatPrintDate(version.date_devis),
-  ]
-    .filter(Boolean)
-    .join("_");
+  const officialReference = formatEstimateReference(
+    project?.estimate_reference,
+    version.version_number
+  );
+  const rawTitle =
+    officialReference ??
+    [
+      project?.name ?? "devis",
+      `V${version.version_number}`,
+      formatPrintDate(version.date_devis),
+    ]
+      .filter(Boolean)
+      .join("_");
   const printTitle = sanitizeFilename(rawTitle);
   const estimatePortalUrl = resolveEstimatePortalUrl(versionId);
 
@@ -334,6 +341,7 @@ export default async function PrintEstimatePage({
           projectName={project?.name ?? "Projet"}
           projectClient={project?.client_name}
           projectReference={project?.reference}
+          estimateReference={project?.estimate_reference}
           portalUrl={estimatePortalUrl}
           versionNumber={version.version_number}
           dateDevis={version.date_devis}
