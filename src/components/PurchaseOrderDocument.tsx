@@ -1,9 +1,12 @@
 "use client";
 
-import Image from "next/image";
-
-import { COMPANY_INFO } from "@/lib/company-info";
 import { formatEUR } from "@/lib/money";
+import {
+  BusinessDocumentBrandHeader,
+  BusinessDocumentFooter,
+  BusinessDocumentFrame,
+} from "@/components/documents/BusinessDocumentPrimitives";
+import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 
 // Types
 export type SupplierData = {
@@ -120,56 +123,6 @@ function hasDeliveryDetails(site: DeliverySiteData): boolean {
   );
 }
 
-function isEmailLike(value: string | null | undefined): boolean {
-  return Boolean(value?.trim().match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/));
-}
-
-function nameFromEmail(email: string): string {
-  const localPart = email.split("@")[0]?.trim() ?? "";
-  const parts = localPart.split(/[._-]+/).filter(Boolean);
-
-  if (parts.length === 0) return "Utilisateur";
-
-  return parts
-    .map((part, index) => {
-      const lower = part.toLowerCase();
-      return index === 0
-        ? lower.charAt(0).toUpperCase() + lower.slice(1)
-        : lower.toUpperCase();
-    })
-    .join(" ");
-}
-
-function normalizeIssuerDisplay({
-  issuerName,
-  issuerRole,
-  issuerEmail,
-}: {
-  issuerName: string;
-  issuerRole: string;
-  issuerEmail?: string;
-}) {
-  const rawName = issuerName.trim();
-  const rawRole = issuerRole.trim();
-  const rawEmail = issuerEmail?.trim() ?? "";
-  const nameIsEmail = isEmailLike(rawName);
-  const displayEmail = rawEmail || (nameIsEmail ? rawName : "");
-  const displayName = nameIsEmail ? nameFromEmail(rawName) : rawName || "Utilisateur";
-  const displayRole =
-    rawRole &&
-    !isEmailLike(rawRole) &&
-    rawRole !== rawName &&
-    rawRole !== displayEmail
-      ? rawRole
-      : "";
-
-  return {
-    displayEmail,
-    displayName,
-    displayRole,
-  };
-}
-
 function resolveItemDesignation(item: OrderItemData): string {
   const designation = item.designation?.trim();
   if (designation) return designation;
@@ -222,43 +175,18 @@ export function PurchaseOrderDocument({
     deliverySite &&
     !shouldHideDeliveryDetails(deliverySite) &&
     hasDeliveryDetails(deliverySite);
-  const issuerDisplay = normalizeIssuerDisplay({
+  const issuerDisplay = normalizeDocumentIssuerDisplay({
     issuerName,
     issuerRole,
     issuerEmail,
   });
 
   return (
-    <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:shadow-none">
-      {/* Sidebar accent bar */}
-      <div className="sidebar-accent print-color-adjust" />
-
+    <BusinessDocumentFrame>
       {/* Header */}
       <div className="mb-6">
         {/* Ligne 1: Logo | espace | Établissement */}
-        <div className="flex items-start justify-between">
-          <Image
-            src="/logo-hydro-express.jpg"
-            alt="Hydro eXpress"
-            width={250}
-            height={100}
-            className="h-[100px] w-auto object-contain print:h-[80px]"
-            priority
-          />
-          <div className="max-w-[220px] rounded-lg border border-border bg-surface-subtle px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Etablissement principal :
-            </p>
-            <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
-            <p className="text-slate-600">
-              {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
-            </p>
-            <div className="mt-1 text-slate-600">
-              <p>{COMPANY_INFO.phone.landline}</p>
-              <p>{COMPANY_INFO.phone.mobile}</p>
-            </div>
-          </div>
-        </div>
+        <BusinessDocumentBrandHeader />
 
         {/* Ligne 2: Émis par | Bon de Commande (centré) */}
         <div className="mt-5 grid grid-cols-[240px_minmax(0,1fr)_190px] items-start gap-x-5 print:mt-3 print:grid-cols-[220px_minmax(0,1fr)_160px] print:gap-x-3">
@@ -688,12 +616,7 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Footer */}
-      <div className="purchase-order-footer mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
-        <p className="mb-1">Siège social : 17 rue Dupin 75006 Paris</p>
-        <p>
-          SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}
-        </p>
-      </div>
-    </div>
+      <BusinessDocumentFooter />
+    </BusinessDocumentFrame>
   );
 }

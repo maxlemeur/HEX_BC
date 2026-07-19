@@ -7,6 +7,11 @@ export const COMPANY_INFO = {
     postalCode: "78120",
     city: "Rambouillet",
   },
+  registeredOffice: {
+    street: "17 rue Dupin",
+    postalCode: "75006",
+    city: "Paris",
+  },
   phone: {
     landline: "01 30 46 29 98",
     mobile: "06 62 19 54 53",

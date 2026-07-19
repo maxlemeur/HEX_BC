@@ -18,6 +18,7 @@ import {
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
   fetchEstimatePdfStatus,
+  fetchEstimatePdfLayoutConfiguration,
   insertAssemblyIntoVersion,
   importEstimateSections,
   importLinkedDpgfSource,
@@ -1602,6 +1603,66 @@ describe("estimate client assemblies wrappers", () => {
       generatedAt: "2026-02-21T10:00:00.000Z",
       fileSizeBytes: 1024,
       lastError: undefined,
+    });
+  });
+
+  it("sends normalized PDF layout options in the generation request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: { status: "processing" } }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const layout = {
+      preset: "fo_mo" as const,
+      detailLevel: 3 as const,
+      priceMode: "fo_mo_and_total" as const,
+      density: "compact" as const,
+      showNumbering: true,
+      showSectionSubtotals: true,
+      conditionsPlacement: "new_page" as const,
+      includeTerms: false,
+    };
+
+    await requestEstimatePdfGeneration(VERSION_ID, { force: true, layout });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/pdf?force=1`,
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout }),
+      })
+    );
+  });
+
+  it("loads the PDF layout capabilities", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            lineCount: 12,
+            sectionCountsByLevel: { 1: 2, 2: 3, 3: 0, 4: 0 },
+            hasConditions: true,
+            terms: {
+              available: true,
+              policy: "default",
+              title: "CGV",
+              version: 2,
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchEstimatePdfLayoutConfiguration(VERSION_ID)).resolves.toMatchObject({
+      lineCount: 12,
+      hasConditions: true,
+      terms: { available: true, policy: "default", version: 2 },
     });
   });
 

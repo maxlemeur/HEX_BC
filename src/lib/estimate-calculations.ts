@@ -508,7 +508,7 @@ export type ComputeAllSectionTotalsInput = {
   sectionIds?: Iterable<string>;
 };
 
-type SectionLineSplit = {
+export type EstimateLineSaleSplit = {
   foSaleLineCents: number;
   moSaleLineCents: number;
   moAtelierSaleLineCents: number;
@@ -678,7 +678,7 @@ function convertSectionSubtotalToTotals(input: {
   };
 }
 
-function computeSectionLineSplit(
+export function computeEstimateLineSaleSplit(
   item: EstimateItemRecord,
   {
     marginMultiplier,
@@ -695,7 +695,7 @@ function computeSectionLineSplit(
     laborRateAtelierById: Map<string, number>;
     laborRateChantierById: Map<string, number>;
   }
-): SectionLineSplit {
+): EstimateLineSaleSplit {
   const quantity = Math.max(toSafeNumber(item.quantity, 0), 0);
   const unitPrice = Math.max(toSafeNumber(item.unit_price_ht_cents, 0), 0);
   const kFo = Math.max(toSafeNumber(item.k_fo, 1), 0);
@@ -870,9 +870,9 @@ export function computeAllSectionTotals({
   const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
   const safeDiscount = Math.max(toSafeNumber(discountCents, 0), 0);
 
-  const lineSplitById = new Map<string, SectionLineSplit>();
+  const lineSplitById = new Map<string, EstimateLineSaleSplit>();
   const estimateSaleSubtotalCents = allLines.reduce((sum, item) => {
-    const split = computeSectionLineSplit(item, {
+    const split = computeEstimateLineSaleSplit(item, {
       marginMultiplier: safeMargin,
       taxRateBp: safeTaxRate,
       laborRateById,

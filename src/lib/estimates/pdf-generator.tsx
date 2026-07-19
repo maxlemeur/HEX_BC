@@ -12,9 +12,40 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
+import {
+  prepareEstimateDocumentData,
+  summarizeEstimateDocumentStructure,
+  type EstimateDocumentPreparedData,
+} from "@/components/estimate-document/prepare-estimate-document-data";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
-import { formatEUR } from "@/lib/money";
+import { BUSINESS_DOCUMENT_THEME } from "@/lib/documents/document-theme";
+import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
+import { ESTIMATE_SERVICE_LIMITS_TITLE } from "@/lib/estimates/document-copy";
+import {
+  applyEstimateTermsPolicy,
+  DEFAULT_ESTIMATE_PDF_LAYOUT,
+  normalizeEstimatePdfLayoutOptions,
+  type EstimatePdfLayoutConfiguration,
+  type EstimatePdfLayoutOptions,
+} from "@/lib/estimates/pdf-layout";
+import {
+  canUseEstimateTermsSnapshot,
+  createDevelopmentEstimateTermsTemplate,
+  ESTIMATE_DRAFT_TERMS_NOTICE,
+  parseEstimateTermsClauses,
+  splitEstimateTermsClauses,
+  createEstimateTermsSnapshot,
+  parseEstimateTermsSnapshot,
+  toEstimatePdfTermsConfiguration,
+  type EstimateTermsSnapshot,
+  type EstimateTermsTemplate,
+} from "@/lib/estimates/pdf-terms";
+import {
+  formatCurrency,
+  formatEUR,
+  normalizeEstimateCurrency,
+} from "@/lib/money";
 import { classifyEstimatePdfStorageFailure } from "@/lib/estimates/pdf-storage-error";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
@@ -40,10 +71,21 @@ type TenantMembershipRow = Pick<
   "tenant_id" | "role" | "is_default" | "created_at"
 >;
 
-type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
-type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
+type EstimateProjectRow =
+  Database["public"]["Tables"]["estimate_projects"]["Row"];
+type EstimateVersionRow =
+  Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
-type EstimateDocumentRow = Database["public"]["Tables"]["estimate_documents"]["Row"];
+type EstimateDocumentRow =
+  Database["public"]["Tables"]["estimate_documents"]["Row"];
+type EstimateTermsTemplateRow =
+  Database["public"]["Tables"]["estimate_terms_templates"]["Row"];
+type SupabaseErrorLike = {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -75,6 +117,8 @@ type VersionWithProject = Pick<
   | "total_ht_cents"
   | "total_tax_cents"
   | "total_ttc_cents"
+  | "currency"
+  | "status"
 > & {
   estimate_projects: EmbeddedProject | EmbeddedProject[] | null;
 };
@@ -93,6 +137,7 @@ type VersionAccess = {
 type PdfGenerateOptions = {
   force?: boolean;
   triggeredBy?: "manual" | "send";
+  layout?: EstimatePdfLayoutOptions;
 };
 
 type PdfReadyPayload = {
@@ -125,184 +170,342 @@ type PdfStatusPayload =
       file_size_bytes?: number;
     };
 
-type FlattenedItem = {
-  item: EstimateItemRow;
-  depth: number;
+type PdfIssuer = {
+  name: string;
+  role: string | null;
+  phone: string | null;
+  email: string | null;
 };
 
 const ESTIMATE_DOCUMENTS_BUCKET = "estimate-documents";
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
-const styles = StyleSheet.create({
+const businessPdfStyles = StyleSheet.create({
   page: {
-    paddingTop: 24,
-    paddingBottom: 44,
-    paddingHorizontal: 24,
-    fontSize: 10,
-    color: "#0f172a",
+    paddingTop: BUSINESS_DOCUMENT_THEME.page.topPaddingPt,
+    paddingBottom: BUSINESS_DOCUMENT_THEME.page.bottomPaddingPt,
+    paddingLeft: BUSINESS_DOCUMENT_THEME.page.sidePaddingPt + 8,
+    paddingRight: BUSINESS_DOCUMENT_THEME.page.sidePaddingPt,
+    fontSize: 9.5,
+    lineHeight: 1.35,
+    color: BUSINESS_DOCUMENT_THEME.colors.ink,
     fontFamily: "Helvetica",
   },
-  headerRow: {
+  accentBlue: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 9,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
+  },
+  accentOrange: {
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    width: 9,
+    height: 92,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.brandOrange,
+  },
+  brandRow: {
     display: "flex",
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
+    alignItems: "flex-start",
+    height: 62,
+    marginBottom: 16,
   },
-  logo: {
-    width: 124,
-    height: 52,
+  brandLogo: {
+    width: 142,
+    height: 58,
     objectFit: "contain",
   },
-  companyBlock: {
+  establishmentCard: {
+    width: 172,
+    border: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surface,
     textAlign: "right",
-    fontSize: 9,
-    color: "#475569",
+    fontSize: 8.5,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
   },
-  title: {
-    fontSize: 18,
+  establishmentTitle: {
+    fontSize: 7.5,
     fontWeight: 700,
-    marginBottom: 4,
+    textTransform: "uppercase",
+    marginBottom: 3,
   },
-  projectName: {
-    fontSize: 12,
+  titleGrid: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 18,
+  },
+  issuer: {
+    width: "31%",
+    fontSize: 8.5,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
+  },
+  issuerLabel: {
+    fontSize: 7.5,
     fontWeight: 700,
-    color: "#1e3a5f",
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  issuerName: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
     marginBottom: 2,
   },
-  projectSub: {
-    fontSize: 10,
-    color: "#334155",
-    marginBottom: 10,
+  documentTitleBlock: {
+    width: "38%",
+    alignItems: "center",
+    minHeight: 74,
+    paddingTop: 6,
   },
-  metaCard: {
-    border: "1px solid #cbd5e1",
+  documentTitle: {
+    fontSize: 23,
+    fontWeight: 700,
+    lineHeight: 1,
+    textTransform: "uppercase",
+    marginBottom: 12,
+  },
+  versionBadge: {
+    border: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
     borderRadius: 6,
-    padding: 8,
-    marginBottom: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surface,
+    alignItems: "center",
+    minWidth: 86,
+  },
+  versionBadgeText: {
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
+    fontSize: 8,
+    lineHeight: 1.2,
+  },
+  versionAccent: {
+    color: BUSINESS_DOCUMENT_THEME.colors.brandOrange,
+    fontWeight: 700,
+  },
+  infoGrid: {
     display: "flex",
     flexDirection: "row",
-    justifyContent: "space-between",
+    columnGap: 18,
+    marginBottom: 18,
   },
-  metaColumn: {
-    width: "48%",
-    display: "flex",
-    flexDirection: "column",
-    rowGap: 4,
+  infoCard: {
+    width: "50%",
+    minHeight: 92,
+    border: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
+    borderRadius: 9,
+    padding: 12,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surface,
   },
-  metaRow: {
-    display: "flex",
-    flexDirection: "row",
-    justifyContent: "space-between",
+  infoCardTitle: {
+    textAlign: "center",
+    fontSize: 7.5,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    color: BUSINESS_DOCUMENT_THEME.colors.brandOrange,
+    marginBottom: 8,
   },
-  exclusionsCard: {
-    border: "1px solid #cbd5e1",
-    borderRadius: 6,
-    padding: 8,
-    marginBottom: 10,
-    backgroundColor: "#f8fafc",
+  clientName: {
+    fontSize: 14,
+    fontWeight: 700,
+    marginBottom: 8,
   },
-  exclusionsTitle: {
+  fieldLabel: {
+    fontSize: 7,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
+    marginBottom: 2,
+  },
+  fieldValue: {
     fontSize: 9,
     fontWeight: 700,
-    color: "#1e3a5f",
-    marginBottom: 4,
+    marginBottom: 5,
   },
-  exclusionsText: {
-    fontSize: 9,
-    color: "#334155",
+  infoRow: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
   },
   table: {
-    border: "1px solid #cbd5e1",
-    borderRadius: 6,
+    border: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
+    borderRadius: 8,
     overflow: "hidden",
   },
-  tableHead: {
-    backgroundColor: "#1e3a5f",
-    color: "#ffffff",
+  tableHeader: {
     display: "flex",
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    fontSize: 9,
+    paddingVertical: 7,
+    paddingHorizontal: 7,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
+    color: BUSINESS_DOCUMENT_THEME.colors.white,
+    fontSize: 7.5,
     fontWeight: 700,
+    textTransform: "uppercase",
   },
-  row: {
+  tableRow: {
     display: "flex",
     flexDirection: "row",
     alignItems: "center",
-    borderTop: "1px solid #e2e8f0",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
+    borderTop: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
   },
-  sectionRow: {
-    backgroundColor: "#f8fafc",
+  sectionLevel1: {
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
+    color: BUSINESS_DOCUMENT_THEME.colors.white,
+  },
+  sectionLevel2: {
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surfaceStrong,
+    color: BUSINESS_DOCUMENT_THEME.colors.ink,
+  },
+  sectionLevel3: {
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.white,
+    color: BUSINESS_DOCUMENT_THEME.colors.ink,
+    borderLeft: `4px solid ${BUSINESS_DOCUMENT_THEME.colors.brandOrange}`,
+  },
+  sectionLevel4: {
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surface,
+    color: BUSINESS_DOCUMENT_THEME.colors.ink,
+  },
+  sectionText: {
+    fontSize: 8,
     fontWeight: 700,
-    color: "#334155",
+    textTransform: "uppercase",
   },
-  colDesignation: {
-    width: "62%",
-    paddingRight: 4,
+  lineText: {
+    fontSize: 8.5,
   },
-  colQty: {
-    width: "10%",
+  numericText: {
     textAlign: "right",
-    paddingRight: 4,
   },
-  colUnit: {
-    width: "10%",
+  centeredText: {
     textAlign: "center",
-    paddingRight: 4,
-  },
-  colPrice: {
-    width: "18%",
-    textAlign: "right",
   },
   totalsCard: {
-    marginTop: 10,
+    marginTop: 12,
     marginLeft: "auto",
-    width: 220,
-    border: "1px solid #cbd5e1",
-    borderRadius: 6,
+    width: 222,
+    border: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
+    borderRadius: 8,
     overflow: "hidden",
   },
-  totalsMainRow: {
-    backgroundColor: "#1e3a5f",
-    color: "#ffffff",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  totalsMain: {
     display: "flex",
     flexDirection: "row",
     justifyContent: "space-between",
+    paddingVertical: 8,
+    paddingHorizontal: 11,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
+    color: BUSINESS_DOCUMENT_THEME.colors.white,
     fontWeight: 700,
   },
-  totalsRow: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+  totalsSecondary: {
     display: "flex",
     flexDirection: "row",
     justifyContent: "space-between",
-    borderTop: "1px solid #e2e8f0",
-    color: "#334155",
+    paddingVertical: 6,
+    paddingHorizontal: 11,
+    borderTop: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
+    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surface,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
+  },
+  conditionsCard: {
+    marginTop: 14,
+    borderLeft: `5px solid ${BUSINESS_DOCUMENT_THEME.colors.brandOrange}`,
+    borderRadius: 7,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#fff7ed",
+  },
+  conditionsTitle: {
+    fontSize: 8,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    color: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
+    marginBottom: 5,
+  },
+  conditionsText: {
+    fontSize: 8.5,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
+  },
+  continuationTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    paddingBottom: 8,
+    marginBottom: 16,
+    borderBottom: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
+  },
+  termsNotice: {
+    marginBottom: 12,
+    border: "1px solid #f59e0b",
+    borderRadius: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    backgroundColor: "#fffbeb",
+    color: "#78350f",
+    fontSize: 8,
+    fontWeight: 700,
+    lineHeight: 1.4,
+  },
+  termsColumns: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  termsColumn: {
+    width: "48%",
+  },
+  termsClause: {
+    marginBottom: 8,
+  },
+  termsClauseHeading: {
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    color: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
+    marginBottom: 2.5,
+  },
+  termsClauseText: {
+    fontSize: 8.6,
+    lineHeight: 1.4,
+    color: BUSINESS_DOCUMENT_THEME.colors.ink,
+  },
+  termsMeta: {
+    marginTop: 10,
+    fontSize: 7.5,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
   },
   footer: {
     position: "absolute",
-    left: 24,
-    right: 24,
-    bottom: 16,
-    borderTop: "1px solid #cbd5e1",
+    left: BUSINESS_DOCUMENT_THEME.page.sidePaddingPt + 8,
+    right: BUSINESS_DOCUMENT_THEME.page.sidePaddingPt,
+    bottom: 28,
+    borderTop: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
     paddingTop: 6,
-    fontSize: 8,
-    color: "#64748b",
+    fontSize: 7.5,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
     textAlign: "center",
+    textTransform: "uppercase",
+  },
+  pageNumberWrapper: {
+    position: "absolute",
+    right: BUSINESS_DOCUMENT_THEME.page.sidePaddingPt,
+    top: 827,
   },
   pageNumber: {
-    position: "absolute",
-    right: 24,
-    bottom: 4,
-    fontSize: 8,
-    color: "#94a3b8",
+    fontSize: 7,
+    color: BUSINESS_DOCUMENT_THEME.colors.muted,
   },
 });
 
@@ -498,40 +701,6 @@ function formatPercent(bp: number) {
   }).format(bp / 100);
 }
 
-function getParentKey(value: string | null) {
-  return value ?? "root";
-}
-
-function buildRows(items: EstimateItemRow[]): FlattenedItem[] {
-  const grouped = new Map<string, EstimateItemRow[]>();
-
-  for (const item of items) {
-    const key = getParentKey(item.parent_id);
-    const list = grouped.get(key) ?? [];
-    list.push(item);
-    grouped.set(key, list);
-  }
-
-  for (const list of grouped.values()) {
-    list.sort((left, right) => left.position - right.position);
-  }
-
-  const rows: FlattenedItem[] = [];
-  const walk = (parentId: string | null, depth: number) => {
-    const list = grouped.get(getParentKey(parentId)) ?? [];
-
-    for (const item of list) {
-      rows.push({ item, depth });
-      if (item.item_type === "section") {
-        walk(item.id, depth + 1);
-      }
-    }
-  };
-
-  walk(null, 0);
-  return rows;
-}
-
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const supabase = await createSupabaseServerClient();
   const {
@@ -551,7 +720,10 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
     .limit(1);
 
   if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
+    throw mapSupabaseError(
+      membershipError,
+      "Impossible de charger le tenant courant.",
+    );
   }
 
   const membership = memberships?.[0] as TenantMembershipRow | undefined;
@@ -569,12 +741,12 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
 
 async function getVersionAccessOrThrow(
   context: AuthenticatedContext,
-  versionId: string
+  versionId: string,
 ): Promise<VersionAccess> {
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)"
+      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)",
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -610,7 +782,10 @@ async function loadItems(input: {
     .order("position", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les lignes du chiffrage.");
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les lignes du chiffrage.",
+    );
   }
 
   return (data ?? []) as EstimateItemRow[];
@@ -642,9 +817,110 @@ async function loadLaborRatesByRoleId(input: {
   return rates;
 }
 
+async function loadEstimateTermsTemplate(input: {
+  supabase: Supabase;
+  tenantId: string;
+}): Promise<EstimateTermsTemplate | null> {
+  const { data, error } = await input.supabase
+    .from("estimate_terms_templates")
+    .select(
+      "id, tenant_id, title, body, version, policy, is_active, legal_reviewed_at",
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingEstimateTermsSchema(error)) {
+      return createDevelopmentEstimateTermsTemplate(input.tenantId);
+    }
+
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les conditions generales du devis.",
+    );
+  }
+  if (!data) {
+    return createDevelopmentEstimateTermsTemplate(input.tenantId);
+  }
+
+  const row = data as EstimateTermsTemplateRow;
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    title: row.title.trim(),
+    body: row.body.trim(),
+    version: row.version,
+    policy: row.policy,
+    legalReviewedAt: row.legal_reviewed_at,
+  };
+}
+
+function normalizedSupabaseError(error: SupabaseErrorLike) {
+  return [error.message, error.details, error.hint]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+}
+
+function isMissingEstimateTermsSchema(error: SupabaseErrorLike) {
+  const code = error.code?.toUpperCase() ?? "";
+  const message = normalizedSupabaseError(error);
+
+  return (
+    message.includes("estimate_terms_templates") &&
+    (code === "42P01" ||
+      code === "PGRST205" ||
+      message.includes("schema cache"))
+  );
+}
+
+function isMissingEstimatePdfMetadataColumns(error: SupabaseErrorLike) {
+  const code = error.code?.toUpperCase() ?? "";
+  const message = normalizedSupabaseError(error);
+  const mentionsNewColumn =
+    message.includes("layout_options") || message.includes("terms_snapshot");
+
+  return (
+    message.includes("estimate_documents") &&
+    mentionsNewColumn &&
+    (code === "42703" ||
+      code === "PGRST204" ||
+      message.includes("schema cache"))
+  );
+}
+
+async function loadPdfIssuer(input: {
+  supabase: Supabase;
+  userId: string;
+}): Promise<PdfIssuer> {
+  const { data } = await input.supabase
+    .from("profiles")
+    .select("full_name, job_title, phone, work_email")
+    .eq("id", input.userId)
+    .maybeSingle();
+  const issuerDisplay = normalizeDocumentIssuerDisplay({
+    issuerName: data?.full_name,
+    issuerRole: data?.job_title,
+    issuerEmail: data?.work_email,
+    fallbackName: COMPANY_INFO.name,
+  });
+
+  return {
+    name: issuerDisplay.displayName,
+    role: issuerDisplay.displayRole || null,
+    phone: data?.phone?.trim() || null,
+    email: issuerDisplay.displayEmail || null,
+  };
+}
+
 async function loadLogoDataUri() {
   try {
-    const logoPath = path.join(process.cwd(), "public", "logo-hydro-express.jpg");
+    const logoPath = path.join(
+      process.cwd(),
+      "public",
+      "logo-hydro-express.jpg",
+    );
     const bytes = await readFile(logoPath);
     return `data:image/jpeg;base64,${bytes.toString("base64")}`;
   } catch {
@@ -664,12 +940,12 @@ async function createSignedUrlOrThrow(input: {
   if (error || !data?.signedUrl) {
     const failure = classifyEstimatePdfStorageFailure(
       error ?? new Error("Missing signed PDF URL."),
-      "sign"
+      "sign",
     );
     throw internalError(
       failure.message,
       { reason: failure.reason },
-      "PDF_GENERATION_FAILED"
+      "PDF_GENERATION_FAILED",
     );
   }
 
@@ -679,14 +955,38 @@ async function createSignedUrlOrThrow(input: {
 async function upsertDocumentRow(input: {
   supabase: Supabase;
   payload: Database["public"]["Tables"]["estimate_documents"]["Insert"];
+  allowLegacyPdfMetadataFallback?: boolean;
 }) {
   const { error } = await input.supabase
     .from("estimate_documents")
     .upsert(input.payload, { onConflict: "tenant_id,version_id" });
 
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le statut du document PDF.");
+  if (!error) return;
+
+  if (
+    input.allowLegacyPdfMetadataFallback &&
+    isMissingEstimatePdfMetadataColumns(error)
+  ) {
+    const legacyPayload = { ...input.payload };
+    delete legacyPayload.layout_options;
+    delete legacyPayload.terms_snapshot;
+
+    const { error: legacyError } = await input.supabase
+      .from("estimate_documents")
+      .upsert(legacyPayload, { onConflict: "tenant_id,version_id" });
+
+    if (!legacyError) return;
+
+    throw mapSupabaseError(
+      legacyError,
+      "Impossible de mettre a jour le statut du document PDF.",
+    );
   }
+
+  throw mapSupabaseError(
+    error,
+    "Impossible de mettre a jour le statut du document PDF.",
+  );
 }
 
 async function getDocumentRow(input: {
@@ -708,138 +1008,498 @@ async function getDocumentRow(input: {
   return (data ?? null) as EstimateDocumentRow | null;
 }
 
-function toFilePath(input: { tenantId: string; estimateId: string; versionId: string }) {
+function toFilePath(input: {
+  tenantId: string;
+  estimateId: string;
+  versionId: string;
+}) {
   return `${input.tenantId}/${input.estimateId}/${input.versionId}.pdf`;
 }
 
-function buildPdfDocument(input: {
+function PdfPageChrome() {
+  const registeredOfficeLabel = `${COMPANY_INFO.registeredOffice.street} ${COMPANY_INFO.registeredOffice.postalCode} ${COMPANY_INFO.registeredOffice.city}`;
+  return (
+    <>
+      <View style={businessPdfStyles.accentBlue} fixed />
+      <View style={businessPdfStyles.accentOrange} fixed />
+      <View style={businessPdfStyles.footer} fixed>
+        <Text>Siège social : {registeredOfficeLabel}</Text>
+        <Text>
+          SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}
+        </Text>
+      </View>
+      <View style={businessPdfStyles.pageNumberWrapper} fixed>
+        <Text
+          style={businessPdfStyles.pageNumber}
+          render={({ pageNumber, totalPages }) =>
+            `Page ${pageNumber} / ${totalPages}`
+          }
+        />
+      </View>
+    </>
+  );
+}
+
+function PdfBrandHeader({
+  logoDataUri,
+}: Readonly<{ logoDataUri: string | null }>) {
+  return (
+    <View style={businessPdfStyles.brandRow} wrap={false}>
+      {logoDataUri ? (
+        // eslint-disable-next-line jsx-a11y/alt-text
+        <Image style={businessPdfStyles.brandLogo} src={logoDataUri} />
+      ) : (
+        <View />
+      )}
+      <View style={businessPdfStyles.establishmentCard}>
+        <Text style={businessPdfStyles.establishmentTitle}>
+          Etablissement principal :
+        </Text>
+        <Text>{COMPANY_INFO.address.street}</Text>
+        <Text>
+          {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
+        </Text>
+        <Text>{COMPANY_INFO.phone.landline}</Text>
+        <Text>{COMPANY_INFO.phone.mobile}</Text>
+      </View>
+    </View>
+  );
+}
+
+function getPdfColumnWidths(priceMode: EstimatePdfLayoutOptions["priceMode"]) {
+  if (priceMode === "fo_mo_and_total") {
+    return {
+      designation: "41%",
+      quantity: "8%",
+      unit: "7%",
+      fo: "14%",
+      mo: "14%",
+      total: "16%",
+    };
+  }
+  if (priceMode === "unit_and_total") {
+    return {
+      designation: "50%",
+      quantity: "9%",
+      unit: "8%",
+      unitPrice: "15%",
+      total: "18%",
+    };
+  }
+  return { designation: "64%", quantity: "10%", unit: "8%", total: "18%" };
+}
+
+function PdfEstimateTable({
+  prepared,
+  currency,
+}: Readonly<{
+  prepared: EstimateDocumentPreparedData;
+  currency: ReturnType<typeof normalizeEstimateCurrency>;
+}>) {
+  const resolvedCurrency = currency ?? "EUR";
+  const { layout } = prepared;
+  const widths = getPdfColumnWidths(layout.priceMode);
+  const rowPadding =
+    layout.density === "compact"
+      ? 3.5
+      : layout.density === "comfortable"
+        ? 7
+        : 5;
+
+  return (
+    <View style={businessPdfStyles.table}>
+      <View style={businessPdfStyles.tableHeader} fixed>
+        <Text style={{ width: widths.designation }}>Designation</Text>
+        <Text
+          style={[businessPdfStyles.centeredText, { width: widths.quantity }]}
+        >
+          Qte
+        </Text>
+        <Text style={[businessPdfStyles.centeredText, { width: widths.unit }]}>
+          U
+        </Text>
+        {layout.priceMode === "unit_and_total" ? (
+          <Text
+            style={[businessPdfStyles.numericText, { width: widths.unitPrice }]}
+          >
+            P.U. HT
+          </Text>
+        ) : null}
+        {layout.priceMode === "fo_mo_and_total" ? (
+          <>
+            <Text style={[businessPdfStyles.numericText, { width: widths.fo }]}>
+              FO HT
+            </Text>
+            <Text style={[businessPdfStyles.numericText, { width: widths.mo }]}>
+              MO HT
+            </Text>
+          </>
+        ) : null}
+        <Text style={[businessPdfStyles.numericText, { width: widths.total }]}>
+          Total HT
+        </Text>
+      </View>
+
+      {prepared.rows.map(({ item, depth }) => {
+        const title = item.title?.trim() || "Sans titre";
+        const titlePrefix =
+          layout.showNumbering && prepared.numberingById[item.id]
+            ? `${prepared.numberingById[item.id]}  `
+            : "";
+        const designationStyle = {
+          width: widths.designation,
+          paddingLeft: Math.min(depth, 4) * 9,
+        };
+
+        if (item.item_type === "section") {
+          const totals = prepared.sectionTotalsById[item.id];
+          const subtotal = layout.showSectionSubtotals ? totals : null;
+          const levelStyle =
+            depth === 0
+              ? businessPdfStyles.sectionLevel1
+              : depth === 1
+                ? businessPdfStyles.sectionLevel2
+                : depth === 2
+                  ? businessPdfStyles.sectionLevel3
+                  : businessPdfStyles.sectionLevel4;
+
+          return (
+            <View
+              key={item.id}
+              style={[
+                businessPdfStyles.tableRow,
+                levelStyle,
+                { paddingVertical: rowPadding },
+              ]}
+              wrap={false}
+            >
+              <Text style={[businessPdfStyles.sectionText, designationStyle]}>
+                {titlePrefix}
+                {title}
+              </Text>
+              <Text
+                style={[
+                  businessPdfStyles.centeredText,
+                  { width: widths.quantity },
+                ]}
+              >
+                {""}
+              </Text>
+              <Text
+                style={[businessPdfStyles.centeredText, { width: widths.unit }]}
+              >
+                {""}
+              </Text>
+              {layout.priceMode === "unit_and_total" ? (
+                <Text
+                  style={[
+                    businessPdfStyles.numericText,
+                    { width: widths.unitPrice },
+                  ]}
+                >
+                  {""}
+                </Text>
+              ) : null}
+              {layout.priceMode === "fo_mo_and_total" ? (
+                <>
+                  <Text
+                    style={[
+                      businessPdfStyles.numericText,
+                      { width: widths.fo },
+                    ]}
+                  >
+                    {subtotal
+                      ? formatCurrency(subtotal.foTotalCents, resolvedCurrency)
+                      : ""}
+                  </Text>
+                  <Text
+                    style={[
+                      businessPdfStyles.numericText,
+                      { width: widths.mo },
+                    ]}
+                  >
+                    {subtotal
+                      ? formatCurrency(subtotal.moTotalCents, resolvedCurrency)
+                      : ""}
+                  </Text>
+                </>
+              ) : null}
+              <Text
+                style={[
+                  businessPdfStyles.numericText,
+                  { width: widths.total, fontWeight: 700 },
+                ]}
+              >
+                {subtotal
+                  ? formatCurrency(subtotal.totalHtCents, resolvedCurrency)
+                  : ""}
+              </Text>
+            </View>
+          );
+        }
+
+        const split = prepared.lineSplitsById[item.id] ?? {
+          foTotalCents: item.line_total_ht_cents ?? 0,
+          moTotalCents: 0,
+          totalHtCents: item.line_total_ht_cents ?? 0,
+        };
+
+        return (
+          <View
+            key={item.id}
+            style={[
+              businessPdfStyles.tableRow,
+              { paddingVertical: rowPadding },
+            ]}
+            wrap={false}
+          >
+            <Text style={[businessPdfStyles.lineText, designationStyle]}>
+              {title}
+            </Text>
+            <Text
+              style={[
+                businessPdfStyles.centeredText,
+                { width: widths.quantity },
+              ]}
+            >
+              {formatQuantity(item.quantity)}
+            </Text>
+            <Text
+              style={[businessPdfStyles.centeredText, { width: widths.unit }]}
+            >
+              {item.description?.trim() || "-"}
+            </Text>
+            {layout.priceMode === "unit_and_total" ? (
+              <Text
+                style={[
+                  businessPdfStyles.numericText,
+                  { width: widths.unitPrice },
+                ]}
+              >
+                {formatCurrency(item.pu_ht_cents ?? 0, resolvedCurrency)}
+              </Text>
+            ) : null}
+            {layout.priceMode === "fo_mo_and_total" ? (
+              <>
+                <Text
+                  style={[businessPdfStyles.numericText, { width: widths.fo }]}
+                >
+                  {formatCurrency(split.foTotalCents, resolvedCurrency)}
+                </Text>
+                <Text
+                  style={[businessPdfStyles.numericText, { width: widths.mo }]}
+                >
+                  {formatCurrency(split.moTotalCents, resolvedCurrency)}
+                </Text>
+              </>
+            ) : null}
+            <Text
+              style={[
+                businessPdfStyles.numericText,
+                { width: widths.total, fontWeight: 700 },
+              ]}
+            >
+              {formatCurrency(split.totalHtCents, resolvedCurrency)}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function PdfConditions({
+  text,
+  showTitle = true,
+}: Readonly<{ text: string; showTitle?: boolean }>) {
+  return (
+    <View style={businessPdfStyles.conditionsCard} wrap={false}>
+      {showTitle ? (
+        <Text style={businessPdfStyles.conditionsTitle}>
+          {ESTIMATE_SERVICE_LIMITS_TITLE}
+        </Text>
+      ) : null}
+      <Text style={businessPdfStyles.conditionsText}>{text}</Text>
+    </View>
+  );
+}
+
+export function buildEstimatePdfDocument(input: {
   logoDataUri: string | null;
   project: EmbeddedProject;
   version: VersionWithProject;
-  rows: FlattenedItem[];
+  issuer: PdfIssuer;
+  prepared: EstimateDocumentPreparedData;
+  terms: EstimateTermsSnapshot | null;
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
 }) {
-  const addressLabel = `${COMPANY_INFO.address.street}, ${COMPANY_INFO.address.postalCode} ${COMPANY_INFO.address.city}`;
+  const currency = normalizeEstimateCurrency(input.version.currency) ?? "EUR";
+  const conditionsText = input.version.exclusions?.trim() ?? "";
+  const conditionsOnNewPage =
+    conditionsText.length > 0 &&
+    input.prepared.layout.conditionsPlacement === "new_page";
+  const termsColumns = input.terms
+    ? splitEstimateTermsClauses(parseEstimateTermsClauses(input.terms.body))
+    : [[], []];
+  const termsReviewLabel = input.terms
+    ? input.terms.isDraft || !input.terms.legalReviewedAt
+      ? `Maquette CGV - version ${input.terms.version} - à valider, non contractuelle.`
+      : `Version des conditions : ${input.terms.version} - revue juridique du ${formatDate(
+          input.terms.legalReviewedAt,
+        )}`
+    : null;
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        <View style={styles.headerRow}>
-          {input.logoDataUri ? (
-            // eslint-disable-next-line jsx-a11y/alt-text
-            <Image style={styles.logo} src={input.logoDataUri} />
-          ) : (
-            <View />
-          )}
-          <View style={styles.companyBlock}>
-            <Text>{COMPANY_INFO.name}</Text>
-            <Text>{addressLabel}</Text>
-            <Text>{COMPANY_INFO.phone.landline}</Text>
-            <Text>SIRET {COMPANY_INFO.legal.siret}</Text>
+      <Page size="A4" style={businessPdfStyles.page} wrap>
+        <PdfPageChrome />
+        <PdfBrandHeader logoDataUri={input.logoDataUri} />
+
+        <View style={businessPdfStyles.titleGrid}>
+          <View style={businessPdfStyles.issuer}>
+            <Text style={businessPdfStyles.issuerLabel}>Emis par</Text>
+            <Text style={businessPdfStyles.issuerName}>
+              {input.issuer.name}
+            </Text>
+            {input.issuer.role ? <Text>{input.issuer.role}</Text> : null}
+            {input.issuer.phone ? <Text>{input.issuer.phone}</Text> : null}
+            {input.issuer.email ? <Text>{input.issuer.email}</Text> : null}
+            <Text>Le {formatDate(input.version.date_devis)}</Text>
           </View>
+          <View style={businessPdfStyles.documentTitleBlock}>
+            <Text style={businessPdfStyles.documentTitle}>Devis</Text>
+            <View style={businessPdfStyles.versionBadge} wrap={false}>
+              <Text style={businessPdfStyles.versionBadgeText}>
+                Version :{" "}
+                <Text style={businessPdfStyles.versionAccent}>
+                  V{input.version.version_number}
+                </Text>
+              </Text>
+            </View>
+          </View>
+          <View style={{ width: "31%" }} />
         </View>
 
-        <Text style={styles.title}>Devis V{input.version.version_number}</Text>
-        <Text style={styles.projectName}>{input.project.name}</Text>
-        <Text style={styles.projectSub}>
-          Client: {input.project.client_name ?? "-"}  |  Ref: {input.project.reference ?? "-"}
-        </Text>
-
-        <View style={styles.metaCard}>
-          <View style={styles.metaColumn}>
-            <View style={styles.metaRow}>
-              <Text>Date devis</Text>
-              <Text>{formatDate(input.version.date_devis)}</Text>
+        <View style={businessPdfStyles.infoGrid}>
+          <View style={businessPdfStyles.infoCard}>
+            <Text style={businessPdfStyles.infoCardTitle}>Client</Text>
+            <Text style={businessPdfStyles.clientName}>
+              {input.project.client_name?.trim() || "Client a renseigner"}
+            </Text>
+            <Text style={businessPdfStyles.fieldLabel}>Affaire</Text>
+            <Text style={businessPdfStyles.fieldValue}>
+              {input.project.name}
+            </Text>
+            {input.project.reference ? (
+              <Text>Reference : {input.project.reference}</Text>
+            ) : null}
+          </View>
+          <View style={businessPdfStyles.infoCard}>
+            <Text style={businessPdfStyles.infoCardTitle}>
+              Informations devis
+            </Text>
+            <View style={businessPdfStyles.infoRow}>
+              <Text>Date du devis</Text>
+              <Text style={{ fontWeight: 700 }}>
+                {formatDate(input.version.date_devis)}
+              </Text>
             </View>
-            <View style={styles.metaRow}>
+            <View style={businessPdfStyles.infoRow}>
               <Text>Validite</Text>
-              <Text>{input.version.validite_jours} jours</Text>
+              <Text style={{ fontWeight: 700 }}>
+                {input.version.validite_jours} jours
+              </Text>
             </View>
-          </View>
-          <View style={styles.metaColumn}>
-            <View style={styles.metaRow}>
+            <View style={businessPdfStyles.infoRow}>
               <Text>TVA</Text>
-              <Text>{formatPercent(input.version.tax_rate_bp)} %</Text>
+              <Text style={{ fontWeight: 700 }}>
+                {formatPercent(input.version.tax_rate_bp)} %
+              </Text>
             </View>
           </View>
         </View>
 
-        {input.version.exclusions?.trim() ? (
-          <View style={styles.exclusionsCard}>
-            <Text style={styles.exclusionsTitle}>Exclusions</Text>
-            <Text style={styles.exclusionsText}>{input.version.exclusions.trim()}</Text>
-          </View>
-        ) : null}
+        <PdfEstimateTable prepared={input.prepared} currency={currency} />
 
-        <View style={styles.table}>
-          <View style={styles.tableHead}>
-            <Text style={styles.colDesignation}>Designation</Text>
-            <Text style={styles.colQty}>Qte</Text>
-            <Text style={styles.colUnit}>U</Text>
-            <Text style={styles.colPrice}>Total HT</Text>
-          </View>
-
-          {input.rows.map(({ item, depth }) => {
-            const isSection = item.item_type === "section";
-            const title = (item.title ?? "").trim() || "Sans titre";
-            const indentedTitle = `${"  ".repeat(depth)}${title}`;
-
-            if (isSection) {
-              return (
-                <View key={item.id} style={[styles.row, styles.sectionRow]}>
-                  <Text style={styles.colDesignation}>{indentedTitle}</Text>
-                  <Text style={styles.colQty}>-</Text>
-                  <Text style={styles.colUnit}>-</Text>
-                  <Text style={styles.colPrice}>-</Text>
-                </View>
-              );
-            }
-
-            return (
-              <View key={item.id} style={styles.row}>
-                <Text style={styles.colDesignation}>{indentedTitle}</Text>
-                <Text style={styles.colQty}>{formatQuantity(item.quantity)}</Text>
-                <Text style={styles.colUnit}>{item.description?.trim() || "-"}</Text>
-                <Text style={styles.colPrice}>{formatEUR(item.line_total_ht_cents ?? 0)}</Text>
-              </View>
-            );
-          })}
-        </View>
-
-        <View style={styles.totalsCard}>
-          <View style={styles.totalsMainRow}>
+        <View style={businessPdfStyles.totalsCard} wrap={false}>
+          <View style={businessPdfStyles.totalsMain}>
             <Text>Total HT</Text>
-            <Text>{formatEUR(input.totalHtCents)}</Text>
+            <Text>{formatCurrency(input.totalHtCents, currency)}</Text>
           </View>
-          <View style={styles.totalsRow}>
-            <Text>TVA</Text>
-            <Text>{formatEUR(input.totalTaxCents)}</Text>
-          </View>
-          <View style={styles.totalsRow}>
+          {input.version.tax_rate_bp > 0 ? (
+            <View style={businessPdfStyles.totalsSecondary}>
+              <Text>TVA</Text>
+              <Text>{formatCurrency(input.totalTaxCents, currency)}</Text>
+            </View>
+          ) : null}
+          <View style={businessPdfStyles.totalsSecondary}>
             <Text>Total TTC</Text>
-            <Text>{formatEUR(input.totalTtcCents)}</Text>
+            <Text>{formatCurrency(input.totalTtcCents, currency)}</Text>
           </View>
         </View>
 
-        <View style={styles.footer} fixed>
-          <Text>
-            Siege social: {addressLabel} - TVA {COMPANY_INFO.legal.vat}
-          </Text>
-        </View>
-
-        <Text
-          style={styles.pageNumber}
-          render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`}
-          fixed
-        />
+        {conditionsText && !conditionsOnNewPage ? (
+          <PdfConditions text={conditionsText} />
+        ) : null}
       </Page>
+
+      {conditionsOnNewPage ? (
+        <Page size="A4" style={businessPdfStyles.page} wrap>
+          <PdfPageChrome />
+          <PdfBrandHeader logoDataUri={input.logoDataUri} />
+          <Text style={businessPdfStyles.continuationTitle}>
+            {ESTIMATE_SERVICE_LIMITS_TITLE}
+          </Text>
+          <PdfConditions text={conditionsText} showTitle={false} />
+        </Page>
+      ) : null}
+
+      {input.prepared.layout.includeTerms && input.terms ? (
+        <Page size="A4" style={businessPdfStyles.page} wrap>
+          <PdfPageChrome />
+          <PdfBrandHeader logoDataUri={input.logoDataUri} />
+          <Text style={businessPdfStyles.continuationTitle}>
+            {input.terms.title}
+          </Text>
+          {input.terms.isDraft ? (
+            <Text style={businessPdfStyles.termsNotice}>
+              {ESTIMATE_DRAFT_TERMS_NOTICE}
+            </Text>
+          ) : null}
+          <View style={businessPdfStyles.termsColumns}>
+            {termsColumns.map((column, columnIndex) => (
+              <View key={columnIndex} style={businessPdfStyles.termsColumn}>
+                {column.map((clause, clauseIndex) => (
+                  <View
+                    key={[columnIndex, clauseIndex, clause.heading].join("-")}
+                    style={businessPdfStyles.termsClause}
+                    wrap={false}
+                  >
+                    {clause.heading ? (
+                      <Text style={businessPdfStyles.termsClauseHeading}>
+                        {clause.heading}
+                      </Text>
+                    ) : null}
+                    <Text style={businessPdfStyles.termsClauseText}>
+                      {clause.text}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+          <Text style={businessPdfStyles.termsMeta}>{termsReviewLabel}</Text>
+        </Page>
+      ) : null}
     </Document>
   );
 }
 
-export async function markEstimatePdfProcessing(versionId: string): Promise<void> {
+export async function markEstimatePdfProcessing(
+  versionId: string,
+): Promise<void> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, versionId);
 
@@ -865,7 +1525,7 @@ export async function markEstimatePdfProcessing(versionId: string): Promise<void
 
 export async function markEstimatePdfFailed(
   versionId: string,
-  message: string
+  message: string,
 ): Promise<void> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, versionId);
@@ -889,7 +1549,7 @@ export async function markEstimatePdfFailed(
 
 export async function generateEstimatePdfNow(
   versionId: string,
-  options: PdfGenerateOptions = {}
+  options: PdfGenerateOptions = {},
 ): Promise<PdfReadyPayload> {
   const context = await getAuthenticatedContext();
   const storageClient = createOptionalServiceRoleClient() ?? context.supabase;
@@ -943,12 +1603,45 @@ export async function generateEstimatePdfNow(
   });
 
   try {
-    const items = await loadItems({
-      supabase: context.supabase,
-      tenantId: context.tenantId,
-      versionId,
-    });
-    const rows = buildRows(items);
+    const [items, termsTemplate, issuer, logoDataUri] = await Promise.all([
+      loadItems({
+        supabase: context.supabase,
+        tenantId: context.tenantId,
+        versionId,
+      }),
+      loadEstimateTermsTemplate({
+        supabase: context.supabase,
+        tenantId: context.tenantId,
+      }),
+      loadPdfIssuer({
+        supabase: context.supabase,
+        userId: context.userId,
+      }),
+      loadLogoDataUri(),
+    ]);
+    const termsConfiguration = toEstimatePdfTermsConfiguration(termsTemplate);
+    const storedLayout = normalizeEstimatePdfLayoutOptions(
+      existing?.layout_options ?? DEFAULT_ESTIMATE_PDF_LAYOUT,
+    );
+    const requestedLayout = normalizeEstimatePdfLayoutOptions(
+      options.layout ?? storedLayout,
+    );
+    const effectiveLayout = applyEstimateTermsPolicy(
+      requestedLayout,
+      termsConfiguration,
+    );
+    const parsedStoredTermsSnapshot = parseEstimateTermsSnapshot(
+      existing?.terms_snapshot,
+    );
+    const storedTermsSnapshot =
+      parsedStoredTermsSnapshot &&
+      canUseEstimateTermsSnapshot(parsedStoredTermsSnapshot)
+        ? parsedStoredTermsSnapshot
+        : null;
+    const termsSnapshot = effectiveLayout.includeTerms
+      ? (storedTermsSnapshot ??
+        (termsTemplate ? createEstimateTermsSnapshot(termsTemplate) : null))
+      : storedTermsSnapshot;
     const lineItems = items.filter((item) => item.item_type === "line");
 
     const laborRoleIds = Array.from(
@@ -959,8 +1652,8 @@ export async function generateEstimatePdfNow(
             item.labor_role_atelier_id,
             item.labor_role_chantier_id,
           ])
-          .filter((value): value is string => Boolean(value))
-      )
+          .filter((value): value is string => Boolean(value)),
+      ),
     );
     const laborRatesByRoleId = await loadLaborRatesByRoleId({
       supabase: context.supabase,
@@ -995,7 +1688,9 @@ export async function generateEstimatePdfNow(
     });
     const fallbackDiscountCents =
       baseTotals.saleSubtotalCents > 0
-        ? Math.round((baseTotals.saleSubtotalCents * access.version.discount_bp) / 10000)
+        ? Math.round(
+            (baseTotals.saleSubtotalCents * access.version.discount_bp) / 10000,
+          )
         : 0;
 
     const computedTotals = computeEstimateTotals({
@@ -1011,18 +1706,31 @@ export async function generateEstimatePdfNow(
       roundingStepCents: access.version.rounding_step_cents,
     });
 
-    const totalHtCents = access.version.total_ht_cents ?? computedTotals.saleTotalCents;
+    const totalHtCents =
+      access.version.total_ht_cents ?? computedTotals.saleTotalCents;
     const totalTaxCents =
       access.version.total_tax_cents ?? computedTotals.adjustedTaxCents;
     const totalTtcCents =
       access.version.total_ttc_cents ?? computedTotals.roundedTtcCents;
 
-    const logoDataUri = await loadLogoDataUri();
-    const pdfDocument = buildPdfDocument({
+    const prepared = prepareEstimateDocumentData({
+      items,
+      marginMultiplier: computedTotals.appliedMarginMultiplier,
+      discountCents: computedTotals.discountCents,
+      taxRateBp: access.version.tax_rate_bp,
+      currency: access.version.currency,
+      isLaborSplitEnabled: false,
+      laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
+      validiteJours: access.version.validite_jours,
+      layout: effectiveLayout,
+    });
+    const pdfDocument = buildEstimatePdfDocument({
       logoDataUri,
       project: access.project,
       version: access.version,
-      rows,
+      issuer,
+      prepared,
+      terms: termsSnapshot,
       totalHtCents,
       totalTaxCents,
       totalTtcCents,
@@ -1047,15 +1755,19 @@ export async function generateEstimatePdfNow(
       throw internalError(
         failure.message,
         { reason: failure.reason },
-        "PDF_GENERATION_FAILED"
+        "PDF_GENERATION_FAILED",
       );
     }
 
-    const sha256Hash = createHash("sha256").update(pdfBuffer).digest("hex").toLowerCase();
+    const sha256Hash = createHash("sha256")
+      .update(pdfBuffer)
+      .digest("hex")
+      .toLowerCase();
     const generatedAt = new Date().toISOString();
 
     await upsertDocumentRow({
       supabase: context.supabase,
+      allowLegacyPdfMetadataFallback: !effectiveLayout.includeTerms,
       payload: {
         tenant_id: context.tenantId,
         version_id: versionId,
@@ -1066,6 +1778,8 @@ export async function generateEstimatePdfNow(
         file_size_bytes: pdfBuffer.byteLength,
         generated_by: context.userId,
         generated_at: generatedAt,
+        layout_options: effectiveLayout,
+        terms_snapshot: termsSnapshot,
       },
     });
 
@@ -1111,7 +1825,71 @@ export async function generateEstimatePdfNow(
   }
 }
 
-export async function getEstimatePdfStatus(versionId: string): Promise<PdfStatusPayload> {
+export async function getEstimatePdfLayoutConfiguration(
+  versionId: string,
+): Promise<EstimatePdfLayoutConfiguration> {
+  const context = await getAuthenticatedContext();
+  const access = await getVersionAccessOrThrow(context, versionId);
+  const [items, termsTemplate] = await Promise.all([
+    loadItems({
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+      versionId,
+    }),
+    loadEstimateTermsTemplate({
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+    }),
+  ]);
+  const structure = summarizeEstimateDocumentStructure(items);
+
+  return {
+    ...structure,
+    hasConditions: Boolean(access.version.exclusions?.trim()),
+    terms: toEstimatePdfTermsConfiguration(termsTemplate),
+  };
+}
+
+export async function resolveEstimatePdfPreviewLayout(
+  versionId: string,
+  requestedLayout: EstimatePdfLayoutOptions,
+) {
+  const context = await getAuthenticatedContext();
+  await getVersionAccessOrThrow(context, versionId);
+  const [termsTemplate, existing] = await Promise.all([
+    loadEstimateTermsTemplate({
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+    }),
+    getDocumentRow({
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+      versionId,
+    }),
+  ]);
+  const layout = applyEstimateTermsPolicy(
+    normalizeEstimatePdfLayoutOptions(requestedLayout),
+    toEstimatePdfTermsConfiguration(termsTemplate),
+  );
+  const parsedStoredTermsSnapshot = parseEstimateTermsSnapshot(
+    existing?.terms_snapshot,
+  );
+  const storedTermsSnapshot =
+    parsedStoredTermsSnapshot &&
+    canUseEstimateTermsSnapshot(parsedStoredTermsSnapshot)
+      ? parsedStoredTermsSnapshot
+      : null;
+  const terms = layout.includeTerms
+    ? (storedTermsSnapshot ??
+      (termsTemplate ? createEstimateTermsSnapshot(termsTemplate) : null))
+    : null;
+
+  return { layout, terms };
+}
+
+export async function getEstimatePdfStatus(
+  versionId: string,
+): Promise<PdfStatusPayload> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, versionId);
 
@@ -1171,7 +1949,8 @@ export async function getEstimatePdfStatus(versionId: string): Promise<PdfStatus
     file_path: expectedFilePath,
     sha256_hash: row.sha256_hash ?? undefined,
     generated_at: row.generated_at ?? undefined,
-    file_size_bytes: row.file_size_bytes === null ? undefined : Number(row.file_size_bytes),
+    file_size_bytes:
+      row.file_size_bytes === null ? undefined : Number(row.file_size_bytes),
   };
 }
 
@@ -1182,7 +1961,7 @@ function formatChangelogDelta(cents: number) {
 
 function formatChangelogFieldValue(
   field: EstimateVersionChangelogField,
-  value: string | number | null
+  value: string | number | null,
 ) {
   if (value === null) return "-";
 
@@ -1205,7 +1984,7 @@ function formatChangelogFieldValue(
 }
 
 function changelogChangeLabel(
-  changeType: EstimateVersionChangelogChange["changeType"]
+  changeType: EstimateVersionChangelogChange["changeType"],
 ) {
   if (changeType === "added") return "Ajout";
   if (changeType === "removed") return "Suppression";
@@ -1213,7 +1992,7 @@ function changelogChangeLabel(
 }
 
 function changelogEntityLabel(
-  entityType: EstimateVersionChangelogChange["entityType"]
+  entityType: EstimateVersionChangelogChange["entityType"],
 ) {
   if (entityType === "section") return "Section";
   return "Ligne";
@@ -1295,16 +2074,24 @@ function buildEstimateChangelogPdfDocument(input: {
                       </Text>
                     </View>
                     <Text style={changelogStyles.changeDelta}>
-                      HT {formatChangelogDelta(change.deltaHtCents)}{"\n"}
+                      HT {formatChangelogDelta(change.deltaHtCents)}
+                      {"\n"}
                       TTC {formatChangelogDelta(change.deltaTtcCents)}
                     </Text>
                   </View>
 
                   {change.fields.length > 0 ? (
                     <View style={changelogStyles.fieldTable}>
-                      <View style={[changelogStyles.fieldRow, changelogStyles.fieldHeadRow]}>
+                      <View
+                        style={[
+                          changelogStyles.fieldRow,
+                          changelogStyles.fieldHeadRow,
+                        ]}
+                      >
                         <View style={changelogStyles.fieldColLabel}>
-                          <Text style={changelogStyles.fieldHeadText}>Champ</Text>
+                          <Text style={changelogStyles.fieldHeadText}>
+                            Champ
+                          </Text>
                         </View>
                         <View style={changelogStyles.fieldColBefore}>
                           <Text style={changelogStyles.fieldHeadText}>
@@ -1324,16 +2111,24 @@ function buildEstimateChangelogPdfDocument(input: {
                           style={changelogStyles.fieldRow}
                         >
                           <View style={changelogStyles.fieldColLabel}>
-                            <Text style={changelogStyles.fieldBodyText}>{field.label}</Text>
+                            <Text style={changelogStyles.fieldBodyText}>
+                              {field.label}
+                            </Text>
                           </View>
                           <View style={changelogStyles.fieldColBefore}>
                             <Text style={changelogStyles.fieldBodyText}>
-                              {formatChangelogFieldValue(field, field.beforeValue)}
+                              {formatChangelogFieldValue(
+                                field,
+                                field.beforeValue,
+                              )}
                             </Text>
                           </View>
                           <View style={changelogStyles.fieldColAfter}>
                             <Text style={changelogStyles.fieldBodyText}>
-                              {formatChangelogFieldValue(field, field.afterValue)}
+                              {formatChangelogFieldValue(
+                                field,
+                                field.afterValue,
+                              )}
                             </Text>
                           </View>
                         </View>

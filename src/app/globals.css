@@ -801,7 +801,11 @@ body {
   top: 0;
   bottom: 0;
   width: 12px;
-  background: linear-gradient(to bottom, var(--brand-blue), var(--brand-orange));
+  background: linear-gradient(
+    to bottom,
+    var(--document-brand-blue, var(--brand-blue)),
+    var(--document-brand-orange, var(--brand-orange))
+  );
 }
 
 /* Delivery date badge */

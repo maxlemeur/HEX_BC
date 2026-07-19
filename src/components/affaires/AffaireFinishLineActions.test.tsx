@@ -11,11 +11,13 @@ const {
   routerRefreshMock,
   requestEstimatePdfGenerationMock,
   fetchEstimatePdfStatusMock,
+  fetchEstimatePdfLayoutConfigurationMock,
 } = vi.hoisted(() => ({
   exportEstimateMock: vi.fn(),
   routerRefreshMock: vi.fn(),
   requestEstimatePdfGenerationMock: vi.fn(),
   fetchEstimatePdfStatusMock: vi.fn(),
+  fetchEstimatePdfLayoutConfigurationMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -34,6 +36,7 @@ vi.mock("@/lib/estimates/client", async () => {
     exportEstimate: exportEstimateMock,
     requestEstimatePdfGeneration: requestEstimatePdfGenerationMock,
     fetchEstimatePdfStatus: fetchEstimatePdfStatusMock,
+    fetchEstimatePdfLayoutConfiguration: fetchEstimatePdfLayoutConfigurationMock,
   };
 });
 
@@ -146,6 +149,18 @@ describe("AffaireFinishLineActions", () => {
     exportEstimateMock.mockReset();
     requestEstimatePdfGenerationMock.mockReset();
     fetchEstimatePdfStatusMock.mockReset();
+    fetchEstimatePdfLayoutConfigurationMock.mockReset();
+    fetchEstimatePdfLayoutConfigurationMock.mockResolvedValue({
+      lineCount: 1,
+      sectionCountsByLevel: { 1: 1, 2: 0, 3: 0, 4: 0 },
+      hasConditions: true,
+      terms: {
+        available: false,
+        policy: "optional",
+        title: null,
+        version: null,
+      },
+    });
     routerRefreshMock.mockReset();
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
@@ -549,8 +564,22 @@ describe("AffaireFinishLineActions", () => {
       })
     );
 
+    await user.click(
+      await screen.findByRole("button", { name: /Générer et télécharger/i })
+    );
+
     await waitFor(() => {
-      expect(requestEstimatePdfGenerationMock).toHaveBeenCalledWith("version-1");
+      expect(requestEstimatePdfGenerationMock).toHaveBeenCalledWith(
+        "version-1",
+        expect.objectContaining({
+          force: true,
+          layout: expect.objectContaining({
+            preset: "client_detailed",
+            detailLevel: "lines",
+            priceMode: "unit_and_total",
+          }),
+        })
+      );
     });
     expect(window.open).toHaveBeenCalledWith(
       "https://example.test/devis-v1.pdf",

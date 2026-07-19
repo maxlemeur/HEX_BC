@@ -2,11 +2,15 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { EstimateDocument, type EstimateDocumentProps } from "@/components/EstimateDocument";
 import {
-  formatCurrency,
-  type SupportedEstimateCurrency,
-} from "@/lib/money";
+  EstimateDocument,
+  type EstimateDocumentProps,
+} from "@/components/EstimateDocument";
+import {
+  createDevelopmentEstimateTermsTemplate,
+  createEstimateTermsSnapshot,
+} from "@/lib/estimates/pdf-terms";
+import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import type { Database } from "@/types/database";
 
 vi.mock("next/image", () => ({
@@ -17,7 +21,9 @@ vi.mock("next/image", () => ({
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
-function createEstimateItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
+function createEstimateItem(
+  overrides: Partial<EstimateItem> = {},
+): EstimateItem {
   return {
     id: overrides.id ?? crypto.randomUUID(),
     created_at: "2026-01-01T00:00:00.000Z",
@@ -93,14 +99,14 @@ const BASE_PROPS: Omit<EstimateDocumentProps, "items"> = {
 
 function renderEstimateDocument(
   items: EstimateItem[],
-  overrides: Partial<Omit<EstimateDocumentProps, "items">> = {}
+  overrides: Partial<Omit<EstimateDocumentProps, "items">> = {},
 ) {
   return renderToStaticMarkup(
     createElement(EstimateDocument, {
       ...BASE_PROPS,
       ...overrides,
       items,
-    })
+    }),
   );
 }
 
@@ -110,7 +116,7 @@ function escapeRegExp(value: string): string {
 
 function formatCurrencyForTest(
   cents: number,
-  currency: SupportedEstimateCurrency
+  currency: SupportedEstimateCurrency,
 ) {
   return formatCurrency(cents, currency);
 }
@@ -118,7 +124,7 @@ function formatCurrencyForTest(
 function findTableRowMarkup(markup: string, token: string): string {
   const pattern = new RegExp(
     `<tr[^>]*>[\\s\\S]*?${escapeRegExp(token)}[\\s\\S]*?<\\/tr>`,
-    "g"
+    "g",
   );
   const matches = markup.match(pattern) ?? [];
   expect(matches).toHaveLength(1);
@@ -129,7 +135,7 @@ function expectSectionSummaryInRow(
   rowMarkup: string,
   totals: {
     htCents: number;
-  }
+  },
 ) {
   expect(rowMarkup).toContain(formatCurrency(totals.htCents, "EUR"));
   expect(rowMarkup).not.toContain("FO ");
@@ -143,7 +149,7 @@ function expectSectionSummary(
   sectionTitle: string,
   totals: {
     htCents: number;
-  }
+  },
 ) {
   const rowMarkup = findTableRowMarkup(markup, sectionTitle);
   expectSectionSummaryInRow(rowMarkup, totals);
@@ -166,7 +172,11 @@ describe("EstimateDocument - EST-121", () => {
     const sectionId = "section-target";
     const items: EstimateItem[] = [
       createSection({ id: sectionId, title: "Section cible", position: 1 }),
-      createSection({ id: "section-other", title: "Section autre", position: 2 }),
+      createSection({
+        id: "section-other",
+        title: "Section autre",
+        position: 2,
+      }),
       createEstimateItem({
         id: "line-target",
         parent_id: sectionId,
@@ -211,7 +221,11 @@ describe("EstimateDocument - EST-121", () => {
     const parentSectionId = "section-parent";
     const childSectionId = "section-child";
     const items: EstimateItem[] = [
-      createSection({ id: parentSectionId, title: "Section parent", position: 1 }),
+      createSection({
+        id: parentSectionId,
+        title: "Section parent",
+        position: 1,
+      }),
       createSection({
         id: childSectionId,
         parent_id: parentSectionId,
@@ -261,7 +275,11 @@ describe("EstimateDocument - EST-121", () => {
     const otherSectionId = "section-other";
     const items: EstimateItem[] = [
       createSection({ id: emptySectionId, title: "Section vide", position: 1 }),
-      createSection({ id: otherSectionId, title: "Section autre", position: 2 }),
+      createSection({
+        id: otherSectionId,
+        title: "Section autre",
+        position: 2,
+      }),
       createEstimateItem({
         id: "line-other",
         parent_id: otherSectionId,
@@ -334,7 +352,11 @@ describe("EstimateDocument - EST-121", () => {
     const parentSectionId = "section-number-parent";
     const childSectionId = "section-number-child";
     const items: EstimateItem[] = [
-      createSection({ id: parentSectionId, title: "Section parent", position: 1 }),
+      createSection({
+        id: parentSectionId,
+        title: "Section parent",
+        position: 1,
+      }),
       createSection({
         id: childSectionId,
         parent_id: parentSectionId,
@@ -354,8 +376,12 @@ describe("EstimateDocument - EST-121", () => {
     const childSectionRow = findTableRowMarkup(markup, "Section enfant");
     const lineRow = findTableRowMarkup(markup, "Ligne enfant");
 
-    expect(parentSectionRow).toMatch(/>01<\/span>\s*<span>Section parent<\/span>/);
-    expect(childSectionRow).toMatch(/>01\.1<\/span>\s*<span>Section enfant<\/span>/);
+    expect(parentSectionRow).toMatch(
+      />01<\/span>\s*<span>Section parent<\/span>/,
+    );
+    expect(childSectionRow).toMatch(
+      />01\.1<\/span>\s*<span>Section enfant<\/span>/,
+    );
     expect(lineRow).toContain("Ligne enfant");
     expect(lineRow).not.toContain("01.1.01");
   });
@@ -400,10 +426,10 @@ describe("EstimateDocument - EST-121", () => {
     const markup = renderEstimateDocument([]);
 
     expect(markup).toMatch(
-      /<th class="[^"]*align-middle[^"]*whitespace-nowrap[^"]*">Designation<\/th>/
+      /<th class="[^"]*align-middle[^"]*whitespace-nowrap[^"]*">Designation<\/th>/,
     );
     expect(markup).toMatch(
-      /<th class="[^"]*align-middle[^"]*whitespace-nowrap[^"]*">P\.U\. HT<\/th>/
+      /<th class="[^"]*align-middle[^"]*whitespace-nowrap[^"]*">P\.U\. HT<\/th>/,
     );
   });
 
@@ -415,10 +441,73 @@ describe("EstimateDocument - EST-121", () => {
     expect(markup).not.toContain("Marge");
   });
 
+  it("normalise l'emetteur et affiche les limites de prestation", () => {
+    const markup = renderEstimateDocument([], {
+      issuerName: "maxime.michel@hydroexpress.fr",
+      issuerRole: "Charge d'affaires",
+      issuerEmail: "maxime.michel@hydroexpress.fr",
+      exclusions: "Percements structurels exclus.",
+      layout: {
+        preset: "client_detailed",
+        detailLevel: "lines",
+        priceMode: "unit_and_total",
+        density: "standard",
+        showNumbering: true,
+        showSectionSubtotals: true,
+        conditionsPlacement: "new_page",
+        includeTerms: false,
+      },
+    });
+
+    expect(markup).toContain("Maxime MICHEL");
+    expect(markup.match(/maxime\.michel@hydroexpress\.fr/g)).toHaveLength(1);
+    expect(markup).toContain("Précisions et limites de prestation");
+    expect(markup).toContain("17 rue Dupin 75006 Paris");
+    expect(markup).not.toContain("Siège social : 29 bis, rue de la Prairie");
+    expect(markup).not.toContain("Precisions et exclusions");
+  });
+
+  it("ajoute la maquette CGV comme dernier feuillet non contractuel", () => {
+    const draft = createDevelopmentEstimateTermsTemplate(
+      "tenant-test",
+      "development",
+    );
+    if (!draft) throw new Error("Expected a development draft.");
+
+    const markup = renderEstimateDocument([], {
+      layout: {
+        preset: "client_detailed",
+        detailLevel: "lines",
+        priceMode: "unit_and_total",
+        density: "standard",
+        showNumbering: true,
+        showSectionSubtotals: true,
+        conditionsPlacement: "auto",
+        includeTerms: true,
+      },
+      terms: createEstimateTermsSnapshot(draft, "2026-07-19T08:00:00.000Z"),
+    });
+
+    expect(markup).toContain("Projet de CGV - Travaux B2B");
+    expect(markup).toContain("Projet non contractuel");
+    expect(markup).toContain(
+      "à faire valider par un conseil juridique avant toute utilisation contractuelle",
+    );
+    expect(markup).toContain("1. OBJET ET DOCUMENTS CONTRACTUELS");
+    expect(markup).toContain("11. DONNÉES, PREUVE ET LITIGES");
+    expect(markup).toContain("columns-1");
+    expect(markup).toContain("print-page-break-before");
+    expect(markup.lastIndexOf("Projet de CGV - Travaux B2B")).toBeGreaterThan(
+      markup.lastIndexOf("Total TTC"),
+    );
+  });
+
   it("confine le debordement mobile au tableau du document", () => {
     const markup = renderEstimateDocument([]);
 
-    expect(markup).toContain("document-page relative mx-auto my-5 flex w-full max-w-full");
+    expect(markup).toContain(
+      "document-page relative mx-auto my-5 flex w-full max-w-full",
+    );
     expect(markup).toContain("overflow-x-auto");
     expect(markup).toContain("min-w-[40rem] md:min-w-0");
   });

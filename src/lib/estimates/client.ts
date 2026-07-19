@@ -15,6 +15,10 @@ import type {
 } from "@/lib/estimates/outlier-detection";
 import type { MoveEstimateItemInput } from "@/lib/estimates/schemas";
 import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
+import type {
+  EstimatePdfLayoutConfiguration,
+  EstimatePdfLayoutOptions,
+} from "@/lib/estimates/pdf-layout";
 
 type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -702,6 +706,9 @@ export type EstimatePdfStatusResponse = {
   fileSizeBytes?: number;
   lastError?: string;
 };
+
+export type EstimatePdfLayoutConfigurationResponse =
+  EstimatePdfLayoutConfiguration;
 
 export type EstimateSendGatingFlag = {
   key: string;
@@ -1438,6 +1445,42 @@ function parseEstimatePdfStatus(payload: unknown): EstimatePdfStatusResponse | n
       toNumber(root.file_size_bytes) ?? toNumber(root.fileSizeBytes) ?? undefined,
     lastError:
       toStringValue(root.last_error) ?? toStringValue(root.lastError) ?? undefined,
+  };
+}
+
+function parseEstimatePdfLayoutConfiguration(
+  payload: unknown
+): EstimatePdfLayoutConfigurationResponse | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root) || !isRecord(root.sectionCountsByLevel) || !isRecord(root.terms)) {
+    return null;
+  }
+  const lineCount = toNumber(root.lineCount);
+  const hasConditions = toBooleanValue(root.hasConditions);
+  const policy = toStringValue(root.terms.policy);
+  if (
+    lineCount === null ||
+    hasConditions === null ||
+    (policy !== "optional" && policy !== "default" && policy !== "required")
+  ) {
+    return null;
+  }
+
+  return {
+    lineCount: Math.max(0, Math.trunc(lineCount)),
+    sectionCountsByLevel: {
+      "1": Math.max(0, Math.trunc(toNumber(root.sectionCountsByLevel["1"]) ?? 0)),
+      "2": Math.max(0, Math.trunc(toNumber(root.sectionCountsByLevel["2"]) ?? 0)),
+      "3": Math.max(0, Math.trunc(toNumber(root.sectionCountsByLevel["3"]) ?? 0)),
+      "4": Math.max(0, Math.trunc(toNumber(root.sectionCountsByLevel["4"]) ?? 0)),
+    },
+    hasConditions,
+    terms: {
+      available: toBooleanValue(root.terms.available) ?? false,
+      policy,
+      title: toStringValue(root.terms.title),
+      version: toNumber(root.terms.version),
+    },
   };
 }
 
@@ -4560,7 +4603,7 @@ export async function fetchEstimateSendGating(
 
 export async function requestEstimatePdfGeneration(
   versionId: string,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; layout?: EstimatePdfLayoutOptions } = {}
 ): Promise<EstimatePdfStatusResponse> {
   const query = new URLSearchParams();
   if (options.force) {
@@ -4575,6 +4618,12 @@ export async function requestEstimatePdfGeneration(
     path,
     {
       method: "POST",
+      headers: options.layout
+        ? { "Content-Type": "application/json" }
+        : undefined,
+      body: options.layout
+        ? JSON.stringify({ layout: options.layout })
+        : undefined,
     },
     "Impossible de lancer la generation du PDF."
   );
@@ -4584,6 +4633,21 @@ export async function requestEstimatePdfGeneration(
     throw new Error("Impossible de lire le statut de generation du PDF.");
   }
 
+  return parsed;
+}
+
+export async function fetchEstimatePdfLayoutConfiguration(
+  versionId: string
+): Promise<EstimatePdfLayoutConfigurationResponse> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/pdf/layout`,
+    { method: "GET" },
+    "Impossible de charger les options de mise en page du devis."
+  );
+  const parsed = parseEstimatePdfLayoutConfiguration(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire les options de mise en page du devis.");
+  }
   return parsed;
 }
 

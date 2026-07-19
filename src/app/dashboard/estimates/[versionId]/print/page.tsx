@@ -3,26 +3,27 @@ import { notFound } from "next/navigation";
 
 import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
-import { PrintButton } from "@/components/PrintButton";
 import { PrintTitle } from "@/components/PrintTitle";
 import {
   SealIntegrityBadge,
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
 import { isFeatureEnabled } from "@/lib/feature-flags";
+import { getUserContext } from "@/lib/auth/server";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
+import {
+  resolveEstimatePdfPreviewLayout,
+} from "@/lib/estimates/pdf-generator";
+import {
+  describeEstimatePdfLayout,
+  parseEstimatePdfLayoutSearchParams,
+} from "@/lib/estimates/pdf-layout";
 import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
-import {
-  MAX_SECTION_DEPTH,
-  MIN_SECTION_DEPTH,
-} from "@/lib/estimates/hierarchy";
-
-import { PrintCurrencySelect } from "./PrintCurrencySelect";
-import { PrintLevelFilter } from "./PrintLevelFilter";
+import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -84,19 +85,6 @@ function resolveProject(
   return value;
 }
 
-function parseMaxVisibleSectionLevel(
-  value: string | string[] | undefined
-): number | null {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw) return null;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "all") return null;
-  const parsed = Number.parseInt(normalized, 10);
-  if (!Number.isFinite(parsed)) return null;
-  if (parsed < MIN_SECTION_DEPTH || parsed > MAX_SECTION_DEPTH) return null;
-  return parsed;
-}
-
 export default async function PrintEstimatePage({
   params,
   searchParams,
@@ -106,17 +94,22 @@ export default async function PrintEstimatePage({
   }
   const { versionId } = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
-  const maxVisibleSectionLevel = parseMaxVisibleSectionLevel(
-    resolvedSearchParams.max_level
+  const requestedLayout = parseEstimatePdfLayoutSearchParams(
+    resolvedSearchParams
   );
-  const maxVisibleSectionLevelSelectValue =
-    maxVisibleSectionLevel === null ? "all" : String(maxVisibleSectionLevel);
+  const autoPrintRaw = resolvedSearchParams.auto_print;
+  const autoPrint = (Array.isArray(autoPrintRaw) ? autoPrintRaw[0] : autoPrintRaw) === "1";
   const supabase = await createSupabaseServerClient();
+  const userContextPromise = getUserContext();
+  const previewLayoutPromise = resolveEstimatePdfPreviewLayout(
+    versionId,
+    requestedLayout
+  );
 
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -127,9 +120,11 @@ export default async function PrintEstimatePage({
     .eq("version_id", versionId)
     .order("position", { ascending: true });
 
-  const [versionResult, itemsResult] = await Promise.all([
+  const [versionResult, itemsResult, userContext, previewLayout] = await Promise.all([
     versionPromise,
     itemsPromise,
+    userContextPromise,
+    previewLayoutPromise,
   ]);
 
   if (
@@ -144,6 +139,7 @@ export default async function PrintEstimatePage({
   const version = versionResult.data as EstimateVersion;
   const items = itemsResult.data as EstimateItem[];
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
+  const layoutDescription = describeEstimatePdfLayout(previewLayout.layout);
   const project = resolveProject(version.estimate_projects);
   const isLaborSplitEnabled = await isFeatureEnabled(
     version.tenant_id,
@@ -310,23 +306,16 @@ export default async function PrintEstimatePage({
                 <span aria-hidden className="text-[var(--slate-300)]">
                   •
                 </span>
-                <span>Configuration :</span>
-                <PrintCurrencySelect currency={selectedCurrency} />
-                <PrintLevelFilter
-                  value={
-                    maxVisibleSectionLevelSelectValue as
-                      | "all"
-                      | "1"
-                      | "2"
-                      | "3"
-                      | "4"
-                  }
-                />
+                <span>Configuration : {layoutDescription}</span>
               </div>
             </div>
           </div>
-          <div className="shrink-0 [&>button]:w-full sm:[&>button]:w-auto">
-            <PrintButton />
+          <div className="shrink-0">
+            <EstimatePrintLayoutButton
+              versionId={versionId}
+              initialLayout={previewLayout.layout}
+              autoPrint={autoPrint}
+            />
           </div>
         </div>
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-6 pb-4 text-sm text-[var(--slate-500)] md:hidden">
@@ -334,13 +323,9 @@ export default async function PrintEstimatePage({
             Devis V{version.version_number}
           </span>
           <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
-          <span className="basis-full sm:basis-auto sm:pl-2">Configuration :</span>
-          <PrintCurrencySelect currency={selectedCurrency} />
-          <PrintLevelFilter
-            value={
-              maxVisibleSectionLevelSelectValue as "all" | "1" | "2" | "3" | "4"
-            }
-          />
+          <span className="basis-full sm:basis-auto sm:pl-2">
+            Configuration : {layoutDescription}
+          </span>
         </div>
       </div>
 
@@ -363,7 +348,13 @@ export default async function PrintEstimatePage({
           totalTaxCents={totalTaxCents}
           totalTtcCents={totalTtcCents}
           items={items}
-          maxVisibleSectionLevel={maxVisibleSectionLevel}
+          exclusions={version.exclusions}
+          issuerName={userContext.profile?.full_name}
+          issuerRole={userContext.profile?.job_title}
+          issuerPhone={userContext.profile?.phone}
+          issuerEmail={userContext.profile?.work_email ?? userContext.userEmail}
+          layout={previewLayout.layout}
+          terms={previewLayout.terms}
         />
       </div>
       <div className="print-page-footer" aria-hidden>

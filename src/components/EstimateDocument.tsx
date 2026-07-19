@@ -1,11 +1,21 @@
-import Image from "next/image";
-
+import {
+  BusinessDocumentBrandHeader,
+  BusinessDocumentFooter,
+  BusinessDocumentFrame,
+} from "@/components/documents/BusinessDocumentPrimitives";
 import { EstimateDocumentTableRows } from "@/components/estimate-document/EstimateDocumentTableRows";
 import {
   prepareEstimateDocumentData,
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
-import { COMPANY_INFO } from "@/lib/company-info";
+import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
+import { ESTIMATE_SERVICE_LIMITS_TITLE } from "@/lib/estimates/document-copy";
+import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
+import {
+  ESTIMATE_DRAFT_TERMS_NOTICE,
+  parseEstimateTermsClauses,
+  type EstimateTermsSnapshot,
+} from "@/lib/estimates/pdf-terms";
 import {
   formatCurrency,
   normalizeEstimateCurrency,
@@ -30,6 +40,13 @@ export type EstimateDocumentProps = {
   totalTaxCents: number;
   totalTtcCents: number;
   items: EstimateItem[];
+  exclusions?: string | null;
+  issuerName?: string | null;
+  issuerRole?: string | null;
+  issuerPhone?: string | null;
+  issuerEmail?: string | null;
+  layout?: EstimatePdfLayoutOptions;
+  terms?: EstimateTermsSnapshot | null;
   maxVisibleSectionLevel?: number | null;
 };
 
@@ -41,6 +58,112 @@ function formatDate(dateStr: string): string {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function EstimateConditionsBlock({
+  text,
+  showTitle = true,
+}: Readonly<{ text: string; showTitle?: boolean }>) {
+  return (
+    <section className="note-container print-avoid-break-inside mb-6 rounded-r-xl p-5 print:mb-4 print:p-3">
+      {showTitle ? (
+        <h3 className="text-xs font-bold uppercase tracking-wide text-brand-blue">
+          {ESTIMATE_SERVICE_LIMITS_TITLE}
+        </h3>
+      ) : null}
+      <p
+        className={`${showTitle ? "mt-3" : ""} whitespace-pre-wrap text-sm leading-6 text-slate-600 print:text-xs print:leading-5`}
+      >
+        {text}
+      </p>
+    </section>
+  );
+}
+
+function EstimateContinuationHeader({
+  title,
+  versionNumber,
+  documentLabel = "Document contractuel",
+}: Readonly<{
+  title: string;
+  versionNumber: number;
+  documentLabel?: string;
+}>) {
+  return (
+    <div className="mb-8">
+      <BusinessDocumentBrandHeader />
+      <div className="mt-6 flex items-end justify-between gap-4 border-b border-border pb-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-orange">
+            Devis V{versionNumber}
+          </p>
+          <h2 className="mt-1 text-2xl font-black uppercase tracking-tight text-foreground">
+            {title}
+          </h2>
+        </div>
+        <p className="text-xs font-medium text-muted-foreground">
+          {documentLabel}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function EstimateTermsPage({
+  terms,
+  versionNumber,
+}: Readonly<{ terms: EstimateTermsSnapshot; versionNumber: number }>) {
+  const clauses = parseEstimateTermsClauses(terms.body);
+  const reviewLabel =
+    terms.isDraft || !terms.legalReviewedAt
+      ? "Maquette CGV - version " +
+        terms.version +
+        " - à valider, non contractuelle."
+      : "Version des conditions : " +
+        terms.version +
+        " - revue juridique du " +
+        formatDate(terms.legalReviewedAt);
+
+  return (
+    <BusinessDocumentFrame className="print-page-break-before">
+      <EstimateContinuationHeader
+        title={terms.title}
+        versionNumber={versionNumber}
+        documentLabel={
+          terms.isDraft ? "Projet non contractuel" : "Document contractuel"
+        }
+      />
+      {terms.isDraft ? (
+        <p
+          className="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[11px] font-semibold leading-4 text-amber-900 print:mb-3 print:px-3 print:py-2 print:text-[9px] print:leading-[1.35]"
+          role="note"
+        >
+          {ESTIMATE_DRAFT_TERMS_NOTICE}
+        </p>
+      ) : null}
+      <div className="columns-1 gap-6 text-slate-700 md:columns-2 print:columns-2 print:gap-5">
+        {clauses.map((clause, index) => (
+          <section
+            key={[index, clause.heading].join("-")}
+            className="print-avoid-break-inside mb-3 inline-block w-full align-top print:mb-2"
+          >
+            {clause.heading ? (
+              <h3 className="text-[11px] font-bold uppercase leading-4 text-brand-blue print:text-[9px] print:leading-[1.3]">
+                {clause.heading}
+              </h3>
+            ) : null}
+            <p className="mt-1 text-[11px] leading-[1.45] print:text-[9px] print:leading-[1.35]">
+              {clause.text}
+            </p>
+          </section>
+        ))}
+      </div>
+      <p className="mt-5 text-[10px] text-muted-foreground print:mt-3 print:text-[8px]">
+        {reviewLabel}
+      </p>
+      <BusinessDocumentFooter />
+    </BusinessDocumentFrame>
+  );
 }
 
 export function EstimateDocument({
@@ -61,6 +184,13 @@ export function EstimateDocument({
   totalTaxCents,
   totalTtcCents,
   items,
+  exclusions,
+  issuerName,
+  issuerRole,
+  issuerPhone,
+  issuerEmail,
+  layout,
+  terms,
   maxVisibleSectionLevel = null,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
@@ -70,11 +200,12 @@ export function EstimateDocument({
     rows,
     numberingById,
     sectionTotalsById,
+    lineSplitsById,
+    layout: resolvedLayout,
     taxEnabled,
     discountLabel,
     validiteLabel,
     taxLabel,
-    footerAddress,
     qrLikeCells,
   } = prepareEstimateDocumentData({
     items,
@@ -87,154 +218,181 @@ export function EstimateDocument({
     validiteJours,
     portalUrl,
     maxVisibleSectionLevel,
+    layout,
   });
+  const conditionsText = exclusions?.trim() ?? "";
+  const conditionsOnNewPage =
+    conditionsText.length > 0 &&
+    resolvedLayout.conditionsPlacement === "new_page";
+  const showTerms =
+    resolvedLayout.includeTerms && terms !== null && terms !== undefined;
+  const issuerDisplay = normalizeDocumentIssuerDisplay({
+    issuerName,
+    issuerRole,
+    issuerEmail,
+    fallbackName: "Hydro Express",
+  });
+  const tableMinWidth =
+    resolvedLayout.priceMode === "fo_mo_and_total"
+      ? "min-w-[48rem]"
+      : "min-w-[40rem]";
 
   return (
-    <div className="document-page relative mx-auto my-5 flex w-full max-w-full flex-col overflow-hidden bg-white px-4 pb-6 pt-6 shadow-2xl sm:px-6 sm:pb-8 sm:pt-8 md:px-[50px] md:pb-[50px] md:pt-[40px] print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
-      <div className="sidebar-accent print-color-adjust" />
+    <>
+      <BusinessDocumentFrame
+        className={`estimate-document estimate-document--${resolvedLayout.density}`}
+      >
+        <div className="mb-6">
+          <BusinessDocumentBrandHeader />
 
-      <div className="mb-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <Image
-            src="/logo-hydro-express.jpg"
-            alt="Hydro eXpress"
-            width={250}
-            height={100}
-            className="h-16 w-auto object-contain sm:h-[100px] print:h-[80px]"
-            priority
-          />
-          <div className="w-full max-w-none rounded-lg border border-border bg-surface-subtle px-4 py-3 text-left text-sm sm:max-w-[220px] sm:text-right print:px-3 print:py-2 print:text-xs">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Etablissement principal :
-            </p>
-            <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
-            <p className="text-slate-600">
-              {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
-            </p>
-            <div className="mt-1 text-slate-600">
-              <p>{COMPANY_INFO.phone.landline}</p>
-              <p>{COMPANY_INFO.phone.mobile}</p>
+          <div className="mt-5 grid gap-5 sm:grid-cols-[240px_minmax(0,1fr)_190px] sm:items-start print:mt-3 print:grid-cols-[220px_minmax(0,1fr)_160px] print:gap-3">
+            <div className="min-w-0 text-sm">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Emis par
+              </p>
+              <p className="text-lg font-bold leading-tight text-brand-blue print:text-base">
+                {issuerDisplay.displayName}
+              </p>
+              {issuerDisplay.displayRole ? (
+                <p className="text-muted-foreground">
+                  {issuerDisplay.displayRole}
+                </p>
+              ) : null}
+              {issuerPhone?.trim() ? (
+                <p className="text-muted-foreground">{issuerPhone}</p>
+              ) : null}
+              {issuerDisplay.displayEmail ? (
+                <p className="text-muted-foreground [overflow-wrap:anywhere]">
+                  {issuerDisplay.displayEmail}
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs font-medium text-muted-foreground">
+                Le {formatDate(dateDevis)}
+              </p>
             </div>
+
+            <div className="min-w-0 justify-self-center pt-3 text-center print:pt-2">
+              <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
+                Devis
+              </h2>
+              <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
+                Version :{" "}
+                <span className="font-bold text-brand-orange">
+                  V{versionNumber}
+                </span>
+              </p>
+            </div>
+
+            <div className="hidden min-w-0 sm:block" />
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col gap-4 print:mt-3 sm:flex-row sm:items-start">
-          <div className="w-full text-sm sm:w-[240px] sm:shrink-0">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Projet
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 sm:gap-8 print:mb-4 print:gap-7">
+          <section className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-5">
+            <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
+              Client
+            </h3>
+            <p className="text-2xl font-extrabold leading-tight text-foreground">
+              {projectClient?.trim() || "Client a renseigner"}
             </p>
-            <p className="text-lg font-bold text-brand-blue">
+            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Affaire
+            </p>
+            <p className="mt-1 text-[15px] font-semibold leading-snug text-secondary-foreground">
               {projectName || "Projet"}
             </p>
-            {projectClient ? (
-              <p className="text-muted-foreground">{projectClient}</p>
-            ) : null}
-            {projectReference ? (
-              <p className="mt-2 text-xs font-medium text-muted-foreground">
-                Ref : {projectReference}
+            {projectReference?.trim() ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Reference : {projectReference}
               </p>
             ) : null}
-          </div>
+          </section>
 
-          <div className="self-start text-left sm:flex-1 sm:self-center sm:text-center">
-            <h2 className="mb-2 text-[26px] font-black uppercase tracking-tight text-foreground sm:whitespace-nowrap sm:text-[30px] print:mb-1 print:text-[25px]">
-              Devis
-            </h2>
-            <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
-              Version :{" "}
-              <span className="font-bold text-brand-orange">
-                V{versionNumber}
-              </span>
-            </p>
-          </div>
-
-          <div className="hidden w-[220px] shrink-0 sm:block"></div>
-        </div>
-      </div>
-
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 sm:gap-8 print:mb-3">
-        <div className="rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-4">
-          <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
-            Informations devis
-          </h4>
-          <div className="space-y-3 text-sm text-slate-600">
-            <div className="flex items-center justify-between gap-4">
-              <span>Date devis</span>
-              <span className="font-semibold text-secondary-foreground">
-                {formatDate(dateDevis)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span>Validite</span>
-              <span className="font-semibold text-secondary-foreground">
-                {validiteLabel}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span>Version</span>
-              <span className="font-semibold text-secondary-foreground">
-                V{versionNumber}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-4">
-          <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
-            Conditions
-          </h4>
-          <div className="space-y-3 text-sm text-slate-600">
-            {discountCents > 0 ? (
+          <section className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-5">
+            <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
+              Informations devis
+            </h3>
+            <dl className="space-y-3 text-sm text-slate-600">
               <div className="flex items-center justify-between gap-4">
-                <span>Remise</span>
-                <span className="font-semibold text-secondary-foreground">
-                  {discountLabel}
-                </span>
+                <dt>Date du devis</dt>
+                <dd className="font-semibold text-secondary-foreground">
+                  {formatDate(dateDevis)}
+                </dd>
               </div>
-            ) : null}
-            {taxEnabled ? (
               <div className="flex items-center justify-between gap-4">
-                <span>TVA</span>
-                <span className="font-semibold text-secondary-foreground">{taxLabel}</span>
+                <dt>Validite</dt>
+                <dd className="font-semibold text-secondary-foreground">
+                  {validiteLabel}
+                </dd>
               </div>
-            ) : null}
-          </div>
+              {discountCents > 0 ? (
+                <div className="flex items-center justify-between gap-4">
+                  <dt>Remise</dt>
+                  <dd className="font-semibold text-secondary-foreground">
+                    {discountLabel}
+                  </dd>
+                </div>
+              ) : null}
+              {taxEnabled ? (
+                <div className="flex items-center justify-between gap-4">
+                  <dt>TVA</dt>
+                  <dd className="font-semibold text-secondary-foreground">
+                    {taxLabel}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
         </div>
-      </div>
 
-      <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-3 print:overflow-visible">
-        <table className="w-full min-w-[40rem] md:min-w-0">
-          <thead>
-            <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
-              <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Designation</th>
-              <th className="w-20 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">
-                Qte
-              </th>
-              <th className="w-16 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">
-                U
-              </th>
-              <th className="w-28 px-3 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">
-                P.U. HT
-              </th>
-              <th className="w-32 px-4 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">
-                Total HT
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--slate-300)] text-sm print:text-foreground">
-            <EstimateDocumentTableRows
-              rows={rows}
-              numberingById={numberingById}
-              sectionTotalsById={sectionTotalsById}
-              currency={resolvedCurrency}
-            />
-          </tbody>
-        </table>
-      </div>
+        <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-4 print:overflow-visible">
+          <table className={`w-full ${tableMinWidth} md:min-w-0`}>
+            <thead>
+              <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
+                <th className="px-6 py-3 align-middle whitespace-nowrap print:px-4 print:py-2">
+                  Designation
+                </th>
+                <th className="w-16 px-2 py-3 text-center align-middle whitespace-nowrap print:py-2">
+                  Qte
+                </th>
+                <th className="w-14 px-2 py-3 text-center align-middle whitespace-nowrap print:py-2">
+                  U
+                </th>
+                {resolvedLayout.priceMode === "unit_and_total" ? (
+                  <th className="w-24 px-2 py-3 text-right align-middle whitespace-nowrap print:py-2">
+                    P.U. HT
+                  </th>
+                ) : null}
+                {resolvedLayout.priceMode === "fo_mo_and_total" ? (
+                  <>
+                    <th className="w-24 px-2 py-3 text-right align-middle whitespace-nowrap print:py-2">
+                      FO HT
+                    </th>
+                    <th className="w-24 px-2 py-3 text-right align-middle whitespace-nowrap print:py-2">
+                      MO HT
+                    </th>
+                  </>
+                ) : null}
+                <th className="w-28 px-3 py-3 text-right align-middle whitespace-nowrap print:py-2">
+                  Total HT
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--slate-300)] text-[13px] print:text-foreground">
+              <EstimateDocumentTableRows
+                rows={rows}
+                numberingById={numberingById}
+                sectionTotalsById={sectionTotalsById}
+                lineSplitsById={lineSplitsById}
+                currency={resolvedCurrency}
+                layout={resolvedLayout}
+              />
+            </tbody>
+          </table>
+        </div>
 
-      <div className="mb-8 flex justify-end print:mb-4">
-        <div className="w-full max-w-[320px] space-y-2">
-          <div className="overflow-hidden rounded-xl border border-border">
+        <div className="mb-8 flex justify-end print:mb-4">
+          <div className="w-full max-w-[320px] overflow-hidden rounded-xl border border-border">
             <div className="flex items-center justify-between bg-brand-blue px-5 py-3 print-color-adjust">
               <span className="text-xs font-bold uppercase tracking-wide text-white/80">
                 Total HT
@@ -263,42 +421,56 @@ export function EstimateDocument({
             </div>
           </div>
         </div>
-      </div>
 
-      {portalUrl ? (
-        <div className="print-portal-block print-avoid-break-inside mb-4 mt-1 flex items-center gap-3">
-          <div className="print-portal-qr" aria-hidden>
-            {qrLikeCells.map((cell) => (
-              <span
-                key={cell.id}
-                className={
-                  cell.enabled
-                    ? "print-portal-qr-cell print-portal-qr-cell--on"
-                    : "print-portal-qr-cell"
-                }
-              />
-            ))}
+        {conditionsText && !conditionsOnNewPage ? (
+          <EstimateConditionsBlock text={conditionsText} />
+        ) : null}
+
+        {portalUrl ? (
+          <div className="print-portal-block print-avoid-break-inside mb-4 mt-1 flex items-center gap-3">
+            <div className="print-portal-qr" aria-hidden>
+              {qrLikeCells.map((cell) => (
+                <span
+                  key={cell.id}
+                  className={
+                    cell.enabled
+                      ? "print-portal-qr-cell print-portal-qr-cell--on"
+                      : "print-portal-qr-cell"
+                  }
+                />
+              ))}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Portail client du devis
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ouvrez ce lien pour consulter la version partagee.
+              </p>
+              <p className="print-portal-url mt-2 text-[11px] font-medium text-secondary-foreground">
+                {portalUrl}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Portail client du devis
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Ouvrez ce lien pour consulter la version partagee.
-            </p>
-            <p className="print-portal-url mt-2 text-[11px] font-medium text-secondary-foreground">
-              {portalUrl}
-            </p>
-          </div>
-        </div>
+        ) : null}
+
+        <BusinessDocumentFooter />
+      </BusinessDocumentFrame>
+
+      {conditionsOnNewPage ? (
+        <BusinessDocumentFrame className="print-page-break-before">
+          <EstimateContinuationHeader
+            title={ESTIMATE_SERVICE_LIMITS_TITLE}
+            versionNumber={versionNumber}
+          />
+          <EstimateConditionsBlock text={conditionsText} showTitle={false} />
+          <BusinessDocumentFooter />
+        </BusinessDocumentFrame>
       ) : null}
 
-      <div className="mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
-        <p className="mb-1">Siege social : {footerAddress}</p>
-        <p>
-          SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}
-        </p>
-      </div>
-    </div>
+      {showTerms ? (
+        <EstimateTermsPage terms={terms} versionNumber={versionNumber} />
+      ) : null}
+    </>
   );
 }

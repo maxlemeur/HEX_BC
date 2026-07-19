@@ -2,14 +2,21 @@
 
 import { useCallback, useState } from "react";
 
+import { EstimatePdfLayoutModal } from "@/components/estimates/EstimatePdfLayoutModal";
 import {
   fetchEstimatePdfStatus,
   requestEstimatePdfGeneration,
 } from "@/lib/estimates/client";
+import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
 type EstimatePdfDownloadButtonProps = {
   versionId: string;
   className?: string;
+  label?: string;
+  processingLabel?: string;
+  showInlineError?: boolean;
+  onSuccess?: (downloadUrl: string) => void;
+  onError?: (message: string) => void;
 };
 
 const POLL_INTERVAL_MS = 1500;
@@ -20,7 +27,6 @@ function toSafeErrorMessage(error: unknown) {
     const message = error.message.trim();
     if (message.length > 0) return message;
   }
-
   return "Echec generation PDF";
 }
 
@@ -38,7 +44,13 @@ function wait(delayMs: number) {
 export function EstimatePdfDownloadButton({
   versionId,
   className,
-}: EstimatePdfDownloadButtonProps) {
+  label = "Telecharger PDF",
+  processingLabel = "Generation PDF...",
+  showInlineError = true,
+  onSuccess,
+  onError,
+}: Readonly<EstimatePdfDownloadButtonProps>) {
+  const [layoutModalOpen, setLayoutModalOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -49,57 +61,70 @@ export function EstimatePdfDownloadButton({
       const status = await fetchEstimatePdfStatus(versionId);
 
       if (status.status === "ready" && status.downloadUrl) {
-        openDownload(status.downloadUrl);
-        return;
+        return status.downloadUrl;
       }
-
       if (status.status === "failed") {
         throw new Error(status.lastError ?? "Echec generation PDF");
       }
-
       await wait(POLL_INTERVAL_MS);
     }
 
     throw new Error("Echec generation PDF");
   }, [versionId]);
 
-  const handleClick = useCallback(async () => {
-    if (isProcessing) return;
+  const handleGenerate = useCallback(
+    async (layout: EstimatePdfLayoutOptions) => {
+      if (isProcessing) return;
 
-    setIsProcessing(true);
-    setErrorMessage(null);
+      setIsProcessing(true);
+      setErrorMessage(null);
+      try {
+        const initial = await requestEstimatePdfGeneration(versionId, {
+          force: true,
+          layout,
+        });
+        const downloadUrl =
+          initial.status === "ready" && initial.downloadUrl
+            ? initial.downloadUrl
+            : await pollUntilReady();
 
-    try {
-      const initial = await requestEstimatePdfGeneration(versionId);
-
-      if (initial.status === "ready" && initial.downloadUrl) {
-        openDownload(initial.downloadUrl);
-        return;
+        openDownload(downloadUrl);
+        onSuccess?.(downloadUrl);
+      } catch (error) {
+        const message = toSafeErrorMessage(error);
+        setErrorMessage(message);
+        onError?.(message);
+        throw error;
+      } finally {
+        setIsProcessing(false);
       }
-
-      await pollUntilReady();
-    } catch (error) {
-      setErrorMessage(toSafeErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [isProcessing, pollUntilReady, versionId]);
+    },
+    [isProcessing, onError, onSuccess, pollUntilReady, versionId]
+  );
 
   return (
     <div className="flex flex-col items-stretch gap-2">
       <button
         className={className ?? "btn btn-secondary btn-sm"}
         type="button"
-        onClick={() => void handleClick()}
+        onClick={() => setLayoutModalOpen(true)}
         disabled={isProcessing}
       >
-        {isProcessing ? "Generation PDF..." : "Telecharger PDF"}
+        {isProcessing ? processingLabel : label}
       </button>
-      {errorMessage ? (
-        <p className="text-xs font-medium text-[var(--danger-700)]">
+      {showInlineError && errorMessage ? (
+        <p className="text-xs font-medium text-[var(--danger-700)]" role="alert">
           {errorMessage}
         </p>
       ) : null}
+
+      <EstimatePdfLayoutModal
+        open={layoutModalOpen}
+        onOpenChange={setLayoutModalOpen}
+        versionId={versionId}
+        confirmLabel="Générer et télécharger"
+        onConfirm={handleGenerate}
+      />
     </div>
   );
 }

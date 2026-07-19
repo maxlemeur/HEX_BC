@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  badRequest,
   conflict,
   internalError,
   notFound,
@@ -15,11 +16,27 @@ import {
   markEstimatePdfFailed,
   markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
+import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
 export const runtime = "nodejs";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
+});
+
+const estimatePdfLayoutSchema = z.object({
+  preset: z.enum(["client_detailed", "decision_summary", "fo_mo"]),
+  detailLevel: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal("lines")]),
+  priceMode: z.enum(["total_only", "unit_and_total", "fo_mo_and_total"]),
+  density: z.enum(["compact", "standard", "comfortable"]),
+  showNumbering: z.boolean(),
+  showSectionSubtotals: z.boolean(),
+  conditionsPlacement: z.enum(["auto", "new_page"]),
+  includeTerms: z.boolean(),
+});
+
+const requestBodySchema = z.object({
+  layout: estimatePdfLayoutSchema.optional(),
 });
 
 type JsonErrorPayload = {
@@ -34,6 +51,21 @@ type JsonErrorPayload = {
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
+}
+
+async function parseRequestBody(request: Request) {
+  const rawBody = await request.text();
+  if (!rawBody.trim()) return {};
+  try {
+    return requestBodySchema.parse(JSON.parse(rawBody)) as {
+      layout?: EstimatePdfLayoutOptions;
+    };
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw badRequest("Le corps JSON est invalide.");
+    }
+    throw error;
+  }
 }
 
 function parseForceQuery(request: Request) {
@@ -92,6 +124,7 @@ export async function POST(
   try {
     const versionId = await getVersionId(params);
     const force = parseForceQuery(request);
+    const body = await parseRequestBody(request);
 
     const currentStatus = await getEstimatePdfStatus(versionId);
 
@@ -118,6 +151,7 @@ export async function POST(
         await generateEstimatePdfNow(versionId, {
           force,
           triggeredBy: "manual",
+          layout: body.layout,
         });
       } catch (error) {
         try {

@@ -1,10 +1,17 @@
 import {
   computeAllSectionTotals,
+  computeEstimateLineSaleSplit,
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
+import {
+  DEFAULT_ESTIMATE_PDF_LAYOUT,
+  normalizeEstimatePdfLayoutOptions,
+  type EstimatePdfDetailLevel,
+  type EstimatePdfLayoutOptions,
+} from "@/lib/estimates/pdf-layout";
 import {
   formatCurrency,
   normalizeEstimateCurrency,
@@ -14,6 +21,11 @@ import type { Database } from "@/types/database";
 
 export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 export type EstimateDocumentRow = { item: EstimateItem; depth: number };
+export type EstimateDocumentLineSplit = {
+  foTotalCents: number;
+  moTotalCents: number;
+  totalHtCents: number;
+};
 export type QrLikeCell = { id: string; enabled: boolean };
 
 type PrepareEstimateDocumentDataInput = {
@@ -27,12 +39,15 @@ type PrepareEstimateDocumentDataInput = {
   validiteJours: number;
   portalUrl?: string | null;
   maxVisibleSectionLevel?: number | null;
+  layout?: EstimatePdfLayoutOptions;
 };
 
 export type EstimateDocumentPreparedData = {
   rows: EstimateDocumentRow[];
   numberingById: Record<string, string>;
   sectionTotalsById: Record<string, SectionTotals>;
+  lineSplitsById: Record<string, EstimateDocumentLineSplit>;
+  layout: EstimatePdfLayoutOptions;
   taxEnabled: boolean;
   discountLabel: string;
   validiteLabel: string;
@@ -143,7 +158,7 @@ function buildQrLikeCells(value: string, size = 21): QrLikeCell[] {
 
 function buildRows(
   items: EstimateItem[],
-  maxVisibleSectionLevel: number | null
+  detailLevel: EstimatePdfDetailLevel
 ): EstimateDocumentRow[] {
   const map = new Map<string, EstimateItem[]>();
   items.forEach((item) => {
@@ -155,15 +170,15 @@ function buildRows(
   map.forEach((list) => list.sort((a, b) => a.position - b.position));
 
   const rows: EstimateDocumentRow[] = [];
-  const hideLineDetails = maxVisibleSectionLevel !== null;
+  const hideLineDetails = detailLevel !== "lines";
   const walk = (parentId: string | null, depth: number) => {
     const list = map.get(getParentKey(parentId)) ?? [];
     list.forEach((item) => {
       if (item.item_type === "section") {
         const sectionLevel = depth + 1;
         if (
-          maxVisibleSectionLevel !== null &&
-          sectionLevel > maxVisibleSectionLevel
+          detailLevel !== "lines" &&
+          sectionLevel > detailLevel
         ) {
           return;
         }
@@ -181,6 +196,38 @@ function buildRows(
   return rows;
 }
 
+export function summarizeEstimateDocumentStructure(items: EstimateItem[]) {
+  const sectionCountsByLevel: Record<"1" | "2" | "3" | "4", number> = {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+  };
+  const childrenByParentId = new Map<string, EstimateItem[]>();
+  items.forEach((item) => {
+    const key = getParentKey(item.parent_id);
+    const children = childrenByParentId.get(key) ?? [];
+    children.push(item);
+    childrenByParentId.set(key, children);
+  });
+
+  const walk = (parentId: string | null, depth: number) => {
+    const children = childrenByParentId.get(getParentKey(parentId)) ?? [];
+    children.forEach((item) => {
+      if (item.item_type !== "section") return;
+      const level = Math.min(depth + 1, 4) as 1 | 2 | 3 | 4;
+      sectionCountsByLevel[String(level) as "1" | "2" | "3" | "4"] += 1;
+      walk(item.id, depth + 1);
+    });
+  };
+  walk(null, 0);
+
+  return {
+    lineCount: items.filter((item) => item.item_type === "line").length,
+    sectionCountsByLevel,
+  };
+}
+
 export function prepareEstimateDocumentData({
   items,
   marginMultiplier,
@@ -192,10 +239,17 @@ export function prepareEstimateDocumentData({
   validiteJours,
   portalUrl,
   maxVisibleSectionLevel = null,
+  layout,
 }: PrepareEstimateDocumentDataInput): EstimateDocumentPreparedData {
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
-  const rows = buildRows(items, maxVisibleSectionLevel);
+  const resolvedLayout = normalizeEstimatePdfLayoutOptions(
+    layout ?? {
+      ...DEFAULT_ESTIMATE_PDF_LAYOUT,
+      detailLevel: maxVisibleSectionLevel ?? "lines",
+    }
+  );
+  const rows = buildRows(items, resolvedLayout.detailLevel);
   const numberingById = computeEstimateItemNumbering(items);
   const calcItems = items as EstimateItemRecord[];
   const laborRateMap = new Map(Object.entries(laborRateById));
@@ -211,6 +265,37 @@ export function prepareEstimateDocumentData({
       }).entries()
     )
   ) as Record<string, SectionTotals>;
+  const lineSplitsById = Object.fromEntries(
+    calcItems
+      .filter((item) => item.item_type === "line")
+      .map((item) => {
+        const split = computeEstimateLineSaleSplit(item, {
+          marginMultiplier,
+          taxRateBp,
+          laborRateById: laborRateMap,
+          isLaborSplitEnabled,
+          laborRateAtelierById: laborRateMap,
+          laborRateChantierById: laborRateMap,
+        });
+        const storedTotal = Number.isFinite(item.line_total_ht_cents ?? NaN)
+          ? Math.max(item.line_total_ht_cents ?? 0, 0)
+          : split.saleLineCents;
+        const proportionalMo =
+          split.saleLineCents > 0
+            ? Math.round((split.moSaleLineCents * storedTotal) / split.saleLineCents)
+            : 0;
+        const moTotalCents = Math.min(Math.max(proportionalMo, 0), storedTotal);
+
+        return [
+          item.id,
+          {
+            foTotalCents: storedTotal - moTotalCents,
+            moTotalCents,
+            totalHtCents: storedTotal,
+          },
+        ];
+      })
+  ) as Record<string, EstimateDocumentLineSplit>;
 
   const taxEnabled = taxRateBp > 0;
   const discountLabel =
@@ -219,13 +304,15 @@ export function prepareEstimateDocumentData({
       : formatCurrency(0, resolvedCurrency);
   const validiteLabel = validiteJours > 0 ? `${validiteJours} jours` : "-";
   const taxLabel = taxEnabled ? `${formatPercent(taxRateBp)} %` : "";
-  const footerAddress = `${COMPANY_INFO.address.street} ${COMPANY_INFO.address.postalCode} ${COMPANY_INFO.address.city}`;
+  const footerAddress = `${COMPANY_INFO.registeredOffice.street} ${COMPANY_INFO.registeredOffice.postalCode} ${COMPANY_INFO.registeredOffice.city}`;
   const qrLikeCells = portalUrl ? buildQrLikeCells(portalUrl) : [];
 
   return {
     rows,
     numberingById,
     sectionTotalsById,
+    lineSplitsById,
+    layout: resolvedLayout,
     taxEnabled,
     discountLabel,
     validiteLabel,

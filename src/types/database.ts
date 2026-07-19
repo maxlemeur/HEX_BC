@@ -1386,6 +1386,63 @@ export type Database = {
         };
         Relationships: [];
       };
+      estimate_terms_templates: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          title: string;
+          body: string;
+          version: number;
+          policy: "optional" | "default" | "required";
+          is_active: boolean;
+          legal_reviewed_at: string;
+          legal_reviewed_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          title?: string;
+          body: string;
+          version?: number;
+          policy?: "optional" | "default" | "required";
+          is_active?: boolean;
+          legal_reviewed_at: string;
+          legal_reviewed_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          title?: string;
+          body?: string;
+          version?: number;
+          policy?: "optional" | "default" | "required";
+          is_active?: boolean;
+          legal_reviewed_at?: string;
+          legal_reviewed_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "estimate_terms_templates_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: true;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_terms_templates_legal_reviewed_by_fkey";
+            columns: ["legal_reviewed_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       estimate_documents: {
         Row: {
           id: string;
@@ -1398,6 +1455,8 @@ export type Database = {
           file_size_bytes: number | null;
           generated_by: string | null;
           generated_at: string | null;
+          layout_options: Json;
+          terms_snapshot: Json | null;
           status: "processing" | "ready" | "failed";
           last_error: string | null;
         };
@@ -1412,6 +1471,8 @@ export type Database = {
           file_size_bytes?: number | null;
           generated_by?: string | null;
           generated_at?: string | null;
+          layout_options?: Json;
+          terms_snapshot?: Json | null;
           status: "processing" | "ready" | "failed";
           last_error?: string | null;
         };
@@ -1426,6 +1487,8 @@ export type Database = {
           file_size_bytes?: number | null;
           generated_by?: string | null;
           generated_at?: string | null;
+          layout_options?: Json;
+          terms_snapshot?: Json | null;
           status?: "processing" | "ready" | "failed";
           last_error?: string | null;
         };

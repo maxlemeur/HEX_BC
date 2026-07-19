@@ -5,11 +5,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
-import {
-  exportEstimate,
-  fetchEstimatePdfStatus,
-  requestEstimatePdfGeneration,
-} from "@/lib/estimates/client";
+import { exportEstimate } from "@/lib/estimates/client";
+import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
@@ -33,9 +30,6 @@ type AffaireFinishLineActionsProps = {
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
 };
 
-const POLL_INTERVAL_MS = 1_500;
-const POLL_TIMEOUT_MS = 120_000;
-
 type FeedbackState =
   | {
       tone: "success" | "error";
@@ -50,17 +44,6 @@ function canSendEstimateByEmail(
     currentVersion !== null &&
     (currentVersion.status === "draft" || currentVersion.status === "sent")
   );
-}
-
-function wait(delayMs: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
-
-function openDownload(url: string) {
-  if (typeof window === "undefined") return;
-  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function formatVersionLabel(
@@ -82,17 +65,6 @@ function formatVersionStatus(status: string) {
     default:
       return status;
   }
-}
-
-function toSafeErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    const message = error.message.trim();
-    if (message.length > 0) {
-      return message;
-    }
-  }
-
-  return fallback;
 }
 
 function getSendActionState(
@@ -164,7 +136,6 @@ export function AffaireFinishLineActions({
   const router = useRouter();
   const toast = useToast();
   const [sendModalOpen, setSendModalOpen] = useState(false);
-  const [isPdfProcessing, setIsPdfProcessing] = useState(false);
   const [pdfFeedback, setPdfFeedback] = useState<FeedbackState>(null);
   const [isExportingBdc, setIsExportingBdc] = useState(false);
   const [bdcError, setBdcError] = useState<string | null>(null);
@@ -178,71 +149,6 @@ export function AffaireFinishLineActions({
 
     return `Devis - ${projectName} V${currentVersion.versionNumber}`;
   }, [currentVersion, projectName]);
-
-  const pollPdfUntilReady = useCallback(async () => {
-    if (!currentVersion) {
-      throw new Error("Version de devis introuvable.");
-    }
-
-    const startedAt = Date.now();
-
-    while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
-      const status = await fetchEstimatePdfStatus(currentVersion.id);
-
-      if (status.status === "ready" && status.downloadUrl) {
-        return status.downloadUrl;
-      }
-
-      if (status.status === "failed") {
-        throw new Error(status.lastError ?? "Impossible de generer le PDF.");
-      }
-
-      await wait(POLL_INTERVAL_MS);
-    }
-
-    throw new Error("Impossible de generer le PDF.");
-  }, [currentVersion]);
-
-  const handleGeneratePdf = useCallback(async () => {
-    if (!currentVersion || isPdfProcessing) return;
-
-    setIsPdfProcessing(true);
-    setPdfFeedback(null);
-
-    try {
-      const initialStatus = await requestEstimatePdfGeneration(currentVersion.id);
-
-      const downloadUrl =
-        initialStatus.status === "ready" && initialStatus.downloadUrl
-          ? initialStatus.downloadUrl
-          : await pollPdfUntilReady();
-
-      openDownload(downloadUrl);
-      const successMessage = `PDF pret pour la version V${currentVersion.versionNumber}.`;
-      setPdfFeedback({
-        tone: "success",
-        message: successMessage,
-      });
-      toast.success({
-        title: "PDF pret",
-        description: successMessage,
-      });
-      router.refresh();
-    } catch (error) {
-      setPdfFeedback({
-        tone: "error",
-        message: toSafeErrorMessage(error, "Impossible de generer le PDF."),
-      });
-    } finally {
-      setIsPdfProcessing(false);
-    }
-  }, [
-    currentVersion,
-    isPdfProcessing,
-    pollPdfUntilReady,
-    router,
-    toast,
-  ]);
 
   const handleExportBdc = useCallback(async () => {
     if (!currentVersion || isExportingBdc) return;
@@ -349,14 +255,25 @@ export function AffaireFinishLineActions({
                 Il reutilise le PDF existant si disponible, puis le regenere seulement si besoin.
               </p>
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
-                <button
-                  type="button"
+                <EstimatePdfDownloadButton
+                  versionId={currentVersion.id}
                   className="btn btn-secondary btn-sm"
-                  onClick={() => void handleGeneratePdf()}
-                  disabled={isPdfProcessing}
-                >
-                  {isPdfProcessing ? "Generation du PDF..." : "Telecharger le PDF"}
-                </button>
+                  label="Telecharger le PDF"
+                  processingLabel="Generation du PDF..."
+                  showInlineError={false}
+                  onSuccess={() => {
+                    const successMessage = `PDF pret pour la version V${currentVersion.versionNumber}.`;
+                    setPdfFeedback({ tone: "success", message: successMessage });
+                    toast.success({
+                      title: "PDF pret",
+                      description: successMessage,
+                    });
+                    router.refresh();
+                  }}
+                  onError={(message) => {
+                    setPdfFeedback({ tone: "error", message });
+                  }}
+                />
               </div>
               <Link
                 href={`/dashboard/estimates/${currentVersion.id}/print`}

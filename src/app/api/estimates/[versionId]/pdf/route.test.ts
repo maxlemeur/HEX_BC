@@ -81,6 +81,52 @@ describe("estimate pdf route", () => {
     expect(vi.mocked(markEstimatePdfFailed)).toHaveBeenCalledWith(VERSION_ID, "boom");
   });
 
+  it("POST transmet les options de mise en page au generateur", async () => {
+    vi.mocked(getEstimatePdfStatus).mockResolvedValue({ status: "missing" } as never);
+    const layout = {
+      preset: "fo_mo" as const,
+      detailLevel: 3 as const,
+      priceMode: "fo_mo_and_total" as const,
+      density: "compact" as const,
+      showNumbering: true,
+      showSectionSubtotals: true,
+      conditionsPlacement: "new_page" as const,
+      includeTerms: true,
+    };
+
+    const response = await POST(
+      new Request(`http://localhost/api/estimates/${VERSION_ID}/pdf?force=1`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout }),
+      }),
+      { params: Promise.resolve({ versionId: VERSION_ID }) }
+    );
+
+    expect(response.status).toBe(202);
+    const scheduled = vi.mocked(after).mock.calls[0]?.[0];
+    await (scheduled as () => Promise<void>)();
+    expect(vi.mocked(generateEstimatePdfNow)).toHaveBeenCalledWith(VERSION_ID, {
+      force: true,
+      triggeredBy: "manual",
+      layout,
+    });
+  });
+
+  it("POST refuse un corps JSON invalide", async () => {
+    const response = await POST(
+      new Request(`http://localhost/api/estimates/${VERSION_ID}/pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{",
+      }),
+      { params: Promise.resolve({ versionId: VERSION_ID }) }
+    );
+
+    expect(response.status).toBe(400);
+    expect(vi.mocked(getEstimatePdfStatus)).not.toHaveBeenCalled();
+  });
+
   it("POST returns 200 ready when an existing PDF is available without force", async () => {
     vi.mocked(getEstimatePdfStatus).mockResolvedValue({
       status: "ready",

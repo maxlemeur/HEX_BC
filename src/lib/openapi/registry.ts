@@ -350,6 +350,40 @@ export const apiPdfStatusResponseSchema = z.object({
   data: pdfStatusSchema,
 });
 
+const estimatePdfLayoutSchema = z.object({
+  preset: z.enum(["client_detailed", "decision_summary", "fo_mo"]),
+  detailLevel: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal("lines"),
+  ]),
+  priceMode: z.enum(["total_only", "unit_and_total", "fo_mo_and_total"]),
+  density: z.enum(["compact", "standard", "comfortable"]),
+  showNumbering: z.boolean(),
+  showSectionSubtotals: z.boolean(),
+  conditionsPlacement: z.enum(["auto", "new_page"]),
+  includeTerms: z.boolean(),
+});
+
+const estimatePdfLayoutConfigurationSchema = z.object({
+  lineCount: z.number().int().min(0),
+  sectionCountsByLevel: z.object({
+    "1": z.number().int().min(0),
+    "2": z.number().int().min(0),
+    "3": z.number().int().min(0),
+    "4": z.number().int().min(0),
+  }),
+  hasConditions: z.boolean(),
+  terms: z.object({
+    available: z.boolean(),
+    policy: z.enum(["optional", "default", "required"]),
+    title: z.string().nullable(),
+    version: z.number().int().min(1).nullable(),
+  }),
+});
+
 const insertAssemblyIntoVersionBodySchema = z.object({
   after_item_id: z.union([uuidSchema, z.null()]).optional(),
 });
@@ -3267,6 +3301,12 @@ const insertAssemblyBody = jsonBody({
   schema: insertAssemblyIntoVersionBodySchema,
   required: false,
 });
+const generateEstimatePdfBody = jsonBody({
+  name: "GenerateEstimatePdfRequest",
+  description: "Options de mise en page appliquees a la generation du devis PDF.",
+  schema: z.object({ layout: estimatePdfLayoutSchema.optional() }),
+  required: false,
+});
 const createTakeoffJobBody = multipartBody({
   name: "CreateTakeoffJobFormDataRequest",
   description:
@@ -3438,6 +3478,11 @@ const takeoffJobsErrorResponses: Record<string, OpenApiResponseDefinition> = {
 const apiOutlierStateSchemaDefinition =
   openApiSharedSchemaDefinitions.apiOutlierStateResponse;
 const apiPdfStatusSchemaDefinition = openApiSharedSchemaDefinitions.apiPdfStatusResponse;
+const apiEstimatePdfLayoutConfigurationSchemaDefinition = schemaDefinition(
+  "ApiEstimatePdfLayoutConfigurationResponse",
+  successEnvelopeSchema(estimatePdfLayoutConfigurationSchema),
+  "output"
+);
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
@@ -4710,6 +4755,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "Declenche une generation PDF immediate. Retourne `ready` ou `processing`.",
     tags: ["Estimate PDF"],
     parameters: [versionIdPathParameter, pdfForceQueryParameter],
+    requestBody: generateEstimatePdfBody,
     responses: {
       "200": jsonResponse(
         "Statut PDF retourne (deja pret).",
@@ -4718,6 +4764,21 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "202": jsonResponse(
         "Generation PDF en cours.",
         apiPdfStatusSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/estimates/{versionId}/pdf/layout",
+    summary: "Recuperer les options de mise en page du devis",
+    description:
+      "Retourne la structure du devis et la politique CGV du locataire pour alimenter l'apercu avant generation.",
+    tags: ["Estimate PDF"],
+    parameters: [versionIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Configuration de mise en page retournee.",
+        apiEstimatePdfLayoutConfigurationSchemaDefinition
       ),
     },
   },
