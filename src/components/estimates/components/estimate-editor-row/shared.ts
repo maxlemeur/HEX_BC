@@ -271,6 +271,19 @@ export function parseNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * Comme parseNumberInput mais renvoie `null` pour une saisie vide ou invalide,
+ * afin de distinguer un vrai « 0 » d'un champ effacé. Utilisé par les cellules
+ * de coefficient (K FO / K MO) pour retomber sur une valeur neutre plutôt que
+ * d'enregistrer 0 (qui annulerait le coût fourniture / main-d'œuvre).
+ */
+export function parseDecimalDraft(value: string): number | null {
+  const normalized = value.trim().replace(",", ".");
+  if (normalized === "") return null;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function formatMajorationPercentInput(value: number | null | undefined) {
   if (!Number.isFinite(value ?? NaN)) return "100";
   const percent = (value ?? 1) * 100;

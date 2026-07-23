@@ -236,6 +236,7 @@ export function StandardMoCells({
             ref={kMoEditorProps.ref}
             tabIndex={kMoEditorProps.tabIndex}
             value={kMoValue}
+            emptyValue={1}
             aria-label={`Coefficient main-d'œuvre K MO pour ${item.title || "sans titre"}`}
             aria-invalid={missingLaborRateMessage ? true : undefined}
             title={
