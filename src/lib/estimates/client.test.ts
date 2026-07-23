@@ -1809,6 +1809,37 @@ describe("estimate client creation wrappers", () => {
     expect(body.project).toBeUndefined();
   });
 
+  it("omits margin_multiplier when not provided so the server inherits the project margin", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: { version: { id: VERSION_ID } },
+        }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createEstimate({
+      projectId: PROJECT_ID,
+      title: "Version 5",
+      dateDevis: "2026-03-05",
+      validiteJours: 30,
+      // pas de marginMultiplier: on veut hériter de la dernière version
+    });
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(requestInit.body)) as {
+      version: Record<string, unknown>;
+    };
+
+    expect(body.version).not.toHaveProperty("margin_multiplier");
+  });
+
   it("forwards linked DPGF creation mode in createEstimate payload", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

@@ -3824,7 +3824,12 @@ export async function createEstimate(
       title: input.title,
       date_devis: input.dateDevis,
       validite_jours: input.validiteJours,
-      margin_multiplier: input.marginMultiplier ?? 1,
+      // Ne pas forcer margin_multiplier: omettre la clé quand elle n'est pas
+      // fournie laisse le serveur hériter de la marge de la dernière version
+      // de l'affaire (sinon toute nouvelle version repart à 0 % de marge).
+      ...(input.marginMultiplier != null
+        ? { margin_multiplier: input.marginMultiplier }
+        : {}),
       ...(input.marginMode ? { margin_mode: input.marginMode } : {}),
       ...(input.marginBp != null ? { margin_bp: input.marginBp } : {}),
       ...(input.taxRateBp != null ? { tax_rate_bp: input.taxRateBp } : {}),
