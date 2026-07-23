@@ -260,7 +260,13 @@ export function EstimateDiffView({
   previousVersionLabel,
   currentVersionLabel,
 }: Readonly<EstimateDiffViewProps>) {
-  if (diff.entries.length === 0) {
+  // Une remise, un coefficient global ou un arrondi modifie le total de version
+  // sans changer aucune ligne (diff.entries reste vide). Ne masquer le résumé
+  // que lorsqu'il n'y a NI changement de ligne NI écart de total.
+  const hasTotalDelta =
+    diff.summary.deltaHtCents !== 0 || diff.summary.deltaTtcCents !== 0;
+
+  if (diff.entries.length === 0 && !hasTotalDelta) {
     return (
       <div className="dashboard-card p-6 text-sm text-slate-600">
         Aucun changement detecte entre les versions selectionnees.
@@ -337,7 +343,12 @@ export function EstimateDiffView({
       </section>
 
       <section className="space-y-3">
-
+        {diff.entries.length === 0 ? (
+          <div className="dashboard-card p-4 text-sm text-slate-600">
+            Aucune ligne modifiee. L&apos;ecart de total provient des parametres
+            globaux du devis (remise, coefficient global ou arrondi).
+          </div>
+        ) : null}
         {diff.entries.map((entry) =>
           mode === "inline" ? (
             <InlineEntry key={entry.key} entry={entry} />
