@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { formatEUR } from "@/lib/money";
 
 export type SupplierComparisonAlternativeKind =
@@ -82,6 +84,24 @@ export function SupplierComparisonPanel({
   onClose,
   onSelectAlternative,
 }: SupplierComparisonPanelProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Fermeture au clavier (Échap) + focus initial : le panneau est un
+  // role="dialog" aria-modal mais n'offrait aucune opération au clavier, ce
+  // qui piégeait un acheteur travaillant sans souris.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    dialogRef.current?.focus();
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -93,6 +113,8 @@ export function SupplierComparisonPanel({
         aria-label="Fermer la comparaison fournisseurs"
       />
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="estimate-supplier-comparison-panel"
         role="dialog"
         aria-modal="true"

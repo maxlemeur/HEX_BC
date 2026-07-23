@@ -125,4 +125,24 @@ describe("SupplierComparisonPanel", () => {
       })
     );
   });
+
+  it("se ferme à la touche Échap", () => {
+    const onClose = vi.fn();
+    render(
+      <SupplierComparisonPanel
+        isOpen
+        itemTitle="Faux plafond acoustique"
+        alternatives={alternatives}
+        bestSupplierPriceId="price-best"
+        isLoading={false}
+        error={null}
+        isReadOnly={false}
+        onClose={onClose}
+        onSelectAlternative={vi.fn()}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
