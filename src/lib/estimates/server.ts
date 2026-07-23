@@ -5109,7 +5109,7 @@ export async function updateEstimateTemplate(
     templateId,
   });
 
-  const payload: Record<string, unknown> = {};
+  const payload: { name?: string; description?: string | null } = {};
 
   if ("name" in input) {
     payload.name = (input.name ?? "").trim();

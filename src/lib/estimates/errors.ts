@@ -1,4 +1,3 @@
-import type { PostgrestError } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -156,8 +155,20 @@ export function internalError(
   });
 }
 
+/**
+ * Forme minimale consommee par mapSupabaseError : le `PostgrestError` de
+ * supabase-js la satisfait, tout comme les erreurs RPC typees localement
+ * (qui n'exposent ni `name` ni `toJSON`).
+ */
+export type SupabaseErrorLike = {
+  code: string;
+  message: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
 export function mapSupabaseError(
-  error: PostgrestError,
+  error: SupabaseErrorLike,
   fallbackMessage: string
 ): ApiError {
   const normalizedMessage = (error.message ?? "").toLowerCase();
