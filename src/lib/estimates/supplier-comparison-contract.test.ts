@@ -11,6 +11,7 @@ function buildCandidate(): EstimateSupplierComparisonCandidate {
     supplier_id: "00000000-0000-4000-8000-000000000110",
     supplier_name: "Selection courante",
     adjusted_unit_price_cents: 1325,
+    currency: "EUR",
     supplier_reference: "SEL-1",
     catalogue_url: "https://example.com/selected",
     updated_at: "2026-03-10T08:00:00.000Z",

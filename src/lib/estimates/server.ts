@@ -236,6 +236,8 @@ type VersionAccessRow = Pick<
 > & {
   parent_version_id?: string | null;
   variant_label?: string | null;
+  /** Optionnel : absent des jeux de tests/mocks historiques. */
+  currency?: string | null;
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
@@ -847,6 +849,8 @@ type EstimateSupplierComparisonSourceAlternative = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
+  currency: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
   updated_at: string | null;
@@ -860,6 +864,8 @@ export type EstimateSupplierComparisonAlternative = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
+  currency: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
   updated_at: string | null;
@@ -903,6 +909,8 @@ export type EstimateSupplierComparisonCandidate = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
+  currency: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
   updated_at: string | null;
@@ -1297,6 +1305,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  currency?: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
   updated_at: string | null;
@@ -1308,6 +1317,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
     supplier_id: input.supplier_id,
     supplier_name: input.supplier_name,
     adjusted_unit_price_cents: input.adjusted_unit_price_cents,
+    currency: input.currency ?? null,
     supplier_reference: input.supplier_reference,
     catalogue_url: input.catalogue_url,
     updated_at: input.updated_at,
@@ -1327,6 +1337,7 @@ function toEstimateSupplierComparisonAlternative(input: {
     supplier_id: input.alternative.supplier_id,
     supplier_name: input.alternative.supplier_name,
     adjusted_unit_price_cents: input.alternative.adjusted_unit_price_cents,
+    currency: input.alternative.currency,
     supplier_reference: input.alternative.supplier_reference,
     catalogue_url: input.alternative.catalogue_url,
     updated_at: input.alternative.updated_at,
@@ -1399,6 +1410,8 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: bestPrice.supplier_id,
           supplier_name: bestPrice.supplier_name,
           adjusted_unit_price_cents: bestPrice.adjusted_unit_price_cents,
+
+          currency: bestPrice.currency ?? null,
           supplier_reference: bestPrice.supplier_reference,
           catalogue_url: bestPrice.catalogue_url,
           updated_at: bestPrice.updated_at,
@@ -1415,6 +1428,8 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: mostRecent.supplier_id,
           supplier_name: mostRecent.supplier_name,
           adjusted_unit_price_cents: mostRecent.adjusted_unit_price_cents,
+
+          currency: mostRecent.currency ?? null,
           supplier_reference: mostRecent.supplier_reference,
           catalogue_url: mostRecent.catalogue_url,
           updated_at: mostRecent.updated_at,
@@ -1431,6 +1446,8 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: preferredSupplier.supplier_id,
           supplier_name: preferredSupplier.supplier_name,
           adjusted_unit_price_cents: preferredSupplier.adjusted_unit_price_cents,
+
+          currency: preferredSupplier.currency ?? null,
           supplier_reference: preferredSupplier.supplier_reference,
           catalogue_url: preferredSupplier.catalogue_url,
           updated_at: preferredSupplier.updated_at,
@@ -1449,6 +1466,8 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
             supplier_id: input.candidate.supplier_id,
             supplier_name: input.candidate.supplier_name,
             adjusted_unit_price_cents: input.candidate.adjusted_unit_price_cents,
+
+            currency: input.candidate.currency ?? null,
             supplier_reference: input.candidate.supplier_reference,
             catalogue_url: input.candidate.catalogue_url,
             updated_at: input.candidate.updated_at,
@@ -1469,6 +1488,8 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
               supplier_id: selected.supplier_id,
               supplier_name: selected.supplier_name,
               adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
+
+              currency: selected.currency ?? null,
               supplier_reference: selected.supplier_reference,
               catalogue_url: selected.catalogue_url,
               updated_at: selected.updated_at,
@@ -1593,11 +1614,27 @@ function createEmptyEstimateSupplierPreselectionSummary(): EstimateSupplierPrese
     stale_items: 0,
     ambiguous_items: 0,
     no_price_items: 0,
+    currency_mismatch_items: 0,
   };
 }
 
+/**
+ * Un prix fournisseur n'est comparable/injectable que s'il est libellé dans la
+ * devise du devis. Une devise absente correspond aux données historiques,
+ * réputées déjà dans la devise du devis.
+ */
+function isSupplierAlternativeCurrencyCompatible(
+  alternative: { currency?: string | null },
+  estimateCurrency: string
+) {
+  const raw = alternative.currency?.trim().toUpperCase();
+  if (!raw) return true;
+  return raw === estimateCurrency.trim().toUpperCase();
+}
+
 function findEstimateSupplierPreselectionProposalAlternative(
-  comparison: EstimateSupplierComparison
+  comparison: EstimateSupplierComparison,
+  estimateCurrency: string
 ) {
   if (comparison.selected_supplier_price_id !== null) {
     return null;
@@ -1612,14 +1649,35 @@ function findEstimateSupplierPreselectionProposalAlternative(
     return null;
   }
 
+  // Ne jamais préselectionner un prix dans une autre devise : son montant
+  // serait écrit tel quel dans unit_price_ht_cents, donc interprété comme un
+  // montant dans la devise du devis.
+  if (
+    !isSupplierAlternativeCurrencyCompatible(proposedAlternative, estimateCurrency)
+  ) {
+    return null;
+  }
+
   return proposedAlternative;
 }
 
 function resolveEstimateSupplierPreselectionExceptionReason(
-  comparison: EstimateSupplierComparison
+  comparison: EstimateSupplierComparison,
+  estimateCurrency: string
 ): EstimateSupplierPreselectionExceptionReason | null {
   if (comparison.alternatives.length === 0) {
     return "no_price";
+  }
+
+  // Des prix existent mais aucun dans la devise du devis : arbitrage humain
+  // requis. Sans ce cas, la ligne retomberait à tort dans already_selected.
+  if (
+    comparison.selected_supplier_price_id === null &&
+    !comparison.alternatives.some((alternative) =>
+      isSupplierAlternativeCurrencyCompatible(alternative, estimateCurrency)
+    )
+  ) {
+    return "currency_mismatch";
   }
 
   if (comparison.selected_alternative?.is_stale === true) {
@@ -1640,7 +1698,10 @@ function resolveEstimateSupplierPreselectionExceptionReason(
 export function buildEstimateSupplierPreselectionReview(input: {
   comparisons: EstimateSupplierComparison[];
   itemTitleById: Map<string, string>;
+  /** Devise du devis : un prix dans une autre devise n'est jamais préselectionné. */
+  estimateCurrency?: string | null;
 }): EstimateSupplierPreselectionReview {
+  const estimateCurrency = input.estimateCurrency?.trim() || "EUR";
   const summary = createEmptyEstimateSupplierPreselectionSummary();
   const proposals: EstimateSupplierPreselectionProposal[] = [];
   const exceptions: EstimateSupplierPreselectionException[] = [];
@@ -1650,7 +1711,10 @@ export function buildEstimateSupplierPreselectionReview(input: {
 
     const itemTitle = input.itemTitleById.get(comparison.item_id) ?? "Ligne";
     const proposedAlternative =
-      findEstimateSupplierPreselectionProposalAlternative(comparison);
+      findEstimateSupplierPreselectionProposalAlternative(
+        comparison,
+        estimateCurrency
+      );
 
     if (proposedAlternative) {
       const patch: EstimateSupplierPreselectionPatch = {
@@ -1674,7 +1738,10 @@ export function buildEstimateSupplierPreselectionReview(input: {
     }
 
     const exceptionReason =
-      resolveEstimateSupplierPreselectionExceptionReason(comparison);
+      resolveEstimateSupplierPreselectionExceptionReason(
+        comparison,
+        estimateCurrency
+      );
 
     if (exceptionReason) {
       exceptions.push({
@@ -1696,6 +1763,8 @@ export function buildEstimateSupplierPreselectionReview(input: {
         summary.ambiguous_items += 1;
       } else if (exceptionReason === "no_price") {
         summary.no_price_items += 1;
+      } else if (exceptionReason === "currency_mismatch") {
+        summary.currency_mismatch_items += 1;
       }
       return;
     }
@@ -3781,7 +3850,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -7426,7 +7495,16 @@ export async function getEstimateSupplierComparisons(
 
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
-  await getVersionAccessOrThrow(supabase, versionId, context);
+  const { version: accessedVersion } = await getVersionAccessOrThrow(
+    supabase,
+    versionId,
+    context
+  );
+
+  // Devise du devis : un prix fournisseur libellé dans une autre devise ne doit
+  // jamais être préselectionné automatiquement, son montant étant écrit tel quel
+  // dans unit_price_ht_cents.
+  const estimateCurrency = accessedVersion.currency?.trim() || "EUR";
 
   let itemsQuery = supabase
     .from("estimate_items")
@@ -7484,6 +7562,7 @@ export async function getEstimateSupplierComparisons(
       bulk_preselection: buildEstimateSupplierPreselectionReview({
         comparisons: [],
         itemTitleById: new Map(),
+        estimateCurrency,
       }),
     };
   }
@@ -7572,6 +7651,8 @@ export async function getEstimateSupplierComparisons(
         supplier_id: candidate.supplier_id,
         supplier_name: candidate.supplier_name,
         adjusted_unit_price_cents: candidate.adjusted_unit_price_cents,
+
+        currency: candidate.currency ?? null,
         supplier_reference: candidate.supplier_reference,
         catalogue_url: candidate.catalogue_url,
         updated_at: candidate.updated_at,
@@ -7617,6 +7698,7 @@ export async function getEstimateSupplierComparisons(
     bulk_preselection: buildEstimateSupplierPreselectionReview({
       comparisons,
       itemTitleById,
+      estimateCurrency,
     }),
   };
 }

@@ -41,6 +41,7 @@ const EXCEPTION_REASONS = [
   "stale",
   "ambiguous",
   "no_price",
+  "currency_mismatch",
 ] as const satisfies EstimateSupplierPreselectionExceptionReason[];
 
 const COVERAGE_STATUSES = [
@@ -69,6 +70,7 @@ const EMPTY_REVIEW: EstimateSupplierPreselectionReview = {
     stale_items: 0,
     ambiguous_items: 0,
     no_price_items: 0,
+    currency_mismatch_items: 0,
   },
   proposals: [],
   exceptions: [],
@@ -145,6 +147,7 @@ function normalizeSummary(value: unknown): EstimateSupplierPreselectionSummary {
     stale_items: count("stale_items"),
     ambiguous_items: count("ambiguous_items"),
     no_price_items: count("no_price_items"),
+    currency_mismatch_items: count("currency_mismatch_items"),
   };
 }
 

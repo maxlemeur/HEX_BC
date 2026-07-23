@@ -42,7 +42,14 @@ export type EstimateSupplierPreselectionExceptionReason =
   | "divergence"
   | "stale"
   | "ambiguous"
-  | "no_price";
+  | "no_price"
+  /**
+   * Le(s) prix fournisseur disponibles sont libellés dans une autre devise que
+   * le devis. On ne préselectionne jamais automatiquement dans ce cas : injecter
+   * le montant tel quel le ferait passer pour un montant dans la devise du
+   * devis (erreur monétaire silencieuse). L'arbitrage revient à l'acheteur.
+   */
+  | "currency_mismatch";
 
 export type EstimateSupplierPreselectionProposal = {
   item_id: string;
@@ -74,6 +81,7 @@ export type EstimateSupplierPreselectionSummary = {
   stale_items: number;
   ambiguous_items: number;
   no_price_items: number;
+  currency_mismatch_items: number;
 };
 
 export type EstimateSupplierPreselectionReview = {

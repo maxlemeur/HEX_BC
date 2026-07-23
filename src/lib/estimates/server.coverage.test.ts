@@ -644,6 +644,8 @@ describe("estimate server coverage additions", () => {
         stale_items: 1,
         ambiguous_items: 0,
         no_price_items: 1,
+
+        currency_mismatch_items: 0,
       },
       proposals: [],
       exceptions: [
@@ -1148,6 +1150,8 @@ describe("estimate server coverage additions", () => {
         stale_items: 0,
         ambiguous_items: 0,
         no_price_items: 0,
+
+        currency_mismatch_items: 0,
       },
       proposals: [
         expect.objectContaining({
@@ -1214,6 +1218,82 @@ describe("estimate server coverage additions", () => {
     });
   });
 
+  it("ne preselectionne pas un prix libelle dans une autre devise", () => {
+    const result = buildEstimateSupplierPreselectionReview({
+      estimateCurrency: "EUR",
+      itemTitleById: new Map([["item-usd", "Acier"]]),
+      comparisons: [
+        {
+          item_id: "item-usd",
+          selected_supplier_price_id: null,
+          best_supplier_price_id: "price-usd",
+          coverage_status: "covered",
+          risk_flags: [],
+          selected_alternative: null,
+          alternatives: [
+            {
+              kind: "best_price",
+              supplier_price_id: "price-usd",
+              supplier_id: "supplier-usd",
+              supplier_name: "US Supplier",
+              adjusted_unit_price_cents: 10000,
+              currency: "USD",
+              supplier_reference: "USD-1",
+              catalogue_url: null,
+              updated_at: "2026-03-01T00:00:00.000Z",
+              is_stale: false,
+              product_designation: "Acier",
+              is_selected: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    // Le montant USD ne doit jamais etre injecte tel quel dans un devis EUR.
+    expect(result.proposals).toHaveLength(0);
+    expect(result.summary.proposed_items).toBe(0);
+    expect(result.summary.currency_mismatch_items).toBe(1);
+    expect(result.exceptions[0]?.reason).toBe("currency_mismatch");
+  });
+
+  it("preselectionne normalement un prix dans la devise du devis", () => {
+    const result = buildEstimateSupplierPreselectionReview({
+      estimateCurrency: "EUR",
+      itemTitleById: new Map([["item-eur", "Acier"]]),
+      comparisons: [
+        {
+          item_id: "item-eur",
+          selected_supplier_price_id: null,
+          best_supplier_price_id: "price-eur",
+          coverage_status: "covered",
+          risk_flags: [],
+          selected_alternative: null,
+          alternatives: [
+            {
+              kind: "best_price",
+              supplier_price_id: "price-eur",
+              supplier_id: "supplier-eur",
+              supplier_name: "FR Supplier",
+              adjusted_unit_price_cents: 9500,
+              currency: "EUR",
+              supplier_reference: "EUR-1",
+              catalogue_url: null,
+              updated_at: "2026-03-01T00:00:00.000Z",
+              is_stale: false,
+              product_designation: "Acier",
+              is_selected: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.summary.currency_mismatch_items).toBe(0);
+    expect(result.proposals).toHaveLength(1);
+    expect(result.proposals[0]?.patch.unit_price_ht_cents).toBe(9500);
+  });
+
   it("builds a bulk supplier preselection review for simple proposals and explicit divergences", () => {
     const result = buildEstimateSupplierPreselectionReview({
       comparisons: [
@@ -1231,6 +1311,7 @@ describe("estimate server coverage additions", () => {
               supplier_id: "supplier-clear",
               supplier_name: "Clear Supplier",
               adjusted_unit_price_cents: 1250,
+              currency: "EUR",
               supplier_reference: "CLR-1",
               catalogue_url: null,
               updated_at: "2026-03-01T00:00:00.000Z",
@@ -1252,6 +1333,7 @@ describe("estimate server coverage additions", () => {
             supplier_id: "supplier-old",
             supplier_name: "Old Supplier",
             adjusted_unit_price_cents: 1600,
+            currency: "EUR",
             supplier_reference: "OLD-1",
             catalogue_url: null,
             updated_at: "2026-03-01T00:00:00.000Z",
@@ -1266,6 +1348,7 @@ describe("estimate server coverage additions", () => {
               supplier_id: "supplier-best",
               supplier_name: "Best Supplier",
               adjusted_unit_price_cents: 1400,
+              currency: "EUR",
               supplier_reference: "BEST-1",
               catalogue_url: null,
               updated_at: "2026-03-02T00:00:00.000Z",
@@ -1279,6 +1362,7 @@ describe("estimate server coverage additions", () => {
               supplier_id: "supplier-old",
               supplier_name: "Old Supplier",
               adjusted_unit_price_cents: 1600,
+              currency: "EUR",
               supplier_reference: "OLD-1",
               catalogue_url: null,
               updated_at: "2026-03-01T00:00:00.000Z",
@@ -1305,6 +1389,8 @@ describe("estimate server coverage additions", () => {
         stale_items: 0,
         ambiguous_items: 0,
         no_price_items: 0,
+
+        currency_mismatch_items: 0,
       },
       proposals: [
         expect.objectContaining({

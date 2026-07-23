@@ -32,6 +32,8 @@ function formatExceptionReason(reason: string) {
       return "Choix ambigu";
     case "no_price":
       return "Sans couverture";
+    case "currency_mismatch":
+      return "Devise différente";
     default:
       return reason;
   }

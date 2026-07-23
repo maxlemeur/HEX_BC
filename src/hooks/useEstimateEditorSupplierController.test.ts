@@ -289,6 +289,7 @@ describe("useEstimateEditorSupplierController", () => {
           stale_items: 0,
           ambiguous_items: 0,
           no_price_items: 0,
+          currency_mismatch_items: 0,
         },
         proposals: [],
         exceptions: [],
