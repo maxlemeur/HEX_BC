@@ -146,14 +146,42 @@ export function EvidencePanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Focus panel on open
+  // Focus panel on open, restore focus to the trigger on close
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
+    return () => {
+      previouslyFocused?.focus?.();
+    };
   }, []);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Piège de focus : Tab reste confiné au tiroir modal (sinon le focus
+      // s'échappe vers la table sous-jacente, incohérent avec aria-modal).
+      if (e.key === "Tab") {
+        const panel = panelRef.current;
+        if (!panel) return;
+        const focusable = Array.from(
+          panel.querySelectorAll<HTMLElement>(
+            'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+          )
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || active === panel)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+
       if (isEditing) return; // Don't navigate while editing
 
       if (e.key === "Escape") {

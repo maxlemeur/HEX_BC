@@ -72,6 +72,21 @@ describe("EvidencePanel", () => {
     );
   });
 
+  it("piège le focus clavier dans le tiroir (Shift+Tab depuis le tiroir revient au dernier élément)", () => {
+    render(<EvidencePanel item={makeItem()} {...defaultProps} />);
+
+    const dialog = screen.getByRole("dialog");
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    );
+    expect(focusable.length).toBeGreaterThan(0);
+    const last = focusable[focusable.length - 1];
+
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+
   it("shows item counter", () => {
     render(
       <EvidencePanel
