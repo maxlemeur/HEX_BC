@@ -197,7 +197,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                                 projectId: item.projectId,
                                 ownerUserId: selectedOwner,
                               });
-                              setFeedback(`Affaire reassign ee a ${ownerOptions.find((option) => option.userId === selectedOwner)?.label ?? "ce responsable"}.`);
+                              setFeedback(`Affaire réassignée à ${ownerOptions.find((option) => option.userId === selectedOwner)?.label ?? "ce responsable"}.`);
                             } catch {
                               setFeedback("Impossible de modifier le responsable.");
                             }

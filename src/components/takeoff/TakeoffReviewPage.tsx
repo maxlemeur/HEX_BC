@@ -1326,12 +1326,12 @@ export default function TakeoffReviewPage({
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="page-title">
-            {isAffaireContext ? "Revue des exceptions & preuves" : "Revue d&apos;extraction"}
+            {isAffaireContext ? "Revue des exceptions & preuves" : "Revue d'extraction"}
           </h1>
           <p className="page-description">
             {jobFileName ?? "Extraction"} &mdash;{" "}
             {currentReviewMode === "validation" && isAffaireContext
-              ? "commencez par les preuves manquantes, la faible confiance et les rapprochements DPGF a trancher."
+              ? "commencez par les preuves manquantes, la faible confiance et les rapprochements DPGF à trancher."
               : (
                 <>
                   {tables.length > 0 && <>{tables.length} tables, </>}
