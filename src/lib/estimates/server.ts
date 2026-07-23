@@ -7784,6 +7784,11 @@ export async function patchEstimateStatus(
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
+  // Les transitions de statut sont des écritures de workflow : réservées aux
+  // rôles écrivains (admin/engineer). getVersionAccessOrThrow n'autorise que
+  // propriétaire OU admin, ce qui laisserait un propriétaire rétrogradé
+  // (director/viewer) sceller/accepter/archiver via le client service-role.
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { version, project } = await getVersionAccessOrThrow(
     supabase,
     versionId,

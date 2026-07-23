@@ -19,6 +19,7 @@ const procurementSql = read(
 const emailSource = read("src/lib/email/send-estimate.ts");
 const gatingSource = read("src/lib/estimates/gating.ts");
 const csvSource = read("src/app/api/admin/anomaly-history/route.ts");
+const serverSource = read("src/lib/estimates/server.ts");
 
 describe("estimate workflow direct-write security", () => {
   it("keeps structure and V0 writes limited to admin/engineer roles", () => {
@@ -91,6 +92,12 @@ describe("estimate workflow direct-write security", () => {
     );
     expect(procurementSql).toMatch(
       /create policy "Authorized users can upload purchase order devis"[\s\S]*'admin'::public\.tenant_role, 'engineer'::public\.tenant_role/
+    );
+  });
+
+  it("restricts estimate status transitions to writer roles (admin/engineer)", () => {
+    expect(serverSource).toMatch(
+      /export async function patchEstimateStatus\([\s\S]*?assertCanWriteEstimateWorkflows\(context\.tenantRole\)[\s\S]*?getVersionAccessOrThrow/
     );
   });
 
