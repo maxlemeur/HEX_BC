@@ -29,8 +29,14 @@ vi.mock("@/lib/supabase/client", () => ({
 const swrMock = vi.hoisted(() => vi.fn());
 vi.mock("swr", () => ({ default: swrMock }));
 
+const filterBarPropsSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/components/TableFilterBar", () => ({
-  ServerTableFilterBar: (props: { onSearchChange: (value: string) => void }) => {
+  ServerTableFilterBar: (props: {
+    onSearchChange: (value: string) => void;
+    filters: Array<{ key: string }>;
+    filterState: Record<string, unknown>;
+  }) => {
+    filterBarPropsSpy(props);
     useEffect(() => props.onSearchChange(""), [props]);
     return createElement("div", { "data-testid": "server-filter-bar" });
   },
@@ -98,6 +104,21 @@ describe("PricesManager paginé", () => {
     expect(screen.getAllByText("Supplier One").length).toBeGreaterThan(0);
     expect(screen.getByText("80")).toBeInTheDocument();
     expect(swrMock.mock.calls[0]?.[0]).toContain("/api/prices?view=page");
+  });
+
+  it("aligne la clé du filtre de fraîcheur sur l'état d'URL (filtre non mort)", () => {
+    render(createElement(PricesManager));
+    const props = filterBarPropsSpy.mock.calls.at(-1)?.[0] as {
+      filters: Array<{ key: string }>;
+      filterState: Record<string, unknown>;
+    };
+    const stateKeys = Object.keys(props.filterState);
+    // Chaque filtre déclaré doit lire/écrire une clé présente dans filterState,
+    // sinon la valeur active n'est jamais lue ni appliquée.
+    for (const filter of props.filters) {
+      expect(stateKeys).toContain(filter.key);
+    }
+    expect(props.filters.map((f) => f.key)).toContain("freshness");
   });
 
   it("uses an accessible contrast color for the fresh-price counter", () => {

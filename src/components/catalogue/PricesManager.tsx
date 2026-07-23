@@ -34,8 +34,11 @@ const FRESHNESS_FILTER_OPTIONS = [
 
 const PRICES_FILTERS: FilterConfig[] = [
   {
+    // La clé doit correspondre au paramètre d'URL lu/écrit ailleurs
+    // (searchParams.getAll("freshness"), filterState.freshness) : sinon le
+    // filtre de fraîcheur ne s'applique jamais et n'apparaît pas comme actif.
     type: "multi-select",
-    key: "_freshnessLevel",
+    key: "freshness",
     label: "Fraîcheur",
     placeholder: "Toutes",
     options: FRESHNESS_FILTER_OPTIONS,
