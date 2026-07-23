@@ -984,6 +984,9 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.job.status).toBe("processing");
     expect(response.job.error_code).toBeNull();
     expect(response.job.provider_reconcile_due_at).toBeTruthy();
+    // La reprise d'un job AI_TIMEOUT doit repartir de zéro, sinon le worker
+    // retombe immédiatement en échec ((attemptCount > MAX) reste vrai).
+    expect(response.job.provider_reconcile_attempt_count).toBe(0);
     expect(supabase.__state.auditLogs.at(-1)?.action).toBe(
       "takeoff.job.reconcile_requested"
     );

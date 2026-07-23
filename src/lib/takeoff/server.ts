@@ -6614,6 +6614,11 @@ export async function reconcileTakeoffJobNow(
     updatePayload.last_error_at = null;
     updatePayload.error_code = null;
     updatePayload.error_message = null;
+    // Reprise manuelle d'un job échoué (ex. AI_TIMEOUT après épuisement des
+    // tentatives) : on repart de zéro. Sans ce reset, la garde du worker
+    // ((attemptCount > MAX_ATTEMPTS)) reste vraie et le job retombe
+    // immédiatement en échec, le rendant irrécupérable via l'UI.
+    updatePayload.provider_reconcile_attempt_count = 0;
   }
 
   const query = supabase
