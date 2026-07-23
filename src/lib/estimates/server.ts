@@ -668,18 +668,24 @@ type EstimateSealCanonicalItem = Pick<
   | "h_mo"
   | "h_mo_majoration"
   | "k_mo"
-  | "h_mo_atelier"
-  | "k_mo_atelier"
-  | "labor_role_atelier_id"
-  | "h_mo_chantier"
-  | "k_mo_chantier"
-  | "labor_role_chantier_id"
   | "supply_type_id"
   | "pu_ht_cents"
   | "line_total_ht_cents"
   | "line_tax_cents"
   | "line_total_ttc_cents"
->;
+> & {
+  // Colonnes de main-d'œuvre éclatée (atelier/chantier) : incluses dans le
+  // sceau UNIQUEMENT lorsqu'elles sont renseignées. Les données historiques
+  // (toutes nulles) produisent des clés absentes -> hash inchangé -> les
+  // sceaux déjà émis restent valides ; toute ventilation MO réelle est en
+  // revanche désormais couverte par l'intégrité.
+  h_mo_atelier?: number;
+  k_mo_atelier?: number;
+  labor_role_atelier_id?: string;
+  h_mo_chantier?: number;
+  k_mo_chantier?: number;
+  labor_role_chantier_id?: string;
+};
 
 type EstimateSealPayload = {
   meta: {
@@ -1878,12 +1884,24 @@ function buildCanonicalEstimateSealPayload(input: {
         h_mo: item.h_mo,
         h_mo_majoration: item.h_mo_majoration,
         k_mo: item.k_mo,
-        h_mo_atelier: item.h_mo_atelier,
-        k_mo_atelier: item.k_mo_atelier,
-        labor_role_atelier_id: item.labor_role_atelier_id,
-        h_mo_chantier: item.h_mo_chantier,
-        k_mo_chantier: item.k_mo_chantier,
-        labor_role_chantier_id: item.labor_role_chantier_id,
+        ...(item.h_mo_atelier != null
+          ? { h_mo_atelier: item.h_mo_atelier }
+          : {}),
+        ...(item.k_mo_atelier != null
+          ? { k_mo_atelier: item.k_mo_atelier }
+          : {}),
+        ...(item.labor_role_atelier_id != null
+          ? { labor_role_atelier_id: item.labor_role_atelier_id }
+          : {}),
+        ...(item.h_mo_chantier != null
+          ? { h_mo_chantier: item.h_mo_chantier }
+          : {}),
+        ...(item.k_mo_chantier != null
+          ? { k_mo_chantier: item.k_mo_chantier }
+          : {}),
+        ...(item.labor_role_chantier_id != null
+          ? { labor_role_chantier_id: item.labor_role_chantier_id }
+          : {}),
         supply_type_id: item.supply_type_id,
         pu_ht_cents: item.pu_ht_cents,
         line_total_ht_cents: item.line_total_ht_cents,
@@ -1947,7 +1965,7 @@ async function loadEstimateSealSource(input: {
   const { data: itemsData, error: itemsError } = await input.supabase
     .from("estimate_items")
     .select(
-      "id, position, item_type, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents"
+      "id, position, item_type, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents"
     )
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId)

@@ -814,4 +814,77 @@ describe("verifyEstimateSeal", () => {
     expect(result.stored_hash).toBeNull();
     expect(result.computed_hash).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it("couvre la main-d'œuvre atelier/chantier dans le sceau", async () => {
+    const baseItem = {
+      id: "66666666-6666-4666-8666-666666666666",
+      position: 1,
+      item_type: "line" as const,
+      title: "Ligne",
+      quantity: 2,
+      unit_price_ht_cents: 5000,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: null,
+      k_mo: 0,
+      supply_type_id: null,
+      pu_ht_cents: 5000,
+      line_total_ht_cents: 10000,
+      line_tax_cents: 2000,
+      line_total_ttc_cents: 12000,
+    };
+    const version = {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      date_devis: "2026-02-21",
+      total_ht_cents: 10000,
+      total_tax_cents: 2000,
+      total_ttc_cents: 12000,
+      margin_multiplier: 1.2,
+      discount_bp: 0,
+      tax_rate_bp: 2000,
+      rounding_mode: "none" as const,
+      rounding_step_cents: 1,
+    };
+
+    // Sceau « historique » calculé sans la ventilation atelier.
+    const legacyHash = createExpectedSealHash({ version, items: [baseItem] });
+
+    // Un item sans ventilation atelier reste valide (rétro-compatibilité).
+    const compatibleSupabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        { data: { ...version, seal_hash: legacyHash }, error: null },
+      ],
+      estimateItemsResult: { data: [baseItem], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      compatibleSupabase as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: true,
+    });
+
+    // Le même sceau historique ne valide plus si une MO atelier est renseignée :
+    // la ventilation est désormais couverte par l'intégrité.
+    const tamperedSupabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        { data: { ...version, seal_hash: legacyHash }, error: null },
+      ],
+      estimateItemsResult: {
+        data: [{ ...baseItem, h_mo_atelier: 5, labor_role_atelier_id: "role-a" }],
+        error: null,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      tamperedSupabase as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: false,
+    });
+  });
 });
