@@ -318,6 +318,20 @@ export async function PUT(
       normalizeExistingItemTraceabilityRows(existingItems)
     );
 
+    // Rejeter les quantités non entières AVANT toute suppression : sinon le
+    // delete ci-dessous vide le bon de commande puis l'insert échoue (une
+    // quantité arrondie à 0 viole CHECK quantity > 0), laissant le BC sans
+    // aucune ligne.
+    if (cleanedItems.some((item) => !Number.isInteger(item.quantity))) {
+      return NextResponse.json(
+        {
+          error:
+            "Les quantités doivent être des nombres entiers. Ajustez la quantité ou l'unité de commande.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Delete existing items
     const { error: deleteError } = await supabase
       .from("purchase_order_items")
@@ -330,7 +344,7 @@ export async function PUT(
 
     // Calculate totals
     const lineInputs = cleanedItems.map((item) => ({
-      quantity: Math.round(item.quantity),
+      quantity: item.quantity,
       unitPriceHtCents: Math.round(item.unitPriceCents),
       taxRateBp: Math.round(item.taxRateBp),
     }));
@@ -349,7 +363,7 @@ export async function PUT(
         designation: item.designation,
         unit_price_ht_cents: Math.round(item.unitPriceCents),
         tax_rate_bp: Math.round(item.taxRateBp),
-        quantity: Math.round(item.quantity),
+        quantity: item.quantity,
         line_total_ht_cents: totals.lineTotalHtCents,
         line_tax_cents: totals.lineTaxCents,
         line_total_ttc_cents: totals.lineTotalTtcCents,

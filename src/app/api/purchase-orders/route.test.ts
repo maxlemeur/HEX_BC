@@ -132,6 +132,33 @@ describe("purchase orders POST regressions", () => {
     expect(insertedOrderHeaders[0]?.["expected_delivery_date"]).toBe("TBD");
   });
 
+  it("rejette une quantité non entière au lieu de l'arrondir silencieusement", async () => {
+    const { supabase, insertedOrderHeaders } = createPostSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      new Request("http://localhost/api/purchase-orders", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          supplierId: SUPPLIER_ID,
+          deliverySiteId: DELIVERY_SITE_ID,
+          items: [
+            {
+              designation: "Acier",
+              quantity: 2.5,
+              unitPriceCents: 80000,
+              taxRateBp: 2000,
+            },
+          ],
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(insertedOrderHeaders).toEqual([]);
+  });
+
   it("rejects a viewer before creating a manual purchase order", async () => {
     const { supabase, insertedOrderHeaders } = createPostSupabaseMock("viewer");
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
