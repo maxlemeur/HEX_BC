@@ -14,6 +14,7 @@ import {
   computeEstimateTotals,
   hasActiveLaborSplitPayload,
   computeInitialDiscountCents,
+  normalizeDraftItems,
 } from "@/lib/estimate-calculations";
 import {
   DEFAULT_MAX_SECTION_DEPTH,
@@ -6151,8 +6152,87 @@ export async function insertAssemblyIntoVersion(input: {
     .map((id) => reloadedItemsById.get(id))
     .filter((item): item is EstimateItemRow => Boolean(item));
 
-  return {
+  // materialize_estimate_assembly_tree insere les lignes avec
+  // pu_ht_cents / line_total_ht_cents / line_tax_cents / line_total_ttc_cents
+  // a 0. Sans renormalisation, la ligne s'affiche a 0 EUR alors que le
+  // sous-total de section (recalcule a la volee) est correct, et un devis passe
+  // en 'sent' sans autre edition figerait un total sous-evalue.
+  //
+  // On renormalise avec le moteur de calcul existant (source unique de verite)
+  // plutot que de recalculer marge/TVA en SQL.
+  const insertedLaborRoleIds = Array.from(
+    new Set(
+      orderedItems
+        .map((item) => item.labor_role_id)
+        .filter((value): value is string => Boolean(value))
+    )
+  );
+
+  const rateById = new Map<string, number>();
+  if (insertedLaborRoleIds.length > 0) {
+    const { data: roleRows, error: roleRatesError } = await supabase
+      .from("labor_roles")
+      .select("id, hourly_rate_cents")
+      .eq("tenant_id", tenantId)
+      .in("id", insertedLaborRoleIds);
+
+    if (roleRatesError) {
+      throw mapSupabaseError(roleRatesError, "Impossible d'inserer l'ouvrage.");
+    }
+
+    for (const role of (roleRows ?? []) as Array<{
+      id: string;
+      hourly_rate_cents: number | null;
+    }>) {
+      rateById.set(role.id, role.hourly_rate_cents ?? 0);
+    }
+  }
+
+  const normalizedItems = normalizeDraftItems({
     items: orderedItems,
+    version: {
+      margin_multiplier: version.margin_multiplier ?? 1,
+      margin_mode: version.margin_mode ?? undefined,
+      tax_rate_bp: version.tax_rate_bp ?? 0,
+      // Remise et coefficient global sont des grandeurs de VERSION : elles
+      // n'entrent pas dans les valeurs par ligne calculees ici.
+      discount_bp: 0,
+    },
+    rateById,
+  });
+
+  for (const item of normalizedItems) {
+    if (item.item_type !== "line") continue;
+    const stored = reloadedItemsById.get(item.id);
+    if (
+      stored &&
+      stored.pu_ht_cents === item.pu_ht_cents &&
+      stored.line_total_ht_cents === item.line_total_ht_cents &&
+      stored.line_tax_cents === item.line_tax_cents &&
+      stored.line_total_ttc_cents === item.line_total_ttc_cents
+    ) {
+      continue;
+    }
+
+    const { error: normalizeError } = await supabase
+      .from("estimate_items")
+      .update({
+        pu_ht_cents: item.pu_ht_cents,
+        line_total_ht_cents: item.line_total_ht_cents,
+        line_tax_cents: item.line_tax_cents,
+        line_total_ttc_cents: item.line_total_ttc_cents,
+      })
+      .eq("tenant_id", tenantId)
+      .eq("version_id", input.versionId)
+      .eq("id", item.id);
+
+    if (normalizeError) {
+      throw mapSupabaseError(normalizeError, "Impossible d'inserer l'ouvrage.");
+    }
+  }
+
+  return {
+    items: normalizedItems,
   };
 }
 

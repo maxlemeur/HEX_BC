@@ -2835,6 +2835,48 @@ describe("estimate assemblies insertion", () => {
     vi.clearAllMocks();
   });
 
+  it("renormalise les lignes inserees au lieu de les laisser a 0 EUR", async () => {
+    const supabase = createAssemblyInsertSupabaseMock();
+    // Le RPC materialize_estimate_assembly_tree insere les totaux a 0.
+    supabase.__mocks.estimateItemsSelectIn.mockResolvedValueOnce({
+      data: [
+        { id: INSERTED_SECTION_ID, item_type: "section" },
+        {
+          id: INSERTED_LINE_ID,
+          item_type: "line",
+          labor_role_id: null,
+          quantity: 10,
+          unit_price_ht_cents: 2500,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+          h_mo_majoration: 1,
+          tax_rate_bp: 2000,
+          pu_ht_cents: 0,
+          line_total_ht_cents: 0,
+          line_tax_cents: 0,
+          line_total_ttc_cents: 0,
+        },
+      ],
+      error: null,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await insertAssemblyIntoVersion({
+      assemblyId: ASSEMBLY_ID,
+      versionId: VERSION_ID,
+      afterItemId: ITEM_ID_1,
+    });
+
+    const line = result.items.find((item) => item.id === INSERTED_LINE_ID);
+    // 10 x 25,00 EUR : la ligne ne doit plus valoir 0.
+    expect(line?.line_total_ht_cents).toBeGreaterThan(0);
+    expect(line?.pu_ht_cents).toBeGreaterThan(0);
+    expect(line?.line_total_ttc_cents).toBeGreaterThan(
+      line?.line_total_ht_cents ?? 0
+    );
+  });
+
   it("refuse d'inserer un ouvrage contenant de la main-d'oeuvre sans role", async () => {
     const supabase = createAssemblyInsertSupabaseMock({
       validLaborRoleIds: [],
