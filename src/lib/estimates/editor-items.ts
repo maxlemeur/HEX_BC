@@ -1,6 +1,7 @@
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import {
   toFiniteNumber,
+  toNullableFiniteNumber,
   toNonEmptyString,
 } from "@/lib/estimates/editor-values";
 import type { Database } from "@/types/database";
@@ -54,8 +55,6 @@ export const LABOR_SPLIT_FIELD_KEYS = [
   "labor_role_chantier_id",
 ] as const;
 
-type LaborSplitFieldKey = (typeof LABOR_SPLIT_FIELD_KEYS)[number];
-
 export function createTempEstimateItemId(): string {
   return `tmp:${crypto.randomUUID()}`;
 }
@@ -72,13 +71,27 @@ export function readLaborSplitFields(
   source: EstimateItem | Record<string, unknown>
 ): Required<LaborSplitItemFields> {
   const record = source as Record<string, unknown>;
+  const hMoAtelier = toNullableFiniteNumber(record.h_mo_atelier);
+  const kMoAtelier = toNullableFiniteNumber(record.k_mo_atelier);
+  const laborRoleAtelierId = toNonEmptyString(record.labor_role_atelier_id);
+  const hMoChantier = toNullableFiniteNumber(record.h_mo_chantier);
+  const kMoChantier = toNullableFiniteNumber(record.k_mo_chantier);
+  const laborRoleChantierId = toNonEmptyString(record.labor_role_chantier_id);
+  const hasAtelierPayload =
+    (hMoAtelier ?? 0) > 0 ||
+    laborRoleAtelierId !== null ||
+    (kMoAtelier ?? 1) !== 1;
+  const hasChantierPayload =
+    (hMoChantier ?? 0) > 0 ||
+    laborRoleChantierId !== null ||
+    (kMoChantier ?? 1) !== 1;
   return {
-    h_mo_atelier: toFiniteNumber(record.h_mo_atelier, 0),
-    k_mo_atelier: toFiniteNumber(record.k_mo_atelier, 1),
-    labor_role_atelier_id: toNonEmptyString(record.labor_role_atelier_id),
-    h_mo_chantier: toFiniteNumber(record.h_mo_chantier, 0),
-    k_mo_chantier: toFiniteNumber(record.k_mo_chantier, 1),
-    labor_role_chantier_id: toNonEmptyString(record.labor_role_chantier_id),
+    h_mo_atelier: hasAtelierPayload ? (hMoAtelier ?? 0) : null,
+    k_mo_atelier: hasAtelierPayload ? (kMoAtelier ?? 1) : 1,
+    labor_role_atelier_id: laborRoleAtelierId,
+    h_mo_chantier: hasChantierPayload ? (hMoChantier ?? 0) : null,
+    k_mo_chantier: hasChantierPayload ? (kMoChantier ?? 1) : 1,
+    labor_role_chantier_id: laborRoleChantierId,
   };
 }
 
@@ -89,18 +102,6 @@ export function hasLaborSplitFields(
   return LABOR_SPLIT_FIELD_KEYS.some((key) => key in record);
 }
 
-function appendLaborSplitFields(
-  source: EstimateItem | Record<string, unknown>,
-  target: EstimateItemUpdatePayload | Record<string, unknown>
-) {
-  const sourceRecord = source as Record<string, unknown>;
-  const targetRecord = target as Record<string, unknown>;
-
-  LABOR_SPLIT_FIELD_KEYS.forEach((key) => {
-    if (!(key in sourceRecord)) return;
-    targetRecord[key] = sourceRecord[key as LaborSplitFieldKey] ?? null;
-  });
-}
 
 export function resolveLaborRoleHourlyRate(
   role: LaborRole | Record<string, unknown>,
@@ -153,7 +154,6 @@ export function buildEstimateItemUpdatePayload(
       line_total_ttc_cents: item.line_total_ttc_cents,
     };
 
-    appendLaborSplitFields(item, payload);
     return payload;
   }
 
@@ -215,7 +215,6 @@ export function buildEstimateItemInsertPayload(
     line_total_ttc_cents: item.line_total_ttc_cents,
   };
 
-  appendLaborSplitFields(item, payload);
   return payload;
 }
 
@@ -307,11 +306,11 @@ export function createOptimisticLineItem(input: {
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,
-    h_mo_atelier: input.isLaborSplitEnabled ? 0 : null,
-    k_mo_atelier: input.isLaborSplitEnabled ? 1 : null,
+    h_mo_atelier: null,
+    k_mo_atelier: null,
     labor_role_atelier_id: null,
-    h_mo_chantier: input.isLaborSplitEnabled ? 0 : null,
-    k_mo_chantier: input.isLaborSplitEnabled ? 1 : null,
+    h_mo_chantier: null,
+    k_mo_chantier: null,
     labor_role_chantier_id: null,
     pu_ht_cents: input.puHtCents,
     labor_role_id: null,

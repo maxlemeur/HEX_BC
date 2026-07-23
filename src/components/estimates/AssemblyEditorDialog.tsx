@@ -10,6 +10,7 @@ import type {
   EstimateAssemblyDetail,
   EstimateAssemblyItem,
   EstimateAssemblyLaborRole,
+  EstimateAssemblySummary,
   EstimateAssemblySupplyType,
 } from "@/lib/estimates/client";
 
@@ -19,6 +20,7 @@ export type AssemblyEditorInput = {
   referenceCode?: string | null;
   unit?: string | null;
   items: CreateEstimateAssemblyPayload["items"];
+  members: NonNullable<CreateEstimateAssemblyPayload["members"]>;
 };
 
 type AssemblyCostType = EstimateAssemblyItem["cost_type"];
@@ -40,11 +42,18 @@ type AssemblyDraftItem = {
   sourceMetadata: unknown;
 };
 
+type AssemblyDraftMember = {
+  key: string;
+  childAssemblyId: string;
+  quantity: string;
+};
+
 type AssemblyEditorDialogProps = {
   isSubmitting: boolean;
   initialValue?: EstimateAssemblyDetail | null;
   laborRoles: EstimateAssemblyLaborRole[];
   supplyTypes: EstimateAssemblySupplyType[];
+  availableAssemblies?: EstimateAssemblySummary[];
   onClose: () => void;
   onSubmit: (input: AssemblyEditorInput) => Promise<void> | void;
 };
@@ -78,7 +87,7 @@ function createEmptyItem(sequence: number): AssemblyDraftItem {
 function toDraftItems(
   initialValue: EstimateAssemblyDetail | null | undefined
 ): AssemblyDraftItem[] {
-  if (!initialValue?.items?.length) {
+  if (!initialValue) {
     return [createEmptyItem(1)];
   }
 
@@ -117,6 +126,17 @@ function toDraftItems(
     };
   });
 }
+
+function toDraftMembers(
+  initialValue: EstimateAssemblyDetail | null | undefined
+): AssemblyDraftMember[] {
+  return (initialValue?.members ?? []).map((member, index) => ({
+    key: `${member.id}-${index}`,
+    childAssemblyId: member.child_assembly_id,
+    quantity: String(member.quantity),
+  }));
+}
+
 
 function readFiniteNumber(value: string, fallback: number) {
   const normalized = value.trim().replace(",", ".");
@@ -318,6 +338,7 @@ export function AssemblyEditorDialog({
   initialValue,
   laborRoles,
   supplyTypes,
+  availableAssemblies = [],
   onClose,
   onSubmit,
 }: AssemblyEditorDialogProps) {
@@ -334,6 +355,9 @@ export function AssemblyEditorDialog({
   );
   const [items, setItems] = useState<AssemblyDraftItem[]>(() =>
     toDraftItems(initialValue)
+  );
+  const [members, setMembers] = useState<AssemblyDraftMember[]>(() =>
+    toDraftMembers(initialValue)
   );
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -417,13 +441,46 @@ export function AssemblyEditorDialog({
   }, [initialValue]);
 
   const modalTitle = isEditMode ? "Modifier l'ouvrage" : "Nouvel ouvrage";
+  const assemblyMetricsById = useMemo(() => {
+    const metrics = new Map<
+      string,
+      { directCostCents: number; laborHours: number }
+    >();
+
+    availableAssemblies.forEach((assembly) => {
+      metrics.set(assembly.id, {
+        directCostCents: assembly.directCostCents ?? 0,
+        laborHours: assembly.averageTimeHours ?? 0,
+      });
+    });
+    (initialValue?.members ?? []).forEach((member) => {
+      if (!member.child_assembly || metrics.has(member.child_assembly_id)) {
+        return;
+      }
+      metrics.set(member.child_assembly_id, {
+        directCostCents: member.child_assembly.ds_cents,
+        laborHours: member.child_assembly.avg_time_hours ?? 0,
+      });
+    });
+    return metrics;
+  }, [availableAssemblies, initialValue]);
+
   const directCostCents = useMemo(
     () =>
       items.reduce(
         (total, item) => total + computeDraftDirectCost(item, laborRoles),
         0
-      ),
-    [items, laborRoles]
+      ) +
+      members.reduce((total, member) => {
+        const quantity = Math.max(readFiniteNumber(member.quantity, 0), 0);
+        return (
+          total +
+          quantity *
+            (assemblyMetricsById.get(member.childAssemblyId)
+              ?.directCostCents ?? 0)
+        );
+      }, 0),
+    [assemblyMetricsById, items, laborRoles, members]
   );
   const laborHours = useMemo(
     () =>
@@ -431,8 +488,16 @@ export function AssemblyEditorDialog({
         (total, item) =>
           total + Math.max(readFiniteNumber(item.laborHours, 0), 0),
         0
-      ),
-    [items]
+      ) +
+      members.reduce((total, member) => {
+        const quantity = Math.max(readFiniteNumber(member.quantity, 0), 0);
+        return (
+          total +
+          quantity *
+            (assemblyMetricsById.get(member.childAssemblyId)?.laborHours ?? 0)
+        );
+      }, 0),
+    [assemblyMetricsById, items, members]
   );
 
   function updateItem(index: number, patch: Partial<AssemblyDraftItem>) {
@@ -455,11 +520,36 @@ export function AssemblyEditorDialog({
   }
 
   function removeItem(index: number) {
-    if (items.length <= 1) return;
     setItems((previous) =>
       previous.filter((_, itemIndex) => itemIndex !== index)
     );
   }
+
+  function addMember() {
+    setMembers((previous) => [
+      ...previous,
+      {
+        key: `member-${Date.now()}-${previous.length + 1}`,
+        childAssemblyId: "",
+        quantity: "1",
+      },
+    ]);
+  }
+
+  function updateMember(index: number, patch: Partial<AssemblyDraftMember>) {
+    setMembers((previous) =>
+      previous.map((member, memberIndex) =>
+        memberIndex === index ? { ...member, ...patch } : member
+      )
+    );
+  }
+
+  function removeMember(index: number) {
+    setMembers((previous) =>
+      previous.filter((_, memberIndex) => memberIndex !== index)
+    );
+  }
+
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -470,11 +560,19 @@ export function AssemblyEditorDialog({
       setValidationError("Le nom de l'ouvrage est obligatoire.");
       return;
     }
-    if (items.length === 0 || items.length > 50) {
+    if (items.length > 50) {
+      setValidationError("L'ouvrage ne peut pas contenir plus de 50 lignes.");
+      return;
+    }
+    if (members.length > 20) {
       setValidationError(
-        items.length === 0
-          ? "L'ouvrage doit contenir au moins une ligne."
-          : "L'ouvrage ne peut pas contenir plus de 50 lignes."
+        "L'ouvrage ne peut pas contenir plus de 20 sous-ouvrages."
+      );
+      return;
+    }
+    if (items.length + members.length === 0) {
+      setValidationError(
+        "L'ouvrage doit contenir au moins une ligne ou un sous-ouvrage."
       );
       return;
     }
@@ -516,6 +614,30 @@ export function AssemblyEditorDialog({
       });
     }
 
+    const payloadMembers: AssemblyEditorInput["members"] = [];
+    const selectedAssemblyIds = new Set<string>();
+
+    for (let index = 0; index < members.length; index += 1) {
+      const member = members[index];
+      if (!member.childAssemblyId) {
+        setValidationError(
+          `Sélectionnez le sous-ouvrage de la ligne ${index + 1}.`
+        );
+        return;
+      }
+      if (selectedAssemblyIds.has(member.childAssemblyId)) {
+        setValidationError("Un sous-ouvrage ne peut être ajouté qu'une fois.");
+        return;
+      }
+      selectedAssemblyIds.add(member.childAssemblyId);
+      payloadMembers.push({
+        childAssemblyId: member.childAssemblyId,
+        quantity: Math.max(readFiniteNumber(member.quantity, 1), 0),
+        position: items.length + index + 1,
+      });
+    }
+
+
     setValidationError(null);
     await onSubmit({
       name: trimmedName,
@@ -523,6 +645,7 @@ export function AssemblyEditorDialog({
       referenceCode: referenceCode.trim() || null,
       unit: assemblyUnit.trim() || null,
       items: payloadItems,
+      members: payloadMembers,
     });
   }
 
@@ -625,10 +748,10 @@ export function AssemblyEditorDialog({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-                Lignes
+                Contenu
               </p>
               <p className="text-base font-semibold text-[var(--slate-900)]">
-                {items.length}
+                {items.length} ligne(s) · {members.length} sous-ouvrage(s)
               </p>
             </div>
           </div>
@@ -924,7 +1047,7 @@ export function AssemblyEditorDialog({
                       type="button"
                       className="btn btn-danger btn-sm !h-9 !min-h-9 !px-2 !text-xs lg:!h-10 lg:!min-h-10 lg:!rounded-none lg:!border-0 lg:!px-1"
                       onClick={() => removeItem(index)}
-                      disabled={isSubmitting || items.length <= 1}
+                      disabled={isSubmitting}
                       aria-label={`Retirer la ligne ${index + 1}`}
                     >
                       Retirer
@@ -945,6 +1068,146 @@ export function AssemblyEditorDialog({
               + Ajouter une ligne
             </button>
           </div>
+
+          <section className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                  Sous-ouvrages
+                </h3>
+                <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                  Références vivantes dans la bibliothèque, limitées à deux niveaux.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={addMember}
+                disabled={isSubmitting || members.length >= 20}
+              >
+                + Ajouter un sous-ouvrage
+              </button>
+            </div>
+
+            {members.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-[var(--slate-300)] bg-white px-3 py-4 text-sm text-[var(--slate-500)]">
+                Aucun sous-ouvrage. Vous pouvez composer cet ouvrage à partir
+                d&apos;ouvrages existants de la bibliothèque.
+              </p>
+            ) : (
+              <div className="grid gap-2">
+                {members.map((member, index) => {
+                  const storedChild = initialValue?.members?.find(
+                    (candidate) =>
+                      candidate.child_assembly_id === member.childAssemblyId
+                  )?.child_assembly;
+                  const hasStoredChoice =
+                    storedChild &&
+                    !availableAssemblies.some(
+                      (candidate) => candidate.id === storedChild.id
+                    );
+                  const metrics = assemblyMetricsById.get(
+                    member.childAssemblyId
+                  );
+                  const memberCost = Math.round(
+                    Math.max(readFiniteNumber(member.quantity, 0), 0) *
+                      (metrics?.directCostCents ?? 0)
+                  );
+
+                  return (
+                    <div
+                      key={member.key}
+                      className="grid gap-2 rounded-lg border border-[var(--slate-200)] bg-white p-3 md:grid-cols-[minmax(240px,1fr)_120px_140px_auto] md:items-end"
+                    >
+                      <div>
+                        <label
+                          className="form-label"
+                          htmlFor={`assembly-member-${index}`}
+                        >
+                          Ouvrage réutilisable
+                        </label>
+                        <select
+                          id={`assembly-member-${index}`}
+                          className="form-input"
+                          value={member.childAssemblyId}
+                          onChange={(event) =>
+                            updateMember(index, {
+                              childAssemblyId: event.target.value,
+                            })
+                          }
+                          required
+                        >
+                          <option value="">Sélectionner un ouvrage</option>
+                          {hasStoredChoice ? (
+                            <option value={storedChild.id}>
+                              {storedChild.name}
+                            </option>
+                          ) : null}
+                          {availableAssemblies
+                            .filter(
+                              (candidate) => candidate.id !== initialValue?.id
+                            )
+                            .map((candidate) => (
+                              <option
+                                key={candidate.id}
+                                value={candidate.id}
+                                disabled={members.some(
+                                  (selected, selectedIndex) =>
+                                    selectedIndex !== index &&
+                                    selected.childAssemblyId === candidate.id
+                                )}
+                              >
+                                {candidate.referenceCode
+                                  ? `${candidate.referenceCode} — ${candidate.name}`
+                                  : candidate.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="form-label"
+                          htmlFor={`assembly-member-quantity-${index}`}
+                        >
+                          Quantité
+                        </label>
+                        <input
+                          id={`assembly-member-quantity-${index}`}
+                          className="form-input text-right tabular-nums"
+                          type="number"
+                          min={0}
+                          step="0.001"
+                          value={member.quantity}
+                          onChange={(event) =>
+                            updateMember(index, {
+                              quantity: event.target.value,
+                            })
+                          }
+                          required
+                        />
+                      </div>
+                      <div>
+                        <span className="form-label">Coût intégré</span>
+                        <output className="flex h-10 items-center justify-end rounded-lg bg-[var(--slate-50)] px-3 font-semibold tabular-nums text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)]">
+                          {formatCurrency(memberCost)}
+                        </output>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => removeMember(index)}
+                        disabled={isSubmitting}
+                        aria-label={`Retirer le sous-ouvrage ${index + 1}`}
+                      >
+                        Retirer
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
 
           {validationError ? (
             <div className="alert alert-error" role="alert">

@@ -2326,6 +2326,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      estimate_assembly_members: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          parent_assembly_id: string;
+          child_assembly_id: string;
+          quantity: number;
+          position: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          parent_assembly_id: string;
+          child_assembly_id: string;
+          quantity?: number;
+          position: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          parent_assembly_id?: string;
+          child_assembly_id?: string;
+          quantity?: number;
+          position?: number;
+        };
+        Relationships: [];
+      };
       estimate_structure_draft_applications: {
         Row: {
           id: string;
@@ -3137,6 +3170,14 @@ export type Database = {
         Args: {
           p_assembly_id: string;
           p_items: Json;
+        };
+        Returns: number;
+      };
+      replace_estimate_assembly_contents: {
+        Args: {
+          p_assembly_id: string;
+          p_items: Json;
+          p_members: Json;
         };
         Returns: number;
       };

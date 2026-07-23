@@ -58,7 +58,12 @@ describe("EstimateSettingsPanel", () => {
 
     render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} />);
 
-    const exclusionsInput = screen.getByLabelText("Exclusions du devis");
+    const exclusionsInput = screen.getByLabelText(
+      "Précisions et exclusions particulières",
+    );
+    expect(
+      screen.getByText(/limites propres à cette offre/i),
+    ).toBeInTheDocument();
     await user.type(exclusionsInput, "Peinture hors perimetre");
     expect((exclusionsInput as HTMLTextAreaElement).value).toBe(
       "Peinture hors perimetre"

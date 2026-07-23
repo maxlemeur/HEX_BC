@@ -997,6 +997,7 @@ const estimateAssemblySummarySchema = z
     created_at: z.string(),
     updated_at: z.string(),
     item_count: z.number().int(),
+    member_count: z.number().int(),
   })
   .passthrough();
 
@@ -1022,8 +1023,30 @@ const estimateAssemblyItemSchema = z
   })
   .passthrough();
 
+const estimateAssemblyMemberSchema = z
+  .object({
+    id: uuidSchema,
+    parent_assembly_id: uuidSchema,
+    child_assembly_id: uuidSchema,
+    quantity: z.number().nonnegative(),
+    position: z.number().int().positive(),
+    child_assembly: z
+      .object({
+        id: uuidSchema,
+        name: z.string(),
+        reference_code: z.string().nullable(),
+        unit: z.string().nullable(),
+        ds_cents: z.number().int(),
+        avg_time_hours: z.number().nullable(),
+      })
+      .nullable(),
+  })
+  .passthrough();
+
+
 const estimateAssemblyDetailSchema = estimateAssemblySummarySchema.extend({
   items: z.array(estimateAssemblyItemSchema),
+  members: z.array(estimateAssemblyMemberSchema),
 });
 
 const estimateListDataSchema = z.object({
@@ -3285,7 +3308,7 @@ const duplicateTemplateBody = jsonBody({
 
 const createAssemblyBody = jsonBody({
   name: "CreateEstimateAssemblyRequest",
-  description: "Creation d'un ouvrage de lignes.",
+  description: "Creation d'un ouvrage compose de lignes et de sous-ouvrages.",
   schema: createEstimateAssemblySchema,
 });
 

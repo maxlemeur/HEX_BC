@@ -71,6 +71,14 @@ function computePreviewMetrics(
     laborHours += itemLaborHours;
   });
 
+  (detail.members ?? []).forEach((member) => {
+    const quantity = Math.max(member.quantity, 0);
+    const child = member.child_assembly;
+    if (!child) return;
+    directCostCents += Math.round(quantity * child.ds_cents);
+    laborHours += quantity * (child.avg_time_hours ?? 0);
+  });
+
   return {
     directCostCents,
     laborHours,
@@ -92,6 +100,14 @@ function formatCostType(value: EstimateAssemblyDetail["items"][number]["cost_typ
 
 function formatLineCount(count: number) {
   return count + " " + (count === 1 ? "ligne" : "lignes");
+}
+
+function formatContentCount(lineCount: number, memberCount: number) {
+  const members =
+    memberCount +
+    " " +
+    (memberCount === 1 ? "sous-ouvrage" : "sous-ouvrages");
+  return `${formatLineCount(lineCount)} · ${members}`;
 }
 
 function formatLegacyGeneratedText(value: string) {
@@ -130,7 +146,10 @@ function AssemblyContentPreview({
           Contenu de l&apos;ouvrage
         </p>
         <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-[var(--slate-600)] shadow-sm">
-          {formatLineCount(detail?.items.length ?? assembly.itemCount)}
+          {formatContentCount(
+            detail?.items.length ?? assembly.itemCount,
+            detail?.members?.length ?? assembly.memberCount ?? 0
+          )}
         </span>
       </div>
 
@@ -162,6 +181,47 @@ function AssemblyContentPreview({
           </p>
         </div>
       </div>
+
+      {!isLoading && !error && detail?.members?.length ? (
+        <div className="mb-3 overflow-x-auto rounded-lg border border-[var(--slate-200)] bg-white">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead>
+              <tr className="bg-[var(--slate-50)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                <th className="px-4 py-2.5">Sous-ouvrage</th>
+                <th className="px-4 py-2.5">Référence</th>
+                <th className="px-4 py-2.5">Quantité</th>
+                <th className="px-4 py-2.5 text-right">Coût intégré</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--slate-100)]">
+              {[...detail.members]
+                .sort((first, second) => first.position - second.position)
+                .map((member) => (
+                  <tr key={member.id}>
+                    <td className="px-4 py-3 font-semibold text-[var(--slate-800)]">
+                      {member.child_assembly?.name ?? "Ouvrage indisponible"}
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      {member.child_assembly?.reference_code ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      {formatNumber(member.quantity, "0")}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-semibold">
+                      {formatCurrency(
+                        Math.round(
+                          member.quantity *
+                            (member.child_assembly?.ds_cents ?? 0)
+                        )
+                      )}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
 
       {isLoading ? (
         <div
@@ -241,7 +301,7 @@ function AssemblyContentPreview({
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-[var(--slate-300)] bg-surface px-4 py-5 text-sm text-[var(--slate-500)]">
-          Cet ouvrage ne contient aucune ligne.
+          Cet ouvrage ne contient aucune ligne directe.
         </div>
       )}
     </div>
@@ -349,7 +409,7 @@ export function AssemblyLibraryTable({
           <tr>
             <th>Nom</th>
             <th>Description</th>
-            <th>Lignes</th>
+            <th>Contenu</th>
             <th>Créé le</th>
             <th>Actions</th>
           </tr>
@@ -404,7 +464,9 @@ export function AssemblyLibraryTable({
                         ? formatLegacyGeneratedText(assembly.description.trim())
                         : "-"}
                     </td>
-                    <td className="font-mono">{assembly.itemCount}</td>
+                    <td className="font-mono">
+                      {assembly.itemCount} L · {assembly.memberCount ?? 0} O
+                    </td>
                     <td>{formatDate(assembly.createdAt)}</td>
                     <td>
                       <div

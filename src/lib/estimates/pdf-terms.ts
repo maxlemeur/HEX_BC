@@ -34,27 +34,21 @@ export type EstimateTermsClause = {
 export const ESTIMATE_DRAFT_TERMS_NOTICE =
   "Maquette de travail à faire valider par un conseil juridique avant toute utilisation contractuelle.";
 
-const ESTIMATE_DRAFT_TERMS_BODY = `1. OBJET ET DOCUMENTS CONTRACTUELS - Les présentes CGV encadrent les prestations réalisées entre professionnels. Le devis accepté, ses annexes et éventuels avenants constituent les conditions particulières et prévalent sur les CGV en cas de contradiction. Les documents du client ne s'appliquent qu'après acceptation écrite du prestataire.
+const ESTIMATE_DRAFT_TERMS_BODY = `1. FORMATION ET DOCUMENTS CONTRACTUELS - Le contrat est formé par l'acceptation écrite du devis par une personne habilitée. Le devis, ses précisions et exclusions particulières, ses annexes et ses avenants constituent les conditions particulières et prévalent sur les présentes CGV en cas de contradiction. Les documents du client ne s'appliquent qu'après acceptation écrite du prestataire.
 
-2. VALIDITÉ ET ACCEPTATION - Le devis reste valable pendant la durée qui y est indiquée. Le contrat est formé à réception du devis daté et signé par une personne habilitée, avec la mention d'acceptation, et après encaissement de l'acompte prévu. Toute réserve portée à l'acceptation doit être expressément acceptée par le prestataire.
+2. PRIX, FACTURATION ET PAIEMENT - Sauf mention contraire au devis, les prix sont exprimés hors taxes et la TVA est facturée au taux applicable. Les modalités et délais de paiement sont ceux du devis et des factures. Aucun acompte n'est dû s'il n'est pas expressément prévu au devis. Aucun escompte n'est accordé sauf stipulation contraire. Tout retard entraîne de plein droit des pénalités au taux BCE majoré de 10 points, sans pouvoir être inférieur à trois fois le taux d'intérêt légal, ainsi que l'indemnité forfaitaire légale de 40 € pour frais de recouvrement.
 
-3. PRIX - Les prix et le régime de TVA sont ceux du devis. Sauf mention contraire, ils supposent des conditions normales d'accès et d'exécution. Toute variation de taxes, de périmètre, de quantités ou de contraintes inconnues lors du chiffrage peut donner lieu à un avenant préalable.
+3. DÉLAIS, SUSPENSION ET EMPÊCHEMENTS - Les dates et délais sont ceux du devis. Ils courent lorsque le client a fourni les informations, autorisations et conditions nécessaires à l'exécution, ainsi que tout autre préalable expressément prévu au devis. Ils sont prolongés en cas de modification, retard d'un tiers, intempérie, sujétion imprévisible ou événement hors du contrôle raisonnable du prestataire. Après mise en demeure restée sans effet, le prestataire peut suspendre l'exécution en cas d'impayé ou d'empêchement imputable au client.
 
-4. ACOMPTE ET PAIEMENT - L'acompte, l'échéancier et le délai de paiement figurent au devis. Aucun escompte n'est accordé sauf stipulation contraire. Tout retard entraîne, de plein droit, des pénalités au taux BCE majoré de 10 points, sans pouvoir être inférieur à trois fois le taux d'intérêt légal, ainsi que l'indemnité forfaitaire légale de 40 € pour frais de recouvrement.
+4. PÉRIMÈTRE ET TRAVAUX SUPPLÉMENTAIRES - Le prix couvre uniquement les prestations expressément décrites au devis. Toute demande, modification ou sujétion extérieure à ce périmètre fait l'objet d'un devis ou d'un avenant précisant son prix et son incidence sur le planning. Sauf urgence de mise en sécurité, elle n'est exécutée qu'après accord écrit du client.
 
-5. DÉLAIS - Les délais sont estimatifs sauf engagement exprès. Ils courent après acceptation, acompte, autorisations, plans validés et mise à disposition du chantier. Ils sont prolongés en cas de modification, retard d'un tiers, intempérie, indisponibilité imprévisible, découverte technique ou événement hors du contrôle raisonnable du prestataire.
+5. RÉCEPTION ET RÉSERVES - À l'achèvement, les parties organisent une réception contradictoire. Les réserves sont précises, motivées et consignées dans un procès-verbal. Le prestataire intervient dans le délai raisonnable convenu. L'utilisation de l'ouvrage sans réserve peut constituer un indice de réception, sous réserve des règles impératives applicables.
 
-6. ACCÈS ET CONDITIONS DE CHANTIER - Le client assure, aux dates convenues, un accès libre et sécurisé, les alimentations nécessaires, les autorisations et informations utiles, ainsi que la coordination des autres intervenants. Il signale avant travaux les réseaux, matériaux dangereux, contraintes d'exploitation et prescriptions propres au site.
+6. GARANTIES, ASSURANCES ET RESPONSABILITÉ - Les garanties légales et assurances obligatoires applicables demeurent acquises. Le client signale rapidement tout désordre et permet sa constatation. Sous réserve des règles impératives, la responsabilité du prestataire ne couvre que les dommages directs et prévisibles qui lui sont imputables.
 
-7. TRAVAUX SUPPLÉMENTAIRES - Toute prestation non prévue, modification demandée ou sujétion imprévisible fait l'objet d'un devis ou avenant précisant prix et incidence sur le planning. Sauf urgence de mise en sécurité, elle n'est exécutée qu'après accord écrit du client.
+7. FORCE MAJEURE - Aucune partie n'est responsable d'un manquement causé par un événement de force majeure au sens du droit français. La partie concernée informe l'autre sans délai et l'exécution est suspendue pendant l'empêchement. Si celui-ci se prolonge, les parties conviennent par écrit des suites du contrat ou appliquent les règles légales de résolution.
 
-8. RÉCEPTION ET RÉSERVES - À l'achèvement, les parties organisent une réception contradictoire. Les réserves sont précises, motivées et consignées dans un procès-verbal. Le prestataire intervient dans un délai raisonnable convenu. L'utilisation de l'ouvrage sans réserve peut constituer un indice de réception, sous réserve des règles impératives applicables.
-
-9. GARANTIES ET RESPONSABILITÉ - Les garanties légales et assurances obligatoires applicables demeurent acquises. Le client notifie rapidement tout désordre et permet sa constatation. Sous réserve des règles impératives, la responsabilité du prestataire couvre les dommages directs et prévisibles qui lui sont imputables et est plafonnée au montant HT encaissé au titre du devis concerné.
-
-10. FORCE MAJEURE - Aucune partie n'est responsable d'un manquement causé par un événement de force majeure au sens du droit français. La partie concernée informe l'autre sans délai. L'exécution est suspendue pendant l'empêchement ; au-delà d'une durée à préciser, chacune peut mettre fin aux prestations restant à exécuter.
-
-11. DONNÉES, PREUVE ET LITIGES - Les données de contact sont traitées pour préparer, exécuter et suivre la relation contractuelle, selon l'information de confidentialité du prestataire. Les écrits et signatures électroniques convenus sont admis comme preuve. Les parties recherchent d'abord une solution amiable ; à défaut, la juridiction compétente est déterminée selon les règles applicables, toute clause attributive devant être spécialement validée.`;
+8. PREUVE, DROIT APPLICABLE ET LITIGES - Les écrits et signatures électroniques convenus sont admis comme preuve. Le contrat est soumis au droit français. Les parties recherchent d'abord une solution amiable ; à défaut, la juridiction compétente est déterminée selon les règles applicables, toute clause attributive devant faire l'objet d'une validation juridique spécifique.`;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -164,11 +158,11 @@ export function createDevelopmentEstimateTermsTemplate(
   if (nodeEnv !== "development") return null;
 
   return {
-    id: "estimate-cgv-b2b-draft-v1",
+    id: "estimate-cgv-b2b-draft-v2",
     tenantId,
     title: "Projet de CGV - Travaux B2B",
     body: ESTIMATE_DRAFT_TERMS_BODY,
-    version: 1,
+    version: 2,
     policy: "default",
     legalReviewedAt: null,
     isDraft: true,

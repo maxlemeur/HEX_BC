@@ -79,15 +79,18 @@ describe("estimate assemblies route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(201);
-    expect(vi.mocked(createEstimateAssembly)).toHaveBeenCalledWith({
-      name: "Mur",
-      items: [
-        {
-          title: "Parpaing",
-          position: 1,
-        },
-      ],
-    });
+    expect(vi.mocked(createEstimateAssembly)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Mur",
+        items: [
+          expect.objectContaining({
+            title: "Parpaing",
+            position: 1,
+          }),
+        ],
+        members: [],
+      })
+    );
     expect(payload).toEqual(
       expect.objectContaining({
         ok: true,

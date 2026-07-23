@@ -493,8 +493,10 @@ describe("EstimateDocument - EST-121", () => {
     expect(markup).toContain(
       "à faire valider par un conseil juridique avant toute utilisation contractuelle",
     );
-    expect(markup).toContain("1. OBJET ET DOCUMENTS CONTRACTUELS");
-    expect(markup).toContain("11. DONNÉES, PREUVE ET LITIGES");
+    expect(markup).toContain("1. FORMATION ET DOCUMENTS CONTRACTUELS");
+    expect(markup).toContain("8. PREUVE, DROIT APPLICABLE ET LITIGES");
+    expect(markup).not.toContain("VALIDITÉ ET ACCEPTATION");
+    expect(markup).not.toContain("ACCÈS ET CONDITIONS DE CHANTIER");
     expect(markup).toContain("columns-1");
     expect(markup).toContain("print-page-break-before");
     expect(markup.lastIndexOf("Projet de CGV - Travaux B2B")).toBeGreaterThan(

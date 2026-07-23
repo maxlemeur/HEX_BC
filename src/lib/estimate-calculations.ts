@@ -114,7 +114,7 @@ function normalizeDiscountStepsBp(
   });
 }
 
-function hasLaborSplitPayload(
+export function hasActiveLaborSplitPayload(
   item: Pick<
     EstimateLineLike,
     | "h_mo_atelier"
@@ -125,11 +125,13 @@ function hasLaborSplitPayload(
     | "labor_role_chantier_id"
   >
 ) {
+  const hMoAtelier = Math.max(toSafeNumber(item.h_mo_atelier, 0), 0);
+  const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
   return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
+    hMoAtelier > 0 ||
     (item.labor_role_atelier_id !== null &&
       item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
+    hMoChantier > 0 ||
     (item.labor_role_chantier_id !== null &&
       item.labor_role_chantier_id !== undefined) ||
     ((item.k_mo_atelier ?? 1) !== 1) ||
@@ -191,7 +193,7 @@ export function computeEstimateLineValues(
   const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
   const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
   const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
-  const hasSplitPayload = hasLaborSplitPayload(item);
+  const hasSplitPayload = hasActiveLaborSplitPayload(item);
   const shouldUseLaborSplit = isLaborSplitEnabled ?? hasSplitPayload;
   const moCostCents = shouldUseLaborSplit
     ? hMoMajoration *
@@ -289,6 +291,7 @@ export function computeEstimateTotals({
   taxRateBp,
   roundingMode,
   roundingStepCents,
+  isLaborSplitEnabled,
 }: {
   lineItems: EstimateLineLike[];
   marginMultiplier: number;
@@ -304,6 +307,7 @@ export function computeEstimateTotals({
   taxRateBp: number;
   roundingMode: RoundingMode;
   roundingStepCents: number;
+  isLaborSplitEnabled?: boolean;
 }): EstimateTotals {
   // A6: cap margin
   const safeMargin = clampMarginMultiplier(marginMultiplier);
@@ -325,6 +329,7 @@ export function computeEstimateTotals({
       const line = computeEstimateLineValues(item, {
         marginMultiplier: 1,
         taxRateBp: 0,
+        isLaborSplitEnabled,
       });
       acc.costSubtotalCents += line.costLineCents;
       return acc;
@@ -345,6 +350,7 @@ export function computeEstimateTotals({
       const line = computeEstimateLineValues(item, {
         marginMultiplier: appliedMarginMultiplier,
         taxRateBp: safeTaxRate,
+        isLaborSplitEnabled,
       });
       acc.saleSubtotalBeforeCoefficientCents += line.saleLineCents;
       acc.lineTaxTotalCents += line.taxLineCents;
@@ -729,7 +735,8 @@ export function computeEstimateLineSaleSplit(
   const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
   const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
   const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
-  const shouldUseLaborSplit = isLaborSplitEnabled && hasLaborSplitPayload(item);
+  const shouldUseLaborSplit =
+    isLaborSplitEnabled && hasActiveLaborSplitPayload(item);
 
   const foCostRaw = quantity * unitPrice * kFo;
   const moAtelierCostRaw = shouldUseLaborSplit
@@ -1117,10 +1124,12 @@ export function normalizeDraftItems<
   items,
   version,
   rateById,
+  isLaborSplitEnabled = false,
 }: {
   items: T[];
   version: EstimateVersionForCalc;
   rateById: Map<string, number>;
+  isLaborSplitEnabled?: boolean;
 }): T[] {
   return items.map((item) => {
     if (item.item_type !== "line") return item;
@@ -1145,6 +1154,7 @@ export function normalizeDraftItems<
       {
         marginMultiplier: version.margin_multiplier,
         taxRateBp: taxRate,
+        isLaborSplitEnabled,
       }
     );
     return {
@@ -1170,11 +1180,13 @@ export function computeReadOnlyTotals({
   version,
   discountCents,
   laborRateById,
+  isLaborSplitEnabled = false,
 }: {
   items: EstimateItemRecord[];
   version: EstimateVersionForCalc;
   discountCents: number;
   laborRateById: Map<string, number>;
+  isLaborSplitEnabled?: boolean;
 }): EstimateTotals {
   const costSubtotalCents = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;
@@ -1189,6 +1201,7 @@ export function computeReadOnlyTotals({
       {
         marginMultiplier: 1,
         taxRateBp: 0,
+        isLaborSplitEnabled,
       }
     );
     return sum + lineValues.costLineCents;

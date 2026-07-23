@@ -97,7 +97,7 @@ describe("estimate editor item payloads", () => {
     });
   });
 
-  it("copies every persisted line field, including labor split data", () => {
+  it("persists only the canonical single-role labor fields", () => {
     const line = createItem();
     const updatePayload = buildEstimateItemUpdatePayload(line);
 
@@ -120,13 +120,9 @@ describe("estimate editor item payloads", () => {
       line_total_ht_cents: 15600,
       line_tax_cents: 3120,
       line_total_ttc_cents: 18720,
-      h_mo_atelier: 1,
-      k_mo_atelier: 1.1,
-      labor_role_atelier_id: "role-atelier",
-      h_mo_chantier: 1.5,
-      k_mo_chantier: 1.2,
-      labor_role_chantier_id: "role-chantier",
     });
+    expect(updatePayload).not.toHaveProperty("labor_role_atelier_id");
+    expect(updatePayload).not.toHaveProperty("labor_role_chantier_id");
 
     expect(
       buildEstimateItemInsertPayload("version-target", line, {
@@ -159,6 +155,18 @@ describe("estimate editor item payloads", () => {
       h_mo_chantier: 2,
       k_mo_chantier: 1,
       labor_role_chantier_id: null,
+    });
+
+    expect(
+      readLaborSplitFields({
+        h_mo_atelier: 0,
+        k_mo_atelier: 1,
+        h_mo_chantier: 0,
+        k_mo_chantier: 1,
+      })
+    ).toMatchObject({
+      h_mo_atelier: null,
+      h_mo_chantier: null,
     });
 
     expect(hasLaborSplitFields({ title: "legacy line" })).toBe(false);
@@ -239,7 +247,7 @@ describe("estimate editor optimistic items", () => {
     });
   });
 
-  it("initializes labor split values only when the feature is enabled", () => {
+  it("never initializes deprecated labor split values", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(FIXED_NOW));
 
@@ -263,10 +271,10 @@ describe("estimate editor optimistic items", () => {
     expect(createLine(true)).toMatchObject({
       created_at: FIXED_NOW,
       updated_at: FIXED_NOW,
-      h_mo_atelier: 0,
-      k_mo_atelier: 1,
-      h_mo_chantier: 0,
-      k_mo_chantier: 1,
+      h_mo_atelier: null,
+      k_mo_atelier: null,
+      h_mo_chantier: null,
+      k_mo_chantier: null,
       _optimistic: true,
       _pendingCreate: true,
     });

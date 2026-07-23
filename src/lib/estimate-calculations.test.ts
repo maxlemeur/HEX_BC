@@ -250,6 +250,51 @@ describe("estimate calculations", () => {
     });
   });
 
+  it("keeps canonical labor when inactive split fields were normalized to zero", () => {
+    const line = createLine({
+      quantity: 1,
+      unit_price_ht_cents: 3192,
+      k_fo: 1,
+      h_mo: 1.9,
+      k_mo: 1.5,
+      h_mo_atelier: 0,
+      k_mo_atelier: 1,
+      labor_role_atelier_id: null,
+      h_mo_chantier: 0,
+      k_mo_chantier: 1,
+      labor_role_chantier_id: null,
+      labor_role_hourly_rate_cents: 10000,
+    });
+
+    const lineValues = computeEstimateLineValues(line, {
+      marginMultiplier: 1.2,
+      taxRateBp: 2000,
+    });
+    const totals = computeEstimateTotals({
+      lineItems: [line],
+      marginMultiplier: 1.2,
+      discountCents: 0,
+      taxRateBp: 2000,
+      roundingMode: "none",
+      roundingStepCents: 1,
+      isLaborSplitEnabled: false,
+    });
+
+    expect(lineValues).toEqual({
+      costLineCents: 31692,
+      saleLineCents: 38030,
+      puHtCents: 38030,
+      taxLineCents: 7606,
+      ttcLineCents: 45636,
+    });
+    expect(totals).toMatchObject({
+      costSubtotalCents: 31692,
+      saleTotalCents: 38030,
+      taxCents: 7606,
+      roundedTtcCents: 45636,
+    });
+  });
+
   it("A1: single round avoids cumulative drift from triple rounding", () => {
     // When FO and MO each produce 0.5, triple rounding rounds each up
     // but single rounding correctly sums to 1.0 then rounds to 1
@@ -1226,6 +1271,7 @@ describe("estimate calculations", () => {
     expect(computed.get(childSectionId)).toEqual(expectedChild);
     expect(computed.get(siblingSectionId)).toEqual(expectedSibling);
   });
+
 });
 
 describe("B5: extracted business helpers", () => {

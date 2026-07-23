@@ -10,6 +10,9 @@ function read(relativePath: string) {
 const workflowSql = read(
   "supabase/migrations/20260713140444_harden_estimate_workflow_write_boundaries.sql"
 );
+const batchConflictSql = read(
+  "supabase/migrations/20260722134411_fix_estimate_batch_conflict_sqlstate.sql"
+);
 const procurementSql = read(
   "supabase/migrations/20260713140454_harden_estimate_procurement_write_roles.sql"
 );
@@ -46,6 +49,19 @@ describe("estimate workflow direct-write security", () => {
       /create or replace function public\.claim_estimate_batch_revision\([\s\S]*update public\.estimate_versions[\s\S]*v\.updated_at = p_expected_updated_at/
     );
     expect(workflowSql).toContain("ESTIMATE_BATCH_REVISION_CONFLICT");
+  });
+
+  it("reports batch revision conflicts as non-transient HTTP conflicts", () => {
+    expect(batchConflictSql).toMatch(
+      /create or replace function public\.claim_estimate_batch_revision\([\s\S]*raise sqlstate 'PT409' using message = 'ESTIMATE_BATCH_REVISION_CONFLICT'/
+    );
+    expect(batchConflictSql).not.toMatch(/(?:errcode\s*=|raise sqlstate)\s*'40001'/);
+    expect(batchConflictSql).toMatch(
+      /revoke all on function public\.claim_estimate_batch_revision\(uuid, timestamptz\) from public;/
+    );
+    expect(batchConflictSql).toMatch(
+      /grant execute on function public\.claim_estimate_batch_revision\(uuid, timestamptz\) to authenticated;/
+    );
   });
 
   it("makes correction actions journal-only and generated snapshots append-only", () => {

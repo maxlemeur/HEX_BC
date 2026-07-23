@@ -464,7 +464,7 @@ const businessPdfStyles = StyleSheet.create({
     paddingHorizontal: 9,
     backgroundColor: "#fffbeb",
     color: "#78350f",
-    fontSize: 8,
+    fontSize: 8.5,
     fontWeight: 700,
     lineHeight: 1.4,
   },
@@ -477,23 +477,23 @@ const businessPdfStyles = StyleSheet.create({
     width: "48%",
   },
   termsClause: {
-    marginBottom: 8,
+    marginBottom: 10,
   },
   termsClauseHeading: {
-    fontSize: 8.5,
+    fontSize: 9.1,
     fontWeight: 700,
     textTransform: "uppercase",
     color: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
     marginBottom: 2.5,
   },
   termsClauseText: {
-    fontSize: 8.6,
-    lineHeight: 1.4,
+    fontSize: 9.2,
+    lineHeight: 1.45,
     color: BUSINESS_DOCUMENT_THEME.colors.ink,
   },
   termsMeta: {
     marginTop: 10,
-    fontSize: 7.5,
+    fontSize: 8,
     color: BUSINESS_DOCUMENT_THEME.colors.muted,
   },
   footer: {

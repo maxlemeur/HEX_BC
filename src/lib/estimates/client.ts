@@ -296,6 +296,17 @@ export type EstimateTemplateDetail = EstimateTemplateSummary & {
 export type EstimateAssemblyItem = EstimateAssemblyItemRow;
 export type EstimateAssemblyLaborRole = LaborRole;
 export type EstimateAssemblySupplyType = SupplyType;
+export type EstimateAssemblyMember =
+  Database["public"]["Tables"]["estimate_assembly_members"]["Row"] & {
+    child_assembly: {
+      id: string;
+      name: string;
+      reference_code: string | null;
+      unit: string | null;
+      ds_cents: number;
+      avg_time_hours: number | null;
+    } | null;
+  };
 
 export type EstimateAssemblySummary = {
   id: string;
@@ -313,10 +324,12 @@ export type EstimateAssemblySummary = {
   createdAt: string;
   updatedAt: string;
   itemCount: number;
+  memberCount?: number;
 };
 
 export type EstimateAssemblyDetail = EstimateAssemblySummary & {
   items: EstimateAssemblyItem[];
+  members?: EstimateAssemblyMember[];
 };
 
 export type CreateEstimateAssemblyPayload = {
@@ -341,6 +354,11 @@ export type CreateEstimateAssemblyPayload = {
     yieldUnit?: string | null;
     sourceMetadata?: unknown;
   }>;
+  members?: Array<{
+    childAssemblyId: string;
+    quantity: number;
+    position: number;
+  }>;
 };
 
 export type UpdateEstimateAssemblyPayload = {
@@ -364,6 +382,11 @@ export type UpdateEstimateAssemblyPayload = {
     yieldValue?: number | null;
     yieldUnit?: string | null;
     sourceMetadata?: unknown;
+  }>;
+  members?: Array<{
+    childAssemblyId: string;
+    quantity: number;
+    position: number;
   }>;
 };
 
@@ -3272,6 +3295,8 @@ function parseEstimateAssemblySummaryEntity(
     createdAt,
     updatedAt,
     itemCount: toNumber(value.item_count) ?? toNumber(value.itemCount) ?? 0,
+    memberCount:
+      toNumber(value.member_count) ?? toNumber(value.memberCount) ?? 0,
     referenceCode: toStringValue(value.reference_code),
     unit: toStringValue(value.unit),
     pricingSource: toStringValue(value.pricing_source),
@@ -3287,6 +3312,14 @@ function parseEstimateAssemblyItems(value: unknown): EstimateAssemblyItem[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry) => isRecord(entry)) as EstimateAssemblyItem[];
 }
+
+function parseEstimateAssemblyMembers(
+  value: unknown
+): EstimateAssemblyMember[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => isRecord(entry)) as EstimateAssemblyMember[];
+}
+
 
 function parseEstimateAssemblySummaryList(
   payload: unknown
@@ -3316,10 +3349,15 @@ function parseEstimateAssemblyDetail(payload: unknown): EstimateAssemblyDetail {
     (assemblyEntity as JsonRecord | null)?.items ??
       (isRecord(root) ? root.items : null)
   );
+  const members = parseEstimateAssemblyMembers(
+    (assemblyEntity as JsonRecord | null)?.members ??
+      (isRecord(root) ? root.members : null)
+  );
 
   return {
     ...summary,
     items,
+    members,
   };
 }
 
@@ -5398,6 +5436,17 @@ function toAssemblyItemRequestPayload(
   };
 }
 
+function toAssemblyMemberRequestPayload(
+  member: NonNullable<CreateEstimateAssemblyPayload["members"]>[number]
+) {
+  return {
+    child_assembly_id: member.childAssemblyId,
+    quantity: member.quantity,
+    position: member.position,
+  };
+}
+
+
 export async function fetchEstimateAssemblies(options?: {
   search?: string;
   limit?: number;
@@ -5433,9 +5482,10 @@ export async function fetchEstimateAssemblies(options?: {
 export async function fetchEstimateAssemblyOptions(): Promise<{
   laborRoles: EstimateAssemblyLaborRole[];
   supplyTypes: EstimateAssemblySupplyType[];
+  assemblies: EstimateAssemblySummary[];
 }> {
   const payload = await requestJson<unknown>(
-    "/api/estimates/assemblies?limit=1",
+    "/api/estimates/assemblies?limit=100",
     {
       method: "GET",
     },
@@ -5443,10 +5493,11 @@ export async function fetchEstimateAssemblyOptions(): Promise<{
   );
   const root = getRootPayload(payload);
   if (!isRecord(root)) {
-    return { laborRoles: [], supplyTypes: [] };
+    return { laborRoles: [], supplyTypes: [], assemblies: [] };
   }
 
   return {
+    assemblies: parseEstimateAssemblySummaryList(payload),
     laborRoles: Array.isArray(root.labor_roles)
       ? (root.labor_roles.filter((entry) => isRecord(entry)) as EstimateAssemblyLaborRole[])
       : [],
@@ -5485,6 +5536,8 @@ export async function createEstimateAssembly(
         reference_code: input.referenceCode ?? null,
         unit: input.unit ?? null,
         items: input.items.map((item) => toAssemblyItemRequestPayload(item)),
+        members: (input.members ?? []).map((member) =>
+          toAssemblyMemberRequestPayload(member)),
       }),
     },
     "Impossible de creer l'ouvrage."
@@ -5513,6 +5566,11 @@ export async function updateEstimateAssembly(
   }
   if ("items" in updates && updates.items) {
     body.items = updates.items.map((item) => toAssemblyItemRequestPayload(item));
+  }
+  if ("members" in updates && updates.members) {
+    body.members = updates.members.map((member) =>
+      toAssemblyMemberRequestPayload(member)
+    );
   }
 
   const payload = await requestJson<unknown>(
@@ -5566,6 +5624,11 @@ export async function duplicateEstimateAssembly(
       yieldUnit: item.yield_unit,
       sourceMetadata: item.source_metadata,
       position: item.position,
+    })),
+    members: (source.members ?? []).map((member) => ({
+      childAssemblyId: member.child_assembly_id,
+      quantity: member.quantity,
+      position: member.position,
     })),
   });
 }

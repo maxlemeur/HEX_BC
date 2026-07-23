@@ -69,6 +69,7 @@ export default function EstimateAssembliesPage() {
   );
   const laborRoles = assemblyOptions?.laborRoles ?? [];
   const supplyTypes = assemblyOptions?.supplyTypes ?? [];
+  const availableAssemblies = assemblyOptions?.assemblies ?? assemblies;
 
   const openCreateModal = useCallback(() => {
     setEditingAssembly(null);
@@ -289,6 +290,7 @@ export default function EstimateAssembliesPage() {
           initialValue={editingAssembly}
           laborRoles={laborRoles}
           supplyTypes={supplyTypes}
+          availableAssemblies={availableAssemblies}
           onClose={closeModal}
           onSubmit={handleSubmitModal}
         />

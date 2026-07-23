@@ -251,6 +251,17 @@ describe("createEstimateItemSchema", () => {
       source_page: 7,
     });
   });
+
+  it("rejects deprecated labor split fields", () => {
+    const parsed = createEstimateItemSchema.safeParse({
+      item_type: "line",
+      h_mo_atelier: 1,
+      labor_role_atelier_id: ITEM_ID_1,
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
 });
 
 describe("patchEstimateVersionSchema", () => {
@@ -426,6 +437,16 @@ describe("updateEstimateItemSchema", () => {
       id: ITEM_ID_1,
       item_type: "section",
     });
+  });
+
+  it("rejects a second labor role on updates", () => {
+    const parsed = updateEstimateItemSchema.safeParse({
+      id: ITEM_ID_1,
+      h_mo_chantier: 1,
+      labor_role_chantier_id: ITEM_ID_2,
+    });
+
+    expect(parsed.success).toBe(false);
   });
 });
 
@@ -873,6 +894,54 @@ describe("estimate assembly schemas", () => {
     expect(parsed.reference_code).toBe("ASM-MUR-001");
     expect(parsed.unit).toBe("m²");
   });
+
+  it("accepts a members-only assembly and normalizes member aliases", () => {
+    const parsed = createEstimateAssemblySchema.parse({
+      name: "Pack salle de bains",
+      members: [
+        {
+          childAssemblyId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          quantity: 2.5,
+          position: 1,
+        },
+      ],
+    });
+
+    expect(parsed.items).toEqual([]);
+    expect(parsed.members).toEqual([
+      {
+        child_assembly_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        quantity: 2.5,
+        position: 1,
+      },
+    ]);
+  });
+
+  it("rejects duplicate members and positions shared with direct lines", () => {
+    const childAssemblyId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const duplicate = createEstimateAssemblySchema.safeParse({
+      name: "Composition invalide",
+      items: [{ title: "Ligne", position: 1 }],
+      members: [
+        { childAssemblyId, quantity: 1, position: 1 },
+        { childAssemblyId, quantity: 2, position: 2 },
+      ],
+    });
+
+    expect(duplicate.success).toBe(false);
+    if (duplicate.success) return;
+    expect(
+      duplicate.error.issues.some((issue) =>
+        issue.message.includes("sous-ouvrage")
+      )
+    ).toBe(true);
+    expect(
+      duplicate.error.issues.some((issue) =>
+        issue.message.includes("tous les contenus")
+      )
+    ).toBe(true);
+  });
+
 
   it("rejects assemblies with no lines or more than 50 lines", () => {
     expect(

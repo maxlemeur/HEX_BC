@@ -77,7 +77,6 @@ import {
 import {
   LABOR_SPLIT_FIELD_KEYS,
   buildEstimateItemUpdatePayload,
-  hasLaborSplitFields,
   readLaborSplitFields,
   resolveLaborRoleHourlyRate,
   type EditorEstimateItem,
@@ -85,7 +84,6 @@ import {
   type EstimateVersionRow,
   type EstimateVersionTotalsPatch,
   type LaborRole,
-  type LaborSplitItemFields,
 } from "@/lib/estimates/editor-items";
 import {
   toFiniteNumber,
@@ -151,7 +149,6 @@ type EstimateEditorVirtualizationConfig = NonNullable<
 >;
 
 
-const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
 const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
   resolveEstimateEditorVirtualizationConfig({
@@ -290,7 +287,7 @@ export function useEstimateEditorState({
   const isAdmin = profile?.role === "admin";
   const isViewerReadOnly = profile?.tenant_role === "viewer";
   const { isExpert } = useUiMode();
-  const { enabled: isLaborSplitEnabled } = useFeatureFlag(LABOR_SPLIT_FLAG_KEY);
+  const isLaborSplitEnabled = false;
   const {
     enabled: isVirtualizationModeFlagEnabled,
     value: virtualizationModeFlagValue,
@@ -637,9 +634,6 @@ export function useEstimateEditorState({
               h_mo_majoration: item.h_mo_majoration,
               k_mo: item.k_mo,
               supply_type_id: item.supply_type_id,
-              ...(isLaborSplitEnabled || hasLaborSplitFields(item)
-                ? (readLaborSplitFields(item) as LaborSplitItemFields)
-                : {}),
               pu_ht_cents: item.pu_ht_cents,
               line_total_ht_cents: item.line_total_ht_cents,
               line_tax_cents: item.line_tax_cents,
@@ -1394,9 +1388,6 @@ export function useEstimateEditorState({
             k_fo: lineInput.k_fo,
             h_mo: lineInput.h_mo,
             k_mo: lineInput.k_mo,
-            ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-              ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-              : {}),
             pu_ht_cents: lineValues.puHtCents,
             line_total_ht_cents: lineValues.saleLineCents,
             line_tax_cents: lineValues.taxLineCents,
@@ -1546,15 +1537,7 @@ export function useEstimateEditorState({
       const nextHourlyRate = updates.hourly_rate_cents ?? 0;
       const snapshot = itemsRef.current;
       const affectedLines = snapshot.filter(
-        (item) => {
-          if (item.item_type !== "line") return false;
-          if (item.labor_role_id === id) return true;
-          const splitFields = readLaborSplitFields(item);
-          return (
-            splitFields.labor_role_atelier_id === id ||
-            splitFields.labor_role_chantier_id === id
-          );
-        }
+        (item) => item.item_type === "line" && item.labor_role_id === id
       );
 
       if (affectedLines.length === 0) return;
@@ -1573,9 +1556,6 @@ export function useEstimateEditorState({
           k_fo: lineInput.k_fo,
           h_mo: lineInput.h_mo,
           k_mo: lineInput.k_mo,
-          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-            : {}),
           pu_ht_cents: lineValues.puHtCents,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
@@ -1607,7 +1587,6 @@ export function useEstimateEditorState({
       settings,
       version,
       computeLineValuesWithLaborContext,
-      isLaborSplitEnabled,
     ]
   );
 
@@ -1719,9 +1698,6 @@ export function useEstimateEditorState({
         k_fo: lineInput.k_fo,
         h_mo: lineInput.h_mo,
         k_mo: lineInput.k_mo,
-        ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
-          ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
-          : {}),
         pu_ht_cents: lineValues.puHtCents,
         line_total_ht_cents: lineValues.saleLineCents,
         line_tax_cents: lineValues.taxLineCents,
@@ -1730,7 +1706,6 @@ export function useEstimateEditorState({
     },
     [
       computeLineValuesWithLaborContext,
-      isLaborSplitEnabled,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
     ]

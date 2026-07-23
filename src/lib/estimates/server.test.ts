@@ -2462,6 +2462,20 @@ function createAssemblyInsertSupabaseMock(input?: {
   };
   assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
 
+  let assemblyMembersOrderCalls = 0;
+  const assemblyMembersBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(() => {
+      assemblyMembersOrderCalls += 1;
+      if (assemblyMembersOrderCalls % 2 === 0) {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return assemblyMembersBuilder;
+    }),
+  };
+  assemblyMembersBuilder.eq.mockReturnValue(assemblyMembersBuilder);
+
+
   const laborRolesBuilder = {
     eq: vi.fn(),
     in: vi.fn().mockResolvedValue({
@@ -2558,6 +2572,11 @@ function createAssemblyInsertSupabaseMock(input?: {
           select: vi.fn(() => assemblyItemsBuilder),
         };
       }
+      if (table === "estimate_assembly_members") {
+        return {
+          select: vi.fn(() => assemblyMembersBuilder),
+        };
+      }
       if (table === "labor_roles") {
         return {
           select: vi.fn(() => laborRolesBuilder),
@@ -2622,7 +2641,7 @@ function createAssemblyUpdateSupabaseMock(input?: {
         created_by: USER_ID,
         name: "Mur",
         description: null,
-        ds_cents: 1647,
+        ds_cents: 2149,
         avg_time_hours: 0.5,
         created_at: VERSION_UPDATED_AT,
         updated_at: VERSION_UPDATED_AT,
@@ -2707,6 +2726,20 @@ function createAssemblyUpdateSupabaseMock(input?: {
   };
   assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
 
+  let assemblyMembersOrderCalls = 0;
+  const assemblyMembersBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(() => {
+      assemblyMembersOrderCalls += 1;
+      if (assemblyMembersOrderCalls % 2 === 0) {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return assemblyMembersBuilder;
+    }),
+  };
+  assemblyMembersBuilder.eq.mockReturnValue(assemblyMembersBuilder);
+
+
   const assemblyItemsUpsert = vi.fn().mockResolvedValue({
     data: null,
     error: null,
@@ -2739,6 +2772,11 @@ function createAssemblyUpdateSupabaseMock(input?: {
         return {
           select: vi.fn(() => assemblyItemsBuilder),
           upsert: assemblyItemsUpsert,
+        };
+      }
+      if (table === "estimate_assembly_members") {
+        return {
+          select: vi.fn(() => assemblyMembersBuilder),
         };
       }
       if (table === "labor_roles") {
@@ -3316,7 +3354,7 @@ describe("estimate assemblies updates", () => {
       ],
     });
 
-    expect(supabase.rpc).toHaveBeenCalledWith("replace_estimate_assembly_items", {
+    expect(supabase.rpc).toHaveBeenCalledWith("replace_estimate_assembly_contents", {
       p_assembly_id: ASSEMBLY_ID,
       p_items: [
         {
@@ -3337,38 +3375,39 @@ describe("estimate assemblies updates", () => {
           source_metadata: {},
         },
       ],
-    });
-    expect(supabase.__mocks.assemblyItemsUpsert).toHaveBeenCalledWith(
-      [
-        {
-          tenant_id: TENANT_ID,
-          assembly_id: ASSEMBLY_ID,
-          title: "Ligne",
-          unit: "ml",
-          k_fo: 0.5,
-          k_mo: 1.1,
-          labor_role_id: LABOR_ROLE_ID,
-          supply_type_id: SUPPLY_TYPE_ID,
-          default_quantity: 1,
-          h_mo: 0.5,
-          position: 1,
-          cost_type: "material",
-          unit_cost_ht_cents: 998,
-          loss_coeff_bp: 0,
-          yield_value: null,
-          yield_unit: null,
-          source_metadata: {},
-        },
-      ],
-      { onConflict: "assembly_id,position" }
-    );
-    expect(supabase.__mocks.assemblyUpdate).toHaveBeenCalledWith({
-      ds_cents: 2149,
-      avg_time_hours: 0.5,
+      p_members: [],
     });
     expect(result.assembly.id).toBe(ASSEMBLY_ID);
     expect(result.assembly.items).toHaveLength(1);
     expect(result.assembly.ds_cents).toBe(2149);
     expect(result.assembly.avg_time_hours).toBe(0.5);
   });
+  it("maps cyclic compositions to a domain conflict", async () => {
+    const supabase = createAssemblyUpdateSupabaseMock({
+      rpcError: {
+        code: "P0001",
+        message: "Estimate assembly composition would create a cycle",
+        details: null,
+        hint: null,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      updateEstimateAssembly(ASSEMBLY_ID, {
+        members: [
+          {
+            child_assembly_id: "99999999-9999-4999-8999-999999999999",
+            quantity: 1,
+            position: 2,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "ESTIMATE_ASSEMBLY_CYCLE",
+    });
+  });
+
+
 });

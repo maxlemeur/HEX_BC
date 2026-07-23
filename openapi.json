@@ -5099,7 +5099,7 @@
         "summary": "Creer un ouvrage",
         "description": "Cree un nouvel ouvrage de lignes.",
         "requestBody": {
-          "description": "Creation d'un ouvrage de lignes.",
+          "description": "Creation d'un ouvrage compose de lignes et de sous-ouvrages.",
           "required": true,
           "content": {
             "application/json": {
@@ -13714,44 +13714,22 @@
                               "minimum": 0
                             },
                             "h_mo_atelier": {
-                              "type": "number",
-                              "minimum": 0
+                              "not": {}
                             },
                             "k_mo_atelier": {
-                              "type": "number",
-                              "minimum": 0
+                              "not": {}
                             },
                             "labor_role_atelier_id": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
+                              "not": {}
                             },
                             "h_mo_chantier": {
-                              "type": "number",
-                              "minimum": 0
+                              "not": {}
                             },
                             "k_mo_chantier": {
-                              "type": "number",
-                              "minimum": 0
+                              "not": {}
                             },
                             "labor_role_chantier_id": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
+                              "not": {}
                             },
                             "labor_role_id": {
                               "anyOf": [
@@ -13947,44 +13925,22 @@
                           "minimum": 0
                         },
                         "h_mo_atelier": {
-                          "type": "number",
-                          "minimum": 0
+                          "not": {}
                         },
                         "k_mo_atelier": {
-                          "type": "number",
-                          "minimum": 0
+                          "not": {}
                         },
                         "labor_role_atelier_id": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
+                          "not": {}
                         },
                         "h_mo_chantier": {
-                          "type": "number",
-                          "minimum": 0
+                          "not": {}
                         },
                         "k_mo_chantier": {
-                          "type": "number",
-                          "minimum": 0
+                          "not": {}
                         },
                         "labor_role_chantier_id": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
+                          "not": {}
                         },
                         "pu_ht_cents": {
                           "type": "integer",
@@ -15822,44 +15778,22 @@
                 "minimum": 0
               },
               "h_mo_atelier": {
-                "type": "number",
-                "minimum": 0
+                "not": {}
               },
               "k_mo_atelier": {
-                "type": "number",
-                "minimum": 0
+                "not": {}
               },
               "labor_role_atelier_id": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "not": {}
               },
               "h_mo_chantier": {
-                "type": "number",
-                "minimum": 0
+                "not": {}
               },
               "k_mo_chantier": {
-                "type": "number",
-                "minimum": 0
+                "not": {}
               },
               "labor_role_chantier_id": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "not": {}
               },
               "labor_role_id": {
                 "anyOf": [
@@ -16349,44 +16283,22 @@
             "minimum": 0
           },
           "h_mo_atelier": {
-            "type": "number",
-            "minimum": 0
+            "not": {}
           },
           "k_mo_atelier": {
-            "type": "number",
-            "minimum": 0
+            "not": {}
           },
           "labor_role_atelier_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "not": {}
           },
           "h_mo_chantier": {
-            "type": "number",
-            "minimum": 0
+            "not": {}
           },
           "k_mo_chantier": {
-            "type": "number",
-            "minimum": 0
+            "not": {}
           },
           "labor_role_chantier_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "not": {}
           },
           "pu_ht_cents": {
             "type": "integer",
@@ -16600,44 +16512,22 @@
                   "minimum": 0
                 },
                 "h_mo_atelier": {
-                  "type": "number",
-                  "minimum": 0
+                  "not": {}
                 },
                 "k_mo_atelier": {
-                  "type": "number",
-                  "minimum": 0
+                  "not": {}
                 },
                 "labor_role_atelier_id": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "not": {}
                 },
                 "h_mo_chantier": {
-                  "type": "number",
-                  "minimum": 0
+                  "not": {}
                 },
                 "k_mo_chantier": {
-                  "type": "number",
-                  "minimum": 0
+                  "not": {}
                 },
                 "labor_role_chantier_id": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "not": {}
                 },
                 "pu_ht_cents": {
                   "type": "integer",
@@ -21091,6 +20981,11 @@
                       "type": "integer",
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991
+                    },
+                    "member_count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
                     }
                   },
                   "required": [
@@ -21108,7 +21003,8 @@
                     "created_by",
                     "created_at",
                     "updated_at",
-                    "item_count"
+                    "item_count",
+                    "member_count"
                   ],
                   "additionalProperties": {}
                 }
@@ -21222,7 +21118,6 @@
             ]
           },
           "items": {
-            "minItems": 1,
             "maxItems": 50,
             "type": "array",
             "items": {
@@ -21348,11 +21243,38 @@
                 "position"
               ]
             }
+          },
+          "members": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "child_assembly_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "quantity": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "child_assembly_id",
+                "quantity",
+                "position"
+              ]
+            }
           }
         },
         "required": [
-          "name",
-          "items"
+          "name"
         ]
       },
       "ApiEstimateAssemblyResponse": {
@@ -21477,6 +21399,11 @@
                     "type": "string"
                   },
                   "item_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "member_count": {
                     "type": "integer",
                     "minimum": -9007199254740991,
                     "maximum": 9007199254740991
@@ -21640,6 +21567,111 @@
                       ],
                       "additionalProperties": {}
                     }
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "parent_assembly_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "child_assembly_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "quantity": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "position": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "child_assembly": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "reference_code": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "unit": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ds_cents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "avg_time_hours": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "reference_code",
+                                "unit",
+                                "ds_cents",
+                                "avg_time_hours"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "parent_assembly_id",
+                        "child_assembly_id",
+                        "quantity",
+                        "position",
+                        "child_assembly"
+                      ],
+                      "additionalProperties": {}
+                    }
                   }
                 },
                 "required": [
@@ -21658,7 +21690,9 @@
                   "created_at",
                   "updated_at",
                   "item_count",
-                  "items"
+                  "member_count",
+                  "items",
+                  "members"
                 ],
                 "additionalProperties": {}
               }
@@ -21719,7 +21753,6 @@
             ]
           },
           "items": {
-            "minItems": 1,
             "maxItems": 50,
             "type": "array",
             "items": {
@@ -21842,6 +21875,34 @@
               },
               "required": [
                 "title",
+                "position"
+              ]
+            }
+          },
+          "members": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "child_assembly_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "quantity": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "child_assembly_id",
+                "quantity",
                 "position"
               ]
             }

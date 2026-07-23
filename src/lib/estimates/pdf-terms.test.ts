@@ -56,7 +56,9 @@ describe("estimate PDF terms", () => {
     );
 
     expect(draft).toMatchObject({
+      id: "estimate-cgv-b2b-draft-v2",
       title: "Projet de CGV - Travaux B2B",
+      version: 2,
       legalReviewedAt: null,
       isDraft: true,
     });
@@ -85,7 +87,16 @@ describe("estimate PDF terms", () => {
     );
     const clauses = parseEstimateTermsClauses(draft?.body ?? "");
     const columns = splitEstimateTermsClauses(clauses);
-    expect(clauses).toHaveLength(11);
-    expect(columns.map((column) => column.length)).toEqual([6, 5]);
+    expect(clauses).toHaveLength(8);
+    expect(columns.map((column) => column.length)).toEqual([4, 4]);
+    expect(draft?.body).toContain(
+      "Sauf mention contraire au devis, les prix sont exprimés hors taxes",
+    );
+    expect(draft?.body).toContain(
+      "Aucun acompte n'est dû s'il n'est pas expressément prévu au devis",
+    );
+    expect(draft?.body).not.toContain("VALIDITÉ");
+    expect(draft?.body).not.toContain("ACCÈS ET CONDITIONS DE CHANTIER");
+    expect(draft?.body).not.toContain("Les données de contact");
   });
 });

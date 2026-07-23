@@ -1383,6 +1383,13 @@ describe("estimate client assemblies wrappers", () => {
           supplyTypeId: SUPPLY_TYPE_ID,
         },
       ],
+      members: [
+        {
+          childAssemblyId: "99999999-9999-4999-8999-999999999999",
+          quantity: 2.5,
+          position: 2,
+        },
+      ],
     });
     expect(created.name).toBe("Mur");
 
@@ -1409,6 +1416,13 @@ describe("estimate client assemblies wrappers", () => {
           yield_value: null,
           yield_unit: null,
           source_metadata: {},
+        },
+      ],
+      members: [
+        {
+          child_assembly_id: "99999999-9999-4999-8999-999999999999",
+          quantity: 2.5,
+          position: 2,
         },
       ],
     });

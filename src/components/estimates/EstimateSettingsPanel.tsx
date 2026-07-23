@@ -312,11 +312,12 @@ export function EstimateSettingsPanel({
 
       <div className="mt-8" data-testid="estimate-exclusions-section">
         <label className="form-label" htmlFor="estimate-exclusions">
-          Exclusions du devis
+          Précisions et exclusions particulières
         </label>
         <p className="mb-2 text-xs text-muted-foreground">
-          Precisez les prestations, fournitures ou limites de perimetre qui ne sont pas
-          comprises dans cette offre. Elles apparaitront sur le PDF du devis.
+          Indiquez uniquement les prestations, fournitures ou limites propres à cette
+          offre. Évitez d&apos;y recopier les règles commerciales déjà prévues par les
+          CGV.
         </p>
         <textarea
           id="estimate-exclusions"
@@ -324,7 +325,7 @@ export function EstimateSettingsPanel({
           value={settings.exclusions}
           disabled={isReadOnly}
           maxLength={5000}
-          placeholder="Ex. : alimentation electrique en amont, percements structurels, reprises de peinture..."
+          placeholder="Ex. : cordiste, DOE, équilibrage, calorifuge des robinetteries..."
           onChange={(event) => onChange({ exclusions: event.target.value })}
         />
       </div>

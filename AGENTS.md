@@ -15,6 +15,8 @@ The worktree may contain changes from other teams. Treat every pre-existing modi
 
 Do not commit, push, create a PR, deploy, or apply remote database migrations without explicit user authorization. Never force-push.
 
+Do not proactively suggest or offer Figma. Only discuss or use Figma when the user explicitly requests it; otherwise omit Figma from recommendations and follow-up questions.
+
 ## Sources of Truth
 
 Use the current code, `package.json`, configuration files, migrations, and focused documentation as operational truth. The root `README.md` is incomplete for the current product and must not be used alone to infer architecture or setup.

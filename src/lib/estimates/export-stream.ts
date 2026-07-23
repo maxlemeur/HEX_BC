@@ -180,6 +180,7 @@ function buildLineRows(input: {
   version: EstimateVersionForCalc;
   laborRateById: Map<string, number>;
 }) {
+
   return input.items.map((item): ExportLineRow => {
     if (item.item_type !== "line") {
       return {

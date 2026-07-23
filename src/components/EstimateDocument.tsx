@@ -147,14 +147,14 @@ function EstimateTermsPage({
         {clauses.map((clause, index) => (
           <section
             key={[index, clause.heading].join("-")}
-            className="print-avoid-break-inside mb-3 inline-block w-full align-top print:mb-2"
+            className="print-avoid-break-inside mb-3 inline-block w-full align-top print:mb-2.5"
           >
             {clause.heading ? (
-              <h3 className="text-[11px] font-bold uppercase leading-4 text-brand-blue print:text-[9px] print:leading-[1.3]">
+              <h3 className="text-[11px] font-bold uppercase leading-4 text-brand-blue print:text-[9.5px] print:leading-[1.35]">
                 {clause.heading}
               </h3>
             ) : null}
-            <p className="mt-1 text-[11px] leading-[1.45] print:text-[9px] print:leading-[1.35]">
+            <p className="mt-1 text-[11px] leading-[1.45] print:text-[9.5px] print:leading-[1.4]">
               {clause.text}
             </p>
           </section>

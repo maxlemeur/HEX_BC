@@ -368,12 +368,12 @@ const createLineItemSchema = z.object({
   h_mo: nonNegativeNumberSchema.optional(),
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
-  h_mo_atelier: nonNegativeNumberSchema.optional(),
-  k_mo_atelier: nonNegativeNumberSchema.optional(),
-  labor_role_atelier_id: nullableUuidSchema.optional(),
-  h_mo_chantier: nonNegativeNumberSchema.optional(),
-  k_mo_chantier: nonNegativeNumberSchema.optional(),
-  labor_role_chantier_id: nullableUuidSchema.optional(),
+  h_mo_atelier: z.never().optional(),
+  k_mo_atelier: z.never().optional(),
+  labor_role_atelier_id: z.never().optional(),
+  h_mo_chantier: z.never().optional(),
+  k_mo_chantier: z.never().optional(),
+  labor_role_chantier_id: z.never().optional(),
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
@@ -402,12 +402,12 @@ const updateEstimateItemFields = {
   h_mo: nonNegativeNumberSchema.optional(),
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
-  h_mo_atelier: nonNegativeNumberSchema.optional(),
-  k_mo_atelier: nonNegativeNumberSchema.optional(),
-  labor_role_atelier_id: nullableUuidSchema.optional(),
-  h_mo_chantier: nonNegativeNumberSchema.optional(),
-  k_mo_chantier: nonNegativeNumberSchema.optional(),
-  labor_role_chantier_id: nullableUuidSchema.optional(),
+  h_mo_atelier: z.never().optional(),
+  k_mo_atelier: z.never().optional(),
+  labor_role_atelier_id: z.never().optional(),
+  h_mo_chantier: z.never().optional(),
+  k_mo_chantier: z.never().optional(),
+  labor_role_chantier_id: z.never().optional(),
   pu_ht_cents: nonNegativeIntegerSchema.optional(),
   line_total_ht_cents: nonNegativeIntegerSchema.optional(),
   line_tax_cents: nonNegativeIntegerSchema.optional(),
@@ -1398,7 +1398,6 @@ const estimateAssemblyItemSchema = z.preprocess(
 
 const estimateAssemblyItemsSchema = z
   .array(estimateAssemblyItemSchema)
-  .min(1, "Un ouvrage doit contenir au moins 1 ligne.")
   .max(50, "Un ouvrage ne peut pas contenir plus de 50 lignes.")
   .superRefine((items, ctx) => {
     const positions = new Set<number>();
@@ -1417,6 +1416,55 @@ const estimateAssemblyItemsSchema = z
     });
   });
 
+const estimateAssemblyMemberSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      child_assembly_id:
+        record.child_assembly_id ?? record.childAssemblyId,
+      quantity: record.quantity,
+      position: record.position,
+    };
+  },
+  z.object({
+    child_assembly_id: uuidSchema,
+    quantity: nonNegativeNumberSchema,
+    position: positiveIntegerSchema,
+  })
+);
+
+const estimateAssemblyMembersSchema = z
+  .array(estimateAssemblyMemberSchema)
+  .max(20, "Un ouvrage ne peut pas contenir plus de 20 sous-ouvrages.")
+  .superRefine((members, ctx) => {
+    const childIds = new Set<string>();
+    const positions = new Set<number>();
+
+    members.forEach((member, index) => {
+      if (childIds.has(member.child_assembly_id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Un sous-ouvrage ne peut etre ajoute qu'une fois.",
+          path: [index, "child_assembly_id"],
+        });
+      }
+      if (positions.has(member.position)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Les positions des sous-ouvrages doivent etre uniques.",
+          path: [index, "position"],
+        });
+      }
+      childIds.add(member.child_assembly_id);
+      positions.add(member.position);
+    });
+  });
+
+
 export const createEstimateAssemblySchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -1430,6 +1478,7 @@ export const createEstimateAssemblySchema = z.preprocess(
       reference_code: record.reference_code ?? record.referenceCode,
       unit: record.unit,
       items: record.items,
+      members: record.members,
     };
   },
   z.object({
@@ -1437,9 +1486,30 @@ export const createEstimateAssemblySchema = z.preprocess(
     description: optionalNullableTextSchema.optional(),
     reference_code: optionalNullableTextSchema.optional(),
     unit: optionalNullableTextSchema.optional(),
-    items: estimateAssemblyItemsSchema,
+    items: estimateAssemblyItemsSchema.optional().default([]),
+    members: estimateAssemblyMembersSchema.optional().default([]),
   })
-);
+).superRefine((payload, ctx) => {
+  if (payload.items.length + payload.members.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Un ouvrage doit contenir au moins une ligne ou un sous-ouvrage.",
+      path: ["items"],
+    });
+  }
+
+  const positions = new Set(payload.items.map((item) => item.position));
+  payload.members.forEach((member, index) => {
+    if (positions.has(member.position)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Les positions de tous les contenus doivent etre uniques.",
+        path: ["members", index, "position"],
+      });
+    }
+    positions.add(member.position);
+  });
+});
 
 export const updateEstimateAssemblySchema = z
   .preprocess(
@@ -1466,6 +1536,9 @@ export const updateEstimateAssemblySchema = z
       if (Object.prototype.hasOwnProperty.call(record, "items")) {
         payload.items = record.items;
       }
+      if (Object.prototype.hasOwnProperty.call(record, "members")) {
+        payload.members = record.members;
+      }
 
       return payload;
     },
@@ -1475,6 +1548,7 @@ export const updateEstimateAssemblySchema = z
       reference_code: optionalNullableTextSchema.optional(),
       unit: optionalNullableTextSchema.optional(),
       items: estimateAssemblyItemsSchema.optional(),
+      members: estimateAssemblyMembersSchema.optional(),
     })
   )
   .superRefine((payload, ctx) => {
@@ -1654,6 +1728,9 @@ export type ListEstimateImportSourcesQueryInput = z.infer<
   typeof listEstimateImportSourcesQuerySchema
 >;
 export type EstimateAssemblyItemInput = z.infer<typeof estimateAssemblyItemSchema>;
+export type EstimateAssemblyMemberInput = z.infer<
+  typeof estimateAssemblyMemberSchema
+>;
 export type CreateEstimateAssemblyInput = z.infer<
   typeof createEstimateAssemblySchema
 >;

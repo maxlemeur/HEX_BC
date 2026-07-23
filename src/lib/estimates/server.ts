@@ -12,6 +12,7 @@ import {
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
+  hasActiveLaborSplitPayload,
   computeInitialDiscountCents,
 } from "@/lib/estimate-calculations";
 import {
@@ -213,8 +214,8 @@ type EmbeddedProjectAccess = Pick<
   | "user_id"
   | "name"
   | "reference"
-  | "client_name"
   | "estimate_reference"
+  | "client_name"
   | "notes"
   | "is_archived"
 >;
@@ -595,6 +596,10 @@ type EstimateAssemblyItemRow =
   Database["public"]["Tables"]["estimate_assembly_items"]["Row"];
 type EstimateAssemblyItemInsert =
   Database["public"]["Tables"]["estimate_assembly_items"]["Insert"];
+type EstimateAssemblyMemberRow =
+  Database["public"]["Tables"]["estimate_assembly_members"]["Row"];
+type EstimateAssemblyMemberInsert =
+  Database["public"]["Tables"]["estimate_assembly_members"]["Insert"];
 
 const DEFAULT_VALIDITE_JOURS = 30;
 const DEFAULT_MARGIN_MULTIPLIER = 1;
@@ -3392,6 +3397,33 @@ function errorMessageContains(
     .includes(expectedMessageFragment.toLowerCase());
 }
 
+function throwAssemblyCompositionErrorIfNeeded(
+  error: PostgrestError
+): never | void {
+  if (errorMessageContains(error, "would create a cycle")) {
+    throw conflict(
+      "Cette composition creerait une boucle entre ouvrages.",
+      error,
+      "ESTIMATE_ASSEMBLY_CYCLE"
+    );
+  }
+  if (errorMessageContains(error, "limited to two nested levels")) {
+    throw badRequest(
+      "Un ouvrage est limite a deux niveaux de sous-ouvrages.",
+      error,
+      "ESTIMATE_ASSEMBLY_DEPTH_EXCEEDED"
+    );
+  }
+  if (errorMessageContains(error, "cannot contain itself")) {
+    throw badRequest(
+      "Un ouvrage ne peut pas se contenir lui-meme.",
+      error,
+      "ESTIMATE_ASSEMBLY_SELF_REFERENCE"
+    );
+  }
+}
+
+
 function throwTemplateSourceVersionNotFoundIfNeeded(
   error: PostgrestError
 ): never | void {
@@ -3436,7 +3468,11 @@ function toTemplateSummary(row: EstimateTemplateRow, itemCount: number) {
   };
 }
 
-function toAssemblySummary(row: EstimateAssemblyRow, itemCount: number) {
+function toAssemblySummary(
+  row: EstimateAssemblyRow,
+  itemCount: number,
+  memberCount = 0
+) {
   return {
     id: row.id,
     name: row.name,
@@ -3453,6 +3489,7 @@ function toAssemblySummary(row: EstimateAssemblyRow, itemCount: number) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     item_count: itemCount,
+    member_count: memberCount,
   };
 }
 
@@ -3579,6 +3616,57 @@ async function loadEstimateAssemblyItems(input: {
   return (data ?? []) as EstimateAssemblyItemRow[];
 }
 
+async function loadEstimateAssemblyMembers(input: {
+  supabase: Supabase;
+  tenantId: string;
+  assemblyId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_assembly_members")
+    .select("*")
+    .eq("tenant_id", input.tenantId)
+    .eq("parent_assembly_id", input.assemblyId)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les sous-ouvrages."
+    );
+  }
+
+  const members = (data ?? []) as EstimateAssemblyMemberRow[];
+  const childIds = members.map((member) => member.child_assembly_id);
+  if (childIds.length === 0) return [];
+
+  const { data: childAssemblies, error: childError } = await input.supabase
+    .from("estimate_assemblies")
+    .select("*")
+    .eq("tenant_id", input.tenantId)
+    .in("id", childIds);
+
+  if (childError) {
+    throw mapSupabaseError(
+      childError,
+      "Impossible de charger les sous-ouvrages."
+    );
+  }
+
+  const childrenById = new Map(
+    ((childAssemblies ?? []) as EstimateAssemblyRow[]).map((assembly) => [
+      assembly.id,
+      assembly,
+    ])
+  );
+
+  return members.map((member) => ({
+    ...member,
+    child_assembly: childrenById.get(member.child_assembly_id) ?? null,
+  }));
+}
+
+
 async function loadAssemblyItemCountByAssemblyId(input: {
   supabase: Supabase;
   tenantId: string;
@@ -3606,6 +3694,41 @@ async function loadAssemblyItemCountByAssemblyId(input: {
 
   return counts;
 }
+
+async function loadAssemblyMemberCountByAssemblyId(input: {
+  supabase: Supabase;
+  tenantId: string;
+  assemblyIds: string[];
+}) {
+  const counts = new Map<string, number>();
+
+  if (input.assemblyIds.length === 0) {
+    return counts;
+  }
+
+  const { data, error } = await input.supabase
+    .from("estimate_assembly_members")
+    .select("parent_assembly_id")
+    .eq("tenant_id", input.tenantId)
+    .in("parent_assembly_id", input.assemblyIds);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger le comptage des sous-ouvrages."
+    );
+  }
+
+  for (const row of (data ?? []) as Array<{ parent_assembly_id: string }>) {
+    counts.set(
+      row.parent_assembly_id,
+      (counts.get(row.parent_assembly_id) ?? 0) + 1
+    );
+  }
+
+  return counts;
+}
+
 
 async function loadValidLaborRoleIdsForOwner(input: {
   supabase: Supabase;
@@ -4000,16 +4123,7 @@ function isLaborSplitEnabledForItem(
     >
   >
 ) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    ((item.k_mo_atelier ?? 1) !== 1) ||
-    ((item.k_mo_chantier ?? 1) !== 1)
-  );
+  return hasActiveLaborSplitPayload(item);
 }
 
 async function resolveLaborRateCents(
@@ -5283,6 +5397,11 @@ export async function listEstimateAssemblies(
     tenantId,
     assemblyIds: assemblies.map((assembly) => assembly.id),
   });
+  const memberCountByAssemblyId = await loadAssemblyMemberCountByAssemblyId({
+    supabase,
+    tenantId,
+    assemblyIds: assemblies.map((assembly) => assembly.id),
+  });
   const { data: laborRoles, error: laborRolesError } = await supabase
     .from("labor_roles")
     .select("*")
@@ -5309,7 +5428,11 @@ export async function listEstimateAssemblies(
   }
   return {
     assemblies: assemblies.map((assembly) =>
-      toAssemblySummary(assembly, itemCountByAssemblyId.get(assembly.id) ?? 0)
+      toAssemblySummary(
+        assembly,
+        itemCountByAssemblyId.get(assembly.id) ?? 0,
+        memberCountByAssemblyId.get(assembly.id) ?? 0
+      )
     ),
     labor_roles: (laborRoles ?? []) as LaborRoleRow[],
     supply_types: (supplyTypes ?? []) as SupplyTypeRow[],
@@ -5329,11 +5452,17 @@ export async function getEstimateAssembly(assemblyId: string) {
     tenantId,
     assemblyId,
   });
+  const members = await loadEstimateAssemblyMembers({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
 
   return {
     assembly: {
-      ...toAssemblySummary(assembly, items.length),
+      ...toAssemblySummary(assembly, items.length, members.length),
       items,
+      members,
     },
   };
 }
@@ -5482,30 +5611,63 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     source_metadata: (item.source_metadata ?? {}) as Json,
   }));
 
-  const { data: insertedItems, error: itemsError } = await supabase
-    .from("estimate_assembly_items")
-    .insert(itemsPayload)
-    .select("*")
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
+  const membersPayload: EstimateAssemblyMemberInsert[] = input.members.map(
+    (member) => ({
+      tenant_id: tenantId,
+      parent_assembly_id: assembly.id,
+      child_assembly_id: member.child_assembly_id,
+      quantity: member.quantity,
+      position: member.position,
+    })
+  );
 
-  if (itemsError || !insertedItems) {
+  const { error: contentsError } = await supabase.rpc(
+    "replace_estimate_assembly_contents",
+    {
+      p_assembly_id: assembly.id,
+      p_items: itemsPayload as unknown as Json,
+      p_members: membersPayload as unknown as Json,
+    }
+  );
+
+  if (contentsError) {
     await supabase
       .from("estimate_assemblies")
       .delete()
       .eq("tenant_id", tenantId)
       .eq("id", assembly.id);
 
-    if (itemsError) {
-      throw mapSupabaseError(itemsError, "Impossible de creer l'ouvrage.");
-    }
-    throw badRequest("Impossible de creer l'ouvrage.");
+    throwAssemblyCompositionErrorIfNeeded(contentsError);
+    throw mapSupabaseError(contentsError, "Impossible de creer l'ouvrage.");
   }
+
+  const [savedAssembly, insertedItems, insertedMembers] = await Promise.all([
+    loadEstimateAssemblyOrThrow({
+      supabase,
+      tenantId,
+      assemblyId: assembly.id,
+    }),
+    loadEstimateAssemblyItems({
+      supabase,
+      tenantId,
+      assemblyId: assembly.id,
+    }),
+    loadEstimateAssemblyMembers({
+      supabase,
+      tenantId,
+      assemblyId: assembly.id,
+    }),
+  ]);
 
   return {
     assembly: {
-      ...toAssemblySummary(assembly, insertedItems.length),
-      items: insertedItems as EstimateAssemblyItemRow[],
+      ...toAssemblySummary(
+        savedAssembly,
+        insertedItems.length,
+        insertedMembers.length
+      ),
+      items: insertedItems,
+      members: insertedMembers,
     },
   };
 }
@@ -5562,8 +5724,14 @@ export async function updateEstimateAssembly(
     });
   }
 
-  if ("items" in input && input.items) {
-    const itemsPayload = input.items.map((item) => ({
+  if (
+    ("items" in input && input.items) ||
+    ("members" in input && input.members)
+  ) {
+    const requestedItems =
+      input.items ??
+      (await loadEstimateAssemblyItems({ supabase, tenantId, assemblyId }));
+    const itemsPayload = requestedItems.map((item) => ({
       title: item.title.trim(),
       unit: toNullableText(item.unit),
       k_fo: item.k_fo ?? 1,
@@ -5585,87 +5753,41 @@ export async function updateEstimateAssembly(
       source_metadata: (item.source_metadata ?? {}) as Json,
     }));
 
-    const laborRoleIds = Array.from(
-      new Set(
-        input.items
-          .map((item) => item.labor_role_id)
-          .filter((roleId): roleId is string => Boolean(roleId))
-      )
-    );
-    const laborRatesById = new Map<string, number>();
-    if (laborRoleIds.length > 0) {
-      const { data: laborRoles, error: laborRolesError } = await supabase
-        .from("labor_roles")
-        .select("id, hourly_rate_cents")
-        .eq("tenant_id", tenantId)
-        .in("id", laborRoleIds);
+    const requestedMembers =
+      input.members ??
+      (await loadEstimateAssemblyMembers({
+        supabase,
+        tenantId,
+        assemblyId,
+      }));
+    const membersPayload = requestedMembers.map((member) => ({
+      child_assembly_id: member.child_assembly_id,
+      quantity: member.quantity,
+      position: member.position,
+    }));
 
-      if (laborRolesError) {
-        throw mapSupabaseError(
-          laborRolesError,
-          "Impossible de charger les taux de main-d’œuvre."
-        );
-      }
-      (laborRoles ?? []).forEach((role) => {
-        laborRatesById.set(role.id, role.hourly_rate_cents);
-      });
-    }
-    const metrics = computeAssemblyMetrics(input.items, laborRatesById);
-
-    const { error: replaceItemsError } = await supabase.rpc(
-      "replace_estimate_assembly_items",
+    const { error: replaceContentsError } = await supabase.rpc(
+      "replace_estimate_assembly_contents",
       {
         p_assembly_id: assemblyId,
-        p_items: itemsPayload,
+        p_items: itemsPayload as unknown as Json,
+        p_members: membersPayload as unknown as Json,
       }
     );
 
-    if (replaceItemsError) {
+    if (replaceContentsError) {
+      throwAssemblyCompositionErrorIfNeeded(replaceContentsError);
       throw mapSupabaseError(
-        replaceItemsError,
+        replaceContentsError,
         "Impossible de mettre a jour l'ouvrage."
       );
     }
 
-    const { error: preserveItemDetailsError } = await supabase
-      .from("estimate_assembly_items")
-      .upsert(
-        itemsPayload.map((item) => ({
-          tenant_id: tenantId,
-          assembly_id: assemblyId,
-          ...item,
-        })),
-        { onConflict: "assembly_id,position" }
-      );
-
-    if (preserveItemDetailsError) {
-      throw mapSupabaseError(
-        preserveItemDetailsError,
-        "Impossible de conserver les prix et les temps de l'ouvrage."
-      );
-    }
-
-    const { data: metricsAssembly, error: metricsUpdateError } = await supabase
-      .from("estimate_assemblies")
-      .update({
-        ds_cents: metrics.directCostCents,
-        avg_time_hours: metrics.laborHours,
-      })
-      .eq("tenant_id", tenantId)
-      .eq("id", assemblyId)
-      .select("*")
-      .single();
-
-    if (metricsUpdateError || !metricsAssembly) {
-      if (metricsUpdateError) {
-        throw mapSupabaseError(
-          metricsUpdateError,
-          "Impossible de mettre a jour les totaux de l'ouvrage."
-        );
-      }
-      throw badRequest("Impossible de mettre a jour les totaux de l'ouvrage.");
-    }
-    updatedAssembly = metricsAssembly as EstimateAssemblyRow;
+    updatedAssembly = await loadEstimateAssemblyOrThrow({
+      supabase,
+      tenantId,
+      assemblyId,
+    });
   }
 
   const items = await loadEstimateAssemblyItems({
@@ -5673,11 +5795,17 @@ export async function updateEstimateAssembly(
     tenantId,
     assemblyId,
   });
+  const members = await loadEstimateAssemblyMembers({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
 
   return {
     assembly: {
-      ...toAssemblySummary(updatedAssembly, items.length),
+      ...toAssemblySummary(updatedAssembly, items.length, members.length),
       items,
+      members,
     },
   };
 }
@@ -5699,6 +5827,12 @@ export async function deleteEstimateAssembly(assemblyId: string) {
     .eq("id", assemblyId);
 
   if (error) {
+    if (error.code === "23503") {
+      throw conflict(
+        "Cet ouvrage est utilise comme sous-ouvrage. Retirez d'abord ses references.",
+        error
+      );
+    }
     throw mapSupabaseError(error, "Impossible de supprimer l'ouvrage.");
   }
 
@@ -5738,24 +5872,16 @@ export async function insertAssemblyIntoVersion(input: {
     tenantId,
     assemblyId: assembly.id,
   });
-
-  if (assemblyItems.length === 0) {
-    throw badRequest("Cet ouvrage ne contient aucune ligne.");
-  }
-
-  const laborRoleIds = assemblyItems
-    .map((item) => item.labor_role_id)
-    .filter((value): value is string => Boolean(value));
-
-  const validLaborRoleIds = await loadValidLaborRoleIdsForOwner({
+  const assemblyMembers = await loadEstimateAssemblyMembers({
     supabase,
     tenantId,
-    ownerUserId: project.user_id,
-    laborRoleIds,
+    assemblyId: assembly.id,
   });
-  const invalidLaborRoleIds = new Set(
-    laborRoleIds.filter((laborRoleId) => !validLaborRoleIds.has(laborRoleId))
-  );
+
+  if (assemblyItems.length === 0 && assemblyMembers.length === 0) {
+    throw badRequest("Cet ouvrage ne contient aucun contenu.");
+  }
+
 
   const { data, error } = await supabase.rpc(
     "insert_estimate_assembly_into_version",
@@ -5793,6 +5919,22 @@ export async function insertAssemblyIntoVersion(input: {
       "ESTIMATE_ASSEMBLY_INSERT_FAILED"
     );
   }
+
+  const laborRoleIds = insertedItems
+    .map((item) => item.labor_role_id)
+    .filter((value): value is string => Boolean(value));
+  const validLaborRoleIds = await loadValidLaborRoleIdsForOwner({
+    supabase,
+    tenantId,
+    ownerUserId: project.user_id,
+    laborRoleIds,
+  });
+  const invalidLaborRoleIds = new Set(
+    laborRoleIds.filter(
+      (laborRoleId) => !validLaborRoleIds.has(laborRoleId)
+    )
+  );
+
 
   const lineIdsWithInvalidLaborRole = insertedItems
     .filter(

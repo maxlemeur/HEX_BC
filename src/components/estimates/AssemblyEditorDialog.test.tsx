@@ -138,6 +138,7 @@ describe("AssemblyEditorDialog", () => {
           unitCostHtCents: 4500,
         }),
       ],
+      members: [],
     });
   });
 
@@ -436,4 +437,68 @@ describe("AssemblyEditorDialog", () => {
       onSubmit.mock.calls[0][0].items.map((item) => item.position)
     ).toEqual([1, 2, 3, 4, 5]);
   });
+  it("composes an assembly from a reusable child and applies its quantity", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(input: AssemblyEditorInput) => Promise<void>>();
+    onSubmit.mockResolvedValue(undefined);
+    const childAssemblyId = "99999999-9999-4999-8999-999999999999";
+
+    render(
+      <AssemblyEditorDialog
+        isSubmitting={false}
+        supplyTypes={SUPPLY_TYPES}
+        laborRoles={[]}
+        availableAssemblies={[
+          {
+            id: childAssemblyId,
+            name: "Pose de receveur",
+            description: null,
+            referenceCode: "ASM-RECEVEUR",
+            unit: "u",
+            directCostCents: 1250,
+            averageTimeHours: 0.5,
+            createdBy: null,
+            createdAt: "2026-07-14T08:00:00.000Z",
+            updatedAt: "2026-07-14T08:00:00.000Z",
+            itemCount: 1,
+            memberCount: 0,
+          },
+        ]}
+        onClose={() => undefined}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Nom de l'ouvrage *"), "Salle de bains");
+    await user.click(screen.getByRole("button", { name: "Retirer la ligne 1" }));
+    await user.click(
+      screen.getByRole("button", { name: /Ajouter un sous-ouvrage/ })
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Ouvrage réutilisable"),
+      childAssemblyId
+    );
+    const quantity = screen.getByLabelText("Quantité");
+    await user.clear(quantity);
+    await user.type(quantity, "2");
+
+    expect(screen.getAllByText(/25,00/).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [],
+        members: [
+          {
+            childAssemblyId,
+            quantity: 2,
+            position: 1,
+          },
+        ],
+      })
+    );
+  });
+
+
 });
