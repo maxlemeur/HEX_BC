@@ -378,6 +378,7 @@ export default async function EstimateDetailPage({
                       <EstimateStatusActions
                         versionId={versionId}
                         currentStatus={version.status as "draft" | "sent" | "accepted" | "archived"}
+                        updatedAt={version.updated_at}
                         projectName={project?.name ?? undefined}
                       />
                     ) : null}

@@ -10,6 +10,8 @@ type EstimateStatus = "draft" | "sent" | "accepted" | "archived";
 type EstimateStatusActionsProps = {
   versionId: string;
   currentStatus: EstimateStatus;
+  /** updated_at réel de la version, utilisé comme jeton de concurrence (If-Match). */
+  updatedAt: string;
   projectName?: string;
   clientEmail?: string;
 };
@@ -48,48 +50,62 @@ const SEND_ICON = (
 export function EstimateStatusActions({
   versionId,
   currentStatus,
+  updatedAt,
   projectName,
   clientEmail,
 }: EstimateStatusActionsProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleStatusChange = useCallback(
     async (nextStatus: EstimateStatus) => {
       setIsPending(true);
+      setError(null);
       try {
         const response = await fetch(`/api/estimates/${versionId}/status`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            "If-Match": new Date().toISOString(),
+            // Jeton de concurrence réel : ne jamais fabriquer un horodatage,
+            // sous peine de conflit systématique ou de contournement.
+            "If-Match": updatedAt,
           },
-          body: JSON.stringify({
-            status: nextStatus,
-            updated_at: new Date().toISOString(),
-            force: true,
-          }),
+          // Pas de force: la transition draft -> sent passe par le gating
+          // (anomalies bloquantes, PDF, scellement). Le forçage reste réservé
+          // au flux d'envoi dédié réservé aux administrateurs.
+          body: JSON.stringify({ status: nextStatus }),
         });
 
         if (!response.ok) {
           const data = await response.json().catch(() => null);
-          const message =
+          const errorObject =
             data && typeof data === "object" && "error" in data
-              ? (data as { error?: { message?: string } }).error?.message
-              : "Impossible de mettre a jour le statut.";
-          console.error("Status update failed:", message);
+              ? (data as { error?: { message?: string; code?: string } }).error
+              : null;
+          const code = errorObject?.code;
+          let message =
+            errorObject?.message ?? "Impossible de mettre à jour le statut.";
+          if (code === "ESTIMATE_GATING_BLOCKED") {
+            message =
+              "Envoi bloqué : des anomalies bloquantes doivent être corrigées avant de marquer le devis envoyé.";
+          } else if (code === "VERSION_CONFLICT") {
+            message =
+              "Le devis a été modifié entre-temps. Rechargez la page avant de réessayer.";
+          }
+          setError(message);
           return;
         }
 
         router.refresh();
-      } catch (error) {
-        console.error("Status update error:", error);
+      } catch {
+        setError("Impossible de mettre à jour le statut. Réessayez.");
       } finally {
         setIsPending(false);
       }
     },
-    [versionId, router]
+    [versionId, updatedAt, router]
   );
 
   const transitions = STATUS_TRANSITIONS[currentStatus];
@@ -132,6 +148,11 @@ export function EstimateStatusActions({
           </button>
         ))}
       </div>
+      {error && (
+        <p className="mt-2 text-xs text-[var(--error)]" role="alert">
+          {error}
+        </p>
+      )}
       <SendEstimateModal
         open={sendModalOpen}
         onClose={() => setSendModalOpen(false)}
