@@ -1233,6 +1233,20 @@ export function EstimateEditorTable({
     onBulkSetLaborRole,
   });
 
+  // Confirmation avant suppression groupée : la touche Suppr comme le bouton
+  // « Supprimer » effaçaient les lignes sélectionnées sans aucune confirmation,
+  // exposant à une perte de travail par une manipulation banale.
+  const confirmAndBulkDeleteSelection = useCallback(() => {
+    if (selectedLineCount === 0) return;
+    const confirmed = window.confirm(
+      selectedLineCount > 1
+        ? `Supprimer ${selectedLineCount} lignes sélectionnées ? Cette action est irréversible.`
+        : "Supprimer la ligne sélectionnée ? Cette action est irréversible."
+    );
+    if (!confirmed) return;
+    void handleBulkDeleteSelection();
+  }, [selectedLineCount, handleBulkDeleteSelection]);
+
   const {
     isPastePreviewOpen,
     detectedClipboardFormatForDialog,
@@ -1454,7 +1468,7 @@ export function EstimateEditorTable({
     onResolveShortcutScope: resolveEstimateTableShortcutScope,
     selectAllVisibleLines,
     clearLineSelection,
-    onBulkDeleteSelection: handleBulkDeleteSelection,
+    onBulkDeleteSelection: confirmAndBulkDeleteSelection,
     onCopySelectedRowsToClipboard: copySelectedRowsToClipboard,
     onUndo,
     onRedo,
@@ -2061,7 +2075,7 @@ export function EstimateEditorTable({
                 onUndo={onUndo}
                 onRedo={onRedo}
                 onApplyBulkMajoration={handleApplyBulkMajoration}
-                onBulkDeleteSelection={handleBulkDeleteSelection}
+                onBulkDeleteSelection={confirmAndBulkDeleteSelection}
                 onApplyBulkMove={handleApplyBulkMove}
                 onApplyBulkCategory={handleApplyBulkCategory}
                 onApplyBulkLaborRole={handleApplyBulkLaborRole}

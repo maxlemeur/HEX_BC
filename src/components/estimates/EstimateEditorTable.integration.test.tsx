@@ -156,6 +156,7 @@ function renderEstimateEditorTable(options?: {
 }) {
   const onPatchItem = vi.fn();
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
+  const onBulkDeleteLines = vi.fn().mockResolvedValue(undefined);
   const items =
     options?.items ??
     [
@@ -231,7 +232,7 @@ function renderEstimateEditorTable(options?: {
         onDeleteItem={vi.fn()}
         onPatchItem={onPatchItem}
         onApplyBulkMajoration={onApplyBulkMajoration}
-        onBulkDeleteLines={vi.fn().mockResolvedValue(undefined)}
+        onBulkDeleteLines={onBulkDeleteLines}
         onBulkMoveLines={vi.fn().mockResolvedValue(undefined)}
         onBulkSetCategory={vi.fn().mockResolvedValue(undefined)}
         onBulkSetLaborRole={vi.fn().mockResolvedValue(undefined)}
@@ -256,6 +257,7 @@ function renderEstimateEditorTable(options?: {
   return {
     onPatchItem,
     onApplyBulkMajoration,
+    onBulkDeleteLines,
   };
 }
 
@@ -275,6 +277,30 @@ describe("EstimateEditorTable integration", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("demande confirmation avant la suppression groupée de lignes", async () => {
+    const { onBulkDeleteLines } = renderEstimateEditorTable();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Sélectionner toutes les lignes visibles/i,
+      })
+    );
+
+    const deleteButton = screen.getByTestId(
+      "estimate-editor-bulk-delete-selection-button"
+    );
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(deleteButton);
+    expect(onBulkDeleteLines).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(deleteButton);
+    await waitFor(() => expect(onBulkDeleteLines).toHaveBeenCalledTimes(1));
+
+    confirmSpy.mockRestore();
   });
 
   it("wires row edition callback to onPatchItem", () => {
