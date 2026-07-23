@@ -234,6 +234,16 @@ describe("EstimateEditorRow line cells", () => {
     expect(kMoInput).toHaveClass("estimate-input--compact-number");
     expect(kMoInput).toHaveAttribute("type", "text");
     expect(kMoInput).toHaveAttribute("inputmode", "decimal");
+
+    // La quantité doit accepter la virgule décimale FR (text + decimal),
+    // pas un input number qui la rejette au pavé numérique.
+    const quantityInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Obligatoire"]'
+    );
+    expect(quantityInput).not.toBeNull();
+    // Avant le correctif la cellule était un input number, qui rejette la
+    // virgule décimale FR au pavé numérique ; elle est désormais en texte.
+    expect(quantityInput?.type).toBe("text");
   });
 
   it("renders split labor cells when labor split is enabled", () => {

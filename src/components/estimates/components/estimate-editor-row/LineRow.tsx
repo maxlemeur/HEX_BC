@@ -622,9 +622,10 @@ export function LineRow({
           }${!item.quantity ? " estimate-cell--required-empty" : ""}`,
         )}
         inputClassName="estimate-input"
-        type="number"
-        step="0.001"
-        min={0}
+        // type=text + inputMode=decimal (comme la cellule Prix) pour accepter
+        // la virgule décimale FR ; un input number la rejette au pavé numérique.
+        type="text"
+        inputMode="decimal"
         placeholder="Obligatoire"
         ariaLabel={`Quantite pour ${item.title || "sans titre"}`}
         formatDisplayValue={(value) =>
