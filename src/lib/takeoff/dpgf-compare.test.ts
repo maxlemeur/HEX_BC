@@ -63,6 +63,96 @@ describe("buildTakeoffDpgfComparison", () => {
     expect(response.rows[0]?.proofs.some((proof) => proof.kind === "fact")).toBe(true);
   });
 
+  it("attribue l'item de metre a la ligne DPGF la mieux notee, pas a la premiere lue", () => {
+    const response = buildTakeoffDpgfComparison({
+      versionId: VERSION_ID,
+      jobId: JOB_ID,
+      threshold: 0.6,
+      dpgfLines: [
+        {
+          // Ligne generique, lue en premier : capturait l'item avec l'ancien
+          // rapprochement glouton.
+          estimate_item_id: DPGF_ITEM_ID,
+          title: "Cloison BA13",
+          description: null,
+          quantity: 10,
+          unit: "m2",
+          source_page: 1,
+          source_file_name: "dpgf.xlsx",
+          position: 1,
+        },
+        {
+          // Correspondance exacte, lue ensuite : doit remporter l'item.
+          estimate_item_id: DPGF_ITEM_ID_2,
+          title: "Cloison BA13 ep.72mm",
+          description: null,
+          quantity: 10,
+          unit: "m2",
+          source_page: 1,
+          source_file_name: "dpgf.xlsx",
+          position: 2,
+        },
+      ],
+      takeoffLines: [
+        {
+          item_id: TAKEOFF_ITEM_ID,
+          designation: "Cloison BA13 ep.72mm",
+          quantity: 10,
+          unit: "m2",
+          source_page: 3,
+          source_file_name: "plans.pdf",
+          confidence: 0.9,
+          evidence: "Zone cloisons",
+          metadata: {},
+        },
+      ],
+    });
+
+    const genericRow = response.rows.find((row) => row.line_id === DPGF_ITEM_ID);
+    const exactRow = response.rows.find((row) => row.line_id === DPGF_ITEM_ID_2);
+
+    expect(exactRow?.matched_by).toBe("auto");
+    expect(exactRow?.linked_takeoff_items).toHaveLength(1);
+    expect(genericRow?.linked_takeoff_items).toHaveLength(0);
+    expect(response.summary.unused_takeoff_items).toBe(0);
+
+    // Garde-fou du garde-fou : seule, la ligne generique capte bien l'item.
+    // Cela prouve que son score depasse le seuil et qu'elle etait donc en
+    // concurrence reelle — sans quoi le test ci-dessus ne prouverait rien de
+    // l'ancien comportement glouton.
+    const genericAlone = buildTakeoffDpgfComparison({
+      versionId: VERSION_ID,
+      jobId: JOB_ID,
+      threshold: 0.6,
+      dpgfLines: [
+        {
+          estimate_item_id: DPGF_ITEM_ID,
+          title: "Cloison BA13",
+          description: null,
+          quantity: 10,
+          unit: "m2",
+          source_page: 1,
+          source_file_name: "dpgf.xlsx",
+          position: 1,
+        },
+      ],
+      takeoffLines: [
+        {
+          item_id: TAKEOFF_ITEM_ID,
+          designation: "Cloison BA13 ep.72mm",
+          quantity: 10,
+          unit: "m2",
+          source_page: 3,
+          source_file_name: "plans.pdf",
+          confidence: 0.9,
+          evidence: "Zone cloisons",
+          metadata: {},
+        },
+      ],
+    });
+    expect(genericAlone.rows[0]?.linked_takeoff_items).toHaveLength(1);
+  });
+
   it("prioritizes manual multi-links and computes an aggregated quantity proof", () => {
     const response = buildTakeoffDpgfComparison({
       versionId: VERSION_ID,

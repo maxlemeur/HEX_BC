@@ -514,42 +514,75 @@ function suggestDecision(input: {
   return null;
 }
 
-function findBestAutoMatch(input: {
-  dpgf: NormalizedDpgfLine;
+/**
+ * Affectation automatique métré <-> DPGF par meilleur score GLOBAL.
+ *
+ * L'ancienne version était gloutonne dans l'ordre de lecture du DPGF : la
+ * première ligne dépassant le seuil consommait définitivement un item de métré,
+ * même si une ligne DPGF ultérieure lui correspondait bien mieux (ex. « Cloisons »
+ * à 0,91 capturait l'item avant « Cloison BA13 ep.72mm » à 0,99, qui se
+ * retrouvait alors en exception « non rapproché »).
+ *
+ * On construit désormais toutes les paires au-dessus du seuil, on les trie par
+ * score décroissant, puis on affecte dans cet ordre — chaque ligne DPGF et
+ * chaque item de métré n'étant retenus qu'une fois. Le tri est totalement
+ * déterministe (score, puis confiance, puis identifiants).
+ */
+function resolveGlobalAutoMatches(input: {
+  dpgfLines: NormalizedDpgfLine[];
   takeoffLines: NormalizedTakeoffLine[];
-  usedTakeoffIds: Set<string>;
   threshold: number;
-}): MatchedTakeoffCandidate | null {
-  let bestMatch: MatchedTakeoffCandidate | null = null;
+}): Map<string, MatchedTakeoffCandidate> {
+  const pairs: Array<{
+    dpgfId: string;
+    line: NormalizedTakeoffLine;
+    score: number;
+  }> = [];
 
-  for (const candidate of input.takeoffLines) {
-    if (input.usedTakeoffIds.has(candidate.item_id)) {
-      continue;
-    }
-
-    const score = computeMatchScore({
-      dpgf: input.dpgf,
-      takeoff: candidate,
-    });
-
-    if (score === null || score < input.threshold) {
-      continue;
-    }
-
-    if (
-      !bestMatch ||
-      score > bestMatch.score ||
-      (score === bestMatch.score &&
-        (candidate.confidence ?? 0) > (bestMatch.line.confidence ?? 0))
-    ) {
-      bestMatch = {
+  for (const dpgf of input.dpgfLines) {
+    for (const candidate of input.takeoffLines) {
+      const score = computeMatchScore({ dpgf, takeoff: candidate });
+      if (score === null || score < input.threshold) {
+        continue;
+      }
+      pairs.push({
+        dpgfId: dpgf.estimate_item_id,
         line: candidate,
         score,
-      };
+      });
     }
   }
 
-  return bestMatch;
+  pairs.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    const confidenceDelta =
+      (right.line.confidence ?? 0) - (left.line.confidence ?? 0);
+    if (confidenceDelta !== 0) {
+      return confidenceDelta;
+    }
+    if (left.dpgfId !== right.dpgfId) {
+      return left.dpgfId.localeCompare(right.dpgfId);
+    }
+    return left.line.item_id.localeCompare(right.line.item_id);
+  });
+
+  const matchByDpgfId = new Map<string, MatchedTakeoffCandidate>();
+  const assignedTakeoffIds = new Set<string>();
+
+  for (const pair of pairs) {
+    if (
+      matchByDpgfId.has(pair.dpgfId) ||
+      assignedTakeoffIds.has(pair.line.item_id)
+    ) {
+      continue;
+    }
+    matchByDpgfId.set(pair.dpgfId, { line: pair.line, score: pair.score });
+    assignedTakeoffIds.add(pair.line.item_id);
+  }
+
+  return matchByDpgfId;
 }
 
 function buildRow(input: {
@@ -766,6 +799,31 @@ export function buildTakeoffDpgfComparison(
     (input.carriedReviewDecisions ?? []).map((decision) => [decision.review_reference, decision] as const)
   );
   const usedTakeoffIds = new Set<string>();
+
+  // Les liens manuels sont prioritaires : leurs items de métré sont retirés du
+  // pool avant l'affectation automatique, et les lignes DPGF concernées n'y
+  // participent pas.
+  const manuallyUsedTakeoffIds = new Set<string>();
+  for (const dpgfLine of normalizedDpgfLines) {
+    const links = manualLinksByEstimateItemId.get(dpgfLine.estimate_item_id) ?? [];
+    for (const link of links) {
+      const item = takeoffById.get(link.takeoff_item_id);
+      if (item) {
+        manuallyUsedTakeoffIds.add(item.item_id);
+      }
+    }
+  }
+
+  const autoMatchByDpgfId = resolveGlobalAutoMatches({
+    dpgfLines: normalizedDpgfLines.filter(
+      (line) =>
+        (manualLinksByEstimateItemId.get(line.estimate_item_id) ?? []).length === 0
+    ),
+    takeoffLines: normalizedTakeoffLines.filter(
+      (line) => !manuallyUsedTakeoffIds.has(line.item_id)
+    ),
+    threshold,
+  });
   const rows: TakeoffDpgfComparisonRow[] = [];
 
   for (const dpgfLine of normalizedDpgfLines) {
@@ -806,12 +864,8 @@ export function buildTakeoffDpgfComparison(
       continue;
     }
 
-    const bestMatch = findBestAutoMatch({
-      dpgf: dpgfLine,
-      takeoffLines: normalizedTakeoffLines,
-      usedTakeoffIds,
-      threshold,
-    });
+    const bestMatch =
+      autoMatchByDpgfId.get(dpgfLine.estimate_item_id) ?? null;
 
     if (bestMatch) {
       usedTakeoffIds.add(bestMatch.line.item_id);
