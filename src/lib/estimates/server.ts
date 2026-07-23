@@ -5928,6 +5928,85 @@ export async function deleteEstimateAssembly(assemblyId: string) {
   };
 }
 
+/** Parcourt l'arbre d'un ouvrage (sous-ouvrages inclus). */
+async function collectEstimateAssemblyTreeIds(input: {
+  supabase: Supabase;
+  tenantId: string;
+  rootAssemblyId: string;
+}): Promise<string[]> {
+  const visited = new Set<string>();
+  const queue: string[] = [input.rootAssemblyId];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || visited.has(current)) continue;
+    visited.add(current);
+
+    const members = await loadEstimateAssemblyMembers({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      assemblyId: current,
+    });
+
+    for (const member of members) {
+      const childId = (member as { child_assembly_id?: string | null })
+        .child_assembly_id;
+      if (childId && !visited.has(childId)) {
+        queue.push(childId);
+      }
+    }
+  }
+
+  return Array.from(visited);
+}
+
+/**
+ * Un composant de main-d'oeuvre SANS role porte son taux horaire dans
+ * unit_cost_ht_cents (cf. refresh_estimate_assembly_rollup). Or une ligne de
+ * devis ne sait calculer la MO que via labor_role_id -> taux horaire : sans
+ * role, tout le cout de main-d'oeuvre serait silencieusement perdu a
+ * l'insertion (ligne a 0 EUR alors que la bibliotheque annonce un montant).
+ *
+ * On refuse donc l'insertion, sous-ouvrages compris, plutot que de sous-chiffrer
+ * le devis sans prevenir.
+ */
+async function assertAssemblyLaborRolesResolved(input: {
+  supabase: Supabase;
+  tenantId: string;
+  rootAssemblyId: string;
+}) {
+  const assemblyIds = await collectEstimateAssemblyTreeIds(input);
+
+  const { data, error } = await input.supabase
+    .from("estimate_assembly_items")
+    .select("id, title")
+    .eq("tenant_id", input.tenantId)
+    .in("assembly_id", assemblyIds)
+    .eq("cost_type", "labor")
+    .is("labor_role_id", null);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de verifier la main-d'oeuvre de l'ouvrage."
+    );
+  }
+
+  const offending = (data ?? []) as Array<{ id: string; title: string | null }>;
+  if (offending.length === 0) return;
+
+  throw badRequest(
+    "Cet ouvrage contient de la main-d'oeuvre sans role de main-d'oeuvre. Associez un role (qui porte le taux horaire) a ces composants avant insertion : sinon leur cout serait perdu et la ligne inseree vaudrait 0 EUR.",
+    {
+      items: offending.map((item) => ({
+        id: item.id,
+        title: item.title ?? "Composant sans titre",
+      })),
+    },
+    "ESTIMATE_ASSEMBLY_LABOR_ROLE_REQUIRED"
+  );
+}
+
 export async function insertAssemblyIntoVersion(input: {
   assemblyId: string;
   versionId: string;
@@ -5968,6 +6047,12 @@ export async function insertAssemblyIntoVersion(input: {
   if (assemblyItems.length === 0 && assemblyMembers.length === 0) {
     throw badRequest("Cet ouvrage ne contient aucun contenu.");
   }
+
+  await assertAssemblyLaborRolesResolved({
+    supabase,
+    tenantId,
+    rootAssemblyId: assembly.id,
+  });
 
 
   const { data, error } = await supabase.rpc(

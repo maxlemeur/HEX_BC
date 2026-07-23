@@ -2434,6 +2434,8 @@ function createAssemblyInsertSupabaseMock(input?: {
   let assemblyItemsOrderCalls = 0;
   const assemblyItemsBuilder = {
     eq: vi.fn(),
+    in: vi.fn(),
+    is: vi.fn().mockResolvedValue({ data: [], error: null }),
     order: vi.fn(() => {
       assemblyItemsOrderCalls += 1;
       if (assemblyItemsOrderCalls >= 2) {
@@ -2461,6 +2463,7 @@ function createAssemblyInsertSupabaseMock(input?: {
     }),
   };
   assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
+  assemblyItemsBuilder.in.mockReturnValue(assemblyItemsBuilder);
 
   let assemblyMembersOrderCalls = 0;
   const assemblyMembersBuilder = {
@@ -2594,6 +2597,7 @@ function createAssemblyInsertSupabaseMock(input?: {
     __mocks: {
       estimateItemsUpdateIn,
       estimateItemsSelectIn,
+      assemblyItemsBuilder,
     },
   };
 
@@ -2698,6 +2702,8 @@ function createAssemblyUpdateSupabaseMock(input?: {
   let assemblyItemsOrderCalls = 0;
   const assemblyItemsBuilder = {
     eq: vi.fn(),
+    in: vi.fn(),
+    is: vi.fn().mockResolvedValue({ data: [], error: null }),
     order: vi.fn(() => {
       assemblyItemsOrderCalls += 1;
       if (assemblyItemsOrderCalls >= 2) {
@@ -2725,6 +2731,7 @@ function createAssemblyUpdateSupabaseMock(input?: {
     }),
   };
   assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
+  assemblyItemsBuilder.in.mockReturnValue(assemblyItemsBuilder);
 
   let assemblyMembersOrderCalls = 0;
   const assemblyMembersBuilder = {
@@ -2826,6 +2833,37 @@ describe("estimate assembly metrics", () => {
 describe("estimate assemblies insertion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("refuse d'inserer un ouvrage contenant de la main-d'oeuvre sans role", async () => {
+    const supabase = createAssemblyInsertSupabaseMock({
+      validLaborRoleIds: [],
+    });
+    // Un composant labor sans role : son taux horaire (unit_cost_ht_cents)
+    // n'aurait nulle part ou atterrir sur la ligne de devis, et tout le cout
+    // MO serait perdu (ligne inseree a 0 EUR).
+    supabase.__mocks.assemblyItemsBuilder.is.mockResolvedValueOnce({
+      data: [{ id: "labor-1", title: "Pose cloison" }],
+      error: null,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertAssemblyIntoVersion({
+        assemblyId: ASSEMBLY_ID,
+        versionId: VERSION_ID,
+        afterItemId: ITEM_ID_1,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "ESTIMATE_ASSEMBLY_LABOR_ROLE_REQUIRED",
+    });
+
+    // Rien ne doit avoir ete insere.
+    expect(supabase.rpc).not.toHaveBeenCalledWith(
+      "insert_estimate_assembly_into_version",
+      expect.anything()
+    );
   });
 
   it("inserts assembly items and clears invalid labor roles", async () => {
