@@ -7724,53 +7724,80 @@ export async function applyTakeoffJob(
     );
 
     if (hasAuditableMappingTransformations) {
-      const estimateLineByItemId = new Map<string, string | null>();
+      // A ce stade le RPC a DEJA insere les lignes et bascule le job en
+      // 'applied' : ces transformations ne peuvent plus etre annulees ici, et
+      // le garde d'entree (status !== 'completed' -> 409) interdit tout
+      // re-appel. Sans ce catch, un echec ici remontait une erreur generique
+      // « Impossible d'appliquer », laissant croire que rien n'avait ete fait
+      // alors que le devis contenait deja les lignes SANS leurs prix,
+      // renommages, categories ni ouvrages.
+      try {
+        const estimateLineByItemId = new Map<string, string | null>();
 
-      if (hasEstimateLineMappingUpdates) {
-        const appliedEstimateLines = await loadAppliedEstimateLinesForTakeoffJob({
-          supabase,
-          tenantId,
-          estimateVersionId: jobRow.estimate_version_id,
-          jobId: normalizedJobId,
-          targetSectionId: payload.target_section_id ?? null,
-        });
-        const mappedEstimateLineIds = mapPreviewItemsToEstimateLineIds({
-          previewItems: mappingPreview.items,
-          estimateLines: appliedEstimateLines,
-        });
-        for (const [itemId, estimateItemId] of mappedEstimateLineIds.entries()) {
-          estimateLineByItemId.set(itemId, estimateItemId);
+        if (hasEstimateLineMappingUpdates) {
+          const appliedEstimateLines = await loadAppliedEstimateLinesForTakeoffJob({
+            supabase,
+            tenantId,
+            estimateVersionId: jobRow.estimate_version_id,
+            jobId: normalizedJobId,
+            targetSectionId: payload.target_section_id ?? null,
+          });
+          const mappedEstimateLineIds = mapPreviewItemsToEstimateLineIds({
+            previewItems: mappingPreview.items,
+            estimateLines: appliedEstimateLines,
+          });
+          for (const [itemId, estimateItemId] of mappedEstimateLineIds.entries()) {
+            estimateLineByItemId.set(itemId, estimateItemId);
+          }
+
+          const estimateLineUpdates = buildEstimateLineUpdatesFromMappingPreview({
+            previewItems: mappingPreview.items,
+            estimateLineByItemId,
+          });
+          await applyEstimateLineUpdatesFromMapping({
+            estimateVersionId: jobRow.estimate_version_id,
+            updates: estimateLineUpdates,
+            supabase,
+            tenantId,
+          });
         }
 
-        const estimateLineUpdates = buildEstimateLineUpdatesFromMappingPreview({
+        if (hasAssemblyInsertions) {
+          await applyAssemblyInsertionsFromMapping({
+            estimateVersionId: jobRow.estimate_version_id,
+            targetSectionId: payload.target_section_id ?? null,
+            previewItems: mappingPreview.items,
+          });
+        }
+
+        await logTakeoffMappingApplyAuditEvents({
+          supabase,
+          tenantId,
+          userId,
+          jobId: normalizedJobId,
+          estimateVersionId: jobRow.estimate_version_id,
           previewItems: mappingPreview.items,
           estimateLineByItemId,
         });
-        await applyEstimateLineUpdatesFromMapping({
-          estimateVersionId: jobRow.estimate_version_id,
-          updates: estimateLineUpdates,
-          supabase,
-          tenantId,
+      } catch (mappingError) {
+        throw new TakeoffError({
+          status: 500,
+          code: TakeoffErrorCode.INTERNAL_ERROR,
+          message:
+            "Les lignes de metre ont ete appliquees au devis, mais les transformations de mapping (prix, renommage, categorie, ouvrages) ont echoue. Le devis contient donc ces lignes avec les valeurs brutes du metre : verifiez et corrigez leurs prix et designations avant envoi.",
+          details: {
+            job_id: normalizedJobId,
+            estimate_version_id: jobRow.estimate_version_id,
+            partial_apply: true,
+            lines_applied: true,
+            mapping_applied: false,
+            cause:
+              mappingError instanceof Error
+                ? mappingError.message
+                : String(mappingError),
+          },
         });
       }
-
-      if (hasAssemblyInsertions) {
-        await applyAssemblyInsertionsFromMapping({
-          estimateVersionId: jobRow.estimate_version_id,
-          targetSectionId: payload.target_section_id ?? null,
-          previewItems: mappingPreview.items,
-        });
-      }
-
-      await logTakeoffMappingApplyAuditEvents({
-        supabase,
-        tenantId,
-        userId,
-        jobId: normalizedJobId,
-        estimateVersionId: jobRow.estimate_version_id,
-        previewItems: mappingPreview.items,
-        estimateLineByItemId,
-      });
     }
 
     const updatedJobRow = await getTakeoffJobDetailByIdOrThrow({

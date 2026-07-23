@@ -554,6 +554,59 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
+  it("signale explicitement une application partielle quand le mapping echoue apres insertion", async () => {
+    const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const supabase = createSupabaseMock({
+      mappingRules: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Ouvrage cloisons",
+          match_pattern: "tube pvc",
+          match_type: "contains",
+          action: "apply_assembly",
+          action_params: {
+            assembly_id: assemblyId,
+          },
+          priority: 1,
+          is_active: true,
+          created_at: "2026-02-25T09:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+    // Le RPC a deja insere les lignes et bascule le job en 'applied' ; c'est
+    // l'insertion d'ouvrage du mapping qui echoue ensuite.
+    vi.mocked(insertAssemblyIntoVersion).mockRejectedValueOnce(
+      new Error("conflit de concurrence")
+    );
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 500,
+      details: {
+        partial_apply: true,
+        lines_applied: true,
+        mapping_applied: false,
+      },
+    });
+  });
+
   it("applies mapping action apply_assembly and logs mapping audit entries", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createSupabaseMock({
