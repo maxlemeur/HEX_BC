@@ -1236,7 +1236,7 @@ export function EstimateEditorTable({
   // Confirmation avant suppression groupée : la touche Suppr comme le bouton
   // « Supprimer » effaçaient les lignes sélectionnées sans aucune confirmation,
   // exposant à une perte de travail par une manipulation banale.
-  const confirmAndBulkDeleteSelection = useCallback(() => {
+  const confirmAndBulkDeleteSelection = useCallback(async () => {
     if (selectedLineCount === 0) return;
     const confirmed = window.confirm(
       selectedLineCount > 1
@@ -1244,7 +1244,7 @@ export function EstimateEditorTable({
         : "Supprimer la ligne sélectionnée ? Cette action est irréversible."
     );
     if (!confirmed) return;
-    void handleBulkDeleteSelection();
+    await handleBulkDeleteSelection();
   }, [selectedLineCount, handleBulkDeleteSelection]);
 
   const {
