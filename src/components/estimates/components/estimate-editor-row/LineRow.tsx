@@ -328,6 +328,27 @@ export function LineRow({
     });
   };
 
+  // La case est en lecture seule + onClick (pour capter Shift/Ctrl), donc la
+  // barre d'espace ne la bascule pas nativement : on ajoute un équivalent
+  // clavier pour rendre la sélection de ligne accessible.
+  const handleLineSelectionCheckboxKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (isReadOnly) {
+      return;
+    }
+    if (event.key !== " " && event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    onLineSelectionInteraction({
+      id: item.id,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey || event.metaKey || !event.shiftKey,
+      metaKey: event.metaKey,
+    });
+  };
+
   const handleRowModifierSelection = (
     event: ReactMouseEvent<HTMLDivElement>,
   ) => {
@@ -423,6 +444,7 @@ export function LineRow({
             className="estimate-line-checkbox"
             checked={isLineSelected}
             onClick={handleLineSelectionCheckboxClick}
+            onKeyDown={handleLineSelectionCheckboxKeyDown}
             readOnly
             disabled={isReadOnly}
             aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}

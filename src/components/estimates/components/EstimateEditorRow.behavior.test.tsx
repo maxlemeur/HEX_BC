@@ -228,6 +228,16 @@ describe("EstimateEditorRow behavior", () => {
     ]);
   });
 
+  it("permet de sélectionner la ligne au clavier (barre d'espace)", () => {
+    renderRow(createItem({ id: "line-1" }));
+    fireEvent.keyDown(screen.getByTestId("estimate-line-checkbox"), {
+      key: " ",
+    });
+    expect(rowActionSpies.onLineSelectionInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "line-1" })
+    );
+  });
+
   it("uses a selectable decimal text input for PR. FO", () => {
     const { container } = renderRow(
       createItem({
