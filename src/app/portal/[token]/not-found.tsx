@@ -23,7 +23,7 @@ export default function PortalNotFound() {
         Lien invalide
       </h1>
       <p className="mt-3 max-w-md text-[var(--slate-500)]">
-        Ce lien de consultation n&apos;est pas valide ou a ete revoque.
+        Ce lien de consultation n&apos;est pas valide ou a été révoqué.
         Veuillez contacter votre interlocuteur pour obtenir un nouveau lien.
       </p>
     </div>

@@ -81,8 +81,8 @@ export function RejectEstimateModal({
           <Modal.Body>
             <div className="space-y-4">
               <p className="text-sm text-[var(--slate-600)]">
-                Etes-vous sur de vouloir refuser ce devis ? Cette action est
-                definitive.
+                Êtes-vous sûr de vouloir refuser ce devis ? Cette action est
+                définitive.
               </p>
               <div>
                 <label

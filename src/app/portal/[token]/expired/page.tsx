@@ -19,11 +19,11 @@ export default function PortalExpiredPage() {
         </svg>
       </div>
       <h1 className="text-2xl font-bold text-[var(--slate-800)]">
-        Devis expire
+        Devis expiré
       </h1>
       <p className="mt-3 max-w-md text-[var(--slate-500)]">
-        La periode de validite de ce devis est depassee. Veuillez contacter
-        votre interlocuteur pour obtenir un nouveau devis ou un lien actualise.
+        La période de validité de ce devis est dépassée. Veuillez contacter
+        votre interlocuteur pour obtenir un nouveau devis ou un lien actualisé.
       </p>
     </div>
   );

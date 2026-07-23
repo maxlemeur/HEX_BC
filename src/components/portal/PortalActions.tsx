@@ -54,7 +54,7 @@ export function PortalActions({
             </svg>
           </div>
           <p className="text-sm font-medium text-emerald-800">
-            Ce devis a ete accepte. Merci pour votre confiance.
+            Ce devis a été accepté. Merci pour votre confiance.
           </p>
         </div>
       </div>
@@ -83,7 +83,7 @@ export function PortalActions({
             </svg>
           </div>
           <p className="text-sm font-medium text-[var(--slate-600)]">
-            Ce devis a ete refuse.
+            Ce devis a été refusé.
           </p>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function PortalActions({
             </svg>
           </div>
           <p className="text-sm font-medium text-amber-800">
-            Ce devis a expire. Veuillez contacter votre interlocuteur.
+            Ce devis a expiré. Veuillez contacter votre interlocuteur.
           </p>
         </div>
       </div>

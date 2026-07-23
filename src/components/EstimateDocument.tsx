@@ -255,7 +255,7 @@ export function EstimateDocument({
           <div className="mt-5 grid gap-5 sm:grid-cols-[240px_minmax(0,1fr)_190px] sm:items-start print:mt-3 print:grid-cols-[220px_minmax(0,1fr)_160px] print:gap-3">
             <div className="min-w-0 text-sm">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Emis par
+                Émis par
               </p>
               <p className="text-lg font-bold leading-tight text-brand-blue print:text-base">
                 {issuerDisplay.displayName}
@@ -300,7 +300,7 @@ export function EstimateDocument({
               Client
             </h3>
             <p className="text-2xl font-extrabold leading-tight text-foreground">
-              {projectClient?.trim() || "Client a renseigner"}
+              {projectClient?.trim() || "Client à renseigner"}
             </p>
             <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Affaire
@@ -310,12 +310,12 @@ export function EstimateDocument({
             </p>
             {formattedEstimateReference ? (
               <p className="mt-2 text-sm font-semibold text-secondary-foreground">
-                Reference devis : {formattedEstimateReference}
+                Référence devis : {formattedEstimateReference}
               </p>
             ) : null}
             {projectReference?.trim() ? (
               <p className="mt-2 text-sm text-muted-foreground">
-                Reference projet : {projectReference}
+                Référence projet : {projectReference}
               </p>
             ) : null}
           </section>
@@ -332,7 +332,7 @@ export function EstimateDocument({
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt>Validite</dt>
+                <dt>Validité</dt>
                 <dd className="font-semibold text-secondary-foreground">
                   {validiteLabel}
                 </dd>

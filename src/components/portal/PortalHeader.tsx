@@ -29,9 +29,9 @@ const STATUS_DISPLAY: Record<
   { bg: string; color: string; label: string }
 > = {
   pending: { bg: "var(--info-light)", color: "var(--info)", label: "En attente" },
-  accepted: { bg: "#d1fae5", color: "#059669", label: "Accepte" },
-  rejected: { bg: "var(--slate-100)", color: "var(--slate-600)", label: "Refuse" },
-  expired: { bg: "var(--warning-light)", color: "var(--warning)", label: "Expire" },
+  accepted: { bg: "#d1fae5", color: "#059669", label: "Accepté" },
+  rejected: { bg: "var(--slate-100)", color: "var(--slate-600)", label: "Refusé" },
+  expired: { bg: "var(--warning-light)", color: "var(--warning)", label: "Expiré" },
 };
 
 export function PortalHeader({
@@ -85,7 +85,7 @@ export function PortalHeader({
                 : "text-[var(--slate-500)]"
             }`}
           >
-            {expired ? "Expire le" : "Valide jusqu'au"}{" "}
+            {expired ? "Expiré le" : "Valide jusqu'au"}{" "}
             {formatPortalDate(expiresAt)}
           </p>
         </div>
