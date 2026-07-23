@@ -126,6 +126,34 @@ describe("SupplierComparisonPanel", () => {
     );
   });
 
+  it("affiche un prix fournisseur dans sa devise, jamais en euros", () => {
+    const { container } = render(
+      <SupplierComparisonPanel
+        isOpen
+        itemTitle="Faux plafond acoustique"
+        alternatives={[
+          {
+            ...alternatives[0]!,
+            currency: "USD",
+            adjusted_unit_price_cents: 100000,
+          },
+        ]}
+        bestSupplierPriceId="price-best"
+        isLoading={false}
+        error={null}
+        isReadOnly={false}
+        onClose={vi.fn()}
+        onSelectAlternative={vi.fn()}
+      />
+    );
+
+    const priceText =
+      container.querySelector(".estimate-supplier-comparison-option__price")
+        ?.textContent ?? "";
+    expect(priceText).not.toContain("€");
+    expect(priceText).toMatch(/\$|USD/);
+  });
+
   it("se ferme à la touche Échap", () => {
     const onClose = vi.fn();
     render(

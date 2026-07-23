@@ -2,7 +2,29 @@
 
 import { useEffect, useRef } from "react";
 
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  formatEUR,
+  normalizeEstimateCurrency,
+} from "@/lib/money";
+
+/**
+ * Affiche un prix fournisseur dans SA devise. Auparavant tout passait par
+ * formatEUR avec le code devise concaténé, ce qui produisait « 1 000,00 €USD »
+ * (et « 95,00 €EUR ») : un acheteur pouvait prendre un montant USD pour des
+ * euros.
+ */
+function formatSupplierPrice(cents: number, currency: string | null) {
+  const normalized = normalizeEstimateCurrency(currency);
+  if (normalized) {
+    return formatCurrency(cents, normalized);
+  }
+  if (currency?.trim()) {
+    // Devise non supportée : montant brut + code, jamais le symbole €.
+    return `${(cents / 100).toFixed(2)} ${currency.trim()}`;
+  }
+  return formatEUR(cents);
+}
 
 export type SupplierComparisonAlternativeKind =
   | "best_price"
@@ -185,8 +207,10 @@ export function SupplierComparisonPanel({
                         </div>
                       </div>
                       <div className="estimate-supplier-comparison-option__price">
-                        {formatEUR(alternative.adjusted_unit_price_cents)}
-                        {alternative.currency ? ` ${alternative.currency}` : ""}
+                        {formatSupplierPrice(
+                          alternative.adjusted_unit_price_cents,
+                          alternative.currency
+                        )}
                       </div>
                     </div>
 
