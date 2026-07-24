@@ -16,6 +16,21 @@ export const DEFAULT_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
 const SUPPORTED_CALC_ENGINE_VERSIONS: readonly CalcEngineVersion[] = [1, 2];
 
 /**
+ * Version epinglee par l'editeur de devis, tant que la phase F n'a pas branche
+ * la bascule sur la colonne `estimate_versions.calc_engine_version`.
+ *
+ * Regroupee ici avec les autres epinglages de surface (cf.
+ * `DOCUMENT_CALC_ENGINE_VERSION`) pour que la bascule se fasse en un seul
+ * endroit, et pour qu'un `grep` donne la liste exhaustive des surfaces encore
+ * figees en moteur 1 — la valeur litterale `1` disseminee dans le code ne le
+ * permettait pas.
+ */
+export const EDITOR_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
+
+/** Idem pour les exports (XLSX / DPGF / BDC). */
+export const EXPORT_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
+
+/**
  * Resout la version du moteur de calcul d'une version de devis.
  *
  * Tolerant par construction : toute valeur absente, non finie ou hors du jeu

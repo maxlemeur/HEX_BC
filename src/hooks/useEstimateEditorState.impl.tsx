@@ -70,6 +70,7 @@ import {
   computeReadOnlyTotals,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
+import { EDITOR_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
 import {
   DEFAULT_ESTIMATE_CURRENCY,
   resolveEstimateCurrency,
@@ -1091,6 +1092,12 @@ export function useEstimateEditorState({
         isLaborSplitEnabled,
         laborRateAtelierById,
         laborRateChantierById,
+        // EST-E26 (T6, étape 9) : grandeurs de version requises par le moteur
+        // unifié. Ignorées tant que la version reste en moteur 1.
+        marginTiers: settings.margin_tiers ?? [],
+        roundingMode: settings.rounding_mode,
+        roundingStepCents: settings.rounding_step_cents,
+        calcEngineVersion: EDITOR_CALC_ENGINE_VERSION,
       };
       return computeReadOnlyTotals(readOnlyTotalsInput);
     }

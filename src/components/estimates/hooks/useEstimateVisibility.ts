@@ -10,6 +10,7 @@ import type {
   EstimateQualityFlagKey,
   EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
+import { EDITOR_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -185,7 +186,7 @@ export function useEstimateVisibility({
       globalCoefficient: 1,
       discountMode: "simple",
       discountStepsBp: [],
-      calcEngineVersion: 1,
+      calcEngineVersion: EDITOR_CALC_ENGINE_VERSION,
       sectionIds: visibleSectionIds,
     });
   }, [

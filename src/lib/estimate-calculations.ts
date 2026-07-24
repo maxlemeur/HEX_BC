@@ -1784,13 +1784,56 @@ export function computeReadOnlyTotals({
   discountCents,
   laborRateById,
   isLaborSplitEnabled,
+  marginTiers,
+  roundingMode,
+  roundingStepCents,
+  calcEngineVersion,
+  laborRateAtelierById = laborRateById,
+  laborRateChantierById = laborRateById,
 }: {
   items: EstimateItemRecord[];
   version: EstimateVersionForCalc;
   discountCents: number;
   laborRateById: Map<string, number>;
   isLaborSplitEnabled: boolean;
+  /**
+   * Grandeurs de VERSION requises par le moteur unifie. Elles sont IGNOREES par
+   * le corps v1 ci-dessous (qui derive le pied des colonnes stockees) : les
+   * exiger malgre tout evite qu'un appelant se retrouve avec un chiffre faux
+   * au moment de la bascule, sans que rien ne l'ait signale.
+   */
+  marginTiers: MarginTier[];
+  roundingMode: RoundingMode;
+  roundingStepCents: number;
+  calcEngineVersion: CalcEngineVersion;
+  laborRateAtelierById?: Map<string, number>;
+  laborRateChantierById?: Map<string, number>;
 }): EstimateTotals {
+  // EST-E26 (T6, etape 9, dernier wrapper) : en version 2, le pied DERIVE du
+  // moteur unifie et cesse donc de renvoyer les colonnes figees
+  // (`total_ht_cents` / `total_tax_cents` / `total_ttc_cents`). En version 1,
+  // corps historique strictement inchange ci-dessous.
+  if (calcEngineVersion === 2) {
+    return computeEstimateBreakdown({
+      items,
+      marginMultiplier: version.margin_multiplier,
+      marginMode: version.margin_mode ?? "fixed",
+      marginTiers,
+      globalCoefficient: clampGlobalCoefficient(version.global_coefficient),
+      discountMode: version.discount_mode === "cascade" ? "cascade" : "simple",
+      discountCents,
+      discountStepsBp: normalizeDiscountStepsBp(version.discount_steps),
+      taxRateBp: version.tax_rate_bp,
+      roundingMode,
+      roundingStepCents,
+      isLaborSplitEnabled,
+      laborRateById,
+      laborRateAtelierById,
+      laborRateChantierById,
+      calcEngineVersion,
+    }).totals;
+  }
+
   const costSubtotalCents = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;
     const hourlyRate = item.labor_role_id

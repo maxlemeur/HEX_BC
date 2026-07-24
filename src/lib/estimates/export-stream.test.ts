@@ -232,7 +232,10 @@ describe("streamEstimateVersionXlsx", () => {
       version: details.version as EstimateVersionForCalc,
       discountCents: 0,
       laborRateById,
-    });
+      marginTiers: [],
+      roundingMode: "none" as const,
+      roundingStepCents: 0,
+      calcEngineVersion: 1 as const,    });
     const expectedLineValues = computeEstimateLineValues(
       {
         ...items[1],

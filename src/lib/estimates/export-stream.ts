@@ -9,6 +9,7 @@ import {
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
+import { EXPORT_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
 import { internalError } from "@/lib/estimates/errors";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
 
@@ -366,6 +367,14 @@ async function buildEstimateExportPayload(
     // flag tenant n'est pas résolu dans ce module. Le câblage réel du contexte
     // arrive en phase E (computeReadOnlyTotals → breakdown, spec §3 étape 17).
     isLaborSplitEnabled: false,
+    // EST-E26 (T6, étape 9) : l'export reste épinglé au moteur historique, qui
+    // dérive le pied des colonnes stockées. Les trois grandeurs ci-dessous ne
+    // sont donc pas lues ; elles le deviendront avec le contexte tenant en
+    // phase E, en même temps que `isLaborSplitEnabled`.
+    marginTiers: [],
+    roundingMode: "none",
+    roundingStepCents: 0,
+    calcEngineVersion: EXPORT_CALC_ENGINE_VERSION,
   });
 
   return {

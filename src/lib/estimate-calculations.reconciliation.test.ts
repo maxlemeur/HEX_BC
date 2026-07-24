@@ -12,6 +12,7 @@ import {
   computeAllSectionTotals,
   computeEstimateBreakdown,
   computeEstimateTotals,
+  computeReadOnlyTotals,
   type EstimateComputationInput,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
@@ -382,5 +383,59 @@ describe("prepareEstimateDocumentData - dérivation du breakdown (étape 12)", (
     // coefficient ni remise) — il disparaît à la bascule v2.
     expect(prepared.sectionTotalsById["sec-1"].totalHtCents).toBe(585_000);
     expect(prepared.lineSplitsById["l1"].totalHtCents).toBe(585_000);
+  });
+});
+
+describe("computeReadOnlyTotals - garde-fou calcEngineVersion (EST-E26 étape 9)", () => {
+  // Version en lecture seule dont les colonnes STOCKÉES sont volontairement
+  // fausses (total figé à 1 000 c) alors que les lignes valent 100 000 c avec
+  // un coefficient 1,1. C'est ce qui distingue les deux moteurs :
+  //  - v1 fait autorité sur le stocké  -> 1 000 c ;
+  //  - v2 recalcule via le breakdown   -> 110 000 c.
+  const items = [
+    makeSection({ id: "sec-1", parent_id: null, position: 0 }),
+    makeLine({
+      id: "l1",
+      parent_id: "sec-1",
+      position: 1,
+      unit_price_ht_cents: 100_000,
+      line_total_ht_cents: 100_000,
+    }),
+  ];
+  const version = {
+    margin_multiplier: 1,
+    margin_mode: "fixed" as const,
+    tax_rate_bp: 2_000,
+    discount_bp: 0,
+    discount_mode: "simple" as const,
+    discount_steps: [],
+    global_coefficient: 1.1,
+    total_ht_cents: 1_000,
+    total_tax_cents: 200,
+    total_ttc_cents: 1_200,
+  };
+  const base = {
+    items,
+    version,
+    discountCents: 0,
+    laborRateById: new Map<string, number>(),
+    isLaborSplitEnabled: false,
+    marginTiers: [],
+    roundingMode: "none" as const,
+    roundingStepCents: 0,
+  };
+
+  it("v1 : le pied reste dérivé des colonnes stockées (comportement inchangé)", () => {
+    const totals = computeReadOnlyTotals({ ...base, calcEngineVersion: 1 });
+    expect(totals.saleTotalCents).toBe(1_000);
+    expect(totals.taxCents).toBe(200);
+    expect(totals.roundedTtcCents).toBe(1_200);
+  });
+
+  it("v2 : le pied cesse de renvoyer les colonnes figées et dérive du breakdown", () => {
+    const totals = computeReadOnlyTotals({ ...base, calcEngineVersion: 2 });
+    expect(totals.saleTotalCents).toBe(110_000);
+    expect(totals.saleSubtotalBeforeCoefficientCents).toBe(100_000);
+    expect(totals.globalCoefficient).toBe(1.1);
   });
 });

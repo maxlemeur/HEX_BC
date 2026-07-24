@@ -393,7 +393,10 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
       version,
       discountCents: FIXTURE_A_ENGINE.discountCents,
       laborRateById: LABOR_RATES,
-    });
+      marginTiers: [],
+      roundingMode: "none" as const,
+      roundingStepCents: 0,
+      calcEngineVersion: 1 as const,    });
     expect(readOnly).toMatchInlineSnapshot(`
       {
         "adjustedTaxCents": 0,
@@ -2269,7 +2272,10 @@ describe("Surface exports XLSX (COUVERTURE PARTIELLE) [surface 5]", () => {
       version,
       discountCents,
       laborRateById: LABOR_RATES,
-    });
+      marginTiers: [],
+      roundingMode: "none" as const,
+      roundingStepCents: 0,
+      calcEngineVersion: 1 as const,    });
     expect({
       sommeDesLignesCents: STORED_ITEMS.reduce(
         (sum, item) =>
