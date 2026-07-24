@@ -4,6 +4,7 @@ import { PassThrough, Readable } from "node:stream";
 import {
   computeEstimateLineValues,
   computeReadOnlyTotals,
+  computeStoredDiscountCents,
   hasActiveLaborSplitPayload,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
@@ -132,23 +133,6 @@ function buildFilename(input: {
       : input.projectName;
   const projectToken = sanitizeFilenameSegment(sourceName, "chiffrage");
   return `devis-${projectToken}-v${input.versionNumber}.xlsx`;
-}
-
-function resolveStoredDiscountCents(
-  version: EstimateVersionForCalc,
-  items: EstimateItemRecord[]
-) {
-  const lineSubtotalCents = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    return sum + (item.line_total_ht_cents ?? 0);
-  }, 0);
-
-  const storedHt = version.total_ht_cents;
-  if (Number.isFinite(storedHt ?? NaN)) {
-    return Math.max(lineSubtotalCents - (storedHt ?? 0), 0);
-  }
-
-  return 0;
 }
 
 function toEuroAmount(valueCents: number | null | undefined): number | null {
@@ -369,7 +353,9 @@ async function buildEstimateExportPayload(
   const laborRateById = new Map(
     versionDetails.labor_roles.map((role) => [role.id, role.hourly_rate_cents ?? 0])
   );
-  const discountCents = resolveStoredDiscountCents(version, items);
+  // EST-E26 (T6, étape 10) : plus de fork ; on utilise le calcul canonique
+  // (applique global_coefficient et le repli discount_bp, cf. golden Surface-5).
+  const discountCents = computeStoredDiscountCents(version, items);
 
   const totals = computeReadOnlyTotals({
     items,
