@@ -34,29 +34,58 @@ function MarginGlobalSummary({
   const tier = getMarginTier(global.marginPercent);
 
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <div>
-        <p className="text-xs text-[var(--slate-500)]">Marge globale</p>
-        <div className="mt-1 flex items-center gap-2">
-          <Badge variant={getMarginBadgeVariant(tier)} size="sm">
-            {global.marginPercent.toFixed(1)}%
-          </Badge>
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <p className="text-xs text-[var(--slate-500)]">Marge globale</p>
+          <div className="mt-1 flex items-center gap-2">
+            <Badge variant={getMarginBadgeVariant(tier)} size="sm">
+              {global.marginPercent.toFixed(1)}%
+            </Badge>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs text-[var(--slate-500)]">Montant marge</p>
+          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+            {formatEUR(global.marginEurCents)}
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs text-[var(--slate-500)]">Coeff. de marge</p>
+          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+            x{global.marginMultiplier.toFixed(3)}
+          </p>
         </div>
       </div>
 
-      <div>
-        <p className="text-xs text-[var(--slate-500)]">Montant marge</p>
-        <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
-          {formatEUR(global.marginEurCents)}
-        </p>
-      </div>
-
-      <div>
-        <p className="text-xs text-[var(--slate-500)]">Coefficient</p>
-        <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
-          x{global.marginMultiplier.toFixed(3)}
-        </p>
-      </div>
+      {/*
+        EST-E26 (T6, étape 11) : coefficient global et remise affichés à part.
+        Ils étaient jusqu'ici pliés dans le multiplicateur de marge, ce qui les
+        faisait lire comme de la marge. La « Vente HT » ci-dessous les inclut
+        (elle est nette, donc égale au total du devis).
+      */}
+      {global.globalCoefficient !== 1 || global.discountCents > 0 ? (
+        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-[var(--slate-100)] pt-3 text-xs text-[var(--slate-500)]">
+          {global.globalCoefficient !== 1 ? (
+            <span>
+              Coefficient global{" "}
+              <span className="font-medium text-[var(--slate-700)] tabular-nums">
+                x{global.globalCoefficient.toFixed(3)}
+              </span>
+            </span>
+          ) : null}
+          {global.discountCents > 0 ? (
+            <span>
+              Remise{" "}
+              <span className="font-medium text-[var(--slate-700)] tabular-nums">
+                -{formatEUR(global.discountCents)}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

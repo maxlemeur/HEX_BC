@@ -1,11 +1,16 @@
 import { cache } from "react";
 
 import {
-  computeAllSectionTotals,
+  computeEstimateBreakdown,
   computeStoredDiscountCents,
+  type DiscountMode,
   type EstimateItemRecord,
+  type MarginMode,
 } from "@/lib/estimate-calculations";
+import { isFeatureEnabled } from "@/lib/feature-flags";
 import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
+import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   getAuthenticatedContext,
   getEstimateSendGating,
@@ -293,10 +298,18 @@ export type MarginVersionPoint = {
 export type AffaireHubMarginAnalysisResult = {
   global: {
     costCents: number;
+    /** Vente HT nette : coefficient global ET remise inclus (= total du devis). */
     saleCents: number;
     marginPercent: number;
     marginEurCents: number;
     marginMultiplier: number;
+    /**
+     * EST-E26 (T6, étape 11) : coefficient global et remise exposés à part, pour
+     * qu'ils cessent d'être lus comme de la marge (ils étaient jusqu'ici pliés
+     * dans `marginMultiplier`).
+     */
+    globalCoefficient: number;
+    discountCents: number;
   };
   sections: MarginSectionBreakdown[];
   versionEvolution: MarginVersionPoint[];
@@ -2189,29 +2202,6 @@ type MarginAnalysisVersionRow = Pick<
   | "updated_at"
 >;
 
-function hasLaborSplitPayload(
-  item: Pick<
-    EstimateItemRecord,
-    | "h_mo_atelier"
-    | "k_mo_atelier"
-    | "labor_role_atelier_id"
-    | "h_mo_chantier"
-    | "k_mo_chantier"
-    | "labor_role_chantier_id"
-  >
-) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    ((item.k_mo_atelier ?? 1) !== 1) ||
-    ((item.k_mo_chantier ?? 1) !== 1)
-  );
-}
-
 async function fetchAffaireHubMarginAnalysisWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
@@ -2290,68 +2280,98 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     : 1;
   const taxRateBp = currentVersion.tax_rate_bp ?? 0;
   const globalCoefficient = currentVersion.global_coefficient ?? 1;
+  const marginMode: MarginMode =
+    currentVersion.margin_mode === "tiered" ? "tiered" : "fixed";
+  const discountMode: DiscountMode =
+    currentVersion.discount_mode === "cascade" ? "cascade" : "simple";
+  const discountStepsBp = (currentVersion.discount_steps ?? []).map(
+    (step) => step ?? 0
+  );
   const discountCents = computeStoredDiscountCents(
     {
       margin_multiplier: marginMultiplier,
       tax_rate_bp: taxRateBp,
       discount_bp: currentVersion.discount_bp ?? 0,
-      discount_mode: currentVersion.discount_mode ?? "simple",
+      discount_mode: discountMode,
       discount_steps: currentVersion.discount_steps ?? [],
       global_coefficient: globalCoefficient,
       total_ht_cents: currentVersion.total_ht_cents,
     },
     items
   );
-  const isLaborSplitEnabled = items.some((item) =>
-    item.item_type === "line" ? hasLaborSplitPayload(item) : false
+
+  // EST-E26 (T6, étape 11) : contexte tenant réel, comme le devis.
+  // Le flag remplace l'auto-détection du payload split (4e copie divergente
+  // supprimée, cf. phase B §4) ; le barème n'est chargé qu'en mode paliers,
+  // ignoré jusqu'ici au profit d'un `marginMode: "fixed"` codé en dur.
+  const isLaborSplitEnabled = await isFeatureEnabled(
+    context.tenantId,
+    "EST_031_LABOR_SPLIT",
+    { supabase: context.supabase }
   );
+  const marginTiers: MarginTier[] =
+    marginMode === "tiered"
+      ? await loadMarginTiersForTotals({
+          supabase: context.supabase,
+          tenantId: context.tenantId,
+        })
+      : [];
 
-  // 6. Dual-pass calculation
-  // Pass 1 — Costs (margin=1, no discount)
-  const costTotals = computeAllSectionTotals({
+  // 6. Dual-pass calculation — moteur unifié (EST-E26 §2.1).
+  //
+  // `calcEngineVersion: 2` est ASSUMÉ ici alors que les devis sont encore en v1 :
+  //  - l'analyse de marge est une vue interne, en lecture seule et non
+  //    contractuelle (aucune écriture, aucun document envoyé) — le sceau des
+  //    versions `sent`/`accepted` n'est donc pas concerné ;
+  //  - le pied ne dépend pas du gate (`computeEstimateBreakdown` calcule toujours
+  //    `computeEstimateTotals`), donc la vente globale reste EXACTEMENT le total
+  //    du devis ;
+  //  - seule la v2 redescend le coefficient dans les sections : en v1 elles
+  //    l'ignorent, et la ventilation par lot ne sommerait plus au global.
+  const baseComputationInput = {
     items,
-    marginMultiplier: 1,
+    isLaborSplitEnabled,
+    laborRateById,
+    // Même colonne `hourly_rate_cents` pour les trois rôles (cf. calc-context).
+    laborRateAtelierById: laborRateById,
+    laborRateChantierById: laborRateById,
+    // L'arrondi ne joue que sur le TTC, non utilisé par l'analyse de marge.
+    roundingMode: "none" as const,
+    roundingStepCents: 0,
+    calcEngineVersion: 2 as const,
+  };
+
+  // Pass 1 — Costs (margin=1, no coefficient, no discount)
+  const costBreakdown = computeEstimateBreakdown({
+    ...baseComputationInput,
     taxRateBp: 0,
+    marginMultiplier: 1,
+    marginMode: "fixed",
+    marginTiers: [],
+    globalCoefficient: 1,
+    discountMode: "simple",
     discountCents: 0,
-    // EST-E26 étape 9 : affaires toujours en moteur historique (v1) ; le
-    // remplacement par computeEstimateBreakdown est l'étape 11.
-    marginMode: "fixed",
-    marginTiers: [],
-    globalCoefficient: 1,
-    discountMode: "simple",
     discountStepsBp: [],
-    calcEngineVersion: 1,
-    laborRateById,
-    isLaborSplitEnabled,
-    sectionIds: rootSectionIds,
   });
 
-  // Pass 2 — Sales (real margin, real discount)
-  const saleTotals = computeAllSectionTotals({
-    items,
-    marginMultiplier: marginMultiplier * globalCoefficient,
+  // Pass 2 — Sales : coefficient et remise passés SÉPARÉMENT (plus jamais pliés
+  // dans le multiplicateur de marge, qui arrondissait ligne à ligne).
+  const saleBreakdown = computeEstimateBreakdown({
+    ...baseComputationInput,
     taxRateBp,
+    marginMultiplier,
+    marginMode,
+    marginTiers,
+    globalCoefficient,
+    discountMode,
     discountCents,
-    marginMode: "fixed",
-    marginTiers: [],
-    globalCoefficient: 1,
-    discountMode: "simple",
-    discountStepsBp: [],
-    calcEngineVersion: 1,
-    laborRateById,
-    isLaborSplitEnabled,
-    sectionIds: rootSectionIds,
+    discountStepsBp,
   });
 
-  // 7. Global totals
-  let globalCostCents = 0;
-  let globalSaleCents = 0;
-  for (const sectionId of rootSectionIds) {
-    const cost = costTotals.get(sectionId);
-    const sale = saleTotals.get(sectionId);
-    globalCostCents += cost?.totalHtCents ?? 0;
-    globalSaleCents += sale?.totalHtCents ?? 0;
-  }
+  // 7. Global totals — la vente globale est LE PIED, pas la somme des sections :
+  // le coefficient y est appliqué une seule fois (écart d'arrondi ~4 €/400 lignes).
+  const globalCostCents = costBreakdown.totals.costSubtotalCents;
+  const globalSaleCents = saleBreakdown.totals.saleTotalCents;
 
   const globalMarginEurCents = globalSaleCents - globalCostCents;
   const globalMarginPercent =
@@ -2361,8 +2381,8 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const sections: MarginSectionBreakdown[] = rootSections
     .sort((a, b) => a.position - b.position)
     .map((section) => {
-      const cost = costTotals.get(section.id);
-      const sale = saleTotals.get(section.id);
+      const cost = costBreakdown.sectionById.get(section.id);
+      const sale = saleBreakdown.sectionById.get(section.id);
       const costCents = cost?.totalHtCents ?? 0;
       const saleCents = sale?.totalHtCents ?? 0;
       const marginEurCents = saleCents - costCents;
@@ -2399,7 +2419,9 @@ async function fetchAffaireHubMarginAnalysisWithContext(
       saleCents: globalSaleCents,
       marginPercent: globalMarginPercent,
       marginEurCents: globalMarginEurCents,
-      marginMultiplier,
+      marginMultiplier: saleBreakdown.totals.appliedMarginMultiplier,
+      globalCoefficient: saleBreakdown.totals.globalCoefficient,
+      discountCents: saleBreakdown.totals.discountCents,
     },
     sections,
     versionEvolution,
