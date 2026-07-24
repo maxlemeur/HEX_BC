@@ -163,10 +163,35 @@ describe("EstimateDocument - EST-121", () => {
   });
 
   it("affiche la remise sur le document client lorsqu'elle est positive", () => {
-    const markup = renderEstimateDocument([], { discountCents: 1000 });
+    // EST-E26 (T6, étape 12) : la remise affichée est désormais DÉRIVÉE du
+    // moteur (`breakdown.totals.discountCents`) au lieu d'être la prop brute.
+    // Le devis porte donc une ligne : sans assiette, le moteur écrête la remise
+    // à 0 (on ne peut pas remiser plus que le sous-total) — c'est justement
+    // l'incohérence « chiffre affiché != chiffre recalculé » que T6 supprime.
+    const markup = renderEstimateDocument(
+      [
+        createEstimateItem({
+          id: "line-remise",
+          title: "Ligne remisée",
+          position: 1,
+          quantity: 1,
+          unit_price_ht_cents: 10_000,
+          line_total_ht_cents: 10_000,
+        }),
+      ],
+      { discountCents: 1000 }
+    );
 
     expect(markup).toContain("Remise");
     expect(markup).toContain(`-${formatCurrencyForTest(1000, "EUR")}`);
+  });
+
+  it("écrête la remise affichée au sous-total du devis", () => {
+    // Contrepartie du test précédent : une remise supérieure à l'assiette (ici
+    // un devis vide) ne peut plus s'afficher telle quelle.
+    const markup = renderEstimateDocument([], { discountCents: 1000 });
+
+    expect(markup).not.toContain(`-${formatCurrencyForTest(1000, "EUR")}`);
   });
   it("affiche le total HT d'une section avec remise proportionnelle", () => {
     const sectionId = "section-target";

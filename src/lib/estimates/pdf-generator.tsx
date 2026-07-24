@@ -13,6 +13,8 @@ import {
 } from "@react-pdf/renderer";
 
 import {
+  buildLegacyDocumentBreakdown,
+  DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
   summarizeEstimateDocumentStructure,
   type EstimateDocumentPreparedData,
@@ -1769,12 +1771,19 @@ export async function generateEstimatePdfNow(
 
     const prepared = prepareEstimateDocumentData({
       items,
-      marginMultiplier: computedTotals.appliedMarginMultiplier,
-      discountCents: computedTotals.discountCents,
+      // EST-E26 (T6, étape 12) : le PDF dérive du même breakdown que le document
+      // écran — plus de recalcul parallèle des sections et des lignes.
+      breakdown: buildLegacyDocumentBreakdown({
+        items,
+        marginMultiplier: computedTotals.appliedMarginMultiplier,
+        discountCents: computedTotals.discountCents,
+        taxRateBp: access.version.tax_rate_bp,
+        isLaborSplitEnabled,
+        laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: access.version.tax_rate_bp,
       currency: access.version.currency,
-      isLaborSplitEnabled,
-      laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
       validiteJours: access.version.validite_jours,
       layout: effectiveLayout,
     });

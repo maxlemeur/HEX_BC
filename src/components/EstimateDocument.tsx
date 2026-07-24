@@ -5,6 +5,8 @@ import {
 } from "@/components/documents/BusinessDocumentPrimitives";
 import { EstimateDocumentTableRows } from "@/components/estimate-document/EstimateDocumentTableRows";
 import {
+  buildLegacyDocumentBreakdown,
+  DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
@@ -216,12 +218,20 @@ export function EstimateDocument({
     qrLikeCells,
   } = prepareEstimateDocumentData({
     items,
-    marginMultiplier,
-    discountCents,
+    // EST-E26 (T6, étape 12) : le document dérive du moteur d'autorité. Le
+    // breakdown est construit ici à partir des props actuelles (étape 13 le
+    // fera descendre depuis les pages, étape 14 le mutualisera).
+    breakdown: buildLegacyDocumentBreakdown({
+      items,
+      marginMultiplier,
+      discountCents,
+      taxRateBp,
+      isLaborSplitEnabled,
+      laborRateById,
+    }),
+    calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
     taxRateBp,
     currency: resolvedCurrency,
-    isLaborSplitEnabled,
-    laborRateById,
     validiteJours,
     portalUrl,
     maxVisibleSectionLevel,

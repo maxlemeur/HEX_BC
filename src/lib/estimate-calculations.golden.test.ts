@@ -44,7 +44,11 @@ import {
 // getMarginTiers / MarginTier ne sont PAS re-exportes par estimate-calculations.ts :
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
 import { bankersRound, computeTaxCents } from "@/lib/money";
-import { prepareEstimateDocumentData } from "@/components/estimate-document/prepare-estimate-document-data";
+import {
+  buildLegacyDocumentBreakdown,
+  DOCUMENT_CALC_ENGINE_VERSION,
+  prepareEstimateDocumentData,
+} from "@/components/estimate-document/prepare-estimate-document-data";
 
 /* ---------------------------------------------------------------------------
  * Fabriques
@@ -424,12 +428,17 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
     const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_A_ENGINE });
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_A_ITEMS),
-      marginMultiplier: totals.appliedMarginMultiplier,
-      discountCents: totals.discountCents,
+      breakdown: buildLegacyDocumentBreakdown({
+        items: asDocumentItems(FIXTURE_A_ITEMS),
+        marginMultiplier: totals.appliedMarginMultiplier,
+        discountCents: totals.discountCents,
+        taxRateBp: FIXTURE_A_ENGINE.taxRateBp,
+        isLaborSplitEnabled: false,
+        laborRateById: LABOR_RATES_RECORD,
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: FIXTURE_A_ENGINE.taxRateBp,
       currency: "EUR",
-      isLaborSplitEnabled: false,
-      laborRateById: LABOR_RATES_RECORD,
       validiteJours: 30,
       layout: GOLDEN_LAYOUT,
     });
@@ -613,12 +622,17 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
     const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_B_ENGINE });
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_A_ITEMS),
-      marginMultiplier: totals.appliedMarginMultiplier,
-      discountCents: totals.discountCents,
+      breakdown: buildLegacyDocumentBreakdown({
+        items: asDocumentItems(FIXTURE_A_ITEMS),
+        marginMultiplier: totals.appliedMarginMultiplier,
+        discountCents: totals.discountCents,
+        taxRateBp: FIXTURE_B_ENGINE.taxRateBp,
+        isLaborSplitEnabled: false,
+        laborRateById: LABOR_RATES_RECORD,
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: FIXTURE_B_ENGINE.taxRateBp,
       currency: "EUR",
-      isLaborSplitEnabled: false,
-      laborRateById: LABOR_RATES_RECORD,
       validiteJours: 30,
       layout: GOLDEN_LAYOUT,
     });
@@ -1720,12 +1734,17 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
     const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_H_ENGINE });
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_H_ITEMS),
-      marginMultiplier: totals.appliedMarginMultiplier,
-      discountCents: totals.discountCents,
+      breakdown: buildLegacyDocumentBreakdown({
+        items: asDocumentItems(FIXTURE_H_ITEMS),
+        marginMultiplier: totals.appliedMarginMultiplier,
+        discountCents: totals.discountCents,
+        taxRateBp: FIXTURE_H_ENGINE.taxRateBp,
+        isLaborSplitEnabled: false,
+        laborRateById: LABOR_RATES_RECORD,
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: FIXTURE_H_ENGINE.taxRateBp,
       currency: "EUR",
-      isLaborSplitEnabled: false,
-      laborRateById: LABOR_RATES_RECORD,
       validiteJours: 30,
       layout: GOLDEN_LAYOUT,
     });
@@ -2376,12 +2395,17 @@ describe("Surface PDF (COUVERTURE PARTIELLE) [surface 6]", () => {
     // Call-site PDF : pdf-generator.tsx:1747-1757.
     const pdfPrepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_F_ITEMS),
-      marginMultiplier: computedTotals.appliedMarginMultiplier,
-      discountCents: computedTotals.discountCents,
+      breakdown: buildLegacyDocumentBreakdown({
+        items: asDocumentItems(FIXTURE_F_ITEMS),
+        marginMultiplier: computedTotals.appliedMarginMultiplier,
+        discountCents: computedTotals.discountCents,
+        taxRateBp: FIXTURE_F_ENGINE.taxRateBp,
+        isLaborSplitEnabled: false,
+        laborRateById: LABOR_RATES_RECORD,
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: FIXTURE_F_ENGINE.taxRateBp,
       currency: "EUR",
-      isLaborSplitEnabled: false,
-      laborRateById: LABOR_RATES_RECORD,
       validiteJours: 30,
       layout: GOLDEN_LAYOUT,
     });
@@ -2389,12 +2413,17 @@ describe("Surface PDF (COUVERTURE PARTIELLE) [surface 6]", () => {
     // Call-site HTML : EstimateDocument.tsx:206-217 (flag reel + portalUrl).
     const htmlPrepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_F_ITEMS),
-      marginMultiplier: computedTotals.appliedMarginMultiplier,
-      discountCents: computedTotals.discountCents,
+      breakdown: buildLegacyDocumentBreakdown({
+        items: asDocumentItems(FIXTURE_F_ITEMS),
+        marginMultiplier: computedTotals.appliedMarginMultiplier,
+        discountCents: computedTotals.discountCents,
+        taxRateBp: FIXTURE_F_ENGINE.taxRateBp,
+        isLaborSplitEnabled: true,
+        laborRateById: LABOR_RATES_RECORD,
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: FIXTURE_F_ENGINE.taxRateBp,
       currency: "EUR",
-      isLaborSplitEnabled: true,
-      laborRateById: LABOR_RATES_RECORD,
       validiteJours: 30,
       portalUrl: "https://example.test/portal/tok",
       layout: GOLDEN_LAYOUT,
@@ -2465,12 +2494,17 @@ describe("Surface PDF (COUVERTURE PARTIELLE) [surface 6]", () => {
   it("fige le QR pseudo-aleatoire (deterministe, sans Math.random ni Date)", () => {
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_A_ITEMS),
-      marginMultiplier: 1.6,
-      discountCents: 5_000,
+      breakdown: buildLegacyDocumentBreakdown({
+        items: asDocumentItems(FIXTURE_A_ITEMS),
+        marginMultiplier: 1.6,
+        discountCents: 5_000,
+        taxRateBp: 2_000,
+        isLaborSplitEnabled: false,
+        laborRateById: LABOR_RATES_RECORD,
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
       taxRateBp: 2_000,
       currency: "EUR",
-      isLaborSplitEnabled: false,
-      laborRateById: LABOR_RATES_RECORD,
       validiteJours: 30,
       portalUrl: "https://example.test/portal/tok",
       layout: GOLDEN_LAYOUT,

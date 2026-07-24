@@ -15,6 +15,12 @@ import {
   type EstimateComputationInput,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
+import {
+  buildLegacyDocumentBreakdown,
+  DOCUMENT_CALC_ENGINE_VERSION,
+  prepareEstimateDocumentData,
+  type EstimateItem,
+} from "@/components/estimate-document/prepare-estimate-document-data";
 
 function makeLine(overrides: Partial<EstimateItemRecord> = {}): EstimateItemRecord {
   return {
@@ -321,5 +327,60 @@ describe("computeAllSectionTotals - gate calcEngineVersion (étape 9)", () => {
     // v1 : chemin historique, la section ignore le coefficient.
     const v1 = computeAllSectionTotals({ ...base, calcEngineVersion: 1 });
     expect(v1.get("sec-1")?.totalHtCents).toBe(150_000);
+  });
+});
+
+// Étape 12 : le document dérive du breakdown (phase D).
+describe("prepareEstimateDocumentData - dérivation du breakdown (étape 12)", () => {
+  const documentItems = (items: EstimateItemRecord[]) =>
+    items as unknown as EstimateItem[];
+
+  function prepareWithRate(hourlyRateCents: number) {
+    const items = [
+      makeSection({ id: "sec-1", parent_id: null, position: 0 }),
+      makeLine({
+        id: "l1",
+        parent_id: "sec-1",
+        position: 1,
+        h_mo: 100,
+        labor_role_id: "role-a",
+        // Valeur PERSISTÉE au moment du chiffrage (100 h x 45,00 EUR x 1,30).
+        line_total_ht_cents: 585_000,
+      }),
+    ];
+    return prepareEstimateDocumentData({
+      items: documentItems(items),
+      breakdown: buildLegacyDocumentBreakdown({
+        items: documentItems(items),
+        marginMultiplier: 1.3,
+        discountCents: 0,
+        taxRateBp: 2_000,
+        isLaborSplitEnabled: false,
+        laborRateById: { "role-a": hourlyRateCents },
+      }),
+      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
+      taxRateBp: 2_000,
+      currency: "EUR",
+      validiteJours: 30,
+    });
+  }
+
+  it("T13 : le taux horaire courant ne réécrit pas une ligne déjà chiffrée", () => {
+    // Ligne 100 h @ 45,00 EUR/h, marge 1,30 => line_total_ht_cents = 585 000.
+    // On passe le rôle à 50,00 EUR/h SANS toucher au devis : la valeur affichée
+    // doit rester celle du devis (585 000), pas le recalcul au taux courant
+    // (650 000). C'est l'écart documenté de 650,00 EUR de l'export XLSX ;
+    // l'assertion complète côté classeur est la phase E (étape 17).
+    expect(prepareWithRate(4_500).lineSplitsById["l1"].totalHtCents).toBe(585_000);
+    expect(prepareWithRate(5_000).lineSplitsById["l1"].totalHtCents).toBe(585_000);
+  });
+
+  it("les sections et les lignes proviennent du même breakdown", () => {
+    const prepared = prepareWithRate(4_500);
+    // La section agrège le moteur ; la ligne porte la valeur persistée. En v1 le
+    // shim de compatibilité assume l'écart (le moteur historique ne redescend ni
+    // coefficient ni remise) — il disparaît à la bascule v2.
+    expect(prepared.sectionTotalsById["sec-1"].totalHtCents).toBe(585_000);
+    expect(prepared.lineSplitsById["l1"].totalHtCents).toBe(585_000);
   });
 });

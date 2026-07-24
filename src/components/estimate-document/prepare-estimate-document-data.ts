@@ -1,9 +1,10 @@
 import {
-  computeAllSectionTotals,
-  computeEstimateLineSaleSplit,
+  computeEstimateBreakdown,
+  type EstimateBreakdown,
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
+import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
@@ -30,12 +31,15 @@ export type QrLikeCell = { id: string; enabled: boolean };
 
 type PrepareEstimateDocumentDataInput = {
   items: EstimateItem[];
-  marginMultiplier: number;
-  discountCents: number;
+  /**
+   * EST-E26 (T6, étape 12) : le document DÉRIVE du moteur d'autorité au lieu de
+   * recalculer sa propre version des sections et des lignes. Remplace
+   * `marginMultiplier` / `discountCents` / `isLaborSplitEnabled` / `laborRateById`.
+   */
+  breakdown: EstimateBreakdown;
+  calcEngineVersion: CalcEngineVersion;
   taxRateBp: number;
   currency: string;
-  isLaborSplitEnabled: boolean;
-  laborRateById: Record<string, number>;
   validiteJours: number;
   portalUrl?: string | null;
   maxVisibleSectionLevel?: number | null;
@@ -57,6 +61,63 @@ export type EstimateDocumentPreparedData = {
 };
 
 const ROOT_KEY = "root";
+
+/**
+ * EST-E26 (T6, étape 12) : le rendu document reste sur le moteur historique tant
+ * que la bascule `calc_engine_version` n'a pas eu lieu — les devis existants sont
+ * tous en v1, et une version `sent`/`accepted` ne doit pas changer de total.
+ */
+export const DOCUMENT_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
+
+/**
+ * Construit le breakdown du document à partir des grandeurs déjà résolues par
+ * l'appelant.
+ *
+ * Les grandeurs de version sont NEUTRALISÉES (`marginMode: "fixed"`,
+ * `globalCoefficient: 1`, pas de paliers ni de cascade) parce que les appelants
+ * les ont déjà appliquées en amont : `marginMultiplier` est le multiplicateur
+ * RÉSOLU (`appliedMarginMultiplier`) et `discountCents` le montant absolu déjà
+ * calculé sur la base post-coefficient. C'est la reproduction exacte de l'appel
+ * `computeAllSectionTotals` qui vivait ici — donc iso-comportement.
+ *
+ * Remplacé par `buildEstimateRenderModel` à l'étape 14, qui portera les vraies
+ * grandeurs de version.
+ */
+export function buildLegacyDocumentBreakdown({
+  items,
+  marginMultiplier,
+  discountCents,
+  taxRateBp,
+  isLaborSplitEnabled,
+  laborRateById,
+}: {
+  items: EstimateItem[];
+  marginMultiplier: number;
+  discountCents: number;
+  taxRateBp: number;
+  isLaborSplitEnabled: boolean;
+  laborRateById: Record<string, number>;
+}): EstimateBreakdown {
+  const laborRateMap = new Map(Object.entries(laborRateById));
+  return computeEstimateBreakdown({
+    items: items as EstimateItemRecord[],
+    marginMultiplier,
+    marginMode: "fixed",
+    marginTiers: [],
+    globalCoefficient: 1,
+    discountMode: "simple",
+    discountCents,
+    discountStepsBp: [],
+    taxRateBp,
+    roundingMode: "none",
+    roundingStepCents: 0,
+    isLaborSplitEnabled,
+    laborRateById: laborRateMap,
+    laborRateAtelierById: laborRateMap,
+    laborRateChantierById: laborRateMap,
+    calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
+  });
+}
 
 export const EMPTY_SECTION_TOTALS: SectionTotals = {
   foTotalCents: 0,
@@ -230,12 +291,10 @@ export function summarizeEstimateDocumentStructure(items: EstimateItem[]) {
 
 export function prepareEstimateDocumentData({
   items,
-  marginMultiplier,
-  discountCents,
+  breakdown,
+  calcEngineVersion,
   taxRateBp,
   currency,
-  isLaborSplitEnabled,
-  laborRateById,
   validiteJours,
   portalUrl,
   maxVisibleSectionLevel = null,
@@ -251,46 +310,49 @@ export function prepareEstimateDocumentData({
   );
   const rows = buildRows(items, resolvedLayout.detailLevel);
   const numberingById = computeEstimateItemNumbering(items);
-  const calcItems = items as EstimateItemRecord[];
-  const laborRateMap = new Map(Object.entries(laborRateById));
+  const discountCents = breakdown.totals.discountCents;
   const sectionTotalsById = Object.fromEntries(
-    Array.from(
-      computeAllSectionTotals({
-        items: calcItems,
-        marginMultiplier,
-        discountCents,
-        taxRateBp,
-        laborRateById: laborRateMap,
-        isLaborSplitEnabled,
-        // EST-E26 étape 9 : rendu document toujours en moteur historique (v1) ;
-        // le passage au breakdown est la phase D (étape 12).
-        marginMode: "fixed",
-        marginTiers: [],
-        globalCoefficient: 1,
-        discountMode: "simple",
-        discountStepsBp: [],
-        calcEngineVersion: 1,
-      }).entries()
-    )
+    breakdown.sectionById.entries()
   ) as Record<string, SectionTotals>;
+
+  // Les lignes hors chapitre (`breakdown.rootLineIds`) restent des lignes libres
+  // au niveau 0 : elles ne sont jamais sous-totalisées, mais elles COMPTENT au
+  // total (le pied vient du breakdown, pas d'une somme de sections).
   const lineSplitsById = Object.fromEntries(
-    calcItems
+    items
       .filter((item) => item.item_type === "line")
       .map((item) => {
-        const split = computeEstimateLineSaleSplit(item, {
-          marginMultiplier,
-          taxRateBp,
-          laborRateById: laborRateMap,
-          isLaborSplitEnabled,
-          laborRateAtelierById: laborRateMap,
-          laborRateChantierById: laborRateMap,
-        });
+        const line = breakdown.lineById.get(item.id);
+        if (!line) {
+          return [item.id, { foTotalCents: 0, moTotalCents: 0, totalHtCents: 0 }];
+        }
+
+        if (calcEngineVersion === 2) {
+          // Moteur réconcilié : la ligne est déjà NETTE de coefficient et de
+          // remise, donc Σ lignes === Σ sections === pied, au centime.
+          return [
+            item.id,
+            {
+              foTotalCents: line.foNetCents,
+              moTotalCents: line.moNetCents,
+              totalHtCents: line.saleNetHtCents,
+            },
+          ];
+        }
+
+        // SHIM DE COMPATIBILITÉ v1 — supprimable à la bascule v2.
+        // Le moteur historique ne redescend ni le coefficient ni la remise : la
+        // ligne recalculée ne somme pas au pied stocké. On conserve donc le
+        // rebasage sur `line_total_ht_cents` (comportement d'avant EST-E26), au
+        // lieu de le déplacer dans le moteur — où il corromprait les autres
+        // consommateurs v1 (la passe COÛT de l'analyse de marge rebaserait un
+        // coût sur une valeur de vente).
         const storedTotal = Number.isFinite(item.line_total_ht_cents ?? NaN)
           ? Math.max(item.line_total_ht_cents ?? 0, 0)
-          : split.saleLineCents;
+          : line.saleNetHtCents;
         const proportionalMo =
-          split.saleLineCents > 0
-            ? Math.round((split.moSaleLineCents * storedTotal) / split.saleLineCents)
+          line.saleNetHtCents > 0
+            ? Math.round((line.moNetCents * storedTotal) / line.saleNetHtCents)
             : 0;
         const moTotalCents = Math.min(Math.max(proportionalMo, 0), storedTotal);
 
