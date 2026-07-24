@@ -135,10 +135,16 @@ suppression, `9259f03`/`ce09a53`/`12d77a8` accessibilité clavier).
 
 ## 4. À savoir (pièges & bruit)
 
-1. **2 tests rouges PRÉ-EXISTANTS, hors périmètre** (détaillés dans le handoff Phase C §1) :
-   `estimate-editor-supplier-comparison-regressions.test.ts` (node) et
-   `useEstimateEditorBulkController.test.ts` (jsdom). **Ne pas** les prendre pour des
-   régressions.
+1. ~~**2 tests rouges PRÉ-EXISTANTS, hors périmètre**~~ — **CORRIGÉ, et le constat
+   était faux pour l'un des deux.** `useEstimateEditorBulkController.test.ts` n'était
+   pas pré-existant : il est devenu rouge avec `e6d4ed2` et signalait une vraie
+   régression (fermeture du chemin d'écriture d'EST-031). Requalifié « pré-existant »
+   trois fois de suite, il a laissé le défaut vivre 41 commits. Détail et leçon dans
+   `EST-E26-HANDOFF-phase-c.md` §1.
+   **La suite doit désormais être ENTIÈREMENT verte** (`npm test`), et
+   `.github/workflows/quality-gate.yml` (typecheck + lint + tests) l'impose sur chaque
+   PR et push. Un rouge = une régression, sans exception : vérifier l'antériorité par
+   `git show <base>:<fichier>` avant de qualifier quoi que ce soit de pré-existant.
 2. **Deux projets vitest** : `--project=node` **exclut** `src/hooks/**` et
    `src/components/**`. Toujours valider aussi `--project=jsdom`.
 3. **Fichiers untracked à NE PAS committer** : `.codex-security-work/`, `design-qa.md`,
