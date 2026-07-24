@@ -680,10 +680,22 @@ type EstimateSealCanonicalItem = Pick<
   | "line_total_ttc_cents"
 > & {
   // Colonnes de main-d'œuvre éclatée (atelier/chantier) : incluses dans le
-  // sceau UNIQUEMENT lorsqu'elles sont renseignées. Les données historiques
-  // (toutes nulles) produisent des clés absentes -> hash inchangé -> les
-  // sceaux déjà émis restent valides ; toute ventilation MO réelle est en
-  // revanche désormais couverte par l'intégrité.
+  // sceau UNIQUEMENT lorsque la ligne porte une ventilation RÉELLE, au sens de
+  // `hasActiveLaborSplitPayload` (heures > 0, rôle renseigné ou coefficient
+  // != 1).
+  //
+  // Le test `!= null` initialement retenu ne convenait pas : la migration
+  // 029_est_031_labor_split_atelier_chantier.sql déclare `k_mo_atelier` et
+  // `k_mo_chantier` en `default 1.0` ET backfille 1.0 sur TOUTES les lignes
+  // existantes (l.13-14). Aucune ligne n'a donc ces colonnes à NULL, et le
+  // spread conditionnel injectait `k_mo_*: 1` dans le payload canonique de
+  // chaque item — donc un hash différent pour l'intégralité du parc déjà
+  // scellé, sans réparation possible (`seal_hash` est immuable hors transition
+  // draft -> sent, cf. 025_est046_seal_and_events.sql:36).
+  //
+  // Avec le prédicat canonique, une ligne sans ventilation (k = 1, h = null,
+  // rôles nuls) ne produit aucune clé : le hash historique est préservé. Toute
+  // ventilation MO réelle reste, elle, couverte par l'intégrité.
   h_mo_atelier?: number;
   k_mo_atelier?: number;
   labor_role_atelier_id?: string;
@@ -1943,8 +1955,43 @@ function buildCanonicalEstimateSealPayload(input: {
 
       return left.id.localeCompare(right.id);
     })
-    .map(
-      (item): EstimateSealCanonicalItem => ({
+    .map((item): EstimateSealCanonicalItem => {
+      // Ventilation réelle uniquement : voir le commentaire de
+      // EstimateSealCanonicalItem (rétro-compatibilité des sceaux émis).
+      const laborSplit: Partial<
+        Pick<
+          EstimateSealCanonicalItem,
+          | "h_mo_atelier"
+          | "k_mo_atelier"
+          | "labor_role_atelier_id"
+          | "h_mo_chantier"
+          | "k_mo_chantier"
+          | "labor_role_chantier_id"
+        >
+      > = hasActiveLaborSplitPayload(item)
+        ? {
+            ...(item.h_mo_atelier != null
+              ? { h_mo_atelier: item.h_mo_atelier }
+              : {}),
+            ...(item.k_mo_atelier != null
+              ? { k_mo_atelier: item.k_mo_atelier }
+              : {}),
+            ...(item.labor_role_atelier_id != null
+              ? { labor_role_atelier_id: item.labor_role_atelier_id }
+              : {}),
+            ...(item.h_mo_chantier != null
+              ? { h_mo_chantier: item.h_mo_chantier }
+              : {}),
+            ...(item.k_mo_chantier != null
+              ? { k_mo_chantier: item.k_mo_chantier }
+              : {}),
+            ...(item.labor_role_chantier_id != null
+              ? { labor_role_chantier_id: item.labor_role_chantier_id }
+              : {}),
+          }
+        : {};
+
+      return {
         id: item.id,
         position: item.position,
         item_type: item.item_type,
@@ -1956,31 +2003,14 @@ function buildCanonicalEstimateSealPayload(input: {
         h_mo: item.h_mo,
         h_mo_majoration: item.h_mo_majoration,
         k_mo: item.k_mo,
-        ...(item.h_mo_atelier != null
-          ? { h_mo_atelier: item.h_mo_atelier }
-          : {}),
-        ...(item.k_mo_atelier != null
-          ? { k_mo_atelier: item.k_mo_atelier }
-          : {}),
-        ...(item.labor_role_atelier_id != null
-          ? { labor_role_atelier_id: item.labor_role_atelier_id }
-          : {}),
-        ...(item.h_mo_chantier != null
-          ? { h_mo_chantier: item.h_mo_chantier }
-          : {}),
-        ...(item.k_mo_chantier != null
-          ? { k_mo_chantier: item.k_mo_chantier }
-          : {}),
-        ...(item.labor_role_chantier_id != null
-          ? { labor_role_chantier_id: item.labor_role_chantier_id }
-          : {}),
+        ...laborSplit,
         supply_type_id: item.supply_type_id,
         pu_ht_cents: item.pu_ht_cents,
         line_total_ht_cents: item.line_total_ht_cents,
         line_tax_cents: item.line_tax_cents,
         line_total_ttc_cents: item.line_total_ttc_cents,
-      })
-    );
+      };
+    });
 
   return {
     meta: {

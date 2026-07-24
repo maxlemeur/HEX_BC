@@ -887,4 +887,79 @@ describe("verifyEstimateSeal", () => {
       valid: false,
     });
   });
+
+  it("garde les sceaux historiques valides sur l'etat REEL en base (k_mo_* = 1)", async () => {
+    // Regression : le test precedent utilise une fixture ou les colonnes de
+    // ventilation sont ABSENTES, etat que la base ne produit jamais. La
+    // migration 029_est_031_labor_split_atelier_chantier.sql declare
+    // `k_mo_atelier` / `k_mo_chantier` en `default 1.0` et les backfille a 1.0
+    // sur TOUTES les lignes existantes (l.13-14). Une ligne sans ventilation
+    // porte donc k = 1 et h = null, jamais null partout.
+    //
+    // Avec le test `!= null`, `k_mo_*: 1` entrait dans le payload canonique de
+    // chaque item et invalidait le sceau de l'integralite du parc deja scelle
+    // — sans reparation possible, `seal_hash` etant immuable hors transition
+    // draft -> sent (025_est046_seal_and_events.sql:36).
+    const baseItem = {
+      id: "77777777-7777-4777-8777-777777777777",
+      position: 1,
+      item_type: "line" as const,
+      title: "Ligne sans ventilation",
+      quantity: 2,
+      unit_price_ht_cents: 5000,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 3,
+      h_mo_majoration: null,
+      k_mo: 1,
+      supply_type_id: null,
+      pu_ht_cents: 5000,
+      line_total_ht_cents: 10000,
+      line_tax_cents: 2000,
+      line_total_ttc_cents: 12000,
+    };
+    const version = {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      date_devis: "2026-02-21",
+      total_ht_cents: 10000,
+      total_tax_cents: 2000,
+      total_ttc_cents: 12000,
+      margin_multiplier: 1.2,
+      discount_bp: 0,
+      tax_rate_bp: 2000,
+      rounding_mode: "none" as const,
+      rounding_step_cents: 1,
+    };
+
+    // Sceau emis avant que les colonnes de ventilation n'entrent dans le payload.
+    const legacyHash = createExpectedSealHash({ version, items: [baseItem] });
+
+    // L'etat REEL en base : coefficients a 1 (valeur par defaut), heures nulles,
+    // roles nuls. Aucune ventilation effective -> le hash doit etre inchange.
+    const storedItem = {
+      ...baseItem,
+      h_mo_atelier: null,
+      k_mo_atelier: 1,
+      labor_role_atelier_id: null,
+      h_mo_chantier: null,
+      k_mo_chantier: 1,
+      labor_role_chantier_id: null,
+    };
+
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        { data: { ...version, seal_hash: legacyHash }, error: null },
+      ],
+      estimateItemsResult: { data: [storedItem], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: true,
+    });
+  });
 });
