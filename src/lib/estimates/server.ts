@@ -6456,6 +6456,9 @@ export async function duplicateEstimateVersion(
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
+  // Creer une version (ou une variante) est une ecriture de workflow, au meme
+  // titre qu'une transition de statut : reservee aux roles ecrivains.
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   await getVersionAccessOrThrow(supabase, versionId, context);
 
   const { data: sourceVersion, error: sourceVersionError } = await supabase
@@ -7928,6 +7931,11 @@ export async function patchEstimateVersion(
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
+  // Comme patchEstimateStatus : l'ecriture passe par le client service-role et
+  // contourne donc la RLS. getVersionAccessOrThrow n'autorise que proprietaire
+  // OU admin, ce qui laisserait un proprietaire retrograde (director/viewer)
+  // modifier marge, remise, coefficient et conditions d'un devis.
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);

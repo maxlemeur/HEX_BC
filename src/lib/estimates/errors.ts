@@ -167,32 +167,47 @@ export type SupabaseErrorLike = {
   hint?: string | null;
 };
 
+/**
+ * Ne laisse sortir que le SQLSTATE.
+ *
+ * `details` est serialise tel quel dans la reponse HTTP (cf. `failure`), et
+ * l'objet d'erreur Supabase transporte `message`, `hint` et `details` bruts de
+ * PostgreSQL : noms de contraintes, de colonnes et parfois valeurs de ligne.
+ * Le code reste expose, c'est lui que le client exploite pour distinguer un
+ * conflit d'un acces refuse ; le detail complet part dans les logs serveur.
+ */
+function toPublicSupabaseErrorDetails(error: SupabaseErrorLike) {
+  console.error("Supabase error", error);
+  return error.code ? { code: error.code } : undefined;
+}
+
 export function mapSupabaseError(
   error: SupabaseErrorLike,
   fallbackMessage: string
 ): ApiError {
   const normalizedMessage = (error.message ?? "").toLowerCase();
+  const publicDetails = toPublicSupabaseErrorDetails(error);
 
   if (
     error.code === "42501" ||
     normalizedMessage.includes("row-level security")
   ) {
-    return forbidden("Acces refuse.", error, "FORBIDDEN");
+    return forbidden("Acces refuse.", publicDetails, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {
-    return notFound("Ressource introuvable.", error, "NOT_FOUND");
+    return notFound("Ressource introuvable.", publicDetails, "NOT_FOUND");
   }
 
   if (error.code === "23505") {
-    return conflict("Conflit de donnees.", error, "CONFLICT");
+    return conflict("Conflit de donnees.", publicDetails, "CONFLICT");
   }
 
   if (
     normalizedMessage.includes("read-only") ||
     normalizedMessage.includes("read only")
   ) {
-    return forbidden("Cette version est en lecture seule.", error, "READ_ONLY");
+    return forbidden("Cette version est en lecture seule.", publicDetails, "READ_ONLY");
   }
 
   if (
@@ -200,10 +215,10 @@ export function mapSupabaseError(
     error.code === "23514" ||
     error.code === "22P02"
   ) {
-    return badRequest(fallbackMessage, error, "BAD_REQUEST");
+    return badRequest(fallbackMessage, publicDetails, "BAD_REQUEST");
   }
 
-  return badRequest(fallbackMessage, error, "BAD_REQUEST");
+  return badRequest(fallbackMessage, publicDetails, "BAD_REQUEST");
 }
 
 function fromZodError(error: ZodError): ApiError {
