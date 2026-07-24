@@ -101,6 +101,7 @@ function createVersion(
     seal_hash: null,
     parent_version_id: null,
     variant_label: null,
+    calc_engine_version: 1,
     ...overrides,
   };
 }

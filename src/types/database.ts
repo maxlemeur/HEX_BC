@@ -1032,6 +1032,7 @@ export type Database = {
           seal_hash: string | null;
           parent_version_id: string | null;
           variant_label: string | null;
+          calc_engine_version: number;
         };
         Insert: {
           id?: string;
@@ -1071,6 +1072,7 @@ export type Database = {
           seal_hash?: string | null;
           parent_version_id?: string | null;
           variant_label?: string | null;
+          calc_engine_version?: number;
         };
         Update: {
           id?: string;
@@ -1110,6 +1112,7 @@ export type Database = {
           seal_hash?: string | null;
           parent_version_id?: string | null;
           variant_label?: string | null;
+          calc_engine_version?: number;
         };
         Relationships: [
           {
