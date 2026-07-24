@@ -20,7 +20,7 @@ git fetch origin && git checkout main && git pull --ff-only
 npx tsc -p tsconfig.json --noEmit    # attendu : 0
 ```
 
-- Branche : **`main`**, `main == origin/main` (tout poussé), arbre propre.
+- Branche : **`main`**. ⚠️ Ce document date du 2026-07-24 17:53 : `main` a avancé depuis (étapes T6 11/12, cinq correctifs de revue, gate `computeReadOnlyTotals`). Se fier à `git log`, pas à cette ligne.
 - **25 correctifs d'audit livrés** sur main (voir `git log`, exclure `[T6]`) +
   Phase A/B/C(7-10) de T6.
 - Le rapport d'audit navigable (artefact) : les 27 bugs vérifiés + 73 constats
@@ -115,7 +115,7 @@ part.
   d'abord, sinon des chiffreurs buteront sur le blocage.
 - **T2 option-C (b)** — Fermer le geste dans `AssemblyEditorDialog` : quand l'utilisateur
   tape un taux horaire, proposer de créer/sélectionner un **rôle** à ce taux.
-- **T4 résiduel** + **bug persistance éditeur** (`useEstimateEditorState.impl.tsx:1309-1316`)
+- **T4 résiduel** + **bug persistance éditeur** (chercher le motif `global_coefficient: discountMode === "cascade" ? globalCoefficient : 1` dans `useEstimateEditorState.impl.tsx` — vérifié le 24/07 : toujours présent, sur DEUX sites ; les lignes 1309-1316 citées à l'origine ont bougé)
   → déjà notés dans `EST-E26-HANDOFF-phase-c.md` §6 (l'étape 16 de T6 corrige le second).
 
 ---
@@ -125,7 +125,7 @@ part.
 25 correctifs d'audit + T6 A/B/C(7-10). Les hashes hors-T6 :
 `git log --oneline --grep='\[T6\]' --invert-grep e6d4ed2^..HEAD`. Notamment, par thème :
 argent/sécurité (`12550bc` marge, `e10b045` gating, `a4d87c5` rôle écrivain,
-`b74a0c8` sceau MO, `5d21030`/`30a8b85` devise fournisseur, `91b9906`+`26332ba`
+`b74a0c8` sceau MO — ⚠️ ce commit invalidait en réalité le sceau de TOUT le parc, corrigé depuis (voir handoff Phase C §2.1 d), `5d21030`/`30a8b85` devise fournisseur, `91b9906`+`26332ba`
 assemblages, `6cba58d` int32) · fiabilité (`ec13f18` qté décimale, `8a685cf` filtre
 prix, `6c5b5cc` reconcile, `1d7ae68` BDC, `c211dbb` diff, `e905d6d` DPGF,
 `b12b277` takeoff) · UX (`5503cd7`/`9de6a46` accents client, `3d5aaab` confirm

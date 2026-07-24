@@ -73,8 +73,9 @@ client-facing, accessibilité clavier), les phases A/B/C de T6, et cinq correcti
 revue (sceau, chemin d'écriture EST-031, assiette de remise, rôles écrivains, CI).
 
 ⚠️ **Deux points du backlog concernent T6 et ne sont pas pour toi** : T18 (PU×Qté ≠
-Total) est absorbé par le breakdown T6 ; le bug de persistance
-`useEstimateEditorState.impl.tsx:1309-1316` est corrigé par l'étape 16 de T6.
+Total) est absorbé par le breakdown T6 ; et le bug de persistance de
+`useEstimateEditorState.impl.tsx` (coefficient global écrasé à 1 hors mode cascade,
+alors que le total écrit juste après l'inclut) est corrigé par l'étape 16 de T6.
 
 ### 4. Périmètre, par ordre de valeur
 

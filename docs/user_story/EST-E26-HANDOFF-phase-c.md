@@ -182,8 +182,13 @@ d'intégrité (spec §« Contrainte BLOQUANTE », lignes 29-35).
 4. **La migration `calc_engine_version` est un FICHIER non appliqué** à la base
    distante. `resolveCalcEngineVersion` la lit ; l'appliquer côté Supabase relève
    du rollout (Phase F), pas d'ici.
-5. **2 rouges pré-existants** (cf. §1) : ne pas les prendre pour des régressions,
-   vérifier l'antériorité par `git stash` avant d'accuser son propre travail.
+5. ~~**2 rouges pré-existants**~~ — **corrigés, et l'un des deux n'était pas
+   pré-existant** (cf. §1). La suite doit désormais être **entièrement verte**, et
+   `.github/workflows/quality-gate.yml` l'impose. Un rouge = une régression.
+   Vérifier l'antériorité par `git show <commit-de-base>:<fichier>` — pas par
+   `git stash`, qui ne compare qu'au dernier commit et ne dit rien de l'origine
+   d'un rouge introduit plus tôt dans la série. C'est exactement l'erreur qui a
+   laissé un vrai défaut vivre 41 commits.
 
 ---
 
@@ -209,6 +214,6 @@ Avant de committer : `git status --short` (rien de non voulu), rester sur `main`
 - **Écrêtage int32 par ligne** non remonté (seul le sous-total l'est, cf.
   `6cba58d`) : le breakdown par ligne l'exposera naturellement.
 - **Persistance auto-contradictoire de l'éditeur**
-  (`useEstimateEditorState.impl.tsx:1309-1316` : `global_coefficient=1` +
+  (`useEstimateEditorState.impl.tsx`, motif `global_coefficient: discountMode === "cascade" ? … : 1` — DEUX sites, lignes d'origine décalées : `global_coefficient=1` +
   `discount_steps=[]` alors que `total_ht_cents` est calculé avec le coefficient)
   — l'étape 16 (Phase D) la corrige, mais elle est aussi traitable à part.

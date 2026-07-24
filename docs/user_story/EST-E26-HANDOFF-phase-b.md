@@ -1,3 +1,8 @@
+> ⚠️ **DOCUMENT HISTORIQUE — la phase B est livrée.** Conservé pour la trace du
+> raisonnement ; son état de dépôt (« 30 commits d'avance, non poussés ») et ses
+> numéros de ligne sont périmés. Pour reprendre le chantier, lire
+> `EST-E26-HANDOFF-phase-c.md` puis la spec `EST-E26-reconciliation-totaux.md`.
+
 # EST-E26 — Handoff Phase B (T6 · réconciliation des totaux)
 
 Document de reprise pour la session qui exécutera la **Phase B**. Il ne contient

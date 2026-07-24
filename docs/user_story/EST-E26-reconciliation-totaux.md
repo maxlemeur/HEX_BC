@@ -1,6 +1,7 @@
 # EST-E26 — Réconciliation des totaux (source unique de vérité)
 
-> **Statut** : plan validé, refactor en cours.
+> **Statut** : phases A, B et C livrées ; phase D commencée (étape 12).
+> Reprendre à l'**étape 13**. Voir le tableau d'avancement ci-dessous.
 > **Origine** : audit multi-agents du moteur de totaux (inventaire vérifié
 > en adversarial — 40 divergences confirmées sur 6 surfaces).
 > **Sévérité** : c'était la friction UX n°1 de l'audit — « le chiffre affiché
@@ -8,14 +9,59 @@
 
 ## État d'avancement
 
-- **Phase A — livrée** (filet de sécurité, non destructif) :
+> **Mis à jour le 2026-07-24 au soir.** La version précédente de cette section
+> s'arrêtait à la Phase A et affirmait deux choses devenues fausses (voir plus
+> bas). Les phases **A, B et C sont désormais livrées**, ainsi que les étapes
+> **11 et 12** de la phase D.
+>
+> ⚠️ **Les numéros de ligne cités dans tout ce document datent d'avant le
+> refactor** (`estimate-calculations.ts` a pris +600 lignes, `server.ts` +700).
+> **Se fier aux noms de symboles, pas aux numéros de ligne** — ils sont
+> systématiquement décalés et ne seront pas re-numérotés, ils re-pourriraient au
+> commit suivant.
+
+| Phase | État | Détail |
+|---|---|---|
+| **A** — filet de sécurité | ✅ livrée | golden (`0574539`), colonne `calc_engine_version` (`c70267e`), `calc-context.ts` (`7362338`) |
+| **B** — durcissement du contrat | ✅ livrée | étapes 4 (`6853d6f`), 5 (`ee5b242`), 6 (`c898976`) |
+| **C** — moteur unifié | ✅ livrée | étapes 7 (`b99e5b8`), 8 (`8092b29`), 9 (`966db09` + `computeReadOnlyTotals` gaté ensuite), 10 (`3c529ee`), 11 (`fe5b4cb`) |
+| **D** — surfaces de rendu | 🟡 commencée | étape 12 livrée (`af3091a`) ; **reprendre à l'étape 13** |
+| **E** — exports | ⬜ à faire | étapes 17 à 20 |
+| **F** — persistance et bascule | ⬜ à faire | étapes 21 à 23 — **c'est ici que le gate est enfin branché** |
+
+**Deux affirmations de la version précédente étaient fausses ou périmées :**
+
+- « La divergence `bankersRound` vs `Math.round` (§2.5) n'est PAS encore figée »
+  → **elle l'est** depuis `f4b977b` (Fixture I du golden). En revanche
+  l'unification elle-même reste à faire : **11 `Math.round` subsistent** dans
+  `estimate-calculations.ts`.
+- « `calc-context.ts` … le rebranchement des 5 appelants est destructif → phase
+  B » → le rebranchement **n'a pas eu lieu** en phase B. `loadEstimateCalcContext`
+  n'a toujours **aucun importeur** : c'est du code mort protégé par 480 lignes de
+  tests verts, à brancher (phase F) ou à supprimer.
+
+**Point de vigilance sur le gate.** Le garde-fou `calc_engine_version` existe et
+`resolveCalcEngineVersion` est fail-safe, mais **la colonne n'est lue nulle part
+en production** : chaque surface épingle une constante. Elles sont regroupées
+dans `src/lib/estimates/calc-engine-version.ts` (`EDITOR_CALC_ENGINE_VERSION`,
+`EXPORT_CALC_ENGINE_VERSION`) et `prepare-estimate-document-data.ts`
+(`DOCUMENT_CALC_ENGINE_VERSION`) — `grep "CALC_ENGINE_VERSION: CalcEngineVersion"`
+donne la liste exhaustive à basculer à l'étape 23.
+
+⚠️ **Corollaire non résolu** : les changements de montants des étapes 4 à 6
+(détection du split MO, barème du tenant, remise stockée des exports) ne sont
+**pas** conditionnés par `calcEngineVersion`. Ils s'appliquent donc **déjà** aux
+devis envoyés et acceptés, ce que la contrainte ci-dessous interdit. Arbitrage à
+rendre avant la bascule : les remettre derrière le gate, ou assumer.
+
+**Reste de l'état d'avancement Phase A :**
+
   - `0574539` — golden tests figeant le comportement ACTUEL du moteur
-    (`src/lib/estimate-calculations.golden.test.ts`, 36 tests). ⚠️ **2 surfaces
+    (`src/lib/estimate-calculations.golden.test.ts`). ⚠️ **2 surfaces
     sur 6 sont réellement couvertes en pur** (moteur + document via
     `prepareEstimateDocumentData`) ; les 4 autres (éditeur, pages RSC, XLSX,
     PDF) ne sont pas testables sans mocks contaminants et portent un bloc
-    `COUVERTURE PARTIELLE`. La divergence `bankersRound` vs `Math.round`
-    (§2.5) n'est PAS encore figée — à couvrir avant de l'unifier.
+    `COUVERTURE PARTIELLE`.
   - `c70267e` — colonne `estimate_versions.calc_engine_version` via le patron
     `add column if not exists ... not null default 1` (PG11+ : remplissage par
     le catalogue, sans réécriture ni UPDATE, donc aucun trigger de ligne, et
@@ -23,8 +69,9 @@
     `guard_estimate_versions_readonly` **non étendu** (changement de
     comportement → phase C).
   - `7362338` — `src/lib/estimates/calc-context.ts` : `loadEstimateCalcContext`,
-    volontairement sans import entrant (mort-né) ; le rebranchement des
-    5 appelants est destructif → phase B.
+    volontairement sans import entrant (mort-né). ~~Rebranchement en phase B.~~
+    **Il n'a pas eu lieu** : le module est toujours sans importeur (cf. encadré
+    ci-dessus). Le rebranchement des 5 appelants relève de la phase F.
 
 ## ⚠️ Contrainte de déploiement BLOQUANTE
 
@@ -35,10 +82,19 @@ des `sent` non signées, **jamais** les `accepted` ni les versions scellées.
 
 ## Bug de données découvert en chemin (indépendant, à traiter à part)
 
-`useEstimateEditorState.impl.tsx:1309-1316` persiste `global_coefficient = 1`
+`useEstimateEditorState.impl.tsx` persiste `global_coefficient = 1`
 et `discount_steps = []` hors mode cascade, alors que le `total_ht_cents`
 écrit juste après provient d'un snapshot calculé AVEC le coefficient : la
 version stockée est auto-contradictoire.
+
+> **Vérifié le 2026-07-24 : toujours présent, et sur DEUX sites, pas un.** Le
+> motif `global_coefficient: discountMode === "cascade" ? globalCoefficient : 1`
+> apparaît à la fois dans le payload persisté (`saveEstimateVersion`, avec
+> `total_ht_cents: totalsSnapshot.saleTotalCents` trois lignes plus bas) **et**
+> dans `nextSavedSettings`, qui réinjecte la même valeur dans l'état local — donc
+> l'écran retombe sur le total sans coefficient sans même recharger.
+> Les lignes `1309-1316` citées à l'origine sont désormais aux alentours de
+> `1347` et `1406` : chercher le motif, pas le numéro. Corrigé par l'**étape 16**.
 
 ---
 
@@ -149,23 +205,23 @@ Ajouter `estimate_versions.calc_engine_version smallint not null default 1`. Le 
 
 ### Phase A — Filet de sécurité (aucun changement fonctionnel)
 
-**1. 🟢 Tests de caractérisation (golden)** — nouveau `src/lib/estimate-calculations.golden.test.ts`.
+**1. ✅ LIVRÉE (0574539) — 🟢 Tests de caractérisation (golden)** — nouveau `src/lib/estimate-calculations.golden.test.ts`.
 Figer les sorties ACTUELLES des 6 surfaces pour 8 devis fixtures (coef 1 / 1,10 ; remise simple / cascade / steps résiduels ; marge fixe / paliers ; split on / off / payload résiduel ; ligne racine ; multi-TVA). Chaque golden enregistre `{pied, Σsections, Σlignes, PDF, XLSX}` — y compris les valeurs FAUSSES. Sans ce filet, aucune étape suivante n'est évaluable.
 
-**2. 🟢 Migration `calc_engine_version`** — nouveau `supabase/migrations/*_estimate_calc_engine_version.sql` + `src/types/database.ts`.
+**2. ✅ LIVRÉE (c70267e) — 🟢 Migration `calc_engine_version`** — nouveau `supabase/migrations/*_estimate_calc_engine_version.sql` + `src/types/database.ts`.
 `alter table estimate_versions add column calc_engine_version smallint not null default 1;` Backfill explicite à 1. Nouveau helper `resolveCalcEngineVersion(version)`.
 
-**3. 🟢 Contexte de calcul unique côté serveur** — nouveau `src/lib/estimates/calc-context.ts`.
+**3. ✅ LIVRÉE (7362338 — ⚠️ toujours SANS importeur) — 🟢 Contexte de calcul unique côté serveur** — nouveau `src/lib/estimates/calc-context.ts`.
 `loadEstimateCalcContext(supabase, versionId)` → `{ version, items, marginTiers (tenant), isLaborSplitEnabled (EST_031_LABOR_SPLIT), laborRateById, laborRateAtelierById, laborRateChantierById, calcEngineVersion }`. Un seul endroit qui lit le flag tenant et le barème, remplaçant `page.tsx:189`, `print/page.tsx:145`, `portal/page.tsx:106`, `server.ts:2988`, `pdf-generator.tsx:1689`.
 
 ### Phase B — Durcissement du contrat (le compilateur devient l'auditeur)
 
-**4. 🔴 Unifier la détection du payload split.**
+**4. ✅ LIVRÉE (6853d6f) — 🔴 Unifier la détection du payload split.**
 - Supprimer `isLaborSplitEnabled(item)` local dans `export-stream.ts:136`, `dpgf-export.ts:206`, `bdc-export.ts:155` (les trois testent `h_mo_atelier !== null`, la canonique `> 0` — divergence documentée : ligne à 1 300,00 € rendue à 0,00 €).
 - Seule survivante : `hasActiveLaborSplitPayload` (`estimate-calculations.ts:117`).
 - Effet visible : les lignes à `h_mo_atelier = 0` persisté (cf. `editor-items.ts:89`) repassent en branche legacy dans les exports.
 
-**5. 🔴 Rendre `isLaborSplitEnabled` obligatoire et non ambigu.**
+**5. ✅ LIVRÉE (ee5b242) — 🔴 Rendre `isLaborSplitEnabled` obligatoire et non ambigu.**
 - `estimate-calculations.ts:197` : supprimer `isLaborSplitEnabled ?? hasSplitPayload` → `isLaborSplitEnabled && hasActiveLaborSplitPayload(item)` (aligné sur l.738). Le type passe de `boolean | undefined` à `boolean` requis dans `computeEstimateLineValues`, `computeEstimateTotals` (l.300), `computeAllSectionTotals` (l.842), `computeReadOnlyTotals` (l.1183), `normalizeDraftItems` (l.1144).
 - `tsc` liste alors les 12 appelants fautifs. Les corriger en injectant la valeur du contexte (étape 3) :
   `page.tsx:244/260`, `print/page.tsx:192/208`, `portal/page.tsx:154/174`, `pdf-generator.tsx:1708/1727/1753`, `server.ts:3011`, `server.ts:6191`, `export-stream.ts:393`, `useEstimateEditorState.impl.tsx:290`.
@@ -173,16 +229,16 @@ Figer les sorties ACTUELLES des 6 surfaces pour 8 devis fixtures (coef 1 / 1,10 
 - `pdf-generator.tsx:1753` : supprimer `isLaborSplitEnabled: false` en dur.
 - Effet visible majeur (cas documenté : 2 640,00 € manquants à l'écran, 612,00 € d'écart PDF/écran par ligne).
 
-**6. 🔴 Rendre `marginTiers` et `marginMode` obligatoires.**
+**6. ✅ LIVRÉE (c898976 — ⚠️ le repli par défaut subsiste dans resolveMarginMultiplier) — 🔴 Rendre `marginTiers` et `marginMode` obligatoires.**
 - `estimate-calculations.ts:315` : supprimer `marginTiers ?? getMarginTiers()`. `getMarginTiers()` reste exporté uniquement comme *seed* de configuration tenant, plus comme fallback silencieux.
 - Injecter les paliers du tenant dans les 8 appels qui les omettent (`page.tsx:244/260`, `print/page.tsx:192/208`, `portal/page.tsx:154/174`, `pdf-generator.tsx:1708/1727`).
 - Effet visible : cas documenté 1,6 → 1,35, soit −15 000,00 € sur un devis à 80 000,00 €, mais **cohérent** avec la persistance.
 
 ### Phase C — Le moteur unifié
 
-**7. 🟢 `allocateProRata`** — `estimate-calculations.ts`, nouvelle fonction + tests unitaires purs (invariant Σ = amount sur 10 000 tirages aléatoires).
+**7. ✅ LIVRÉE (b99e5b8) — 🟢 `allocateProRata`** — `estimate-calculations.ts`, nouvelle fonction + tests unitaires purs (invariant Σ = amount sur 10 000 tirages aléatoires).
 
-**8. 🔴 `computeEstimateBreakdown`** — `estimate-calculations.ts`, nouvelle fonction en dessous de `computeEstimateTotals`.
+**8. ✅ LIVRÉE (8092b29) — 🔴 `computeEstimateBreakdown`** — `estimate-calculations.ts`, nouvelle fonction en dessous de `computeEstimateTotals`.
 Réutilise la passe 1/passe 2 existante (l.327-363), puis :
 - coefficient sur la somme (l.364-370, inchangé) ;
 - `coefficientShares = allocateProRata(saleSubtotalCents, ventesBrutes)` ;
@@ -193,16 +249,16 @@ Réutilise la passe 1/passe 2 existante (l.327-363), puis :
 - TVA : `Σ computeTaxCents(saleNetHtCents, item.tax_rate_bp ?? taxRateBp)` — supprime la double branche `coefficient === 1 ? ... : ...` de l.410 (cas documenté : 400,00 € vs 300,00 € de TVA entre pied et export).
 - **Gate `calcEngineVersion`** : si `1`, la fonction délègue à l'ancien chemin et marque `invariants.matchesFooter = false`.
 
-**9. 🟢 `computeAllSectionTotals` / `computeSectionTotals` / `computeReadOnlyTotals` deviennent des wrappers** — `estimate-calculations.ts:803/836/1180`.
+**9. ✅ LIVRÉE (966db09 puis computeReadOnlyTotals gaté) — 🟢 `computeAllSectionTotals` / `computeSectionTotals` / `computeReadOnlyTotals` deviennent des wrappers** — `estimate-calculations.ts:803/836/1180`.
 `ComputeAllSectionTotalsInput` (l.505-515) gagne `globalCoefficient`, `marginMode`, `marginTiers`, `discountMode`, `discountStepsBp` **obligatoires** ; `convertSectionSubtotalToTotals` (l.577-685) et le dénominateur pré-coefficient (l.881-892) sont **supprimés** au profit de l'agrégation du breakdown. `computeReadOnlyTotals` cesse de renvoyer les colonnes figées quand `calcEngineVersion = 2`.
 
-**10. 🟢 Supprimer le doublon de remise** — `export-stream.ts:156-171` (`resolveStoredDiscountCents`) supprimé, remplacé par `computeStoredDiscountCents` (`estimate-calculations.ts:1072`). Un seul usage à migrer (l.391).
+**10. ✅ LIVRÉE (3c529ee) — 🟢 Supprimer le doublon de remise** — `export-stream.ts:156-171` (`resolveStoredDiscountCents`) supprimé, remplacé par `computeStoredDiscountCents` (`estimate-calculations.ts:1072`). Un seul usage à migrer (l.391).
 
-**11. 🟢 Supprimer le contournement affaires** — `src/lib/affaires/server.ts:2324` : `marginMultiplier: marginMultiplier * globalCoefficient` → `computeEstimateBreakdown({ marginMultiplier, globalCoefficient })`. Corrige l'écart d'arrondi (~4,00 € / 400 lignes) **et** la marge affichée (65 % → 50 %). 🔴 sur l'indicateur de marge.
+**11. ✅ LIVRÉE (fe5b4cb — sémantique d'affichage volontairement divergente, lire le commit) — 🟢 Supprimer le contournement affaires** — `src/lib/affaires/server.ts:2324` : `marginMultiplier: marginMultiplier * globalCoefficient` → `computeEstimateBreakdown({ marginMultiplier, globalCoefficient })`. Corrige l'écart d'arrondi (~4,00 € / 400 lignes). ⚠️ **La bascule 65 % → 50 % annoncée ici n'a PAS été retenue** : `global_coefficient` est un vrai markup payé par le client, donc « Vente HT » reste nette (= total du devis) et la marge reste la marge nette réelle. Coefficient et remise sont désormais exposés et affichés à part, pour cesser d'être lus comme de la marge. Voir le message de `fe5b4cb`.
 
 ### Phase D — Les surfaces de rendu
 
-**12. 🔴 Document partagé** — `src/components/estimate-document/prepare-estimate-document-data.ts`.
+**12. ✅ LIVRÉE (af3091a) — 🔴 Document partagé** — `src/components/estimate-document/prepare-estimate-document-data.ts`.
 - l.31-43 : `PrepareEstimateDocumentDataInput` reçoit `breakdown: EstimateBreakdown` au lieu de `marginMultiplier`/`discountCents`/`isLaborSplitEnabled`.
 - l.258 : supprimer l'appel `computeAllSectionTotals` → `breakdown.sectionById`.
 - l.272-296 : supprimer `computeEstimateLineSaleSplit` + le rebasage `storedTotal` → `breakdown.lineById`. Les lignes deviennent **nettes** de remise et de coefficient : le tableau s'additionne.
@@ -223,7 +279,7 @@ En prime, corriger les écarts de props entre les 3 pages : `page.tsx:149` ajout
 - `useEstimateVisibility.ts:174` : les sous-totaux lisent `breakdown.sectionById` ; le filtrage `quickFilteredItems` (`EstimateEditorTable.tsx:850-874`) ne doit **plus** alimenter le calcul — filtrer l'affichage, pas l'assiette. Ajouter un libellé distinct « Total filtré » si l'on veut conserver l'information.
 - Supprimer l'usage de `totalsOutOfSync` comme faux indicateur de cohérence (`impl.tsx:328`, `EstimateEditorAlerts.tsx:174-193`) — il reste le drapeau d'échec de persistance, mais on ajoute `breakdown.invariants.matchesFooter` comme vrai détecteur.
 
-**16. 🔴 Sauvegarde cohérente** — `useEstimateEditorState.impl.tsx:1309-1316`.
+**16. 🔴 Sauvegarde cohérente** — `useEstimateEditorState.impl.tsx` (deux sites : le payload persisté ET `nextSavedSettings` ; chercher le motif, pas le numéro de ligne).
 - Supprimer `global_coefficient: discountMode === "cascade" ? globalCoefficient : 1`. Le coefficient est une grandeur **indépendante** du mode de remise ; il est persisté tel qu'affiché. (Aujourd'hui : total persisté 115 000,00 € avec un coefficient persisté 1 → l'écran retombe à 100 000,00 € seul.)
 - Symétriquement, `estimate-calculations.ts:382` : en mode `simple`, **vider** `discount_steps` à la bascule côté UI plutôt que laisser `steps[0]` écraser silencieusement le montant en euros saisi (écart documenté 280,00 € sans indicateur).
 
