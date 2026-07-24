@@ -1,6 +1,5 @@
 import { bankersRound, computeTaxCents } from "@/lib/money";
 import {
-  getMarginTiers,
   resolveMarginMultiplier,
   type MarginTier,
 } from "@/lib/estimates/margin-tiers";
@@ -316,8 +315,8 @@ export function computeEstimateTotals({
 }: {
   lineItems: EstimateLineLike[];
   marginMultiplier: number;
-  marginMode?: MarginMode;
-  marginTiers?: MarginTier[];
+  marginMode: MarginMode;
+  marginTiers: MarginTier[];
   discountCents: number;
   discountMode?: DiscountMode;
   discount_mode?: DiscountMode;
@@ -333,7 +332,10 @@ export function computeEstimateTotals({
   // A6: cap margin
   const safeMargin = clampMarginMultiplier(marginMultiplier);
   const safeMarginMode: MarginMode = marginMode === "tiered" ? "tiered" : "fixed";
-  const safeMarginTiers = marginTiers ?? getMarginTiers();
+  // EST-E26 (T6, étape 6) : marginTiers est requis. Plus de repli silencieux
+  // sur getMarginTiers() ; un tableau vide reste géré par resolveMarginMultiplier
+  // (margin-tiers.ts), seul et unique point de repli sur le barème par défaut.
+  const safeMarginTiers = marginTiers;
   const safeDiscountMode: DiscountMode =
     (discountMode ?? discount_mode) === "cascade" ? "cascade" : "simple";
   const safeDiscountStepsBp = normalizeDiscountStepsBp(

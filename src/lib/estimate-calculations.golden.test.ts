@@ -189,6 +189,7 @@ const FIXTURE_A_ITEMS: EstimateItemRecord[] = [
 const FIXTURE_A_ENGINE = {
   marginMultiplier: 1.6,
   marginMode: "fixed" as const,
+  marginTiers: [] as MarginTier[],
   globalCoefficient: 1,
   discountCents: 5_000,
   taxRateBp: 2_000,
@@ -927,6 +928,8 @@ describe("Fixture E - marge par paliers [surface 1]", () => {
   const ENGINE = {
     marginMultiplier: 1.6,
     marginMode: "tiered" as const,
+    // Barème injecté par le cas de test (sansBareme = [] -> repli défauts).
+    marginTiers: [] as MarginTier[],
     globalCoefficient: 1,
     discountCents: 0,
     taxRateBp: 2_000,
@@ -1102,6 +1105,7 @@ const FIXTURE_F_ITEMS: EstimateItemRecord[] = [
 const FIXTURE_F_ENGINE = {
   marginMultiplier: 1.6,
   marginMode: "fixed" as const,
+  marginTiers: [] as MarginTier[],
   globalCoefficient: 1,
   discountCents: 0,
   taxRateBp: 2_000,
@@ -1439,6 +1443,7 @@ const FIXTURE_H_ITEMS: EstimateItemRecord[] = [
 const FIXTURE_H_ENGINE = {
   marginMultiplier: 1.6,
   marginMode: "fixed" as const,
+  marginTiers: [] as MarginTier[],
   globalCoefficient: 1,
   discountCents: 10_000,
   taxRateBp: 2_000,
@@ -1994,7 +1999,11 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
     const commonInput = {
       lineItems,
       marginMultiplier: version.margin_multiplier,
-      marginMode: version.margin_mode,
+      marginMode: version.margin_mode ?? "fixed",
+      // Simulation : les pages omettaient tout barème (-> repli défauts). Depuis
+      // l'étape 6 les VRAIES pages chargent le barème tenant (loadMarginTiersForTotals) ;
+      // on conserve ici le chemin `[]` pour figer le repli de resolveMarginMultiplier.
+      marginTiers: [] as MarginTier[],
       discountMode: version.discount_mode,
       discountStepsBp: version.discount_steps,
       globalCoefficient: version.global_coefficient,
@@ -2084,7 +2093,7 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
       isLaborSplitEnabled: false,
       lineItems,
       marginMultiplier: version.margin_multiplier,
-      marginMode: version.margin_mode,
+      marginMode: version.margin_mode ?? "fixed",
       marginTiers: TENANT_MARGIN_TIERS,
       discountCents: 0,
       discountMode: version.discount_mode,

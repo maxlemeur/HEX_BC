@@ -18,6 +18,7 @@ import {
   type EstimateDocumentPreparedData,
 } from "@/components/estimate-document/prepare-estimate-document-data";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { BUSINESS_DOCUMENT_THEME } from "@/lib/documents/document-theme";
@@ -1714,10 +1715,20 @@ export async function generateEstimatePdfNow(
       { supabase: context.supabase },
     );
 
+    // EST-E26 (T6, étape 6) : barème du tenant injecté (marginTiers requis).
+    const marginTiers =
+      access.version.margin_mode === "tiered"
+        ? await loadMarginTiersForTotals({
+            supabase: context.supabase,
+            tenantId: access.version.tenant_id,
+          })
+        : [];
+
     const baseTotals = computeEstimateTotals({
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
       marginMode: access.version.margin_mode,
+      marginTiers,
       isLaborSplitEnabled,
       discountCents: 0,
       discountMode: access.version.discount_mode,
@@ -1738,6 +1749,7 @@ export async function generateEstimatePdfNow(
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
       marginMode: access.version.margin_mode,
+      marginTiers,
       isLaborSplitEnabled,
       discountCents: fallbackDiscountCents,
       discountMode: access.version.discount_mode,

@@ -1081,8 +1081,8 @@ export function useEstimateEditorState({
     const totalsInput = {
       lineItems,
       marginMultiplier: settings.margin_multiplier,
-      marginMode: settings.margin_mode,
-      marginTiers: settings.margin_tiers,
+      marginMode: settings.margin_mode ?? "fixed",
+      marginTiers: settings.margin_tiers ?? [],
       discountCents: settings.discount_cents,
       discountMode: settings.discount_mode,
       discountStepsBp: settings.discount_steps,
@@ -1143,8 +1143,8 @@ export function useEstimateEditorState({
     const totalsInput = {
       lineItems,
       marginMultiplier: savedSettings.margin_multiplier,
-      marginMode: savedSettings.margin_mode,
-      marginTiers: savedSettings.margin_tiers,
+      marginMode: savedSettings.margin_mode ?? "fixed",
+      marginTiers: savedSettings.margin_tiers ?? [],
       discountCents: savedSettings.discount_cents,
       discountMode: savedSettings.discount_mode,
       discountStepsBp: savedSettings.discount_steps,

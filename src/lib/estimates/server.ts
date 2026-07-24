@@ -31,6 +31,7 @@ import {
   getStalePriceDaysForTenant,
   isFeatureEnabled,
 } from "@/lib/feature-flags";
+import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import {
   getTakeoffLinkedSourceVersionByJobId,
   linkTakeoffJobsFromSourceVersionToTargetVersion,
@@ -2874,27 +2875,6 @@ function toArrayNumberOrNull(value: unknown): Array<number | null> | null {
     }
     return null;
   });
-}
-
-async function loadMarginTiersForTotals(input: {
-  supabase: Supabase;
-  tenantId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("margin_tiers")
-    .select("threshold_cents, multiplier")
-    .eq("tenant_id", input.tenantId)
-    .order("threshold_cents", { ascending: true })
-    .order("position", { ascending: true });
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les tranches de marge.");
-  }
-
-  return (data ?? []).map((tier) => ({
-    threshold_cents: tier.threshold_cents,
-    multiplier: tier.multiplier,
-  }));
 }
 
 async function recalculateEstimateVersionTotals(input: {

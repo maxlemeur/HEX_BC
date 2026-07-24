@@ -21,6 +21,7 @@ import {
 import { getUserContext } from "@/lib/auth/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
   APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
@@ -241,10 +242,16 @@ export default async function EstimateDetailPage({
         ? (laborRateById[item.labor_role_chantier_id] ?? 0)
         : 0,
     }));
+  // EST-E26 (T6, étape 6) : injecter le barème du tenant (marginTiers requis).
+  const marginTiers =
+    version.margin_mode === "tiered"
+      ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
+      : [];
   const baseTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
     marginMode: version.margin_mode,
+    marginTiers,
     isLaborSplitEnabled,
     discountCents: 0,
     discountMode: version.discount_mode,
@@ -262,6 +269,7 @@ export default async function EstimateDetailPage({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
     marginMode: version.margin_mode,
+    marginTiers,
     isLaborSplitEnabled,
     discountCents: fallbackDiscountCents,
     discountMode: version.discount_mode,

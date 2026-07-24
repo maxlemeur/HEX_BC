@@ -4,6 +4,7 @@ import { EstimateDocument } from "@/components/EstimateDocument";
 import { PortalActions } from "@/components/portal/PortalActions";
 import { PortalHeader } from "@/components/portal/PortalHeader";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { formatEstimateReference } from "@/lib/estimates/reference";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
@@ -151,10 +152,17 @@ export default async function PortalPage({ params }: PortalPageProps) {
         : 0,
     }));
 
+  // EST-E26 (T6, étape 6) : injecter le barème du tenant (marginTiers requis).
+  const marginTiers =
+    version.margin_mode === "tiered"
+      ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
+      : [];
+
   const baseTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
     marginMode: version.margin_mode,
+    marginTiers,
     isLaborSplitEnabled,
     discountCents: 0,
     discountMode: version.discount_mode,
@@ -176,6 +184,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
     marginMode: version.margin_mode,
+    marginTiers,
     isLaborSplitEnabled,
     discountCents: fallbackDiscountCents,
     discountMode: version.discount_mode,

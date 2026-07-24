@@ -274,6 +274,8 @@ describe("estimate calculations", () => {
       taxRateBp: 2000,
     });
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       lineItems: [line],
       marginMultiplier: 1.2,
       discountCents: 0,
@@ -446,6 +448,8 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: lines,
       marginMultiplier: 1,
@@ -475,6 +479,8 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: lines,
       marginMultiplier: 1,
@@ -533,6 +539,8 @@ describe("estimate calculations", () => {
 
   it("A6b: signale un total ecrete au lieu de le minorer en silence", () => {
     const cappedTotals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       lineItems: [
         createLine({
           quantity: 1,
@@ -559,6 +567,8 @@ describe("estimate calculations", () => {
     expect(cappedTotals.isCapped).toBe(true);
 
     const normalTotals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       lineItems: [
         createLine({
           quantity: 2,
@@ -580,6 +590,8 @@ describe("estimate calculations", () => {
 
   it("computeEstimateTotals with discount and taxes", () => {
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: [
         createLine({
@@ -636,6 +648,8 @@ describe("estimate calculations", () => {
 
   it("EST-025: cascade vide n'applique aucune remise", () => {
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 10000, k_fo: 1 })],
       marginMultiplier: 1,
@@ -665,11 +679,15 @@ describe("estimate calculations", () => {
     };
 
     const simpleTotals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       ...baseInput,
       discountMode: "simple",
     });
     const cascadeTotals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       ...baseInput,
       discountMode: "cascade",
@@ -706,6 +724,8 @@ describe("estimate calculations", () => {
     });
 
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1001, k_fo: 1 })],
       marginMultiplier: 1,
@@ -724,6 +744,8 @@ describe("estimate calculations", () => {
 
   it("EST-025: global_coefficient est applique apres marge et avant remise", () => {
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1000, k_fo: 1 })],
       marginMultiplier: 1.5,
@@ -749,6 +771,8 @@ describe("estimate calculations", () => {
     expect(cascade.steps.map((step) => step.stepBp)).toEqual([0, 10000, 0]);
 
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1000, k_fo: 1 })],
       marginMultiplier: 1,
@@ -794,6 +818,8 @@ describe("estimate calculations", () => {
 
     (["none", "nearest", "up", "down"] as const).forEach((roundingMode) => {
       const totals = computeEstimateTotals({
+        marginMode: "fixed",
+        marginTiers: [],
         isLaborSplitEnabled: false,
         lineItems,
         marginMultiplier: 1,
@@ -835,6 +861,8 @@ describe("estimate calculations", () => {
 
   it("keeps sale total HT >= 0 when discount exceeds subtotal", () => {
     const totals = computeEstimateTotals({
+      marginMode: "fixed",
+      marginTiers: [],
       isLaborSplitEnabled: false,
       lineItems: [
         createLine({
