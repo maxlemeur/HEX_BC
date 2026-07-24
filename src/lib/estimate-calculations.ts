@@ -38,7 +38,7 @@ export type EstimateLineLike = {
 export type ComputeEstimateLineValuesOptions = {
   marginMultiplier: number;
   taxRateBp: number;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
   laborRateAtelierCents?: number | null;
   laborRateChantierCents?: number | null;
 };
@@ -210,8 +210,12 @@ export function computeEstimateLineValues(
   const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
   const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
   const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
-  const hasSplitPayload = hasActiveLaborSplitPayload(item);
-  const shouldUseLaborSplit = isLaborSplitEnabled ?? hasSplitPayload;
+  // EST-E26 (T6, étape 5) : sémantique unique du split main-d'œuvre. Le flag
+  // tenant est désormais requis et ne déclenche le split que si la ligne porte
+  // un vrai payload atelier/chantier. On supprime l'auto-détection implicite
+  // `isLaborSplitEnabled ?? hasSplitPayload`, alignée sur computeEstimateLineSaleSplit.
+  const shouldUseLaborSplit =
+    isLaborSplitEnabled && hasActiveLaborSplitPayload(item);
   const moCostCents = shouldUseLaborSplit
     ? hMoMajoration *
       (hMoAtelier * hourlyRateAtelier * kMoAtelier +
@@ -324,7 +328,7 @@ export function computeEstimateTotals({
   taxRateBp: number;
   roundingMode: RoundingMode;
   roundingStepCents: number;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
 }): EstimateTotals {
   // A6: cap margin
   const safeMargin = clampMarginMultiplier(marginMultiplier);
@@ -517,7 +521,7 @@ export type ComputeSectionTotalsInput = {
   taxRateBp: number;
   discountCents: number;
   laborRateById: Map<string, number>;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
   laborRateAtelierById?: Map<string, number>;
   laborRateChantierById?: Map<string, number>;
 };
@@ -528,7 +532,7 @@ export type ComputeAllSectionTotalsInput = {
   taxRateBp: number;
   discountCents: number;
   laborRateById: Map<string, number>;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
   laborRateAtelierById?: Map<string, number>;
   laborRateChantierById?: Map<string, number>;
   sectionIds?: Iterable<string>;
@@ -827,7 +831,7 @@ export function computeSectionTotals({
   taxRateBp,
   discountCents,
   laborRateById,
-  isLaborSplitEnabled = false,
+  isLaborSplitEnabled,
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
 }: ComputeSectionTotalsInput): SectionTotals {
@@ -859,7 +863,7 @@ export function computeAllSectionTotals({
   taxRateBp,
   discountCents,
   laborRateById,
-  isLaborSplitEnabled = false,
+  isLaborSplitEnabled,
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
   sectionIds,
@@ -1052,6 +1056,10 @@ export function computeInitialDiscountCents(
       {
         marginMultiplier: version.margin_multiplier,
         taxRateBp: version.tax_rate_bp,
+        // EST-E26 (T6, étape 5) : helper sans flag tenant. Le split reste OFF
+        // ici (déterministe, sans auto-détection). computeEstimateBreakdown de
+        // la phase C le remplacera par une passe unique porteuse du contexte.
+        isLaborSplitEnabled: false,
       }
     );
     return sum + lineValues.saleLineCents;
@@ -1144,12 +1152,12 @@ export function normalizeDraftItems<
   items,
   version,
   rateById,
-  isLaborSplitEnabled = false,
+  isLaborSplitEnabled,
 }: {
   items: T[];
   version: EstimateVersionForCalc;
   rateById: Map<string, number>;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
 }): T[] {
   return items.map((item) => {
     if (item.item_type !== "line") return item;
@@ -1200,13 +1208,13 @@ export function computeReadOnlyTotals({
   version,
   discountCents,
   laborRateById,
-  isLaborSplitEnabled = false,
+  isLaborSplitEnabled,
 }: {
   items: EstimateItemRecord[];
   version: EstimateVersionForCalc;
   discountCents: number;
   laborRateById: Map<string, number>;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
 }): EstimateTotals {
   const costSubtotalCents = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;

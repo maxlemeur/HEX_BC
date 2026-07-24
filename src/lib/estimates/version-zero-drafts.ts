@@ -1818,6 +1818,8 @@ export async function materializeVersionZeroDraft(input: {
         {
           marginMultiplier: version.margin_multiplier,
           taxRateBp: version.tax_rate_bp ?? 2000,
+          // Lignes brouillon v0 : uniquement FO (h_mo = 0), jamais de split MO.
+          isLaborSplitEnabled: false,
         }
       );
       const sourceMetadata: JsonRecord = {

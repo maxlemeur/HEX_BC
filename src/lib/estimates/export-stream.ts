@@ -376,6 +376,10 @@ async function buildEstimateExportPayload(
     version,
     discountCents,
     laborRateById,
+    // EST-E26 (T6, étape 5) : la feuille « Résumé » reste sans split ici — le
+    // flag tenant n'est pas résolu dans ce module. Le câblage réel du contexte
+    // arrive en phase E (computeReadOnlyTotals → breakdown, spec §3 étape 17).
+    isLaborSplitEnabled: false,
   });
 
   return {

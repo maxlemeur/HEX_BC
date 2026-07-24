@@ -227,6 +227,7 @@ describe("streamEstimateVersionXlsx", () => {
 
     const laborRateById = new Map([["cccccccc-cccc-4ccc-8ccc-cccccccccccc", 1200]]);
     const expectedTotals = computeReadOnlyTotals({
+      isLaborSplitEnabled: false,
       items,
       version: details.version as EstimateVersionForCalc,
       discountCents: 0,
@@ -238,6 +239,7 @@ describe("streamEstimateVersionXlsx", () => {
         labor_role_hourly_rate_cents: 1200,
       },
       {
+        isLaborSplitEnabled: false,
         marginMultiplier: details.version.margin_multiplier,
         taxRateBp: 2000,
       }

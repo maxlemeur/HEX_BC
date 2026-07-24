@@ -29,6 +29,7 @@ import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
+  isFeatureEnabled,
 } from "@/lib/feature-flags";
 import {
   getTakeoffLinkedSourceVersionByJobId,
@@ -2993,6 +2994,14 @@ async function recalculateEstimateVersionTotals(input: {
         })
       : [];
 
+  // EST-E26 (T6, étape 5) : le recalcul autoritaire lit le flag tenant réel.
+  // Plus d'auto-détection par ligne côté moteur.
+  const isLaborSplitEnabled = await isFeatureEnabled(
+    input.tenantId,
+    "EST_031_LABOR_SPLIT",
+    { supabase: input.supabase }
+  );
+
   const discountSteps = toArrayNumberOrNull(versionRecord.discount_steps);
   const discountCents = computeInitialDiscountCents(
     {
@@ -3037,6 +3046,7 @@ async function recalculateEstimateVersionTotals(input: {
     marginMultiplier: versionRecord.margin_multiplier ?? 1,
     marginMode: versionRecord.margin_mode ?? "fixed",
     marginTiers,
+    isLaborSplitEnabled,
     discountCents,
     discountMode: versionRecord.discount_mode ?? "simple",
     discountStepsBp: discountSteps,
@@ -6188,6 +6198,14 @@ export async function insertAssemblyIntoVersion(input: {
     }
   }
 
+  // EST-E26 (T6, étape 5) : renormalisation des lignes d'ouvrage insérées avec
+  // le flag tenant réel (le contexte tenant/supabase est déjà en portée ici).
+  const isLaborSplitEnabled = await isFeatureEnabled(
+    tenantId,
+    "EST_031_LABOR_SPLIT",
+    { supabase }
+  );
+
   const normalizedItems = normalizeDraftItems({
     items: orderedItems,
     version: {
@@ -6199,6 +6217,7 @@ export async function insertAssemblyIntoVersion(input: {
       discount_bp: 0,
     },
     rateById,
+    isLaborSplitEnabled,
   });
 
   for (const item of normalizedItems) {

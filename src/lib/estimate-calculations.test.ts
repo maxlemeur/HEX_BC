@@ -123,6 +123,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1.3,
       taxRateBp: 2000,
     });
@@ -237,6 +238,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1,
       taxRateBp: 0,
     });
@@ -267,6 +269,7 @@ describe("estimate calculations", () => {
     });
 
     const lineValues = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1.2,
       taxRateBp: 2000,
     });
@@ -308,6 +311,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1,
       taxRateBp: 0,
     });
@@ -331,6 +335,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1,
       taxRateBp: 0,
     });
@@ -350,6 +355,7 @@ describe("estimate calculations", () => {
     });
 
     const values2 = computeEstimateLineValues(line2, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1,
       taxRateBp: 0,
     });
@@ -377,10 +383,12 @@ describe("estimate calculations", () => {
     });
 
     const baseValues = computeEstimateLineValues(withoutMajoration, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1,
       taxRateBp: 0,
     });
     const neutralValues = computeEstimateLineValues(withNeutralMajoration, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 1,
       taxRateBp: 0,
     });
@@ -401,6 +409,7 @@ describe("estimate calculations", () => {
         labor_role_hourly_rate_cents: 500,
       }),
       {
+        isLaborSplitEnabled: false,
         marginMultiplier: 1,
         taxRateBp: 0,
       }
@@ -420,6 +429,7 @@ describe("estimate calculations", () => {
         labor_role_hourly_rate_cents: 500,
       }),
       {
+        isLaborSplitEnabled: false,
         marginMultiplier: 1,
         taxRateBp: 0,
       }
@@ -436,6 +446,7 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: lines,
       marginMultiplier: 1,
       discountCents: 0,
@@ -449,7 +460,7 @@ describe("estimate calculations", () => {
     // Old method: computeTaxCents(1000, 2000) = 200 (different!)
     // New method uses per-line sum = 201
     const perLineTaxSum = lines.reduce((sum, line) => {
-      const v = computeEstimateLineValues(line, { marginMultiplier: 1, taxRateBp: 2000 });
+      const v = computeEstimateLineValues(line, { isLaborSplitEnabled: false, marginMultiplier: 1, taxRateBp: 2000 });
       return sum + v.taxLineCents;
     }, 0);
 
@@ -464,6 +475,7 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: lines,
       marginMultiplier: 1,
       discountCents: 200,
@@ -490,6 +502,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 99999,
       taxRateBp: 0,
     });
@@ -508,6 +521,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: 2,
       taxRateBp: 0,
     });
@@ -566,6 +580,7 @@ describe("estimate calculations", () => {
 
   it("computeEstimateTotals with discount and taxes", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [
         createLine({
           quantity: 2,
@@ -621,6 +636,7 @@ describe("estimate calculations", () => {
 
   it("EST-025: cascade vide n'applique aucune remise", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 10000, k_fo: 1 })],
       marginMultiplier: 1,
       discountCents: 9999,
@@ -649,10 +665,12 @@ describe("estimate calculations", () => {
     };
 
     const simpleTotals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       ...baseInput,
       discountMode: "simple",
     });
     const cascadeTotals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       ...baseInput,
       discountMode: "cascade",
     });
@@ -688,6 +706,7 @@ describe("estimate calculations", () => {
     });
 
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1001, k_fo: 1 })],
       marginMultiplier: 1,
       discountCents: 0,
@@ -705,6 +724,7 @@ describe("estimate calculations", () => {
 
   it("EST-025: global_coefficient est applique apres marge et avant remise", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1000, k_fo: 1 })],
       marginMultiplier: 1.5,
       global_coefficient: 1.2,
@@ -729,6 +749,7 @@ describe("estimate calculations", () => {
     expect(cascade.steps.map((step) => step.stepBp)).toEqual([0, 10000, 0]);
 
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1000, k_fo: 1 })],
       marginMultiplier: 1,
       globalCoefficient: -10,
@@ -773,6 +794,7 @@ describe("estimate calculations", () => {
 
     (["none", "nearest", "up", "down"] as const).forEach((roundingMode) => {
       const totals = computeEstimateTotals({
+        isLaborSplitEnabled: false,
         lineItems,
         marginMultiplier: 1,
         discountCents: 0,
@@ -797,6 +819,7 @@ describe("estimate calculations", () => {
     });
 
     const values = computeEstimateLineValues(line, {
+      isLaborSplitEnabled: false,
       marginMultiplier: -1,
       taxRateBp: -2000,
     });
@@ -812,6 +835,7 @@ describe("estimate calculations", () => {
 
   it("keeps sale total HT >= 0 when discount exceeds subtotal", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [
         createLine({
           quantity: 1,
@@ -838,6 +862,7 @@ describe("estimate calculations", () => {
 
   it("EST-028: applies low tier multiplier below first threshold", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [
         createLine({
           quantity: 1,
@@ -863,6 +888,7 @@ describe("estimate calculations", () => {
 
   it("EST-028: applies mid tier multiplier between thresholds", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [
         createLine({
           quantity: 1,
@@ -888,6 +914,7 @@ describe("estimate calculations", () => {
 
   it("EST-028: applies high tier multiplier above last threshold", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [
         createLine({
           quantity: 1,
@@ -913,6 +940,7 @@ describe("estimate calculations", () => {
 
   it("EST-028: value exactly at threshold resolves to that tier", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [
         createLine({
           quantity: 1,
@@ -938,6 +966,7 @@ describe("estimate calculations", () => {
 
   it("EST-028: empty estimate in tiered mode uses first tier and stays at zero", () => {
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [],
       marginMultiplier: 1.1,
       marginMode: "tiered",
@@ -976,6 +1005,7 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      isLaborSplitEnabled: false,
       items,
       sectionId,
       marginMultiplier: 1.5,
@@ -1025,6 +1055,7 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      isLaborSplitEnabled: false,
       items,
       sectionId,
       marginMultiplier: 2,
@@ -1050,6 +1081,7 @@ describe("estimate calculations", () => {
     const sectionId = "section-k-fo-isolation";
     const computeWithKFo = (kFo: number) =>
       computeSectionTotals({
+        isLaborSplitEnabled: false,
         items: [
           createSectionRecord({ id: sectionId, parent_id: null, position: 1 }),
           createItemRecord({
@@ -1159,6 +1191,7 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      isLaborSplitEnabled: false,
       items,
       sectionId: parentSectionId,
       marginMultiplier: 1,
@@ -1225,6 +1258,7 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      isLaborSplitEnabled: false,
       items,
       sectionId: parentSectionId,
       marginMultiplier: 1,
@@ -1298,19 +1332,23 @@ describe("estimate calculations", () => {
     };
 
     const expectedParent = computeSectionTotals({
+      isLaborSplitEnabled: false,
       ...input,
       sectionId: parentSectionId,
     });
     const expectedChild = computeSectionTotals({
+      isLaborSplitEnabled: false,
       ...input,
       sectionId: childSectionId,
     });
     const expectedSibling = computeSectionTotals({
+      isLaborSplitEnabled: false,
       ...input,
       sectionId: siblingSectionId,
     });
 
     const computed = computeAllSectionTotals({
+      isLaborSplitEnabled: false,
       ...input,
       sectionIds: [parentSectionId, childSectionId, siblingSectionId],
     });
@@ -1370,7 +1408,7 @@ describe("B5: extracted business helpers", () => {
     ];
     const rateById = new Map<string, number>();
 
-    const result = normalizeDraftItems({ items, version, rateById });
+    const result = normalizeDraftItems({ isLaborSplitEnabled: false, items, version, rateById });
 
     expect(result[0].line_total_ht_cents).toBe(3000); // 2000 cost * 1.5 margin
     expect(result[0].line_tax_cents).toBe(600); // 3000 * 20%
@@ -1383,7 +1421,7 @@ describe("B5: extracted business helpers", () => {
     const items = [section];
     const rateById = new Map<string, number>();
 
-    const result = normalizeDraftItems({ items, version, rateById });
+    const result = normalizeDraftItems({ isLaborSplitEnabled: false, items, version, rateById });
 
     expect(result[0]).toBe(section); // unchanged reference
   });

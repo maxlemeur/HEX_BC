@@ -207,7 +207,7 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
     //   estimate-calculations.ts:429-432.
     // DIVERGENCE : branche (c) de remise, parametre absolu clampe
     //   estimate-calculations.ts:408-426.
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_A_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_A_ENGINE });
     expect(totals).toMatchInlineSnapshot(`
       {
         "adjustedTaxCents": 19576,
@@ -246,6 +246,7 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
       id: item.id,
       quantity: item.quantity,
       ...computeEstimateLineValues(item, {
+        isLaborSplitEnabled: false,
         marginMultiplier: FIXTURE_A_ENGINE.marginMultiplier,
         taxRateBp: FIXTURE_A_ENGINE.taxRateBp,
       }),
@@ -292,6 +293,7 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
     // Les lignes n'ont pas de supply_type_id : la cle est
     //   UNASSIGNED_SUPPLY_TYPE_KEY (estimate-calculations.ts:979).
     const sectionTotals = computeAllSectionTotals({
+      isLaborSplitEnabled: false,
       items: FIXTURE_A_ITEMS,
       marginMultiplier: FIXTURE_A_ENGINE.marginMultiplier,
       taxRateBp: FIXTURE_A_ENGINE.taxRateBp,
@@ -326,6 +328,7 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
     //   (estimate-calculations.ts:1294-1309) -> la cle manque dans le snapshot.
     const version = makeVersion({ discount_bp: 500 });
     const normalized = normalizeDraftItems({
+      isLaborSplitEnabled: false,
       items: FIXTURE_A_ITEMS,
       version,
       rateById: LABOR_RATES,
@@ -373,6 +376,7 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
     `);
 
     const readOnly = computeReadOnlyTotals({
+      isLaborSplitEnabled: false,
       items: normalized,
       version,
       discountCents: FIXTURE_A_ENGINE.discountCents,
@@ -409,7 +413,7 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
   });
 
   it("fige la sortie document (surface 3, aucun mock)", () => {
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_A_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_A_ENGINE });
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_A_ITEMS),
       marginMultiplier: totals.appliedMarginMultiplier,
@@ -505,7 +509,7 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
     // DIVERGENCE : bascule de branche TVA sur un test d'egalite stricte a 1
     //   sur un float (estimate-calculations.ts:429-432) : A passe par la somme
     //   des TVA ligne a ligne, B par computeTaxCents sur l'agregat.
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_B_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_B_ENGINE });
     expect(totals).toMatchInlineSnapshot(`
       {
         "adjustedTaxCents": 21633,
@@ -539,6 +543,7 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
       (sum, item) =>
         sum +
         computeEstimateLineValues(item, {
+          isLaborSplitEnabled: false,
           marginMultiplier: FIXTURE_B_ENGINE.marginMultiplier,
           taxRateBp: FIXTURE_B_ENGINE.taxRateBp,
         }).saleLineCents,
@@ -552,8 +557,9 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
     // DIVERGENCE : computeAllSectionTotals ignore totalement le coefficient
     //   global. Numerateur post-coefficient (estimate-calculations.ts:608-617)
     //   contre denominateur pre-coefficient (estimate-calculations.ts:901-912).
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_B_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_B_ENGINE });
     const sectionTotals = computeAllSectionTotals({
+      isLaborSplitEnabled: false,
       items: FIXTURE_A_ITEMS,
       marginMultiplier: FIXTURE_B_ENGINE.marginMultiplier,
       taxRateBp: FIXTURE_B_ENGINE.taxRateBp,
@@ -590,7 +596,7 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
   });
 
   it("fige la sortie document sous coefficient (le document ignore le coefficient)", () => {
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_B_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_B_ENGINE });
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_A_ITEMS),
       marginMultiplier: totals.appliedMarginMultiplier,
@@ -651,6 +657,7 @@ describe("Fixture C - remise cascade 3 etapes [surface 1]", () => {
     // DIVERGENCE : en mode cascade, le parametre discountCents n'est jamais lu
     //   (estimate-calculations.ts:394-400). 999 999 disparait sans avertir.
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems,
       ...FIXTURE_A_ENGINE,
       discountCents: 999_999,
@@ -760,6 +767,7 @@ describe("Fixture C - remise cascade 3 etapes [surface 1]", () => {
     );
     expect({
       engine: computeEstimateTotals({
+        isLaborSplitEnabled: false,
         lineItems,
         ...FIXTURE_A_ENGINE,
         discountCents: 999_999,
@@ -792,6 +800,7 @@ describe("Fixture D - remise simple steps residuels [surface 1]", () => {
     //   aucun avertissement -> estimate-calculations.ts:401-407.
     // DIVERGENCE : discountCents (12 345) est ignore des qu'un step existe.
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems,
       ...FIXTURE_A_ENGINE,
       discountCents: 12_345,
@@ -861,6 +870,7 @@ describe("Fixture D - remise simple steps residuels [surface 1]", () => {
         LABOR_RATES
       ),
       viaEngine: computeEstimateTotals({
+        isLaborSplitEnabled: false,
         lineItems,
         ...FIXTURE_A_ENGINE,
         discountCents: 12_345,
@@ -933,13 +943,15 @@ describe("Fixture E - marge par paliers [surface 1]", () => {
     //   repli sur les defauts est refait plus bas (margin-tiers.ts:46).
     // DIVERGENCE : le palier est resolu sur le COUT TOTAL du devis, pas ligne
     //   a ligne, et la borne inferieure est inclusive (margin-tiers.ts:56-59).
-    const sansBareme = computeEstimateTotals({ lineItems, ...ENGINE });
+    const sansBareme = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...ENGINE });
     const avecBaremeTenant = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems,
       ...ENGINE,
       marginTiers: TENANT_MARGIN_TIERS,
     });
     const baremeVide = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems,
       ...ENGINE,
       marginTiers: [],
@@ -998,7 +1010,7 @@ describe("Fixture E - marge par paliers [surface 1]", () => {
 
   it("fige les totaux complets du chemin par defaut", () => {
     expect(
-      computeEstimateTotals({ lineItems, ...ENGINE })
+      computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...ENGINE })
     ).toMatchInlineSnapshot(`
       {
         "adjustedTaxCents": 3045000,
@@ -1037,6 +1049,7 @@ describe("Fixture E - marge par paliers [surface 1]", () => {
       h_mo: 0,
     });
     const totals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: [capLine],
       ...ENGINE,
       marginMode: "fixed",
@@ -1099,16 +1112,16 @@ const FIXTURE_F_ENGINE = {
 describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () => {
   const lineItems = FIXTURE_F_ITEMS.filter((i) => i.item_type === "line");
 
-  it("fige les 3 semantiques de isLaborSplitEnabled cote a cote", () => {
-    // DIVERGENCE : trois semantiques du meme flag sur les memes items.
-    //   1) computeEstimateLineValues : `isLaborSplitEnabled ?? hasSplitPayload`
-    //      -> estimate-calculations.ts:214 (undefined => AUTO-DETECTION).
-    //   2) computeEstimateLineSaleSplit : `isLaborSplitEnabled && hasPayload`
-    //      -> estimate-calculations.ts:758-759 (ET logique).
-    //   3) valeur par defaut `= false` dans computeSectionTotals (:830),
-    //      computeAllSectionTotals (:862), normalizeDraftItems (:1147) et
-    //      computeReadOnlyTotals (:1203).
+  it("fige la semantique unique du flag (pied === section)", () => {
+    // POST-ETAPE 5 (EST-E26) : le flag isLaborSplitEnabled est requis et porte
+    //   UNE seule semantique -> `isLaborSplitEnabled && hasActiveLaborSplitPayload`.
+    //   Plus d'auto-detection implicite (`?? hasSplitPayload`) ni de defaut
+    //   `= false` divergent. Le « sans flag » (desormais explicitement `false`)
+    //   coincide avec `flagFalse`, et le pied (9 600 c) egale enfin la section
+    //   (9 600 c) : ecart 0.
+    //   Avant : pied 93 824 c (auto-detection) vs section 9 600 c, ecart 84 224.
     const totauxSansFlag = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems,
       ...FIXTURE_F_ENGINE,
     });
@@ -1123,6 +1136,7 @@ describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () =>
       isLaborSplitEnabled: true,
     });
     const sectionsSansFlag = computeAllSectionTotals({
+      isLaborSplitEnabled: false,
       items: FIXTURE_F_ITEMS,
       marginMultiplier: FIXTURE_F_ENGINE.marginMultiplier,
       taxRateBp: FIXTURE_F_ENGINE.taxRateBp,
@@ -1139,7 +1153,7 @@ describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () =>
         (sectionsSansFlag.get("sec-1")?.totalHtCents ?? 0),
     }).toMatchInlineSnapshot(`
       {
-        "ecartGlobalVsSectionCents": 84224,
+        "ecartGlobalVsSectionCents": 0,
         "sectionSansFlag": {
           "foTotalCents": 9600,
           "moAtelierTotalCents": 0,
@@ -1153,7 +1167,7 @@ describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () =>
         },
         "totauxFlagFalseSaleSubtotalCents": 9600,
         "totauxFlagTrueSaleSubtotalCents": 93824,
-        "totauxSansFlagSaleSubtotalCents": 93824,
+        "totauxSansFlagSaleSubtotalCents": 9600,
       }
     `);
   });
@@ -1290,14 +1304,18 @@ describe("Fixture G - payload split residuel [surface 1]", () => {
     `);
   });
 
-  it("fige les 3 resultats de computeEstimateLineValues sur le meme item", () => {
-    // DIVERGENCE : l'auto-detection (flag absent) donne le MEME resultat que
-    //   le split force, et un resultat DIFFERENT du legacy force. La MO legacy
-    //   (3 h x 45,00 EUR) disparait des que le payload residuel est detecte
-    //   -> estimate-calculations.ts:214-219.
+  it("fige la semantique unique de computeEstimateLineValues sur le meme item", () => {
+    // POST-ETAPE 5 (EST-E26) : l'auto-detection a disparu. Le flag est requis ;
+    //   sans split (`false`) on retombe sur le legacy (la MO 3 h x 45,00 EUR est
+    //   facturee : 18 500 c), et seul le flag `true` active le payload residuel
+    //   (5 000 c). `sansFlag` (flag omis, desormais explicitement `false`)
+    //   coincide donc avec `flagFalse` : c'est la reconciliation recherchee.
     const options = { marginMultiplier: 1.6, taxRateBp: 2_000 };
     expect({
-      sansFlag: computeEstimateLineValues(FIXTURE_G_ITEM, options),
+      sansFlag: computeEstimateLineValues(FIXTURE_G_ITEM, {
+        ...options,
+        isLaborSplitEnabled: false,
+      }),
       flagFalse: computeEstimateLineValues(FIXTURE_G_ITEM, {
         ...options,
         isLaborSplitEnabled: false,
@@ -1323,11 +1341,11 @@ describe("Fixture G - payload split residuel [surface 1]", () => {
           "ttcLineCents": 9600,
         },
         "sansFlag": {
-          "costLineCents": 5000,
-          "puHtCents": 8000,
-          "saleLineCents": 8000,
-          "taxLineCents": 1600,
-          "ttcLineCents": 9600,
+          "costLineCents": 18500,
+          "puHtCents": 29600,
+          "saleLineCents": 29600,
+          "taxLineCents": 5920,
+          "ttcLineCents": 35520,
         },
       }
     `);
@@ -1440,8 +1458,9 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
     //   racine (estimate-calculations.ts:901-912), qui n'apparait dans aucun
     //   numerateur de section (estimate-calculations.ts:608-617). Resultat :
     //   une partie de la remise n'est allouee a aucune section.
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_H_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_H_ENGINE });
     const sections = computeAllSectionTotals({
+      isLaborSplitEnabled: false,
       items: FIXTURE_H_ITEMS,
       marginMultiplier: FIXTURE_H_ENGINE.marginMultiplier,
       taxRateBp: FIXTURE_H_ENGINE.taxRateBp,
@@ -1531,7 +1550,7 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
   });
 
   it("fige computeSectionTotals (voie unitaire) et une section inconnue", () => {
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_H_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_H_ENGINE });
     const base = {
       items: FIXTURE_H_ITEMS,
       marginMultiplier: FIXTURE_H_ENGINE.marginMultiplier,
@@ -1540,8 +1559,8 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
       laborRateById: LABOR_RATES,
     };
     expect({
-      sec1: computeSectionTotals({ ...base, sectionId: "sec-1" }),
-      inconnue: computeSectionTotals({ ...base, sectionId: "sec-inexistante" }),
+      sec1: computeSectionTotals({ isLaborSplitEnabled: false, ...base, sectionId: "sec-1" }),
+      inconnue: computeSectionTotals({ isLaborSplitEnabled: false, ...base, sectionId: "sec-inexistante" }),
     }).toMatchInlineSnapshot(`
       {
         "inconnue": {
@@ -1576,6 +1595,7 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
     //   l'inverse : `item.tax_rate_bp ?? version.tax_rate_bp`.
     const version = makeVersion({ tax_rate_bp: 2_000 });
     const normalized = normalizeDraftItems({
+      isLaborSplitEnabled: false,
       items: FIXTURE_H_ITEMS,
       version,
       rateById: LABOR_RATES,
@@ -1584,6 +1604,7 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
       id: item.id,
       taxRateBpUtilise: item.tax_rate_bp ?? version.tax_rate_bp ?? 0,
       ...computeEstimateLineValues(item, {
+        isLaborSplitEnabled: false,
         marginMultiplier: version.margin_multiplier,
         taxRateBp: item.tax_rate_bp ?? version.tax_rate_bp ?? 0,
       }),
@@ -1660,7 +1681,7 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
     //   porte aucune remise alors que sectionTotalsById en porte une.
     // DIVERGENCE : la ligne racine h3 est rendue a depth 0, au meme niveau que
     //   les sections (prepare-estimate-document-data.ts:174-194).
-    const totals = computeEstimateTotals({ lineItems, ...FIXTURE_H_ENGINE });
+    const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_H_ENGINE });
     const prepared = prepareEstimateDocumentData({
       items: asDocumentItems(FIXTURE_H_ITEMS),
       marginMultiplier: totals.appliedMarginMultiplier,
@@ -1796,7 +1817,10 @@ function buildEditorLineInput(
 describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
   function runEditorTotals(
     items: EstimateItemRecord[],
-    engine: Omit<Parameters<typeof computeEstimateTotals>[0], "lineItems">
+    engine: Omit<
+      Parameters<typeof computeEstimateTotals>[0],
+      "lineItems" | "isLaborSplitEnabled"
+    >
   ): EstimateTotals {
     const lineItems = items
       .filter((item) => item.item_type === "line")
@@ -1804,8 +1828,9 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
     return computeEstimateTotals({
       ...engine,
       lineItems,
-      // useEstimateEditorState.impl.tsx:290 : le flag est cable en dur a false
-      // tant que EST_031_LABOR_SPLIT n'est pas actif.
+      // POST-ETAPE 5 (EST-E26) : l'editeur derive isLaborSplitEnabled du flag
+      // tenant reel (useEstimateEditorState.impl.tsx:290, desormais
+      // useFeatureFlag). Ce harnais fige le cas flag OFF.
       isLaborSplitEnabled: false,
     });
   }
@@ -1841,12 +1866,15 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
     `);
   });
 
-  it("fige l'ecart editeur / moteur brut sur un item a payload de split", () => {
-    // DIVERGENCE : l'editeur force isLaborSplitEnabled: false, la ou un appel
-    //   nu a computeEstimateTotals auto-detecte le payload
-    //   (estimate-calculations.ts:214). Memes items, deux totaux.
+  it("fige la coincidence editeur / moteur sur un item a payload de split", () => {
+    // POST-ETAPE 5 (EST-E26) : l'appel nu a computeEstimateTotals ne peut plus
+    //   auto-detecter le payload (isLaborSplitEnabled est requis). Avec le meme
+    //   flag OFF que l'editeur, editeur et moteur coincident (9 600 c) : ecart 0.
+    //   Avant : editeur 9 600 (force false) vs moteur 93 824 (auto-detection),
+    //   ecart 84 224.
     const editeur = runEditorTotals(FIXTURE_F_ITEMS, FIXTURE_F_ENGINE);
     const moteurNu = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: FIXTURE_F_ITEMS.filter((i) => i.item_type === "line"),
       ...FIXTURE_F_ENGINE,
     });
@@ -1856,9 +1884,9 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
       ecartCents: moteurNu.saleSubtotalCents - editeur.saleSubtotalCents,
     }).toMatchInlineSnapshot(`
       {
-        "ecartCents": 84224,
+        "ecartCents": 0,
         "editeurSaleSubtotalCents": 9600,
-        "moteurNuSaleSubtotalCents": 93824,
+        "moteurNuSaleSubtotalCents": 9600,
       }
     `);
   });
@@ -1975,6 +2003,7 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
       roundingStepCents: 0,
     };
     const baseTotals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       ...commonInput,
       discountCents: 0,
     });
@@ -1985,6 +2014,7 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
           )
         : 0;
     const computedTotals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       ...commonInput,
       discountCents: fallbackDiscountCents,
     });
@@ -2051,6 +2081,7 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
       })
     );
     const serveur = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems,
       marginMultiplier: version.margin_multiplier,
       marginMode: version.margin_mode,
@@ -2171,6 +2202,7 @@ describe("Surface exports XLSX (COUVERTURE PARTIELLE) [surface 5]", () => {
     });
     const discountCents = resolveStoredDiscountCents(version, STORED_ITEMS);
     const resume = computeReadOnlyTotals({
+      isLaborSplitEnabled: false,
       items: STORED_ITEMS,
       version,
       discountCents,
@@ -2296,6 +2328,7 @@ describe("Surface PDF (COUVERTURE PARTIELLE) [surface 6]", () => {
     //   items a payload de split, le PDF et l'ecran ne montrent pas les memes
     //   montants FO/MO ni les memes sous-totaux de section.
     const computedTotals = computeEstimateTotals({
+      isLaborSplitEnabled: false,
       lineItems: FIXTURE_F_ITEMS.filter((i) => i.item_type === "line"),
       ...FIXTURE_F_ENGINE,
     });

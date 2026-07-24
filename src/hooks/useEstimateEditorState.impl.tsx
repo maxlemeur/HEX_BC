@@ -287,7 +287,9 @@ export function useEstimateEditorState({
   const isAdmin = profile?.role === "admin";
   const isViewerReadOnly = profile?.tenant_role === "viewer";
   const { isExpert } = useUiMode();
-  const isLaborSplitEnabled = false;
+  // EST-E26 (T6, étape 5) : l'éditeur lit le flag tenant réel au lieu du
+  // `false` codé en dur, pour être cohérent avec le document et le PDF.
+  const { enabled: isLaborSplitEnabled } = useFeatureFlag("EST_031_LABOR_SPLIT");
   const {
     enabled: isVirtualizationModeFlagEnabled,
     value: virtualizationModeFlagValue,
@@ -544,6 +546,7 @@ export function useEstimateEditorState({
                 items: itemsRows,
                 version: versionRow,
                 rateById,
+                isLaborSplitEnabled,
               })
             : itemsRows;
 
@@ -1188,12 +1191,13 @@ export function useEstimateEditorState({
               items: itemsRows,
               version: activeVersion,
               rateById: laborRateById,
+              isLaborSplitEnabled,
             })
           : itemsRows;
 
       return applyPendingBufferedUpdatesToItems(normalizedItems);
     },
-    [applyPendingBufferedUpdatesToItems, laborRateById]
+    [applyPendingBufferedUpdatesToItems, laborRateById, isLaborSplitEnabled]
   );
 
   const reloadItems = useCallback(async () => {
@@ -1843,6 +1847,7 @@ export function useEstimateEditorState({
               items: refreshedItems,
               version: refreshedVersion,
               rateById: laborRateById,
+              isLaborSplitEnabled,
             })
           : refreshedItems;
 
@@ -1851,7 +1856,7 @@ export function useEstimateEditorState({
         updatedAt: refreshedVersion.updated_at,
       };
     },
-    [applyPendingBufferedUpdatesToItems, laborRateById]
+    [applyPendingBufferedUpdatesToItems, laborRateById, isLaborSplitEnabled]
   );
 
   const applyAiMutationRefresh = useCallback(

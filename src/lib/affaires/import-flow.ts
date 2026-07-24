@@ -268,6 +268,8 @@ export function normalizeMappedRowsForEstimateCreation(
       {
         marginMultiplier: context.marginMultiplier,
         taxRateBp,
+        // Import : lignes FO + MO legacy, sans payload atelier/chantier.
+        isLaborSplitEnabled: false,
       }
     );
 

@@ -18,6 +18,7 @@ import {
   type EstimateDocumentPreparedData,
 } from "@/components/estimate-document/prepare-estimate-document-data";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { isFeatureEnabled } from "@/lib/feature-flags";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { BUSINESS_DOCUMENT_THEME } from "@/lib/documents/document-theme";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
@@ -1705,10 +1706,19 @@ export async function generateEstimatePdfNow(
         : 0,
     }));
 
+    // EST-E26 (T6, étape 5) : le PDF respecte le flag tenant réel au lieu du
+    // `isLaborSplitEnabled: false` codé en dur, pour être cohérent avec l'écran.
+    const isLaborSplitEnabled = await isFeatureEnabled(
+      context.tenantId,
+      "EST_031_LABOR_SPLIT",
+      { supabase: context.supabase },
+    );
+
     const baseTotals = computeEstimateTotals({
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
       marginMode: access.version.margin_mode,
+      isLaborSplitEnabled,
       discountCents: 0,
       discountMode: access.version.discount_mode,
       discountStepsBp: access.version.discount_steps,
@@ -1728,6 +1738,7 @@ export async function generateEstimatePdfNow(
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
       marginMode: access.version.margin_mode,
+      isLaborSplitEnabled,
       discountCents: fallbackDiscountCents,
       discountMode: access.version.discount_mode,
       discountStepsBp: access.version.discount_steps,
@@ -1750,7 +1761,7 @@ export async function generateEstimatePdfNow(
       discountCents: computedTotals.discountCents,
       taxRateBp: access.version.tax_rate_bp,
       currency: access.version.currency,
-      isLaborSplitEnabled: false,
+      isLaborSplitEnabled,
       laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
       validiteJours: access.version.validite_jours,
       layout: effectiveLayout,
