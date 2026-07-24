@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  computeAllSectionTotals,
   computeEstimateBreakdown,
   computeEstimateTotals,
   type EstimateComputationInput,
@@ -291,5 +292,34 @@ describe("computeEstimateBreakdown - cohérence du pied avec computeEstimateTota
       isLaborSplitEnabled: false,
     });
     expect(bd.totals.saleTotalCents).toBe(footer.saleTotalCents);
+  });
+});
+
+// Étape 9 : computeAllSectionTotals devient un wrapper gaté du breakdown.
+describe("computeAllSectionTotals - gate calcEngineVersion (étape 9)", () => {
+  it("v2 dérive du breakdown réconcilié ; v1 garde le chemin historique", () => {
+    const items = [
+      makeSection({ id: "sec-1", parent_id: null, position: 0 }),
+      makeLine({ id: "l1", parent_id: "sec-1", position: 1, unit_price_ht_cents: 100_000 }),
+    ];
+    const base = {
+      items,
+      marginMultiplier: 1.5,
+      marginMode: "fixed" as const,
+      marginTiers: [],
+      globalCoefficient: 1.1,
+      discountMode: "simple" as const,
+      discountCents: 0,
+      discountStepsBp: [],
+      taxRateBp: 2_000,
+      laborRateById: new Map<string, number>(),
+      isLaborSplitEnabled: false,
+    };
+    // v2 : le coefficient global entre dans la section (réconcilié).
+    const v2 = computeAllSectionTotals({ ...base, calcEngineVersion: 2 });
+    expect(v2.get("sec-1")?.totalHtCents).toBe(165_000);
+    // v1 : chemin historique, la section ignore le coefficient.
+    const v1 = computeAllSectionTotals({ ...base, calcEngineVersion: 1 });
+    expect(v1.get("sec-1")?.totalHtCents).toBe(150_000);
   });
 });

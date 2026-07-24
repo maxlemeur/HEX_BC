@@ -178,6 +178,14 @@ export function useEstimateVisibility({
       taxRateBp,
       laborRateById,
       isLaborSplitEnabled,
+      // EST-E26 étape 9 : sous-totaux éditeur toujours en moteur historique
+      // (v1) ; le passage au breakdown est la phase D (étape 15).
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       sectionIds: visibleSectionIds,
     });
   }, [

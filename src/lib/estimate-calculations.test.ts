@@ -1034,6 +1034,12 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items,
       sectionId,
@@ -1084,6 +1090,12 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items,
       sectionId,
@@ -1110,6 +1122,12 @@ describe("estimate calculations", () => {
     const sectionId = "section-k-fo-isolation";
     const computeWithKFo = (kFo: number) =>
       computeSectionTotals({
+        marginMode: "fixed",
+        marginTiers: [],
+        globalCoefficient: 1,
+        discountMode: "simple",
+        discountStepsBp: [],
+        calcEngineVersion: 1,
         isLaborSplitEnabled: false,
         items: [
           createSectionRecord({ id: sectionId, parent_id: null, position: 1 }),
@@ -1167,6 +1185,12 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       items,
       sectionId,
       marginMultiplier: 1,
@@ -1220,6 +1244,12 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items,
       sectionId: parentSectionId,
@@ -1287,6 +1317,12 @@ describe("estimate calculations", () => {
     ];
 
     const totals = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items,
       sectionId: parentSectionId,
@@ -1361,22 +1397,46 @@ describe("estimate calculations", () => {
     };
 
     const expectedParent = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       ...input,
       sectionId: parentSectionId,
     });
     const expectedChild = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       ...input,
       sectionId: childSectionId,
     });
     const expectedSibling = computeSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       ...input,
       sectionId: siblingSectionId,
     });
 
     const computed = computeAllSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       ...input,
       sectionIds: [parentSectionId, childSectionId, siblingSectionId],

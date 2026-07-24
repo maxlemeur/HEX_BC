@@ -295,6 +295,12 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
     // Les lignes n'ont pas de supply_type_id : la cle est
     //   UNASSIGNED_SUPPLY_TYPE_KEY (estimate-calculations.ts:979).
     const sectionTotals = computeAllSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items: FIXTURE_A_ITEMS,
       marginMultiplier: FIXTURE_A_ENGINE.marginMultiplier,
@@ -561,6 +567,12 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
     //   contre denominateur pre-coefficient (estimate-calculations.ts:901-912).
     const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_B_ENGINE });
     const sectionTotals = computeAllSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items: FIXTURE_A_ITEMS,
       marginMultiplier: FIXTURE_B_ENGINE.marginMultiplier,
@@ -1141,6 +1153,12 @@ describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () =>
       isLaborSplitEnabled: true,
     });
     const sectionsSansFlag = computeAllSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items: FIXTURE_F_ITEMS,
       marginMultiplier: FIXTURE_F_ENGINE.marginMultiplier,
@@ -1223,6 +1241,12 @@ describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () =>
 
   it("fige les sous-totaux de section flag ON contre flag OFF", () => {
     const sectionsOn = computeAllSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       items: FIXTURE_F_ITEMS,
       marginMultiplier: FIXTURE_F_ENGINE.marginMultiplier,
       taxRateBp: FIXTURE_F_ENGINE.taxRateBp,
@@ -1466,6 +1490,12 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
     //   une partie de la remise n'est allouee a aucune section.
     const totals = computeEstimateTotals({ isLaborSplitEnabled: false, lineItems, ...FIXTURE_H_ENGINE });
     const sections = computeAllSectionTotals({
+      marginMode: "fixed",
+      marginTiers: [],
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepsBp: [],
+      calcEngineVersion: 1,
       isLaborSplitEnabled: false,
       items: FIXTURE_H_ITEMS,
       marginMultiplier: FIXTURE_H_ENGINE.marginMultiplier,
@@ -1565,8 +1595,8 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
       laborRateById: LABOR_RATES,
     };
     expect({
-      sec1: computeSectionTotals({ isLaborSplitEnabled: false, ...base, sectionId: "sec-1" }),
-      inconnue: computeSectionTotals({ isLaborSplitEnabled: false, ...base, sectionId: "sec-inexistante" }),
+      sec1: computeSectionTotals({ marginMode: "fixed", marginTiers: [], globalCoefficient: 1, discountMode: "simple", discountStepsBp: [], calcEngineVersion: 1, isLaborSplitEnabled: false, ...base, sectionId: "sec-1" }),
+      inconnue: computeSectionTotals({ marginMode: "fixed", marginTiers: [], globalCoefficient: 1, discountMode: "simple", discountStepsBp: [], calcEngineVersion: 1, isLaborSplitEnabled: false, ...base, sectionId: "sec-inexistante" }),
     }).toMatchInlineSnapshot(`
       {
         "inconnue": {

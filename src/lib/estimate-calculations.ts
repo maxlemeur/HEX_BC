@@ -582,6 +582,14 @@ export type ComputeSectionTotalsInput = {
   marginMultiplier: number;
   taxRateBp: number;
   discountCents: number;
+  // Grandeurs de VERSION (EST-E26 étape 9) : ignorées en calcEngineVersion 1,
+  // portées jusqu'au moteur unifié en version 2.
+  marginMode: MarginMode;
+  marginTiers: MarginTier[];
+  globalCoefficient: number;
+  discountMode: DiscountMode;
+  discountStepsBp: number[];
+  calcEngineVersion: CalcEngineVersion;
   laborRateById: Map<string, number>;
   isLaborSplitEnabled: boolean;
   laborRateAtelierById?: Map<string, number>;
@@ -593,6 +601,14 @@ export type ComputeAllSectionTotalsInput = {
   marginMultiplier: number;
   taxRateBp: number;
   discountCents: number;
+  // Grandeurs de VERSION (EST-E26 étape 9) : ignorées en calcEngineVersion 1,
+  // portées jusqu'au moteur unifié en version 2.
+  marginMode: MarginMode;
+  marginTiers: MarginTier[];
+  globalCoefficient: number;
+  discountMode: DiscountMode;
+  discountStepsBp: number[];
+  calcEngineVersion: CalcEngineVersion;
   laborRateById: Map<string, number>;
   isLaborSplitEnabled: boolean;
   laborRateAtelierById?: Map<string, number>;
@@ -892,6 +908,12 @@ export function computeSectionTotals({
   marginMultiplier,
   taxRateBp,
   discountCents,
+  marginMode,
+  marginTiers,
+  globalCoefficient,
+  discountMode,
+  discountStepsBp,
+  calcEngineVersion,
   laborRateById,
   isLaborSplitEnabled,
   laborRateAtelierById = laborRateById,
@@ -902,6 +924,12 @@ export function computeSectionTotals({
     marginMultiplier,
     taxRateBp,
     discountCents,
+    marginMode,
+    marginTiers,
+    globalCoefficient,
+    discountMode,
+    discountStepsBp,
+    calcEngineVersion,
     laborRateById,
     isLaborSplitEnabled,
     laborRateAtelierById,
@@ -924,12 +952,54 @@ export function computeAllSectionTotals({
   marginMultiplier,
   taxRateBp,
   discountCents,
+  marginMode,
+  marginTiers,
+  globalCoefficient,
+  discountMode,
+  discountStepsBp,
+  calcEngineVersion,
   laborRateById,
   isLaborSplitEnabled,
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
   sectionIds,
 }: ComputeAllSectionTotalsInput): Map<string, SectionTotals> {
+  // EST-E26 (T6, étape 9) : en version 2, les sections DÉRIVENT du moteur unifié
+  // (agrégation nette réconciliée, le coefficient global entre enfin dans les
+  // sections). En version 1, chemin historique strictement inchangé ci-dessous.
+  if (calcEngineVersion === 2) {
+    const breakdown = computeEstimateBreakdown({
+      items,
+      marginMultiplier,
+      marginMode,
+      marginTiers,
+      globalCoefficient,
+      discountMode,
+      discountCents,
+      discountStepsBp,
+      taxRateBp,
+      roundingMode: "none",
+      roundingStepCents: 0,
+      isLaborSplitEnabled,
+      laborRateById,
+      laborRateAtelierById,
+      laborRateChantierById,
+      calcEngineVersion,
+    });
+    if (!sectionIds) return breakdown.sectionById;
+    const filtered = new Map<string, SectionTotals>();
+    for (const sectionId of sectionIds) {
+      filtered.set(
+        sectionId,
+        breakdown.sectionById.get(sectionId) ?? {
+          ...ZERO_SECTION_TOTALS,
+          supplyTypeFoTotalsCents: {},
+        }
+      );
+    }
+    return filtered;
+  }
+
   const result = new Map<string, SectionTotals>();
   if (items.length === 0) {
     return result;
@@ -1453,6 +1523,14 @@ export function computeEstimateBreakdown(
       marginMultiplier: footer.appliedMarginMultiplier,
       taxRateBp,
       discountCents: footer.discountCents,
+      // Grandeurs de version ignorées par le corps v1 ; `calcEngineVersion: 1`
+      // force le chemin historique (pas de récursion vers le breakdown).
+      marginMode: input.marginMode,
+      marginTiers: input.marginTiers,
+      globalCoefficient: input.globalCoefficient,
+      discountMode: input.discountMode,
+      discountStepsBp: input.discountStepsBp,
+      calcEngineVersion: 1,
       laborRateById,
       isLaborSplitEnabled,
       laborRateAtelierById,
