@@ -13,11 +13,16 @@ Généré le 2026-07-24.
 
 ```bash
 git fetch origin && git checkout main && git pull --ff-only
-git log --oneline --grep="\[T6\]" main   # doit montrer 11 commits, le dernier = 3c529ee
-npx tsc -p tsconfig.json --noEmit         # doit être vert (0)
+npm run typecheck && npm run lint && npm test   # doit être vert : 0 / 0 / 0 échec
 ```
 
-- **Branche de travail : `main`.** `main == origin/main == 3c529ee` (poussé).
+- **Branche de travail : `main`.**
+- ⚠️ **`3c529ee` n'est plus la tête.** Ce document a été écrit à 17:03 ; ont
+  atterri depuis les étapes 11 et 12 (§2.1 b/c) puis cinq correctifs de revue
+  (§2.1 d). Se fier à `git log`, pas au SHA cité ici.
+- La suite complète (`vitest`) doit désormais être **entièrement verte** : les
+  2 rouges décrits en §1 sont corrigés, et `.github/workflows/quality-gate.yml`
+  les empêche de revenir.
 - Les 3 branches `t6/phase-a-*`, `t6/phase-b-*`, `t6/phase-c-moteur-unifie` sont
   **entièrement mergées dans main** — on peut les ignorer / les supprimer, elles
   n'ont aucun commit d'avance.
@@ -54,10 +59,34 @@ jsdom : 1 failed | 179 passed               (180 fichiers)
 tsc   : 0
 ```
 
-Les **2 rouges sont PRÉ-EXISTANTS et hors T6**, à ne PAS confondre avec une régression (antériorité vérifiée par `git stash`) :
-
-- `src/lib/estimate-editor-supplier-comparison-regressions.test.ts` (node) — grep du source de `EstimateEditorTable.tsx`, chaîne « Comparer fournisseurs » déplacée.
-- `src/hooks/useEstimateEditorBulkController.test.ts` (jsdom) — normalisation `labor_role`/majoration.
+> ⚠️ **CORRECTION (2026-07-24, après revue) — cette section était fausse sur un
+> point qui coûtait cher.** Les 2 rouges avaient été qualifiés de « PRÉ-EXISTANTS
+> et hors T6, à ne PAS confondre avec une régression ». Ce n'était vrai que pour
+> **un** des deux :
+>
+> - `estimate-editor-supplier-comparison-regressions.test.ts` — **bien
+>   pré-existant** : la chaîne « Comparer fournisseurs » avait migré vers le menu
+>   contextuel de ligne lors de la décomposition de la table (REF-002), le garde
+>   pointait toujours `EstimateEditorTable.tsx`. Vérifié : la chaîne était déjà
+>   absente de ce fichier au commit de base de la plage d'audit.
+> - `useEstimateEditorBulkController.test.ts` — **RÉGRESSION RÉELLE, introduite
+>   par `e6d4ed2`**, le premier commit de la plage d'audit. Il signalait
+>   exactement la fermeture du chemin d'écriture d'EST-031 (colonnes de MO
+>   éclatée passées en `z.never()` et propagation retirée des payloads). Il a été
+>   requalifié « pré-existant » dans trois messages de commit successifs, ce qui
+>   a laissé la régression vivre 41 commits.
+>
+> Les deux sont corrigés. Le test du bulk controller est repassé au vert **sans
+> modification de son attendu** — c'est ce qui confirme qu'il détectait un vrai
+> défaut. Voir les commits `fix(estimates): rouvrir le chemin d'ecriture de la MO
+> eclatee (EST-031)` et `ci: ajouter le garde typecheck / lint / tests unitaires`.
+>
+> **Leçon à retenir pour la suite du chantier** : aucun job CI n'exécutait
+> `vitest`, `tsc` ni `eslint` — seuls Playwright (qui exige des secrets) et le
+> backup tournaient. C'est ce trou qui a permis à un test rouge de devenir du
+> bruit de fond. Le job `.github/workflows/quality-gate.yml` le comble ; ne pas
+> reprendre l'habitude de qualifier un rouge de « pré-existant » sans vérifier son
+> antériorité au commit de base (`git show <base>:<fichier>`).
 
 ---
 
@@ -78,23 +107,38 @@ Les **2 rouges sont PRÉ-EXISTANTS et hors T6**, à ne PAS confondre avec une r�
 - Corollaire : `tsc` listera les appelants de `computeReadOnlyTotals` à mettre à
   jour (leur passer `calcEngineVersion: 1`).
 
-**(b) Étape 11 — Supprimer le contournement affaires — 🔴 DESTRUCTIF, à CONFIRMER avant de figer le chiffre.**
-- `src/lib/affaires/server.ts:2332` a encore `marginMultiplier: marginMultiplier * globalCoefficient`
-  (commentaire en place renvoyant à l'étape 11). Le coefficient global y est
-  passé en **fausse marge**.
-- Cible : `computeEstimateBreakdown({ marginMultiplier, globalCoefficient })`
-  (spec §3 étape 11, ligne 201).
-- **Effet visible** : corrige l'écart d'arrondi (~4,00 € / 400 lignes) **ET fait
-  passer la marge affichée des affaires de 65 % à 50 %.** Le 65 % actuel est
-  faux (il comptait le coefficient comme de la marge), mais c'est un indicateur
-  qu'un commercial peut lire → **prévenir explicitement avant de merger**, ne pas
-  changer ce nombre en silence.
+**(b) ~~Étape 11 — Supprimer le contournement affaires~~ — ✅ LIVRÉE.**
+> Ce document a été rédigé à 17:03 ; l'étape 11 a été livrée à 19:21 par
+> `refactor(affaires): analyse de marge sur computeEstimateBreakdown [T6]`.
+> La sémantique d'affichage retenue **diverge volontairement de la spec** :
+> « Vente HT » reste NETTE (= total du devis) et la marge reste la marge nette
+> réelle, au lieu du 65 % → 50 % annoncé — `global_coefficient` étant un vrai
+> markup payé par le client. Coefficient et remise sont désormais exposés et
+> affichés à part pour cesser d'être lus comme de la marge. Lire le message de
+> commit avant de toucher à cet écran.
+
+**(c) ~~Étape 12 — Document dérivé du breakdown~~ — ✅ LIVRÉE** à 19:29 par
+`refactor(estimates): document dérivé de computeEstimateBreakdown [T6]`
+(`prepareEstimateDocumentData` reçoit `breakdown` + `calcEngineVersion`, le
+rebasage sur `line_total_ht_cents` reste un shim v1 explicitement gaté). La
+phase D commence donc à l'étape 13.
+
+**(d) Correctifs de revue livrés après ce document — à ne pas refaire.**
+Cinq commits issus d'une revue adversariale des 41 commits du 23-24/07 :
+
+| Commit | Objet |
+|---|---|
+| `fix(estimates): ne plus invalider les sceaux de tout le parc [T6]` | `b74a0c8` invalidait le sceau de **tous** les devis scellés : la migration 029 backfille `k_mo_*` à 1.0 partout, donc le spread `!= null` injectait la clé sur chaque item. Renvoi email bloqué, aucune réparation possible (`seal_hash` immuable). |
+| `fix(estimates): rouvrir le chemin d'ecriture de la MO eclatee (EST-031) [T6]` | `e6d4ed2` (`z.never()` + propagation retirée) combiné à `ee5b242` (activation du vrai flag) rendait EST-031 non fonctionnel : création de ligne en 400, éditions perdues. |
+| `fix(estimates): aligner l'assiette de la remise sur le flag split [T6]` | `computeInitialDiscountCents` gardait `isLaborSplitEnabled: false` en dur : assiette split OFF, sous-total split ON, total faux **persisté**. |
+| `fix(estimates): exiger le role ecrivain sur patch/duplicate…` | `patchEstimateVersion` et `duplicateEstimateVersion` restaient ouverts aux rôles non écrivains ; l'erreur Postgres brute partait au client. |
+| `ci: ajouter le garde typecheck / lint / tests unitaires` | Comble le trou de CI décrit en §1. |
 
 ### 2.2 Phases D / E / F (spec §3, lignes 203-257)
 
 | Phase | Étapes | Nature |
 |---|---|---|
-| **D — surfaces de rendu** | 12 document partagé 🔴 · 13 pied dérivé 🔴 · 14 dédup 3 pages + PDF 🟢 · 15 éditeur 🔴 · 16 sauvegarde cohérente 🔴 | Le plus gros bloc. C'est là que « lignes brutes vs sections nettes » et le pied injecté disparaissent. |
+| **D — surfaces de rendu** | ~~12 document partagé~~ ✅ · 13 pied dérivé 🔴 · 14 dédup 3 pages + PDF 🟢 · 15 éditeur 🔴 · 16 sauvegarde cohérente 🔴 | Le plus gros bloc. C'est là que « lignes brutes vs sections nettes » et le pied injecté disparaissent. |
 | **E — exports** | 17 XLSX 🔴 · 18 BDC 🔴 · 19 DPGF 🔴 · 20 export éditeur 🟢 | ⚠️ renommer des colonnes BDC/DPGF casse les macros/ré-imports clients : garder l'ancien intitulé une version (spec §4). |
 | **F — persistance + bascule** | 21 recalcul serveur autoritaire 🔴 · 22 invalidation cache PDF 🟢 · 23 **bascule contrôlée** 🔴 | **C'est ici qu'on branche enfin la bascule `calc_engine_version` v1→v2** et qu'on applique la migration en base. |
 
