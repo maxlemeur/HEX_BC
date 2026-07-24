@@ -294,6 +294,65 @@ export function computeCascadeDiscountCents(
   };
 }
 
+/* ---------- allocation exacte (EST-E26, T6 phase C, étape 7) ---------- */
+
+/**
+ * Répartit `amount` (centimes, >= 0) sur `weights` (>= 0) en garantissant
+ * `Σ parts === amount` AU CENTIME (méthode du plus grand reste / Hamilton).
+ *
+ * - aucune part négative, aucune part > `amount` ;
+ * - le reliquat de division va aux plus grands restes fractionnaires ; à égalité,
+ *   à l'index le plus petit (déterministe) ;
+ * - somme des poids nulle => répartition uniforme ;
+ * - garde-fou final : tout écart résiduel (arrondi flottant sur de très gros
+ *   montants) est rebasé sur la part de plus gros poids (EST-E26 §2.4).
+ *
+ * C'est la brique qui rend l'invariant « Σ lignes === Σ sections === pied » vrai
+ * au centime (§2.3), là où des `Math.round` indépendants dérivaient.
+ */
+export function allocateProRata(amount: number, weights: number[]): number[] {
+  const n = weights.length;
+  if (n === 0) return [];
+
+  const safeAmount = Math.max(Math.round(toSafeNumber(amount, 0)), 0);
+  const safeWeights = weights.map((weight) => Math.max(toSafeNumber(weight, 0), 0));
+  if (safeAmount === 0) return new Array<number>(n).fill(0);
+
+  const totalWeight = safeWeights.reduce((sum, weight) => sum + weight, 0);
+  // `safeAmount * (weight / total)` reste borné par safeAmount : pas de
+  // dépassement de MAX_SAFE_INTEGER, contrairement au produit direct
+  // `safeAmount * weight` sur de gros devis.
+  const exact = safeWeights.map((weight) =>
+    totalWeight > 0 ? safeAmount * (weight / totalWeight) : safeAmount / n
+  );
+  const parts = exact.map((value) => Math.floor(value));
+
+  const order = exact
+    .map((value, index) => ({ index, frac: value - Math.floor(value) }))
+    .sort((left, right) =>
+      right.frac !== left.frac ? right.frac - left.frac : left.index - right.index
+    );
+
+  let remainder = safeAmount - parts.reduce((sum, part) => sum + part, 0);
+  for (let k = 0; k < order.length && remainder > 0; k += 1) {
+    parts[order[k].index] += 1;
+    remainder -= 1;
+  }
+
+  // Rebase du reliquat éventuel (écart d'arrondi flottant) sur la plus grosse
+  // part : garantit Σ parts === safeAmount exactement.
+  const leftover = safeAmount - parts.reduce((sum, part) => sum + part, 0);
+  if (leftover !== 0) {
+    let target = 0;
+    for (let index = 1; index < n; index += 1) {
+      if (safeWeights[index] > safeWeights[target]) target = index;
+    }
+    parts[target] = Math.max(parts[target] + leftover, 0);
+  }
+
+  return parts;
+}
+
 /* ---------- totals computation ---------- */
 
 export function computeEstimateTotals({

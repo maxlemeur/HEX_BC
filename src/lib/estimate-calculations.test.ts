@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allocateProRata,
   computeAllSectionTotals,
   computeEstimateLineValues,
   computeEstimateTotals,
@@ -1452,5 +1453,39 @@ describe("B5: extracted business helpers", () => {
     const result = normalizeDraftItems({ isLaborSplitEnabled: false, items, version, rateById });
 
     expect(result[0]).toBe(section); // unchanged reference
+  });
+});
+
+describe("allocateProRata (EST-E26 phase C, étape 7)", () => {
+  it("T4 : restes non divisibles, Σ === amount au centime", () => {
+    // 3 lignes égales, montant 10 999 non divisible par 3 : le reliquat (+1) va
+    // au premier index (égalité de reste), somme exacte 10 999.
+    const parts = allocateProRata(10_999, [3_333, 3_333, 3_333]);
+    expect(parts).toEqual([3_667, 3_666, 3_666]);
+    expect(parts.reduce((sum, part) => sum + part, 0)).toBe(10_999);
+    expect(parts.every((part) => part >= 0 && part <= 10_999)).toBe(true);
+  });
+
+  it("gère les cas limites (vide, montant nul, poids nuls, tout sur une part)", () => {
+    expect(allocateProRata(100, [])).toEqual([]);
+    expect(allocateProRata(0, [1, 2, 3])).toEqual([0, 0, 0]);
+    // Poids tous nuls : répartition uniforme, somme conservée.
+    expect(allocateProRata(10, [0, 0, 0])).toEqual([4, 3, 3]);
+    // Tout le poids sur une seule part.
+    expect(allocateProRata(100, [0, 5, 0])).toEqual([0, 100, 0]);
+  });
+
+  it("invariant property-based : Σ === amount, 0 <= part <= amount (10 000 tirages)", () => {
+    for (let draw = 0; draw < 10_000; draw += 1) {
+      const n = 1 + Math.floor(Math.random() * 50);
+      const amount = Math.floor(Math.random() * 5_000_000);
+      const weights = Array.from({ length: n }, () =>
+        Math.floor(Math.random() * 100_000)
+      );
+      const parts = allocateProRata(amount, weights);
+      expect(parts).toHaveLength(n);
+      expect(parts.reduce((sum, part) => sum + part, 0)).toBe(amount);
+      expect(parts.every((part) => part >= 0 && part <= amount)).toBe(true);
+    }
   });
 });
