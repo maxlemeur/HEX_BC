@@ -2530,6 +2530,7 @@ export function useEstimateEditorState({
       hasRestorableDraft,
       onRestoreConflictDraft: handleRestoreConflictDraft,
       totalsOutOfSync,
+      isTotalCapped: totals?.isCapped === true,
       isSaveBlocked,
       onRetryTotalsSave: retryTotalsSave,
       isStatusReadOnly,
@@ -2566,6 +2567,7 @@ export function useEstimateEditorState({
       retryTotalsSave,
       statusError,
       totalsOutOfSync,
+      totals,
     ]
   );
 

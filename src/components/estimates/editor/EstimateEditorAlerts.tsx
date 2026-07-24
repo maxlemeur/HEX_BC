@@ -18,6 +18,8 @@ type EstimateEditorAlertsProps = {
   hasRestorableDraft: boolean;
   onRestoreConflictDraft: () => void;
   totalsOutOfSync: boolean;
+  /** Total écrêté au plafond de stockage : le montant affiché est minoré. */
+  isTotalCapped?: boolean;
   isSaveBlocked: boolean;
   onRetryTotalsSave: () => void;
   isStatusReadOnly: boolean;
@@ -47,6 +49,7 @@ export function EstimateEditorAlerts({
   hasRestorableDraft,
   onRestoreConflictDraft,
   totalsOutOfSync,
+  isTotalCapped = false,
   isSaveBlocked,
   onRetryTotalsSave,
   isStatusReadOnly,
@@ -171,6 +174,18 @@ export function EstimateEditorAlerts({
         </div>
       ) : null}
 
+      {isTotalCapped ? (
+        <div
+          className="alert alert-error mb-6"
+          role="alert"
+          data-testid="estimate-editor-alert-total-capped"
+        >
+          Le total de ce devis dépasse la limite technique de 21 474 836,47 € :
+          le montant affiché est <strong>plafonné, donc inférieur au montant
+          réel</strong>. Ne l&apos;envoyez pas en l&apos;état — scindez le devis
+          (par lot ou par tranche) avant validation.
+        </div>
+      ) : null}
       {totalsOutOfSync && !isSaveBlocked ? (
         <div className="alert alert-warning mb-6 flex items-center justify-between" data-testid="estimate-editor-alert-totals-out-of-sync">
           <div className="flex items-center gap-2">

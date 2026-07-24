@@ -517,6 +517,53 @@ describe("estimate calculations", () => {
     expect(values.saleLineCents).toBeLessThanOrEqual(MAX_CENTS);
   });
 
+  it("A6b: signale un total ecrete au lieu de le minorer en silence", () => {
+    const cappedTotals = computeEstimateTotals({
+      lineItems: [
+        createLine({
+          quantity: 1,
+          unit_price_ht_cents: 900_000_000,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+        }),
+        createLine({ quantity: 1, unit_price_ht_cents: 900_000_000, k_fo: 1, h_mo: 0, k_mo: 1 }),
+        createLine({ quantity: 1, unit_price_ht_cents: 900_000_000, k_fo: 1, h_mo: 0, k_mo: 1 }),
+      ],
+      marginMultiplier: 1,
+      taxRateBp: 2000,
+      discountCents: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+      isLaborSplitEnabled: false,
+    });
+
+    // Le montant reste borne (contrainte de stockage) MAIS l'ecretage est
+    // desormais signale : sans ce drapeau le devis annoncait un total
+    // inferieur au reel sans aucun avertissement.
+    expect(cappedTotals.saleSubtotalCents).toBeLessThanOrEqual(MAX_CENTS);
+    expect(cappedTotals.isCapped).toBe(true);
+
+    const normalTotals = computeEstimateTotals({
+      lineItems: [
+        createLine({
+          quantity: 2,
+          unit_price_ht_cents: 5000,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+        }),
+      ],
+      marginMultiplier: 1,
+      taxRateBp: 2000,
+      discountCents: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+      isLaborSplitEnabled: false,
+    });
+    expect(normalTotals.isCapped).toBe(false);
+  });
+
   it("computeEstimateTotals with discount and taxes", () => {
     const totals = computeEstimateTotals({
       lineItems: [
@@ -551,6 +598,7 @@ describe("estimate calculations", () => {
       discountCents: 2000,
       appliedMarginMultiplier: 1.5,
       globalCoefficient: 1,
+      isCapped: false,
       discountMode: "simple",
       discountStepTotals: [
         {

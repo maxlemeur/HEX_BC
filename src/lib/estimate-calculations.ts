@@ -66,6 +66,12 @@ export type EstimateTotals = {
   roundedTtcCents: number;
   roundingAdjustmentCents: number;
   adjustedTaxCents: number;
+  /**
+   * Vrai quand le total a été écrêté au plafond de stockage (21 474 836,47 €).
+   * Le montant annoncé est alors INFÉRIEUR au montant réel : à signaler à
+   * l'utilisateur avant tout envoi.
+   */
+  isCapped?: boolean;
 };
 
 export type RoundingMode = "none" | "nearest" | "up" | "down";
@@ -142,6 +148,17 @@ export function hasActiveLaborSplitPayload(
 /** Cap a cents value to the PostgreSQL integer range. */
 function capCents(value: number): number {
   return Math.min(value, MAX_CENTS);
+}
+
+/**
+ * Vrai quand un montant dépasse la capacité de stockage (integer PostgreSQL,
+ * soit 21 474 836,47 €). capCents l'écrête alors SANS erreur : le total
+ * affiché, le PDF et les exports annoncent un montant inférieur au vrai
+ * montant. Sur des marchés d'infrastructure ou multi-lots, ce plafond est
+ * franchissable — il doit donc être signalé à l'utilisateur, pas subi.
+ */
+export function exceedsMaxCents(value: number): boolean {
+  return Number.isFinite(value) && value > MAX_CENTS;
 }
 
 function applyRounding(value: number, mode: RoundingMode, step: number) {
@@ -361,12 +378,14 @@ export function computeEstimateTotals({
       lineTaxTotalCents: 0,
     }
   );
+  const saleSubtotalBeforeCapCents = bankersRound(
+    secondPassTotals.saleSubtotalBeforeCoefficientCents * safeGlobalCoefficient
+  );
+  // Le plafond int32 écrête silencieusement : on mémorise le dépassement pour
+  // pouvoir l'afficher, plutôt que d'annoncer un total minoré sans le dire.
+  const isCapped = exceedsMaxCents(saleSubtotalBeforeCapCents);
   const saleSubtotalCents = clampNonNegative(
-    capCents(
-      bankersRound(
-        secondPassTotals.saleSubtotalBeforeCoefficientCents * safeGlobalCoefficient
-      )
-    )
+    capCents(saleSubtotalBeforeCapCents)
   );
 
   let safeDiscount = 0;
@@ -440,6 +459,7 @@ export function computeEstimateTotals({
     roundedTtcCents,
     roundingAdjustmentCents,
     adjustedTaxCents,
+    isCapped,
   };
 }
 
