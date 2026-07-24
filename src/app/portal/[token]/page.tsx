@@ -4,6 +4,7 @@ import { EstimateDocument } from "@/components/EstimateDocument";
 import { PortalActions } from "@/components/portal/PortalActions";
 import { PortalHeader } from "@/components/portal/PortalHeader";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { formatEstimateReference } from "@/lib/estimates/reference";
 import { isFeatureEnabled } from "@/lib/feature-flags";
@@ -76,7 +77,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     supabase
       .from("estimate_versions")
       .select(
-        "project_id, tenant_id, version_number, status, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )"
+        "project_id, tenant_id, version_number, status, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )"
       )
       .eq("id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
@@ -228,6 +229,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
 
       <div className="print:py-0">
         <EstimateDocument
+          calcEngineVersion={resolveCalcEngineVersion(version)}
           projectName={project?.name ?? "Devis"}
           projectClient={project?.client_name}
           projectReference={project?.reference}

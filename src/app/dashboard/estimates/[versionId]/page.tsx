@@ -21,6 +21,7 @@ import {
 import { getUserContext } from "@/lib/auth/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
@@ -147,7 +148,7 @@ export default async function EstimateDetailPage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -448,6 +449,7 @@ export default async function EstimateDetailPage({
             />
           </div>
           <EstimateDocument
+            calcEngineVersion={resolveCalcEngineVersion(version)}
             projectName={project?.name ?? "Projet"}
             projectClient={project?.client_name}
             projectReference={project?.reference}

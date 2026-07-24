@@ -90,6 +90,7 @@ export function buildLegacyDocumentBreakdown({
   taxRateBp,
   isLaborSplitEnabled,
   laborRateById,
+  calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
 }: {
   items: EstimateItem[];
   marginMultiplier: number;
@@ -97,6 +98,12 @@ export function buildLegacyDocumentBreakdown({
   taxRateBp: number;
   isLaborSplitEnabled: boolean;
   laborRateById: Record<string, number>;
+  /**
+   * Moteur de la VERSION rendue, via `resolveCalcEngineVersion(version)`.
+   * Le repli sur la constante ne sert qu'aux appelants sans ligne de version
+   * en portée (tests, aperçus).
+   */
+  calcEngineVersion?: CalcEngineVersion;
 }): EstimateBreakdown {
   const laborRateMap = new Map(Object.entries(laborRateById));
   return computeEstimateBreakdown({
@@ -115,7 +122,7 @@ export function buildLegacyDocumentBreakdown({
     laborRateById: laborRateMap,
     laborRateAtelierById: laborRateMap,
     laborRateChantierById: laborRateMap,
-    calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
+    calcEngineVersion,
   });
 }
 

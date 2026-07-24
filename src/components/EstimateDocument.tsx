@@ -10,6 +10,7 @@ import {
   prepareEstimateDocumentData,
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
+import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 import { ESTIMATE_SERVICE_LIMITS_TITLE } from "@/lib/estimates/document-copy";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
@@ -51,6 +52,8 @@ export type EstimateDocumentProps = {
   issuerEmail?: string | null;
   layout?: EstimatePdfLayoutOptions;
   terms?: EstimateTermsSnapshot | null;
+  /** Moteur de calcul de la version rendue (EST-E26). Repli : moteur 1. */
+  calcEngineVersion?: CalcEngineVersion;
   maxVisibleSectionLevel?: number | null;
 };
 
@@ -196,6 +199,7 @@ export function EstimateDocument({
   issuerEmail,
   layout,
   terms,
+  calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
   maxVisibleSectionLevel = null,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
@@ -228,8 +232,9 @@ export function EstimateDocument({
       taxRateBp,
       isLaborSplitEnabled,
       laborRateById,
+      calcEngineVersion,
     }),
-    calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
+    calcEngineVersion,
     taxRateBp,
     currency: resolvedCurrency,
     validiteJours,

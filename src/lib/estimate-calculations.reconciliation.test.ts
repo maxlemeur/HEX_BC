@@ -439,3 +439,70 @@ describe("computeReadOnlyTotals - garde-fou calcEngineVersion (EST-E26 étape 9)
     expect(totals.globalCoefficient).toBe(1.1);
   });
 });
+
+describe("buildLegacyDocumentBreakdown - le document suit le moteur de la version", () => {
+  // Le document n'epingle plus une constante : les pages et le PDF lui passent
+  // `resolveCalcEngineVersion(version)`. Ce test garantit que le parametre est
+  // reellement porte jusqu'au moteur — sans lui, le cablage serait un no-op et
+  // la bascule de la phase F resterait sans effet sur le document.
+  const items = [
+    makeSection({ id: "sec-1", parent_id: null, position: 0 }),
+    makeLine({
+      id: "l1",
+      parent_id: "sec-1",
+      position: 1,
+      unit_price_ht_cents: 100_000,
+    }),
+  ] as unknown as EstimateItem[];
+
+  const build = (calcEngineVersion: 1 | 2) =>
+    buildLegacyDocumentBreakdown({
+      items,
+      marginMultiplier: 1,
+      discountCents: 10_000,
+      taxRateBp: 2_000,
+      isLaborSplitEnabled: false,
+      laborRateById: {},
+      calcEngineVersion,
+    });
+
+  it("le parametre est porte jusqu'au moteur : l'invariant distingue v1 de v2", () => {
+    // `buildLegacyDocumentBreakdown` neutralise les grandeurs de version
+    // (coefficient 1, marge fixe, pas de cascade), donc les DEUX moteurs
+    // produisent ici le meme pied et la meme section — c'est rassurant pour la
+    // bascule : le document ne saute pas. Ce qui les distingue est l'invariant
+    // de reconciliation, qui n'est vrai qu'en v2 (par construction).
+    const v1 = build(1);
+    const v2 = build(2);
+
+    expect(v1.totals.saleTotalCents).toBe(90_000);
+    expect(v2.totals.saleTotalCents).toBe(90_000);
+    expect(v1.sectionById.get("sec-1")?.totalHtCents).toBe(90_000);
+    expect(v2.sectionById.get("sec-1")?.totalHtCents).toBe(90_000);
+
+    expect(v1.invariants.matchesFooter).toBe(false);
+    expect(v2.invariants.matchesFooter).toBe(true);
+  });
+
+  it("v2 alloue au centime : la somme des lignes egale le pied", () => {
+    const v2 = build(2);
+    const sumLines = [...v2.lineById.values()].reduce(
+      (sum, line) => sum + line.saleNetHtCents,
+      0
+    );
+    expect(sumLines).toBe(v2.totals.saleTotalCents);
+  });
+
+  it("sans parametre, le document reste epingle au moteur historique", () => {
+    expect(DOCUMENT_CALC_ENGINE_VERSION).toBe(1);
+    const bd = buildLegacyDocumentBreakdown({
+      items,
+      marginMultiplier: 1,
+      discountCents: 10_000,
+      taxRateBp: 2_000,
+      isLaborSplitEnabled: false,
+      laborRateById: {},
+    });
+    expect(bd.invariants.matchesFooter).toBe(false);
+  });
+});

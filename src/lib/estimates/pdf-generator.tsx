@@ -12,9 +12,9 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   buildLegacyDocumentBreakdown,
-  DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
   summarizeEstimateDocumentStructure,
   type EstimateDocumentPreparedData,
@@ -128,6 +128,7 @@ type VersionWithProject = Pick<
   | "tax_rate_bp"
   | "rounding_mode"
   | "rounding_step_cents"
+  | "calc_engine_version"
   | "total_ht_cents"
   | "total_tax_cents"
   | "total_ttc_cents"
@@ -760,7 +761,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
+      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1769,6 +1770,9 @@ export async function generateEstimatePdfNow(
     const totalTtcCents =
       access.version.total_ttc_cents ?? computedTotals.roundedTtcCents;
 
+    // EST-E26 : moteur de la VERSION rendue, plus une constante epinglee.
+    const calcEngineVersion = resolveCalcEngineVersion(access.version);
+
     const prepared = prepareEstimateDocumentData({
       items,
       // EST-E26 (T6, étape 12) : le PDF dérive du même breakdown que le document
@@ -1780,8 +1784,9 @@ export async function generateEstimatePdfNow(
         taxRateBp: access.version.tax_rate_bp,
         isLaborSplitEnabled,
         laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
+        calcEngineVersion,
       }),
-      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
+      calcEngineVersion,
       taxRateBp: access.version.tax_rate_bp,
       currency: access.version.currency,
       validiteJours: access.version.validite_jours,
