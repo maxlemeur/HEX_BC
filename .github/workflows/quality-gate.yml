@@ -1,0 +1,62 @@
+name: Quality Gate
+
+# Typecheck, lint et tests unitaires.
+#
+# Aucun job n'executait `tsc`, `eslint` ni `vitest` : seuls Playwright (qui
+# demande des secrets Supabase et ne couvre que le parcours critique) et le
+# backup tournaient. C'est ce qui a permis a deux tests unitaires de rester
+# rouges pendant des dizaines de commits, dont un qui signalait une vraie
+# regression de persistance.
+#
+# Ce job ne demande aucun secret : il doit rester le garde-fou le plus rapide
+# et le plus fiable de la CI.
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "1"
+      # Valeurs factices : les modules importes a la compilation instancient un
+      # client Supabase, mais aucun test unitaire n'atteint le reseau.
+      NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-anon-key"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Les trois etapes tournent meme si une precedente echoue : une PR voit
+      # ainsi tous ses problemes en une passe au lieu d'un par aller-retour.
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        id: lint
+        if: ${{ !cancelled() }}
+        run: npm run lint
+
+      - name: Unit tests
+        id: tests
+        if: ${{ !cancelled() }}
+        run: npm test

@@ -17,9 +17,16 @@ describe("EstimateEditorTable supplier comparison regressions", () => {
   const panelSource = readSource(
     "src/components/estimates/SupplierComparisonPanel.tsx"
   );
+  // L'entree de menu « Comparer fournisseurs » a quitte EstimateEditorTable.tsx
+  // lors de la decomposition de la table (REF-002) : elle vit desormais dans le
+  // menu contextuel de ligne. Le garde pointait toujours l'ancien fichier et
+  // etait rouge depuis, sans que la fonctionnalite ait bouge.
+  const lineContextMenuSource = readSource(
+    "src/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu.tsx"
+  );
 
   it("keeps row context action and fallback button for supplier comparison", () => {
-    expect(tableSource).toContain("Comparer fournisseurs");
+    expect(lineContextMenuSource).toContain("Comparer fournisseurs");
     expect(lineRowSource).toContain("onContextMenu={handleLineContextMenu}");
     expect(lineRowSource).toContain("onOpenSupplierComparisonPanel(item.id)");
   });
