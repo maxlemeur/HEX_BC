@@ -575,7 +575,14 @@ export function useEstimateEditorState({
           : 1;
         const discountCents =
           versionRow.status === "draft"
-            ? computeInitialDiscountCents(versionRow, itemsRows, rateById)
+            ? computeInitialDiscountCents(
+                versionRow,
+                itemsRows,
+                rateById,
+                isLaborSplitEnabled,
+                rateAtelierById,
+                rateChantierById
+              )
             : computeStoredDiscountCents(versionRow, itemsRows);
 
         const initialSettings = {

@@ -1457,7 +1457,7 @@ describe("B5: extracted business helpers", () => {
     ];
     const rateById = new Map<string, number>();
 
-    const result = computeInitialDiscountCents(version, items, rateById);
+    const result = computeInitialDiscountCents(version, items, rateById, false);
 
     // saleSubtotal = 10000 (margin=1), discount = round(10000 * 500 / 10000) = 500
     expect(result).toBe(500);

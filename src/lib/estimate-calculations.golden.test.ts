@@ -802,7 +802,7 @@ describe("Fixture C - remise cascade 3 etapes [surface 1]", () => {
         discountMode: "cascade",
         discountStepsBp: CASCADE_STEPS,
       }).discountCents,
-      initial: computeInitialDiscountCents(version, FIXTURE_A_ITEMS, LABOR_RATES),
+      initial: computeInitialDiscountCents(version, FIXTURE_A_ITEMS, LABOR_RATES, false),
       stored: computeStoredDiscountCents(version, storedItems),
     }).toMatchInlineSnapshot(`
       {
@@ -890,12 +890,14 @@ describe("Fixture D - remise simple steps residuels [surface 1]", () => {
       viaSteps: computeInitialDiscountCents(
         stepsVersion,
         FIXTURE_A_ITEMS,
-        LABOR_RATES
+        LABOR_RATES,
+        false
       ),
       viaDiscountBp: computeInitialDiscountCents(
         bpVersion,
         FIXTURE_A_ITEMS,
-        LABOR_RATES
+        LABOR_RATES,
+        false
       ),
       viaEngine: computeEstimateTotals({
         isLaborSplitEnabled: false,
@@ -2186,7 +2188,8 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
       serveurInitialDiscountCents: computeInitialDiscountCents(
         version,
         FIXTURE_E_ITEMS,
-        LABOR_RATES
+        LABOR_RATES,
+        false
       ),
     }).toMatchInlineSnapshot(`
       {

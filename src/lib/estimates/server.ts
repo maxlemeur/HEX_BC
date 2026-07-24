@@ -3024,7 +3024,11 @@ async function recalculateEstimateVersionTotals(input: {
       global_coefficient: versionRecord.global_coefficient ?? 1,
     },
     lineItems,
-    laborRatesById
+    laborRatesById,
+    // Meme flag que computeEstimateTotals ci-dessous : sans quoi l'assiette de
+    // la remise et le sous-total dont on la soustrait ne parlent pas de la meme
+    // chose, et le total faux est persiste.
+    isLaborSplitEnabled
   );
 
   const totalsResult = computeEstimateTotals({

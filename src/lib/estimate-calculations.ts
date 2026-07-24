@@ -1565,25 +1565,49 @@ export function computeEstimateBreakdown(
 export function computeInitialDiscountCents(
   version: EstimateVersionForCalc,
   items: EstimateItemRecord[],
-  laborRateById: Map<string, number>
+  laborRateById: Map<string, number>,
+  /**
+   * Contexte tenant (EST-031). OBLIGATOIREMENT la meme valeur que celle passee
+   * a `computeEstimateTotals` par l'appelant.
+   *
+   * Ce parametre valait `false` en dur : l'assiette de la remise etait donc
+   * calculee split OFF, puis le montant obtenu etait soustrait d'un sous-total
+   * calcule split ON — et le total faux etait PERSISTE. Sur une ligne dont la
+   * MO est entierement ventilee, l'assiette tombait meme a 0, le garde
+   * `if (!saleSubtotal) return 0` s'activait et la remise disparaissait
+   * entierement.
+   */
+  isLaborSplitEnabled: boolean,
+  laborRateAtelierById?: Map<string, number>,
+  laborRateChantierById?: Map<string, number>
 ): number {
   const saleSubtotal = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;
     const hourlyRate = item.labor_role_id
       ? laborRateById.get(item.labor_role_id) ?? 0
       : 0;
+    // Meme cascade que `withRates` : taux dedie -> taux par defaut -> 0.
+    const hourlyRateAtelier = item.labor_role_atelier_id
+      ? (laborRateAtelierById?.get(item.labor_role_atelier_id) ??
+          laborRateById.get(item.labor_role_atelier_id) ??
+          0)
+      : 0;
+    const hourlyRateChantier = item.labor_role_chantier_id
+      ? (laborRateChantierById?.get(item.labor_role_chantier_id) ??
+          laborRateById.get(item.labor_role_chantier_id) ??
+          0)
+      : 0;
     const lineValues = computeEstimateLineValues(
       {
         ...item,
         labor_role_hourly_rate_cents: hourlyRate,
+        labor_role_atelier_hourly_rate_cents: hourlyRateAtelier,
+        labor_role_chantier_hourly_rate_cents: hourlyRateChantier,
       },
       {
         marginMultiplier: version.margin_multiplier,
         taxRateBp: version.tax_rate_bp,
-        // EST-E26 (T6, étape 5) : helper sans flag tenant. Le split reste OFF
-        // ici (déterministe, sans auto-détection). computeEstimateBreakdown de
-        // la phase C le remplacera par une passe unique porteuse du contexte.
-        isLaborSplitEnabled: false,
+        isLaborSplitEnabled,
       }
     );
     return sum + lineValues.saleLineCents;
