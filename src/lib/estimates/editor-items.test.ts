@@ -97,7 +97,7 @@ describe("estimate editor item payloads", () => {
     });
   });
 
-  it("persists only the canonical single-role labor fields", () => {
+  it("persiste la ventilation MO atelier/chantier quand elle est presente (EST-031)", () => {
     const line = createItem();
     const updatePayload = buildEstimateItemUpdatePayload(line);
 
@@ -112,6 +112,12 @@ describe("estimate editor item payloads", () => {
       h_mo: 2.5,
       h_mo_majoration: 1.2,
       k_mo: 1.05,
+      h_mo_atelier: 1,
+      k_mo_atelier: 1.1,
+      labor_role_atelier_id: "role-atelier",
+      h_mo_chantier: 1.5,
+      k_mo_chantier: 1.2,
+      labor_role_chantier_id: "role-chantier",
       pu_ht_cents: 5200,
       labor_role_id: "role-default",
       category_id: "category-1",
@@ -121,8 +127,6 @@ describe("estimate editor item payloads", () => {
       line_tax_cents: 3120,
       line_total_ttc_cents: 18720,
     });
-    expect(updatePayload).not.toHaveProperty("labor_role_atelier_id");
-    expect(updatePayload).not.toHaveProperty("labor_role_chantier_id");
 
     expect(
       buildEstimateItemInsertPayload("version-target", line, {
@@ -136,6 +140,29 @@ describe("estimate editor item payloads", () => {
       position: 7,
       ...updatePayload,
     });
+  });
+
+  it("n'invente pas de ventilation MO quand la source n'en porte pas", () => {
+    // La garde `key in source` protege les patches partiels : une ligne dont la
+    // ventilation n'est pas mentionnee ne doit pas la voir ecrasee par des null.
+    const line = createItem();
+    for (const key of [
+      "h_mo_atelier",
+      "k_mo_atelier",
+      "labor_role_atelier_id",
+      "h_mo_chantier",
+      "k_mo_chantier",
+      "labor_role_chantier_id",
+    ]) {
+      delete (line as unknown as Record<string, unknown>)[key];
+    }
+
+    const updatePayload = buildEstimateItemUpdatePayload(line);
+
+    expect(updatePayload).not.toHaveProperty("h_mo_atelier");
+    expect(updatePayload).not.toHaveProperty("labor_role_atelier_id");
+    expect(updatePayload).not.toHaveProperty("h_mo_chantier");
+    expect(updatePayload).not.toHaveProperty("labor_role_chantier_id");
   });
 
   it("normalizes labor split fields and resolves scoped hourly-rate fallbacks", () => {

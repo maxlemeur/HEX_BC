@@ -1676,11 +1676,24 @@ export function normalizeDraftItems<
   items,
   version,
   rateById,
+  rateAtelierById,
+  rateChantierById,
   isLaborSplitEnabled,
 }: {
   items: T[];
   version: EstimateVersionForCalc;
   rateById: Map<string, number>;
+  /**
+   * Taux horaires atelier / chantier (EST-031). Optionnels : a defaut, on
+   * retombe sur `rateById`, ce qui reste juste tant que les trois roles sont
+   * alimentes par la meme colonne `hourly_rate_cents` (cf. calc-context).
+   *
+   * Sans eux, une ligne dont la MO est entierement ventilee en
+   * atelier/chantier etait valorisee a 0 EUR — puis PERSISTEE a 0 EUR, la
+   * renormalisation ecrivant `line_total_ht_cents`.
+   */
+  rateAtelierById?: Map<string, number>;
+  rateChantierById?: Map<string, number>;
   isLaborSplitEnabled: boolean;
 }): T[] {
   return items.map((item) => {
@@ -1692,6 +1705,18 @@ export function normalizeDraftItems<
     const hourlyRate = item.labor_role_id
       ? rateById.get(item.labor_role_id) ?? 0
       : 0;
+    // Meme cascade que `withRates` dans computeEstimateBreakdown :
+    // taux dedie -> taux par defaut -> 0.
+    const hourlyRateAtelier = item.labor_role_atelier_id
+      ? (rateAtelierById?.get(item.labor_role_atelier_id) ??
+          rateById.get(item.labor_role_atelier_id) ??
+          0)
+      : 0;
+    const hourlyRateChantier = item.labor_role_chantier_id
+      ? (rateChantierById?.get(item.labor_role_chantier_id) ??
+          rateById.get(item.labor_role_chantier_id) ??
+          0)
+      : 0;
     const taxRate = version.tax_rate_bp ?? item.tax_rate_bp ?? 0;
     const lineValues = computeEstimateLineValues(
       {
@@ -1702,6 +1727,8 @@ export function normalizeDraftItems<
         k_mo: kMo,
         tax_rate_bp: taxRate,
         labor_role_hourly_rate_cents: hourlyRate,
+        labor_role_atelier_hourly_rate_cents: hourlyRateAtelier,
+        labor_role_chantier_hourly_rate_cents: hourlyRateChantier,
       },
       {
         marginMultiplier: version.margin_multiplier,

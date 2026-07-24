@@ -102,6 +102,27 @@ export function hasLaborSplitFields(
   return LABOR_SPLIT_FIELD_KEYS.some((key) => key in record);
 }
 
+/**
+ * Recopie les colonnes de main-d'oeuvre eclatee de `source` vers `target`,
+ * uniquement pour les cles REELLEMENT presentes sur la source.
+ *
+ * La garde `key in sourceRecord` est essentielle : sans elle, un patch partiel
+ * (ex. « changer la quantite ») ecraserait la ventilation en base avec des
+ * `null`. Avec elle, un patch qui ne mentionne pas ces colonnes les laisse
+ * intactes.
+ */
+function appendLaborSplitFields(
+  source: EstimateItem | Record<string, unknown>,
+  target: EstimateItemUpdatePayload | Record<string, unknown>
+) {
+  const sourceRecord = source as Record<string, unknown>;
+  const targetRecord = target as Record<string, unknown>;
+
+  LABOR_SPLIT_FIELD_KEYS.forEach((key) => {
+    if (!(key in sourceRecord)) return;
+    targetRecord[key] = sourceRecord[key] ?? null;
+  });
+}
 
 export function resolveLaborRoleHourlyRate(
   role: LaborRole | Record<string, unknown>,
@@ -154,6 +175,7 @@ export function buildEstimateItemUpdatePayload(
       line_total_ttc_cents: item.line_total_ttc_cents,
     };
 
+    appendLaborSplitFields(item, payload);
     return payload;
   }
 
@@ -215,6 +237,7 @@ export function buildEstimateItemInsertPayload(
     line_total_ttc_cents: item.line_total_ttc_cents,
   };
 
+  appendLaborSplitFields(item, payload);
   return payload;
 }
 

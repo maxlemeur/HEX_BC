@@ -6180,10 +6180,19 @@ export async function insertAssemblyIntoVersion(input: {
   //
   // On renormalise avec le moteur de calcul existant (source unique de verite)
   // plutot que de recalculer marge/TVA en SQL.
+  // EST-031 : les roles de MO ventilee (atelier/chantier) comptent aussi, sans
+  // quoi leur taux reste absent de `rateById` et la ligne est renormalisee — et
+  // donc PERSISTEE — a 0 EUR. Les trois portees resolvent aujourd'hui la meme
+  // colonne `hourly_rate_cents` (labor_roles n'a pas de taux dedie), une seule
+  // carte suffit donc.
   const insertedLaborRoleIds = Array.from(
     new Set(
       orderedItems
-        .map((item) => item.labor_role_id)
+        .flatMap((item) => [
+          item.labor_role_id,
+          item.labor_role_atelier_id,
+          item.labor_role_chantier_id,
+        ])
         .filter((value): value is string => Boolean(value))
     )
   );

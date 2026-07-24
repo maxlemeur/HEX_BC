@@ -76,6 +76,11 @@ const nonNegativeNumberSchema = z
   .finite("Nombre invalide.")
   .min(0, "Doit etre >= 0.");
 
+const nullableNonNegativeNumberSchema = z.union([
+  nonNegativeNumberSchema,
+  z.null(),
+]);
+
 const nonNegativeIntegerSchema = z
   .number()
   .int("Entier attendu.")
@@ -354,6 +359,26 @@ const createSectionItemSchema = z.object({
   source_page: z.union([positiveIntegerSchema, z.null()]).optional(),
 });
 
+/**
+ * Colonnes de main-d'oeuvre eclatee (EST-031, flag `EST_031_LABOR_SPLIT`).
+ *
+ * Declarees UNE SEULE FOIS et partagees entre creation et mise a jour : les
+ * deux blocs avaient divergé, et c'est ce qui a permis de fermer le chemin
+ * d'ecriture des deux cotes sans que rien ne le signale.
+ *
+ * `null` est une valeur significative (effacer une ventilation), pas une
+ * absence : la grille ecrit `h_mo_atelier: null` pour une ligne sans
+ * ventilation, cf. `readLaborSplitFields` (editor-items.ts).
+ */
+const laborSplitItemFields = {
+  h_mo_atelier: nullableNonNegativeNumberSchema.optional(),
+  k_mo_atelier: nullableNonNegativeNumberSchema.optional(),
+  labor_role_atelier_id: nullableUuidSchema.optional(),
+  h_mo_chantier: nullableNonNegativeNumberSchema.optional(),
+  k_mo_chantier: nullableNonNegativeNumberSchema.optional(),
+  labor_role_chantier_id: nullableUuidSchema.optional(),
+} as const;
+
 const createLineItemSchema = z.object({
   item_type: z.literal("line"),
   parent_id: nullableUuidSchema.optional(),
@@ -368,12 +393,7 @@ const createLineItemSchema = z.object({
   h_mo: nonNegativeNumberSchema.optional(),
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
-  h_mo_atelier: z.never().optional(),
-  k_mo_atelier: z.never().optional(),
-  labor_role_atelier_id: z.never().optional(),
-  h_mo_chantier: z.never().optional(),
-  k_mo_chantier: z.never().optional(),
-  labor_role_chantier_id: z.never().optional(),
+  ...laborSplitItemFields,
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
@@ -402,12 +422,7 @@ const updateEstimateItemFields = {
   h_mo: nonNegativeNumberSchema.optional(),
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
-  h_mo_atelier: z.never().optional(),
-  k_mo_atelier: z.never().optional(),
-  labor_role_atelier_id: z.never().optional(),
-  h_mo_chantier: z.never().optional(),
-  k_mo_chantier: z.never().optional(),
-  labor_role_chantier_id: z.never().optional(),
+  ...laborSplitItemFields,
   pu_ht_cents: nonNegativeIntegerSchema.optional(),
   line_total_ht_cents: nonNegativeIntegerSchema.optional(),
   line_tax_cents: nonNegativeIntegerSchema.optional(),
@@ -785,7 +800,6 @@ export const estimatePurchaseOrderDraftsCreateSchema = z
     });
   });
 
-const nullableNonNegativeNumberSchema = z.union([nonNegativeNumberSchema, z.null()]);
 
 export const createEstimateCategorySchema = z.object({
   name: requiredTextSchema,

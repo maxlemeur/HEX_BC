@@ -536,8 +536,18 @@ export function useEstimateEditorState({
         const rolesData = data.laborRoles ?? [];
 
         const rateById = new Map<string, number>();
+        const rateAtelierById = new Map<string, number>();
+        const rateChantierById = new Map<string, number>();
         rolesData.forEach((role) => {
           rateById.set(role.id, role.hourly_rate_cents);
+          rateAtelierById.set(
+            role.id,
+            resolveLaborRoleHourlyRate(role, "atelier")
+          );
+          rateChantierById.set(
+            role.id,
+            resolveLaborRoleHourlyRate(role, "chantier")
+          );
         });
 
         const normalizedItems =
@@ -546,6 +556,8 @@ export function useEstimateEditorState({
                 items: itemsRows,
                 version: versionRow,
                 rateById,
+                rateAtelierById,
+                rateChantierById,
                 isLaborSplitEnabled,
               })
             : itemsRows;
@@ -1191,13 +1203,21 @@ export function useEstimateEditorState({
               items: itemsRows,
               version: activeVersion,
               rateById: laborRateById,
+              rateAtelierById: laborRateAtelierById,
+              rateChantierById: laborRateChantierById,
               isLaborSplitEnabled,
             })
           : itemsRows;
 
       return applyPendingBufferedUpdatesToItems(normalizedItems);
     },
-    [applyPendingBufferedUpdatesToItems, laborRateById, isLaborSplitEnabled]
+    [
+      applyPendingBufferedUpdatesToItems,
+      laborRateById,
+      laborRateAtelierById,
+      laborRateChantierById,
+      isLaborSplitEnabled,
+    ]
   );
 
   const reloadItems = useCallback(async () => {
@@ -1847,6 +1867,8 @@ export function useEstimateEditorState({
               items: refreshedItems,
               version: refreshedVersion,
               rateById: laborRateById,
+              rateAtelierById: laborRateAtelierById,
+              rateChantierById: laborRateChantierById,
               isLaborSplitEnabled,
             })
           : refreshedItems;
@@ -1856,7 +1878,13 @@ export function useEstimateEditorState({
         updatedAt: refreshedVersion.updated_at,
       };
     },
-    [applyPendingBufferedUpdatesToItems, laborRateById, isLaborSplitEnabled]
+    [
+      applyPendingBufferedUpdatesToItems,
+      laborRateById,
+      laborRateAtelierById,
+      laborRateChantierById,
+      isLaborSplitEnabled,
+    ]
   );
 
   const applyAiMutationRefresh = useCallback(

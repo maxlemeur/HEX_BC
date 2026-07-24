@@ -252,11 +252,37 @@ describe("createEstimateItemSchema", () => {
     });
   });
 
-  it("rejects deprecated labor split fields", () => {
+  // EST-031 (Split MO Atelier / Chantier) est une fonctionnalite ACTIVE, pilotee
+  // par le flag tenant `EST_031_LABOR_SPLIT` : ticket docs/user_story/tickets/
+  // EST-031.md, requise pour repondre aux DPGF clients (PRD-ANALYSIS.md), et
+  // EST-E26 etape 5 cable le vrai flag dans l'editeur. Ces colonnes doivent
+  // donc rester ecrivables — les refuser fermait le seul chemin de persistance
+  // de la ventilation, sans qu'aucune decision de depreciation existe.
+  it("accepte les champs de MO eclatee (EST-031)", () => {
     const parsed = createEstimateItemSchema.safeParse({
       item_type: "line",
       h_mo_atelier: 1,
       labor_role_atelier_id: ITEM_ID_1,
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepte null pour effacer une ventilation MO", () => {
+    const parsed = createEstimateItemSchema.safeParse({
+      item_type: "line",
+      h_mo_atelier: null,
+      k_mo_atelier: null,
+      labor_role_atelier_id: null,
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("refuse une ventilation MO negative", () => {
+    const parsed = createEstimateItemSchema.safeParse({
+      item_type: "line",
+      h_mo_atelier: -1,
     });
 
     expect(parsed.success).toBe(false);
@@ -439,14 +465,14 @@ describe("updateEstimateItemSchema", () => {
     });
   });
 
-  it("rejects a second labor role on updates", () => {
+  it("accepte la mise a jour d'une ventilation MO chantier (EST-031)", () => {
     const parsed = updateEstimateItemSchema.safeParse({
       id: ITEM_ID_1,
       h_mo_chantier: 1,
       labor_role_chantier_id: ITEM_ID_2,
     });
 
-    expect(parsed.success).toBe(false);
+    expect(parsed.success).toBe(true);
   });
 });
 

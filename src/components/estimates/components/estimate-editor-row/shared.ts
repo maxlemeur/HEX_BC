@@ -343,10 +343,6 @@ export function resolveDisplayCurrency(
   return normalizeEstimateCurrency(value) ?? fallback;
 }
 
-function toFiniteNumber(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
 function toNonEmptyString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -381,19 +377,18 @@ export function readSourceMetadataText(item: EstimateItem, keys: string[]) {
   return null;
 }
 
-export function readLaborSplitFields(
-  source: EstimateItem | Record<string, unknown>
-): Required<LaborSplitItemFields> {
-  const record = source as Record<string, unknown>;
-  return {
-    h_mo_atelier: toFiniteNumber(record.h_mo_atelier, 0),
-    k_mo_atelier: toFiniteNumber(record.k_mo_atelier, 1),
-    labor_role_atelier_id: toNonEmptyString(record.labor_role_atelier_id),
-    h_mo_chantier: toFiniteNumber(record.h_mo_chantier, 0),
-    k_mo_chantier: toFiniteNumber(record.k_mo_chantier, 1),
-    labor_role_chantier_id: toNonEmptyString(record.labor_role_chantier_id),
-  };
-}
+/**
+ * Lecture canonique des colonnes de MO eclatee.
+ *
+ * Cette copie locale retombait sur `0` la ou l'implementation de reference
+ * (`@/lib/estimates/editor-items`) renvoie `null` quand la ligne ne porte
+ * aucune ventilation active. La grille affichait donc « 0 » dans les cellules
+ * atelier/chantier pendant que le moteur lisait « pas de split » — la 5e
+ * semantique divergente que la phase B d'EST-E26 visait justement a supprimer.
+ *
+ * On re-exporte desormais la source unique de verite.
+ */
+export { readLaborSplitFields } from "@/lib/estimates/editor-items";
 
 function resolveApiErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
