@@ -1,6 +1,9 @@
 import { PassThrough, Readable } from "node:stream";
 
-import type { EstimateItemRecord } from "@/lib/estimate-calculations";
+import {
+  hasActiveLaborSplitPayload,
+  type EstimateItemRecord,
+} from "@/lib/estimate-calculations";
 import {
   ESTIMATE_EXPORT_PROGRESS_COMPLETE,
   ESTIMATE_EXPORT_XLSX_CONTENT_TYPE,
@@ -203,28 +206,8 @@ function resolveDepthByItemId(items: EstimateItemRecord[]) {
   return depthById;
 }
 
-function isLaborSplitEnabled(item: {
-  h_mo_atelier?: number | null;
-  k_mo_atelier?: number | null;
-  labor_role_atelier_id?: string | null;
-  h_mo_chantier?: number | null;
-  k_mo_chantier?: number | null;
-  labor_role_chantier_id?: string | null;
-}) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    ((item.k_mo_atelier ?? 1) !== 1) ||
-    ((item.k_mo_chantier ?? 1) !== 1)
-  );
-}
-
 function resolveLaborRoleLabel(item: EstimateItemRecord, laborRoleNameById: Map<string, string>) {
-  if (isLaborSplitEnabled(item)) {
+  if (hasActiveLaborSplitPayload(item)) {
     const parts: string[] = [];
     if (item.labor_role_atelier_id) {
       parts.push(
@@ -244,14 +227,14 @@ function resolveLaborRoleLabel(item: EstimateItemRecord, laborRoleNameById: Map<
 }
 
 function resolveLaborHours(item: EstimateItemRecord) {
-  if (isLaborSplitEnabled(item)) {
+  if (hasActiveLaborSplitPayload(item)) {
     return (item.h_mo_atelier ?? 0) + (item.h_mo_chantier ?? 0);
   }
   return item.h_mo ?? 0;
 }
 
 function resolveLaborCoefficient(item: EstimateItemRecord) {
-  if (!isLaborSplitEnabled(item)) {
+  if (!hasActiveLaborSplitPayload(item)) {
     return item.k_mo ?? 1;
   }
 
@@ -269,7 +252,7 @@ function resolveLaborRoleSplitLabels(
   item: EstimateItemRecord,
   laborRoleNameById: Map<string, string>
 ) {
-  if (!isLaborSplitEnabled(item)) {
+  if (!hasActiveLaborSplitPayload(item)) {
     return {
       atelier: "",
       chantier: "",
@@ -323,7 +306,7 @@ function buildDpgfRows(input: {
       };
     }
 
-    const splitEnabled = isLaborSplitEnabled(item);
+    const splitEnabled = hasActiveLaborSplitPayload(item);
     const splitRoleLabels = resolveLaborRoleSplitLabels(item, input.laborRoleNameById);
 
     return {

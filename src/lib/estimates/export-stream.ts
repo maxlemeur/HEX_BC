@@ -4,6 +4,7 @@ import { PassThrough, Readable } from "node:stream";
 import {
   computeEstimateLineValues,
   computeReadOnlyTotals,
+  hasActiveLaborSplitPayload,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
@@ -133,26 +134,6 @@ function buildFilename(input: {
   return `devis-${projectToken}-v${input.versionNumber}.xlsx`;
 }
 
-function isLaborSplitEnabled(item: {
-  h_mo_atelier?: number | null;
-  k_mo_atelier?: number | null;
-  labor_role_atelier_id?: string | null;
-  h_mo_chantier?: number | null;
-  k_mo_chantier?: number | null;
-  labor_role_chantier_id?: string | null;
-}) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    ((item.k_mo_atelier ?? 1) !== 1) ||
-    ((item.k_mo_chantier ?? 1) !== 1)
-  );
-}
-
 function resolveStoredDiscountCents(
   version: EstimateVersionForCalc,
   items: EstimateItemRecord[]
@@ -214,7 +195,7 @@ function buildLineRows(input: {
       {
         marginMultiplier: input.version.margin_multiplier,
         taxRateBp: item.tax_rate_bp ?? input.version.tax_rate_bp ?? 0,
-        isLaborSplitEnabled: isLaborSplitEnabled(item),
+        isLaborSplitEnabled: hasActiveLaborSplitPayload(item),
         laborRateAtelierCents,
         laborRateChantierCents,
       }

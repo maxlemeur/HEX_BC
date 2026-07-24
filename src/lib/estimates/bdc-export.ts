@@ -2,6 +2,7 @@ import { PassThrough, Readable } from "node:stream";
 
 import {
   computeEstimateLineValues,
+  hasActiveLaborSplitPayload,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
@@ -152,26 +153,6 @@ function toEuroAmount(valueCents: number | null | undefined): number | null {
   return (valueCents ?? 0) / 100;
 }
 
-function isLaborSplitEnabled(item: {
-  h_mo_atelier?: number | null;
-  k_mo_atelier?: number | null;
-  labor_role_atelier_id?: string | null;
-  h_mo_chantier?: number | null;
-  k_mo_chantier?: number | null;
-  labor_role_chantier_id?: string | null;
-}) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    ((item.k_mo_atelier ?? 1) !== 1) ||
-    ((item.k_mo_chantier ?? 1) !== 1)
-  );
-}
-
 function resolveDepthByItemId(items: EstimateItemRecord[]) {
   const itemById = new Map(items.map((item) => [item.id, item]));
   const depthById = new Map<string, number>();
@@ -209,7 +190,7 @@ function resolveLaborRoleLabel(
   item: EstimateItemRecord,
   laborRoleNameById: Map<string, string>
 ) {
-  if (isLaborSplitEnabled(item)) {
+  if (hasActiveLaborSplitPayload(item)) {
     const parts: string[] = [];
     if (item.labor_role_atelier_id) {
       parts.push(
@@ -229,14 +210,14 @@ function resolveLaborRoleLabel(
 }
 
 function resolveLaborHours(item: EstimateItemRecord) {
-  if (isLaborSplitEnabled(item)) {
+  if (hasActiveLaborSplitPayload(item)) {
     return (item.h_mo_atelier ?? 0) + (item.h_mo_chantier ?? 0);
   }
   return item.h_mo ?? 0;
 }
 
 function resolveLaborCoefficient(item: EstimateItemRecord) {
-  if (!isLaborSplitEnabled(item)) {
+  if (!hasActiveLaborSplitPayload(item)) {
     return item.k_mo ?? 1;
   }
 
@@ -256,7 +237,7 @@ function resolveLaborHourlyRateCents(input: {
 }) {
   const { item, laborRateById } = input;
 
-  if (!isLaborSplitEnabled(item)) {
+  if (!hasActiveLaborSplitPayload(item)) {
     const legacyRate = item.labor_role_id ? (laborRateById.get(item.labor_role_id) ?? 0) : 0;
     return legacyRate;
   }
@@ -475,7 +456,7 @@ function buildBdcRows(input: {
       {
         marginMultiplier: input.version.margin_multiplier,
         taxRateBp,
-        isLaborSplitEnabled: isLaborSplitEnabled(item),
+        isLaborSplitEnabled: hasActiveLaborSplitPayload(item),
         laborRateAtelierCents,
         laborRateChantierCents,
       }
