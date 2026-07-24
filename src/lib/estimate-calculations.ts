@@ -3,6 +3,7 @@ import {
   resolveMarginMultiplier,
   type MarginTier,
 } from "@/lib/estimates/margin-tiers";
+import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 
 /* ---------- constants ---------- */
 
@@ -1093,6 +1094,390 @@ export function computeAllSectionTotals({
   }
 
   return result;
+}
+
+/* ---------- moteur unifié (EST-E26, T6 phase C, étape 8) ---------- */
+
+export type EstimateLineBreakdown = {
+  costLineCents: number;
+  /** Vente ligne brute : avant coefficient global, avant remise. */
+  saleGrossCents: number;
+  /** Part de la ligne dans le sous-total APRÈS coefficient global. */
+  coefficientShareCents: number;
+  /** Part de la remise imputée à la ligne. */
+  discountShareCents: number;
+  /** Vente nette : `coefficientShareCents - discountShareCents`. Σ === pied. */
+  saleNetHtCents: number;
+  foNetCents: number;
+  moNetCents: number;
+  moAtelierNetCents: number;
+  moChantierNetCents: number;
+  puNetHtCents: number;
+  taxCents: number;
+};
+
+export type EstimateBreakdown = {
+  totals: EstimateTotals;
+  lineById: Map<string, EstimateLineBreakdown>;
+  sectionById: Map<string, SectionTotals>;
+  /** Lignes hors de toute section (rattachées à la racine du devis). */
+  rootLineIds: string[];
+  invariants: { sumAllocatedHtCents: number; matchesFooter: boolean };
+};
+
+export type EstimateComputationInput = {
+  items: EstimateItemRecord[];
+  marginMultiplier: number;
+  marginMode: MarginMode;
+  marginTiers: MarginTier[];
+  globalCoefficient: number;
+  discountMode: DiscountMode;
+  discountCents: number;
+  discountStepsBp: number[];
+  taxRateBp: number;
+  roundingMode: RoundingMode;
+  roundingStepCents: number;
+  isLaborSplitEnabled: boolean;
+  laborRateById: Map<string, number>;
+  laborRateAtelierById: Map<string, number>;
+  laborRateChantierById: Map<string, number>;
+  calcEngineVersion: CalcEngineVersion;
+};
+
+type NetSectionAccumulator = {
+  foNetCents: number;
+  moNetCents: number;
+  moAtelierNetCents: number;
+  moChantierNetCents: number;
+  htNetCents: number;
+  taxCents: number;
+  supplyTypeFoNetCents: Map<string, number>;
+};
+
+function createNetSectionAccumulator(): NetSectionAccumulator {
+  return {
+    foNetCents: 0,
+    moNetCents: 0,
+    moAtelierNetCents: 0,
+    moChantierNetCents: 0,
+    htNetCents: 0,
+    taxCents: 0,
+    supplyTypeFoNetCents: new Map<string, number>(),
+  };
+}
+
+/**
+ * Agrège les valeurs NETTES par ligne (déjà réconciliées) en sections
+ * récursives, et collecte les lignes racine (hors section). Chaque section porte
+ * la somme de ses lignes descendantes : Σ sections racine + Σ lignes racine ===
+ * Σ lignes === pied.
+ */
+function aggregateNetSections(
+  items: EstimateItemRecord[],
+  lineById: Map<string, EstimateLineBreakdown>
+): { sectionById: Map<string, SectionTotals>; rootLineIds: string[] } {
+  const sectionSet = new Set<string>();
+  const childrenByParent = new Map<string, EstimateItemRecord[]>();
+  items.forEach((item) => {
+    if (item.item_type === "section") sectionSet.add(item.id);
+    if (!item.parent_id) return;
+    const siblings = childrenByParent.get(item.parent_id) ?? [];
+    siblings.push(item);
+    childrenByParent.set(item.parent_id, siblings);
+  });
+
+  const rootLineIds = items
+    .filter(
+      (item) =>
+        item.item_type === "line" &&
+        (!item.parent_id || !sectionSet.has(item.parent_id))
+    )
+    .map((item) => item.id);
+
+  const accById = new Map<string, NetSectionAccumulator>();
+  const visited = new Set<string>();
+  const sectionIds = items
+    .filter((item) => item.item_type === "section")
+    .map((item) => item.id);
+
+  sectionIds.forEach((rootId) => {
+    if (visited.has(rootId)) return;
+    const stack: Array<{ id: string; visitedChildren: boolean }> = [
+      { id: rootId, visitedChildren: false },
+    ];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      if (!current.visitedChildren) {
+        if (visited.has(current.id)) continue;
+        stack.push({ id: current.id, visitedChildren: true });
+        const children = childrenByParent.get(current.id) ?? [];
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          if (children[index].item_type === "section") {
+            stack.push({ id: children[index].id, visitedChildren: false });
+          }
+        }
+        continue;
+      }
+
+      const acc = createNetSectionAccumulator();
+      (childrenByParent.get(current.id) ?? []).forEach((child) => {
+        if (child.item_type === "line") {
+          const line = lineById.get(child.id);
+          if (!line) return;
+          acc.foNetCents += line.foNetCents;
+          acc.moNetCents += line.moNetCents;
+          acc.moAtelierNetCents += line.moAtelierNetCents;
+          acc.moChantierNetCents += line.moChantierNetCents;
+          acc.htNetCents += line.saleNetHtCents;
+          acc.taxCents += line.taxCents;
+          if (line.foNetCents > 0) {
+            const key = child.supply_type_id ?? UNASSIGNED_SUPPLY_TYPE_KEY;
+            acc.supplyTypeFoNetCents.set(
+              key,
+              (acc.supplyTypeFoNetCents.get(key) ?? 0) + line.foNetCents
+            );
+          }
+          return;
+        }
+        const childAcc = accById.get(child.id);
+        if (!childAcc) return;
+        acc.foNetCents += childAcc.foNetCents;
+        acc.moNetCents += childAcc.moNetCents;
+        acc.moAtelierNetCents += childAcc.moAtelierNetCents;
+        acc.moChantierNetCents += childAcc.moChantierNetCents;
+        acc.htNetCents += childAcc.htNetCents;
+        acc.taxCents += childAcc.taxCents;
+        childAcc.supplyTypeFoNetCents.forEach((value, key) => {
+          acc.supplyTypeFoNetCents.set(
+            key,
+            (acc.supplyTypeFoNetCents.get(key) ?? 0) + value
+          );
+        });
+      });
+      accById.set(current.id, acc);
+      visited.add(current.id);
+    }
+  });
+
+  const sectionById = new Map<string, SectionTotals>();
+  sectionIds.forEach((sectionId) => {
+    const acc = accById.get(sectionId) ?? createNetSectionAccumulator();
+    sectionById.set(sectionId, {
+      foTotalCents: acc.foNetCents,
+      moTotalCents: acc.moNetCents,
+      moAtelierTotalCents: acc.moAtelierNetCents,
+      moChantierTotalCents: acc.moChantierNetCents,
+      totalHtCents: acc.htNetCents,
+      totalTtcCents: acc.htNetCents + acc.taxCents,
+      supplyTypeFoTotalsCents: Object.fromEntries(acc.supplyTypeFoNetCents),
+    });
+  });
+
+  return { sectionById, rootLineIds };
+}
+
+/**
+ * Fonction d'autorité du moteur de totaux (EST-E26 §2.1). Produit un breakdown
+ * complet — pied, par ligne, par section, lignes racine — où l'invariant
+ * « Σ lignes === Σ sections === pied » est vrai AU CENTIME en version 2.
+ *
+ * Garde-fou `calcEngineVersion` : en version 1 (tous les devis existants tant
+ * que le rollout n'a pas eu lieu), on DÉLÈGUE au chemin historique
+ * (computeEstimateTotals + computeAllSectionTotals), sans allocation
+ * descendante, et on marque `invariants.matchesFooter = false` — comportement
+ * strictement inchangé. Seule la version 2 (opt-in) applique l'allocation
+ * réconciliée et la TVA par ligne sur le net (suppression de la double branche).
+ */
+export function computeEstimateBreakdown(
+  input: EstimateComputationInput
+): EstimateBreakdown {
+  const {
+    items,
+    isLaborSplitEnabled,
+    laborRateById,
+    laborRateAtelierById,
+    laborRateChantierById,
+    taxRateBp,
+    calcEngineVersion,
+  } = input;
+
+  const withRates = (item: EstimateItemRecord): EstimateItemRecord => ({
+    ...item,
+    labor_role_hourly_rate_cents: item.labor_role_id
+      ? (laborRateById.get(item.labor_role_id) ?? 0)
+      : 0,
+    labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
+      ? (laborRateAtelierById.get(item.labor_role_atelier_id) ??
+          laborRateById.get(item.labor_role_atelier_id) ??
+          0)
+      : 0,
+    labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
+      ? (laborRateChantierById.get(item.labor_role_chantier_id) ??
+          laborRateById.get(item.labor_role_chantier_id) ??
+          0)
+      : 0,
+  });
+
+  const lines = items.filter((item) => item.item_type === "line");
+
+  // Le pied ne change pas : on réutilise la logique testée de computeEstimateTotals.
+  const footer = computeEstimateTotals({
+    lineItems: lines.map(withRates),
+    marginMultiplier: input.marginMultiplier,
+    marginMode: input.marginMode,
+    marginTiers: input.marginTiers,
+    discountCents: input.discountCents,
+    discountMode: input.discountMode,
+    discountStepsBp: input.discountStepsBp,
+    globalCoefficient: input.globalCoefficient,
+    taxRateBp,
+    roundingMode: input.roundingMode,
+    roundingStepCents: input.roundingStepCents,
+    isLaborSplitEnabled,
+  });
+
+  const splits = lines.map((item) =>
+    computeEstimateLineSaleSplit(item, {
+      marginMultiplier: footer.appliedMarginMultiplier,
+      taxRateBp,
+      laborRateById,
+      isLaborSplitEnabled,
+      laborRateAtelierById,
+      laborRateChantierById,
+    })
+  );
+  const costLineCents = lines.map(
+    (item) =>
+      computeEstimateLineValues(withRates(item), {
+        marginMultiplier: 1,
+        taxRateBp: 0,
+        isLaborSplitEnabled,
+      }).costLineCents
+  );
+  const grossSale = splits.map((split) => split.saleLineCents);
+
+  let coefficientShare: number[];
+  let discountShare: number[];
+  let saleNet: number[];
+  let foNet: number[];
+  let moNet: number[];
+  let moAtelierNet: number[];
+  let moChantierNet: number[];
+  let taxNet: number[];
+
+  if (calcEngineVersion === 2) {
+    // Allocation descendante : coefficient puis remise redescendus par ligne
+    // au plus grand reste, puis FO/MO rebasés sur le net.
+    coefficientShare = allocateProRata(footer.saleSubtotalCents, grossSale);
+    discountShare = allocateProRata(footer.discountCents, coefficientShare);
+    saleNet = coefficientShare.map((share, index) => share - discountShare[index]);
+    foNet = [];
+    moNet = [];
+    moAtelierNet = [];
+    moChantierNet = [];
+    taxNet = [];
+    lines.forEach((item, index) => {
+      const [fo, mo] = allocateProRata(saleNet[index], [
+        splits[index].foSaleLineCents,
+        splits[index].moSaleLineCents,
+      ]);
+      const [atelier, chantier] = allocateProRata(mo, [
+        splits[index].moAtelierSaleLineCents,
+        splits[index].moChantierSaleLineCents,
+      ]);
+      foNet.push(fo);
+      moNet.push(mo);
+      moAtelierNet.push(atelier);
+      moChantierNet.push(chantier);
+      taxNet.push(
+        computeTaxCents(saleNet[index], item.tax_rate_bp ?? taxRateBp)
+      );
+    });
+  } else {
+    // Version 1 : chemin historique, aucune allocation (net = brut).
+    coefficientShare = grossSale.slice();
+    discountShare = grossSale.map(() => 0);
+    saleNet = grossSale.slice();
+    foNet = splits.map((split) => split.foSaleLineCents);
+    moNet = splits.map((split) => split.moSaleLineCents);
+    moAtelierNet = splits.map((split) => split.moAtelierSaleLineCents);
+    moChantierNet = splits.map((split) => split.moChantierSaleLineCents);
+    taxNet = splits.map((split) => split.taxLineCents);
+  }
+
+  const lineById = new Map<string, EstimateLineBreakdown>();
+  lines.forEach((item, index) => {
+    const quantity = Math.max(toSafeNumber(item.quantity, 0), 0);
+    lineById.set(item.id, {
+      costLineCents: costLineCents[index],
+      saleGrossCents: grossSale[index],
+      coefficientShareCents: coefficientShare[index],
+      discountShareCents: discountShare[index],
+      saleNetHtCents: saleNet[index],
+      foNetCents: foNet[index],
+      moNetCents: moNet[index],
+      moAtelierNetCents: moAtelierNet[index],
+      moChantierNetCents: moChantierNet[index],
+      puNetHtCents: quantity > 0 ? bankersRound(saleNet[index] / quantity) : 0,
+      taxCents: taxNet[index],
+    });
+  });
+
+  const sumAllocatedHtCents = saleNet.reduce((sum, value) => sum + value, 0);
+
+  let sectionById: Map<string, SectionTotals>;
+  let rootLineIds: string[];
+  let totals: EstimateTotals;
+
+  if (calcEngineVersion === 2) {
+    ({ sectionById, rootLineIds } = aggregateNetSections(items, lineById));
+    // TVA par ligne sur le net : supprime la double branche coefficient===1.
+    const taxCents = taxNet.reduce((sum, value) => sum + value, 0);
+    const ttcCents = footer.saleTotalCents + taxCents;
+    const roundedTtcCents = Math.max(
+      applyRounding(ttcCents, input.roundingMode, input.roundingStepCents),
+      footer.saleTotalCents
+    );
+    totals = {
+      ...footer,
+      taxCents,
+      ttcCents,
+      roundedTtcCents,
+      roundingAdjustmentCents: roundedTtcCents - ttcCents,
+      adjustedTaxCents: roundedTtcCents - footer.saleTotalCents,
+    };
+  } else {
+    sectionById = computeAllSectionTotals({
+      items,
+      marginMultiplier: footer.appliedMarginMultiplier,
+      taxRateBp,
+      discountCents: footer.discountCents,
+      laborRateById,
+      isLaborSplitEnabled,
+      laborRateAtelierById,
+      laborRateChantierById,
+    });
+    const sectionSet = new Set(
+      items.filter((item) => item.item_type === "section").map((item) => item.id)
+    );
+    rootLineIds = lines
+      .filter((item) => !item.parent_id || !sectionSet.has(item.parent_id))
+      .map((item) => item.id);
+    totals = footer;
+  }
+
+  return {
+    totals,
+    lineById,
+    sectionById,
+    rootLineIds,
+    invariants: {
+      sumAllocatedHtCents,
+      matchesFooter:
+        calcEngineVersion === 2 && sumAllocatedHtCents === totals.saleTotalCents,
+    },
+  };
 }
 
 /**
