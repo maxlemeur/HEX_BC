@@ -1760,6 +1760,10 @@ body {
   background: white;
 }
 
+/* Repli historique : la mise en page est desormais construite par
+   resolveEstimateEditorGridStyle (EstimateEditorTable.tsx), qui couvre AUSSI le
+   mode MO eclatee. Ces valeurs y sont reprises a l identique ; les modifier ici
+   seul n aurait plus d effet. */
 .estimate-table--labor-split {
   --estimate-grid-desktop: minmax(260px, 3fr) 64px 54px 88px 112px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px;
   --estimate-grid-tablet: minmax(220px, 3fr) 58px 50px 80px 100px 56px 88px 68px 96px 56px 68px 96px 56px 82px 94px 40px;
@@ -3770,4 +3774,25 @@ button, a, [role="button"] {
     width: 44px;
     height: 44px;
   }
+}
+
+/* EST-E15 incrément 1 — sous-détail de prix (déboursé sec / marge / marque).
+   Colonnes en lecture seule, teintées pour se distinguer des cellules
+   éditables : le chiffreur doit voir d'un coup d'œil ce qu'il pilote et ce
+   qui en découle. */
+.estimate-col--margin {
+  justify-content: flex-end;
+  background-color: rgba(16, 185, 129, 0.06);
+}
+
+.estimate-table__head .estimate-col--margin {
+  border-bottom: 2px solid rgba(16, 185, 129, 0.35);
+}
+
+/* Une ligne vendue sous son déboursé sec doit sauter aux yeux : c'est la
+   façon la plus courante de perdre de l'argent sans s'en apercevoir. */
+.estimate-cell--margin-negative {
+  background-color: rgba(220, 38, 38, 0.08);
+  color: var(--red-700, #b91c1c);
+  font-weight: 600;
 }

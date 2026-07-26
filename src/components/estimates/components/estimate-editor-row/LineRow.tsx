@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useMemo,
   type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
@@ -9,6 +10,10 @@ import {
 } from "react";
 
 import { EditableCell } from "@/components/estimates/EditableCell";
+import {
+  computeEstimateLineMargin,
+  formatMarkupRatio,
+} from "@/lib/estimates/line-margin";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
 import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
@@ -289,6 +294,24 @@ export function LineRow({
     treeConnectorSegments.verticalSegments.length > 0 ||
     treeConnectorSegments.horizontalSegment !== null;
   const splitFields = readLaborSplitFields(item);
+  // EST-E15 increment 1 : les trois colonnes de sous-detail sont optionnelles et
+  // masquees par defaut ; on ne calcule que si l'une d'elles est affichee.
+  const isPriceBreakdownVisible = (column: "ds" | "marge" | "marque") =>
+    visibleColumns?.has(column) === true;
+  const lineMargin = useMemo(
+    () =>
+      isPriceBreakdownVisible("ds") ||
+      isPriceBreakdownVisible("marge") ||
+      isPriceBreakdownVisible("marque")
+        ? computeEstimateLineMargin({
+            item,
+            laborRoles,
+            isLaborSplitEnabled,
+          })
+        : { costCents: 0, saleCents: 0, marginCents: 0, markupRatio: null },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [item, laborRoles, isLaborSplitEnabled, visibleColumns]
+  );
   const dismissedOutlierSet = new Set(dismissedOutlierFlags);
   const quantityOutlierActive =
     detectedOutlierFlags.includes("quantity_outlier") &&
@@ -915,6 +938,48 @@ export function LineRow({
       >
         <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
       </div>
+      {/*
+        EST-E15 increment 1 — le sous-detail de prix, en lecture seule.
+        Le deboursé sec etait deja calcule par le moteur a chaque mutation puis
+        jete : sans lui le chiffreur ne voyait jamais sa marge ligne a ligne.
+        La marge affichee est BRUTE (avant remise et coefficient de version, qui
+        sont des grandeurs du pied) ; la marge nette par ligne arrivera avec le
+        breakdown en phase D de T6.
+      */}
+      {isPriceBreakdownVisible("ds") ? (
+        <div
+          role="gridcell"
+          className="estimate-cell estimate-cell--readonly estimate-col--margin"
+        >
+          <span>{formatCurrency(lineMargin.costCents, estimateCurrency)}</span>
+        </div>
+      ) : null}
+      {isPriceBreakdownVisible("marge") ? (
+        <div
+          role="gridcell"
+          className={`estimate-cell estimate-cell--readonly estimate-col--margin${
+            lineMargin.marginCents < 0 ? " estimate-cell--margin-negative" : ""
+          }`}
+          title={
+            lineMargin.marginCents < 0
+              ? "Ligne vendue en dessous de son deboursé sec."
+              : undefined
+          }
+        >
+          <span>{formatCurrency(lineMargin.marginCents, estimateCurrency)}</span>
+        </div>
+      ) : null}
+      {isPriceBreakdownVisible("marque") ? (
+        <div
+          role="gridcell"
+          className={`estimate-cell estimate-cell--readonly estimate-col--margin${
+            lineMargin.marginCents < 0 ? " estimate-cell--margin-negative" : ""
+          }`}
+          title="Taux de marque : marge / prix de vente."
+        >
+          <span>{formatMarkupRatio(lineMargin.markupRatio)}</span>
+        </div>
+      ) : null}
       <div className="estimate-cell estimate-cell--actions">
         {hideEditingActions ? (
           <button

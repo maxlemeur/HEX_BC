@@ -387,6 +387,15 @@ export function SectionRow({
       >
         HT {formatCurrency(sectionTotals?.totalHtCents ?? 0, estimateCurrency)}
       </div>
+      {/*
+        EST-E15 : cellules d'alignement pour le sous-detail de prix. Un
+        sous-total de marge par chapitre demanderait d'agreger les couts des
+        lignes filles, ce que fera `breakdown.sectionById` en phase D de T6 —
+        l'inventer ici produirait un chiffre concurrent de plus.
+      */}
+      {visibleColumns?.has("ds") ? <div /> : null}
+      {visibleColumns?.has("marge") ? <div /> : null}
+      {visibleColumns?.has("marque") ? <div /> : null}
       <div className="estimate-cell estimate-cell--actions">
         <button
           className="estimate-section-more-btn"

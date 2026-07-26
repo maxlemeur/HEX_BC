@@ -369,6 +369,32 @@ export function EstimateEditorTableChrome({
                   tooltip={COLUMN_HEADER_TOOLTIPS["Prix total"]}
                 />
               </div>
+              {/* EST-E15 increment 1 — sous-detail de prix, en lecture seule. */}
+              {visibleColumns.has("ds") ? (
+                <div className="relative estimate-col--margin">
+                  <ColumnHeaderHelp
+                    label="Deboursé sec"
+                    tooltip={COLUMN_HEADER_TOOLTIPS["Deboursé sec"]}
+                    allowWrap
+                  />
+                </div>
+              ) : null}
+              {visibleColumns.has("marge") ? (
+                <div className="relative estimate-col--margin">
+                  <ColumnHeaderHelp
+                    label="Marge €"
+                    tooltip={COLUMN_HEADER_TOOLTIPS["Marge €"]}
+                  />
+                </div>
+              ) : null}
+              {visibleColumns.has("marque") ? (
+                <div className="relative estimate-col--margin">
+                  <ColumnHeaderHelp
+                    label="Marque %"
+                    tooltip={COLUMN_HEADER_TOOLTIPS["Marque %"]}
+                  />
+                </div>
+              ) : null}
               <div></div>
             </div>
 

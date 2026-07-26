@@ -9,6 +9,7 @@ import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
+import type { ColumnKey } from "@/hooks/useColumnVisibility";
 import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
@@ -73,9 +74,12 @@ export type LaborSplitItemFields = {
 
 export type ItemPatch = EstimateEditorRowItemPatch & LaborSplitItemFields;
 
-export type ColumnVisibilitySet = Set<
-  "supply_type" | "k_fo" | "h_mo_majoration" | "labor_role" | "k_mo"
->;
+/**
+ * Derive de `ColumnKey` plutot que de le recopier : la liste etait dupliquee
+ * ici, et toute colonne ajoutee au hook devait etre ajoutee a la main a cet
+ * endroit sans que rien ne le signale.
+ */
+export type ColumnVisibilitySet = ReadonlySet<ColumnKey>;
 
 export type SupplierAlternativeKind =
   | "best_price"

@@ -21,6 +21,12 @@ export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "h MO chantier": "Heures de main d'œuvre chantier par unité",
   "Type MO chantier": "Rôle / type de main d'œuvre chantier",
   "K MO chantier": "Coefficient main d'œuvre chantier",
+  "Deboursé sec":
+    "Coût direct de la ligne : fourniture × K FO + heures MO × K MO × taux horaire. C'est ce que la ligne vous coûte, avant toute marge.",
+  "Marge €":
+    "Prix total HT − déboursé sec. Marge BRUTE : la remise et le coefficient global sont des grandeurs de version, appliquées au pied du devis.",
+  "Marque %":
+    "Taux de marque = marge / prix de vente. À ne pas confondre avec le taux de marge (marge / déboursé) : sur un coefficient de vente 1,35, la marque vaut 25,9 % et la marge 35 %.",
 };
 
 type ColumnHeaderHelpProps = {

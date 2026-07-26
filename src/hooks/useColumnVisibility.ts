@@ -7,14 +7,32 @@ export type ColumnKey =
   | "k_fo"
   | "h_mo_majoration"
   | "labor_role"
-  | "k_mo";
+  | "k_mo"
+  // EST-E15 increment 1 : le sous-detail de prix, en lecture seule. Le
+  // deboursé sec etait deja calcule par le moteur puis jete ; sans lui le
+  // chiffreur ne voit jamais sa marge ligne a ligne et ne peut pas arbitrer.
+  | "ds"
+  | "marge"
+  | "marque";
 
 export type ColumnPreset = "essential" | "standard" | "full" | "custom";
 
 const PRESET_COLUMNS: Record<ColumnPreset, ColumnKey[]> = {
   essential: [],
   standard: ["supply_type", "k_fo", "labor_role", "k_mo"],
-  full: ["supply_type", "k_fo", "h_mo_majoration", "labor_role", "k_mo"],
+  // Volontairement absentes de « Standard » : les y ajouter elargirait sans
+  // prevenir la grille des utilisateurs qui ont choisi cette densite. « Complet »
+  // veut dire complet.
+  full: [
+    "supply_type",
+    "k_fo",
+    "h_mo_majoration",
+    "labor_role",
+    "k_mo",
+    "ds",
+    "marge",
+    "marque",
+  ],
   custom: [],
 };
 
@@ -31,6 +49,9 @@ const ALL_ADVANCED_COLUMNS: ColumnKey[] = [
   "h_mo_majoration",
   "labor_role",
   "k_mo",
+  "ds",
+  "marge",
+  "marque",
 ];
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
@@ -39,6 +60,11 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   h_mo_majoration: "Majoration MO (%)",
   labor_role: "Type MO",
   k_mo: "K MO",
+  ds: "Deboursé sec",
+  marge: "Marge €",
+  // Taux de MARQUE (marge / vente), jamais « marge % » (marge / cout) : sur un
+  // coefficient 1,35 le premier vaut 25,9 % et le second 35 %.
+  marque: "Marque %",
 };
 
 const STORAGE_KEY = "est-col-vis";

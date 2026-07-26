@@ -702,10 +702,7 @@ export function resolveEstimateEditorGridStyle(
   visibleColumns: ReadonlySet<ColumnKey>,
   isLaborSplitEnabled: boolean
 ): CSSProperties | undefined {
-  if (isLaborSplitEnabled) {
-    return undefined;
-  }
-
+  // Designation, Qte, U, PR. FO — toujours presentes.
   const desktopColumns = ["minmax(260px, 3fr)", "64px", "54px", "88px"];
   const tabletColumns = ["minmax(220px, 3fr)", "58px", "50px", "80px"];
   let desktopMinWidth = 260 + 64 + 54 + 88;
@@ -726,22 +723,48 @@ export function resolveEstimateEditorGridStyle(
     tabletMinWidth += tabletWidth;
   };
 
-  addOptionalColumn("supply_type", 112, 100);
-  addOptionalColumn("k_fo", 56, 56);
+  const pushFixed = (desktopWidth: number, tabletWidth: number) => {
+    desktopColumns.push(`${desktopWidth}px`);
+    tabletColumns.push(`${tabletWidth}px`);
+    desktopMinWidth += desktopWidth;
+    tabletMinWidth += tabletWidth;
+  };
 
-  desktopColumns.push("56px");
-  tabletColumns.push("56px");
-  desktopMinWidth += 56;
-  tabletMinWidth += 56;
+  if (isLaborSplitEnabled) {
+    // En mode MO eclatee, les colonnes de cout sont FORCEES visibles (cf.
+    // `|| isLaborSplitEnabled` dans LineRow), d'ou des largeurs fixes. Ces
+    // valeurs reprennent a l'identique celles de `.estimate-table--labor-split`
+    // dans globals.css, qui servait jusqu'ici de second regime de mise en page :
+    // la fonction retournait `undefined` et laissait le CSS statique decider.
+    // Ce second regime empechait toute colonne optionnelle en mode split.
+    pushFixed(112, 100); // Type FO
+    pushFixed(60, 56); // K FO
+    pushFixed(96, 88); // Majoration MO
+    pushFixed(72, 68); // h MO atelier
+    pushFixed(104, 96); // Type MO atelier
+    pushFixed(60, 56); // K MO atelier
+    pushFixed(72, 68); // h MO chantier
+    pushFixed(104, 96); // Type MO chantier
+    pushFixed(60, 56); // K MO chantier
+  } else {
+    addOptionalColumn("supply_type", 112, 100);
+    addOptionalColumn("k_fo", 56, 56);
+    pushFixed(56, 56); // h MO
+    addOptionalColumn("h_mo_majoration", 104, 96);
+    addOptionalColumn("labor_role", 112, 100);
+    addOptionalColumn("k_mo", 56, 56);
+  }
 
-  addOptionalColumn("h_mo_majoration", 104, 96);
-  addOptionalColumn("labor_role", 112, 100);
-  addOptionalColumn("k_mo", 56, 56);
+  pushFixed(88, 82); // P.U.
+  pushFixed(100, 94); // Prix total
 
-  desktopColumns.push("88px", "100px", "42px");
-  tabletColumns.push("82px", "94px", "40px");
-  desktopMinWidth += 88 + 100 + 42;
-  tabletMinWidth += 82 + 94 + 40;
+  // EST-E15 increment 1 : sous-detail de prix, insere APRES le prix total et
+  // AVANT la colonne d'actions.
+  addOptionalColumn("ds", 100, 94);
+  addOptionalColumn("marge", 100, 94);
+  addOptionalColumn("marque", 78, 72);
+
+  pushFixed(42, 40); // Actions
 
   return {
     "--estimate-grid-desktop": desktopColumns.join(" "),
@@ -1602,7 +1625,10 @@ export function EstimateEditorTable({
   const hiddenSpreadsheetColumnKeys = useMemo(() => {
     if (isLaborSplitEnabled) return new Set<string>(); // labor split not affected
     const hidden = new Set<string>();
-    const columnKeyToSpreadsheetKey: Record<ColumnKey, string> = {
+    // Partiel a dessein : toutes les colonnes ne sont pas des cellules
+    // navigables. Le sous-detail de prix (ds / marge / marque) est en lecture
+    // seule et ne participe pas a la navigation clavier.
+    const columnKeyToSpreadsheetKey: Partial<Record<ColumnKey, string>> = {
       supply_type: "supply_type",
       k_fo: "k_fo",
       h_mo_majoration: "h_mo_majoration",

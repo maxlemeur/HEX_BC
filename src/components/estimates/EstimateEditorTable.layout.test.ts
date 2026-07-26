@@ -53,10 +53,50 @@ describe("estimate editor responsive grid", () => {
     });
   });
 
-  it("keeps the dedicated labor split grid untouched", () => {
-    expect(
+  it("construit aussi la grille du mode MO éclatée, à l'identique du CSS qu'elle remplace", () => {
+    // Le mode split retournait `undefined` et laissait `.estimate-table--labor-split`
+    // décider. Ce second régime interdisait toute colonne optionnelle en mode
+    // split — donc le sous-détail de prix y aurait été invisible. Les pistes
+    // ci-dessous reprennent EXACTEMENT les valeurs de l'ancien CSS statique.
+    const style = toCustomProperties(
       resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, true),
-    ).toBeUndefined();
+    );
+
+    expect(style).toMatchObject({
+      "--estimate-grid-desktop":
+        "minmax(260px, 3fr) 64px 54px 88px 112px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px",
+      "--estimate-grid-tablet":
+        "minmax(220px, 3fr) 58px 50px 80px 100px 56px 88px 68px 96px 56px 68px 96px 56px 82px 94px 40px",
+      "--estimate-desktop-min-width": "1436px",
+      "--estimate-tablet-min-width": "1308px",
+    });
+  });
+
+  it("insère le sous-détail de prix entre le prix total et les actions", () => {
+    const withMargin = toCustomProperties(
+      resolveEstimateEditorGridStyle(
+        new Set<ColumnKey>(["ds", "marge", "marque"]),
+        false,
+      ),
+    );
+
+    expect(withMargin).toMatchObject({
+      "--estimate-grid-desktop":
+        "minmax(260px, 3fr) 64px 54px 88px 56px 88px 100px 100px 100px 78px 42px",
+      "--estimate-desktop-min-width": "1030px",
+    });
+  });
+
+  it("laisse la grille inchangée quand le sous-détail est masqué", () => {
+    // Les colonnes sont optionnelles et absentes des presets « Essentiel » et
+    // « Standard » : un utilisateur qui n'y touche pas ne voit aucun changement.
+    const before = toCustomProperties(
+      resolveEstimateEditorGridStyle(new Set<ColumnKey>(), false),
+    );
+
+    expect(before?.["--estimate-grid-desktop"]).toBe(
+      "minmax(260px, 3fr) 64px 54px 88px 56px 88px 100px 42px",
+    );
   });
 
   it("keeps the stylesheet contract that activates tablet and sticky tracks", () => {
