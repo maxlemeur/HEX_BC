@@ -13,6 +13,7 @@ import {
 } from "@react-pdf/renderer";
 
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { resolveRenderMarginMode } from "@/lib/estimates/margin-tiers-loader";
 import {
   buildLegacyDocumentBreakdown,
   prepareEstimateDocumentData,
@@ -1719,8 +1720,14 @@ export async function generateEstimatePdfNow(
     );
 
     // EST-E26 (T6, étape 6) : barème du tenant injecté (marginTiers requis).
+    // Hors brouillon, le mode est figé : le PDF d’un devis transmis reproduit la
+    // marge persistée, pas le barème du jour (cf. resolveRenderMarginMode).
+    const renderMarginMode = resolveRenderMarginMode(
+      access.version.status,
+      access.version.margin_mode
+    );
     const marginTiers =
-      access.version.margin_mode === "tiered"
+      renderMarginMode === "tiered"
         ? await loadMarginTiersForTotals({
             supabase: context.supabase,
             tenantId: access.version.tenant_id,
@@ -1730,7 +1737,7 @@ export async function generateEstimatePdfNow(
     const baseTotals = computeEstimateTotals({
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
-      marginMode: access.version.margin_mode,
+      marginMode: renderMarginMode,
       marginTiers,
       isLaborSplitEnabled,
       discountCents: 0,
@@ -1751,7 +1758,7 @@ export async function generateEstimatePdfNow(
     const computedTotals = computeEstimateTotals({
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
-      marginMode: access.version.margin_mode,
+      marginMode: renderMarginMode,
       marginTiers,
       isLaborSplitEnabled,
       discountCents: fallbackDiscountCents,

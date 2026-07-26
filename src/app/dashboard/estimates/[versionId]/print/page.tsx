@@ -12,7 +12,10 @@ import { isFeatureEnabled } from "@/lib/feature-flags";
 import { getUserContext } from "@/lib/auth/server";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
+import {
+  loadMarginTiersForTotals,
+  resolveRenderMarginMode,
+} from "@/lib/estimates/margin-tiers-loader";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import {
   resolveEstimatePdfPreviewLayout,
@@ -192,14 +195,20 @@ export default async function PrintEstimatePage({
         : 0,
     }));
   // EST-E26 (T6, étape 6) : injecter le barème du tenant (marginTiers requis).
+  // Hors brouillon, le mode est figé sur "fixed" : un devis transmis affiche
+  // la marge qu'il a persistée, pas le barème du jour (cf. resolveRenderMarginMode).
+  const renderMarginMode = resolveRenderMarginMode(
+    version.status,
+    version.margin_mode
+  );
   const marginTiers =
-    version.margin_mode === "tiered"
+    renderMarginMode === "tiered"
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
   const baseTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
-    marginMode: version.margin_mode,
+    marginMode: renderMarginMode,
     marginTiers,
     isLaborSplitEnabled,
     discountCents: 0,
@@ -217,7 +226,7 @@ export default async function PrintEstimatePage({
   const computedTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
-    marginMode: version.margin_mode,
+    marginMode: renderMarginMode,
     marginTiers,
     isLaborSplitEnabled,
     discountCents: fallbackDiscountCents,

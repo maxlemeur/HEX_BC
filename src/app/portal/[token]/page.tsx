@@ -5,7 +5,10 @@ import { PortalActions } from "@/components/portal/PortalActions";
 import { PortalHeader } from "@/components/portal/PortalHeader";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
+import {
+  loadMarginTiersForTotals,
+  resolveRenderMarginMode,
+} from "@/lib/estimates/margin-tiers-loader";
 import { formatEstimateReference } from "@/lib/estimates/reference";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
@@ -154,15 +157,21 @@ export default async function PortalPage({ params }: PortalPageProps) {
     }));
 
   // EST-E26 (T6, étape 6) : injecter le barème du tenant (marginTiers requis).
+  // Hors brouillon, le mode est figé sur "fixed" : un devis transmis affiche
+  // la marge qu'il a persistée, pas le barème du jour (cf. resolveRenderMarginMode).
+  const renderMarginMode = resolveRenderMarginMode(
+    version.status,
+    version.margin_mode
+  );
   const marginTiers =
-    version.margin_mode === "tiered"
+    renderMarginMode === "tiered"
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
 
   const baseTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
-    marginMode: version.margin_mode,
+    marginMode: renderMarginMode,
     marginTiers,
     isLaborSplitEnabled,
     discountCents: 0,
@@ -184,7 +193,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
   const computedTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
     marginMultiplier: version.margin_multiplier,
-    marginMode: version.margin_mode,
+    marginMode: renderMarginMode,
     marginTiers,
     isLaborSplitEnabled,
     discountCents: fallbackDiscountCents,
