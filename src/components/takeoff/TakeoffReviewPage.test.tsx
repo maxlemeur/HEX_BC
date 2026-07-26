@@ -880,7 +880,7 @@ describe("TakeoffReviewPage", () => {
       screen.getByRole("radio", { name: /Validation/ }).getAttribute("aria-checked")
     ).toBe("true");
     expect(
-      screen.getByRole("link", { name: "Centre d'activite metres" })
+      screen.getByRole("link", { name: "Centre d'activité métrés" })
     ).toHaveAttribute(
       "href",
       "/dashboard/affaires/99999999-9999-4999-8999-999999999999/takeoff"

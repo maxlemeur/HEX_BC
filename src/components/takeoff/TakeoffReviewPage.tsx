@@ -805,7 +805,7 @@ export default function TakeoffReviewPage({
       if (failedCount > 0) {
         toast.warning({
           title: `${failedCount} item(s) non sauvegarde(s)`,
-          description: "Verifiez les items en erreur.",
+          description: "Vérifiez les items en erreur.",
         });
       } else if (savedCount > 0) {
         toast.success({
@@ -1020,7 +1020,7 @@ export default function TakeoffReviewPage({
       if (patchEntries.length === 0) {
         toast.info({
           title: "Aucun changement a appliquer",
-          description: "La selection correspond deja a l'etat actuel de l'extraction.",
+          description: "La sélection correspond déjà à l'état actuel de l'extraction.",
         });
         return;
       }
@@ -1115,7 +1115,7 @@ export default function TakeoffReviewPage({
   const isApplyReady = canOpenApplyWizard && !hasGuardBlocks;
   const applyReadinessMessage = useMemo(() => {
     if (hasAlreadyBeenApplied) {
-      return "Ce metre a deja ete applique au chiffrage.";
+      return "Ce métré a déjà été appliqué au chiffrage.";
     }
 
     if (!hasIncluded) {
@@ -1123,7 +1123,7 @@ export default function TakeoffReviewPage({
     }
 
     if (hasDirtyOrSaving) {
-      return "Attendez la fin des sauvegardes avant d'ouvrir l'apply controle.";
+      return "Attendez la fin des sauvegardes avant d'ouvrir l'apply contrôlé.";
     }
 
     if (hasSaveErrors) {
@@ -1135,7 +1135,7 @@ export default function TakeoffReviewPage({
     }
 
     if (isDpgfValidationPending) {
-      return "Attendez le chargement du rapprochement DPGF avant d'ouvrir l'apply controle.";
+      return "Attendez le chargement du rapprochement DPGF avant d'ouvrir l'apply contrôlé.";
     }
 
     if (hasDpgfValidationError) {
@@ -1150,7 +1150,7 @@ export default function TakeoffReviewPage({
       return `${guardResult?.blocked_items.length ?? 0} item(s) a faible confiance doivent etre verifies avant l'apply.`;
     }
 
-    return "L'apply controle est pret. Choisissez une strategie et verifiez l'impact avant confirmation.";
+    return "L'apply contrôlé est prêt. Choisissez une stratégie et vérifiez l'impact avant confirmation.";
   }, [
     guardResult,
     hasBlockingAnomalies,
@@ -1206,7 +1206,7 @@ export default function TakeoffReviewPage({
         });
         setJobStatus("applied");
         toast.success({
-          title: "Apply controle termine",
+          title: "Apply contrôlé terminé",
           description: `${response.summary.created_count} cree(s), ${response.summary.updated_count} mis a jour, ${response.summary.ignored_count} ignore(s).`,
         });
         if (!isAffaireContext) {
@@ -1359,7 +1359,7 @@ export default function TakeoffReviewPage({
             className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
           >
             {isAffaireContext
-              ? "Centre d'activite metres"
+              ? "Centre d'activité métrés"
               : "Retour a l'extraction"}
           </Link>
         </div>
@@ -1489,7 +1489,7 @@ export default function TakeoffReviewPage({
           onClick={handleOpenApplyWizard}
           title={
             hasGuardBlocks
-              ? "Verifiez les items faible confiance avant d'appliquer"
+              ? "Vérifiez les items à faible confiance avant d'appliquer"
               : !canOpenApplyWizard
                 ? "Resolves les problemes avant d'appliquer"
                 : "Appliquer les items au chiffrage"

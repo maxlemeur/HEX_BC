@@ -50,7 +50,7 @@ const EDITABLE_COLUMNS = ["designation", "quantity", "unit"] as const;
 export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   low_confidence: "Confiance faible (< 50%)",
   missing_evidence: "Aucune evidence/source",
-  zero_quantity: "Quantite nulle ou negative",
+  zero_quantity: "Quantité nulle ou négative",
   empty_designation: "Designation vide",
 };
 
@@ -824,7 +824,7 @@ export default function TakeoffReviewTable({
                         type="number"
                         step="0.001"
                         min="0.001"
-                        ariaLabel="Quantite"
+                        ariaLabel="Quantité"
                         className="editable-cell"
                       />
                     </td>
@@ -842,8 +842,8 @@ export default function TakeoffReviewTable({
                           onUpdateItem(item.id, "unit", val)
                         }
                         readOnly={isExcluded}
-                        placeholder="Unite"
-                        ariaLabel="Unite"
+                        placeholder="Unité"
+                        ariaLabel="Unité"
                         className="editable-cell"
                       />
                     </td>
