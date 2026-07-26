@@ -107,7 +107,40 @@ const STATUTS = {
   B25: "livré (`976f23f`)",
   B26: "écarté — vérifié CORRECT : un montant a deux décimales, « 2.500 » y vaut bien 2500 (cf. T16)",
   B27: "à traiter — absorbé par le breakdown T6 (`puNetHtCents`)",
+  // --- Constats UX rapproches le 2026-07-26 ---------------------------------
+  //
+  // Methode : pour chaque constat, la reference de code de l'audit a ete
+  // rouverte au HEAD. « livre » = le defaut n'est plus la, avec le sha qui l'a
+  // corrige. « a traiter (verifie) » = le defaut est TOUJOURS present, constate
+  // dans le code, pas suppose.
+  //
+  // Les constats sans mention explicite portent le statut par defaut, qui dit
+  // ce qu'il vaut : aucun correctif de la plage livree ne les vise, et ils
+  // n'ont pas ete rouverts un a un.
   UX01: "livré (`c0ceefe`) — colonnes Deboursé sec / Marge € / Marque %",
+  UX02: "à traiter (vérifié) — `grandTotals` filtre encore `item_type !== \"section\"`, les lignes racine restent hors du pied",
+  UX03: "à traiter (vérifié) — aucun raccourci de création de ligne dans `useEstimateKeyboardShortcuts`",
+  UX04: "à traiter (vérifié) — `mod()` toujours présent dans `useSpreadsheetNavigation`, la navigation boucle",
+  UX05: "livré (`3d5aaab`) — `confirmAndBulkDeleteSelection` confirme avant suppression",
+  UX06: "livré (`1a58046`) — un champ vidé retombe sur 1 (neutre) et non sur 0",
+  UX08: "livré (`9259f03`) — la case porte `onKeyDown` et `onClick`, opérable au clavier",
+  UX10: "à traiter (vérifié) — accents FR internes ; le client-facing est fait (`5503cd7`, `9de6a46`), l'interne non",
+  UX23: "à traiter (vérifié) — ex. « Verifiez les items en erreur. », « Apply controle termine » dans TakeoffReviewPage",
+  UX28: "livré (`12d77a8`) — piège de focus et restauration sur EvidencePanel",
+  UX33: "à traiter (vérifié) — `EstimateDashboard` n'est importé nulle part, toujours mort",
+  UX34: "à traiter (vérifié) — même campagne d'accents que UX10",
+  UX41: "livré (`e10b045`) — plus de `force:true` codé en dur dans « Marquer envoyé »",
+  UX44: "à traiter (vérifié) — `onDirectionToggle={() => {}}` toujours no-op dans ApprovalQueuePage",
+  UX51: "livré (`8a685cf`) — la clé `_freshnessLevel` a disparu, le filtre fonctionne",
+  UX52: "à traiter (vérifié) — ex. « Supprimer ce fournisseur ? » et suivants, parcours achats",
+  UX53: "livré (`ce09a53`) — fermeture par Échap et focus initial",
+  UX55: "livré (`30a8b85` affichage par devise + `7977a53` sélection manuelle bloquée)",
+  UX59: "à traiter (vérifié) — `aging` n'existe que dans les options de filtre, pas dans les stats",
+  UX64: "à traiter (vérifié) — le portail ne transmet ni `terms` ni `exclusions` : le client accepte des CGV qu'il ne voit pas",
+  UX65: "à traiter (vérifié) — aucun bouton de téléchargement PDF sur le portail",
+  UX66: "livré (`5503cd7`) — accents rétablis sur le portail et le document client",
+  UX67: "à traiter (vérifié) — pages `expired` / `not-found` sans coordonnées émetteur",
+  UX68: "à traiter (vérifié) — `layout` et `issuer*` non transmis : le portail peut diverger du PDF reçu par email",
 };
 
 const esc = (s) => (s || "").replace(/\|/g, "\\|");
@@ -131,15 +164,21 @@ out.push(">");
 out.push("> Source : `https://claude.ai/code/artifact/91124126-27a6-4450-ac6d-b9b7745b0403`");
 out.push(">");
 out.push(
-  "> **Statut du rapprochement.** Les **27 bugs** sont rapproches un a un des"
+  "> **Statut du rapprochement.** Les **27 bugs** et **24 des 73 constats UX/UI**"
 );
 out.push(
-  "> correctifs livres (§1). Les **73 constats UX/UI** ne le sont PAS encore, sauf"
+  "> ont ete rapproches du code AU HEAD : la reference de l'audit a ete rouverte,"
 );
 out.push(
-  "> UX01 : ils valent `a traiter` par defaut, ce qui ne prouve pas qu ils soient"
+  "> et le statut dit si le defaut est encore la ou quel commit l'a corrige."
 );
-out.push("> ouverts — seulement que personne n a verifie. Voir §3.");
+out.push(
+  "> Les 49 autres portent un statut qui dit exactement ce qu'il vaut — non"
+);
+out.push(
+  "> rouverts, aucun correctif livre ne les vise. Ce n'est pas une preuve qu'ils"
+);
+out.push("> soient ouverts, seulement que personne n'a verifie. Voir §3.");
 out.push("");
 out.push(`Généré depuis l'artefact : **${bugs.length} bugs**, **${ux.length} constats UX/UI**.`);
 out.push("");
@@ -179,7 +218,7 @@ for (const persona of personaNames) {
   out.push("|---|---|---|---|---|");
   for (const u of items) {
     out.push(
-      `| ${u.id} | ${esc(u.severite)} | ${trunc(u.surface, 45)} | ${trunc(u.observation, 180)} | ${STATUTS[u.id] ?? "à traiter"} |`
+      `| ${u.id} | ${esc(u.severite)} | ${trunc(u.surface, 45)} | ${trunc(u.observation, 160)} | ${STATUTS[u.id] ?? "à traiter — non rouvert, aucun correctif livré ne le vise"} |`
     );
   }
   out.push("");
@@ -188,13 +227,26 @@ out.push("---");
 out.push("");
 out.push("## 3. Ce qui reste a rapprocher");
 out.push("");
+out.push("Bilan du rapprochement UX au 2026-07-26 :");
+out.push("");
+out.push("| Statut | Nombre |");
+out.push("|---|---|");
+out.push("| livre, avec le sha du correctif | 10 |");
+out.push("| a traiter — VERIFIE encore ouvert dans le code | 14 |");
+out.push("| non rouvert | 49 |");
+out.push("");
 out.push(
-  "Les 27 bugs sont traites. Restent **72 constats UX/UI** dont le statut n a pas ete"
+  "Les 49 restants sont en majorite des ameliorations de conception"
 );
 out.push(
-  "verifie contre le code : c est le premier vrai jalon de « finir l audit UX/UI », et"
+  "(visualiseur de plan, dates de pilotage, ecarts chiffres, architecture"
 );
-out.push("il se fait constat par constat, pas en bloc.");
+out.push(
+  "d information) qu aucun commit de la plage livree ne vise. Les rouvrir un a"
+);
+out.push(
+  "un reste a faire, mais le risque d en trouver un deja corrige est faible."
+);
 out.push("");
 out.push("Pour retrouver les correctifs livres :");
 out.push("");

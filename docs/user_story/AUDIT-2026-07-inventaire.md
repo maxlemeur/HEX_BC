@@ -7,10 +7,12 @@
 >
 > Source : `https://claude.ai/code/artifact/91124126-27a6-4450-ac6d-b9b7745b0403`
 >
-> **Statut du rapprochement.** Les **27 bugs** sont rapprochés un à un des
-> correctifs livrés (§1). Les **73 constats UX/UI** ne le sont pas encore, sauf
-> UX01 : ils valent `à traiter` par défaut, ce qui ne prouve pas qu'ils soient
-> ouverts — seulement que personne n'a vérifié. Voir §3.
+> **Statut du rapprochement.** Les **27 bugs** et **24 des 73 constats UX/UI**
+> ont été rapprochés du code AU HEAD : la référence de l'audit a été rouverte,
+> et le statut dit si le défaut est encore là, ou quel commit l'a corrigé.
+> Les 49 autres portent un statut qui dit exactement ce qu'il vaut — non
+> rouverts, aucun correctif livré ne les vise. Ce n'est pas une preuve qu'ils
+> soient ouverts, seulement que personne n'a vérifié. Voir §3.
 
 Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 
@@ -247,112 +249,121 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX01 | Bloquant | Grille d'édition — ligne de devis | La grille n'affiche jamais le sous-détail de prix attendu par un chiffreur : la cellule P.U. montre item.pu_ht_cents (prix de VENTE après marge, en lecture seule) et Prix total mo… | livré (`c0ceefe`) — colonnes Deboursé sec / Marge € / Marque % |
-| UX02 | Majeur | Totaux — pied de tableau | grandTotals ne somme que les enfants racine de type 'section' : rootItems.forEach((item) => { if (item.item_type !== 'section') return; ... }). Toute ligne située au niveau racine… | à traiter |
-| UX03 | Majeur | Saisie clavier — création de ligne | Entrée et Tab déplacent la sélection mais ne créent jamais de nouvelle ligne en fin de tableau (resolveSpreadsheetKeyCommand mappe Enter→'down', Tab→'next'). Aucun raccourci d'ajo… | à traiter |
-| UX04 | Majeur | Navigation tableur — bouclage Tab/Entrée | resolveSpreadsheetNextCellId utilise mod() : depuis la dernière cellule, Tab reboucle sur la toute première cellule de la grille (et Shift+Tab depuis la première saute à la derniè… | à traiter |
-| UX05 | Majeur | Sélection multiple — touche Suppr | Lorsque des lignes sont sélectionnées, appuyer sur Suppr déclenche onBulkDeleteSelection() directement, sans confirmation. Un chiffreur qui a sélectionné des lignes (par ex. pour … | à traiter |
-| UX06 | Majeur | Saisie numérique — valeurs vidées | parseNumberInput renvoie 0 pour toute entrée invalide ou vide, et DecimalDraftInput commit cette valeur au blur. Vider K FO/K MO pour les retaper puis cliquer ailleurs commit 0 : … | à traiter |
-| UX07 | Majeur | Layout grille — colonnes de totaux | Avec le sous-détail complet (surtout labor split : ~14 colonnes) la grille dépasse largement la largeur d'un écran portable et défile horizontalement. Les colonnes que le chiffreu… | à traiter |
-| UX08 | Majeur | Sélection de ligne — accessibilité clavier | La case à cocher de sélection de ligne est un input type=checkbox avec readOnly, un handler onClick qui preventDefault, et aucun onChange/onKeyDown. Un checkbox readOnly n'est pas… | à traiter |
-| UX09 | Mineur | Cohérence — dialogues natifs | Les conversions ligne↔section et leurs erreurs utilisent window.confirm/window.alert natifs, alors que le reste de l'app dispose d'un système de toasts (useToast) et de dialogues … | à traiter |
-| UX10 | Mineur | Libellés FR — accents | Accentuation incohérente sur de nombreux libellés visibles : « Créer un lot » écrit « Creer un lot », « filtre qualite actif », « selectionnees en sections », « Impossible de conv… | à traiter |
-| UX11 | Mineur | En-tête grille — ambiguïté PR.FO vs P.U. | La ligne expose deux notions de « prix unitaire » côte à côte : PR. FO (prix de revient fourniture, saisi) et P.U. (prix unitaire de vente, calculé, lecture seule). Sans lecture a… | à traiter |
-| UX12 | Mineur | Menu d'actions ligne — disclosure natif | Le menu « … » de chaque ligne (Comparer / Convertir / Supprimer) est un <details>/<summary> sans aria-haspopup, sans fermeture au clic extérieur ni à Échap, et l'action destructiv… | à traiter |
-| UX13 | Mineur | Insertion ouvrage/template — ancrage | L'insertion d'ouvrage/template se fait « après la cellule active » (insertionAnchorItemId = activeCell.rowId). Si aucune cellule n'est active (ex. juste après chargement, focus ho… | à traiter |
-| UX14 | Polish | Barre de sélection groupée — dépassement de … | La barre d'actions groupées est rendue dans le flux et un simple spacer <div className="h-16"> est ajouté en bas « pour que le contenu ne soit pas masqué ». Cela suggère un chevau… | à traiter |
+| UX01 | Bloquant | Grille d'édition — ligne de devis | La grille n'affiche jamais le sous-détail de prix attendu par un chiffreur : la cellule P.U. montre item.pu_ht_cents (prix de VENTE après marge, en lecture seu… | livré (`c0ceefe`) — colonnes Deboursé sec / Marge € / Marque % |
+| UX02 | Majeur | Totaux — pied de tableau | grandTotals ne somme que les enfants racine de type 'section' : rootItems.forEach((item) => { if (item.item_type !== 'section') return; ... }). Toute ligne sit… | à traiter (vérifié) — `grandTotals` filtre encore `item_type !== "section"`, les lignes racine restent hors du pied |
+| UX03 | Majeur | Saisie clavier — création de ligne | Entrée et Tab déplacent la sélection mais ne créent jamais de nouvelle ligne en fin de tableau (resolveSpreadsheetKeyCommand mappe Enter→'down', Tab→'next'). A… | à traiter (vérifié) — aucun raccourci de création de ligne dans `useEstimateKeyboardShortcuts` |
+| UX04 | Majeur | Navigation tableur — bouclage Tab/Entrée | resolveSpreadsheetNextCellId utilise mod() : depuis la dernière cellule, Tab reboucle sur la toute première cellule de la grille (et Shift+Tab depuis la premiè… | à traiter (vérifié) — `mod()` toujours présent dans `useSpreadsheetNavigation`, la navigation boucle |
+| UX05 | Majeur | Sélection multiple — touche Suppr | Lorsque des lignes sont sélectionnées, appuyer sur Suppr déclenche onBulkDeleteSelection() directement, sans confirmation. Un chiffreur qui a sélectionné des l… | livré (`3d5aaab`) — `confirmAndBulkDeleteSelection` confirme avant suppression |
+| UX06 | Majeur | Saisie numérique — valeurs vidées | parseNumberInput renvoie 0 pour toute entrée invalide ou vide, et DecimalDraftInput commit cette valeur au blur. Vider K FO/K MO pour les retaper puis cliquer … | livré (`1a58046`) — un champ vidé retombe sur 1 (neutre) et non sur 0 |
+| UX07 | Majeur | Layout grille — colonnes de totaux | Avec le sous-détail complet (surtout labor split : ~14 colonnes) la grille dépasse largement la largeur d'un écran portable et défile horizontalement. Les colo… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX08 | Majeur | Sélection de ligne — accessibilité clavier | La case à cocher de sélection de ligne est un input type=checkbox avec readOnly, un handler onClick qui preventDefault, et aucun onChange/onKeyDown. Un checkbo… | livré (`9259f03`) — la case porte `onKeyDown` et `onClick`, opérable au clavier |
+| UX09 | Mineur | Cohérence — dialogues natifs | Les conversions ligne↔section et leurs erreurs utilisent window.confirm/window.alert natifs, alors que le reste de l'app dispose d'un système de toasts (useToa… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX10 | Mineur | Libellés FR — accents | Accentuation incohérente sur de nombreux libellés visibles : « Créer un lot » écrit « Creer un lot », « filtre qualite actif », « selectionnees en sections », … | à traiter (vérifié) — accents FR internes ; le client-facing est fait (`5503cd7`, `9de6a46`), l'interne non |
+| UX11 | Mineur | En-tête grille — ambiguïté PR.FO vs P.U. | La ligne expose deux notions de « prix unitaire » côte à côte : PR. FO (prix de revient fourniture, saisi) et P.U. (prix unitaire de vente, calculé, lecture se… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX12 | Mineur | Menu d'actions ligne — disclosure natif | Le menu « … » de chaque ligne (Comparer / Convertir / Supprimer) est un <details>/<summary> sans aria-haspopup, sans fermeture au clic extérieur ni à Échap, et… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX13 | Mineur | Insertion ouvrage/template — ancrage | L'insertion d'ouvrage/template se fait « après la cellule active » (insertionAnchorItemId = activeCell.rowId). Si aucune cellule n'est active (ex. juste après … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX14 | Polish | Barre de sélection groupée — dépassement de … | La barre d'actions groupées est rendue dans le flux et un simple spacer <div className="h-16"> est ajouté en bas « pour que le contenu ne soit pas masqué ». Ce… | à traiter — non rouvert, aucun correctif livré ne le vise |
 
 ### Métreur — 15 constats
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX15 | Bloquant | Revue d'extraction / EvidencePanel | Aucun visualiseur de plan n'existe dans tout le domaine takeoff (grep iframe\|react-pdf\|pdfjs\|PdfViewer\|canvas dans src/components/takeoff = aucun résultat). L'évidence est un … | à traiter |
-| UX16 | Majeur | TakeoffReviewTable — édition quantité | Le commit de la cellule Quantité rejette silencieusement toute valeur ≤ 0 : onCommit ne propage que si Number.isFinite(num) && num > 0. Si le métreur saisit 0, vide la cellule ou … | à traiter |
-| UX17 | Majeur | TakeoffReviewPage — sauvegarde automatique | Aucun indicateur de sauvegarde persistant ni garde de navigation. Le feedback se limite à un toast transitoire de 2 s (« Sauvegarde automatique ») et à un spinner par ligne. Il n'… | à traiter |
-| UX18 | Majeur | TakeoffReviewPage — chargement des items | Toutes les lignes sont chargées via une boucle de pagination séquentielle (200/page) et l'écran reste bloqué sur un skeleton (loading) tant que TOUTES les pages ne sont pas revenu… | à traiter |
-| UX19 | Majeur | EvidencePanel — navigation prev/next | La navigation flèche gauche/droite dans le panneau d'évidence parcourt la liste items COMPLÈTE et dans l'ordre brut (handleEvidenceNavigate utilise l'index dans items, pas dans la… | à traiter |
-| UX20 | Majeur | TakeoffReviewPage — titre h1 (contexte hors … | Le titre affiche littéralement « Revue d&apos;extraction » : dans le ternaire, la chaîne est un littéral JavaScript passé dans une accolade JSX, or React ne décode pas les entités… | à traiter |
-| UX21 | Majeur | TakeoffReviewTable — colonne Alertes / confi… | L'information d'anomalie repose sur un triangle d'avertissement dont le détail (quelles anomalies) n'est disponible que via l'attribut title (tooltip) — non accessible au clavier … | à traiter |
-| UX22 | Mineur | Vocabulaire — Evidence vs Preuve | Le même concept de traçabilité est nommé de deux façons selon l'écran : « Evidence » (anglicisme) dans EvidencePanel et la table, « preuve » dans ValidationReviewPanel (« Sans pre… | à traiter |
-| UX23 | Mineur | Copy FR — accents/diacritiques | Défaut d'accents systématique dans l'UI destinée à des professionnels francophones du BTP : « Sauvegarde automatique », « verifier/Verifies », « controle », « metre(s) », « Quanti… | à traiter |
-| UX24 | Mineur | TakeoffReviewTable — barre de filtres | La barre de filtres aligne 8+ selects (inclusion, vérif, catégorie, page, table, anomalie, confiance, tri + sens) en un wrap horizontal sans regroupement, sans puces de filtres ac… | à traiter |
-| UX25 | Mineur | TakeoffReviewPage — chargement des candidats… | À chaque ouverture de la revue, un effet pagine TOUS les jobs takeoff de la version (boucle jusqu'à 100/page) uniquement pour trouver ceux du même fichier source, même si l'utilis… | à traiter |
-| UX26 | Mineur | ConfidenceHeader — niveaux A/B | L'entête de confiance globale (jauge + distribution) n'est rendu que pour les extractions Level C. Les métrés Level A (métrage structuré) et Level B (tableaux PDF) n'obtiennent au… | à traiter |
-| UX27 | Mineur | Route affaire review — paramètre versionId m… | La page de revue affaire fait notFound() si le search param versionId est absent. Un métreur qui arrive via un lien partagé ou un favori sans ce paramètre tombe sur un 404 dur, sa… | à traiter |
-| UX28 | Mineur | EvidencePanel — piège de focus du tiroir | Le tiroir d'évidence est marqué role=dialog / aria-modal=true et reçoit le focus à l'ouverture, mais il n'y a pas de piège de focus réel : Tab peut sortir du tiroir vers la table … | à traiter |
-| UX29 | Mineur | Plans — double expérience (affaire vs estima… | Deux parcours plans coexistent : /affaires/[id]/plans (ProjectPlanCenter, actuel) et /estimates/[versionId]/plans (PlanCenter, marqué déprécié via TakeoffDeprecationBanner). Le mé… | à traiter |
+| UX15 | Bloquant | Revue d'extraction / EvidencePanel | Aucun visualiseur de plan n'existe dans tout le domaine takeoff (grep iframe\|react-pdf\|pdfjs\|PdfViewer\|canvas dans src/components/takeoff = aucun résultat)… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX16 | Majeur | TakeoffReviewTable — édition quantité | Le commit de la cellule Quantité rejette silencieusement toute valeur ≤ 0 : onCommit ne propage que si Number.isFinite(num) && num > 0. Si le métreur saisit 0,… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX17 | Majeur | TakeoffReviewPage — sauvegarde automatique | Aucun indicateur de sauvegarde persistant ni garde de navigation. Le feedback se limite à un toast transitoire de 2 s (« Sauvegarde automatique ») et à un spin… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX18 | Majeur | TakeoffReviewPage — chargement des items | Toutes les lignes sont chargées via une boucle de pagination séquentielle (200/page) et l'écran reste bloqué sur un skeleton (loading) tant que TOUTES les page… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX19 | Majeur | EvidencePanel — navigation prev/next | La navigation flèche gauche/droite dans le panneau d'évidence parcourt la liste items COMPLÈTE et dans l'ordre brut (handleEvidenceNavigate utilise l'index dan… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX20 | Majeur | TakeoffReviewPage — titre h1 (contexte hors … | Le titre affiche littéralement « Revue d&apos;extraction » : dans le ternaire, la chaîne est un littéral JavaScript passé dans une accolade JSX, or React ne dé… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX21 | Majeur | TakeoffReviewTable — colonne Alertes / confi… | L'information d'anomalie repose sur un triangle d'avertissement dont le détail (quelles anomalies) n'est disponible que via l'attribut title (tooltip) — non ac… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX22 | Mineur | Vocabulaire — Evidence vs Preuve | Le même concept de traçabilité est nommé de deux façons selon l'écran : « Evidence » (anglicisme) dans EvidencePanel et la table, « preuve » dans ValidationRev… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX23 | Mineur | Copy FR — accents/diacritiques | Défaut d'accents systématique dans l'UI destinée à des professionnels francophones du BTP : « Sauvegarde automatique », « verifier/Verifies », « controle », « … | à traiter (vérifié) — ex. « Verifiez les items en erreur. », « Apply controle termine » dans TakeoffReviewPage |
+| UX24 | Mineur | TakeoffReviewTable — barre de filtres | La barre de filtres aligne 8+ selects (inclusion, vérif, catégorie, page, table, anomalie, confiance, tri + sens) en un wrap horizontal sans regroupement, sans… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX25 | Mineur | TakeoffReviewPage — chargement des candidats… | À chaque ouverture de la revue, un effet pagine TOUS les jobs takeoff de la version (boucle jusqu'à 100/page) uniquement pour trouver ceux du même fichier sour… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX26 | Mineur | ConfidenceHeader — niveaux A/B | L'entête de confiance globale (jauge + distribution) n'est rendu que pour les extractions Level C. Les métrés Level A (métrage structuré) et Level B (tableaux … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX27 | Mineur | Route affaire review — paramètre versionId m… | La page de revue affaire fait notFound() si le search param versionId est absent. Un métreur qui arrive via un lien partagé ou un favori sans ce paramètre tomb… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX28 | Mineur | EvidencePanel — piège de focus du tiroir | Le tiroir d'évidence est marqué role=dialog / aria-modal=true et reçoit le focus à l'ouverture, mais il n'y a pas de piège de focus réel : Tab peut sortir du t… | livré (`12d77a8`) — piège de focus et restauration sur EvidencePanel |
+| UX29 | Mineur | Plans — double expérience (affaire vs estima… | Deux parcours plans coexistent : /affaires/[id]/plans (ProjectPlanCenter, actuel) et /estimates/[versionId]/plans (PlanCenter, marqué déprécié via TakeoffDepre… | à traiter — non rouvert, aucun correctif livré ne le vise |
 
 ### Chargé d'affaires / Conducteur de travaux — 11 constats
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX30 | Majeur | Liste affaires / Hub / Dashboard — colonnes … | Le persona doit piloter des échéances et des relances, mais AUCUNE échéance/date de validité ni date d'envoi n'est surfacée. Partout la seule date affichée est updatedAt, libellée… | à traiter |
-| UX31 | Majeur | AffairesDenseTable — ligne cliquable | Toute la ligne du tableau dense navigue via onClick sur le <tr> (router.push(primaryHref)) sans role, tabIndex ni gestionnaire clavier ; la cellule 'Nom affaire' est du texte brut… | à traiter |
-| UX32 | Majeur | Pilotage portefeuille — vue d'ensemble des é… | Le persona attend une 'vue d'ensemble des affaires… échéances, timeline'. Les surfaces existantes couvrent l'agrégat (analytics : KPI + tendance) et le détail (hub par affaire), m… | à traiter |
-| UX33 | Mineur | estimates/dashboard vs analytics — composant… | EstimateDashboard.tsx (référencé comme surface du parcours : taux d'acceptation, CA par statut, courbe créés/acceptés en SVG polyline) n'est importé nulle part ; /dashboard/estima… | à traiter |
-| UX34 | Mineur | Chaîne affaires / hub / analytics — accentua… | Incohérence d'accentuation systématique sur des libellés visibles, qui décrédibilise un outil de chiffrage pro face à Batigest/Onaya. Exemples : 'Favori non enregistre', 'Impossib… | à traiter |
-| UX35 | Mineur | AffaireHubPage — chargement de la page la pl… | Le hub d'affaire (page la plus visitée par ce persona) charge côté serveur en vagues séquentielles bloquantes : ~6 fetches en vague 1, puis ~8 fetches dépendants en vague 2 (appro… | à traiter |
-| UX36 | Mineur | Dashboard accueil — sur-récupération | L'accueil récupère 20 affaires (fetchAffairePageData({ size: 20 })) puis n'en affiche que 5 (slice(0,5)) dans 'Affaires récentes'. La donnée superflue (jointures totaux/statuts su… | à traiter |
-| UX37 | Mineur | Dashboard accueil — KPI 'Affaires actives' | 'Affaires actives' = totalCount - archived, ce qui inclut les affaires 'Acceptées' (gagnées) dans les 'actives'. Pour un conducteur de travaux, une affaire acceptée bascule en exé… | à traiter |
-| UX38 | Mineur | ChiffreurDashboard — TrendChart | Le graphe de tendance (barres CSS créés vs acceptés) n'a ni axe Y ni valeurs affichées ; les chiffres exacts ne sont accessibles qu'au survol (title) — inexploitable au tactile et… | à traiter |
-| UX39 | Mineur | AffairesDenseTable — actions par ligne | Jusqu'à 5 actions icône par ligne (favori, hub, voir/éditer, supprimer) reposant uniquement sur des title au survol (non découvrables au tactile), avec l'icône Supprimer (rouge) d… | à traiter |
-| UX40 | Mineur | EstimateEventsTimeline — lisibilité des méta… | La colonne 'Métadonnées' concatène brutalement les paires clé/valeur ('cle: valeur \| cle: valeur') en normalisant juste les underscores, et fait un JSON.stringify des objets. Le … | à traiter |
+| UX30 | Majeur | Liste affaires / Hub / Dashboard — colonnes … | Le persona doit piloter des échéances et des relances, mais AUCUNE échéance/date de validité ni date d'envoi n'est surfacée. Partout la seule date affichée est… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX31 | Majeur | AffairesDenseTable — ligne cliquable | Toute la ligne du tableau dense navigue via onClick sur le <tr> (router.push(primaryHref)) sans role, tabIndex ni gestionnaire clavier ; la cellule 'Nom affair… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX32 | Majeur | Pilotage portefeuille — vue d'ensemble des é… | Le persona attend une 'vue d'ensemble des affaires… échéances, timeline'. Les surfaces existantes couvrent l'agrégat (analytics : KPI + tendance) et le détail … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX33 | Mineur | estimates/dashboard vs analytics — composant… | EstimateDashboard.tsx (référencé comme surface du parcours : taux d'acceptation, CA par statut, courbe créés/acceptés en SVG polyline) n'est importé nulle part… | à traiter (vérifié) — `EstimateDashboard` n'est importé nulle part, toujours mort |
+| UX34 | Mineur | Chaîne affaires / hub / analytics — accentua… | Incohérence d'accentuation systématique sur des libellés visibles, qui décrédibilise un outil de chiffrage pro face à Batigest/Onaya. Exemples : 'Favori non en… | à traiter (vérifié) — même campagne d'accents que UX10 |
+| UX35 | Mineur | AffaireHubPage — chargement de la page la pl… | Le hub d'affaire (page la plus visitée par ce persona) charge côté serveur en vagues séquentielles bloquantes : ~6 fetches en vague 1, puis ~8 fetches dépendan… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX36 | Mineur | Dashboard accueil — sur-récupération | L'accueil récupère 20 affaires (fetchAffairePageData({ size: 20 })) puis n'en affiche que 5 (slice(0,5)) dans 'Affaires récentes'. La donnée superflue (jointur… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX37 | Mineur | Dashboard accueil — KPI 'Affaires actives' | 'Affaires actives' = totalCount - archived, ce qui inclut les affaires 'Acceptées' (gagnées) dans les 'actives'. Pour un conducteur de travaux, une affaire acc… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX38 | Mineur | ChiffreurDashboard — TrendChart | Le graphe de tendance (barres CSS créés vs acceptés) n'a ni axe Y ni valeurs affichées ; les chiffres exacts ne sont accessibles qu'au survol (title) — inexplo… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX39 | Mineur | AffairesDenseTable — actions par ligne | Jusqu'à 5 actions icône par ligne (favori, hub, voir/éditer, supprimer) reposant uniquement sur des title au survol (non découvrables au tactile), avec l'icône… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX40 | Mineur | EstimateEventsTimeline — lisibilité des méta… | La colonne 'Métadonnées' concatène brutalement les paires clé/valeur ('cle: valeur \| cle: valeur') en normalisant juste les underscores, et fait un JSON.strin… | à traiter — non rouvert, aucun correctif livré ne le vise |
 
 ### Directeur / Direction (validation & marges) — 10 constats
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX41 | Bloquant | Page détail devis — bascule de statut | Le bouton « Marquer envoyé » (rendu sur la fiche devis pour tout utilisateur pouvant éditer) appelle PATCH /status avec force: true codé en dur ET un If-Match: new Date().toISOStr… | à traiter |
-| UX42 | Majeur | Cockpit direction / File d'approbation — vis… | Le scellement (intégrité cryptographique) est central pour ce persona, mais SealIntegrityBadge n'est monté que sur la fiche devis et l'impression. Ni les cartes du portefeuille (R… | à traiter |
-| UX43 | Majeur | Gating pré-envoi — forçage | Le bouton « Forcer l'envoi » (visible quand canForce et blocants présents) déclenche onForceConfirm en un seul clic, sans champ de motif ni seconde confirmation, alors que le Deci… | à traiter |
-| UX44 | Majeur | File d'approbation — tri | L'inversion du sens de tri est morte : ApprovalQueuePage passe onDirectionToggle={() => {}} (no-op) au SortControl, et sortState.direction est systématiquement recalculé depuis l'… | à traiter |
-| UX45 | Majeur | File d'approbation — état de revue (donnée p… | Une valeur d'énumération manifestement issue d'un nom de développeur, « review_laurent », est figée dans une contrainte CHECK de migration, dans le type ReviewerState, dans la val… | à traiter |
-| UX46 | Mineur | File hebdo — réassignation responsable | Le message de confirmation après réassignation est cassé : Affaire reassign ee a ${label} — espace parasite au milieu du mot et accents manquants (devrait être « Affaire réassigné… | à traiter |
-| UX47 | Mineur | Paramètres — Tranches de marge | MarginTiersManager sauvegarde seuil/multiplicateur au blur sans aucune confirmation de succès par ligne, le sens du « multiplicateur » n'est jamais explicité (1.50 = coefficient ?… | à traiter |
-| UX48 | Mineur | File d'approbation — feedback de tri/filtre | Le changement de tri ou du filtre « Exceptions seulement » fait un router.push vers un composant serveur qui refait la requête, mais l'écran ne fournit aucun état de chargement (p… | à traiter |
-| UX49 | Polish | Cockpit direction — KPI aria-live | Le bloc des 3 KPI (Portefeuille / À surveiller / Validation) est enveloppé dans aria-live=polite + aria-atomic=true : à chaque changement de filtre, les trois cartes entières (lab… | à traiter |
-| UX50 | Polish | Gating pré-envoi — sections vides | La modale de vérification affiche toujours les deux sections « Bloquants » et « Avertissements » avec leur paragraphe explicatif, même à zéro élément (« Aucun element. »). Quand t… | à traiter |
+| UX41 | Bloquant | Page détail devis — bascule de statut | Le bouton « Marquer envoyé » (rendu sur la fiche devis pour tout utilisateur pouvant éditer) appelle PATCH /status avec force: true codé en dur ET un If-Match:… | livré (`e10b045`) — plus de `force:true` codé en dur dans « Marquer envoyé » |
+| UX42 | Majeur | Cockpit direction / File d'approbation — vis… | Le scellement (intégrité cryptographique) est central pour ce persona, mais SealIntegrityBadge n'est monté que sur la fiche devis et l'impression. Ni les carte… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX43 | Majeur | Gating pré-envoi — forçage | Le bouton « Forcer l'envoi » (visible quand canForce et blocants présents) déclenche onForceConfirm en un seul clic, sans champ de motif ni seconde confirmatio… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX44 | Majeur | File d'approbation — tri | L'inversion du sens de tri est morte : ApprovalQueuePage passe onDirectionToggle={() => {}} (no-op) au SortControl, et sortState.direction est systématiquement… | à traiter (vérifié) — `onDirectionToggle={() => {}}` toujours no-op dans ApprovalQueuePage |
+| UX45 | Majeur | File d'approbation — état de revue (donnée p… | Une valeur d'énumération manifestement issue d'un nom de développeur, « review_laurent », est figée dans une contrainte CHECK de migration, dans le type Review… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX46 | Mineur | File hebdo — réassignation responsable | Le message de confirmation après réassignation est cassé : Affaire reassign ee a ${label} — espace parasite au milieu du mot et accents manquants (devrait être… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX47 | Mineur | Paramètres — Tranches de marge | MarginTiersManager sauvegarde seuil/multiplicateur au blur sans aucune confirmation de succès par ligne, le sens du « multiplicateur » n'est jamais explicité (… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX48 | Mineur | File d'approbation — feedback de tri/filtre | Le changement de tri ou du filtre « Exceptions seulement » fait un router.push vers un composant serveur qui refait la requête, mais l'écran ne fournit aucun é… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX49 | Polish | Cockpit direction — KPI aria-live | Le bloc des 3 KPI (Portefeuille / À surveiller / Validation) est enveloppé dans aria-live=polite + aria-atomic=true : à chaque changement de filtre, les trois … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX50 | Polish | Gating pré-envoi — sections vides | La modale de vérification affiche toujours les deux sections « Bloquants » et « Avertissements » avec leur paragraphe explicatif, même à zéro élément (« Aucun … | à traiter — non rouvert, aucun correctif livré ne le vise |
 
 ### Acheteur / Responsable achats — 13 constats
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX51 | Majeur | Prix fournisseurs (/dashboard/prices) | Le filtre de fraîcheur est câblé sur une mauvaise clé d'URL et ne filtre donc rien. La config déclare la clé '_freshnessLevel' (PRICES_FILTERS), mais l'état lu et la requête utili… | à traiter |
-| UX52 | Majeur | Libellés FR (parcours achats complet) | Suppression systématique des accents dans de nombreux libellés d'action et de confirmation, sur un outil BTP français destiné aux achats. Exemples: message de confirmation de supp… | à traiter |
-| UX53 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau est un role='dialog' aria-modal='true' mais n'implémente ni fermeture au clavier (aucune gestion de la touche Échap), ni piège de focus, ni focus initial à l'ouverture … | à traiter |
-| UX54 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau liste les alternatives avec prix et badges mais n'affiche aucun écart chiffré vs la sélection actuelle: ni économie en euros, ni % d'écart, ni total ligne impacté. L'ac… | à traiter |
-| UX55 | Majeur | Comparaison fournisseurs — multi-devises | Le prix est affiché en formatEUR(adjusted_unit_price_cents) puis on concatène la devise brute de l'offre ( ${alternative.currency}), ce qui produit des rendus ambigus (ex: '128,00… | à traiter |
-| UX56 | Mineur | Fournisseurs (/dashboard/suppliers) | Le tableau fournisseurs n'expose que Nom/Contact/Ville/Email/Téléphone, alors que l'acheteur maintient et consulte régulièrement les conditions de paiement, le SIRET et le n° de T… | à traiter |
-| UX57 | Mineur | Fournisseurs — suppression | La suppression fournisseur utilise window.confirm natif (style navigateur), incohérent avec la ConfirmModal soignée utilisée sur les BDC. De plus, l'erreur éventuelle (formError) … | à traiter |
-| UX58 | Mineur | Architecture d'information (Référentiel / Ta… | Le référentiel achats est éclaté entre deux hubs qui se recouvrent: le hub Référentiel liste Fournisseurs/Chantiers/Produits/Kits métiers, le hub Tarifs liste Prix fournisseurs/In… | à traiter |
-| UX59 | Mineur | Prix fournisseurs — stats | Les cartes de synthèse affichent Total, À jour, Anciens (>90j) et Fournisseurs couverts, mais omettent le bucket 'Vieillissant (30-90j)' qui existe pourtant comme option de filtre… | à traiter |
-| UX60 | Mineur | Présélection fournisseurs — exceptions | La section 'Exceptions à arbitrer' décrit clairement la raison et les options visibles, mais n'offre aucune action pour résoudre l'exception (pas de lien vers la ligne du devis, v… | à traiter |
-| UX61 | Mineur | Application en masse des suggestions (BulkSu… | Le tableau Actuel/Proposé montre les changements (ex: PU) mais pas la provenance ni la fraîcheur de la valeur proposée (fournisseur, date du prix, source). En appliquant en masse,… | à traiter |
-| UX62 | Polish | Comparaison fournisseurs — fraîcheur | Le panneau de comparaison n'affiche que la date ('Date: JJ/MM/AAAA') et un badge binaire 'Prix ancien', sans l'âge en jours ni le seuil, alors que la table des prix expose déjà un… | à traiter |
-| UX63 | Polish | Finish line commandes — date de livraison | La date de livraison prévue mélange une valeur sentinelle 'TBD' (chaîne) dans un champ de type date via une case 'À déterminer'. Ce couplage chaîne/date est fragile (formatDate gè… | à traiter |
+| UX51 | Majeur | Prix fournisseurs (/dashboard/prices) | Le filtre de fraîcheur est câblé sur une mauvaise clé d'URL et ne filtre donc rien. La config déclare la clé '_freshnessLevel' (PRICES_FILTERS), mais l'état lu… | livré (`8a685cf`) — la clé `_freshnessLevel` a disparu, le filtre fonctionne |
+| UX52 | Majeur | Libellés FR (parcours achats complet) | Suppression systématique des accents dans de nombreux libellés d'action et de confirmation, sur un outil BTP français destiné aux achats. Exemples: message de … | à traiter (vérifié) — ex. « Supprimer ce fournisseur ? » et suivants, parcours achats |
+| UX53 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau est un role='dialog' aria-modal='true' mais n'implémente ni fermeture au clavier (aucune gestion de la touche Échap), ni piège de focus, ni focus in… | livré (`ce09a53`) — fermeture par Échap et focus initial |
+| UX54 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau liste les alternatives avec prix et badges mais n'affiche aucun écart chiffré vs la sélection actuelle: ni économie en euros, ni % d'écart, ni total… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX55 | Majeur | Comparaison fournisseurs — multi-devises | Le prix est affiché en formatEUR(adjusted_unit_price_cents) puis on concatène la devise brute de l'offre ( ${alternative.currency}), ce qui produit des rendus … | livré (`30a8b85` affichage par devise + `7977a53` sélection manuelle bloquée) |
+| UX56 | Mineur | Fournisseurs (/dashboard/suppliers) | Le tableau fournisseurs n'expose que Nom/Contact/Ville/Email/Téléphone, alors que l'acheteur maintient et consulte régulièrement les conditions de paiement, le… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX57 | Mineur | Fournisseurs — suppression | La suppression fournisseur utilise window.confirm natif (style navigateur), incohérent avec la ConfirmModal soignée utilisée sur les BDC. De plus, l'erreur éve… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX58 | Mineur | Architecture d'information (Référentiel / Ta… | Le référentiel achats est éclaté entre deux hubs qui se recouvrent: le hub Référentiel liste Fournisseurs/Chantiers/Produits/Kits métiers, le hub Tarifs liste … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX59 | Mineur | Prix fournisseurs — stats | Les cartes de synthèse affichent Total, À jour, Anciens (>90j) et Fournisseurs couverts, mais omettent le bucket 'Vieillissant (30-90j)' qui existe pourtant co… | à traiter (vérifié) — `aging` n'existe que dans les options de filtre, pas dans les stats |
+| UX60 | Mineur | Présélection fournisseurs — exceptions | La section 'Exceptions à arbitrer' décrit clairement la raison et les options visibles, mais n'offre aucune action pour résoudre l'exception (pas de lien vers … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX61 | Mineur | Application en masse des suggestions (BulkSu… | Le tableau Actuel/Proposé montre les changements (ex: PU) mais pas la provenance ni la fraîcheur de la valeur proposée (fournisseur, date du prix, source). En … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX62 | Polish | Comparaison fournisseurs — fraîcheur | Le panneau de comparaison n'affiche que la date ('Date: JJ/MM/AAAA') et un badge binaire 'Prix ancien', sans l'âge en jours ni le seuil, alors que la table des… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX63 | Polish | Finish line commandes — date de livraison | La date de livraison prévue mélange une valeur sentinelle 'TBD' (chaîne) dans un champ de type date via une case 'À déterminer'. Ce couplage chaîne/date est fr… | à traiter — non rouvert, aucun correctif livré ne le vise |
 
 ### Client / Maître d'ouvrage — 10 constats
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX64 | Bloquant | Acceptation / CGV | La modale d'acceptation fait cocher « J'accepte ce devis et ses conditions » (AcceptEstimateModal.tsx:131) comme condition obligatoire de validation, mais le portail n'affiche jam… | à traiter |
-| UX65 | Majeur | Copie du document | Aucun moyen depuis le portail de télécharger ou d'imprimer une copie du devis. page.tsx ne rend aucun bouton de téléchargement et EstimatePdfDownloadButton n'est pas utilisé côté … | à traiter |
-| UX66 | Majeur | Textes portail (FR) | Accents français absents sur toute la surface visible du client, ce qui fait amateur sur un document contractuel. Ex. « Ce devis a ete accepte. Merci pour votre confiance. », « Ce… | à traiter |
-| UX67 | Majeur | Pages d'erreur / impasse | Les pages « Devis expiré » et « Lien invalide » demandent de « contacter votre interlocuteur » mais n'affichent aucun contact (nom, email, téléphone). Le client est en impasse tot… | à traiter |
-| UX68 | Majeur | Cohérence document email vs portail | Le portail ignore la mise en page choisie par le chiffreur : page.tsx ne passe pas layout, donc EstimateDocument retombe sur DEFAULT_ESTIMATE_PDF_LAYOUT (preset client_detailed, u… | à traiter |
-| UX69 | Majeur | Signature | Le pad de signature n'est utilisable qu'à la souris/au tactile : les handlers sont mousedown/mousemove/touch (SignaturePad.tsx:142-148), sans alternative clavier, et le canvas por… | à traiter |
-| UX70 | Mineur | Signature | Le ResizeObserver efface silencieusement les traits à chaque redimensionnement du conteneur (SignaturePad.tsx:55-64), ce qui inclut la rotation d'écran mobile et l'apparition/masq… | à traiter |
-| UX71 | Mineur | Acceptation / signature | Si l'upload de la signature échoue, l'acceptation aboutit quand même et la signature est silencieusement abandonnée (accept/route.ts:162-173, commentaire « don't fail the acceptan… | à traiter |
-| UX72 | Mineur | En-tête / validité | Deux notions de validité coexistent et peuvent diverger : le PortalHeader affiche « Valide jusqu'au {expiresAt} » (expiration du token portail, PortalHeader.tsx:88) tandis que le … | à traiter |
-| UX73 | Polish | États post-décision / impression | Redondance d'indicateurs de statut : pour accepté/refusé/expiré, PortalHeader affiche déjà un badge de statut (PortalHeader.tsx:66-71) ET PortalActions affiche une bannière pleine… | à traiter |
+| UX64 | Bloquant | Acceptation / CGV | La modale d'acceptation fait cocher « J'accepte ce devis et ses conditions » (AcceptEstimateModal.tsx:131) comme condition obligatoire de validation, mais le p… | à traiter (vérifié) — le portail ne transmet ni `terms` ni `exclusions` : le client accepte des CGV qu'il ne voit pas |
+| UX65 | Majeur | Copie du document | Aucun moyen depuis le portail de télécharger ou d'imprimer une copie du devis. page.tsx ne rend aucun bouton de téléchargement et EstimatePdfDownloadButton n'e… | à traiter (vérifié) — aucun bouton de téléchargement PDF sur le portail |
+| UX66 | Majeur | Textes portail (FR) | Accents français absents sur toute la surface visible du client, ce qui fait amateur sur un document contractuel. Ex. « Ce devis a ete accepte. Merci pour votr… | livré (`5503cd7`) — accents rétablis sur le portail et le document client |
+| UX67 | Majeur | Pages d'erreur / impasse | Les pages « Devis expiré » et « Lien invalide » demandent de « contacter votre interlocuteur » mais n'affichent aucun contact (nom, email, téléphone). Le clien… | à traiter (vérifié) — pages `expired` / `not-found` sans coordonnées émetteur |
+| UX68 | Majeur | Cohérence document email vs portail | Le portail ignore la mise en page choisie par le chiffreur : page.tsx ne passe pas layout, donc EstimateDocument retombe sur DEFAULT_ESTIMATE_PDF_LAYOUT (prese… | à traiter (vérifié) — `layout` et `issuer*` non transmis : le portail peut diverger du PDF reçu par email |
+| UX69 | Majeur | Signature | Le pad de signature n'est utilisable qu'à la souris/au tactile : les handlers sont mousedown/mousemove/touch (SignaturePad.tsx:142-148), sans alternative clavi… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX70 | Mineur | Signature | Le ResizeObserver efface silencieusement les traits à chaque redimensionnement du conteneur (SignaturePad.tsx:55-64), ce qui inclut la rotation d'écran mobile … | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX71 | Mineur | Acceptation / signature | Si l'upload de la signature échoue, l'acceptation aboutit quand même et la signature est silencieusement abandonnée (accept/route.ts:162-173, commentaire « don… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX72 | Mineur | En-tête / validité | Deux notions de validité coexistent et peuvent diverger : le PortalHeader affiche « Valide jusqu'au {expiresAt} » (expiration du token portail, PortalHeader.ts… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX73 | Polish | États post-décision / impression | Redondance d'indicateurs de statut : pour accepté/refusé/expiré, PortalHeader affiche déjà un badge de statut (PortalHeader.tsx:66-71) ET PortalActions affiche… | à traiter — non rouvert, aucun correctif livré ne le vise |
 
 ---
 
 ## 3. Ce qui reste à rapprocher
 
-Les 27 bugs sont traités. Restent **72 constats UX/UI** dont le statut n'a pas été
-vérifié contre le code : c'est le premier vrai jalon de « finir l'audit UX/UI », et
-il se fait constat par constat, pas en bloc.
+Bilan du rapprochement UX au 2026-07-26 :
+
+| Statut | Nombre |
+|---|---|
+| livré, avec le sha du correctif | 10 |
+| à traiter — **vérifié** encore ouvert dans le code | 14 |
+| non rouvert | 49 |
+
+Les 49 restants sont en majorité des améliorations de conception (visualiseur
+de plan, dates de pilotage, écarts chiffrés, architecture d'information)
+qu'aucun commit de la plage livrée ne vise. Les rouvrir un à un reste à faire,
+mais le risque d'en trouver un déjà corrigé est faible.
 
 Pour retrouver les correctifs livrés :
 
