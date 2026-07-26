@@ -56,9 +56,9 @@ describe("estimate PDF terms", () => {
     );
 
     expect(draft).toMatchObject({
-      id: "estimate-cgv-b2b-draft-v2",
+      id: "estimate-cgv-b2b-draft-v3",
       title: "Projet de CGV - Travaux B2B",
-      version: 2,
+      version: 3,
       legalReviewedAt: null,
       isDraft: true,
     });
@@ -98,5 +98,26 @@ describe("estimate PDF terms", () => {
     expect(draft?.body).not.toContain("VALIDITÉ");
     expect(draft?.body).not.toContain("ACCÈS ET CONDITIONS DE CHANTIER");
     expect(draft?.body).not.toContain("Les données de contact");
+  });
+});
+
+describe("clause TVA et autoliquidation (EST-E27)", () => {
+  // La clause 2 affirmait « la TVA est facturée au taux applicable », ce qui est
+  // faux en sous-traitance de travaux immobiliers. Sur un document contractuel,
+  // c'est une clause qui contredit la loi.
+  //
+  // Une seule formulation couvre les deux régimes, plutôt que deux gabarits à
+  // tenir synchronisés — c'est la divergence que ce dépôt paie assez cher.
+  const body = createDevelopmentEstimateTermsTemplate("tenant-1", "development")
+    ?.body;
+
+  it("mentionne l'autoliquidation et son fondement", () => {
+    expect(body).toContain("Autoliquidation");
+    expect(body).toContain("283, 2 nonies");
+    expect(body).toContain("due par le preneur");
+  });
+
+  it("reste exacte en régime normal", () => {
+    expect(body).toContain("la TVA est facturée au taux applicable");
   });
 });

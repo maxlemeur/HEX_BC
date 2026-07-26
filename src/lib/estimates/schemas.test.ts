@@ -1261,3 +1261,32 @@ describe("updateMarginTierSchema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("patchEstimateVersionSchema — regime de TVA (EST-E27)", () => {
+  // Sans entree dans le schema, Zod SUPPRIME silencieusement le champ : le
+  // chiffreur choisit « sous-traitance », la sauvegarde part sans erreur, et le
+  // regime est revenu a « principal » au rechargement. C'est le mecanisme exact
+  // qui a fait perdre la MO eclatee pendant 41 commits.
+  it("laisse passer le role contractuel", () => {
+    const parsed = patchEstimateVersionSchema.safeParse({
+      contractor_role: "subcontractor",
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.contractor_role).toBe("subcontractor");
+  });
+
+  it("accepte aussi le regime normal", () => {
+    const parsed = patchEstimateVersionSchema.safeParse({
+      contractor_role: "principal",
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("refuse une valeur hors de la contrainte CHECK de la colonne", () => {
+    expect(
+      patchEstimateVersionSchema.safeParse({ contractor_role: "autre" }).success
+    ).toBe(false);
+  });
+});

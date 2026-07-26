@@ -153,6 +153,15 @@ export const estimateRoundingModeSchema = z.enum([
 
 export const estimateMarginModeSchema = z.enum(["fixed", "tiered"]);
 export const estimateDiscountModeSchema = z.enum(["simple", "cascade"]);
+/**
+ * EST-E27 — role contractuel sur le devis. `subcontractor` declenche
+ * l'autoliquidation de la TVA (art. 283, 2 nonies du CGI). Les valeurs
+ * refletent la contrainte CHECK de la colonne.
+ */
+export const estimateContractorRoleSchema = z.enum([
+  "principal",
+  "subcontractor",
+]);
 export const createEstimateCreationModeSchema = z.enum([
   "blank",
   "linked_dpgf_source",
@@ -280,6 +289,14 @@ export const patchEstimateVersionSchema = z
     discount_steps: discountStepsSchema.optional(),
     global_coefficient: globalCoefficientSchema.optional(),
     tax_rate_bp: taxRateBpSchema.optional(),
+    /**
+     * EST-E27 — regime de TVA. Sans cette entree, Zod supprimerait
+     * silencieusement le champ du payload : le chiffreur choisirait
+     * « sous-traitance », la sauvegarde partirait sans erreur, et le regime
+     * serait revenu a « principal » au rechargement. C'est exactement le
+     * mecanisme qui a fait perdre la MO eclatee pendant 41 commits.
+     */
+    contractor_role: estimateContractorRoleSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
     max_section_depth: sectionDepthSchema.optional(),

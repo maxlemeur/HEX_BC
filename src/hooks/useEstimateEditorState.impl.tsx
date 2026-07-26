@@ -601,6 +601,7 @@ export function useEstimateEditorState({
           discount_steps: cascadeDiscountSteps,
           global_coefficient: globalCoefficient,
           tax_rate_bp: versionRow.tax_rate_bp,
+          contractor_role: versionRow.contractor_role ?? "principal",
           rounding_mode: versionRow.rounding_mode,
           rounding_step_cents: versionRow.rounding_step_cents,
         };
@@ -1118,6 +1119,9 @@ export function useEstimateEditorState({
       roundingMode: settings.rounding_mode,
       roundingStepCents: settings.rounding_step_cents,
       isLaborSplitEnabled,
+      // EST-E27 : l editeur applique le MEME regime que le document. Sans cela
+      // le chiffreur verrait un TTC que le devis remis au client n affiche pas.
+      vatReverseCharge: settings.contractor_role === "subcontractor",
     };
     return computeEstimateTotals(totalsInput);
   }, [
@@ -1348,6 +1352,9 @@ export function useEstimateEditorState({
         discount_bp: discountBp,
         ...discountPatch,
         tax_rate_bp: settingsSnapshot.tax_rate_bp,
+        // EST-E27 : le regime de TVA est une grandeur de version, persistee
+        // telle qu elle est choisie.
+        contractor_role: settingsSnapshot.contractor_role ?? "principal",
         rounding_mode: settingsSnapshot.rounding_mode,
         rounding_step_cents: settingsSnapshot.rounding_step_cents,
         total_ht_cents: totalsSnapshot.saleTotalCents,

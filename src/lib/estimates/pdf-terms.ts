@@ -36,7 +36,7 @@ export const ESTIMATE_DRAFT_TERMS_NOTICE =
 
 const ESTIMATE_DRAFT_TERMS_BODY = `1. FORMATION ET DOCUMENTS CONTRACTUELS - Le contrat est formé par l'acceptation écrite du devis par une personne habilitée. Le devis, ses précisions et exclusions particulières, ses annexes et ses avenants constituent les conditions particulières et prévalent sur les présentes CGV en cas de contradiction. Les documents du client ne s'appliquent qu'après acceptation écrite du prestataire.
 
-2. PRIX, FACTURATION ET PAIEMENT - Sauf mention contraire au devis, les prix sont exprimés hors taxes et la TVA est facturée au taux applicable. Les modalités et délais de paiement sont ceux du devis et des factures. Aucun acompte n'est dû s'il n'est pas expressément prévu au devis. Aucun escompte n'est accordé sauf stipulation contraire. Tout retard entraîne de plein droit des pénalités au taux BCE majoré de 10 points, sans pouvoir être inférieur à trois fois le taux d'intérêt légal, ainsi que l'indemnité forfaitaire légale de 40 € pour frais de recouvrement.
+2. PRIX, FACTURATION ET PAIEMENT - Sauf mention contraire au devis, les prix sont exprimés hors taxes et la TVA est facturée au taux applicable. Lorsque le devis porte la mention « Autoliquidation », la taxe n'est pas facturée par le prestataire : elle est due par le preneur assujetti en application de l'article 283, 2 nonies du code général des impôts. Les modalités et délais de paiement sont ceux du devis et des factures. Aucun acompte n'est dû s'il n'est pas expressément prévu au devis. Aucun escompte n'est accordé sauf stipulation contraire. Tout retard entraîne de plein droit des pénalités au taux BCE majoré de 10 points, sans pouvoir être inférieur à trois fois le taux d'intérêt légal, ainsi que l'indemnité forfaitaire légale de 40 € pour frais de recouvrement.
 
 3. DÉLAIS, SUSPENSION ET EMPÊCHEMENTS - Les dates et délais sont ceux du devis. Ils courent lorsque le client a fourni les informations, autorisations et conditions nécessaires à l'exécution, ainsi que tout autre préalable expressément prévu au devis. Ils sont prolongés en cas de modification, retard d'un tiers, intempérie, sujétion imprévisible ou événement hors du contrôle raisonnable du prestataire. Après mise en demeure restée sans effet, le prestataire peut suspendre l'exécution en cas d'impayé ou d'empêchement imputable au client.
 
@@ -158,11 +158,16 @@ export function createDevelopmentEstimateTermsTemplate(
   if (nodeEnv !== "development") return null;
 
   return {
-    id: "estimate-cgv-b2b-draft-v2",
+    // v3 : la clause 2 affirmait que « la TVA est facturee au taux applicable »,
+    // ce qui est FAUX en sous-traitance de travaux immobiliers, ou la taxe est
+    // autoliquidee (EST-E27). Sur un document contractuel, c est une clause qui
+    // contredit la loi. La formulation couvre desormais les deux regimes plutot
+    // que d avoir deux gabarits a tenir synchronises.
+    id: "estimate-cgv-b2b-draft-v3",
     tenantId,
     title: "Projet de CGV - Travaux B2B",
     body: ESTIMATE_DRAFT_TERMS_BODY,
-    version: 2,
+    version: 3,
     policy: "default",
     legalReviewedAt: null,
     isDraft: true,

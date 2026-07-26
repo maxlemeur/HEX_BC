@@ -31,6 +31,8 @@ export type EstimateSettingsState = {
   discount_steps?: number[];
   global_coefficient?: number;
   tax_rate_bp: number;
+  /** EST-E27 : role contractuel — pilote le regime de TVA du devis. */
+  contractor_role?: string;
   rounding_mode: RoundingMode;
   rounding_step_cents: number;
 };
@@ -595,6 +597,45 @@ export function EstimateSettingsPanel({
                 </button>
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="form-label" htmlFor="estimate-contractor-role">
+              Régime de TVA
+            </label>
+            <select
+              id="estimate-contractor-role"
+              className="form-input"
+              disabled={isReadOnly}
+              value={settings.contractor_role ?? "principal"}
+              onChange={(event) =>
+                onChange({
+                  contractor_role:
+                    event.target.value === "subcontractor"
+                      ? "subcontractor"
+                      : "principal",
+                })
+              }
+            >
+              <option value="principal">
+                Entreprise principale — TVA facturée
+              </option>
+              <option value="subcontractor">
+                Sous-traitance — TVA autoliquidée
+              </option>
+            </select>
+            <p className="mt-1 text-xs text-[var(--slate-500)]">
+              {settings.contractor_role === "subcontractor"
+                ? "Le devis est émis hors taxe et porte la mention « Autoliquidation » (art. 283, 2 nonies du CGI). La TVA est due par le preneur."
+                : "Régime normal : la TVA est facturée au taux applicable."}
+            </p>
+            {/*
+              EST-E27 — D2 : le logiciel PROPOSE le régime, il ne le déduit
+              jamais. Les exclusions du dispositif (nettoyage sous contrat
+              séparé, fabrication de matériaux, prestations intellectuelles,
+              location d'engins) dépendent de la nature du CONTRAT, que
+              l'application ne connaît pas. L'arbitrage revient à l'utilisateur.
+            */}
           </div>
 
           <div>
