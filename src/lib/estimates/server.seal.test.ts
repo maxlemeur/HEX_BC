@@ -888,6 +888,89 @@ describe("verifyEstimateSeal", () => {
     });
   });
 
+  it("EST-E27 : ajouter le regime de TVA n invalide aucun sceau existant", async () => {
+    // La lecon de b74a0c8, appliquee avant de commettre la meme erreur : une cle
+    // ajoutee au payload canonique sur TOUTES les versions changerait le hash de
+    // l integralite du parc scelle, sans reparation possible. `contractor_role`
+    // n entre donc dans le payload que hors valeur par defaut.
+    const baseItem = {
+      id: "88888888-8888-4888-8888-888888888888",
+      position: 1,
+      item_type: "line" as const,
+      title: "Ligne",
+      quantity: 1,
+      unit_price_ht_cents: 10000,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: null,
+      k_mo: 1,
+      supply_type_id: null,
+      pu_ht_cents: 10000,
+      line_total_ht_cents: 10000,
+      line_tax_cents: 2000,
+      line_total_ttc_cents: 12000,
+    };
+    const version = {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      date_devis: "2026-02-21",
+      total_ht_cents: 10000,
+      total_tax_cents: 2000,
+      total_ttc_cents: 12000,
+      margin_multiplier: 1.2,
+      discount_bp: 0,
+      tax_rate_bp: 2000,
+      rounding_mode: "none" as const,
+      rounding_step_cents: 1,
+    };
+
+    // Sceau emis avant l existence de la colonne.
+    const legacyHash = createExpectedSealHash({ version, items: [baseItem] });
+
+    // Etat REEL en base apres migration : `contractor_role = principal` sur
+    // toutes les lignes, par le defaut de la colonne.
+    const principal = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        {
+          data: { ...version, contractor_role: "principal", seal_hash: legacyHash },
+          error: null,
+        },
+      ],
+      estimateItemsResult: { data: [baseItem], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(principal as never);
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: true,
+    });
+
+    // En revanche, passer une version en sous-traitance CHANGE le document : le
+    // sceau doit le detecter.
+    const subcontractor = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        {
+          data: {
+            ...version,
+            contractor_role: "subcontractor",
+            seal_hash: legacyHash,
+          },
+          error: null,
+        },
+      ],
+      estimateItemsResult: { data: [baseItem], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      subcontractor as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: false,
+    });
+  });
+
   it("garde les sceaux historiques valides sur l'etat REEL en base (k_mo_* = 1)", async () => {
     // Regression : le test precedent utilise une fixture ou les colonnes de
     // ventilation sont ABSENTES, etat que la base ne produit jamais. La

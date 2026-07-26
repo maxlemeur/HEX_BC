@@ -1549,3 +1549,92 @@ describe("allocateProRata (EST-E26 phase C, étape 7)", () => {
     }
   });
 });
+
+describe("EST-E27 — TVA autoliquidee (sous-traitance)", () => {
+  // Art. 283, 2 nonies du CGI : en sous-traitance de travaux immobiliers, le
+  // sous-traitant facture HORS TAXE et le preneur declare la taxe.
+  const baseLine = {
+    quantity: 1,
+    unit_price_ht_cents: 100_000,
+    tax_rate_bp: 2_000,
+    k_fo: 1,
+    h_mo: 0,
+    h_mo_majoration: 1,
+    k_mo: 1,
+    pu_ht_cents: 100_000,
+    labor_role_hourly_rate_cents: 0,
+  };
+
+  const compute = (overrides: Record<string, unknown> = {}) =>
+    computeEstimateTotals({
+      lineItems: [baseLine],
+      marginMultiplier: 1,
+      marginMode: "fixed",
+      marginTiers: [],
+      discountCents: 0,
+      taxRateBp: 2_000,
+      roundingMode: "none",
+      roundingStepCents: 1,
+      isLaborSplitEnabled: false,
+      ...overrides,
+    });
+
+  it("regime normal : la TVA est collectee", () => {
+    const totals = compute();
+    expect(totals.saleTotalCents).toBe(100_000);
+    expect(totals.taxCents).toBe(20_000);
+    expect(totals.roundedTtcCents).toBe(120_000);
+  });
+
+  it("autoliquidation : aucune TVA, le TTC egale le HT", () => {
+    const totals = compute({ vatReverseCharge: true });
+    expect(totals.saleTotalCents).toBe(100_000);
+    expect(totals.taxCents).toBe(0);
+    expect(totals.ttcCents).toBe(100_000);
+    expect(totals.roundedTtcCents).toBe(100_000);
+    expect(totals.adjustedTaxCents).toBe(0);
+  });
+
+  it("l'arrondi TTC ne recree pas de TVA fantome", () => {
+    // Le piege : sans TVA, TTC = HT. Appliquer l'arrondi TTC ferait diverger
+    // roundedTtcCents de saleTotalCents, et `adjustedTaxCents` — qui vaut
+    // roundedTtcCents - saleTotalCents — presenterait l'ecart comme de la taxe.
+    const totals = compute({
+      vatReverseCharge: true,
+      lineItems: [{ ...baseLine, unit_price_ht_cents: 100_037 }],
+      roundingMode: "nearest",
+      roundingStepCents: 100,
+    });
+
+    expect(totals.saleTotalCents).toBe(100_037);
+    expect(totals.roundedTtcCents).toBe(100_037);
+    expect(totals.roundingAdjustmentCents).toBe(0);
+    expect(totals.adjustedTaxCents).toBe(0);
+  });
+
+  it("la remise ne fait pas reapparaitre de TVA", () => {
+    const totals = compute({ vatReverseCharge: true, discountCents: 10_000 });
+    expect(totals.saleTotalCents).toBe(90_000);
+    expect(totals.taxCents).toBe(0);
+    expect(totals.roundedTtcCents).toBe(90_000);
+  });
+
+  it("le taux propre d'une ligne est neutralise lui aussi", () => {
+    // Multi-TVA (10 % renovation, 5,5 % energetique) : l'autoliquidation
+    // l'emporte sur tous les taux, sans exception.
+    const totals = compute({
+      vatReverseCharge: true,
+      lineItems: [
+        { ...baseLine, tax_rate_bp: 1_000 },
+        { ...baseLine, tax_rate_bp: 550 },
+      ],
+    });
+    expect(totals.taxCents).toBe(0);
+    expect(totals.roundedTtcCents).toBe(totals.saleTotalCents);
+  });
+
+  it("le defaut reste le regime normal", () => {
+    expect(compute({ vatReverseCharge: undefined }).taxCents).toBe(20_000);
+    expect(compute({ vatReverseCharge: false }).taxCents).toBe(20_000);
+  });
+});

@@ -39,6 +39,8 @@ type PrepareEstimateDocumentDataInput = {
   breakdown: EstimateBreakdown;
   calcEngineVersion: CalcEngineVersion;
   taxRateBp: number;
+  /** EST-E27 : sous-traitance, TVA autoliquidee — le document ne porte aucune TVA. */
+  vatReverseCharge?: boolean;
   currency: string;
   validiteJours: number;
   portalUrl?: string | null;
@@ -53,6 +55,7 @@ export type EstimateDocumentPreparedData = {
   lineSplitsById: Record<string, EstimateDocumentLineSplit>;
   layout: EstimatePdfLayoutOptions;
   taxEnabled: boolean;
+  vatReverseCharge: boolean;
   discountLabel: string;
   validiteLabel: string;
   taxLabel: string;
@@ -301,6 +304,7 @@ export function prepareEstimateDocumentData({
   breakdown,
   calcEngineVersion,
   taxRateBp,
+  vatReverseCharge,
   currency,
   validiteJours,
   portalUrl,
@@ -374,7 +378,9 @@ export function prepareEstimateDocumentData({
       })
   ) as Record<string, EstimateDocumentLineSplit>;
 
-  const taxEnabled = taxRateBp > 0;
+  // EST-E27 : en autoliquidation le document ne porte AUCUNE ligne de TVA, quel
+  // que soit le taux de la version. La mention legale la remplace.
+  const taxEnabled = !vatReverseCharge && taxRateBp > 0;
   const discountLabel =
     discountCents > 0
       ? `-${formatCurrency(discountCents, resolvedCurrency)}`
@@ -391,6 +397,7 @@ export function prepareEstimateDocumentData({
     lineSplitsById,
     layout: resolvedLayout,
     taxEnabled,
+    vatReverseCharge: vatReverseCharge === true,
     discountLabel,
     validiteLabel,
     taxLabel,

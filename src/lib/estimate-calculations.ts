@@ -372,6 +372,7 @@ export function computeEstimateTotals({
   roundingMode,
   roundingStepCents,
   isLaborSplitEnabled,
+  vatReverseCharge,
 }: {
   lineItems: EstimateLineLike[];
   marginMultiplier: number;
@@ -388,6 +389,16 @@ export function computeEstimateTotals({
   roundingMode: RoundingMode;
   roundingStepCents: number;
   isLaborSplitEnabled: boolean;
+  /**
+   * EST-E27 — TVA autoliquidee (sous-traitance de travaux immobiliers,
+   * art. 283, 2 nonies du CGI). Le sous-traitant facture HORS TAXE : toutes les
+   * lignes passent a taux zero, y compris celles qui portent un taux propre, et
+   * le TTC egale le HT.
+   *
+   * Optionnel a dessein : le rendre obligatoire casserait les appelants sans
+   * rien apporter, le defaut `false` etant le regime normal.
+   */
+  vatReverseCharge?: boolean;
 }): EstimateTotals {
   // A6: cap margin
   const safeMargin = clampMarginMultiplier(marginMultiplier);
@@ -404,7 +415,14 @@ export function computeEstimateTotals({
   const safeGlobalCoefficient = clampGlobalCoefficient(
     globalCoefficient ?? global_coefficient
   );
-  const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
+  // EST-E27 : en autoliquidation, le taux effectif est zero. C'est le SEUL
+  // endroit ou le taux est resolu, pour le pied comme pour les lignes : les deux
+  // chemins voient donc forcement le meme regime, sans quoi on reproduirait la
+  // divergence que T6 vient de corriger.
+  const isVatReverseCharge = vatReverseCharge === true;
+  const safeTaxRate = isVatReverseCharge
+    ? 0
+    : Math.max(toSafeNumber(taxRateBp, 0), 0);
 
   // EST-028 pass 1: compute raw costs to resolve the applicable margin tier.
   const firstPassTotals = lineItems.reduce(
@@ -500,11 +518,12 @@ export function computeEstimateTotals({
   const discountTaxCents = computeTaxCents(safeDiscount, safeTaxRate);
   const taxCents = Math.max(taxBeforeDiscountCents - discountTaxCents, 0);
   const ttcCents = saleTotalCents + taxCents;
-  const roundedCandidate = applyRounding(
-    ttcCents,
-    roundingMode,
-    roundingStepCents
-  );
+  // EST-E27 : sans TVA, le TTC EST le HT. Lui appliquer l'arrondi TTC creerait
+  // un ecart que `adjustedTaxCents` presenterait ensuite comme de la taxe — une
+  // TVA fantome sur un document qui ne doit en porter aucune.
+  const roundedCandidate = isVatReverseCharge
+    ? ttcCents
+    : applyRounding(ttcCents, roundingMode, roundingStepCents);
   const roundedTtcCents = Math.max(roundedCandidate, saleTotalCents);
   const roundingAdjustmentCents = roundedTtcCents - ttcCents;
   const adjustedTaxCents = roundedTtcCents - saleTotalCents;

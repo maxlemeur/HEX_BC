@@ -130,6 +130,7 @@ type VersionWithProject = Pick<
   | "rounding_mode"
   | "rounding_step_cents"
   | "calc_engine_version"
+  | "contractor_role"
   | "total_ht_cents"
   | "total_tax_cents"
   | "total_ttc_cents"
@@ -762,7 +763,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
+      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1779,6 +1780,9 @@ export async function generateEstimatePdfNow(
 
     // EST-E26 : moteur de la VERSION rendue, plus une constante epinglee.
     const calcEngineVersion = resolveCalcEngineVersion(access.version);
+    // EST-E27 : le PDF est le document remis au client — c est lui qui doit
+    // porter la mention d autoliquidation, ou aucune TVA n apparait.
+    const vatReverseCharge = access.version.contractor_role === "subcontractor";
 
     const prepared = prepareEstimateDocumentData({
       items,
@@ -1794,6 +1798,7 @@ export async function generateEstimatePdfNow(
         calcEngineVersion,
       }),
       calcEngineVersion,
+      vatReverseCharge,
       taxRateBp: access.version.tax_rate_bp,
       currency: access.version.currency,
       validiteJours: access.version.validite_jours,

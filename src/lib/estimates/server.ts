@@ -658,6 +658,7 @@ type EstimateSealVersionFields = Pick<
   | "tax_rate_bp"
   | "rounding_mode"
   | "rounding_step_cents"
+  | "contractor_role"
   | "seal_hash"
 >;
 
@@ -723,6 +724,12 @@ type EstimateSealPayload = {
     tax_rate_bp: number;
     rounding_mode: EstimateVersionRow["rounding_mode"];
     rounding_step_cents: number;
+    /**
+     * EST-E27 — regime de TVA. Present dans le payload canonique UNIQUEMENT
+     * hors valeur par defaut : une cle presente sur toutes les versions
+     * changerait le hash de l'integralite du parc deja scelle.
+     */
+    contractor_role?: string;
   };
   items: EstimateSealCanonicalItem[];
 };
@@ -2022,6 +2029,14 @@ function buildCanonicalEstimateSealPayload(input: {
       tax_rate_bp: input.version.tax_rate_bp,
       rounding_mode: input.version.rounding_mode,
       rounding_step_cents: input.version.rounding_step_cents,
+      // EST-E27 : le regime de TVA est une donnee CONTRACTUELLE, il entre donc
+      // dans le sceau. Inclusion CONDITIONNELLE, uniquement hors valeur par
+      // defaut : ajouter une cle presente sur toutes les versions invaliderait
+      // le sceau de tout le parc, ce qui est exactement ce qu a fait b74a0c8.
+      ...(input.version.contractor_role &&
+      input.version.contractor_role !== "principal"
+        ? { contractor_role: input.version.contractor_role }
+        : {}),
     },
     items: canonicalItems,
   };
@@ -2042,7 +2057,7 @@ async function loadEstimateSealSource(input: {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, date_devis, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, seal_hash"
+      "id, tenant_id, project_id, version_number, date_devis, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, contractor_role, seal_hash"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)

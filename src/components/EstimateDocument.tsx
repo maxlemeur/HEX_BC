@@ -12,7 +12,10 @@ import {
 } from "@/components/estimate-document/prepare-estimate-document-data";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
-import { ESTIMATE_SERVICE_LIMITS_TITLE } from "@/lib/estimates/document-copy";
+import {
+  ESTIMATE_SERVICE_LIMITS_TITLE,
+  ESTIMATE_VAT_REVERSE_CHARGE_NOTICE,
+} from "@/lib/estimates/document-copy";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import {
   ESTIMATE_DRAFT_TERMS_NOTICE,
@@ -54,6 +57,8 @@ export type EstimateDocumentProps = {
   terms?: EstimateTermsSnapshot | null;
   /** Moteur de calcul de la version rendue (EST-E26). Repli : moteur 1. */
   calcEngineVersion?: CalcEngineVersion;
+  /** EST-E27 : sous-traitance — le document porte la mention d autoliquidation. */
+  vatReverseCharge?: boolean;
   maxVisibleSectionLevel?: number | null;
 };
 
@@ -200,6 +205,7 @@ export function EstimateDocument({
   layout,
   terms,
   calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
+  vatReverseCharge = false,
   maxVisibleSectionLevel = null,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
@@ -216,6 +222,7 @@ export function EstimateDocument({
     lineSplitsById,
     layout: resolvedLayout,
     taxEnabled,
+    vatReverseCharge: isVatReverseCharge,
     discountLabel,
     validiteLabel,
     taxLabel,
@@ -235,6 +242,7 @@ export function EstimateDocument({
       calcEngineVersion,
     }),
     calcEngineVersion,
+    vatReverseCharge,
     taxRateBp,
     currency: resolvedCurrency,
     validiteJours,
@@ -368,6 +376,14 @@ export function EstimateDocument({
                   </dd>
                 </div>
               ) : null}
+              {isVatReverseCharge ? (
+                <div className="flex items-center justify-between gap-4">
+                  <dt>TVA</dt>
+                  <dd className="font-semibold text-secondary-foreground">
+                    Autoliquidation
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </section>
         </div>
@@ -438,9 +454,14 @@ export function EstimateDocument({
                 </span>
               </div>
             ) : null}
+            {isVatReverseCharge ? (
+              <div className="border-b border-border bg-surface-subtle px-5 py-2 text-xs font-medium text-slate-600">
+                {ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}
+              </div>
+            ) : null}
             <div className="flex items-center justify-between bg-surface-subtle px-5 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Total TTC
+                {isVatReverseCharge ? "Total HT" : "Total TTC"}
               </span>
               <span className="text-sm font-semibold text-slate-600">
                 {formatCurrency(totalTtcCents, resolvedCurrency)}

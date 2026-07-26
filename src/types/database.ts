@@ -1033,6 +1033,7 @@ export type Database = {
           parent_version_id: string | null;
           variant_label: string | null;
           calc_engine_version: number;
+          contractor_role: string;
         };
         Insert: {
           id?: string;
@@ -1073,6 +1074,7 @@ export type Database = {
           parent_version_id?: string | null;
           variant_label?: string | null;
           calc_engine_version?: number;
+          contractor_role?: string;
         };
         Update: {
           id?: string;
@@ -1113,6 +1115,7 @@ export type Database = {
           parent_version_id?: string | null;
           variant_label?: string | null;
           calc_engine_version?: number;
+          contractor_role?: string;
         };
         Relationships: [
           {

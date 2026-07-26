@@ -102,6 +102,7 @@ function createVersion(
     parent_version_id: null,
     variant_label: null,
     calc_engine_version: 1,
+    contractor_role: "principal",
     ...overrides,
   };
 }
