@@ -219,7 +219,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
       "Type",
       "AID",
       "Designation",
-      "Quantite",
+      "Quantité",
       "Unite",
       "Prix unitaire HT EUR",
       "Type FO",
@@ -264,7 +264,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(lineRow[18]).toBe("");
 
     const metadataRows = metadataSheet?.rows as unknown[][];
-    expect(metadataRows).toContainEqual(["Reference", "ALPHA/2026"]);
+    expect(metadataRows).toContainEqual(["Référence", "ALPHA/2026"]);
     expect(metadataRows).toContainEqual(["Client", "Client Delta"]);
     expect(metadataRows).toContainEqual(["Date", "2026-02-22"]);
     expect(metadataRows).toContainEqual(["Version", "v4 - Version Export"]);

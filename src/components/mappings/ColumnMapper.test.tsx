@@ -18,7 +18,7 @@ describe("ColumnMapper", () => {
           LegacyColumn: "designation",
         },
         targetFields: [
-          { value: "hex_code", label: "Reference article", required: true },
+          { value: "hex_code", label: "Référence article", required: true },
           { value: "designation", label: "Designation", required: true },
         ],
         disabled: true,
@@ -45,7 +45,7 @@ describe("ColumnMapper", () => {
           Description: "designation",
         },
         targetFields: [
-          { value: "hex_code", label: "Reference article", required: true },
+          { value: "hex_code", label: "Référence article", required: true },
           { value: "designation", label: "Designation", required: false },
         ],
         onChange: vi.fn(),

@@ -706,7 +706,7 @@ export function QuickCreateAffaireDialog({
                 onChange={(e) => setClientName(e.target.value)}
               />
               <Input
-                label="Reference"
+                label="Référence"
                 placeholder="Ref. projet (optionnel)"
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}

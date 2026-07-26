@@ -128,7 +128,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
     setIsSubmitting(false);
 
     if (error || !data) {
-      setFormError(error?.message ?? "Impossible de creer le fournisseur.");
+      setFormError(error?.message ?? "Impossible de créer le fournisseur.");
       return;
     }
 

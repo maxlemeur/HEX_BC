@@ -415,7 +415,7 @@ describe("estimate explanations service", () => {
             ...baseDetails.version,
             id: COMPARE_VERSION_ID,
             version_number: 1,
-            title: "Reference",
+            title: "Référence",
             total_ht_cents: 411000,
             total_tax_cents: 82200,
             total_ttc_cents: 493200,

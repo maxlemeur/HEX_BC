@@ -137,7 +137,7 @@ function buildQuantityFactor(quantity: number | null): TakeoffPriceSuggestionFac
   if (quantity <= 1) {
     return {
       key: "quantity_bucket",
-      label: "Quantite",
+      label: "Quantité",
       value: "Unitaire",
       kind: "fact",
     };
@@ -146,7 +146,7 @@ function buildQuantityFactor(quantity: number | null): TakeoffPriceSuggestionFac
   if (quantity <= 10) {
     return {
       key: "quantity_bucket",
-      label: "Quantite",
+      label: "Quantité",
       value: "Standard",
       kind: "fact",
     };
@@ -154,7 +154,7 @@ function buildQuantityFactor(quantity: number | null): TakeoffPriceSuggestionFac
 
   return {
     key: "quantity_bucket",
-    label: "Quantite",
+    label: "Quantité",
     value: "Volumique",
     kind: "fact",
   };

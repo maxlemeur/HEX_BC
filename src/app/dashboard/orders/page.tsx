@@ -170,7 +170,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 // Export columns configuration
 const EXPORT_COLUMNS: ExportColumn<PurchaseOrderListRow>[] = [
-  { key: "reference", header: "Reference" },
+  { key: "reference", header: "Référence" },
   {
     key: "created_at",
     header: "Date de creation",
@@ -190,7 +190,7 @@ const EXPORT_COLUMNS: ExportColumn<PurchaseOrderListRow>[] = [
   },
   {
     key: "expected_delivery_date",
-    header: "Date de livraison prevue",
+    header: "Date de livraison prévue",
     formatter: (value) => formatDate(value as string | null),
   },
   {
@@ -206,7 +206,7 @@ const EXPORT_COLUMNS: ExportColumn<PurchaseOrderListRow>[] = [
 ];
 
 const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
-  { key: "order_reference", header: "Reference commande" },
+  { key: "order_reference", header: "Référence commande" },
   {
     key: "order_created_at",
     header: "Date commande",
@@ -216,7 +216,7 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
   { key: "delivery_site", header: "Chantier" },
   {
     key: "expected_delivery_date",
-    header: "Livraison prevue",
+    header: "Livraison prévue",
     formatter: (value) => formatDate(value as string | null),
   },
   {
@@ -230,8 +230,8 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
     formatter: (value) => (value as number) / 100,
   },
   { key: "item_designation", header: "Designation article" },
-  { key: "item_reference", header: "Reference article" },
-  { key: "item_quantity", header: "Quantite" },
+  { key: "item_reference", header: "Référence article" },
+  { key: "item_quantity", header: "Quantité" },
   {
     key: "item_unit_price_ht_cents",
     header: "P.U. HT (EUR)",

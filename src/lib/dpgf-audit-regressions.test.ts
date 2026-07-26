@@ -447,7 +447,7 @@ describe("M-11: French headers in DataPreview", () => {
     const source = readSource("src/components/mappings/DataPreview.tsx");
 
     // Should have at least some French labels
-    expect(source).toMatch(/Reference article|Designation|Quantite|Prix unitaire/);
+    expect(source).toMatch(/Référence article|Designation|Quantite|Prix unitaire/);
   });
 });
 

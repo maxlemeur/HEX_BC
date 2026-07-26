@@ -280,7 +280,7 @@ async function writeWorkbook(input: {
     { header: "Poste", key: "poste", width: 12 },
     { header: "Designation", key: "designation", width: 44 },
     { header: "Unite", key: "unite", width: 20 },
-    { header: "Quantite", key: "quantite", width: 12 },
+    { header: "Quantité", key: "quantite", width: 12 },
     { header: "PU HT", key: "pu_ht", width: 14 },
     { header: "Total HT", key: "total_ht", width: 14 },
     ...(isVatReverseCharge
@@ -325,7 +325,7 @@ async function writeWorkbook(input: {
   const summaryRows: Array<[string, string | number]> = [
     ["Version ID", input.payload.versionId],
     ["Projet", input.payload.projectName],
-    ["Reference", input.payload.projectReference ?? ""],
+    ["Référence", input.payload.projectReference ?? ""],
     ["Version", input.payload.versionNumber],
     ["Titre", input.payload.versionTitle ?? ""],
     ["Statut", input.payload.versionStatus],

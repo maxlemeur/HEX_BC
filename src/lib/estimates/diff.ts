@@ -77,7 +77,7 @@ const LINE_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
   },
   {
     key: "quantity",
-    label: "Quantite",
+    label: "Quantité",
     kind: "number",
   },
   {

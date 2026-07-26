@@ -302,7 +302,7 @@ export default function NewOrderPage() {
     }
 
     if (!response.ok || !result?.id) {
-      setFormError(result?.error ?? "Impossible de creer le bon.");
+      setFormError(result?.error ?? "Impossible de créer le bon.");
       return;
     }
 

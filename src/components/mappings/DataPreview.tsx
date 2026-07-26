@@ -130,7 +130,7 @@ export function DataPreview({
           <thead>
             <tr>
               <th>#</th>
-              <th>Reference article</th>
+              <th>Référence article</th>
               <th>Designation</th>
               <th>Quantite</th>
               <th>Unite</th>

@@ -47,7 +47,7 @@ type UseEstimateClipboardParams = {
 
 const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardTargetField, string> = {
   designation: "Designation",
-  quantity: "Quantite",
+  quantity: "Quantité",
   unit: "Unite",
   unit_price_ht: "Prix unitaire HT",
   supply_type: "Type FO",

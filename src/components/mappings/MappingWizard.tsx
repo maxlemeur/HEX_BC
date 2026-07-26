@@ -76,9 +76,9 @@ function resolveImportIdQueryValue(value: string | null): string | null {
 }
 
 const TARGET_FIELDS = [
-  { value: "hex_code", label: "Reference article", required: true },
+  { value: "hex_code", label: "Référence article", required: true },
   { value: "designation", label: "Designation", required: true },
-  { value: "quantity", label: "Quantite" },
+  { value: "quantity", label: "Quantité" },
   { value: "unit", label: "Unite" },
   { value: "unit_price_ht", label: "Prix unitaire HT" },
   { value: "total_ht", label: "Montant HT" },
@@ -681,7 +681,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
               className="btn btn-primary"
               onClick={() => void handleCreateMapping()}
               disabled={isSubmitting || !selectedImportId || !isMappingValid}
-              title={!isMappingValid ? "Mappez les champs requis (Reference article, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
+              title={!isMappingValid ? "Mappez les champs requis (Référence article, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
             >
               {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
             </button>

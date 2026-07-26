@@ -49,7 +49,7 @@ describe("clipboard header normalization and format detection", () => {
     expect(
       detectClipboardFormat([
         "Designation",
-        "Quantite",
+        "Quantité",
         "Unite",
         "Prix unitaire HT (EUR)",
         "Type FO",
@@ -107,7 +107,7 @@ describe("clipboard mapping suggestions", () => {
   it("prioritizes canonical bdc headers", () => {
     const headers = [
       "Designation",
-      "Quantite",
+      "Quantité",
       "Unite",
       "Prix unitaire HT (EUR)",
       "Type FO",
@@ -120,7 +120,7 @@ describe("clipboard mapping suggestions", () => {
     const mapping = suggestClipboardColumnMapping(headers);
 
     expect(mapping["Designation"]).toBe("designation");
-    expect(mapping["Quantite"]).toBe("quantity");
+    expect(mapping["Quantité"]).toBe("quantity");
     expect(mapping["Unite"]).toBe("unit");
     expect(mapping["Prix unitaire HT (EUR)"]).toBe("unit_price_ht");
     expect(mapping["Type FO"]).toBe("supply_type");
@@ -131,7 +131,7 @@ describe("clipboard mapping suggestions", () => {
   });
 
   it("maps bdc PR.FO header to unit_price_ht", () => {
-    const headers = ["Designation", "Quantite", "PR.FO", "Type FO"];
+    const headers = ["Designation", "Quantité", "PR.FO", "Type FO"];
 
     const mapping = suggestClipboardColumnMapping(headers);
 
@@ -189,7 +189,7 @@ describe("clipboard preview rows", () => {
 
     expect(result.rows[2]?.lineNumber).toBe(4);
     expect(result.rows[2]?.status).toBe("invalid");
-    expect(result.rows[2]?.reasons).toContain("Nombre invalide pour Quantite.");
+    expect(result.rows[2]?.reasons).toContain("Nombre invalide pour Quantité.");
 
     expect(result.rows[3]?.lineNumber).toBe(5);
     expect(result.rows[3]?.status).toBe("invalid");

@@ -93,10 +93,10 @@ describe("SupplierComparisonPanel", () => {
     expect(screen.getByText("Meilleur prix")).toBeInTheDocument();
     expect(screen.getByText("Prix le plus recent")).toBeInTheDocument();
     expect(screen.getByText("Fournisseur prefere")).toBeInTheDocument();
-    expect(screen.getByText("Selection actuelle")).toBeInTheDocument();
+    expect(screen.getByText("Sélection actuelle")).toBeInTheDocument();
     expect(screen.getByText("Prix ancien")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Deja selectionne" })
+      screen.getByRole("button", { name: "Déjà sélectionné" })
     ).toBeDisabled();
   });
 
@@ -118,7 +118,7 @@ describe("SupplierComparisonPanel", () => {
       />
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Selectionner" })[1]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Sélectionner" })[1]!);
 
     expect(onSelectAlternative).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -180,7 +180,7 @@ describe("SupplierComparisonPanel", () => {
       />
     );
 
-    const buttons = screen.getAllByRole("button", { name: "Selectionner" });
+    const buttons = screen.getAllByRole("button", { name: "Sélectionner" });
     expect(buttons[0]).toBeDisabled();
     expect(buttons[1]).not.toBeDisabled();
     expect(screen.getByText("Devise differente")).toBeTruthy();
@@ -205,7 +205,7 @@ describe("SupplierComparisonPanel", () => {
     );
 
     expect(
-      screen.getAllByRole("button", { name: "Selectionner" })[0]
+      screen.getAllByRole("button", { name: "Sélectionner" })[0]
     ).not.toBeDisabled();
   });
 

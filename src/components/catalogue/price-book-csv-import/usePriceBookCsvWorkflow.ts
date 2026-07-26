@@ -218,7 +218,7 @@ export function usePriceBookCsvWorkflow({
 
       const nextRows = parsed.rows;
       if (nextRows.length === 0) {
-        throw new Error("Le fichier CSV ne contient aucune ligne de donnees.");
+        throw new Error("Le fichier CSV ne contient aucune ligne de données.");
       }
 
       const nextRowLineNumbers = parsed.rowLineNumbers;
@@ -264,7 +264,7 @@ export function usePriceBookCsvWorkflow({
   const refreshPreview = useCallback(async () => {
     if (!canValidate) {
       setError(
-        "Le mapping minimal est incomplet : Fournisseur, Prix unitaire et Reference ou Designation produit."
+        "Le mapping minimal est incomplet : Fournisseur, Prix unitaire et Référence ou Désignation produit."
       );
       return;
     }
@@ -358,7 +358,7 @@ export function usePriceBookCsvWorkflow({
   const createMissing = useCallback(async () => {
     if (!validation || !detectedProfile) return;
     if (unknownSuppliers.length === 0 && unknownProducts.length === 0) {
-      setError("Aucun element manquant a creer.");
+      setError("Aucun élément manquant à créer.");
       return;
     }
 
@@ -410,7 +410,7 @@ export function usePriceBookCsvWorkflow({
       setError(
         createError instanceof Error
           ? createError.message
-          : "Impossible de creer les elements manquants."
+          : "Impossible de créer les éléments manquants."
       );
     } finally {
       setIsCreatingMissing(false);

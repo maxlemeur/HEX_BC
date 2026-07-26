@@ -14,7 +14,7 @@ export const ATOMIC_BULK_BATCH_SIZE = 5000;
 
 export const TARGET_FIELDS = [
   { value: "supplier_name", label: "Fournisseur", required: true },
-  { value: "product_reference", label: "Reference produit" },
+  { value: "product_reference", label: "Référence produit" },
   { value: "product_designation", label: "Designation produit" },
   { value: "unit_price", label: "Prix unitaire", required: true },
   { value: "currency", label: "Devise" },

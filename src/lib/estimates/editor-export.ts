@@ -417,7 +417,7 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "designation", header: "Designation" },
   { key: "quality_flags", header: "Flags qualite" },
   { key: "unit", header: "Unite" },
-  { key: "quantity", header: "Quantite" },
+  { key: "quantity", header: "Quantité" },
   {
     key: "unit_price_ht_cents",
     header: "Prix unitaire HT (EUR)",

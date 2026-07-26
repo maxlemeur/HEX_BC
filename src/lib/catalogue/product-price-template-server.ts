@@ -152,10 +152,10 @@ export async function importProductPriceTemplate(
   ]);
 
   if (productsResult.error) {
-    throw mapDatabaseError(productsResult.error, "Impossible de verifier les produits existants.");
+    throw mapDatabaseError(productsResult.error, "Impossible de vérifier les produits existants.");
   }
   if (suppliersResult.error) {
-    throw mapDatabaseError(suppliersResult.error, "Impossible de verifier les fournisseurs existants.");
+    throw mapDatabaseError(suppliersResult.error, "Impossible de vérifier les fournisseurs existants.");
   }
 
   const existingProducts = (productsResult.data ?? []) as ExistingProduct[];

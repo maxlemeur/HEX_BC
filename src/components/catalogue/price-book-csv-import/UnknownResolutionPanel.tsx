@@ -48,7 +48,7 @@ export function UnknownResolutionPanel({
           onClick={() => void onCreateMissing()}
           disabled={isCreatingMissing || isResolving || isSubmitting || !hasUnknowns}
         >
-          {isCreatingMissing ? "Creation..." : "Creer les inconnus"}
+          {isCreatingMissing ? "Creation..." : "Créer les inconnus"}
         </button>
         <button
           type="button"

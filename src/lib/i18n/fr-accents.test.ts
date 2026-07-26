@@ -40,6 +40,12 @@ const FICHIERS_PROPRES = [
   "src/lib/affaires/register-server.ts",
   "src/lib/affaires/server.ts",
   "src/lib/cockpit/suggestions.ts",
+  "src/components/SupplierCreateModal.tsx",
+  "src/components/catalogue/price-book-csv-import/UnknownResolutionPanel.tsx",
+  "src/components/catalogue/price-book-csv-import/usePriceBookCsvWorkflow.ts",
+  "src/components/estimates/SupplierComparisonPanel.tsx",
+  "src/lib/catalogue/server.ts",
+  "src/lib/estimates/purchase-order-drafts.ts",
 ];
 
 /**

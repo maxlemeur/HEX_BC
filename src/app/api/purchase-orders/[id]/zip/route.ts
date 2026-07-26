@@ -206,7 +206,7 @@ function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
         <div class="value">${escapeHtml(orderDate)}</div>
       </div>
       <div class="card">
-        <div class="label">Livraison prevue</div>
+        <div class="label">Livraison prévue</div>
         <div class="value">${escapeHtml(expectedDelivery || "-")}</div>
       </div>
       <div class="card">

@@ -759,7 +759,7 @@ describe("estimate purchase order drafts", () => {
         ],
       })
     ).rejects.toMatchObject({
-      message: "Certaines lignes sont deja rattachees a un brouillon de commande.",
+      message: "Certaines lignes sont déjà rattachées à un brouillon de commande.",
       code: "ORDER_DRAFT_ALREADY_EXISTS",
     });
 

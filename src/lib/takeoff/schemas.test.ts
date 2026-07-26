@@ -52,7 +52,7 @@ describe("TakeoffExchangeSchema", () => {
         {
           page: 2,
           title: "Tableau menuiseries",
-          headers: ["Designation", "Quantite", "Unite"],
+          headers: ["Designation", "Quantité", "Unite"],
           rows: [
             {
               row_index: 0,

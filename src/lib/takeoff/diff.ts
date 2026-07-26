@@ -58,7 +58,7 @@ const TAKEOFF_DIFF_FIELDS: readonly TakeoffFieldConfig[] = [
   },
   {
     field: "quantity",
-    label: "Quantite",
+    label: "Quantité",
     kind: "number",
   },
   {

@@ -296,7 +296,7 @@ function fromZodError(error: ZodError): CatalogueApiError {
   return new CatalogueApiError({
     status: 400,
     code: "VALIDATION_ERROR",
-    message: summary || "Donnees invalides.",
+    message: summary || "Données invalides.",
     details: {
       issues: error.issues.map((issue) => ({
         path: issue.path.join("."),
@@ -820,7 +820,7 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     if (countProbe.error) {
       throw mapSupabaseError(
         countProbe.error,
-        "Impossible de verifier la pagination du catalogue.",
+        "Impossible de vérifier la pagination du catalogue.",
       );
     }
     totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
@@ -906,7 +906,7 @@ export async function createCatalogueItem(input: CreateCatalogueItemInput) {
     supabase,
     CATALOGUE_TABLE,
     payload,
-    "Impossible de creer la ligne catalogue.",
+    "Impossible de créer la ligne catalogue.",
   );
 
   return {
@@ -1196,7 +1196,7 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
       supabase,
       CATALOGUE_TABLE,
       payload,
-      "Impossible de creer les lignes catalogue depuis les lignes mappees.",
+      "Impossible de créer les lignes catalogue depuis les lignes mappées.",
     );
 
     createdRows = inserted.map((row) => normalizeCatalogueRecord(row));
@@ -1393,7 +1393,7 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
     if (countProbe.error) {
       throw mapSupabaseError(
         countProbe.error,
-        "Impossible de verifier la pagination des prix.",
+        "Impossible de vérifier la pagination des prix.",
       );
     }
     totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
@@ -1508,7 +1508,7 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer le prix fournisseur.");
+    throw mapSupabaseError(error, "Impossible de créer le prix fournisseur.");
   }
 
   const row = asRecord(data);
@@ -1672,7 +1672,7 @@ async function bulkCreateSupplierPricesWithSupabase(
   input: BulkCreateSupplierPricesInput,
 ): Promise<{ created_count: number; mode: BulkCreateSupplierPricesMode }> {
   const rpcPayload = buildBulkCreateSupplierPricesPayload(input);
-  const fallbackMessage = "Impossible de creer les prix fournisseur en masse.";
+  const fallbackMessage = "Impossible de créer les prix fournisseur en masse.";
 
   const { data, error } = await supabase.rpc(BULK_CREATE_PRICES_RPC, {
     price_rows: rpcPayload,
@@ -1769,7 +1769,7 @@ export async function createMaterialIndex(input: CreateMaterialIndexInput) {
       source: input.source,
       metadata: input.metadata,
     },
-    "Impossible de creer l'indice matiere.",
+    "Impossible de créer l'indice matière.",
   );
 
   return {
@@ -2043,7 +2043,7 @@ export async function createMissingPriceImportEntities(
     if (existingSuppliersError) {
       throw mapSupabaseError(
         existingSuppliersError,
-        "Impossible de verifier les fournisseurs existants.",
+        "Impossible de vérifier les fournisseurs existants.",
       );
     }
 
@@ -2070,7 +2070,7 @@ export async function createMissingPriceImportEntities(
     if (insertSupplierError) {
       throw mapSupabaseError(
         insertSupplierError,
-        "Impossible de creer un fournisseur manquant.",
+        "Impossible de créer un fournisseur manquant.",
       );
     }
 
@@ -2094,7 +2094,7 @@ export async function createMissingPriceImportEntities(
     if (existingProductsError) {
       throw mapSupabaseError(
         existingProductsError,
-        "Impossible de verifier les produits existants.",
+        "Impossible de vérifier les produits existants.",
       );
     }
 
@@ -2126,7 +2126,7 @@ export async function createMissingPriceImportEntities(
     if (insertProductError) {
       throw mapSupabaseError(
         insertProductError,
-        "Impossible de creer un produit manquant.",
+        "Impossible de créer un produit manquant.",
       );
     }
 

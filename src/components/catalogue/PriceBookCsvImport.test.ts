@@ -255,7 +255,7 @@ describe("PriceBookCsvImport", () => {
       )
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Creer les inconnus/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Créer les inconnus/i }));
 
     await waitFor(() => expect(fetchApiMock).toHaveBeenCalledTimes(2));
     expect(fetchApiMock).toHaveBeenNthCalledWith(

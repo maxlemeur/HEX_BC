@@ -89,7 +89,7 @@ function getAlternativeBadgeLabels(input: {
     labels.push("Fournisseur prefere");
   }
   if (input.alternative.is_selected || input.alternative.kind === "selected_current") {
-    labels.push("Selection actuelle");
+    labels.push("Sélection actuelle");
   }
   if (input.alternative.is_stale) {
     labels.push("Prix ancien");
@@ -279,7 +279,7 @@ export function SupplierComparisonPanel({
                             : undefined
                         }
                       >
-                        {alternative.is_selected ? "Deja selectionne" : "Selectionner"}
+                        {alternative.is_selected ? "Déjà sélectionné" : "Sélectionner"}
                       </button>
                     </div>
                   </article>

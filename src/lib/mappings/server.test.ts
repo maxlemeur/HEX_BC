@@ -805,7 +805,7 @@ describe("mapping server workflows", () => {
           last_used_at: "2026-03-01T00:00:00.000Z",
         },
         {
-          source_column: "Reference",
+          source_column: "Référence",
           target_field: "hex_code",
           usage_count: 1,
           confidence: 0.6,

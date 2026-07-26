@@ -288,7 +288,7 @@ async function listDraftedEstimateItemIds(
   if (ordersError) {
     throw mapSupabaseError(
       ordersError,
-      "Impossible de verifier les brouillons de commande existants."
+      "Impossible de vérifier les brouillons de commande existants."
     );
   }
 
@@ -307,7 +307,7 @@ async function listDraftedEstimateItemIds(
   if (draftedItemsError) {
     throw mapSupabaseError(
       draftedItemsError,
-      "Impossible de verifier les lignes deja rattachees a un brouillon."
+      "Impossible de vérifier les lignes déjà rattachées à un brouillon."
     );
   }
 
@@ -478,7 +478,7 @@ async function assertDeliverySitesAccessible(
     .in("id", deliverySiteIds);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier les sites de livraison.");
+    throw mapSupabaseError(error, "Impossible de vérifier les sites de livraison.");
   }
 
   const knownIds = new Set((data ?? []).map((row) => row.id));
@@ -553,7 +553,7 @@ export async function createEstimatePurchaseOrderDrafts(
   );
   if (alreadyDraftedItemIds.size > 0) {
     throw conflict(
-      "Certaines lignes sont deja rattachees a un brouillon de commande.",
+      "Certaines lignes sont déjà rattachées à un brouillon de commande.",
       {
         item_ids: Array.from(alreadyDraftedItemIds).sort(),
       },
@@ -614,7 +614,7 @@ export async function createEstimatePurchaseOrderDrafts(
         .single();
 
       if (insertError || !insertedOrder) {
-        throw mapSupabaseError(insertError, "Impossible de creer le brouillon de commande.");
+        throw mapSupabaseError(insertError, "Impossible de créer le brouillon de commande.");
       }
 
       createdOrderIds.push(insertedOrder.id);

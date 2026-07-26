@@ -87,7 +87,7 @@ function ReadinessStepper({
   const steps = [
     { label: "Completer la ligne", done: parentReady },
     { label: "Valider le sous-detail", done: subdetailReviewed },
-    { label: "Selectionner", done: selected },
+    { label: "Sélectionner", done: selected },
   ];
 
   const activeIndex = steps.findIndex((s) => !s.done);
@@ -381,7 +381,7 @@ export function GeneratedOuvrageCandidateCard({
                 className="btn btn-ghost btn-xs"
                 onClick={() => onToggleSelect(candidate.candidateId)}
               >
-                {candidate.selected ? "Deselectionner" : "Selectionner"}
+                {candidate.selected ? "Deselectionner" : "Sélectionner"}
               </button>
             )}
 

@@ -73,7 +73,7 @@ const LINE_SNAPSHOT_FIELDS: readonly SnapshotFieldDefinition[] = [
   },
   {
     key: "quantity",
-    label: "Quantite",
+    label: "Quantité",
     kind: "number",
   },
   {

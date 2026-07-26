@@ -203,7 +203,7 @@ export function PriceBookUploadStep({
               onClick={() => void onRefreshPreview()}
               disabled={!canValidate || isBusy}
             >
-              {isValidating ? "Validation..." : "Mettre a jour l'apercu"}
+              {isValidating ? "Validation..." : "Mettre à jour l'aperçu"}
             </button>
             <span className="text-xs text-[var(--slate-500)]">
               Champs requis : Fournisseur, Prix unitaire, et Reference ou Designation produit.
