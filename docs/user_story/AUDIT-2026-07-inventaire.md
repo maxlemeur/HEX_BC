@@ -258,7 +258,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | UX07 | Majeur | Layout grille — colonnes de totaux | Avec le sous-détail complet (surtout labor split : ~14 colonnes) la grille dépasse largement la largeur d'un écran portable et défile horizontalement. Les colo… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX08 | Majeur | Sélection de ligne — accessibilité clavier | La case à cocher de sélection de ligne est un input type=checkbox avec readOnly, un handler onClick qui preventDefault, et aucun onChange/onKeyDown. Un checkbo… | livré (`9259f03`) — la case porte `onKeyDown` et `onClick`, opérable au clavier |
 | UX09 | Mineur | Cohérence — dialogues natifs | Les conversions ligne↔section et leurs erreurs utilisent window.confirm/window.alert natifs, alors que le reste de l'app dispose d'un système de toasts (useToa… | à traiter — non rouvert, aucun correctif livré ne le vise |
-| UX10 | Mineur | Libellés FR — accents | Accentuation incohérente sur de nombreux libellés visibles : « Créer un lot » écrit « Creer un lot », « filtre qualite actif », « selectionnees en sections », … | à traiter (vérifié) — accents FR internes ; le client-facing est fait (`5503cd7`, `9de6a46`), l'interne non |
+| UX10 | Mineur | Libellés FR — accents | Accentuation incohérente sur de nombreux libellés visibles : « Créer un lot » écrit « Creer un lot », « filtre qualite actif », « selectionnees en sections », … | **traité** (`6935dba`, `6865076`, `0e28d25`) — editeur, messages d'erreur et centre de metres ; garde `src/lib/i18n/fr-accents.test.ts` |
 | UX11 | Mineur | En-tête grille — ambiguïté PR.FO vs P.U. | La ligne expose deux notions de « prix unitaire » côte à côte : PR. FO (prix de revient fourniture, saisi) et P.U. (prix unitaire de vente, calculé, lecture se… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX12 | Mineur | Menu d'actions ligne — disclosure natif | Le menu « … » de chaque ligne (Comparer / Convertir / Supprimer) est un <details>/<summary> sans aria-haspopup, sans fermeture au clic extérieur ni à Échap, et… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX13 | Mineur | Insertion ouvrage/template — ancrage | L'insertion d'ouvrage/template se fait « après la cellule active » (insertionAnchorItemId = activeCell.rowId). Si aucune cellule n'est active (ex. juste après … | à traiter — non rouvert, aucun correctif livré ne le vise |
@@ -276,7 +276,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | UX20 | Majeur | TakeoffReviewPage — titre h1 (contexte hors … | Le titre affiche littéralement « Revue d&apos;extraction » : dans le ternaire, la chaîne est un littéral JavaScript passé dans une accolade JSX, or React ne dé… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX21 | Majeur | TakeoffReviewTable — colonne Alertes / confi… | L'information d'anomalie repose sur un triangle d'avertissement dont le détail (quelles anomalies) n'est disponible que via l'attribut title (tooltip) — non ac… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX22 | Mineur | Vocabulaire — Evidence vs Preuve | Le même concept de traçabilité est nommé de deux façons selon l'écran : « Evidence » (anglicisme) dans EvidencePanel et la table, « preuve » dans ValidationRev… | à traiter — non rouvert, aucun correctif livré ne le vise |
-| UX23 | Mineur | Copy FR — accents/diacritiques | Défaut d'accents systématique dans l'UI destinée à des professionnels francophones du BTP : « Sauvegarde automatique », « verifier/Verifies », « controle », « … | à traiter (vérifié) — ex. « Verifiez les items en erreur. », « Apply controle termine » dans TakeoffReviewPage |
+| UX23 | Mineur | Copy FR — accents/diacritiques | Défaut d'accents systématique dans l'UI destinée à des professionnels francophones du BTP : « Sauvegarde automatique », « verifier/Verifies », « controle », « … | **traité** (`6935dba`) — les deux exemples cites sont corriges ; TakeoffReviewPage/Table sous garde |
 | UX24 | Mineur | TakeoffReviewTable — barre de filtres | La barre de filtres aligne 8+ selects (inclusion, vérif, catégorie, page, table, anomalie, confiance, tri + sens) en un wrap horizontal sans regroupement, sans… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX25 | Mineur | TakeoffReviewPage — chargement des candidats… | À chaque ouverture de la revue, un effet pagine TOUS les jobs takeoff de la version (boucle jusqu'à 100/page) uniquement pour trouver ceux du même fichier sour… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX26 | Mineur | ConfidenceHeader — niveaux A/B | L'entête de confiance globale (jauge + distribution) n'est rendu que pour les extractions Level C. Les métrés Level A (métrage structuré) et Level B (tableaux … | à traiter — non rouvert, aucun correctif livré ne le vise |
@@ -292,7 +292,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | UX31 | Majeur | AffairesDenseTable — ligne cliquable | Toute la ligne du tableau dense navigue via onClick sur le <tr> (router.push(primaryHref)) sans role, tabIndex ni gestionnaire clavier ; la cellule 'Nom affair… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX32 | Majeur | Pilotage portefeuille — vue d'ensemble des é… | Le persona attend une 'vue d'ensemble des affaires… échéances, timeline'. Les surfaces existantes couvrent l'agrégat (analytics : KPI + tendance) et le détail … | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX33 | Mineur | estimates/dashboard vs analytics — composant… | EstimateDashboard.tsx (référencé comme surface du parcours : taux d'acceptation, CA par statut, courbe créés/acceptés en SVG polyline) n'est importé nulle part… | à traiter (vérifié) — `EstimateDashboard` n'est importé nulle part, toujours mort |
-| UX34 | Mineur | Chaîne affaires / hub / analytics — accentua… | Incohérence d'accentuation systématique sur des libellés visibles, qui décrédibilise un outil de chiffrage pro face à Batigest/Onaya. Exemples : 'Favori non en… | à traiter (vérifié) — même campagne d'accents que UX10 |
+| UX34 | Mineur | Chaîne affaires / hub / analytics — accentua… | Incohérence d'accentuation systématique sur des libellés visibles, qui décrédibilise un outil de chiffrage pro face à Batigest/Onaya. Exemples : 'Favori non en… | **traité** (`ce532c0`) — panneau de flux, intake, brouillons de commandes et suggestions cockpit sous garde |
 | UX35 | Mineur | AffaireHubPage — chargement de la page la pl… | Le hub d'affaire (page la plus visitée par ce persona) charge côté serveur en vagues séquentielles bloquantes : ~6 fetches en vague 1, puis ~8 fetches dépendan… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX36 | Mineur | Dashboard accueil — sur-récupération | L'accueil récupère 20 affaires (fetchAffairePageData({ size: 20 })) puis n'en affiche que 5 (slice(0,5)) dans 'Affaires récentes'. La donnée superflue (jointur… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX37 | Mineur | Dashboard accueil — KPI 'Affaires actives' | 'Affaires actives' = totalCount - archived, ce qui inclut les affaires 'Acceptées' (gagnées) dans les 'actives'. Pour un conducteur de travaux, une affaire acc… | à traiter — non rouvert, aucun correctif livré ne le vise |
@@ -320,7 +320,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
 | UX51 | Majeur | Prix fournisseurs (/dashboard/prices) | Le filtre de fraîcheur est câblé sur une mauvaise clé d'URL et ne filtre donc rien. La config déclare la clé '_freshnessLevel' (PRICES_FILTERS), mais l'état lu… | livré (`8a685cf`) — la clé `_freshnessLevel` a disparu, le filtre fonctionne |
-| UX52 | Majeur | Libellés FR (parcours achats complet) | Suppression systématique des accents dans de nombreux libellés d'action et de confirmation, sur un outil BTP français destiné aux achats. Exemples: message de … | à traiter (vérifié) — ex. « Supprimer ce fournisseur ? » et suivants, parcours achats |
+| UX52 | Majeur | Libellés FR (parcours achats complet) | Suppression systématique des accents dans de nombreux libellés d'action et de confirmation, sur un outil BTP français destiné aux achats. Exemples: message de … | **traité** (`157fe00`) — comparateur fournisseurs, import CSV price book et messages catalogue sous garde |
 | UX53 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau est un role='dialog' aria-modal='true' mais n'implémente ni fermeture au clavier (aucune gestion de la touche Échap), ni piège de focus, ni focus in… | livré (`ce09a53`) — fermeture par Échap et focus initial |
 | UX54 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau liste les alternatives avec prix et badges mais n'affiche aucun écart chiffré vs la sélection actuelle: ni économie en euros, ni % d'écart, ni total… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX55 | Majeur | Comparaison fournisseurs — multi-devises | Le prix est affiché en formatEUR(adjusted_unit_price_cents) puis on concatène la devise brute de l'offre ( ${alternative.currency}), ce qui produit des rendus … | livré (`30a8b85` affichage par devise + `7977a53` sélection manuelle bloquée) |
@@ -356,9 +356,34 @@ Bilan du rapprochement UX au 2026-07-26 :
 
 | Statut | Nombre |
 |---|---|
-| livré, avec le sha du correctif | 10 |
-| à traiter — **vérifié** encore ouvert dans le code | 14 |
+| livré, avec le sha du correctif | 14 |
+| à traiter — **vérifié** encore ouvert dans le code | 10 |
 | non rouvert | 49 |
+
+### Campagne d'accents FR (UX10, UX23, UX34, UX52) — close sur les surfaces principales
+
+Les quatre constats visaient le même défaut sur quatre parcours. Sur 552
+libellés suspects au départ, 252 sont corrigés ; les 300 restants sont
+concentrés hors des écrans visés : `lib/openapi/registry.ts` (39, descriptions
+de doc API jamais affichées), `lib/takeoff/server.ts` (36),
+`lib/estimates/generated-ouvrages.ts` (16).
+
+Le gain est verrouillé par `src/lib/i18n/fr-accents.test.ts`, qui liste les
+fichiers réellement relus et échoue si l'un régresse. **La liste s'étend
+fichier par fichier, jamais en bloc** : une substitution automatique mot à mot
+a été essayée puis abandonnée — sur 1170 chaînes elle francisait des noms de
+tests anglais (« source details » → « source détails ») et laissait des
+phrases à moitié corrigées (« déjà verrouillee »). Le garde a trouvé 21
+fautes que la relecture manuelle avait manquées ; c'est lui qui fait
+converger la campagne.
+
+Deux pièges à connaître avant de reprendre le chantier :
+
+- Les tokens courts sont préfixes d'autres mots (« Termine » de « Terminer »,
+  « Reference » de « References »). Ils se remplacent guillemets compris.
+- Un en-tête de colonne dans une fixture de test (« Designation » dans un
+  collage Excel simulé) est de la **donnée**, pas un libellé. L'accentuer
+  affaiblit le test. La distinction ne se mécanise pas.
 
 Les 49 restants sont en majorité des améliorations de conception (visualiseur
 de plan, dates de pilotage, écarts chiffrés, architecture d'information)
