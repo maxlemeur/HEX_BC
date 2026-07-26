@@ -38,7 +38,9 @@
       "WebFetch(domain:estimations.info)",
       "WebFetch(domain:www.estimations.info)",
       "WebFetch(domain:engineer-construction.blogspot.com)",
-      "WebFetch(domain:calculatemanhours.com)"
+      "WebFetch(domain:calculatemanhours.com)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ],
     "deny": [
       "Bash(sudo:*)",
