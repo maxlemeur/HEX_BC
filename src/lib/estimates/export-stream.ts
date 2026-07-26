@@ -278,7 +278,7 @@ async function writeWorkbook(input: {
   const estimateSheet = workbook.addWorksheet("Devis");
   estimateSheet.columns = [
     { header: "Poste", key: "poste", width: 12 },
-    { header: "Designation", key: "designation", width: 44 },
+    { header: "Désignation", key: "designation", width: 44 },
     { header: "Unite", key: "unite", width: 20 },
     { header: "Quantité", key: "quantite", width: 12 },
     { header: "PU HT", key: "pu_ht", width: 14 },

@@ -67,7 +67,7 @@ const SECTION_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
 const LINE_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
   {
     key: "title",
-    label: "Designation",
+    label: "Désignation",
     kind: "text",
   },
   {

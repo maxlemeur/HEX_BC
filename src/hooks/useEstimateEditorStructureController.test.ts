@@ -173,7 +173,7 @@ describe("useEstimateEditorStructureController insertions", () => {
     });
 
     expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledWith(
-      "inserer l'assemblage"
+      "insérer l'assemblage"
     );
     expect(clientMocks.insertAssemblyIntoVersion).not.toHaveBeenCalled();
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
@@ -200,7 +200,7 @@ describe("useEstimateEditorStructureController insertions", () => {
     expect(clientMocks.insertAssemblyIntoVersion).toHaveBeenCalledTimes(1);
     expect(clientMocks.insertTemplateIntoVersion).not.toHaveBeenCalled();
     expect(harness.reportError).toHaveBeenLastCalledWith(
-      "Une modification de structure est deja en cours. Patientez avant de reessayer."
+      "Une modification de structure est déjà en cours. Patientez avant de réessayer."
     );
 
     await act(async () => {

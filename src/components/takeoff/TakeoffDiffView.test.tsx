@@ -63,7 +63,7 @@ function buildCompareResponse(): TakeoffJobCompareResponse {
         delta: [
           {
             field: "designation",
-            label: "Designation",
+            label: "Désignation",
             kind: "text",
             before_value: "Tube PVC",
             after_value: "Tube PVC Orange",

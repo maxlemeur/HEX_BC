@@ -126,7 +126,7 @@ export function useEstimateEditorStructureController({
       }
       if (activeMutationIdRef.current !== null) {
         reportError(
-          "Une modification de structure est deja en cours. Patientez avant de reessayer."
+          "Une modification de structure est déjà en cours. Patientez avant de réessayer."
         );
         return null;
       }
@@ -147,7 +147,7 @@ export function useEstimateEditorStructureController({
       }
       if (activeMutationIdRef.current !== null) {
         reportError(
-          "Une modification de structure est deja en cours. Patientez avant de reessayer."
+          "Une modification de structure est déjà en cours. Patientez avant de réessayer."
         );
         return null;
       }
@@ -244,7 +244,7 @@ export function useEstimateEditorStructureController({
 
   const insertAssembly = useCallback(
     async (assemblyId: string, afterItemId: string | null) => {
-      const mutationScope = await beginMutation("inserer l'assemblage");
+      const mutationScope = await beginMutation("insérer l'assemblage");
       if (!mutationScope) return;
       const targetVersionId = mutationScope.version.id;
 
@@ -402,7 +402,7 @@ export function useEstimateEditorStructureController({
 
   const insertTemplate = useCallback(
     async (templateId: string, afterItemId: string | null) => {
-      const mutationScope = await beginMutation("inserer le template");
+      const mutationScope = await beginMutation("insérer le template");
       if (!mutationScope) return;
       const targetVersionId = mutationScope.version.id;
 
@@ -428,7 +428,7 @@ export function useEstimateEditorStructureController({
               resolveErrorMessage(
                 error instanceof Error
                   ? error.message
-                  : "Impossible d'inserer le template."
+                  : "Impossible d'insérer le template."
               )
             );
           }

@@ -650,7 +650,7 @@ export function useEstimateEditorStatusController({
         if (activeRouteVersionIdRef.current === routeVersionId) {
           updateStateForScope(routeVersionId, (current) => ({
             ...current,
-            error: "Veuillez verifier les preconditions d'envoi.",
+            error: "Veuillez vérifier les préconditions d'envoi.",
           }));
         }
         return;
@@ -679,7 +679,7 @@ export function useEstimateEditorStatusController({
         ) {
           reportScopedError(
             scope,
-            "Veuillez verifier les preconditions d'envoi."
+            "Veuillez vérifier les préconditions d'envoi."
           );
           return;
         }

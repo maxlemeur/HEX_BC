@@ -42,7 +42,7 @@ export function EstimateEditorBody({
   isReadOnly,
   hideEditingActions = false,
   onAddRootSection,
-  rootAddSectionLabel = "Creer un lot",
+  rootAddSectionLabel = "Créer un lot",
   onResetQualityFilter,
   sensors,
   onDragEnd,

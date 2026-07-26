@@ -609,7 +609,7 @@ export function useEstimateEditorImportController({
         throw new Error(message);
       }
       if (activeMutationRef.current) {
-        const message = "Une operation structurelle est deja en cours.";
+        const message = "Une opération structurelle est déjà en cours.";
         reportError(message);
         throw new Error(message);
       }
@@ -713,7 +713,7 @@ export function useEstimateEditorImportController({
       return false;
     }
     if (activeMutationRef.current) {
-      reportError("Une operation structurelle est deja en cours.");
+      reportError("Une opération structurelle est déjà en cours.");
       return false;
     }
     if (getVersionSnapshot()?.id !== routeVersionId) {

@@ -552,11 +552,11 @@ describe("GeneratedOuvrageDialog", () => {
     ).toBeInTheDocument();
     expect(within(incompleteCard).getByRole("checkbox")).toBeDisabled();
     expect(
-      within(incompleteCard).getByRole("button", { name: /Completer la ligne/i })
+      within(incompleteCard).getByRole("button", { name: /Compléter la ligne/i })
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Selectionnez un ouvrage pret a inserer\. Unite, quantite et sous-detail valide sont requis\./i
+        /Sélectionnez un ouvrage prêt à insérer\. Unité, quantité et sous-détail valide sont requis\./i
       )
     ).toBeInTheDocument();
   });
@@ -922,7 +922,7 @@ describe("GeneratedOuvrageDialog", () => {
 
     await waitFor(() => {
       expect(ensureMutationCanProceed).toHaveBeenCalledWith(
-        "inserer les ouvrages generes"
+        "insérer les ouvrages générés"
       );
       expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
     });

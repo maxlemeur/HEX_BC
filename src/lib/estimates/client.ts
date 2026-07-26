@@ -5413,7 +5413,7 @@ export async function insertTemplateIntoVersion(
         afterItemId: input.afterItemId ?? null,
       }),
     },
-    "Impossible d'inserer le template."
+    "Impossible d'insérer le template."
   );
 
   return parseEstimateItems(payload);
@@ -5659,7 +5659,7 @@ export async function insertAssemblyIntoVersion(
         afterItemId: input.afterItemId ?? null,
       }),
     },
-    "Impossible d'inserer l'ouvrage."
+    "Impossible d'insérer l'ouvrage."
   );
 
   return parseEstimateItems(payload);

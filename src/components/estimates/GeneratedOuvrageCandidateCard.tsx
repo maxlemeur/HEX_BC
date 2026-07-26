@@ -85,7 +85,7 @@ function ReadinessStepper({
   selected: boolean;
 }) {
   const steps = [
-    { label: "Completer la ligne", done: parentReady },
+    { label: "Compléter la ligne", done: parentReady },
     { label: "Valider le sous-detail", done: subdetailReviewed },
     { label: "Sélectionner", done: selected },
   ];
@@ -274,7 +274,7 @@ export function GeneratedOuvrageCandidateCard({
                 Il manque : {missingFieldsLabel}.
               </p>
               <p className="text-xs text-amber-700 mt-1">
-                Cliquez sur &laquo;&nbsp;Completer la ligne&nbsp;&raquo; ci-dessous.
+                Cliquez sur &laquo;&nbsp;Compléter la ligne&nbsp;&raquo; ci-dessous.
               </p>
             </div>
           )}
@@ -347,7 +347,7 @@ export function GeneratedOuvrageCandidateCard({
                 className="btn btn-primary btn-xs"
                 onClick={() => onStartEdit(candidate.candidateId)}
               >
-                Completer la ligne
+                Compléter la ligne
               </button>
             )}
             {nextStep === "subdetail" && (
@@ -405,7 +405,7 @@ export function GeneratedOuvrageCandidateCard({
               </button>
             )}
 
-            {/* Edit - hidden when "Completer la ligne" is already the primary CTA */}
+            {/* Edit - hidden when "Compléter la ligne" is already the primary CTA */}
             {nextStep !== "parent" && (
               <button
                 type="button"
@@ -593,7 +593,7 @@ function EditMode({
           </div>
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Renseignez les champs marques * pour completer la ligne.
+            Renseignez les champs marques * pour compléter la ligne.
           </div>
         )}
 

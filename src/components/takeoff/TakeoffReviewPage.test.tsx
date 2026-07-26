@@ -381,7 +381,7 @@ describe("TakeoffReviewPage", () => {
             {
               page: 1,
               title: "Nomenclature",
-              headers: ["Designation", "Qte"],
+              headers: ["Désignation", "Qte"],
               rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
             },
           ],
@@ -411,7 +411,7 @@ describe("TakeoffReviewPage", () => {
             {
               page: 1,
               title: "Nomenclature",
-              headers: ["Designation", "Qte"],
+              headers: ["Désignation", "Qte"],
               rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
             },
           ],
@@ -442,7 +442,7 @@ describe("TakeoffReviewPage", () => {
             {
               page: 1,
               title: "Nomenclature",
-              headers: ["Designation", "Qte"],
+              headers: ["Désignation", "Qte"],
               rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
             },
           ],
@@ -536,7 +536,7 @@ describe("TakeoffReviewPage", () => {
             {
               page: 1,
               title: "Nomenclature",
-              headers: ["Designation", "Qte"],
+              headers: ["Désignation", "Qte"],
               rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
             },
           ],
@@ -582,7 +582,7 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
-    const designationInput = screen.getByLabelText("Designation") as HTMLInputElement;
+    const designationInput = screen.getByLabelText("Désignation") as HTMLInputElement;
     fireEvent.focus(designationInput);
     fireEvent.change(designationInput, { target: { value: "Updated" } });
     fireEvent.blur(designationInput);
@@ -608,13 +608,13 @@ describe("TakeoffReviewPage", () => {
             {
               page: 1,
               title: "Table 1",
-              headers: ["Designation", "Qte"],
+              headers: ["Désignation", "Qte"],
               rows: [{ row_index: 0, cells: ["Item A", "10"] }],
             },
             {
               page: 2,
               title: "Table 2",
-              headers: ["Designation", "Qte"],
+              headers: ["Désignation", "Qte"],
               rows: [{ row_index: 0, cells: ["Item B", "20"] }],
             },
           ],

@@ -19,7 +19,7 @@ describe("ColumnMapper", () => {
         },
         targetFields: [
           { value: "hex_code", label: "Référence article", required: true },
-          { value: "designation", label: "Designation", required: true },
+          { value: "designation", label: "Désignation", required: true },
         ],
         disabled: true,
         onChange,
@@ -46,7 +46,7 @@ describe("ColumnMapper", () => {
         },
         targetFields: [
           { value: "hex_code", label: "Référence article", required: true },
-          { value: "designation", label: "Designation", required: false },
+          { value: "designation", label: "Désignation", required: false },
         ],
         onChange: vi.fn(),
       })

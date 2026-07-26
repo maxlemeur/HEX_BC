@@ -153,7 +153,7 @@ describe("EstimateEditorBody", () => {
     render(<EstimateEditorBody {...props} />);
 
     expect(screen.getByText("Aucune ligne pour le moment.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Creer un lot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Créer un lot" }));
     expect(onAddRootSection).toHaveBeenCalledTimes(1);
   });
 

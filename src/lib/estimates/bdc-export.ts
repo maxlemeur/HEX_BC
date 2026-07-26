@@ -519,7 +519,7 @@ async function writeWorkbook(input: {
     { header: "Type", key: "type", width: 10 },
     { header: "Position", key: "position", width: 10 },
     { header: "AID", key: "aid", width: 38 },
-    { header: "Designation", key: "designation", width: 42 },
+    { header: "Désignation", key: "designation", width: 42 },
     { header: "Unite", key: "unite", width: 12 },
     { header: "Quantité", key: "quantite", width: 12 },
     { header: "Type FO", key: "type_fo", width: 14 },

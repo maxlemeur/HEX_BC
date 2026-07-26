@@ -6110,7 +6110,7 @@ export async function insertAssemblyIntoVersion(input: {
     if (errorMessageContains(error, "after_item_id invalide")) {
       throw badRequest("afterItemId invalide.", error);
     }
-    throw mapSupabaseError(error, "Impossible d'inserer l'ouvrage.");
+    throw mapSupabaseError(error, "Impossible d'insérer l'ouvrage.");
   }
 
   const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
@@ -6118,7 +6118,7 @@ export async function insertAssemblyIntoVersion(input: {
 
   if (insertedItemIds.length === 0) {
     throw internalError(
-      "Impossible d'inserer l'ouvrage.",
+      "Impossible d'insérer l'ouvrage.",
       { data },
       "ESTIMATE_ASSEMBLY_INSERT_FAILED"
     );
@@ -6160,7 +6160,7 @@ export async function insertAssemblyIntoVersion(input: {
     if (clearRoleError) {
       throw mapSupabaseError(
         clearRoleError,
-        "Impossible d'inserer l'ouvrage."
+        "Impossible d'insérer l'ouvrage."
       );
     }
   }
@@ -6173,7 +6173,7 @@ export async function insertAssemblyIntoVersion(input: {
     .in("id", insertedItemIds);
 
   if (reloadError) {
-    throw mapSupabaseError(reloadError, "Impossible d'inserer l'ouvrage.");
+    throw mapSupabaseError(reloadError, "Impossible d'insérer l'ouvrage.");
   }
 
   const reloadedItemsById = new Map(
@@ -6217,7 +6217,7 @@ export async function insertAssemblyIntoVersion(input: {
       .in("id", insertedLaborRoleIds);
 
     if (roleRatesError) {
-      throw mapSupabaseError(roleRatesError, "Impossible d'inserer l'ouvrage.");
+      throw mapSupabaseError(roleRatesError, "Impossible d'insérer l'ouvrage.");
     }
 
     for (const role of (roleRows ?? []) as Array<{
@@ -6276,7 +6276,7 @@ export async function insertAssemblyIntoVersion(input: {
       .eq("id", item.id);
 
     if (normalizeError) {
-      throw mapSupabaseError(normalizeError, "Impossible d'inserer l'ouvrage.");
+      throw mapSupabaseError(normalizeError, "Impossible d'insérer l'ouvrage.");
     }
   }
 
@@ -6420,7 +6420,7 @@ export async function insertTemplateIntoVersion(input: {
     if (errorMessageContains(error, "after_item_id invalide")) {
       throw badRequest("afterItemId invalide.", error);
     }
-    throw mapSupabaseError(error, "Impossible d'inserer le template.");
+    throw mapSupabaseError(error, "Impossible d'insérer le template.");
   }
 
   const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
@@ -6428,7 +6428,7 @@ export async function insertTemplateIntoVersion(input: {
 
   if (insertedItemIds.length === 0) {
     throw internalError(
-      "Impossible d'inserer le template.",
+      "Impossible d'insérer le template.",
       { data },
       "ESTIMATE_TEMPLATE_INSERT_FAILED"
     );
@@ -6442,7 +6442,7 @@ export async function insertTemplateIntoVersion(input: {
     .in("id", insertedItemIds);
 
   if (reloadError) {
-    throw mapSupabaseError(reloadError, "Impossible d'inserer le template.");
+    throw mapSupabaseError(reloadError, "Impossible d'insérer le template.");
   }
 
   const reloadedItemsById = new Map(
@@ -8804,7 +8804,7 @@ export async function saveSuggestionRuleFeedback(
     );
   }
 
-  throw conflict("La regle a ete modifiee simultanement. Veuillez reessayer.");
+  throw conflict("La règle a été modifiée simultanément. Veuillez réessayer.");
 }
 
 export async function createEstimateItem(

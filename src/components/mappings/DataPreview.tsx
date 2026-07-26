@@ -88,7 +88,7 @@ export function DataPreview({
           </p>
         </div>
         <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Champs a completer</p>
+          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Champs a compléter</p>
           <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
             {validation ? validation.missing_required_fields.length : "-"}
           </p>
@@ -103,7 +103,7 @@ export function DataPreview({
 
       {validation && validation.missing_required_fields.length > 0 ? (
         <div className="alert alert-info m-4">
-          <p className="font-medium">Champs a completer</p>
+          <p className="font-medium">Champs a compléter</p>
           <ul className="mt-1 list-inside list-disc text-sm">
             {validation.missing_required_fields.map((field) => (
               <li key={field}>{field}</li>
@@ -173,7 +173,7 @@ export function DataPreview({
                           hasMissingRequired ? "status-badge status-draft" : "status-badge status-confirmed"
                         }
                       >
-                        {hasMissingRequired ? "A completer" : "OK"}
+                        {hasMissingRequired ? "A compléter" : "OK"}
                       </span>
                     </td>
                   </tr>

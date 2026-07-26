@@ -67,7 +67,7 @@ export function useEstimateEditorOrderingController({
       });
       if (hasPendingCreation) {
         reportError(
-          "Impossible de reordonner tant que des elements en creation ne sont pas synchronises."
+          "Impossible de réordonner tant que des éléments en création ne sont pas synchronisés."
         );
         return;
       }
@@ -204,7 +204,7 @@ export function useEstimateEditorOrderingController({
       });
       if (hasPendingCreation) {
         reportError(
-          "Impossible de deplacer tant que des elements en creation ne sont pas synchronises."
+          "Impossible de déplacer tant que des éléments en création ne sont pas synchronisés."
         );
         return;
       }

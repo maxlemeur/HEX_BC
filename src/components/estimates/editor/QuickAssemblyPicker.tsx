@@ -82,7 +82,7 @@ export function QuickAssemblyPicker({
         setActionError(
           error instanceof Error
             ? error.message
-            : "Impossible d'inserer l'ouvrage."
+            : "Impossible d'insérer l'ouvrage."
         );
       } finally {
         setIsInserting(false);

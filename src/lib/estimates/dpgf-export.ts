@@ -345,7 +345,7 @@ async function writeWorkbook(input: {
   dataSheet.columns = [
     { header: "Type", key: "type", width: 12 },
     { header: "AID", key: "aid", width: 22 },
-    { header: "Designation", key: "designation", width: 44 },
+    { header: "Désignation", key: "designation", width: 44 },
     { header: "Quantité", key: "quantite", width: 12 },
     { header: "Unite", key: "unite", width: 18 },
     { header: "Prix unitaire HT EUR", key: "prix_unitaire_ht_eur", width: 22 },

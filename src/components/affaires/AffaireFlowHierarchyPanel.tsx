@@ -928,7 +928,7 @@ function buildPanelModel(
     const count = criticalMissingPieces.length > 0 ? criticalMissingPieces.length : missingPieces.length;
     const missingPiecesAllowContinuation =
       allowsCanonicalContinuation && canonicalReadinessStatus !== "not_ready";
-    title = missingPiecesAllowContinuation ? "Consolider le dossier" : "Completer le dossier";
+    title = missingPiecesAllowContinuation ? "Consolider le dossier" : "Compléter le dossier";
     summary = missingPiecesAllowContinuation
       ? criticalMissingPieces.length > 0
         ? `Le dossier peut avancer, mais ${count} piece${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} reste${count > 1 ? "nt" : ""} a regulariser pour fiabiliser le metre et la sortie devis.`
@@ -946,7 +946,7 @@ function buildPanelModel(
         ? toSuggestionAction(addFilesSuggestion)
         : toHrefAction({
             key: "missing-intake-fallback",
-            label: "Completer le dossier",
+            label: "Compléter le dossier",
             description: "Ouvrir l'intake pour ajouter les pieces manquantes.",
             href: `/dashboard/affaires/${input.projectId}#intake`,
             variant: "primary",
@@ -1038,7 +1038,7 @@ function buildPanelModel(
       : briefPending
         ? "Confirmer le brief"
         : canonicalMissingCount > 0
-          ? "Completer le dossier"
+          ? "Compléter le dossier"
           : "Stabiliser le dossier";
     summary = reviewPending
       ? reviewIntakeSuggestion?.preview ??
@@ -1076,7 +1076,7 @@ function buildPanelModel(
             ? toSuggestionAction(addFilesSuggestion)
             : toHrefAction({
                 key: "missing-intake-fallback",
-                label: "Completer le dossier",
+                label: "Compléter le dossier",
                 description: "Ouvrir l'intake pour ajouter les pieces manquantes.",
                 href: `/dashboard/affaires/${input.projectId}#intake`,
               variant: "primary",
@@ -1409,7 +1409,7 @@ function buildPanelModel(
         key: "manual-estimate",
         label: "Continuer en manuel",
         description:
-          "Ouvrir le devis sans attendre un import DPGF. Vous pourrez completer ou hybrider plus tard.",
+          "Ouvrir le devis sans attendre un import DPGF. Vous pourrez compléter ou hybrider plus tard.",
         href: manualEstimateHref,
         variant: "ghost",
       }),
@@ -2732,7 +2732,7 @@ export function AffaireFlowHierarchyPanel(
                   Le mode manuel reste disponible
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-[var(--slate-600)]">
-                  Vous pouvez ouvrir le devis sans DPGF et completer la structure plus tard.
+                  Vous pouvez ouvrir le devis sans DPGF et compléter la structure plus tard.
                 </p>
               </div>
               <Link href={manualEstimateHref} className="btn btn-secondary btn-sm shrink-0">

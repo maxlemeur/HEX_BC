@@ -82,7 +82,7 @@ export function QuickTemplatePicker({
         setActionError(
           error instanceof Error
             ? error.message
-            : "Impossible d'inserer le template."
+            : "Impossible d'insérer le template."
         );
       } finally {
         setIsInserting(false);

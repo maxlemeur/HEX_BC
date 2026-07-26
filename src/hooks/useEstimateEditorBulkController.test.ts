@@ -227,10 +227,10 @@ describe("useEstimateEditorBulkController", () => {
       harness.ensureGroupedActionCanProceed.mock.calls.map(([label]) => label)
     ).toEqual([
       "appliquer la majoration en lot",
-      "supprimer les lignes selectionnees",
-      "deplacer les lignes selectionnees",
-      "appliquer la categorie en lot",
-      "appliquer le role MO en lot",
+      "supprimer les lignes sélectionnées",
+      "déplacer les lignes sélectionnées",
+      "appliquer la catégorie en lot",
+      "appliquer le rôle MO en lot",
     ]);
     expect(harness.getItems()).toEqual([line]);
     expect(harness.setItems).not.toHaveBeenCalled();

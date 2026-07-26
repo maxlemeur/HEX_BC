@@ -311,7 +311,7 @@ describe("useEstimateEditorStatusController send workflow", () => {
     expect(harness.result.current.state.sendGating).toBeNull();
     expect(harness.result.current.state.isSendGatingDialogOpen).toBe(false);
     expect(harness.result.current.state.error).toBe(
-      "Veuillez verifier les preconditions d'envoi."
+      "Veuillez vérifier les préconditions d'envoi."
     );
   });
 });

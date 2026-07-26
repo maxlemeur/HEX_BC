@@ -128,13 +128,13 @@ function describeMissingPieces(
     return {
       label: `Ajouter ${missingPiecesCount} piece${plural} manquante${plural}`,
       preview:
-        "Completer le dossier avec les pieces manquantes detectees pendant l'intake.",
+        "Compléter le dossier avec les pieces manquantes detectees pendant l'intake.",
     };
   }
 
   if (confirmedMissingPiecesCount === 0) {
     return {
-      label: `Completer ${missingPiecesCount} piece${plural} potentiellement manquante${plural}`,
+      label: `Compléter ${missingPiecesCount} piece${plural} potentiellement manquante${plural}`,
       preview:
         provisionalCriticalMissingPiecesCount > 0
           ? "Des pieces a revoir peuvent encore lever un manque critique. Purgez la review avant de conclure que le dossier est incomplet."
@@ -459,7 +459,7 @@ export function computeCockpitSuggestions(
         intent: "list_hypotheses",
         preview: impactedStages
           ? `Un additif ou une piece critique recue tardivement impose une revue ciblee: ${impactedStages}.`
-          : "Un additif ou une piece critique recue tardivement impose une revue ciblee avant remise.",
+          : "Un additif ou une pièce critique reçue tardivement impose une revue ciblée avant remise.",
         target: {
           kind: "navigate",
           href: `${buildAffaireRegisterHubHref({

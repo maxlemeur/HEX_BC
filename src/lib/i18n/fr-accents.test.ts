@@ -46,6 +46,31 @@ const FICHIERS_PROPRES = [
   "src/components/estimates/SupplierComparisonPanel.tsx",
   "src/lib/catalogue/server.ts",
   "src/lib/estimates/purchase-order-drafts.ts",
+  "src/components/estimates/DuplicateEstimateButton.tsx",
+  "src/components/estimates/EstimateEditorTable.tsx",
+  "src/components/estimates/EstimateEventsTimeline.tsx",
+  "src/components/estimates/EstimateExplanationPanel.tsx",
+  "src/components/estimates/GeneratedOuvrageCandidateCard.tsx",
+  "src/components/estimates/GeneratedOuvrageDialog.tsx",
+  "src/components/estimates/GeneratedOuvrageDraftReview.tsx",
+  "src/components/estimates/GeneratedOuvrageFooterBar.tsx",
+  "src/components/estimates/GeneratedOuvrageSourceForm.tsx",
+  "src/components/estimates/GeneratedOuvrageSubdetailEditor.tsx",
+  "src/components/estimates/MarginTiersManager.tsx",
+  "src/components/estimates/SaveAsTemplateButton.tsx",
+  "src/components/estimates/VersionZeroDraftDialog.tsx",
+  "src/components/estimates/components/EstimateEditorBody.tsx",
+  "src/components/estimates/estimate-approval/EstimateApprovalSubmissionPanel.tsx",
+  "src/components/estimates/estimate-creation-wizard/ImportStep.tsx",
+  "src/components/estimates/estimate-creation-wizard/ProjectStep.tsx",
+  "src/components/estimates/hooks/useEstimateClipboard.ts",
+  "src/hooks/useEstimateEditorBulkController.ts",
+  "src/hooks/useEstimateEditorImportController.ts",
+  "src/hooks/useEstimateEditorItemsController.ts",
+  "src/hooks/useEstimateEditorOrderingController.ts",
+  "src/hooks/useEstimateEditorState.impl.tsx",
+  "src/hooks/useEstimateEditorStatusController.ts",
+  "src/hooks/useEstimateEditorStructureController.ts",
 ];
 
 /**
@@ -69,6 +94,19 @@ const FORMES_FAUTIVES = [
   "metre applique", "deja ete",
   "controle termine",
   "activite metres",
+  // Ajoutées après coup : ces formes ont traversé une relecture manuelle
+  // (« Completer la ligne », « Impossible de reappliquer la categorie »).
+  // Chacune est du français sans ambiguïté et n'est pas un mot anglais —
+  // c'est le seul critère d'entrée dans cette table.
+  "Completer", "completer",
+  "Designation", "designation",
+  "Modele", "modele",
+  "Donnees", "donnees",
+  "Selectionner", "selectionner", "Selectionnez", "selectionnees", "Selectionne",
+  "Inserer", "inserer", "inseres",
+  "reessayer", "reappliquer",
+  "Hierarchie", "hierarchie",
+  "recues", "recue", "recus",
 ];
 
 function litterauxSuspects(source: string) {
@@ -78,8 +116,13 @@ function litterauxSuspects(source: string) {
     const literals = line.match(/"[^"]{3,140}"|'[^']{3,140}'/g) ?? [];
     for (const literal of literals) {
       const text = literal.slice(1, -1);
-      // Cle technique, chemin, identifiant : hors sujet.
+      // Clé technique, chemin, identifiant : hors sujet. La deuxième forme
+      // couvre les listes de colonnes SQL (« id, designation, reference ») et
+      // les clés composées (« reference+designation »), qui déclenchaient un
+      // faux positif sur « designation ». Le critère est qu'aucun jeton ne
+      // contienne d'espace : « deja saisie » reste donc bien signalé.
       if (/^[a-z0-9_\-.:/]+$/.test(text)) continue;
+      if (/^[a-z0-9_+.\-/]+(,\s*[a-z0-9_+.\-/]+)*$/.test(text)) continue;
       const faute = FORMES_FAUTIVES.find((mot) =>
         new RegExp(`\\b${mot}\\b`).test(text)
       );

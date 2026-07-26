@@ -63,7 +63,7 @@ const SECTION_SNAPSHOT_FIELDS: readonly SnapshotFieldDefinition[] = [
 const LINE_SNAPSHOT_FIELDS: readonly SnapshotFieldDefinition[] = [
   {
     key: "title",
-    label: "Designation",
+    label: "Désignation",
     kind: "text",
   },
   {

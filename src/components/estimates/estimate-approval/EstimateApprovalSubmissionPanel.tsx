@@ -420,7 +420,7 @@ export function EstimateApprovalSubmissionPanel({
                 autoComplete="off"
                 value={submissionMessage}
                 onChange={(event) => onSubmissionMessageChange(event.target.value)}
-                placeholder="Ex. Prioriser les exceptions CFO, les arbitrages deja faits et ce qui reste a confirmer…"
+                placeholder="Ex. Prioriser les exceptions CFO, les arbitrages déjà faits et ce qui reste à confirmer…"
               />
             </label>
           </div>

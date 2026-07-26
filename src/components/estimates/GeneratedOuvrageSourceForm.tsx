@@ -110,7 +110,7 @@ export function GeneratedOuvrageSourceForm({
         disabled={isGenerating}
         data-testid="generated-ouvrage-generate-button"
       >
-        {isGenerating ? "Generation..." : "Generer des propositions"}
+        {isGenerating ? "Generation..." : "Générer des propositions"}
       </button>
     </form>
   );

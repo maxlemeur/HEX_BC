@@ -320,7 +320,7 @@ function TableCard({
                               onChange={(val) => onUpdateItem(item.id, "designation", val)}
                               onCommit={(val) => onUpdateItem(item.id, "designation", val)}
                               readOnly={isExcluded}
-                              placeholder="Designation..."
+                              placeholder="Désignation..."
                               ariaLabel={`${table.headers[ci]} - ${item.designation}`}
                               className="editable-cell"
                             />

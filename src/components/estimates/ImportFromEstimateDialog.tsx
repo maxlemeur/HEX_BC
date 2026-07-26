@@ -286,7 +286,7 @@ export function ImportFromEstimateDialog({
                         setSelectedSectionIds([]);
                       }}
                     />
-                    Tout selectionner
+                    Tout sélectionner
                   </label>
                 </div>
                 <div className="max-h-72 overflow-y-auto rounded-xl border border-[var(--slate-200)]">

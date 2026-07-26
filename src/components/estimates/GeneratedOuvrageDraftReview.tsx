@@ -43,7 +43,7 @@ type GeneratedOuvrageDraftReviewProps = {
 
 const STATUS_MESSAGES: Record<string, string> = {
   partially_applied:
-    "Certains ouvrages ont deja ete inseres. Les ouvrages restants peuvent encore etre revus.",
+    "Certains ouvrages ont déjà été insérés. Les ouvrages restants peuvent encore être revus.",
   discarded:
     "Toutes les propositions ont ete rejetees ou ecartees.",
 };

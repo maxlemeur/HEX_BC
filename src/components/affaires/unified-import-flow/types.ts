@@ -25,7 +25,7 @@ export const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls", "pdf"]);
 
 export const TARGET_FIELDS = [
   { value: "hex_code", label: "Référence article", required: true },
-  { value: "designation", label: "Designation", required: true },
+  { value: "designation", label: "Désignation", required: true },
   { value: "quantity", label: "Quantité" },
   { value: "unit", label: "Unite" },
   { value: "unit_price_ht", label: "Prix unitaire HT" },

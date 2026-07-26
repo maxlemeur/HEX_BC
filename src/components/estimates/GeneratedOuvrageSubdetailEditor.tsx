@@ -354,7 +354,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">
-                      {component.designation || "Composant sans designation"}
+                      {component.designation || "Composant sans désignation"}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {component.quantity} {component.unit ?? "u"} · DS{" "}
@@ -603,7 +603,7 @@ function GeneratedOuvrageSubdetailEditorForm({
           {isSaving
             ? "Validation..."
             : reviewStateIsCurrent
-              ? "Sous-detail deja valide"
+              ? "Sous-détail déjà validé"
               : subdetail.status === "reviewed"
                 ? "Revalider le sous-detail"
                 : "Valider le sous-detail"}

@@ -86,7 +86,7 @@ export function ProjectStep({
         <input
           id="wiz-reference"
           className="form-input"
-          placeholder="Reference projet (optionnelle)"
+          placeholder="Référence projet (optionnelle)"
           value={data.reference}
           onChange={(event) => updateField("reference", event.target.value)}
         />

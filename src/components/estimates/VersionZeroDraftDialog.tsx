@@ -400,7 +400,7 @@ export function VersionZeroDraftDialog({
                       !summary?.canGenerate
                     }
                   >
-                    {isBusy ? "Generation..." : "Generer V0"}
+                    {isBusy ? "Generation..." : "Générer V0"}
                   </button>
                 </div>
               </div>

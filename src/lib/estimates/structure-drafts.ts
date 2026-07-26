@@ -2147,7 +2147,7 @@ ${heuristicBlock || "- aucune proposition heuristique"}
 
 Consignes de generation:
 - privilegie les structures observees dans l'historique et les templates
-- utilise le DPGF pour completer, pas pour inventer silencieusement
+- utilise le DPGF pour compléter, pas pour inventer silencieusement
 - si une structure est incertaine, baisse la confiance et place le doute dans hypotheses/inferences
 - les faits doivent etre des observations directes des sources
 - les hypotheses doivent expliciter ce qui reste a confirmer

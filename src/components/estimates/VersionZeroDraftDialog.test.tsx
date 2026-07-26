@@ -184,7 +184,7 @@ describe("VersionZeroDraftDialog mutation guards", () => {
     const user = userEvent.setup();
 
     const generateButton = await screen.findByRole("button", {
-      name: "Generer V0",
+      name: "Générer V0",
     });
     await waitFor(() => expect(generateButton).toBeEnabled());
     await user.click(generateButton);
@@ -301,7 +301,7 @@ describe("VersionZeroDraftDialog mutation guards", () => {
       />
     );
     expect(
-      await screen.findByRole("button", { name: "Generer V0" })
+      await screen.findByRole("button", { name: "Générer V0" })
     ).toBeDisabled();
     expect(mockGenerateVersionZeroDraft).not.toHaveBeenCalled();
     expect(mockReviewVersionZeroLine).not.toHaveBeenCalled();

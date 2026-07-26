@@ -51,7 +51,7 @@ export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   low_confidence: "Confiance faible (< 50%)",
   missing_evidence: "Aucune evidence/source",
   zero_quantity: "Quantité nulle ou négative",
-  empty_designation: "Designation vide",
+  empty_designation: "Désignation vide",
 };
 
 function compareConfidence(
@@ -525,7 +525,7 @@ export default function TakeoffReviewTable({
         {/* Search */}
         <input
           type="search"
-          placeholder="Rechercher par designation..."
+          placeholder="Rechercher par désignation..."
           className="h-9 w-64 rounded-lg border border-[var(--border)] bg-white px-3 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -704,7 +704,7 @@ export default function TakeoffReviewTable({
                     filteredItems.every((i) => selectedIds.has(i.id))
                   }
                   onChange={toggleSelectAll}
-                  aria-label="Tout selectionner"
+                  aria-label="Tout sélectionner"
                 />
               </th>
               <th
@@ -793,8 +793,8 @@ export default function TakeoffReviewTable({
                           onUpdateItem(item.id, "designation", val)
                         }
                         readOnly={isExcluded}
-                        placeholder="Designation..."
-                        ariaLabel="Designation"
+                        placeholder="Désignation..."
+                        ariaLabel="Désignation"
                         className="editable-cell"
                       />
                       {item._saving && (

@@ -65,7 +65,7 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
       setIsOpen(false);
       toast.success({
         title: "Template enregistre",
-        description: "Le modele a ete ajoute a votre bibliotheque.",
+        description: "Le modèle a été ajouté à votre bibliothèque.",
       });
     } catch (error) {
       setIsSubmitting(false);
@@ -98,7 +98,7 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
           <form className="grid gap-4" onSubmit={onSubmit}>
             <Input
               id="template-name"
-              label="Nom du modele *"
+              label="Nom du modèle *"
               value={name}
               onChange={(event) => {
                 setName(event.target.value);

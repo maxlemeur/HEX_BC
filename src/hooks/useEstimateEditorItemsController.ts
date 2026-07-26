@@ -592,10 +592,10 @@ export function useEstimateEditorItemsController({
       const impactedCount = idsToRemove.size;
       const impactedLabel =
         impactedCount > 1
-          ? `${impactedCount} elements (cet element + ${impactedCount - 1} enfant${
+          ? `${impactedCount} éléments (cet élément + ${impactedCount - 1} enfant${
               impactedCount - 1 > 1 ? "s" : ""
             })`
-          : "cet element";
+          : "cet élément";
       if (!window.confirm(`Supprimer ${impactedLabel} ?`)) return;
       reportError(null);
 

@@ -205,7 +205,7 @@ export function useEstimateEditorBulkController({
           redo: async (context) => {
             await applyBulkLineState(
               updatedLines,
-              "Impossible de reappliquer la majoration en lot.",
+              "Impossible de réappliquer la majoration en lot.",
               context?.isCurrentScope
             );
           },
@@ -227,7 +227,7 @@ export function useEstimateEditorBulkController({
 
   const bulkDeleteLines = useCallback(
     async (itemIds: string[]) => {
-      if (!(await guardBulkAction("supprimer les lignes selectionnees"))) return;
+      if (!(await guardBulkAction("supprimer les lignes sélectionnées"))) return;
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot) {
         reportError("Version introuvable.");
@@ -334,7 +334,7 @@ export function useEstimateEditorBulkController({
           const baseMessage = resolveErrorMessage(
             error instanceof Error
               ? error.message
-              : "Impossible de supprimer toutes les lignes selectionnees."
+              : "Impossible de supprimer toutes les lignes sélectionnées."
           );
           reportError(
             `Suppression partielle detectee (${deletedCount}/${selectedLines.length}) : ${baseMessage}. La version a ete rechargee; verifiez les lignes puis reessayez.`
@@ -347,7 +347,7 @@ export function useEstimateEditorBulkController({
             resolveErrorMessage(
               error instanceof Error
                 ? error.message
-                : "Impossible de supprimer les lignes selectionnees."
+                : "Impossible de supprimer les lignes sélectionnées."
             )
           );
         }
@@ -372,7 +372,7 @@ export function useEstimateEditorBulkController({
 
   const bulkMoveLines = useCallback(
     async (itemIds: string[], targetParentId: string | null) => {
-      if (!(await guardBulkAction("deplacer les lignes selectionnees"))) return;
+      if (!(await guardBulkAction("déplacer les lignes sélectionnées"))) return;
       if (!getVersionSnapshot()) {
         reportError("Version introuvable.");
         return;
@@ -408,7 +408,7 @@ export function useEstimateEditorBulkController({
         if (
           !(await applyBulkLineState(
             movedLines,
-            "Impossible de deplacer les lignes selectionnees."
+            "Impossible de déplacer les lignes sélectionnées."
           ))
         ) {
           return;
@@ -418,14 +418,14 @@ export function useEstimateEditorBulkController({
           undo: async (context) => {
             await applyBulkLineState(
               selectedLines,
-              "Impossible d'annuler le deplacement des lignes.",
+              "Impossible d'annuler le déplacement des lignes.",
               context?.isCurrentScope
             );
           },
           redo: async (context) => {
             await applyBulkLineState(
               movedLines,
-              "Impossible de reappliquer le deplacement des lignes.",
+              "Impossible de réappliquer le déplacement des lignes.",
               context?.isCurrentScope
             );
           },
@@ -446,7 +446,7 @@ export function useEstimateEditorBulkController({
 
   const bulkSetCategory = useCallback(
     async (itemIds: string[], categoryId: string | null) => {
-      if (!(await guardBulkAction("appliquer la categorie en lot"))) return;
+      if (!(await guardBulkAction("appliquer la catégorie en lot"))) return;
       if (!getVersionSnapshot()) {
         reportError("Version introuvable.");
         return;
@@ -467,7 +467,7 @@ export function useEstimateEditorBulkController({
         if (
           !(await applyBulkLineState(
             updatedLines,
-            "Impossible d'appliquer la categorie en lot."
+            "Impossible d'appliquer la catégorie en lot."
           ))
         ) {
           return;
@@ -477,14 +477,14 @@ export function useEstimateEditorBulkController({
           undo: async (context) => {
             await applyBulkLineState(
               selectedLines,
-              "Impossible d'annuler la categorie en lot.",
+              "Impossible d'annuler la catégorie en lot.",
               context?.isCurrentScope
             );
           },
           redo: async (context) => {
             await applyBulkLineState(
               updatedLines,
-              "Impossible de reappliquer la categorie en lot.",
+              "Impossible de réappliquer la catégorie en lot.",
               context?.isCurrentScope
             );
           },
@@ -505,7 +505,7 @@ export function useEstimateEditorBulkController({
 
   const bulkSetLaborRole = useCallback(
     async (itemIds: string[], laborRoleId: string | null) => {
-      if (!(await guardBulkAction("appliquer le role MO en lot"))) return;
+      if (!(await guardBulkAction("appliquer le rôle MO en lot"))) return;
       if (!getVersionSnapshot()) {
         reportError("Version introuvable.");
         return;
@@ -535,7 +535,7 @@ export function useEstimateEditorBulkController({
         if (
           !(await applyBulkLineState(
             updatedLines,
-            "Impossible d'appliquer le role MO en lot."
+            "Impossible d'appliquer le rôle MO en lot."
           ))
         ) {
           return;
@@ -545,14 +545,14 @@ export function useEstimateEditorBulkController({
           undo: async (context) => {
             await applyBulkLineState(
               selectedLines,
-              "Impossible d'annuler le role MO en lot.",
+              "Impossible d'annuler le rôle MO en lot.",
               context?.isCurrentScope
             );
           },
           redo: async (context) => {
             await applyBulkLineState(
               updatedLines,
-              "Impossible de reappliquer le role MO en lot.",
+              "Impossible de réappliquer le rôle MO en lot.",
               context?.isCurrentScope
             );
           },

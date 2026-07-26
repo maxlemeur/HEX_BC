@@ -176,7 +176,7 @@ describe("useEstimateEditorOrderingController reorder", () => {
     });
 
     expect(harness.reportError).toHaveBeenCalledWith(
-      "Impossible de reordonner tant que des elements en creation ne sont pas synchronises."
+      "Impossible de réordonner tant que des éléments en création ne sont pas synchronisés."
     );
     expect(harness.setItems).not.toHaveBeenCalled();
     expect(clientMocks.reorderEstimateItems).not.toHaveBeenCalled();
@@ -338,7 +338,7 @@ describe("useEstimateEditorOrderingController move", () => {
     });
 
     expect(harness.reportError).toHaveBeenCalledWith(
-      "Impossible de deplacer tant que des elements en creation ne sont pas synchronises."
+      "Impossible de déplacer tant que des éléments en création ne sont pas synchronisés."
     );
     expect(harness.setItems).not.toHaveBeenCalled();
     expect(clientMocks.moveEstimateItem).not.toHaveBeenCalled();

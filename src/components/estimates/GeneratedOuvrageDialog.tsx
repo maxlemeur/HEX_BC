@@ -264,7 +264,7 @@ export function GeneratedOuvrageDialog({
     );
     if (incompleteParents.length > 0) {
       setStatusMessage(
-        "Chaque ouvrage selectionne doit avoir une designation, une unite et une quantite avant insertion."
+        "Chaque ouvrage sélectionné doit avoir une désignation, une unité et une quantité avant insertion."
       );
       return;
     }
@@ -274,7 +274,7 @@ export function GeneratedOuvrageDialog({
     setStatusMessage(null);
     try {
       const canProceed = await ensureMutationCanProceed(
-        "inserer les ouvrages generes"
+        "insérer les ouvrages générés"
       );
       if (!canProceed) {
         setStep("review");
@@ -433,7 +433,7 @@ export function GeneratedOuvrageDialog({
         );
       } else if (parentIncomplete) {
         setStatusMessage(
-          "Le parent doit conserver designation, unite et quantite avant de pouvoir etre selectionne."
+          "Le parent doit conserver désignation, unité et quantité avant de pouvoir être sélectionné."
         );
       }
     },

@@ -218,7 +218,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(dataSheet?.rows[0]).toEqual([
       "Type",
       "AID",
-      "Designation",
+      "Désignation",
       "Quantité",
       "Unite",
       "Prix unitaire HT EUR",

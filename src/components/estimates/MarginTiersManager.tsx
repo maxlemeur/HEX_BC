@@ -81,7 +81,7 @@ export function MarginTiersManager({
 
     const duplicate = tiers.some((t) => t.threshold_cents === thresholdCents);
     if (duplicate) {
-      setFormError("Une tranche avec ce seuil existe deja.");
+      setFormError("Une tranche avec ce seuil existe déjà.");
       return;
     }
 

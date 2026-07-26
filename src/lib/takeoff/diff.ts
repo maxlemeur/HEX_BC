@@ -53,7 +53,7 @@ export type BuildTakeoffDiffResult = {
 const TAKEOFF_DIFF_FIELDS: readonly TakeoffFieldConfig[] = [
   {
     field: "designation",
-    label: "Designation",
+    label: "Désignation",
     kind: "text",
   },
   {

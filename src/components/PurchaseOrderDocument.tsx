@@ -457,7 +457,7 @@ export function PurchaseOrderDocument({
                     <input
                       type="text"
                       className="doc-input w-full"
-                      placeholder="Designation"
+                      placeholder="Désignation"
                       value={item.designation}
                       onChange={(e) =>
                         onItemChange?.(item.key, "designation", e.target.value)

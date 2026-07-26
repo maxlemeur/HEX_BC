@@ -455,7 +455,7 @@ function parseConvertEstimateItemResult(payload: unknown) {
   const dataRecord = toObjectRecord(envelopeRecord?.data) ?? envelopeRecord;
   const itemRecord = toObjectRecord(dataRecord?.item);
   if (!itemRecord) {
-    throw new Error("Impossible de convertir l'element.");
+    throw new Error("Impossible de convertir l'élément.");
   }
 
   const reassignedChildrenSource = Array.isArray(dataRecord?.reassigned_children)
@@ -505,7 +505,7 @@ async function convertEstimateItemType(
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
     throw new Error(
-      resolveApiErrorMessage(payload, "Impossible de convertir l'element.")
+      resolveApiErrorMessage(payload, "Impossible de convertir l'élément.")
     );
   }
 

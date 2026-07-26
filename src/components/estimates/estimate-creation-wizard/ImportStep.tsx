@@ -232,7 +232,7 @@ export function ImportStep({
             <dt className="text-[var(--slate-500)]">Mode</dt>
             <dd className="font-medium">
               {data.creationMode === "template"
-                ? "Depuis un modele"
+                ? "Depuis un modèle"
                 : "Nouveau (vide)"}
             </dd>
           </div>

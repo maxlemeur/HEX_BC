@@ -476,7 +476,7 @@ export default function TakeoffDiffView({
               onChange={(event) => toggleVisibleSelection(event.target.checked)}
               disabled={visibleSelectableIds.length === 0}
             />
-            Tout selectionner (visible)
+            Tout sélectionner (visible)
           </label>
         </div>
 

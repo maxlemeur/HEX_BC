@@ -100,7 +100,7 @@ export function DuplicateEstimateButton({
               Creation variante...
             </>
           ) : (
-            "Creer une variante"
+            "Créer une variante"
           )}
         </button>
       </div>

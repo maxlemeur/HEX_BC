@@ -503,7 +503,7 @@ export function EstimateExplanationPanel({
                     loading={detailState.status === "loading"}
                   >
                     {explanation.summary_detail
-                      ? "Detail charge"
+                      ? "Détail chargé"
                       : "Charger le detail"}
                   </Button>
                   {detailState.status === "error" ? (

@@ -4265,7 +4265,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "post",
     path: "/api/estimates/{versionId}/variants",
-    summary: "Creer une variante",
+    summary: "Créer une variante",
     description: "Cree une variante de la version en cours.",
     tags: ["Estimate Versions"],
     parameters: [versionIdPathParameter],

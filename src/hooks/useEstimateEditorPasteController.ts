@@ -270,7 +270,7 @@ export function useEstimateEditorPasteController({
           resolveErrorMessage(
             error instanceof Error
               ? error.message
-              : "Impossible d'inserer les lignes collees."
+              : "Impossible d'insérer les lignes collées."
           )
         );
       }

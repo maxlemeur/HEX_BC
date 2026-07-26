@@ -45,7 +45,7 @@ export function GeneratedOuvrageFooterBar({
     statusVariant = "slate";
   } else if (selectedCount === 0) {
     statusCopy =
-      "Selectionnez un ouvrage pret a inserer. Unite, quantite et sous-detail valide sont requis.";
+      "Sélectionnez un ouvrage prêt à insérer. Unité, quantité et sous-détail valide sont requis.";
     statusVariant = "slate";
   } else if (selectedMissingParentCount > 0) {
     statusCopy = `${selectedMissingParentCount} ouvrage(s) selectionne(s) incomplet(s). Completez-les avant insertion.`;

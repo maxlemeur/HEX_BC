@@ -1303,7 +1303,7 @@ export function useEstimateEditorState({
       });
 
     try {
-      if (!(await ensureGroupedActionCanProceed("sauvegarder les parametres"))) {
+      if (!(await ensureGroupedActionCanProceed("sauvegarder les paramètres"))) {
         return;
       }
       if (!isCurrentSettingsSave()) return;

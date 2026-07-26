@@ -414,7 +414,7 @@ export function buildEstimateLineExportRows(input: {
 
 const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "section_path", header: "Chemin chapitre" },
-  { key: "designation", header: "Designation" },
+  { key: "designation", header: "Désignation" },
   { key: "quality_flags", header: "Flags qualite" },
   { key: "unit", header: "Unite" },
   { key: "quantity", header: "Quantité" },

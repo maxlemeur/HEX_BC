@@ -194,7 +194,7 @@ export function usePriceBookCsvWorkflow({
 
   const analyzeFile = useCallback(async () => {
     if (!selectedFile) {
-      setError("Selectionnez un fichier CSV.");
+      setError("Sélectionnez un fichier CSV.");
       return;
     }
 

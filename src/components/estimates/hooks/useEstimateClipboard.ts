@@ -46,9 +46,9 @@ type UseEstimateClipboardParams = {
 };
 
 const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardTargetField, string> = {
-  designation: "Designation",
+  designation: "Désignation",
   quantity: "Quantité",
-  unit: "Unite",
+  unit: "Unité",
   unit_price_ht: "Prix unitaire HT",
   supply_type: "Type FO",
   k_fo: "K FO",
@@ -246,7 +246,7 @@ export function useEstimateClipboard({
       const message =
         error instanceof Error
           ? error.message
-          : "Impossible d'inserer les lignes collees.";
+          : "Impossible d'insérer les lignes collées.";
       setPasteErrors([message]);
     } finally {
       setIsPastingRows(false);
