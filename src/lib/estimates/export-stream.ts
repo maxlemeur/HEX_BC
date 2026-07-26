@@ -10,6 +10,7 @@ import {
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
 import { EXPORT_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { internalError } from "@/lib/estimates/errors";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
 
@@ -91,6 +92,8 @@ type EstimateExportPayload = {
   versionNumber: number;
   versionTitle: string | null;
   versionStatus: string;
+  /** EST-E27 : sous-traitance — l export ne porte aucune TVA. */
+  vatReverseCharge: boolean;
   totals: ReturnType<typeof computeReadOnlyTotals>;
   rows: ExportLineRow[];
 };
@@ -269,6 +272,9 @@ async function writeWorkbook(input: {
 }) {
   const workbook = await input.workbookWriterFactory(input.stream);
 
+  // EST-E27 : en autoliquidation, le classeur ne porte aucune colonne de TVA —
+  // une colonne vide laisserait croire a un oubli de saisie plutot qu au regime.
+  const isVatReverseCharge = input.payload.vatReverseCharge;
   const estimateSheet = workbook.addWorksheet("Devis");
   estimateSheet.columns = [
     { header: "Poste", key: "poste", width: 12 },
@@ -277,8 +283,12 @@ async function writeWorkbook(input: {
     { header: "Quantite", key: "quantite", width: 12 },
     { header: "PU HT", key: "pu_ht", width: 14 },
     { header: "Total HT", key: "total_ht", width: 14 },
-    { header: "TVA", key: "tva", width: 14 },
-    { header: "Total TTC", key: "total_ttc", width: 14 },
+    ...(isVatReverseCharge
+      ? []
+      : [
+          { header: "TVA", key: "tva", width: 14 },
+          { header: "Total TTC", key: "total_ttc", width: 14 },
+        ]),
   ];
   styleWorksheetHeader(estimateSheet);
 
@@ -290,8 +300,7 @@ async function writeWorkbook(input: {
       row.quantite,
       row.pu_ht,
       row.total_ht,
-      row.tva,
-      row.total_ttc,
+      ...(isVatReverseCharge ? [] : [row.tva, row.total_ttc]),
     ]);
 
     if (row.isSection) {
@@ -321,17 +330,26 @@ async function writeWorkbook(input: {
     ["Titre", input.payload.versionTitle ?? ""],
     ["Statut", input.payload.versionStatus],
     ["Total HT", toEuroAmount(input.payload.totals.saleTotalCents) ?? 0],
-    ["Total TVA", toEuroAmount(input.payload.totals.taxCents) ?? 0],
-    ["Total TTC", toEuroAmount(input.payload.totals.roundedTtcCents) ?? 0],
+    ...(isVatReverseCharge
+      ? ([["Regime de TVA", ESTIMATE_VAT_REVERSE_CHARGE_NOTICE]] as Array<
+          [string, string | number]
+        >)
+      : ([
+          ["Total TVA", toEuroAmount(input.payload.totals.taxCents) ?? 0],
+          ["Total TTC", toEuroAmount(input.payload.totals.roundedTtcCents) ?? 0],
+        ] as Array<[string, string | number]>)),
     [
       "Parametres",
       `Marge ${input.payload.totals.appliedMarginMultiplier.toFixed(2)} / Remise ${toEuroAmount(input.payload.totals.discountCents)?.toFixed(2) ?? "0.00"} €`,
     ],
   ];
 
-  summaryRows.forEach(([field, value], index) => {
+  summaryRows.forEach(([field, value]) => {
     const summaryRow = summarySheet.addRow([field, value]);
-    if (index >= 6 && index <= 8) {
+    // Le format monetaire suit le TYPE de la valeur, plus sa position : les
+    // index 6 a 8 codes en dur formataient la ligne « Regime de TVA » comme un
+    // montant des que le regime changeait la composition du resume.
+    if (typeof value === "number") {
       setCurrencyColumns(summaryRow, [2]);
     }
     summaryRow.commit();
@@ -384,6 +402,9 @@ async function buildEstimateExportPayload(
     versionNumber: versionDetails.version.version_number,
     versionTitle: versionDetails.version.title,
     versionStatus: versionDetails.version.status,
+    vatReverseCharge:
+      (versionDetails.version as { contractor_role?: string | null })
+        .contractor_role === "subcontractor",
     totals,
     rows: buildLineRows({
       items,
