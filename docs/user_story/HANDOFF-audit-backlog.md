@@ -86,12 +86,31 @@ Reste l'interne : éditeur (`EstimateEditorBody/Table`, `SectionRow`, `LineRow`,
   `/analytics`) ; enum `review_laurent` (nom de dev figé dans une contrainte CHECK +
   contrat + OpenAPI).
 
-### 1.6 T16 — Parsing 3 décimales — PLAUSIBLE, **à CADRER avant de coder**
-`clipboard.ts:307` (`normalizeSingleSeparatorNumber`) et `money.ts:63`
-(`parseEuroInputToNumber`) interprètent « 2,500 » / « 2.500 » comme séparateur de
-**milliers** (×1000). Ambigu par nature (2,500 = 2,5 ou 2500 ?) : c'est une **décision
-produit** (quantités BTP en tonnes/m³ à 3 décimales vs prix). Corriger sans cadrage
-risque de casser d'autres cas → **ne pas bâcler**.
+### 1.6 ~~T16 — Parsing 3 décimales~~ — ✅ TRANCHÉ ET LIVRÉ (2026-07-25)
+
+**L'ambiguïté se résout par le DOMAINE, pas par la langue.** « 2,500 » ne veut pas
+dire la même chose selon ce qu'on colle, et le français ne tranche pas : son
+séparateur de milliers est l'espace, retiré en amont de toute façon. Ce qui
+discrimine, c'est le nombre de décimales que le domaine autorise.
+
+Le ticket d'origine mettait `clipboard.ts` et `money.ts` dans le même sac. À la
+vérification, **ils n'avaient pas le même défaut** :
+
+- `money.ts` (`parseEuroInputToNumber`) — **correct, non modifié**. Un montant a
+  deux décimales, donc trois chiffres après un séparateur sont des milliers.
+  Le contrôle final rejette même « 2,500 € » comme montant invalide.
+- `clipboard.ts` (`parseClipboardNumber`) — **c'était le vrai risque**. Il
+  appliquait l'heuristique monétaire à **six champs**, dont les quantités et les
+  coefficients. Un métré collé en tonnes voyait `2,500 t` devenir `2500 t`, et un
+  `k_fo` de `1,050` devenir `1050`. Facteur mille, en silence, sur un collage en
+  masse. Il prend désormais un domaine : `money` pour le prix unitaire,
+  `quantity` pour les cinq autres champs.
+- Saisie au clavier (`editor-values.ts`) — **inchangée**, et c'est voulu : au
+  pavé numérique la touche décimale produit un point, donc point et virgule y
+  sont toujours décimaux.
+
+Le risque réel était sur le chemin du **collage**, pas sur celui de la saisie —
+l'inverse de ce que pointait ce ticket.
 
 ### 1.7 T18 — PU×Qté ≠ Total au centime — design → probablement absorbé par T6
 `puHtCents` est arrondi indépendamment (`estimate-calculations.ts:216`). Le

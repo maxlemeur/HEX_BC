@@ -33,12 +33,15 @@ export function toNullableFiniteNumber(value: unknown): number | null {
  * Quand les DEUX separateurs sont presents, le dernier est le separateur
  * decimal : « 1.234,56 » et « 1,234.56 » sont alors non ambigus.
  *
- * ⚠️ T16 volontairement NON tranche : avec un seul type de separateur,
- * « 2.500 » et « 2,500 » restent lus 2,5 et non 2500. L'ambiguite (quantites
- * BTP a 3 decimales en tonnes/m³ contre milliers) est une decision PRODUIT,
- * documentee dans `HANDOFF-audit-backlog.md` §1.6 ; `parseClipboardNumber`
- * (lib/estimates/clipboard.ts) la tranche dans l'autre sens pour le collage en
- * masse. Ne pas aligner les deux sans avoir tranche — un test fige cet etat.
+ * T16 — TRANCHE : l'ambiguite se resout par le DOMAINE, pas par la langue.
+ * Ici on analyse de la SAISIE au clavier, ou point et virgule sont toujours
+ * decimaux : personne ne tape un separateur de milliers a la main, et le pave
+ * numerique produit un point. « 2.500 » vaut donc 2,5.
+ *
+ * Le collage en masse (`parseClipboardNumber`, lib/estimates/clipboard.ts)
+ * distingue lui `money` (deux decimales, donc « 2,500 » = 2500) de `quantity`
+ * (trois decimales, donc « 2,500 » = 2,5 t). Les deux comportements sont
+ * volontaires et couverts par des tests.
  */
 export function normalizeNumericInput(value: string): string {
   const cleaned = value

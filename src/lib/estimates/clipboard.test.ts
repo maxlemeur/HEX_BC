@@ -256,3 +256,45 @@ describe("clipboard tsv serialization", () => {
     expect(tsv).toBe("Porte\t2");
   });
 });
+
+describe("parseClipboardNumber - T16 : l'ambiguite se tranche par le domaine", () => {
+  // « 2,500 » ne veut pas dire la meme chose selon ce qu'on colle. La langue ne
+  // suffit pas a trancher : en francais le separateur de milliers est l'espace,
+  // et les espaces sont retires en amont. Ce qui discrimine, c'est le nombre de
+  // decimales que le domaine autorise.
+  it("money : trois chiffres = milliers (un montant a deux decimales)", () => {
+    expect(parseClipboardNumber("2,500", "money")).toBeCloseTo(2500, 6);
+    expect(parseClipboardNumber("2.500", "money")).toBeCloseTo(2500, 6);
+    expect(parseClipboardNumber("1,234", "money")).toBeCloseTo(1234, 6);
+  });
+
+  it("quantity : trois chiffres = decimales (tonnes, m³, coefficients)", () => {
+    // Le defaut corrige : un metre colle en tonnes voyait 2,500 t devenir
+    // 2500 t. Un facteur mille, en silence, sur un collage en masse.
+    expect(parseClipboardNumber("2,500", "quantity")).toBeCloseTo(2.5, 6);
+    expect(parseClipboardNumber("1,750", "quantity")).toBeCloseTo(1.75, 6);
+    expect(parseClipboardNumber("2.500", "quantity")).toBeCloseTo(2.5, 6);
+    // Un coefficient k_fo a 1,050 devenait 1050.
+    expect(parseClipboardNumber("1,050", "quantity")).toBeCloseTo(1.05, 6);
+  });
+
+  it("le double separateur reste non ambigu dans les deux domaines", () => {
+    for (const domain of ["money", "quantity"] as const) {
+      expect(parseClipboardNumber("1.234,56", domain)).toBeCloseTo(1234.56, 6);
+      expect(parseClipboardNumber("1,234.56", domain)).toBeCloseTo(1234.56, 6);
+    }
+  });
+
+  it("les separateurs repetes restent des milliers dans les deux domaines", () => {
+    for (const domain of ["money", "quantity"] as const) {
+      expect(parseClipboardNumber("1.234.567", domain)).toBeCloseTo(1234567, 6);
+    }
+  });
+
+  it("moins de trois decimales : aucune ambiguite, meme lecture partout", () => {
+    for (const domain of ["money", "quantity"] as const) {
+      expect(parseClipboardNumber("12,5", domain)).toBeCloseTo(12.5, 6);
+      expect(parseClipboardNumber("0,500", domain)).toBeCloseTo(0.5, 6);
+    }
+  });
+});

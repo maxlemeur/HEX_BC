@@ -283,7 +283,8 @@ function scoreAliasMatch(normalizedHeader: string, alias: string): number {
 
 function normalizeSingleSeparatorNumber(
   value: string,
-  separator: "," | "."
+  separator: "," | ".",
+  domain: ClipboardNumberDomain
 ): string | null {
   const parts = value.split(separator);
   if (parts.length === 1) return value;
@@ -304,7 +305,19 @@ function normalizeSingleSeparatorNumber(
       left = "0";
     }
 
-    if (right.length === 3 && left !== "0") {
+    // T16 — l'ambiguite « 2,500 » se tranche par le DOMAINE, pas par la langue.
+    //
+    // Un montant a deux decimales : un groupe de trois chiffres ne peut donc pas
+    // en etre, c'est un separateur de milliers (2 500,00 EUR).
+    //
+    // Une quantite BTP en a jusqu'a trois : 2,500 t, 1,750 m³, et un coefficient
+    // k_fo a 1,050. Lire ces trois chiffres comme des milliers multipliait la
+    // valeur par mille, en silence, sur un collage en masse de metre.
+    //
+    // En francais le separateur de milliers est de toute facon l'espace, et les
+    // espaces sont deja retires en amont : ce qui suit un point ou une virgule
+    // dans une quantite est une decimale.
+    if (domain === "money" && right.length === 3 && left !== "0") {
       return `${left}${right}`;
     }
 
@@ -623,8 +636,19 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
   return mapping;
 }
 
+/**
+ * Domaine de la valeur collee, qui tranche l'ambiguite d'un separateur unique
+ * suivi de trois chiffres (cf. `normalizeSingleSeparatorNumber`).
+ *
+ * `money` : deux decimales, donc « 2,500 » = 2500.
+ * `quantity` : jusqu'a trois decimales, donc « 2,500 » = 2,5 (tonnes, m³,
+ * coefficients). C'est le cas de tous les champs colles sauf le prix unitaire.
+ */
+export type ClipboardNumberDomain = "money" | "quantity";
+
 export function parseClipboardNumber(
-  value: string | number | null | undefined
+  value: string | number | null | undefined,
+  domain: ClipboardNumberDomain = "money"
 ): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -680,11 +704,11 @@ export function parseClipboardNumber(
       normalized = normalized.replace(/,/g, ".");
     }
   } else if (commaCount > 0) {
-    const candidate = normalizeSingleSeparatorNumber(raw, ",");
+    const candidate = normalizeSingleSeparatorNumber(raw, ",", domain);
     if (!candidate) return null;
     normalized = candidate;
   } else if (dotCount > 0) {
-    const candidate = normalizeSingleSeparatorNumber(raw, ".");
+    const candidate = normalizeSingleSeparatorNumber(raw, ".", domain);
     if (!candidate) return null;
     normalized = candidate;
   }
@@ -754,7 +778,12 @@ export function buildClipboardPreviewRows(
           continue;
         }
 
-        const parsed = parseClipboardNumber(rawCell);
+        // Seul le prix unitaire est un montant ; quantites, heures et
+        // coefficients acceptent trois decimales (T16).
+        const parsed = parseClipboardNumber(
+          rawCell,
+          field === "unit_price_ht" ? "money" : "quantity"
+        );
         if (parsed === null) {
           reasons.push(`Nombre invalide pour ${FIELD_LABELS[field]}.`);
           continue;
