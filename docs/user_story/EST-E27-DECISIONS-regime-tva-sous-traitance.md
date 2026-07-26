@@ -4,8 +4,12 @@
 > intervenir en entreprise principale ou en sous-traitance. Le marché visé
 > inclut des marchés publics et structurés.
 >
-> Ce document décide le modèle et le comportement. Il est exécutable en l'état.
-> **Il n'a volontairement pas été implémenté** — voir §6.
+> Ce document décide le modèle et le comportement.
+>
+> **Statut : plus aucune décision bloquante.** Les deux points qui manquaient — le
+> libellé de la mention et le périmètre des travaux — ont été recherchés et
+> recoupés sur sources officielles le 2026-07-26 (§6). Le plan du §4 est
+> exécutable d'un bloc.
 
 ---
 
@@ -123,14 +127,78 @@ Les trois autres mécanismes attendus sur marchés structurés, à traiter ensui
 BT** — ce dernier supposant de figer l'indice de référence à la signature, donc
 une décision de modèle à prendre avant de coder, pas après.
 
-## 6. Pourquoi ce document n'est pas accompagné de code
+## 6. Les deux réponses manquantes — recherchées et recoupées le 2026-07-26
 
-Le sujet est fiscal : une erreur ne produit pas un bug, elle produit un document
-non conforme émis à un client. Je suis sûr du principe (facturation HT +
-mention en sous-traitance de travaux immobiliers) et du modèle ci-dessus, mais
-pas assez des conditions d'application pour les figer seul dans un moteur.
+Ce document était bloqué sur deux points. Ils sont documentés ci-dessous, à
+partir de sources officielles recoupées (BOFiP `BOI-TVA-DECLA-10-10-20`,
+actualité BOFiP `ACTU-2014-00285`, impots.gouv.fr). **Lire §6.3 sur ce que
+cette vérification vaut.**
 
-**Demande explicite avant d'implémenter** : faire confirmer par votre comptable
-ou conseil (a) le libellé exact de la mention à porter sur le devis, et (b) le
-périmètre des travaux concernés. Ces deux réponses rendent le §4 exécutable
-d'un bloc, sans autre décision à prendre.
+### 6.1 Le libellé de la mention
+
+**« Autoliquidation »** — c'est le mot exact imposé par le **13° du I de
+l'article 242 nonies A de l'annexe II au CGI**. Il n'y a pas de formule longue
+obligatoire ; l'ajout du renvoi à l'article 283, 2 nonies du CGI est une
+pratique courante mais n'est pas exigée par le texte.
+
+Deux obligations distinctes, à ne pas confondre :
+
+1. la facture (ou le devis qui en tient lieu) **ne fait pas apparaître de TVA** ;
+2. elle indique **distinctement que la taxe est due par le preneur** assujetti,
+   et porte la mention « Autoliquidation ».
+
+Le fondement du mécanisme lui-même est l'**article 283, 2 nonies du CGI**,
+applicable aux contrats de sous-traitance conclus **depuis le 1er janvier 2014**.
+
+### 6.2 Le périmètre des travaux
+
+**Couvert** : les travaux de construction de bâtiment et autres ouvrages
+immobiliers, y compris réfection, nettoyage, entretien, réparation,
+transformation et démolition, **effectués en relation avec un bien immobilier**,
+par une **entreprise sous-traitante** au sens de l'article 1er de la loi
+n° 75-1334 du 31 décembre 1975, **pour le compte d'un preneur assujetti à la
+TVA**. Le dispositif s'applique **quel que soit le rang** du sous-traitant en
+cas de sous-traitance en chaîne.
+
+**Exclu** — et c'est la partie qui compte pour nous :
+
+- les opérations de **nettoyage** faisant l'objet d'un **contrat de
+  sous-traitance séparé** ;
+- la **fabrication de matériaux ou d'ouvrages spécifiques** destinés à
+  l'équipement de l'immeuble : c'est une livraison de bien meuble corporel ;
+- les **prestations intellectuelles** confiées à des bureaux d'études ou
+  d'ingénierie ;
+- la **location d'engins et de matériels de chantier**, y compris lorsqu'elle
+  s'accompagne du montage et du démontage.
+
+**Ce que ce périmètre confirme, et c'est le point de conception important :** les
+quatre exclusions dépendent de la **nature du contrat**, pas de données que
+l'application détient. Le logiciel ne peut pas savoir si le nettoyage fait
+l'objet d'un contrat séparé, ni si une prestation relève de l'ingénierie. La
+décision **D2 — le logiciel propose, il ne déduit pas** — n'est donc pas une
+prudence excessive : c'est la seule conception tenable. Le périmètre ci-dessus
+sert à rédiger **l'aide à la saisie**, pas une règle automatique.
+
+### 6.3 Ce que cette vérification vaut, et ce qu'elle ne remplace pas
+
+Les points 6.1 et 6.2 sont **stables et concordants sur quatre sources**, dont
+trois officielles. Ils suffisent pour écrire le code : la mention est un
+libellé, le périmètre est une aide à la saisie.
+
+Deux réserves, explicites :
+
+- **Cas non résolu — le sous-traitant en franchise en base.** Plusieurs sources
+  commerciales affirment qu'il doit facturer en autoliquidation malgré la
+  franchise. **Aucune source officielle consultée ne le confirme.** Ce cas reste
+  à trancher avant d'ouvrir le régime à un tenant en franchise.
+- **Prudence sur les « nouveautés 2026 ».** Plusieurs blogs présentent une
+  amende de 15 € par mention manquante comme une nouveauté de la loi de finances
+  2026. C'est en réalité l'**article 1737, II du CGI**, en vigueur de longue
+  date. Ces sources sont peu fiables sur le reste ; ne pas s'y appuyer.
+
+Enfin, une vérification documentaire établit **la règle**, pas son application à
+**votre** situation : savoir si tel marché vous place en sous-traitant au sens de
+la loi de 1975 est une qualification contractuelle. C'est précisément pour ça que
+le logiciel demande le régime à l'utilisateur au lieu de le deviner.
+
+**Conclusion : le §4 est exécutable.** Il n'y a plus de décision bloquante.
