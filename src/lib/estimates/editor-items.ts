@@ -1,4 +1,4 @@
-import type { EstimateTotals } from "@/lib/estimate-calculations";
+import type { DiscountMode, EstimateTotals } from "@/lib/estimate-calculations";
 import {
   toFiniteNumber,
   toNullableFiniteNumber,
@@ -137,6 +137,43 @@ export function resolveLaborRoleHourlyRate(
     return toFiniteNumber(record.hourly_rate_chantier_cents, fallbackRate);
   }
   return fallbackRate;
+}
+
+/**
+ * Grandeurs de remise / coefficient a persister pour une version.
+ *
+ * EST-E26 etape 16. La persistance ecrivait
+ * `global_coefficient: discountMode === "cascade" ? coefficient : 1`, alors que
+ * le moteur applique le coefficient INCONDITIONNELLEMENT au sous-total
+ * (`saleSubtotalBeforeCoefficientCents * safeGlobalCoefficient`, avant tout
+ * branchement sur le mode de remise).
+ *
+ * La version stockee etait donc auto-contradictoire : `total_ht_cents` incluait
+ * le coefficient, `global_coefficient` valait 1. Scenario reel — le champ
+ * « Coefficient global » force `discount_mode: "cascade"` a la saisie, mais le
+ * bouton « Simple » ne reinitialise pas le coefficient : poser 1,15 puis
+ * repasser en Simple et sauvegarder faisait disparaitre le coefficient au
+ * rechargement, et le total chutait de 15 %.
+ *
+ * Le coefficient est une grandeur INDEPENDANTE du mode de remise : il est
+ * persiste tel qu'il est affiche. Les paliers de cascade, eux, restent propres
+ * au mode cascade.
+ */
+export function buildVersionDiscountPatch(input: {
+  discountMode: DiscountMode;
+  globalCoefficient: number | null | undefined;
+  cascadeDiscountSteps: number[];
+}): {
+  discount_mode: DiscountMode;
+  discount_steps: number[];
+  global_coefficient: number;
+} {
+  return {
+    discount_mode: input.discountMode,
+    discount_steps:
+      input.discountMode === "cascade" ? input.cascadeDiscountSteps : [],
+    global_coefficient: Math.max(input.globalCoefficient ?? 1, 0),
+  };
 }
 
 export function buildVersionTotalsPatch(

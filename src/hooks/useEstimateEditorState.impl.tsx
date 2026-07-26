@@ -78,6 +78,7 @@ import {
 import {
   LABOR_SPLIT_FIELD_KEYS,
   buildEstimateItemUpdatePayload,
+  buildVersionDiscountPatch,
   readLaborSplitFields,
   resolveLaborRoleHourlyRate,
   type EditorEstimateItem,
@@ -1327,12 +1328,15 @@ export function useEstimateEditorState({
       const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
         settingsSnapshot.discount_steps
       );
-      const cascadeDiscountSteps =
-        discountMode === "cascade" ? normalizedCascadeDiscountSteps : [];
-      const globalCoefficient = Math.max(
-        settingsSnapshot.global_coefficient ?? 1,
-        0
-      );
+      // EST-E26 etape 16 : le coefficient est une grandeur INDEPENDANTE du mode
+      // de remise, il est persiste tel qu'il est affiche (cf.
+      // buildVersionDiscountPatch). L'ecrire a 1 hors cascade rendait la version
+      // auto-contradictoire, `total_ht_cents` l'incluant toujours.
+      const discountPatch = buildVersionDiscountPatch({
+        discountMode,
+        globalCoefficient: settingsSnapshot.global_coefficient,
+        cascadeDiscountSteps: normalizedCascadeDiscountSteps,
+      });
       const payload: Database["public"]["Tables"]["estimate_versions"]["Update"] = {
         title: settingsSnapshot.title.trim() || null,
         exclusions: settingsSnapshot.exclusions.trim() || null,
@@ -1342,10 +1346,7 @@ export function useEstimateEditorState({
         margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
         margin_mode: settingsSnapshot.margin_mode ?? "fixed",
         discount_bp: discountBp,
-        discount_mode: discountMode,
-        discount_steps: cascadeDiscountSteps,
-        global_coefficient:
-          discountMode === "cascade" ? globalCoefficient : 1,
+        ...discountPatch,
         tax_rate_bp: settingsSnapshot.tax_rate_bp,
         rounding_mode: settingsSnapshot.rounding_mode,
         rounding_step_cents: settingsSnapshot.rounding_step_cents,
@@ -1401,10 +1402,7 @@ export function useEstimateEditorState({
         margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
         margin_mode: settingsSnapshot.margin_mode ?? "fixed",
         discount_cents: totalsSnapshot.discountCents,
-        discount_mode: discountMode,
-        discount_steps: cascadeDiscountSteps,
-        global_coefficient:
-          discountMode === "cascade" ? globalCoefficient : 1,
+        ...discountPatch,
       } as EstimateSettingsState;
       setSavedSettings(nextSavedSettings);
       setSettings(nextSavedSettings);

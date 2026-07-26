@@ -4,6 +4,7 @@ import {
   applyInterParentMoveOptimistically,
   buildEstimateItemInsertPayload,
   buildEstimateItemUpdatePayload,
+  buildVersionDiscountPatch,
   buildVersionTotalsPatch,
   createOptimisticLineItem,
   createOptimisticSectionItem,
@@ -362,5 +363,68 @@ describe("estimate editor inter-parent moves", () => {
     expect(items[1]).toBe(moved);
     expect(result[1]).not.toBe(moved);
     expect(result[4]).toBe(unrelated);
+  });
+});
+
+describe("buildVersionDiscountPatch (EST-E26 etape 16)", () => {
+  it("persiste le coefficient hors mode cascade", () => {
+    // Le defaut corrige : on ecrivait `global_coefficient: 1` hors cascade,
+    // alors que `total_ht_cents` etait calcule AVEC le coefficient — le moteur
+    // l'applique inconditionnellement au sous-total. La version stockee etait
+    // auto-contradictoire, et le total chutait au rechargement.
+    expect(
+      buildVersionDiscountPatch({
+        discountMode: "simple",
+        globalCoefficient: 1.15,
+        cascadeDiscountSteps: [],
+      })
+    ).toEqual({
+      discount_mode: "simple",
+      discount_steps: [],
+      global_coefficient: 1.15,
+    });
+  });
+
+  it("persiste aussi le coefficient en mode cascade", () => {
+    expect(
+      buildVersionDiscountPatch({
+        discountMode: "cascade",
+        globalCoefficient: 1.15,
+        cascadeDiscountSteps: [500, 250],
+      })
+    ).toEqual({
+      discount_mode: "cascade",
+      discount_steps: [500, 250],
+      global_coefficient: 1.15,
+    });
+  });
+
+  it("garde les paliers propres au mode cascade", () => {
+    // Les paliers, eux, n'ont de sens qu'en cascade : contrairement au
+    // coefficient, les vider hors cascade est coherent.
+    expect(
+      buildVersionDiscountPatch({
+        discountMode: "simple",
+        globalCoefficient: 1,
+        cascadeDiscountSteps: [500, 250],
+      }).discount_steps
+    ).toEqual([]);
+  });
+
+  it("retombe sur un coefficient neutre et jamais negatif", () => {
+    expect(
+      buildVersionDiscountPatch({
+        discountMode: "simple",
+        globalCoefficient: null,
+        cascadeDiscountSteps: [],
+      }).global_coefficient
+    ).toBe(1);
+    expect(
+      buildVersionDiscountPatch({
+        discountMode: "simple",
+        globalCoefficient: -2,
+        cascadeDiscountSteps: [],
+      }).global_coefficient
+    ).toBe(0);
   });
 });
