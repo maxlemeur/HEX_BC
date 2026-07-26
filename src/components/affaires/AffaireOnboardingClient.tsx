@@ -50,7 +50,7 @@ export function AffaireOnboardingClient() {
       setSaveError(
         error instanceof Error
           ? error.message
-          : "Impossible de creer l'affaire."
+          : "Impossible de créer l'affaire."
       );
       setSaveBusy(false);
     }

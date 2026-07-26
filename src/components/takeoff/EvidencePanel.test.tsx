@@ -112,12 +112,12 @@ describe("EvidencePanel", () => {
     expect(screen.getByText("Fiable")).toBeDefined();
   });
 
-  it("displays 'A verifier' for medium confidence", () => {
+  it("displays 'À vérifier' for medium confidence", () => {
     render(
       <EvidencePanel item={makeItem({ confidence: 0.65 })} {...defaultProps} />
     );
     expect(screen.getByText("65%")).toBeDefined();
-    expect(screen.getByText("A verifier")).toBeDefined();
+    expect(screen.getByText("À vérifier")).toBeDefined();
   });
 
   it("displays 'Problematique' for low confidence", () => {

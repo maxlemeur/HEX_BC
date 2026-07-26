@@ -825,7 +825,7 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
       localHeaderOffset + 30 + localFileNameLength + localExtraLength;
     const compressedDataEnd = compressedDataOffset + compressedSize;
     if (compressedDataEnd > buffer.length) {
-      throw new Error("Donnees compressees XLSX tronquees.");
+      throw new Error("Données compressées XLSX tronquées.");
     }
 
     const remainingBudget = SPREADSHEET_MAX_EXPANDED_BYTES - totalExpandedBytes;
@@ -3287,7 +3287,7 @@ export async function setAffaireDocumentAsPrimary(input: {
 
   if (kindDocumentsError) {
     throw internalError(
-      "Impossible de charger les documents intake de cette categorie.",
+      "Impossible de charger les documents intake de cette catégorie.",
       kindDocumentsError
     );
   }

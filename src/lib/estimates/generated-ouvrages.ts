@@ -974,7 +974,7 @@ async function loadConfirmedBriefFragments(input: {
       ["lots", "Lots du brief"],
       ["assumptions", "Hypotheses confirmees"],
       ["vigilance_points", "Points de vigilance"],
-      ["missing_elements", "Elements manquants"],
+      ["missing_elements", "Éléments manquants"],
     ] as const;
 
     for (const [key, label] of bulletBlocks) {

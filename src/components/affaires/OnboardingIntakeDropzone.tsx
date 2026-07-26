@@ -222,7 +222,7 @@ export function OnboardingIntakeDropzone({
       } catch {
         setState({
           phase: "error",
-          message: "Erreur reseau. Verifiez votre connexion.",
+          message: "Erreur réseau. Vérifiez votre connexion.",
         });
       }
     },

@@ -633,7 +633,7 @@ function paginateAffaireItems(
 function normalizeHubTimelinePage(page: number | undefined): number {
   if (page === undefined) return 1;
   if (!Number.isFinite(page) || page < 1) {
-    throw badRequest("Le parametre page est invalide.", undefined, "BAD_REQUEST");
+    throw badRequest("Le paramètre page est invalide.", undefined, "BAD_REQUEST");
   }
 
   return Math.trunc(page);
@@ -2148,7 +2148,7 @@ export const fetchAffaireHubFinishLineSummary = cache(
             warningFlags: [],
             checkedAt: null,
             stalePriceDays: null,
-            errorMessage: "Impossible de verifier la sortie devis pour le moment.",
+            errorMessage: "Impossible de vérifier la sortie devis pour le moment.",
           };
 
     const readyToOrder =

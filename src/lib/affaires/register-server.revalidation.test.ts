@@ -296,7 +296,7 @@ describe("requestAffaireRegisterRevalidation", () => {
         impactedStages: ["document_review"],
       })
     ).rejects.toThrow(
-      "Seules les entrees deja resolues peuvent etre relancees en revalidation."
+      "Seules les entrées déjà résolues peuvent être relancées en revalidation."
     );
 
     expect(updatePayloads).toHaveLength(0);

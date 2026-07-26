@@ -198,7 +198,7 @@ export function IntakeDropzone({
 
         onUploadComplete(data.uploadId);
       } catch {
-        setState({ phase: "error", message: "Erreur reseau. Verifiez votre connexion." });
+        setState({ phase: "error", message: "Erreur réseau. Vérifiez votre connexion." });
         setAnnouncement("Erreur reseau.");
       }
     },

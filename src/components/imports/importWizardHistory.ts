@@ -8,8 +8,8 @@ export const IMPORT_HISTORY_STATUS_TABS: Array<{
 }> = [
   { key: "all", label: "Tous" },
   { key: "active", label: "En cours" },
-  { key: "completed", label: "Termines" },
-  { key: "failed", label: "Echecs" },
+  { key: "completed", label: "Terminés" },
+  { key: "failed", label: "Échecs" },
 ];
 
 function isTerminalStatus(status: string): boolean {

@@ -324,7 +324,7 @@ describe("UnifiedImportFlow", () => {
 
     await advanceToConfirmation(user);
     await user.click(
-      await screen.findByRole("button", { name: /Creer le chiffrage/i })
+      await screen.findByRole("button", { name: /Créer le chiffrage/i })
     );
 
     await waitFor(() => {
@@ -382,7 +382,7 @@ describe("UnifiedImportFlow", () => {
 
     await advanceToConfirmation(user);
     await user.click(
-      await screen.findByRole("button", { name: /Creer le chiffrage/i })
+      await screen.findByRole("button", { name: /Créer le chiffrage/i })
     );
 
     await waitFor(() => {
@@ -437,7 +437,7 @@ describe("UnifiedImportFlow", () => {
 
     await advanceToConfirmation(user);
     await user.click(
-      await screen.findByRole("button", { name: /Creer le chiffrage/i })
+      await screen.findByRole("button", { name: /Créer le chiffrage/i })
     );
 
     await waitFor(() => {
@@ -559,7 +559,7 @@ describe("UnifiedImportFlow", () => {
 
     await advanceToConfirmation(user);
     await user.click(
-      await screen.findByRole("button", { name: /Creer le chiffrage/i })
+      await screen.findByRole("button", { name: /Créer le chiffrage/i })
     );
 
     await waitFor(() => {
@@ -616,7 +616,7 @@ describe("UnifiedImportFlow", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /Creer le chiffrage/i })
+        screen.getByRole("button", { name: /Créer le chiffrage/i })
       ).toBeEnabled();
     });
   });

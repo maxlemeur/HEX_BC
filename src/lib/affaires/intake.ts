@@ -227,7 +227,7 @@ export const AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS: Record<
   received_pieces: "Pieces recues",
   assumptions: "Hypotheses initiales",
   vigilance_points: "Points de vigilance",
-  missing_elements: "Elements manquants",
+  missing_elements: "Éléments manquants",
 };
 
 export const affaireIntakeBriefSourceSchema = z
@@ -538,7 +538,7 @@ export function mergeAffaireDocumentClassificationWithHeuristic(input: {
       ),
       issues: [
         ...input.aiResult.issues,
-        "Le nom du fichier a ete retenu comme signal principal pour la categorie.",
+        "Le nom du fichier a été retenu comme signal principal pour la catégorie.",
       ],
       extractedMetadata: input.aiResult.extractedMetadata,
     } satisfies AffaireIntakeClassificationResult;

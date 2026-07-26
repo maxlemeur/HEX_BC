@@ -21,7 +21,7 @@ type Props = {
 const QUEUE_STATE_META = {
   sendable: { label: "Envoyable", variant: "success" },
   ready_not_validated: { label: "Pret mais non valide", variant: "warning" },
-  blocked: { label: "Bloque", variant: "error" },
+  blocked: { label: "Bloqué", variant: "error" },
   high_risk: { label: "Risque eleve", variant: "error" },
 } as const;
 
@@ -106,7 +106,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
             <tr className="border-b border-[var(--slate-200)] text-left text-xs uppercase tracking-[0.14em] text-[var(--slate-400)]">
               <th className="pb-3 pr-4">Affaire</th>
               <th className="pb-3 pr-4">Etat</th>
-              <th className="pb-3 pr-4">Echeance</th>
+              <th className="pb-3 pr-4">Échéance</th>
               <th className="pb-3 pr-4">Montant</th>
               <th className="pb-3 pr-4">Score</th>
               <th className="pb-3 pr-4">Revue</th>

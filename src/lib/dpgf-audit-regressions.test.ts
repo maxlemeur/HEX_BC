@@ -207,8 +207,8 @@ describe("M-08: status labels consistency", () => {
 
     // The file should use French labels for all statuses
     expect(source).toContain("En cours");
-    expect(source).toContain("Termine");
-    expect(source).toContain("Echec");
+    expect(source).toContain("Terminé");
+    expect(source).toContain("Échec");
     // Should NOT use raw English statuses as display labels
     expect(source).not.toMatch(/>\s*parsing\s*</i);
     expect(source).not.toMatch(/>\s*failed\s*</i);
@@ -479,8 +479,8 @@ describe("T-02: status filter and search in import history", () => {
 
     // Filter tabs
     expect(source).toContain("Tous");
-    expect(source).toContain("Termines");
-    expect(source).toContain("Echecs");
+    expect(source).toContain("Terminés");
+    expect(source).toContain("Échecs");
 
     // Search field
     expect(source).toMatch(/search|recherche/i);

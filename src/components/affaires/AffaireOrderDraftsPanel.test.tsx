@@ -241,7 +241,7 @@ describe("AffaireOrderDraftsPanel", () => {
       "Livraison a confirmer"
     );
     await user.click(
-      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]!
+      screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
     );
 
     await waitFor(() => {
@@ -302,7 +302,7 @@ describe("AffaireOrderDraftsPanel", () => {
       "site-1"
     );
     await user.click(
-      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]!
+      screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
     );
 
     expect(
@@ -347,7 +347,7 @@ describe("AffaireOrderDraftsPanel", () => {
     );
     await user.click(screen.getByRole("checkbox", { name: /À déterminer/i }));
     await user.click(
-      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]!
+      screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
     );
 
     await waitFor(() => {
@@ -394,7 +394,7 @@ describe("AffaireOrderDraftsPanel", () => {
       expect(siteSelect).toHaveValue("");
     });
     expect(
-      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]
+      screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]
     ).toBeDisabled();
   });
 
@@ -417,12 +417,12 @@ describe("AffaireOrderDraftsPanel", () => {
       "site-1"
     );
     await user.click(
-      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]!
+      screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
     );
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /Les regroupements ont change/i
+        /Les regroupements ont changé/i
       );
     });
     expect(screen.getByText("Brouillons proposes")).toBeInTheDocument();

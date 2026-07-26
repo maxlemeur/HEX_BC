@@ -79,7 +79,7 @@ export async function linkImportToProject(input: LinkImportToProjectInput) {
 
     const { data: project, error: projectError } = await projectQuery.maybeSingle();
     if (projectError) {
-      throw new Error("Impossible de verifier le projet cible.");
+      throw new Error("Impossible de vérifier le projet cible.");
     }
     if (!project) {
       throw new Error("Projet cible introuvable ou non autorise.");

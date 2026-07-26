@@ -212,7 +212,7 @@ describe("IntakeWorkspace", () => {
 
     expect(
       screen.queryByRole("button", {
-        name: /Zone de depot multi-documents/i,
+        name: /Zone de dépôt multi-documents/i,
       }),
     ).not.toBeInTheDocument();
 
@@ -229,7 +229,7 @@ describe("IntakeWorkspace", () => {
     await waitFor(() => {
       expect(
         screen.getByRole("button", {
-          name: /Zone de depot multi-documents/i,
+          name: /Zone de dépôt multi-documents/i,
         }),
       ).toBeInTheDocument();
     });
@@ -253,7 +253,7 @@ describe("IntakeWorkspace", () => {
     expect(screen.queryByText("Dossier de consultation")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", {
-        name: /Zone de depot multi-documents/i,
+        name: /Zone de dépôt multi-documents/i,
       }),
     ).not.toBeInTheDocument();
   });
@@ -291,7 +291,7 @@ describe("IntakeWorkspace", () => {
 
     expect(screen.getByRole("region", { name: /Documents a confirmer/i })).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: /Documents classes par categorie/i }),
+      screen.getByRole("region", { name: /Documents classés par catégorie/i }),
     ).toBeInTheDocument();
   });
 

@@ -38,7 +38,7 @@ function statusLabel(status: string): string {
     case "parsed":
     case "imported":
     case "completed":
-      return "Termine";
+      return "Terminé";
     case "failed":
       return "Echec";
     default:

@@ -58,7 +58,7 @@ describe("affaire intake helpers", () => {
     expect(merged.documentKind).toBe("dpgf");
     expect(merged.confidence).toBeGreaterThanOrEqual(0.92);
     expect(merged.issues).toContain(
-      "Le nom du fichier a ete retenu comme signal principal pour la categorie."
+      "Le nom du fichier a été retenu comme signal principal pour la catégorie."
     );
   });
 

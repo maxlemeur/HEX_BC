@@ -259,7 +259,7 @@ export function ConfirmationStep({
             ) : isCarryOverPreviewLoading ? (
               "Analyse du carry-over…"
             ) : (
-              "Creer le chiffrage"
+              "Créer le chiffrage"
             )}
           </button>
         </div>

@@ -252,7 +252,7 @@ export function computeCockpitSuggestions(
         label: `Confirmer ${reviewDocumentsCount} piece${reviewDocumentsCount > 1 ? "s" : ""} a revoir`,
         intent: "review_intake",
         preview:
-          "Verifier les documents ambigus ou mal classes avant de poursuivre le cadrage du dossier.",
+          "Vérifier les documents ambigus ou mal classés avant de poursuivre le cadrage du dossier.",
         target: {
           kind: "navigate",
           href: `/dashboard/affaires/${projectId}?intakeFilter=a_revoir#intake`,
@@ -306,12 +306,12 @@ export function computeCockpitSuggestions(
   ) {
     const preservePreview =
       structureMode.manualLineCount > 0
-        ? `Conserver les ${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} deja saisie${structureMode.manualLineCount > 1 ? "s" : ""}`
-        : "Conserver la structure deja saisie";
+        ? `Conserver les ${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} déjà saisie${structureMode.manualLineCount > 1 ? "s" : ""}`
+        : "Conserver la structure déjà saisie";
     const preview =
       structureMode.linkedDpgfMappedRowCount > 0
-        ? `${preservePreview} et importer explicitement ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF dans la meme version.`
-        : "Conserver les lignes deja saisies et importer explicitement la DPGF source dans la meme version.";
+        ? `${preservePreview} et importer explicitement ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF dans la même version.`
+        : "Conserver les lignes déjà saisies et importer explicitement la DPGF source dans la même version.";
 
     suggestions.push(
       createSuggestion({
@@ -342,11 +342,11 @@ export function computeCockpitSuggestions(
         actionId: "generate-structure",
         label: hasActiveDraft
           ? "Revoir la structure du devis"
-          : "Generer la structure du devis",
+          : "Générer la structure du devis",
         intent: "generate_structure",
         preview: hasActiveDraft
           ? "Reprendre la revue de la V0 IA avant materialisation dans le devis."
-          : "Generer une V0 IA a partir du brief confirme et des lots detectes.",
+          : "Générer une V0 IA à partir du brief confirmé et des lots détectés.",
         target: {
           kind: "navigate",
           href: `/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`,
@@ -370,7 +370,7 @@ export function computeCockpitSuggestions(
       preliminaryStructure.primarySourceKind === "primary_cctp"
         ? "Ouvrir une preview editable de structure a partir du CCTP principal, sans imposer un import DPGF."
         : preliminaryStructure.sources.length > 1
-          ? "Ouvrir une preview editable de structure a partir du brief confirme et des signaux documentaires deja arbitres."
+          ? "Ouvrir une prévisualisation éditable de structure à partir du brief confirmé et des signaux documentaires déjà arbitrés."
           : "Ouvrir une preview editable de structure a partir du brief confirme.";
 
     suggestions.push(

@@ -66,7 +66,7 @@ const STATUS_CSS_MAP: Record<string, string> = {
 const STATUS_LABEL_MAP: Record<string, string> = {
   pending: "En attente",
   processing: "En cours",
-  completed: "Termine",
+  completed: "Terminé",
   failed: "Echoue",
   canceled: "Annule",
   applied: "Applique",

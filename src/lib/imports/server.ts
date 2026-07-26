@@ -794,7 +794,7 @@ async function ensureProjectCanBeLinked(params: {
 
   const { data: project, error } = await projectQuery.maybeSingle();
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier le projet cible.");
+    throw mapSupabaseError(error, "Impossible de vérifier le projet cible.");
   }
   if (!project) {
     throw badRequest("Projet cible introuvable ou non autorise.");

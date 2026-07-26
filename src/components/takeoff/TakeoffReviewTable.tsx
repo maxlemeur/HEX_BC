@@ -622,7 +622,7 @@ export default function TakeoffReviewTable({
         >
           <option value="all">Toute confiance</option>
           <option value="high">Fiable (&gt;80%)</option>
-          <option value="medium">A verifier (50-80%)</option>
+          <option value="medium">À vérifier (50-80%)</option>
           <option value="low">Problematique (&lt;50%)</option>
           <option value="missing">Non evaluee</option>
         </select>

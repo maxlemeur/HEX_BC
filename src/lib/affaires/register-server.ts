@@ -328,7 +328,7 @@ const updateAffaireRegisterEntryFollowUpInputSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Au moins une mise a jour de severite, responsable ou echeance est requise.",
+          "Au moins une mise à jour de sévérité, responsable ou échéance est requise.",
       });
     }
   });
@@ -2040,7 +2040,7 @@ export async function createAffaireRegisterEntry(input: z.infer<typeof createAff
     .single();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer l'entree du registre.");
+    throw mapSupabaseError(error, "Impossible de créer l'entrée du registre.");
   }
 
   const entry = normalizeAffaireRegisterEntryRow(data);
@@ -2398,7 +2398,7 @@ export async function requestAffaireRegisterRevalidation(
   }
   if (!isAffaireRegisterEntryResolved(entry.status)) {
     throw badRequest(
-      "Seules les entrees deja resolues peuvent etre relancees en revalidation."
+      "Seules les entrées déjà résolues peuvent être relancées en revalidation."
     );
   }
 
@@ -2610,7 +2610,7 @@ export async function continueAffaireRegisterWithHypothesis(
     if (hypothesisInsertError) {
       throw mapSupabaseError(
         hypothesisInsertError,
-        "Impossible de creer l'hypothese de continuation."
+        "Impossible de créer l'hypothèse de continuation."
       );
     }
 

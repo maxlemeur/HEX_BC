@@ -89,7 +89,7 @@ describe("BriefDraftCard", () => {
     expect(within(section).getByText("Pieces recues")).toBeInTheDocument();
     expect(within(section).getByText("Hypotheses initiales")).toBeInTheDocument();
     expect(within(section).getByText("Points de vigilance")).toBeInTheDocument();
-    expect(within(section).getByText("Elements manquants")).toBeInTheDocument();
+    expect(within(section).getByText("Éléments manquants")).toBeInTheDocument();
     expect(within(section).getByText("Synthese")).toBeInTheDocument();
   });
 

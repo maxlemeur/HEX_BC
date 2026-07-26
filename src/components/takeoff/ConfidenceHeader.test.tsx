@@ -112,7 +112,7 @@ describe("ConfidenceHeader", () => {
     render(<ConfidenceHeader globalConfidence={0.75} items={items} />);
 
     expect(screen.getByText("Fiable")).toBeDefined();
-    expect(screen.getByText("A verifier")).toBeDefined();
+    expect(screen.getByText("À vérifier")).toBeDefined();
     expect(screen.getByText("Problematique")).toBeDefined();
   });
 

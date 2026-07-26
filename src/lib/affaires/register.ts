@@ -203,7 +203,7 @@ export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_DESCRIPTIONS: Record<
     "Points explicitement ecartes du perimetre et a rendre visibles avant remise.",
   missing_piece: "Pieces manquantes encore ouvertes a rendre visibles avant remise.",
   clarification: "Points qui attendent explicitement un retour client.",
-  revalidation: "Points deja resolus puis rouverts apres additif ou piece tardive.",
+  revalidation: "Points déjà résolus puis rouverts après additif ou pièce tardive.",
 };
 
 export const AFFAIRE_REGISTER_STATUS_QUERY_PARAM = "registerStatus";

@@ -394,7 +394,7 @@ describe("computeCockpitSuggestions", () => {
 
     expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toEqual(
       expect.objectContaining({
-        label: "Generer la structure du devis",
+        label: "Générer la structure du devis",
         target: {
           kind: "navigate",
           href: "/dashboard/estimates/version-1/edit?openVersionZero=1",
@@ -448,7 +448,7 @@ describe("computeCockpitSuggestions", () => {
           kind: "navigate",
           href: "/dashboard/estimates/version-1/edit",
         },
-        preview: expect.stringContaining("Conserver la structure deja saisie"),
+        preview: expect.stringContaining("Conserver la structure déjà saisie"),
       }),
     );
   });

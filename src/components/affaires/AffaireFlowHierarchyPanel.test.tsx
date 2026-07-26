@@ -275,7 +275,7 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     expect(screen.getByText("Prochaine etape")).toBeInTheDocument();
     expect(screen.getByText("Dossier incomplet")).toBeInTheDocument();
-    expect(screen.getByText("Pieces deja recues")).toBeInTheDocument();
+    expect(screen.getByText("Pièces déjà reçues")).toBeInTheDocument();
     expect(screen.queryByText("Pieces manquantes au dossier")).not.toBeInTheDocument();
     expect(screen.getByText("Blocages a traiter")).toBeInTheDocument();
     expect(screen.getAllByText("dpgf-electricite.xlsx").length).toBeGreaterThan(1);
@@ -776,7 +776,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.getAllByText("Generer la structure du devis").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Structure a generer").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Structure à générer").length).toBeGreaterThan(0);
     expect(screen.queryByText("Brief confirme")).not.toBeInTheDocument();
     expect(
       screen.getAllByText("Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.").length,
@@ -1110,11 +1110,11 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.getAllByText("Structure a remettre a jour").length).toBeGreaterThan(0);
-    expect(screen.getByText("12 lignes deja saisies")).toBeInTheDocument();
+    expect(screen.getByText("12 lignes déjà saisies")).toBeInTheDocument();
     expect(screen.getByText("3 lignes a revoir")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Le devis contient deja une trame, mais certaines lignes doivent etre revues avant de poursuivre le chiffrage."
+        "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Generer la structure du devis" })).toBeInTheDocument();
@@ -1123,7 +1123,7 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     expect(
       screen.getByText(
-        "Une partie de la structure existe deja, mais certaines lignes doivent encore etre revues avant de reprendre le chiffrage."
+        "Une partie de la structure existe déjà, mais certaines lignes doivent encore être revues avant de reprendre le chiffrage."
       )
     ).toBeInTheDocument();
   });
@@ -1228,7 +1228,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       label: "Passer le devis en hybride",
       intent: "continue_hybrid",
       preview:
-        "Conserver les lignes deja saisies et importer explicitement 18 lignes DPGF dans la meme version.",
+        "Conserver les lignes déjà saisies et importer explicitement 18 lignes DPGF dans la meme version.",
       target: {
         kind: "navigate",
         href: "/dashboard/estimates/version-hybrid/edit",
@@ -2500,7 +2500,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Verifier la sortie devis" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Vérifier la sortie devis" })).toBeInTheDocument();
     expect(screen.getByText("Sortie a finaliser")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ouvrir la sortie devis" })).toHaveAttribute(
       "href",
@@ -2622,7 +2622,7 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     expect(screen.getAllByText("Revoir la structure du devis").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Structure a reprendre").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Structure a generer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Structure à générer")).not.toBeInTheDocument();
     expect(
       screen.getAllByText(
         "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
@@ -2804,10 +2804,10 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(
       screen.queryByText("La piece integrera le centre plans et pourra nourrir le metre.")
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("A verifier (42%)")).not.toBeInTheDocument();
+    expect(screen.queryByText("À vérifier (42%)")).not.toBeInTheDocument();
     expect(screen.queryByText("Classification a confirmer")).not.toBeInTheDocument();
     expect(screen.queryByText("Piece a confirmer")).not.toBeInTheDocument();
-    expect(screen.queryByText("Detail de la piece active a confirmer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Détail de la pièce active à confirmer")).not.toBeInTheDocument();
     expect(screen.queryByText("1 document a revoir dans le dossier.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ajouter des fichiers" })).not.toBeInTheDocument();
 
@@ -2831,9 +2831,9 @@ describe("AffaireFlowHierarchyPanel", () => {
     await user.click(screen.getByRole("button", { name: /Plans/i }));
 
     expect(reclassifyAffaireDocumentMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Confirmer la categorie" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmer la catégorie" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Confirmer la categorie" }));
+    await user.click(screen.getByRole("button", { name: "Confirmer la catégorie" }));
 
     expect(reclassifyAffaireDocumentMock).toHaveBeenCalledWith({
       projectId: "project-review",

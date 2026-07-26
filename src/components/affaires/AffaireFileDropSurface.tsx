@@ -65,7 +65,7 @@ export function AffaireFileDropSurface({
         aria-label={
           hiddenSurface
             ? undefined
-            : "Zone de depot multi-documents. Glissez des fichiers ou appuyez pour selectionner."
+            : "Zone de dépôt multi-documents. Glissez des fichiers ou appuyez pour sélectionner."
         }
         aria-disabled={disabled || isUploading}
         aria-hidden={hiddenSurface}

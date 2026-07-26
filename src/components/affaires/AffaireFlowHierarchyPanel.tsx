@@ -686,8 +686,8 @@ function describeStructureMode(
     facts: [
       formatCountLabel(
         structureMode.lineCount,
-        "ligne deja saisie",
-        "lignes deja saisies",
+        "ligne déjà saisie",
+        "lignes déjà saisies",
       ),
       structureMode.unsupportedLineCount > 0
         ? `${formatCountLabel(
@@ -854,7 +854,7 @@ function buildPanelModel(
     heroState = "processing";
     readinessLevel = "not_ready";
   } else if (reviewDocument) {
-    title = "Verifier les documents recus";
+    title = "Vérifier les documents reçus";
     summary =
       reviewIntakeSuggestion?.preview ??
       "Certains documents restent ambigus. Confirmez-les avant de poursuivre.";
@@ -904,7 +904,7 @@ function buildPanelModel(
       categories.length === 1
         ? `Choisissez le ${categories[0]} de reference avant de lancer les automatismes de production.`
         : "Choisissez les documents de reference avant de lancer les automatismes de production.";
-    statusLabel = "Reference principale a definir";
+    statusLabel = "Référence principale à définir";
     statusVariant = "warning";
     heroState = "primary_selection_required";
     readinessLevel = "not_ready";
@@ -1034,7 +1034,7 @@ function buildPanelModel(
       0;
 
     title = reviewPending
-      ? "Verifier les documents recus"
+      ? "Vérifier les documents reçus"
       : briefPending
         ? "Confirmer le brief"
         : canonicalMissingCount > 0
@@ -1151,7 +1151,7 @@ function buildPanelModel(
         : "Passage en hybride recommande",
       message: hasWorkReservations
         ? "Le devis existe deja en mode manuel. Importez la DPGF dans cette meme structure pour converger vers un mode hybride, mais le dossier reste sous reserves."
-        : "Le devis existe deja en mode manuel. Importez la DPGF dans cette meme structure pour converger vers un mode hybride sans repartir de zero.",
+        : "Le devis existe déjà en mode manuel. Importez la DPGF dans cette même structure pour converger vers un mode hybride sans repartir de zéro.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
@@ -1168,7 +1168,7 @@ function buildPanelModel(
         continuationHypothesisFact,
         ...(hasWorkReservations ? documentReservationFacts : []),
       ]).filter(Boolean),
-      evidence: ["La structure actuelle sera enrichie sans perdre les lignes deja saisies."],
+      evidence: ["La structure actuelle sera enrichie sans perdre les lignes déjà saisies."],
     };
   } else if (shouldOpenLinkedDpgfAsBase && input.currentVersion && input.dpgfSource) {
     title = "Importer la DPGF";
@@ -1209,7 +1209,7 @@ function buildPanelModel(
       evidence: dedupe([
         input.dpgfSource.filename,
         input.dpgfSource.mappingStatus === "applied"
-          ? "Mapping deja applique"
+          ? "Mapping déjà appliqué"
           : "Mapping valide",
       ]).filter(Boolean),
     };
@@ -1272,7 +1272,7 @@ function buildPanelModel(
         ? "Structure a reprendre"
         : isPreliminaryStructure
         ? "Structure preliminaire"
-        : "Structure a generer";
+        : "Structure à générer";
     statusVariant = hasWorkReservations ? "warning" : "success";
     heroState = "structure";
     readinessLevel = input.hubReadiness?.status ?? "ready_with_reservations";
@@ -1298,8 +1298,8 @@ function buildPanelModel(
           : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
         : needsStructureUpdate
           ? hasWorkReservations
-            ? "Le devis contient deja une trame, mais certaines lignes doivent etre revues avant de poursuivre le chiffrage. Le dossier reste sous reserves."
-            : "Le devis contient deja une trame, mais certaines lignes doivent etre revues avant de poursuivre le chiffrage."
+            ? "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage. Le dossier reste sous reserves."
+            : "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage."
         : isPreliminaryStructure
           ? hasWorkReservations
             ? `${preliminaryContext?.message ?? "La structure preliminaire reste disponible."} Le dossier reste toutefois sous reserves.`
@@ -1347,8 +1347,8 @@ function buildPanelModel(
     submissionReadiness &&
     (submissionReadiness.status === "ready" || submissionReadiness.status === "warning")
   ) {
-    title = "Verifier la sortie devis";
-    summary = "Le chiffrage est assez stable pour verifier le PDF, l'email et la sortie client.";
+    title = "Vérifier la sortie devis";
+    summary = "Le chiffrage est assez stable pour vérifier le PDF, l'email et la sortie client.";
     statusLabel = "Sortie a finaliser";
     statusVariant = "success";
     heroState = "ready_to_continue";
@@ -1356,7 +1356,7 @@ function buildPanelModel(
     primaryAction = toHrefAction({
       key: "finish-line-output",
       label: "Ouvrir la sortie devis",
-      description: "Verifier le PDF, l'email et les derniers points avant envoi.",
+      description: "Vérifier le PDF, l'email et les derniers points avant envoi.",
       href: "#finish-line-output",
       variant: "primary",
     });
@@ -1460,7 +1460,7 @@ function buildPanelModel(
       toHrefAction({
         key: "open-plans",
         label: "Ouvrir les plans",
-        description: "Verifier le jeu de plans retenu avant analyse ou revue.",
+        description: "Vérifier le jeu de plans retenu avant analyse ou revue.",
         href: `/dashboard/affaires/${input.projectId}/plans`,
         variant: "ghost",
       }),
@@ -1615,16 +1615,16 @@ function getStateWhyContent(card: PanelResultCard) {
   if (card.kind === "structure") {
     return {
       title: isDpgfImportStructureCard
-        ? "La DPGF principale est deja validee. La prochaine action est de l'utiliser comme base du devis."
+        ? "La DPGF principale est déjà validée. La prochaine action est de l'utiliser comme base du devis."
         : isHybridStructureCard
-          ? "Le devis existe deja. La prochaine action est d'enrichir cette meme structure en mode hybride."
+          ? "Le devis existe déjà. La prochaine action est d'enrichir cette même structure en mode hybride."
         : isNeedsUpdateStructureCard
-          ? "Une partie de la structure existe deja, mais certaines lignes doivent encore etre revues avant de reprendre le chiffrage."
+          ? "Une partie de la structure existe déjà, mais certaines lignes doivent encore être revues avant de reprendre le chiffrage."
         : isPreliminaryStructureCard
           ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
         : isStructureResumeCard
           ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
-          : "Le brief est confirme. La prochaine action est de generer la structure du devis.",
+          : "Le brief est confirmé. La prochaine action est de générer la structure du devis.",
       hints: card.facts.slice(0, 3),
     };
   }
@@ -1635,7 +1635,7 @@ function getStateWhyContent(card: PanelResultCard) {
 }
 
 function getStateHeroBadgeLabel(card: PanelResultCard) {
-  if (card.kind === "primary") return "Reference principale a definir";
+  if (card.kind === "primary") return "Référence principale à définir";
   if (card.kind === "missing") return "Pieces critiques manquantes";
   if (card.kind === "brief") {
     return card.readinessStatus === "not_ready" ? "Brief a confirmer" : "Dossier exploitable";
@@ -1658,7 +1658,7 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
     }
     return isStructureResumeAction(card.action)
       ? "Structure a reprendre"
-      : "Structure a generer";
+      : "Structure à générer";
   }
   return "Analyse des plans";
 }
@@ -1735,11 +1735,11 @@ function ResultCard({
     card.kind === "review"
       ? reviewCount > 1
         ? `${reviewCount - 1} autre${reviewCount - 1 > 1 ? "s" : ""} piece${reviewCount - 1 > 1 ? "s" : ""} a confirmer apres la piece active`
-        : "Detail de la piece active a confirmer"
+        : "Détail de la pièce active à confirmer"
       : card.kind === "primary"
-        ? `${classifiedDpgfCount > 0 ? `${classifiedDpgfCount} DPGF` : ""}${classifiedDpgfCount > 0 && classifiedCctpCount > 0 ? " / " : ""}${classifiedCctpCount > 0 ? `${classifiedCctpCount} CCTP` : ""} a arbitrer`
+        ? `${classifiedDpgfCount > 0 ? `${classifiedDpgfCount} DPGF` : ""}${classifiedDpgfCount > 0 && classifiedCctpCount > 0 ? " / " : ""}${classifiedCctpCount > 0 ? `${classifiedCctpCount} CCTP` : ""} à arbitrer`
       : card.kind === "missing"
-        ? `${classifiedCount} piece${classifiedCount > 1 ? "s" : ""} deja recue${classifiedCount > 1 ? "s" : ""}`
+        ? `${classifiedCount} pièce${classifiedCount > 1 ? "s" : ""} déjà reçue${classifiedCount > 1 ? "s" : ""}`
       : `${classifiedCount} document${classifiedCount > 1 ? "s" : ""} valide${classifiedCount > 1 ? "s" : ""}`;
   const showMissingLowerPanel = card.kind === "missing" && sortedCategories.length > 0;
   const showPrimaryLowerPanel =
@@ -2098,7 +2098,7 @@ function ResultCard({
                           disabled={isReviewActionPending}
                           className="btn btn-primary btn-sm"
                         >
-                          {isReviewActionPending ? "Confirmation..." : "Confirmer la categorie"}
+                          {isReviewActionPending ? "Confirmation..." : "Confirmer la catégorie"}
                         </button>
                       </div>
                     ) : null}
@@ -2284,7 +2284,7 @@ function ResultCard({
                 <div>
                   <h3 className="text-sm font-semibold text-[var(--slate-800)]">
                     {card.kind === "missing"
-                      ? "Pieces deja recues"
+                      ? "Pièces déjà reçues"
                       : card.kind === "primary"
                         ? "Choix principal"
                       : card.kind === "review"
@@ -2352,13 +2352,13 @@ function ResultCard({
                   </section>
 
                   {showReviewContextSection ? (
-                    <section aria-label="Contexte deja classe">
+                    <section aria-label="Contexte déjà classé">
                       <div className="mb-2 flex items-center gap-2">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
                           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                           <polyline points="22 4 12 14.01 9 11.01" />
                         </svg>
-                        <h4 className="text-xs font-semibold text-emerald-900">Contexte deja classe</h4>
+                        <h4 className="text-xs font-semibold text-emerald-900">Contexte déjà classé</h4>
                         <Badge variant="success" size="sm">{classifiedCount}</Badge>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2382,7 +2382,7 @@ function ResultCard({
               {card.kind === "missing" ? (
                 <div className="space-y-4">
                   {sortedCategories.length > 0 ? (
-                    <section aria-label="Pieces deja recues">
+                    <section aria-label="Pièces déjà reçues">
                       <div className="mb-2 flex items-center gap-2">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
                           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -2441,7 +2441,7 @@ function ResultCard({
               {card.kind === "brief" || card.kind === "structure" || card.kind === "plans" ? (
                 <div className="space-y-4">
                   {sortedCategories.length > 0 ? (
-                    <section aria-label="Documents classes par categorie">
+                    <section aria-label="Documents classés par catégorie">
                       <div className="mb-2 flex items-center gap-2">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
                           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />

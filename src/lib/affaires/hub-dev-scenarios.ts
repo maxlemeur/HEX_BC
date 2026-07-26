@@ -422,7 +422,7 @@ function createBriefDraft(
     lots: ["Electricite", "SSI"],
     receivedPieces: ["DPGF", "Plans", "CCTP"],
     assumptions: ["Prix fournisseurs a confirmer apres premiere passe."],
-    vigilancePoints: ["Verifier les variantes mentionnees dans le CCTP."],
+    vigilancePoints: ["Vérifier les variantes mentionnées dans le CCTP."],
     missingElements: [],
     sources: [],
     uploadId: DEV_UPLOAD_ID,

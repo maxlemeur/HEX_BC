@@ -105,9 +105,9 @@ function formatReasonLabel(reason: EstimatePurchaseOrderDraftBlockedReason) {
     case "no_price":
       return "Aucun prix fournisseur exploitable";
     case "missing_quantity":
-      return "Quantite a completer";
+      return "Quantité à compléter";
     case "non_integer_quantity":
-      return "Quantite a ajuster avant commande";
+      return "Quantité à ajuster avant commande";
     case "missing_unit_price":
       return "Prix de ligne incomplet";
   }
@@ -321,7 +321,7 @@ export function AffaireOrderDraftsPanel({
         error.code === "ORDER_DRAFT_PREPARATION_STALE"
       ) {
         setCreateError(
-          "Les regroupements ont change. Rechargez la preparation avant de creer les brouillons."
+          "Les regroupements ont changé. Rechargez la préparation avant de créer les brouillons."
         );
       } else {
         setCreateError(
@@ -739,7 +739,7 @@ export function AffaireOrderDraftsPanel({
                     ? "Creation des brouillons..."
                     : selectedGroups.length > 1
                       ? `Creer ${selectedGroups.length} brouillons`
-                      : "Creer le brouillon"}
+                      : "Créer le brouillon"}
                 </button>
                 <button
                   type="button"

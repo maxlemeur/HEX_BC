@@ -290,7 +290,7 @@ export function buildDirectionSyntheticAlerts(
         "Dossier incomplet avant echeance",
         [
           input.sendTargetAt
-            ? `Echeance detectee avant la fin de semaine (${new Date(
+            ? `Échéance detectee avant la fin de semaine (${new Date(
                 input.sendTargetAt
               ).toLocaleDateString("fr-FR")}).`
             : "Une echeance proche demande un arbitrage rapide.",

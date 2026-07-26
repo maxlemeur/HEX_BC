@@ -118,7 +118,7 @@ export async function assertProjectAccessOrThrow(input: {
 
   const { data, error } = await query.maybeSingle();
   if (error) {
-    throw new Error("Impossible de verifier le projet cible.");
+    throw new Error("Impossible de vérifier le projet cible.");
   }
   if (!data) {
     throw new Error("Projet cible introuvable ou non autorise.");
@@ -167,7 +167,7 @@ export async function fetchVersionComputationContext(
     .maybeSingle();
 
   if (error) {
-    throw new Error("Impossible de charger les parametres de version.");
+    throw new Error("Impossible de charger les paramètres de version.");
   }
 
   return {

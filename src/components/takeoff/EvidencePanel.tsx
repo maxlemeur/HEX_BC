@@ -35,7 +35,7 @@ function getConfidenceLabel(confidence: number | null): {
   if (confidence === null) return { label: "Non evaluee", variant: "neutral" };
   const pct = Math.round(confidence * 100);
   if (pct >= 80) return { label: "Fiable", variant: "success" };
-  if (pct >= 50) return { label: "A verifier", variant: "warning" };
+  if (pct >= 50) return { label: "À vérifier", variant: "warning" };
   return { label: "Problematique", variant: "error" };
 }
 

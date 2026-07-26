@@ -71,7 +71,7 @@ function getConfidenceDisplay(confidence: number): { label: string; variant: Bad
   if (confidence >= 0.95) return { label: "Certain", variant: "success" };
   if (confidence >= 0.80) return { label: "Confiant", variant: "success" };
   if (confidence >= 0.65) return { label: "Probable", variant: "info" };
-  if (confidence >= 0.40) return { label: "A verifier", variant: "warning" };
+  if (confidence >= 0.40) return { label: "À vérifier", variant: "warning" };
   return { label: "A confirmer", variant: "error" };
 }
 
@@ -305,7 +305,7 @@ export function IntakeDocumentCard({
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-6">
           <MetadataLine label="Projet" value={meta.projectName} />
           <MetadataLine label="Client" value={meta.clientName} />
-          <MetadataLine label="Echeance" value={meta.deadlineAt ? new Date(meta.deadlineAt).toLocaleDateString("fr-FR") : null} />
+          <MetadataLine label="Échéance" value={meta.deadlineAt ? new Date(meta.deadlineAt).toLocaleDateString("fr-FR") : null} />
           {meta.detectedLots.length > 0 && (
             <span className="text-xs text-[var(--slate-500)]">
               <span className="font-medium text-[var(--slate-600)]">Lots:</span>{" "}

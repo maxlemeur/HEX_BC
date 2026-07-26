@@ -29,6 +29,17 @@ const FICHIERS_PROPRES = [
   "src/components/takeoff/TakeoffReviewTable.tsx",
   "src/lib/estimates/client.ts",
   "src/lib/estimates/server.ts",
+  "src/components/affaires/AffaireFileDropSurface.tsx",
+  "src/components/affaires/AffaireFlowHierarchyPanel.tsx",
+  "src/components/affaires/AffaireOrderDraftsPanel.tsx",
+  "src/components/affaires/AffairePilotagePanel.tsx",
+  "src/components/affaires/IntakeDocumentCard.tsx",
+  "src/components/affaires/IntakeDropzone.tsx",
+  "src/components/affaires/IntakeWorkspace.tsx",
+  "src/components/imports/importWizardHistory.ts",
+  "src/lib/affaires/register-server.ts",
+  "src/lib/affaires/server.ts",
+  "src/lib/cockpit/suggestions.ts",
 ];
 
 /**
@@ -81,6 +92,20 @@ describe("accentuation FR des libellés — fichiers déjà traités", () => {
   it("détecte réellement une faute, sinon le garde ne garde rien", () => {
     const faux = 'const label = "Quantite nulle";';
     expect(litterauxSuspects(faux)).toHaveLength(1);
+  });
+
+  /**
+   * La table ci-dessus est de la donnée, pas un libellé — mais elle ressemble
+   * à s'y méprendre à ce qu'une campagne d'accentuation vient corriger. Un
+   * balayage l'a déjà réécrite une fois (`"Termine"` → `"Terminé"`), ce qui
+   * désarme le garde en silence : il se met à chercher la forme correcte.
+   * Cette assertion rend l'accident bruyant.
+   */
+  it("garde sa propre table de fautes intacte", () => {
+    const accentuees = FORMES_FAUTIVES.filter((mot) =>
+      /[éèêëàâäçùûüôöîïœÉÈÊËÀÂÄÇÙÛÜÔÖÎÏŒ]/.test(mot)
+    );
+    expect(accentuees).toEqual([]);
   });
 
   it("ne signale ni les clés techniques ni l'anglais", () => {

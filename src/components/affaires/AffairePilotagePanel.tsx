@@ -59,11 +59,11 @@ function getStepBadgeVariant(status: PilotageStepStatus) {
 function getStepBadgeLabel(status: PilotageStepStatus) {
   switch (status) {
     case "done":
-      return "Termine";
+      return "Terminé";
     case "in_progress":
       return "En cours";
     case "blocked":
-      return "Bloque";
+      return "Bloqué";
     case "waiting":
       return "En attente";
   }
@@ -85,7 +85,7 @@ function getExceptionBadgeLabel(severity: PilotageExceptionSeverity) {
     case "critical":
       return "Priorite";
     case "warning":
-      return "A verifier";
+      return "À vérifier";
     case "info":
       return "A preparer";
   }
@@ -110,7 +110,7 @@ function getFinishLineBadgeLabel(status: FinishLineCard["status"]) {
     case "ready":
       return "Pret";
     case "blocked":
-      return "Bloque";
+      return "Bloqué";
     case "warning":
       return "A surveiller";
     case "waiting":

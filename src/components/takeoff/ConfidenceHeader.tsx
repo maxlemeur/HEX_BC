@@ -153,7 +153,7 @@ function DistributionBar({
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--warning)]" />
           <span className="font-medium text-[var(--slate-700)]">{medium}</span>{" "}
-          <span className="text-[var(--slate-500)]">A verifier</span>
+          <span className="text-[var(--slate-500)]">À vérifier</span>
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--danger)]" />

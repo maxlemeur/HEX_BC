@@ -35,7 +35,7 @@ function formatPercent(value: number | null) {
 
 function formatCoverage(value: number | null) {
   if (value === null) {
-    return "A verifier";
+    return "À vérifier";
   }
 
   return `${value} %`;
@@ -136,7 +136,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                     {APPROVAL_LABEL[card.approvalStatus]}
                   </Badge>
                   <span className="rounded-full border border-[var(--slate-200)] px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
-                    Echeance {formatTargetDate(card.sendTargetAt)}
+                    Échéance {formatTargetDate(card.sendTargetAt)}
                   </span>
                 </div>
               </div>

@@ -94,7 +94,7 @@ export function PreviewStep({
         setError(
           err instanceof Error
             ? err.message
-            : "Impossible de charger l'apercu.",
+            : "Impossible de charger l'aperçu.",
         );
       })
       .finally(() => {

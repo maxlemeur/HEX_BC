@@ -62,7 +62,7 @@ const updateAffaireRegisterEntryFollowUpActionInputSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Au moins une mise a jour de severite, responsable ou echeance est requise.",
+          "Au moins une mise à jour de sévérité, responsable ou échéance est requise.",
       });
     }
   });
