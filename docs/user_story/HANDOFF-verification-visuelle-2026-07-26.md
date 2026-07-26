@@ -116,6 +116,13 @@ CSS figée que j'ai remplacée par la construction dynamique. Les seize pistes o
       pas.
 - [ ] **Devise fournisseur** — dans la comparaison, un prix en devise étrangère
       est marqué « Devise différente » et son bouton est désactivé.
+- [ ] **Libellés accentués** — les écrans ci-dessus ont changé de texte depuis
+      la rédaction de ce document (`6935dba`→`0e28d25`) : « Créer un lot »,
+      « Générer V0 », « Quantité », « Référence ». C'est attendu. Ce qui ne
+      l'est pas : un accent au milieu d'un mot (« Terminéer »), une phrase à
+      moitié corrigée (« déjà verrouillee »), ou un accent apparu dans un
+      en-tête de colonne importé depuis Excel — signalez-le, c'est une erreur
+      de substitution, et c'est exactement ce qu'aucun test ne verra.
 
 ---
 
@@ -145,5 +152,5 @@ Fichiers concernés, dans l'ordre de probabilité :
   franchise.
 - **Bascule `calc_engine_version`** : le gate est câblé et lit la colonne, mais
   aucune version n'est en moteur 2. C'est la phase F de T6.
-- **72 constats UX/UI** non rapprochés dans
-  `AUDIT-2026-07-inventaire.md` — le prochain jalon.
+- **Constats UX/UI** : le rapprochement est fait (14 livrés, 10 vérifiés encore
+  ouverts, 49 non rouverts). Voir `AUDIT-2026-07-inventaire.md` § 3.
