@@ -1,3 +1,5 @@
+import { PortalContactBlock } from "@/components/portal/PortalContactBlock";
+
 export default function PortalExpiredPage() {
   return (
     <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
@@ -25,6 +27,7 @@ export default function PortalExpiredPage() {
         La période de validité de ce devis est dépassée. Veuillez contacter
         votre interlocuteur pour obtenir un nouveau devis ou un lien actualisé.
       </p>
+      <PortalContactBlock />
     </div>
   );
 }

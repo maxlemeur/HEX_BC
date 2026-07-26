@@ -122,7 +122,20 @@ export function PortalActions({
   // status === "pending"
   return (
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+      <div className="flex flex-col gap-3 print:hidden sm:flex-row sm:justify-end">
+        {/*
+          UX-D : le client n avait aucun moyen de conserver une trace de ce
+          qu il signe. L impression navigateur produit une copie fidele du
+          document affiche — qui est desormais celui du PDF envoye, mise en
+          page et CGV comprises.
+        */}
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--slate-200)] bg-white px-6 py-3 text-sm font-semibold text-[var(--slate-700)] transition-colors hover:bg-[var(--slate-50)] sm:mr-auto"
+          onClick={() => window.print()}
+        >
+          Imprimer / Enregistrer en PDF
+        </button>
         <button
           type="button"
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-6 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"

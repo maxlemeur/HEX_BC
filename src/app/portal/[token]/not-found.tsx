@@ -1,3 +1,5 @@
+import { PortalContactBlock } from "@/components/portal/PortalContactBlock";
+
 export default function PortalNotFound() {
   return (
     <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
@@ -26,6 +28,7 @@ export default function PortalNotFound() {
         Ce lien de consultation n&apos;est pas valide ou a été révoqué.
         Veuillez contacter votre interlocuteur pour obtenir un nouveau lien.
       </p>
+      <PortalContactBlock />
     </div>
   );
 }

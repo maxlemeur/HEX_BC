@@ -10,6 +10,14 @@ import {
   resolveRenderMarginMode,
 } from "@/lib/estimates/margin-tiers-loader";
 import { formatEstimateReference } from "@/lib/estimates/reference";
+import {
+  normalizeEstimatePdfLayoutOptions,
+  type EstimatePdfLayoutOptions,
+} from "@/lib/estimates/pdf-layout";
+import {
+  canUseEstimateTermsSnapshot,
+  parseEstimateTermsSnapshot,
+} from "@/lib/estimates/pdf-terms";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -21,8 +29,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name" | "user_id">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name" | "user_id">[]
       | null;
   };
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -76,11 +84,11 @@ export default async function PortalPage({ params }: PortalPageProps) {
   // 3. Load estimate version + items
   const versionId = portalToken.version_id;
 
-  const [versionResult, itemsResult] = await Promise.all([
+  const [versionResult, itemsResult, documentResult] = await Promise.all([
     supabase
       .from("estimate_versions")
       .select(
-        "project_id, tenant_id, version_number, status, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )"
+        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name, user_id )"
       )
       .eq("id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
@@ -91,6 +99,16 @@ export default async function PortalPage({ params }: PortalPageProps) {
       .eq("version_id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
       .order("position", { ascending: true }),
+    // UX-D : le portail lit le document STOCKE — la mise en page et les CGV qui
+    // ont servi au PDF envoye par email. Le client voit donc exactement ce
+    // qu il a recu, et la parite est garantie par construction plutot que par
+    // deux chemins a tenir synchronises.
+    supabase
+      .from("estimate_documents")
+      .select("layout_options, terms_snapshot")
+      .eq("version_id", versionId)
+      .eq("tenant_id", portalToken.tenant_id)
+      .maybeSingle(),
   ]);
 
   if (
@@ -113,6 +131,37 @@ export default async function PortalPage({ params }: PortalPageProps) {
     "EST_031_LABOR_SPLIT",
     { supabase }
   );
+
+  // UX-D : mise en page et CGV reprises du document STOCKE, celui qui a servi au
+  // PDF envoye par email. Le portail cessait de les transmettre, si bien que le
+  // client cochait « J'accepte ce devis et ses conditions » sur une page qui ne
+  // les affichait jamais — et pouvait voir une mise en page differente de celle
+  // qu'il avait recue.
+  const storedLayout = normalizeEstimatePdfLayoutOptions(
+    (documentResult.data?.layout_options ?? undefined) as
+      | EstimatePdfLayoutOptions
+      | undefined
+  );
+  const storedTerms = parseEstimateTermsSnapshot(
+    documentResult.data?.terms_snapshot ?? null
+  );
+  const portalTerms =
+    storedLayout.includeTerms &&
+    storedTerms &&
+    canUseEstimateTermsSnapshot(storedTerms)
+      ? storedTerms
+      : null;
+
+  // L'emetteur : le portail n'a pas d'utilisateur connecte, on lit donc le
+  // profil du proprietaire de l'affaire — la meme source que le PDF.
+  const issuerProfileResult = project?.user_id
+    ? await supabase
+        .from("profiles")
+        .select("full_name, job_title, phone, work_email")
+        .eq("id", project.user_id)
+        .maybeSingle()
+    : null;
+  const issuerProfile = issuerProfileResult?.data ?? null;
 
   const laborRoleIds = Array.from(
     new Set(
@@ -257,6 +306,13 @@ export default async function PortalPage({ params }: PortalPageProps) {
           totalTaxCents={totalTaxCents}
           totalTtcCents={totalTtcCents}
           items={items}
+          exclusions={version.exclusions}
+          issuerName={issuerProfile?.full_name}
+          issuerRole={issuerProfile?.job_title}
+          issuerPhone={issuerProfile?.phone}
+          issuerEmail={issuerProfile?.work_email}
+          layout={storedLayout}
+          terms={portalTerms}
         />
       </div>
 
