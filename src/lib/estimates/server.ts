@@ -36,6 +36,7 @@ import {
   getTakeoffLinkedSourceVersionByJobId,
   linkTakeoffJobsFromSourceVersionToTargetVersion,
 } from "@/lib/takeoff/version-links";
+import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import type {
   EstimateSupplierPreselectionException,
   EstimateSupplierPreselectionExceptionReason,
@@ -1638,15 +1639,6 @@ function createEmptyEstimateSupplierPreselectionSummary(): EstimateSupplierPrese
  * devise du devis. Une devise absente correspond aux données historiques,
  * réputées déjà dans la devise du devis.
  */
-function isSupplierAlternativeCurrencyCompatible(
-  alternative: { currency?: string | null },
-  estimateCurrency: string
-) {
-  const raw = alternative.currency?.trim().toUpperCase();
-  if (!raw) return true;
-  return raw === estimateCurrency.trim().toUpperCase();
-}
-
 function findEstimateSupplierPreselectionProposalAlternative(
   comparison: EstimateSupplierComparison,
   estimateCurrency: string

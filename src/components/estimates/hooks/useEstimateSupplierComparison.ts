@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { Database } from "@/types/database";
+import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -28,6 +29,8 @@ export type SupplierComparisonResult = {
 
 type UseEstimateSupplierComparisonParams = {
   versionId: string;
+  /** Devise du devis : un prix libelle dans une autre devise n est pas injectable. */
+  estimateCurrency: string;
   itemById: Map<string, EstimateItem>;
   isReadOnly: boolean;
   fetchSupplierComparison: (
@@ -44,6 +47,7 @@ type UseEstimateSupplierComparisonParams = {
 
 export function useEstimateSupplierComparison({
   versionId,
+  estimateCurrency,
   itemById,
   isReadOnly,
   fetchSupplierComparison,
@@ -175,6 +179,13 @@ export function useEstimateSupplierComparison({
   const handleSelectSupplierComparisonAlternative = useCallback(
     (alternative: SupplierComparisonAlternative) => {
       if (isReadOnly || !activeSupplierComparisonItem) return;
+      // Filet de securite : le panneau desactive deja ces options, mais injecter
+      // un montant en devise etrangere le ferait passer pour un montant dans la
+      // devise du devis — erreur monetaire silencieuse. Meme predicat que la
+      // preselection automatique.
+      if (!isSupplierAlternativeCurrencyCompatible(alternative, estimateCurrency)) {
+        return;
+      }
 
       const selectedDescription = (alternative.product_designation ?? "").trim();
       onPatchItemWithSuggestionTracking(
@@ -188,7 +199,12 @@ export function useEstimateSupplierComparison({
       );
       setSupplierComparisonPanelItemId(null);
     },
-    [activeSupplierComparisonItem, isReadOnly, onPatchItemWithSuggestionTracking]
+    [
+      activeSupplierComparisonItem,
+      estimateCurrency,
+      isReadOnly,
+      onPatchItemWithSuggestionTracking,
+    ]
   );
 
   useEffect(() => {

@@ -1294,6 +1294,7 @@ export function EstimateEditorTable({
     handleSelectSupplierComparisonAlternative,
   } = useEstimateSupplierComparison({
     versionId,
+    estimateCurrency: currency,
     itemById,
     isReadOnly,
     fetchSupplierComparison: fetchSupplierComparisons,
@@ -2226,6 +2227,7 @@ export function EstimateEditorTable({
         isLoading={isSupplierComparisonLoading}
         error={supplierComparisonError}
         isReadOnly={isReadOnly}
+        estimateCurrency={currency}
         onClose={handleCloseSupplierComparisonPanel}
         onSelectAlternative={handleSelectSupplierComparisonAlternative}
       />

@@ -80,6 +80,7 @@ describe("SupplierComparisonPanel", () => {
         isLoading={false}
         error={null}
         isReadOnly={false}
+      estimateCurrency="EUR"
         onClose={vi.fn()}
         onSelectAlternative={vi.fn()}
       />
@@ -111,6 +112,7 @@ describe("SupplierComparisonPanel", () => {
         isLoading={false}
         error={null}
         isReadOnly={false}
+      estimateCurrency="EUR"
         onClose={vi.fn()}
         onSelectAlternative={onSelectAlternative}
       />
@@ -142,6 +144,7 @@ describe("SupplierComparisonPanel", () => {
         isLoading={false}
         error={null}
         isReadOnly={false}
+      estimateCurrency="EUR"
         onClose={vi.fn()}
         onSelectAlternative={vi.fn()}
       />
@@ -152,6 +155,58 @@ describe("SupplierComparisonPanel", () => {
         ?.textContent ?? "";
     expect(priceText).not.toContain("€");
     expect(priceText).toMatch(/\$|USD/);
+  });
+
+  it("interdit de selectionner un prix libelle dans une autre devise", () => {
+    // 5d21030 avait bloque la PRESELECTION automatique sur ce motif, mais la
+    // selection manuelle depuis ce panneau restait ouverte : un prix en USD
+    // etait injecte tel quel dans un devis EUR, et passait pour des euros.
+    const onSelectAlternative = vi.fn();
+    render(
+      <SupplierComparisonPanel
+        isOpen
+        itemTitle="Faux plafond acoustique"
+        alternatives={[
+          { ...alternatives[0]!, currency: "USD" },
+          { ...alternatives[1]!, currency: "EUR" },
+        ]}
+        bestSupplierPriceId="price-best"
+        isLoading={false}
+        error={null}
+        isReadOnly={false}
+        estimateCurrency="EUR"
+        onClose={vi.fn()}
+        onSelectAlternative={onSelectAlternative}
+      />
+    );
+
+    const buttons = screen.getAllByRole("button", { name: "Selectionner" });
+    expect(buttons[0]).toBeDisabled();
+    expect(buttons[1]).not.toBeDisabled();
+    expect(screen.getByText("Devise differente")).toBeTruthy();
+  });
+
+  it("laisse selectionner un prix sans devise renseignee", () => {
+    // Le catalogue historique ne renseignait pas la devise : la traiter comme
+    // incompatible bloquerait tout l existant.
+    render(
+      <SupplierComparisonPanel
+        isOpen
+        itemTitle="Faux plafond acoustique"
+        alternatives={[{ ...alternatives[0]!, currency: null }]}
+        bestSupplierPriceId="price-best"
+        isLoading={false}
+        error={null}
+        isReadOnly={false}
+        estimateCurrency="EUR"
+        onClose={vi.fn()}
+        onSelectAlternative={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getAllByRole("button", { name: "Selectionner" })[0]
+    ).not.toBeDisabled();
   });
 
   it("se ferme à la touche Échap", () => {
@@ -165,6 +220,7 @@ describe("SupplierComparisonPanel", () => {
         isLoading={false}
         error={null}
         isReadOnly={false}
+      estimateCurrency="EUR"
         onClose={onClose}
         onSelectAlternative={vi.fn()}
       />

@@ -1,3 +1,29 @@
+/**
+ * Un prix fournisseur est-il utilisable tel quel dans un devis ?
+ *
+ * Injecter un montant libelle en devise etrangere sans conversion le ferait
+ * passer pour un montant dans la devise du devis — une erreur monetaire
+ * silencieuse de l'ordre de l'ecart de change. Tant qu'aucune conversion par
+ * taux n'existe (`currency-rates.ts` n'a pas de helper `convertCents`),
+ * l'arbitrage revient a l'acheteur.
+ *
+ * Une devise absente est consideree compatible : le catalogue historique ne la
+ * renseignait pas, et la traiter comme incompatible bloquerait tout l'existant.
+ *
+ * Source unique : ce predicat sert la preselection automatique (serveur) ET la
+ * selection manuelle depuis le panneau de comparaison (client). Les deux
+ * chemins doivent refuser la meme chose — sans quoi bloquer l'un laisse
+ * l'autre grand ouvert, ce qui etait le cas.
+ */
+export function isSupplierAlternativeCurrencyCompatible(
+  alternative: { currency?: string | null },
+  estimateCurrency: string
+): boolean {
+  const raw = alternative.currency?.trim().toUpperCase();
+  if (!raw) return true;
+  return raw === estimateCurrency.trim().toUpperCase();
+}
+
 export type EstimateSupplierComparisonAlternativeKind =
   | "best_price"
   | "most_recent"

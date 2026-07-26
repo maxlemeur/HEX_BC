@@ -7,6 +7,7 @@ import {
   formatEUR,
   normalizeEstimateCurrency,
 } from "@/lib/money";
+import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 
 /**
  * Affiche un prix fournisseur dans SA devise. Auparavant tout passait par
@@ -55,6 +56,8 @@ type SupplierComparisonPanelProps = {
   isLoading: boolean;
   error: string | null;
   isReadOnly: boolean;
+  /** Devise du devis : les prix libelles autrement ne sont pas injectables. */
+  estimateCurrency: string;
   onClose: () => void;
   onSelectAlternative: (alternative: SupplierComparisonAlternative) => void;
 };
@@ -103,6 +106,7 @@ export function SupplierComparisonPanel({
   isLoading,
   error,
   isReadOnly,
+  estimateCurrency,
   onClose,
   onSelectAlternative,
 }: SupplierComparisonPanelProps) {
@@ -187,6 +191,14 @@ export function SupplierComparisonPanel({
                   alternative,
                   isBestPrice,
                 });
+                // Sans conversion par taux, injecter ce montant le ferait passer
+                // pour un montant dans la devise du devis. Meme predicat que la
+                // preselection automatique : l arbitrage revient a l acheteur.
+                const isCurrencyCompatible =
+                  isSupplierAlternativeCurrencyCompatible(
+                    alternative,
+                    estimateCurrency
+                  );
 
                 return (
                   <article
@@ -216,6 +228,11 @@ export function SupplierComparisonPanel({
 
                     <div className="estimate-supplier-comparison-option__meta">
                       <span>Date: {formatCompactDate(alternative.updated_at)}</span>
+                      {!isCurrencyCompatible ? (
+                        <span className="estimate-supplier-comparison-option__badge estimate-supplier-comparison-option__badge--stale">
+                          Devise differente
+                        </span>
+                      ) : null}
                       {badgeLabels.map((label) => (
                         <span
                           key={`${alternative.supplier_price_id}-${label}`}
@@ -251,7 +268,16 @@ export function SupplierComparisonPanel({
                         type="button"
                         className="btn btn-primary btn-sm"
                         onClick={() => onSelectAlternative(alternative)}
-                        disabled={isReadOnly || alternative.is_selected}
+                        disabled={
+                          isReadOnly ||
+                          alternative.is_selected ||
+                          !isCurrencyCompatible
+                        }
+                        title={
+                          !isCurrencyCompatible
+                            ? "Prix libelle dans une autre devise que le devis : conversion requise."
+                            : undefined
+                        }
                       >
                         {alternative.is_selected ? "Deja selectionne" : "Selectionner"}
                       </button>
