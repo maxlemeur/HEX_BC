@@ -23,6 +23,7 @@ import { useIsCompactViewport } from "@/hooks/useIsTablet";
 import { usePopover } from "@/hooks/usePopover";
 import { EstimateEditorCommandBar } from "@/components/estimates/components/EstimateEditorCommandBar";
 import type { UiMode } from "@/lib/ui-mode";
+import { parseNumberInput } from "@/lib/estimates/editor-values";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -123,12 +124,6 @@ function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
 
 function parseOutlierMethod(value: string): EstimateOutlierMethod {
   return value === "zscore" ? "zscore" : "iqr";
-}
-
-function parseNumberInput(value: string) {
-  const normalized = value.replace(",", ".");
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function EstimateEditorToolbar(props: EstimateEditorToolbarProps) {

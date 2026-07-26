@@ -6,12 +6,7 @@ import {
   useMultiSelect,
   type MultiSelectItemInteraction,
 } from "@/hooks/useMultiSelect";
-
-function parseNumberInput(value: string) {
-  const normalized = value.replace(",", ".");
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+import { parseNumberInput } from "@/lib/estimates/editor-values";
 
 function parseMajorationPercentToCoefficient(value: string) {
   return Math.max(parseNumberInput(value) / 100, 0);

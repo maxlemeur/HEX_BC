@@ -15,6 +15,7 @@ import type {
   EstimateQualityFilter,
 } from "@/components/estimates/components/EstimateEditorToolbar";
 import type { EstimateOutlierMethod } from "@/lib/estimates/outlier-detection";
+import { parseNumberInput } from "@/lib/estimates/editor-values";
 
 const ROOT_KEY = "root";
 const INSERT_PANEL_ID = "estimate-editor-insert-panel";
@@ -32,11 +33,6 @@ function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
 
 function parseOutlierMethod(value: string): EstimateOutlierMethod {
   return value === "zscore" ? "zscore" : "iqr";
-}
-
-function parseNumberInput(value: string) {
-  const parsed = Number.parseFloat(value.replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function openCommandPalette() {
