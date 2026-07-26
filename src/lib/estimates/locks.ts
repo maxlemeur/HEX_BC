@@ -348,7 +348,7 @@ async function renewLockInternal(
 
   if (existingLock && !options.force && existingLock.user_id !== context.userId) {
     throw conflict(
-      "Cette version est deja verrouillee par un autre utilisateur.",
+      "Cette version est déjà verrouillée par un autre utilisateur.",
       {
         lock: existingLock,
       }
@@ -411,7 +411,7 @@ async function releaseLockInternal(
 
   if (existingLock && !options.force && existingLock.user_id !== context.userId) {
     throw conflict(
-      "Cette version est deja verrouillee par un autre utilisateur.",
+      "Cette version est déjà verrouillée par un autre utilisateur.",
       {
         lock: existingLock,
       }
@@ -484,7 +484,7 @@ export async function acquireLock(versionId: string): Promise<AcquireDraftLockRe
     }
 
     throw conflict(
-      "Cette version est deja verrouillee par un autre utilisateur.",
+      "Cette version est déjà verrouillée par un autre utilisateur.",
       existingLock
         ? {
             lock: existingLock,

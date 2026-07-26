@@ -283,7 +283,7 @@ describe("takeoff audit helpers", () => {
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.CONFLICT,
       status: 409,
-      message: "Conflit de donnees.",
+      message: "Conflit de données.",
     });
     expect(mock.insert).toHaveBeenCalledTimes(1);
   });

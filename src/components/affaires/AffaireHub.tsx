@@ -1309,7 +1309,7 @@ export function AffaireHub({
       router.refresh();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Impossible de creer la variante."
+        error instanceof Error ? error.message : "Impossible de créer la variante."
       );
     } finally {
       setPendingAction(null);

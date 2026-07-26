@@ -200,7 +200,7 @@ export function mapSupabaseError(
   }
 
   if (error.code === "23505") {
-    return conflict("Conflit de donnees.", publicDetails, "CONFLICT");
+    return conflict("Conflit de données.", publicDetails, "CONFLICT");
   }
 
   if (

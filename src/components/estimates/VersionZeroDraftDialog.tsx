@@ -198,7 +198,7 @@ export function VersionZeroDraftDialog({
         setReview(nextReview);
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Impossible de generer la V0.");
+      setErrorMessage(error instanceof Error ? error.message : "Impossible de générer la V0.");
     } finally {
       isBusyRef.current = false;
       setIsBusy(false);

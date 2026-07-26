@@ -2738,7 +2738,7 @@ async function resolveLinkedDpgfImportSectionTitle(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de verifier les chapitres existants."
+      "Impossible de vérifier les chapitres existants."
     );
   }
 
@@ -3492,7 +3492,7 @@ export async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
 function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void {
   if (error.code !== "23505") return;
   throw conflict(
-    "Un template avec ce nom existe deja.",
+    "Un template avec ce nom existe déjà.",
     error,
     "ESTIMATE_TEMPLATE_NAME_CONFLICT"
   );
@@ -3501,7 +3501,7 @@ function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void 
 function throwAssemblyNameConflictIfNeeded(error: PostgrestError): never | void {
   if (error.code !== "23505") return;
   throw conflict(
-    "Un ouvrage avec ce nom existe deja.",
+    "Un ouvrage avec ce nom existe déjà.",
     error,
     "ESTIMATE_ASSEMBLY_NAME_CONFLICT"
   );
@@ -3933,7 +3933,7 @@ async function getActiveDraftLockForVersion(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de verifier le verrou de brouillon."
+      "Impossible de vérifier le verrou de brouillon."
     );
   }
 
@@ -3992,7 +3992,7 @@ async function assertDraftLockOwnedByCurrentUser(input: {
 
   const holderName = await resolveDraftLockOwnerName(input.supabase, lock.user_id);
 
-  throw conflict("Cette version est deja verrouillee par un autre utilisateur.", {
+  throw conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
     lock: {
       version_id: lock.version_id,
       user_id: lock.user_id,
@@ -4062,7 +4062,7 @@ async function ensureParentIsValid({
   }
 
   if (itemId && data.id === itemId) {
-    throw badRequest("Un element ne peut pas etre son propre parent.");
+    throw badRequest("Un élément ne peut pas être son propre parent.");
   }
 
   return data as Pick<EstimateItemRow, "id" | "parent_id" | "item_type">;
@@ -4080,7 +4080,7 @@ async function loadHierarchyItems(input: {
     .eq("version_id", input.versionId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier la hierarchie.");
+    throw mapSupabaseError(error, "Impossible de vérifier la hiérarchie.");
   }
 
   return (
@@ -5171,12 +5171,12 @@ export async function createEstimateTemplateFromVersion(
   if (error) {
     throwTemplateNameConflictIfNeeded(error);
     throwTemplateSourceVersionNotFoundIfNeeded(error);
-    throw mapSupabaseError(error, "Impossible de creer le template.");
+    throw mapSupabaseError(error, "Impossible de créer le template.");
   }
 
   const templateId = toRpcUuid(data);
   if (!templateId) {
-    throw badRequest("Impossible de creer le template.");
+    throw badRequest("Impossible de créer le template.");
   }
 
   const template = await loadEstimateTemplateOrThrow({
@@ -5700,9 +5700,9 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
   if (assemblyError || !assemblyData) {
     if (assemblyError) {
       throwAssemblyNameConflictIfNeeded(assemblyError);
-      throw mapSupabaseError(assemblyError, "Impossible de creer l'ouvrage.");
+      throw mapSupabaseError(assemblyError, "Impossible de créer l'ouvrage.");
     }
-    throw badRequest("Impossible de creer l'ouvrage.");
+    throw badRequest("Impossible de créer l'ouvrage.");
   }
 
   const assembly = assemblyData as EstimateAssemblyRow;
@@ -5757,7 +5757,7 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
       .eq("id", assembly.id);
 
     throwAssemblyCompositionErrorIfNeeded(contentsError);
-    throw mapSupabaseError(contentsError, "Impossible de creer l'ouvrage.");
+    throw mapSupabaseError(contentsError, "Impossible de créer l'ouvrage.");
   }
 
   const [savedAssembly, insertedItems, insertedMembers] = await Promise.all([
@@ -5948,7 +5948,7 @@ export async function deleteEstimateAssembly(assemblyId: string) {
   if (error) {
     if (error.code === "23503") {
       throw conflict(
-        "Cet ouvrage est utilise comme sous-ouvrage. Retirez d'abord ses references.",
+        "Cet ouvrage est utilisé comme sous-ouvrage. Retirez d'abord ses références.",
         error
       );
     }
@@ -6020,7 +6020,7 @@ async function assertAssemblyLaborRolesResolved(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de verifier la main-d'oeuvre de l'ouvrage."
+      "Impossible de vérifier la main-d'œuvre de l'ouvrage."
     );
   }
 
@@ -6318,7 +6318,7 @@ export async function insertTemplateIntoVersion(input: {
   });
 
   if (templateItems.length === 0) {
-    throw badRequest("Ce template ne contient aucun element.");
+    throw badRequest("Ce template ne contient aucun élément.");
   }
 
   let targetParentId: string | null = null;
@@ -6334,7 +6334,7 @@ export async function insertTemplateIntoVersion(input: {
     if (anchorError) {
       throw mapSupabaseError(
         anchorError,
-        "Impossible de verifier la position d'insertion du template."
+        "Impossible de vérifier la position d'insertion du template."
       );
     }
     if (!anchorItem) {
@@ -6370,7 +6370,7 @@ export async function insertTemplateIntoVersion(input: {
   const templateRootItems = templateItems.filter((item) => item.parent_id === null);
 
   if (templateRootItems.length === 0) {
-    throw badRequest("Le template est invalide: aucun element racine.");
+    throw badRequest("Le template est invalide : aucun élément racine.");
   }
 
   const rootSectionLevel =
@@ -7121,9 +7121,9 @@ export async function createEstimate(input: CreateEstimateInput) {
 
     if (projectError || !createdProject) {
       if (projectError) {
-        throw mapSupabaseError(projectError, "Impossible de creer le projet de chiffrage.");
+        throw mapSupabaseError(projectError, "Impossible de créer le projet de chiffrage.");
       }
-      throw badRequest("Impossible de creer le projet de chiffrage.");
+      throw badRequest("Impossible de créer le projet de chiffrage.");
     }
 
     project = createdProject as EstimateProjectRow;
@@ -7216,10 +7216,10 @@ export async function createEstimate(input: CreateEstimateInput) {
     }
 
     if (versionError) {
-      throw mapSupabaseError(versionError, "Impossible de creer la version initiale.");
+      throw mapSupabaseError(versionError, "Impossible de créer la version initiale.");
     }
 
-    throw badRequest("Impossible de creer la version initiale.");
+    throw badRequest("Impossible de créer la version initiale.");
   }
   let version = insertedVersion as EstimateVersionRow;
 
@@ -7545,7 +7545,7 @@ export async function suggestEstimateCataloguePrices(
 ) {
   const normalizedQuery = query.trim();
   if (normalizedQuery.length < 2) {
-    throw badRequest("Le parametre q doit contenir au moins 2 caracteres.");
+    throw badRequest("Le paramètre q doit contenir au moins 2 caractères.");
   }
 
   const context = await getAuthenticatedContext();
@@ -7555,7 +7555,7 @@ export async function suggestEstimateCataloguePrices(
   const stalePriceDays = await getStalePriceDaysForTenant(tenantId, { supabase });
   const safeSearch = escapeIlikeToken(normalizedQuery);
   if (safeSearch.length < 2) {
-    throw badRequest("Le parametre q contient uniquement des caracteres non supportes.");
+    throw badRequest("Le paramètre q contient uniquement des caractères non supportés.");
   }
 
   const [productResult, supplierResult] = await Promise.all([
@@ -8047,7 +8047,7 @@ export async function patchEstimateVersion(
   if (isMissingEstimateExclusionsColumnError(error)) {
     if (payload.exclusions !== null) {
       throw badRequest(
-        "Les exclusions ne peuvent pas etre enregistrees tant que la migration de la base de donnees n'est pas appliquee.",
+        "Les exclusions ne peuvent pas être enregistrées tant que la migration de la base de données n'est pas appliquée.",
         error,
         "SCHEMA_MIGRATION_REQUIRED"
       );
@@ -8294,9 +8294,9 @@ export async function createEstimateCategory(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de creer la categorie.");
+      throw mapSupabaseError(error, "Impossible de créer la catégorie.");
     }
-    throw badRequest("Impossible de creer la categorie.");
+    throw badRequest("Impossible de créer la catégorie.");
   }
 
   return {
@@ -8338,9 +8338,9 @@ export async function createLaborRole(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de creer le role.");
+      throw mapSupabaseError(error, "Impossible de créer le rôle.");
     }
-    throw badRequest("Impossible de creer le role.");
+    throw badRequest("Impossible de créer le rôle.");
   }
 
   return {
@@ -8448,18 +8448,18 @@ export async function createMarginTier(input: CreateMarginTierInput) {
   if (error) {
     if (error.code === "23505") {
       if (error.message?.includes("threshold_cents")) {
-        throw conflict("Une tranche avec ce seuil existe deja pour ce tenant.");
+        throw conflict("Une tranche avec ce seuil existe déjà pour ce tenant.");
       }
       if (error.message?.includes("position")) {
-        throw conflict("Une tranche avec cette position existe deja pour ce tenant.");
+        throw conflict("Une tranche avec cette position existe déjà pour ce tenant.");
       }
-      throw conflict("Conflit de donnees.", error);
+      throw conflict("Conflit de données.", error);
     }
-    throw mapSupabaseError(error, "Impossible de creer la tranche de marge.");
+    throw mapSupabaseError(error, "Impossible de créer la tranche de marge.");
   }
 
   if (!data) {
-    throw badRequest("Impossible de creer la tranche de marge.");
+    throw badRequest("Impossible de créer la tranche de marge.");
   }
 
   return { margin_tier: data };
@@ -8502,12 +8502,12 @@ export async function updateMarginTier(
   if (error) {
     if (error.code === "23505") {
       if (error.message?.includes("threshold_cents")) {
-        throw conflict("Une tranche avec ce seuil existe deja pour ce tenant.");
+        throw conflict("Une tranche avec ce seuil existe déjà pour ce tenant.");
       }
       if (error.message?.includes("position")) {
-        throw conflict("Une tranche avec cette position existe deja pour ce tenant.");
+        throw conflict("Une tranche avec cette position existe déjà pour ce tenant.");
       }
-      throw conflict("Conflit de donnees.", error);
+      throw conflict("Conflit de données.", error);
     }
     throw mapSupabaseError(error, "Impossible de mettre a jour la tranche de marge.");
   }
@@ -8595,9 +8595,9 @@ export async function createSuggestionRule(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de creer la regle.");
+      throw mapSupabaseError(error, "Impossible de créer la règle.");
     }
-    throw badRequest("Impossible de creer la regle.");
+    throw badRequest("Impossible de créer la règle.");
   }
 
   return {
@@ -8888,9 +8888,9 @@ export async function createEstimateItem(
 
     if (error || !data) {
       if (error) {
-        throw mapSupabaseError(error, "Impossible de creer le chapitre.");
+        throw mapSupabaseError(error, "Impossible de créer le chapitre.");
       }
-      throw badRequest("Impossible de creer le chapitre.");
+      throw badRequest("Impossible de créer le chapitre.");
     }
 
     return {
@@ -9027,9 +9027,9 @@ export async function createEstimateItem(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de creer la ligne.");
+      throw mapSupabaseError(error, "Impossible de créer la ligne.");
     }
-    throw badRequest("Impossible de creer la ligne.");
+    throw badRequest("Impossible de créer la ligne.");
   }
 
   return {
@@ -9091,7 +9091,7 @@ export async function updateEstimateItem(
     .single();
 
   if (currentItemError || !currentItem) {
-    throw notFound("Element de chiffrage introuvable.");
+    throw notFound("Élément de chiffrage introuvable.");
   }
 
   const nextParentId =
@@ -9372,7 +9372,7 @@ export async function updateEstimateItem(
     if (sectionChildrenError) {
       throw mapSupabaseError(
         sectionChildrenError,
-        "Impossible de verifier les enfants de la section."
+        "Impossible de vérifier les enfants de la section."
       );
     }
 
@@ -9696,7 +9696,7 @@ export async function deleteEstimateItem(
     .single();
 
   if (currentItemError || !currentItem) {
-    throw notFound("Element de chiffrage introuvable.");
+    throw notFound("Élément de chiffrage introuvable.");
   }
 
   const { error } = await supabase
@@ -9707,7 +9707,7 @@ export async function deleteEstimateItem(
     .eq("version_id", versionId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de supprimer l'element.");
+    throw mapSupabaseError(error, "Impossible de supprimer l'élément.");
   }
 
   return {
@@ -9759,7 +9759,7 @@ export async function reorderEstimateItems(
   const siblingIds = (siblings ?? []).map((item) => item.id);
 
   if (siblingIds.length === 0) {
-    throw notFound("Aucun element a reordonner pour ce parent.");
+    throw notFound("Aucun élément à réordonner pour ce parent.");
   }
 
   const receivedSet = new Set(input.ordered_ids);
@@ -9843,7 +9843,7 @@ export async function moveEstimateItem(
     .single();
 
   if (itemError || !item) {
-    throw notFound("Element de chiffrage introuvable.");
+    throw notFound("Élément de chiffrage introuvable.");
   }
 
   if ((item.parent_id ?? null) !== fromParentId) {
@@ -10005,7 +10005,7 @@ export async function moveEstimateItem(
   );
 
   if (moveError) {
-    throw mapSupabaseError(moveError, "Impossible de deplacer l'element.");
+    throw mapSupabaseError(moveError, "Impossible de déplacer l'élément.");
   }
 
   const normalizedUpdatedCount = updatedCount ?? 0;

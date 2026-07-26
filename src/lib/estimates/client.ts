@@ -2839,7 +2839,7 @@ function parseDuplicateEstimateSectionResult(
 function parseEstimateEditorData(payload: unknown): EstimateEditorData {
   const root = getRootPayload(payload);
   if (!isRecord(root)) {
-    throw new Error("Impossible de charger les donnees du chiffrage.");
+    throw new Error("Impossible de charger les données du chiffrage.");
   }
 
   const versionNode =
@@ -3609,7 +3609,7 @@ export async function generateEstimateStructureDraft(
         strategy: input.strategy ?? "hybrid",
       }),
     },
-    "Impossible de generer la preview de structure."
+    "Impossible de générer la prévisualisation de structure."
   );
 
   const parsed = parseEstimateStructureDraft(payload);
@@ -3707,7 +3707,7 @@ export async function generateVersionZeroDraft(
         selectedLots: input.selectedLots ?? [],
       }),
     },
-    "Impossible de generer la V0."
+    "Impossible de générer la V0."
   );
 
   return parseVersionZeroReview(payload);
@@ -3863,7 +3863,7 @@ export async function createEstimate(
       },
       body: JSON.stringify(requestBody),
     },
-    "Impossible de creer le chiffrage."
+    "Impossible de créer le chiffrage."
   );
 
   const versionEntity = extractEntity(payload, ["version", "estimateVersion"]);
@@ -3879,7 +3879,7 @@ export async function createEstimate(
   ]);
 
   if (!versionId) {
-    throw new Error("Impossible de creer le chiffrage.");
+    throw new Error("Impossible de créer le chiffrage.");
   }
 
   return versionId;
@@ -3946,7 +3946,7 @@ export async function createEstimateVariant(
     {
       method: "POST",
     },
-    "Impossible de creer la variante."
+    "Impossible de créer la variante."
   );
 
   const variantVersionId = extractString(payload, [
@@ -3958,7 +3958,7 @@ export async function createEstimateVariant(
   ]);
 
   if (!variantVersionId) {
-    throw new Error("Impossible de creer la variante.");
+    throw new Error("Impossible de créer la variante.");
   }
 
   return variantVersionId;
@@ -4395,7 +4395,7 @@ export async function moveEstimateItem(
       },
       body: JSON.stringify(payload),
     },
-    "Impossible de deplacer l'element."
+    "Impossible de déplacer l'élément."
   );
 }
 
@@ -4629,7 +4629,7 @@ export async function fetchEstimateSendGating(
     {
       method: "GET",
     },
-    "Impossible de verifier les preconditions d'envoi."
+    "Impossible de vérifier les préconditions d'envoi."
   );
 
   const root = getRootPayload(payload);
@@ -4778,7 +4778,7 @@ export async function createEstimatePurchaseOrderDrafts(
         })),
       }),
     },
-    "Impossible de creer les brouillons de commandes."
+    "Impossible de créer les brouillons de commandes."
   );
 
   const parsed = parseEstimatePurchaseOrderDraftCreationResult(payload);
@@ -4903,12 +4903,12 @@ export async function createEstimateCategory(
       },
       body: JSON.stringify(category),
     },
-    "Impossible de creer la categorie."
+    "Impossible de créer la catégorie."
   );
 
   const entity = extractEntity(payload, ["category", "item"]);
   if (!entity) {
-    throw new Error("Impossible de creer la categorie.");
+    throw new Error("Impossible de créer la catégorie.");
   }
 
   return entity as EstimateCategory;
@@ -4930,12 +4930,12 @@ export async function createEstimateLaborRole(
       },
       body: JSON.stringify(role),
     },
-    "Impossible de creer le role."
+    "Impossible de créer le rôle."
   );
 
   const entity = extractEntity(payload, ["labor_role", "laborRole", "role"]);
   if (!entity) {
-    throw new Error("Impossible de creer le role.");
+    throw new Error("Impossible de créer le rôle.");
   }
 
   return entity as LaborRole;
@@ -4974,12 +4974,12 @@ export async function createMarginTier(
       },
       body: JSON.stringify(tier),
     },
-    "Impossible de creer la tranche de marge."
+    "Impossible de créer la tranche de marge."
   );
 
   const entity = extractEntity(payload, ["margin_tier", "marginTier"]);
   if (!entity) {
-    throw new Error("Impossible de creer la tranche de marge.");
+    throw new Error("Impossible de créer la tranche de marge.");
   }
 
   return entity as MarginTier;
@@ -5044,12 +5044,12 @@ export async function createEstimateSuggestionRule(
       },
       body: JSON.stringify(rule),
     },
-    "Impossible de creer la regle."
+    "Impossible de créer la règle."
   );
 
   const entity = extractEntity(payload, ["suggestion_rule", "suggestionRule", "rule"]);
   if (!entity) {
-    throw new Error("Impossible de creer la regle.");
+    throw new Error("Impossible de créer la règle.");
   }
 
   return entity as SuggestionRule;
@@ -5276,13 +5276,13 @@ export async function createEstimateTemplate(
         description: input.description ?? null,
       }),
     },
-    "Impossible de creer le template."
+    "Impossible de créer le template."
   );
 
   const entity = extractEntity(payload, ["template"]);
   const parsed = parseEstimateTemplateSummaryEntity(entity);
   if (!parsed) {
-    throw new Error("Impossible de creer le template.");
+    throw new Error("Impossible de créer le template.");
   }
 
   return parsed;
@@ -5545,7 +5545,7 @@ export async function createEstimateAssembly(
           toAssemblyMemberRequestPayload(member)),
       }),
     },
-    "Impossible de creer l'ouvrage."
+    "Impossible de créer l'ouvrage."
   );
 
   return parseEstimateAssemblyDetail(payload);

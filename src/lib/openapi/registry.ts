@@ -244,7 +244,7 @@ const dryRunQuerySchema = z.enum(["0", "1", "true", "false"]);
 const suggestPricesQuerySchema = z
   .string()
   .trim()
-  .min(2, "Le parametre q doit contenir au moins 2 caracteres.");
+  .min(2, "Le paramètre q doit contenir au moins 2 caractères.");
 const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
 const pdfFormatQuerySchema = z.enum(["json"]);
 const exportFormatQuerySchema = z.enum(["xlsx"]);

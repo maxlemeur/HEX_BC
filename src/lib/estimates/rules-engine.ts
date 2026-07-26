@@ -4817,10 +4817,10 @@ export async function createEstimateRuleForCurrentTenant(input: {
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de creer la regle.");
+      throw mapSupabaseError(error, "Impossible de créer la règle.");
     }
 
-    throw badRequest("Impossible de creer la regle.");
+    throw badRequest("Impossible de créer la règle.");
   }
 
   return {

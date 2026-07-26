@@ -1526,7 +1526,7 @@ export function useEstimateEditorState({
         });
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Impossible de creer le role."
+          error instanceof Error ? error.message : "Impossible de créer le rôle."
         );
         return;
       }

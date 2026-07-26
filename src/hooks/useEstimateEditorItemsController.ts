@@ -357,7 +357,7 @@ export function useEstimateEditorItemsController({
           resolveErrorMessage(
             error instanceof Error
               ? error.message
-              : "Impossible de creer le chapitre."
+              : "Impossible de créer le chapitre."
           )
         );
       }

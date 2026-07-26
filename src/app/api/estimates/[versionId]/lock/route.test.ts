@@ -147,7 +147,7 @@ describe("estimate lock route", () => {
 
   it("maps conflicts and forbidden errors", async () => {
     vi.mocked(acquireLock).mockRejectedValue(
-      conflict("Cette version est deja verrouillee par un autre utilisateur.", {
+      conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
         lock: {
           user_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
         },

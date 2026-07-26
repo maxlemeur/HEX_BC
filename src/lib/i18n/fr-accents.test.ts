@@ -27,6 +27,8 @@ import { describe, expect, it } from "vitest";
 const FICHIERS_PROPRES = [
   "src/components/takeoff/TakeoffReviewPage.tsx",
   "src/components/takeoff/TakeoffReviewTable.tsx",
+  "src/lib/estimates/client.ts",
+  "src/lib/estimates/server.ts",
 ];
 
 /**

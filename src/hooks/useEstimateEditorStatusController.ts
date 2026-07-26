@@ -623,7 +623,7 @@ export function useEstimateEditorStatusController({
         handleScopedError(
           scope,
           requestError,
-          "Impossible de verifier les preconditions d'envoi."
+          "Impossible de vérifier les préconditions d'envoi."
         );
       }
     } finally {
@@ -691,7 +691,7 @@ export function useEstimateEditorStatusController({
           handleScopedError(
             scope,
             requestError,
-            "Impossible de verifier les preconditions d'envoi."
+            "Impossible de vérifier les préconditions d'envoi."
           );
           return;
         }

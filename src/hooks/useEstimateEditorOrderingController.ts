@@ -317,7 +317,7 @@ export function useEstimateEditorOrderingController({
           resolveErrorMessage(
             error instanceof Error
               ? error.message
-              : "Impossible de deplacer l'element."
+              : "Impossible de déplacer l'élément."
           )
         );
       }

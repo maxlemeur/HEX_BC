@@ -327,7 +327,7 @@ export function AffaireOrderDraftsPanel({
         setCreateError(
           toSafeErrorMessage(
             error,
-            "Impossible de creer les brouillons de commandes."
+            "Impossible de créer les brouillons de commandes."
           )
         );
       }

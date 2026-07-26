@@ -629,7 +629,7 @@ export function useEstimateEditorSuggestionsController({
         ) {
           const message = resolveActionError(
             error,
-            "Impossible de creer la regle.",
+            "Impossible de créer la règle.",
             resolveErrorMessage
           );
           setRulesState((previous) =>

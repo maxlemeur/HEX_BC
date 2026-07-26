@@ -219,7 +219,7 @@ async function assertDraftLockOwnedByCurrentUser(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier le verrou de brouillon.");
+    throw mapSupabaseError(error, "Impossible de vérifier le verrou de brouillon.");
   }
 
   if (!lock) {
@@ -238,7 +238,7 @@ async function assertDraftLockOwnedByCurrentUser(input: {
 
   const holderName = await resolveLockOwnerName(input.context.supabase, lock.user_id);
 
-  throw conflict("Cette version est deja verrouillee par un autre utilisateur.", {
+  throw conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
     lock: {
       version_id: lock.version_id,
       user_id: lock.user_id,

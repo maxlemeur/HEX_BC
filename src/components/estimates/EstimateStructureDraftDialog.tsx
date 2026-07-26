@@ -113,7 +113,7 @@ export function EstimateStructureDraftDialog({
         setDraftError(
           error instanceof Error
             ? error.message
-            : "Impossible de generer la preview de structure.",
+            : "Impossible de générer la prévisualisation de structure.",
         );
       } finally {
         if (!isActive) {

@@ -874,7 +874,7 @@ async function assertDraftLockOwnedByCurrentUser(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier le verrou de brouillon.");
+    throw mapSupabaseError(error, "Impossible de vérifier le verrou de brouillon.");
   }
 
   const lock = (data ?? null) as DraftLockRow | null;

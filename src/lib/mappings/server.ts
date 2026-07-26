@@ -246,7 +246,7 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Mappi
   }
 
   if (error.code === "23505") {
-    return conflict("Conflit de donnees.", error, "CONFLICT");
+    return conflict("Conflit de données.", error, "CONFLICT");
   }
 
   if (error.code === "23503" || error.code === "23514" || error.code === "22P02") {

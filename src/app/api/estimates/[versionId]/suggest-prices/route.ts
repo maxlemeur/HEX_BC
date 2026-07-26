@@ -8,7 +8,7 @@ const versionIdParamSchema = z.object({
 });
 
 const suggestPricesQuerySchema = z.object({
-  q: z.string().trim().min(2, "Le parametre q doit contenir au moins 2 caracteres."),
+  q: z.string().trim().min(2, "Le paramètre q doit contenir au moins 2 caractères."),
 });
 
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {

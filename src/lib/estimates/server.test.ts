@@ -1021,7 +1021,7 @@ describe("patchEstimateVersion optimistic concurrency", () => {
       status: 400,
       code: "SCHEMA_MIGRATION_REQUIRED",
       message:
-        "Les exclusions ne peuvent pas etre enregistrees tant que la migration de la base de donnees n'est pas appliquee.",
+        "Les exclusions ne peuvent pas être enregistrées tant que la migration de la base de données n'est pas appliquée.",
     });
 
     expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledTimes(1);

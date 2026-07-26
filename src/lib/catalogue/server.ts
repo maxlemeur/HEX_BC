@@ -270,7 +270,7 @@ function mapSupabaseError(
   }
 
   if (error.code === "23505") {
-    return conflict("Conflit de donnees.", error, "CONFLICT");
+    return conflict("Conflit de données.", error, "CONFLICT");
   }
 
   if (
