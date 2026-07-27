@@ -180,10 +180,6 @@ describe("K-07: dropped column logging in insertSingleWithFallback", () => {
   });
 
   it("logs a warning when columns are dropped during insert fallback", async () => {
-    vi.mock("@/lib/supabase/server", () => ({
-      createSupabaseServerClient: vi.fn(),
-    }));
-
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // Verify the console.warn pattern exists in the source
