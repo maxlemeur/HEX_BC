@@ -39,9 +39,10 @@ vi.mock("@/components/estimates/components/EstimateEditorBody", () => ({
 
 vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
   getSpreadsheetColumnKeys: () => ["title"],
-  EstimateEditorRow: ({ item, estimateCurrency, treeConnectorMeta }: {
+  EstimateEditorRow: ({ item, estimateCurrency, treeConnectorMeta, visibleColumns }: {
     item: EstimateItem;
     estimateCurrency: string;
+    visibleColumns?: ReadonlySet<string>;
     treeConnectorMeta?: {
       depth: number;
       isLastChild: boolean;
@@ -53,6 +54,7 @@ vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
       item={item}
       estimateCurrency={estimateCurrency}
       treeConnectorMeta={treeConnectorMeta}
+      visibleColumns={visibleColumns}
     />
   ),
 }));
@@ -61,9 +63,11 @@ function MockRow({
   item,
   estimateCurrency,
   treeConnectorMeta,
+  visibleColumns,
 }: {
   item: EstimateItem;
   estimateCurrency: string;
+  visibleColumns?: ReadonlySet<string>;
   treeConnectorMeta?: {
     depth: number;
     isLastChild: boolean;
@@ -80,6 +84,9 @@ function MockRow({
       data-connector-is-last-child={treeConnectorMeta?.isLastChild}
       data-connector-ancestor-flags={treeConnectorMeta?.ancestorLastChildFlags.join(",")}
       data-connector-has-visible-children={treeConnectorMeta?.hasVisibleChildren}
+      data-visible-columns={
+        visibleColumns ? Array.from(visibleColumns).sort().join(",") : "undefined"
+      }
     >
       <span>Currency {estimateCurrency}</span>
       <button
@@ -153,6 +160,7 @@ function renderEstimateEditorTable(options?: {
   currency?: "EUR" | "USD" | "GBP";
   uiMode?: "expert" | "simplified";
   items?: EstimateItem[];
+  isLaborSplitEnabled?: boolean;
 }) {
   const onPatchItem = vi.fn();
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
@@ -222,6 +230,7 @@ function renderEstimateEditorTable(options?: {
         discountCents={0}
         taxRateBp={2000}
         laborRateById={new Map()}
+        isLaborSplitEnabled={options?.isLaborSplitEnabled}
         isReadOnly={false}
         onQualityFilterChange={vi.fn()}
         onOutlierDetectionMethodChange={vi.fn()}
@@ -301,6 +310,18 @@ describe("EstimateEditorTable integration", () => {
     await waitFor(() => expect(onBulkDeleteLines).toHaveBeenCalledTimes(1));
 
     confirmSpy.mockRestore();
+  });
+
+  it("transmet les colonnes du preset complet aux lignes en mode MO éclatée", () => {
+    localStorage.setItem("est-col-vis", "full");
+    renderEstimateEditorTable({ isLaborSplitEnabled: true });
+
+    expect(
+      document.querySelector('[data-estimate-item-id="line-1"]')
+    ).toHaveAttribute(
+      "data-visible-columns",
+      "ds,h_mo_majoration,k_fo,k_mo,labor_role,marge,marque,supply_type"
+    );
   });
 
   it("wires row edition callback to onPatchItem", () => {

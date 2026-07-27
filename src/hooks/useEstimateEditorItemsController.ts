@@ -70,7 +70,7 @@ type EstimateEditorItemsControllerInput = {
   version: Pick<EstimateVersionRow, "id" | "tenant_id"> | null;
   settings: Pick<
     EstimateSettingsState,
-    "margin_multiplier" | "tax_rate_bp"
+    "margin_multiplier" | "tax_rate_bp" | "contractor_role"
   > | null;
   isLaborSplitEnabled: boolean;
   isMutationBlocked: boolean;
@@ -391,6 +391,10 @@ export function useEstimateEditorItemsController({
       const targetVersion = version;
       reportError(null);
       const position = getNextPosition(parentId);
+      const effectiveTaxRateBp =
+        settings.contractor_role === "subcontractor"
+          ? 0
+          : settings.tax_rate_bp;
       const lineValues = computeEstimateLineValues(
         {
           quantity: 1,
@@ -413,7 +417,7 @@ export function useEstimateEditorItemsController({
         },
         {
           marginMultiplier: settings.margin_multiplier,
-          taxRateBp: settings.tax_rate_bp,
+          taxRateBp: effectiveTaxRateBp,
           isLaborSplitEnabled,
         }
       );

@@ -103,6 +103,12 @@ type SupabaseMockOptions = {
     details?: string | null;
     hint?: string | null;
   };
+  rpcSummary?: {
+    created_count: number;
+    updated_count: number;
+    ignored_count: number;
+    created_ids: string[];
+  };
   auditError?: {
     code?: string;
     message?: string;
@@ -382,10 +388,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       return {
         data: {
           scope: "section",
-          created_count: 1,
-          updated_count: 0,
-          ignored_count: 0,
-          created_ids: [CREATED_ITEM_ID],
+          created_count: options.rpcSummary?.created_count ?? 1,
+          updated_count: options.rpcSummary?.updated_count ?? 0,
+          ignored_count: options.rpcSummary?.ignored_count ?? 0,
+          created_ids: options.rpcSummary?.created_ids ?? [CREATED_ITEM_ID],
         },
         error: null,
       };
@@ -554,7 +560,7 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
-  it("signale explicitement une application partielle quand le mapping echoue apres insertion", async () => {
+  it("n'annonce aucune ligne appliquee et ne fuite pas la cause quand un ouvrage seul echoue", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createSupabaseMock({
       mappingRules: [
@@ -572,6 +578,12 @@ describe("applyTakeoffJob", () => {
           created_at: "2026-02-25T09:00:00.000Z",
         },
       ],
+      rpcSummary: {
+        created_count: 0,
+        updated_count: 0,
+        ignored_count: 1,
+        created_ids: [],
+      },
     });
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase,
@@ -586,25 +598,120 @@ describe("applyTakeoffJob", () => {
         updated_at: VERSION_UPDATED_AT,
       },
     } as never);
-    // Le RPC a deja insere les lignes et bascule le job en 'applied' ; c'est
-    // l'insertion d'ouvrage du mapping qui echoue ensuite.
+    // L'action apply_assembly exclut la ligne brute avant le RPC. Le job passe
+    // donc à "applied" sans ligne créée, puis l'insertion d'ouvrage échoue.
     vi.mocked(insertAssemblyIntoVersion).mockRejectedValueOnce(
-      new Error("conflit de concurrence")
+      new Error("secret interne de concurrence")
     );
 
-    await expect(
-      applyTakeoffJob(JOB_ID, {
+    let caughtError: unknown;
+    try {
+      await applyTakeoffJob(JOB_ID, {
         strategy: "merge",
         target_section_id: SECTION_ID,
-      })
-    ).rejects.toMatchObject({
+      });
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toMatchObject({
       status: 500,
+      details: {
+        partial_apply: true,
+        lines_applied: false,
+        mapping_applied: false,
+        cause_code: "MAPPING_TRANSFORM_FAILED",
+      },
+    });
+    expect(JSON.stringify(caughtError)).not.toContain("secret interne");
+  });
+
+  it("conserve la ligne brute quand un ouvrage du même job échoue sans fuiter la cause", async () => {
+    const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const supabase = createSupabaseMock({
+      takeoffItems: [
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_1,
+          designation: "Ouvrage cible",
+        }),
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_2,
+          designation: "Ligne brute conservée",
+        }),
+      ],
+      mappingRules: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Ouvrage cible",
+          match_pattern: "ouvrage cible",
+          match_type: "contains",
+          action: "apply_assembly",
+          action_params: { assembly_id: assemblyId },
+          priority: 1,
+          is_active: true,
+          created_at: "2026-02-25T09:00:00.000Z",
+        },
+      ],
+      rpcSummary: {
+        created_count: 1,
+        updated_count: 0,
+        ignored_count: 1,
+        created_ids: [CREATED_ITEM_ID],
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+    vi.mocked(insertAssemblyIntoVersion).mockRejectedValueOnce(
+      new Error("secret interne de concurrence mixte")
+    );
+
+    let caughtError: unknown;
+    try {
+      await applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      });
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(insertAssemblyIntoVersion).toHaveBeenCalledWith({
+      assemblyId,
+      versionId: VERSION_ID,
+      afterItemId: SECTION_ID,
+    });
+    expect(supabase.__state.takeoffItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: TAKEOFF_ITEM_ID_1,
+          is_excluded: true,
+        }),
+        expect.objectContaining({
+          id: TAKEOFF_ITEM_ID_2,
+          is_excluded: false,
+        }),
+      ])
+    );
+    expect(caughtError).toMatchObject({
       details: {
         partial_apply: true,
         lines_applied: true,
         mapping_applied: false,
+        cause_code: "MAPPING_TRANSFORM_FAILED",
       },
     });
+    expect(JSON.stringify(caughtError)).not.toContain("secret interne");
   });
 
   it("applies mapping action apply_assembly and logs mapping audit entries", async () => {

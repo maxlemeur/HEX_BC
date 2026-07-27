@@ -7,6 +7,10 @@
 >
 > Source : `https://claude.ai/code/artifact/91124126-27a6-4450-ac6d-b9b7745b0403`
 >
+> Source canonique reproductible : `docs/user_story/AUDIT-2026-07-source.normalized.json`.
+> Il s'agit d'une normalisation fidèle du ledger publié, **pas de l'HTML brut**
+> de l'artefact externe, qui n'est pas disponible dans le dépôt.
+>
 > **Statut du rapprochement.** Les **27 bugs** et **24 des 73 constats UX/UI**
 > ont été rapprochés du code AU HEAD : la référence de l'audit a été rouverte,
 > et le statut dit si le défaut est encore là, ou quel commit l'a corrigé.
@@ -27,7 +31,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | B03 | critique | Prix / catalogue / tarifs / fournisseur… | `src/lib/estimates/server.ts:1651` | La préselection fournisseur injecte un prix en devise étrangère tel quel dans unit_price_ht_cents (EUR) sans conversion | livré (`5d21030` préselection + `7977a53` sélection manuelle) |
 | B04 | critique | Versions, création, paramètres, diff/ch… | `src/lib/estimates/client.ts:3827` | Nouvelle version d'une affaire : la marge héritée est écrasée à 1.0 (0% de marge) | livré (`12550bc`) |
 | B05 | haut | Éditeur de devis (tableur) | `src/components/estimates/components/estimate-editor-row/shared.ts:268` | Vider une cellule K FO ou K MO enregistre 0 (au lieu du défaut 1), annulant le coût FO/MO de la ligne | livré (`1a58046`) |
-| B06 | haut | Moteur de calcul (prix, marges, TVA, ma… | `src/lib/estimates/export-stream.ts:229` | Export XLSX: la colonne "Total HT" des lignes ne se reconcilie jamais avec le "Total HT" du resume (remise + coefficient global ignores) | à traiter — T6 phase E, étape 17 |
+| B06 | haut | Moteur de calcul (prix, marges, TVA, ma… | `src/lib/estimates/export-stream.ts:229` | Export XLSX: la colonne "Total HT" des lignes ne se reconcilie jamais avec le "Total HT" du resume (remise + coefficient global ignores) | traité (lot correctif 2026-07-27) — lignes et Résumé XLSX réconciliés sans bascule forcée du moteur |
 | B07 | haut | Moteur de calcul (prix, marges, TVA, ma… | `src/lib/estimate-calculations.ts:881` | Les totaux de section ignorent le coefficient global: les sections ne se somment pas au total et la remise proportionnelle est sur-allouee | corrigé en moteur v2 (`8092b29`, `966db09`) mais **le gate n'est pas basculé** |
 | B08 | haut | Exports (DPGF, BDC, PDF) | `src/lib/estimates/pdf-generator.tsx:1753` | Le PDF force isLaborSplitEnabled:false : colonnes MO HT à 0 et FO HT gonflé, divergence avec l'aperçu écran/portail | livré (`ee5b242`) |
 | B09 | haut | Assemblages / ouvrages / gabarits | `supabase/migrations/20260722132425_nested_estimate_assemblies.sql:590` | Lignes d'ouvrage insérées persistées et affichées avec montant HT et PU = 0 (aucune renormalisation après matérialisation) | livré (`26332ba`) |
@@ -38,7 +42,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | B14 | haut | Versions, création, paramètres, diff/ch… | `src/components/estimates/EstimateDiffView.tsx:263` | Le diff affiche 'Aucun changement' alors que le Total HT/TTC diffère (remise/coefficient/arrondi globaux) | livré (`c211dbb`) |
 | B15 | moyen | Éditeur de devis (tableur) | `src/components/estimates/components/estimate-editor-row/LineRow.tsx:625` | La cellule Quantité est un input type=number : la virgule décimale (pavé numérique FR) est bloquée/perdue | livré (`ec13f18`) |
 | B16 | moyen | Moteur de calcul (prix, marges, TVA, ma… | `src/lib/estimates/pdf-generator.tsx:1708` | Les totaux globaux (pages serveur + PDF) sont calcules sans passer isLaborSplitEnabled, contredisant le detail par section/ligne | livré (`ee5b242`) |
-| B17 | moyen | Exports (DPGF, BDC, PDF) | `src/lib/estimates/export-stream.ts:229` | Export XLSX standard: le 'Total HT' par ligne ignore le coefficient global et la remise -> ne somme pas au Total HT du Résumé | à traiter — T6 phase E, étape 17 |
+| B17 | moyen | Exports (DPGF, BDC, PDF) | `src/lib/estimates/export-stream.ts:229` | Export XLSX standard: le 'Total HT' par ligne ignore le coefficient global et la remise -> ne somme pas au Total HT du Résumé | traité (lot correctif 2026-07-27) — coefficient, remise et arrondi TTC répartis sur les lignes exportées |
 | B18 | moyen | Métré / takeoff (plans, extraction, réc… | `src/lib/takeoff/dpgf-compare.ts:809` | Le rapprochement automatique DPGF glouton attribue le meilleur item de métré à la première ligne DPGF traitée, privant une ligne ultérieure mieux app… | livré (`e905d6d`) |
 | B19 | moyen | Métré / takeoff (plans, extraction, réc… | `src/lib/takeoff/server.ts:6606` | La reprise manuelle du reconcile ne réinitialise pas le compteur de tentatives : un job batch en timeout ne peut pas être relancé et re-échoue immédi… | livré (`6c5b5cc`) |
 | B20 | moyen | Workflow: validation, verrouillage, sce… | `src/lib/estimates/server.ts:7780` | patchEstimateStatus ne vérifie pas le rôle d'écriture : transition de statut via RPC service-role contourne la RLS admin/engineer | livré (`a4d87c5`, étendu par `6b3521f` à patchEstimateVersion et duplicate) |
@@ -258,7 +262,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | UX07 | Majeur | Layout grille — colonnes de totaux | Avec le sous-détail complet (surtout labor split : ~14 colonnes) la grille dépasse largement la largeur d'un écran portable et défile horizontalement. Les colo… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX08 | Majeur | Sélection de ligne — accessibilité clavier | La case à cocher de sélection de ligne est un input type=checkbox avec readOnly, un handler onClick qui preventDefault, et aucun onChange/onKeyDown. Un checkbo… | livré (`9259f03`) — la case porte `onKeyDown` et `onClick`, opérable au clavier |
 | UX09 | Mineur | Cohérence — dialogues natifs | Les conversions ligne↔section et leurs erreurs utilisent window.confirm/window.alert natifs, alors que le reste de l'app dispose d'un système de toasts (useToa… | à traiter — non rouvert, aucun correctif livré ne le vise |
-| UX10 | Mineur | Libellés FR — accents | Accentuation incohérente sur de nombreux libellés visibles : « Créer un lot » écrit « Creer un lot », « filtre qualite actif », « selectionnees en sections », … | **traité** (`6935dba`, `6865076`, `0e28d25`) — editeur, messages d'erreur et centre de metres ; garde `src/lib/i18n/fr-accents.test.ts` |
+| UX10 | Mineur | Libellés FR — accents | Accentuation incohérente sur de nombreux libellés visibles : « Créer un lot » écrit « Creer un lot », « filtre qualite actif », « selectionnees en sections », … | **traité** (`6935dba`, `6865076`, `0e28d25`) — éditeur, messages d'erreur et centre de métrés ; garde `src/lib/i18n/fr-accents.test.ts` |
 | UX11 | Mineur | En-tête grille — ambiguïté PR.FO vs P.U. | La ligne expose deux notions de « prix unitaire » côte à côte : PR. FO (prix de revient fourniture, saisi) et P.U. (prix unitaire de vente, calculé, lecture se… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX12 | Mineur | Menu d'actions ligne — disclosure natif | Le menu « … » de chaque ligne (Comparer / Convertir / Supprimer) est un <details>/<summary> sans aria-haspopup, sans fermeture au clic extérieur ni à Échap, et… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX13 | Mineur | Insertion ouvrage/template — ancrage | L'insertion d'ouvrage/template se fait « après la cellule active » (insertionAnchorItemId = activeCell.rowId). Si aucune cellule n'est active (ex. juste après … | à traiter — non rouvert, aucun correctif livré ne le vise |
@@ -276,7 +280,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | UX20 | Majeur | TakeoffReviewPage — titre h1 (contexte hors … | Le titre affiche littéralement « Revue d&apos;extraction » : dans le ternaire, la chaîne est un littéral JavaScript passé dans une accolade JSX, or React ne dé… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX21 | Majeur | TakeoffReviewTable — colonne Alertes / confi… | L'information d'anomalie repose sur un triangle d'avertissement dont le détail (quelles anomalies) n'est disponible que via l'attribut title (tooltip) — non ac… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX22 | Mineur | Vocabulaire — Evidence vs Preuve | Le même concept de traçabilité est nommé de deux façons selon l'écran : « Evidence » (anglicisme) dans EvidencePanel et la table, « preuve » dans ValidationRev… | à traiter — non rouvert, aucun correctif livré ne le vise |
-| UX23 | Mineur | Copy FR — accents/diacritiques | Défaut d'accents systématique dans l'UI destinée à des professionnels francophones du BTP : « Sauvegarde automatique », « verifier/Verifies », « controle », « … | **traité** (`6935dba`) — les deux exemples cites sont corriges ; TakeoffReviewPage/Table sous garde |
+| UX23 | Mineur | Copy FR — accents/diacritiques | Défaut d'accents systématique dans l'UI destinée à des professionnels francophones du BTP : « Sauvegarde automatique », « verifier/Verifies », « controle », « … | **traité** (`6935dba`) — les exemples cités sont corrigés ; TakeoffReviewPage/Table sous garde |
 | UX24 | Mineur | TakeoffReviewTable — barre de filtres | La barre de filtres aligne 8+ selects (inclusion, vérif, catégorie, page, table, anomalie, confiance, tri + sens) en un wrap horizontal sans regroupement, sans… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX25 | Mineur | TakeoffReviewPage — chargement des candidats… | À chaque ouverture de la revue, un effet pagine TOUS les jobs takeoff de la version (boucle jusqu'à 100/page) uniquement pour trouver ceux du même fichier sour… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX26 | Mineur | ConfidenceHeader — niveaux A/B | L'entête de confiance globale (jauge + distribution) n'est rendu que pour les extractions Level C. Les métrés Level A (métrage structuré) et Level B (tableaux … | à traiter — non rouvert, aucun correctif livré ne le vise |
@@ -320,7 +324,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
 | UX51 | Majeur | Prix fournisseurs (/dashboard/prices) | Le filtre de fraîcheur est câblé sur une mauvaise clé d'URL et ne filtre donc rien. La config déclare la clé '_freshnessLevel' (PRICES_FILTERS), mais l'état lu… | livré (`8a685cf`) — la clé `_freshnessLevel` a disparu, le filtre fonctionne |
-| UX52 | Majeur | Libellés FR (parcours achats complet) | Suppression systématique des accents dans de nombreux libellés d'action et de confirmation, sur un outil BTP français destiné aux achats. Exemples: message de … | **traité** (`157fe00`) — comparateur fournisseurs, import CSV price book et messages catalogue sous garde |
+| UX52 | Majeur | Libellés FR (parcours achats complet) | Suppression systématique des accents dans de nombreux libellés d'action et de confirmation, sur un outil BTP français destiné aux achats. Exemples: message de … | **traité** (`157fe00`, complété le 2026-07-27) — comparateur fournisseurs, import CSV price book, catalogue et mapping sous garde |
 | UX53 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau est un role='dialog' aria-modal='true' mais n'implémente ni fermeture au clavier (aucune gestion de la touche Échap), ni piège de focus, ni focus in… | livré (`ce09a53`) — fermeture par Échap et focus initial |
 | UX54 | Majeur | Comparaison fournisseurs (SupplierComparison… | Le panneau liste les alternatives avec prix et badges mais n'affiche aucun écart chiffré vs la sélection actuelle: ni économie en euros, ni % d'écart, ni total… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX55 | Majeur | Comparaison fournisseurs — multi-devises | Le prix est affiché en formatEUR(adjusted_unit_price_cents) puis on concatène la devise brute de l'offre ( ${alternative.currency}), ce qui produit des rendus … | livré (`30a8b85` affichage par devise + `7977a53` sélection manuelle bloquée) |
@@ -337,11 +341,11 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 
 | ID | Gravité | Surface | Observation | Statut |
 |---|---|---|---|---|
-| UX64 | Bloquant | Acceptation / CGV | La modale d'acceptation fait cocher « J'accepte ce devis et ses conditions » (AcceptEstimateModal.tsx:131) comme condition obligatoire de validation, mais le p… | à traiter (vérifié) — le portail ne transmet ni `terms` ni `exclusions` : le client accepte des CGV qu'il ne voit pas |
-| UX65 | Majeur | Copie du document | Aucun moyen depuis le portail de télécharger ou d'imprimer une copie du devis. page.tsx ne rend aucun bouton de téléchargement et EstimatePdfDownloadButton n'e… | à traiter (vérifié) — aucun bouton de téléchargement PDF sur le portail |
+| UX64 | Bloquant | Acceptation / CGV | La modale d'acceptation fait cocher « J'accepte ce devis et ses conditions » (AcceptEstimateModal.tsx:131) comme condition obligatoire de validation, mais le p… | **traité** (lot correctif 2026-07-27) — le snapshot CGV/exclusions validé est affiché et contrôlé fail-closed à l'acceptation |
+| UX65 | Majeur | Copie du document | Aucun moyen depuis le portail de télécharger ou d'imprimer une copie du devis. page.tsx ne rend aucun bouton de téléchargement et EstimatePdfDownloadButton n'e… | **traité** (lot correctif 2026-07-27) — l'action d'impression reste disponible avant et après décision |
 | UX66 | Majeur | Textes portail (FR) | Accents français absents sur toute la surface visible du client, ce qui fait amateur sur un document contractuel. Ex. « Ce devis a ete accepte. Merci pour votr… | livré (`5503cd7`) — accents rétablis sur le portail et le document client |
 | UX67 | Majeur | Pages d'erreur / impasse | Les pages « Devis expiré » et « Lien invalide » demandent de « contacter votre interlocuteur » mais n'affichent aucun contact (nom, email, téléphone). Le clien… | à traiter (vérifié) — pages `expired` / `not-found` sans coordonnées émetteur |
-| UX68 | Majeur | Cohérence document email vs portail | Le portail ignore la mise en page choisie par le chiffreur : page.tsx ne passe pas layout, donc EstimateDocument retombe sur DEFAULT_ESTIMATE_PDF_LAYOUT (prese… | à traiter (vérifié) — `layout` et `issuer*` non transmis : le portail peut diverger du PDF reçu par email |
+| UX68 | Majeur | Cohérence document email vs portail | Le portail ignore la mise en page choisie par le chiffreur : page.tsx ne passe pas layout, donc EstimateDocument retombe sur DEFAULT_ESTIMATE_PDF_LAYOUT (prese… | **traité** (lot correctif 2026-07-27) — layout stocké et émetteur du document sont transmis au portail, avec fallback legacy |
 | UX69 | Majeur | Signature | Le pad de signature n'est utilisable qu'à la souris/au tactile : les handlers sont mousedown/mousemove/touch (SignaturePad.tsx:142-148), sans alternative clavi… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX70 | Mineur | Signature | Le ResizeObserver efface silencieusement les traits à chaque redimensionnement du conteneur (SignaturePad.tsx:55-64), ce qui inclut la rotation d'écran mobile … | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX71 | Mineur | Acceptation / signature | Si l'upload de la signature échoue, l'acceptation aboutit quand même et la signature est silencieusement abandonnée (accept/route.ts:162-173, commentaire « don… | à traiter — non rouvert, aucun correctif livré ne le vise |
@@ -352,12 +356,12 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 
 ## 3. Ce qui reste à rapprocher
 
-Bilan du rapprochement UX au 2026-07-26 :
+Bilan du rapprochement UX au 2026-07-27 :
 
 | Statut | Nombre |
 |---|---|
-| livré, avec le sha du correctif | 14 |
-| à traiter — **vérifié** encore ouvert dans le code | 10 |
+| livré ou traité, avec sa preuve | 17 |
+| à traiter — **vérifié** encore ouvert dans le code | 7 |
 | non rouvert | 49 |
 
 ### Campagne d'accents FR (UX10, UX23, UX34, UX52) — close sur les surfaces principales
@@ -376,6 +380,10 @@ tests anglais (« source details » → « source détails ») et laissait des
 phrases à moitié corrigées (« déjà verrouillee »). Le garde a trouvé 21
 fautes que la relecture manuelle avait manquées ; c'est lui qui fait
 converger la campagne.
+
+Le 2026-07-27, la garde a été étendue à `CatalogueManager`,
+`MappingRuleEditor` et `TakeoffTableView` après correction des libellés encore
+non accentués découverts par la revue des commits.
 
 Deux pièges à connaître avant de reprendre le chantier :
 

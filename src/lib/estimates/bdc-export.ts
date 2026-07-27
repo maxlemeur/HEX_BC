@@ -186,11 +186,19 @@ function resolveDepthByItemId(items: EstimateItemRecord[]) {
   return depthById;
 }
 
+function usesLaborSplit(
+  item: EstimateItemRecord,
+  isLaborSplitEnabled: boolean
+) {
+  return isLaborSplitEnabled && hasActiveLaborSplitPayload(item);
+}
+
 function resolveLaborRoleLabel(
   item: EstimateItemRecord,
-  laborRoleNameById: Map<string, string>
+  laborRoleNameById: Map<string, string>,
+  isLaborSplitEnabled: boolean
 ) {
-  if (hasActiveLaborSplitPayload(item)) {
+  if (usesLaborSplit(item, isLaborSplitEnabled)) {
     const parts: string[] = [];
     if (item.labor_role_atelier_id) {
       parts.push(
@@ -209,15 +217,21 @@ function resolveLaborRoleLabel(
   return laborRoleNameById.get(item.labor_role_id) ?? "";
 }
 
-function resolveLaborHours(item: EstimateItemRecord) {
-  if (hasActiveLaborSplitPayload(item)) {
+function resolveLaborHours(
+  item: EstimateItemRecord,
+  isLaborSplitEnabled: boolean
+) {
+  if (usesLaborSplit(item, isLaborSplitEnabled)) {
     return (item.h_mo_atelier ?? 0) + (item.h_mo_chantier ?? 0);
   }
   return item.h_mo ?? 0;
 }
 
-function resolveLaborCoefficient(item: EstimateItemRecord) {
-  if (!hasActiveLaborSplitPayload(item)) {
+function resolveLaborCoefficient(
+  item: EstimateItemRecord,
+  isLaborSplitEnabled: boolean
+) {
+  if (!usesLaborSplit(item, isLaborSplitEnabled)) {
     return item.k_mo ?? 1;
   }
 
@@ -234,10 +248,11 @@ function resolveLaborCoefficient(item: EstimateItemRecord) {
 function resolveLaborHourlyRateCents(input: {
   item: EstimateItemRecord;
   laborRateById: Map<string, number>;
+  isLaborSplitEnabled: boolean;
 }) {
-  const { item, laborRateById } = input;
+  const { item, laborRateById, isLaborSplitEnabled } = input;
 
-  if (!hasActiveLaborSplitPayload(item)) {
+  if (!usesLaborSplit(item, isLaborSplitEnabled)) {
     const legacyRate = item.labor_role_id ? (laborRateById.get(item.labor_role_id) ?? 0) : 0;
     return legacyRate;
   }
@@ -382,6 +397,7 @@ function buildBdcRows(input: {
   laborRoleNameById: Map<string, string>;
   categoryById: Map<string, string>;
   comparisonByItemId: Map<string, SupplierComparison>;
+  isLaborSplitEnabled: boolean;
 }) {
   const depthByItemId = resolveDepthByItemId(input.items);
 
@@ -456,7 +472,7 @@ function buildBdcRows(input: {
       {
         marginMultiplier: input.version.margin_multiplier,
         taxRateBp,
-        isLaborSplitEnabled: hasActiveLaborSplitPayload(item),
+        isLaborSplitEnabled: usesLaborSplit(item, input.isLaborSplitEnabled),
         laborRateAtelierCents,
         laborRateChantierCents,
       }
@@ -476,15 +492,20 @@ function buildBdcRows(input: {
       puFoHtEur: toEuroAmount(unitPriceFoCents),
       prFoHtEur: toEuroAmount(prFoCents),
       kFo,
-      hMo: resolveLaborHours(item),
-      kMo: resolveLaborCoefficient(item),
+      hMo: resolveLaborHours(item, input.isLaborSplitEnabled),
+      kMo: resolveLaborCoefficient(item, input.isLaborSplitEnabled),
       tauxHoraireMoEur: toEuroAmount(
         resolveLaborHourlyRateCents({
           item,
           laborRateById: input.laborRateById,
+          isLaborSplitEnabled: input.isLaborSplitEnabled,
         })
       ),
-      roleMo: resolveLaborRoleLabel(item, input.laborRoleNameById),
+      roleMo: resolveLaborRoleLabel(
+        item,
+        input.laborRoleNameById,
+        input.isLaborSplitEnabled
+      ),
       categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
       totalFoHtEur: toEuroAmount(foTotalCents),
       totalMoHtEur: toEuroAmount(moTotalCents),
@@ -628,7 +649,10 @@ async function writeWorkbook(input: {
   await workbook.commit();
 }
 
-async function buildBdcExportPayload(versionId: string): Promise<BdcExportPayload> {
+async function buildBdcExportPayload(
+  versionId: string,
+  isLaborSplitEnabled: boolean
+): Promise<BdcExportPayload> {
   const details = await getEstimateVersionDetails(versionId);
   const items = details.items as EstimateItemRecord[];
   const lineItemIds = items
@@ -665,6 +689,7 @@ async function buildBdcExportPayload(versionId: string): Promise<BdcExportPayloa
       laborRoleNameById,
       categoryById,
       comparisonByItemId,
+      isLaborSplitEnabled,
     }),
   };
 }
@@ -673,9 +698,13 @@ export async function streamEstimateVersionBdcV11Xlsx(
   versionId: string,
   options?: {
     workbookWriterFactory?: WorkbookWriterFactory;
+    isLaborSplitEnabled?: boolean;
   }
 ): Promise<EstimateExportStreamResult> {
-  const payload = await buildBdcExportPayload(versionId);
+  const payload = await buildBdcExportPayload(
+    versionId,
+    options?.isLaborSplitEnabled === true
+  );
   const filename = buildFilename({
     projectReference: payload.projectReference,
     projectName: payload.projectName,

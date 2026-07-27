@@ -338,6 +338,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     const { workbookWriterFactory, worksheets } = createWorkbookHarness();
     const exported = await streamEstimateVersionDpgfXlsx(VERSION_ID, {
       workbookWriterFactory,
+      isLaborSplitEnabled: true,
     });
 
     const bytes = Buffer.from(await new Response(exported.stream).arrayBuffer());
@@ -355,6 +356,30 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(lineRow[16]).toBe(2);
     expect(lineRow[17]).toBe(1.3);
     expect(lineRow[18]).toBe("Role Chantier");
+
+    const disabledHarness = createWorkbookHarness();
+    const disabledExport = await streamEstimateVersionDpgfXlsx(VERSION_ID, {
+      workbookWriterFactory: disabledHarness.workbookWriterFactory,
+      isLaborSplitEnabled: false,
+    });
+    await new Response(disabledExport.stream).arrayBuffer();
+
+    const disabledSheet = disabledHarness.worksheets.find(
+      (sheet) => sheet.name === "Donnees"
+    );
+    const disabledLineRow = disabledSheet?.rows[1] as unknown[];
+
+    expect(disabledLineRow[8]).toBe(0);
+    expect(disabledLineRow[9]).toBe(1);
+    expect(disabledLineRow[11]).toBe("");
+    expect(disabledLineRow.slice(13, 19)).toEqual([
+      null,
+      null,
+      "",
+      null,
+      null,
+      "",
+    ]);
   });
 
   it("falls back to project name in DPGF filename when reference is empty", async () => {

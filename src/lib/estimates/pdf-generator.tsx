@@ -26,7 +26,10 @@ import { isFeatureEnabled } from "@/lib/feature-flags";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { BUSINESS_DOCUMENT_THEME } from "@/lib/documents/document-theme";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
-import { ESTIMATE_SERVICE_LIMITS_TITLE } from "@/lib/estimates/document-copy";
+import {
+  ESTIMATE_SERVICE_LIMITS_TITLE,
+  ESTIMATE_VAT_REVERSE_CHARGE_NOTICE,
+} from "@/lib/estimates/document-copy";
 import {
   applyEstimateTermsPolicy,
   DEFAULT_ESTIMATE_PDF_LAYOUT,
@@ -474,6 +477,15 @@ const businessPdfStyles = StyleSheet.create({
     fontSize: 8.5,
     fontWeight: 700,
     lineHeight: 1.4,
+  },
+  vatReverseChargeNotice: {
+    marginTop: 7,
+    paddingVertical: 6,
+    paddingHorizontal: 9,
+    borderLeft: `3px solid ${BUSINESS_DOCUMENT_THEME.colors.brandOrange}`,
+    backgroundColor: "#fff7ed",
+    color: BUSINESS_DOCUMENT_THEME.colors.ink,
+    fontSize: 8,
   },
   termsColumns: {
     display: "flex",
@@ -1361,6 +1373,8 @@ export function buildEstimatePdfDocument(input: {
   totalTtcCents: number;
 }) {
   const currency = normalizeEstimateCurrency(input.version.currency) ?? "EUR";
+  const vatReverseCharge =
+    input.version.contractor_role === "subcontractor";
   const formattedEstimateReference = formatEstimateReference(
     input.project.estimate_reference,
     input.version.version_number,
@@ -1444,12 +1458,19 @@ export function buildEstimatePdfDocument(input: {
                 {input.version.validite_jours} jours
               </Text>
             </View>
-            <View style={businessPdfStyles.infoRow}>
-              <Text>TVA</Text>
-              <Text style={{ fontWeight: 700 }}>
-                {formatPercent(input.version.tax_rate_bp)} %
-              </Text>
-            </View>
+            {vatReverseCharge ? (
+              <View style={businessPdfStyles.infoRow}>
+                <Text>Régime fiscal</Text>
+                <Text style={{ fontWeight: 700 }}>Autoliquidation</Text>
+              </View>
+            ) : (
+              <View style={businessPdfStyles.infoRow}>
+                <Text>TVA</Text>
+                <Text style={{ fontWeight: 700 }}>
+                  {formatPercent(input.version.tax_rate_bp)} %
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -1460,17 +1481,24 @@ export function buildEstimatePdfDocument(input: {
             <Text>Total HT</Text>
             <Text>{formatCurrency(input.totalHtCents, currency)}</Text>
           </View>
-          {input.version.tax_rate_bp > 0 ? (
+          {!vatReverseCharge && input.version.tax_rate_bp > 0 ? (
             <View style={businessPdfStyles.totalsSecondary}>
               <Text>TVA</Text>
               <Text>{formatCurrency(input.totalTaxCents, currency)}</Text>
             </View>
           ) : null}
-          <View style={businessPdfStyles.totalsSecondary}>
-            <Text>Total TTC</Text>
-            <Text>{formatCurrency(input.totalTtcCents, currency)}</Text>
-          </View>
+          {!vatReverseCharge ? (
+            <View style={businessPdfStyles.totalsSecondary}>
+              <Text>Total TTC</Text>
+              <Text>{formatCurrency(input.totalTtcCents, currency)}</Text>
+            </View>
+          ) : null}
         </View>
+        {vatReverseCharge ? (
+          <Text style={businessPdfStyles.vatReverseChargeNotice}>
+            {ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}
+          </Text>
+        ) : null}
 
         {conditionsText && !conditionsOnNewPage ? (
           <PdfConditions text={conditionsText} />
@@ -1735,6 +1763,8 @@ export async function generateEstimatePdfNow(
           })
         : [];
 
+    const vatReverseCharge =
+      access.version.contractor_role === "subcontractor";
     const baseTotals = computeEstimateTotals({
       lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
@@ -1748,6 +1778,7 @@ export async function generateEstimatePdfNow(
       taxRateBp: access.version.tax_rate_bp,
       roundingMode: access.version.rounding_mode,
       roundingStepCents: access.version.rounding_step_cents,
+      vatReverseCharge,
     });
     const fallbackDiscountCents =
       baseTotals.saleSubtotalCents > 0
@@ -1769,6 +1800,7 @@ export async function generateEstimatePdfNow(
       taxRateBp: access.version.tax_rate_bp,
       roundingMode: access.version.rounding_mode,
       roundingStepCents: access.version.rounding_step_cents,
+      vatReverseCharge,
     });
 
     const totalHtCents =
@@ -1780,10 +1812,6 @@ export async function generateEstimatePdfNow(
 
     // EST-E26 : moteur de la VERSION rendue, plus une constante epinglee.
     const calcEngineVersion = resolveCalcEngineVersion(access.version);
-    // EST-E27 : le PDF est le document remis au client — c est lui qui doit
-    // porter la mention d autoliquidation, ou aucune TVA n apparait.
-    const vatReverseCharge = access.version.contractor_role === "subcontractor";
-
     const prepared = prepareEstimateDocumentData({
       items,
       // EST-E26 (T6, étape 12) : le PDF dérive du même breakdown que le document
@@ -1796,6 +1824,7 @@ export async function generateEstimatePdfNow(
         isLaborSplitEnabled,
         laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
         calcEngineVersion,
+        globalCoefficient: access.version.global_coefficient,
       }),
       calcEngineVersion,
       vatReverseCharge,

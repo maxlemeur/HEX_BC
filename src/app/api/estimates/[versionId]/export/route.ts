@@ -8,8 +8,10 @@ import {
   unauthorized,
 } from "@/lib/estimates/errors";
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
+import { ESTIMATE_LABOR_SPLIT_FLAG_KEY } from "@/lib/estimates/calc-context";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
+import { isFeatureEnabled } from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -89,6 +91,11 @@ async function assertExportAccess() {
   if (!isExportAllowedRole(membership.role)) {
     throw forbidden("Export reserve aux roles admin et engineer.");
   }
+
+  return {
+    supabase,
+    tenantId: membership.tenant_id,
+  };
 }
 
 export async function GET(
@@ -99,14 +106,20 @@ export async function GET(
     const versionId = await getVersionId(params);
     parseFormat(request);
     const mode = parseMode(request);
-    await assertExportAccess();
+    const access = await assertExportAccess();
+    const isLaborSplitEnabled = await isFeatureEnabled(
+      access.tenantId,
+      ESTIMATE_LABOR_SPLIT_FLAG_KEY,
+      { supabase: access.supabase }
+    );
+    const exportOptions = { isLaborSplitEnabled };
 
     const exported =
       mode === "dpgf"
-        ? await streamEstimateVersionDpgfXlsx(versionId)
+        ? await streamEstimateVersionDpgfXlsx(versionId, exportOptions)
         : mode === "bdc"
-          ? await streamEstimateVersionBdcV11Xlsx(versionId)
-          : await streamEstimateVersionXlsx(versionId);
+          ? await streamEstimateVersionBdcV11Xlsx(versionId, exportOptions)
+          : await streamEstimateVersionXlsx(versionId, exportOptions);
 
     return new Response(exported.stream, {
       status: 200,

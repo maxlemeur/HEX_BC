@@ -193,6 +193,23 @@ describe("EstimateDocument - EST-121", () => {
 
     expect(markup).not.toContain(`-${formatCurrencyForTest(1000, "EUR")}`);
   });
+
+  it("garde un seul total principal en autoliquidation", () => {
+    const totalHtCents = 123_456;
+    const formattedTotal = formatCurrencyForTest(totalHtCents, "EUR");
+    const markup = renderEstimateDocument([], {
+      totalHtCents,
+      totalTaxCents: 0,
+      totalTtcCents: totalHtCents,
+      vatReverseCharge: true,
+    });
+
+    expect(markup.match(new RegExp(escapeRegExp(formattedTotal), "g"))).toHaveLength(1);
+    expect(markup.match(/>Total HT</g)).toHaveLength(2);
+    expect(markup).toContain("Autoliquidation");
+    expect(markup).not.toContain("Total TTC");
+  });
+
   it("affiche le total HT d'une section avec remise proportionnelle", () => {
     const sectionId = "section-target";
     const items: EstimateItem[] = [

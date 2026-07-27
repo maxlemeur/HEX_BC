@@ -336,6 +336,98 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(sheet?.cellStates.get("3:20")?.numFmt).toBe("#,##0.00 \"€\"");
   });
 
+  it("ignores residual split payload when the tenant flag is disabled", async () => {
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID,
+        version_number: 1,
+        margin_multiplier: 1,
+        tax_rate_bp: 0,
+        estimate_projects: {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Projet Flag",
+          reference: "FLAG/2026",
+        },
+      },
+      items: [
+        {
+          id: "line-flag",
+          item_type: "line",
+          parent_id: null,
+          position: 1,
+          title: "Pose flag",
+          description: "u",
+          quantity: 1,
+          unit_price_ht_cents: 0,
+          tax_rate_bp: 0,
+          k_fo: 1,
+          h_mo: 1,
+          h_mo_majoration: 1,
+          k_mo: 1,
+          labor_role_id: "role-legacy",
+          h_mo_atelier: 2,
+          k_mo_atelier: 1,
+          labor_role_atelier_id: "role-atelier",
+          h_mo_chantier: 3,
+          k_mo_chantier: 1,
+          labor_role_chantier_id: "role-chantier",
+          pu_ht_cents: null,
+          category_id: null,
+          supply_type_id: null,
+          line_total_ht_cents: null,
+          line_tax_cents: null,
+          line_total_ttc_cents: null,
+        },
+      ],
+      supply_types: [],
+      labor_roles: [
+        {
+          id: "role-legacy",
+          name: "Legacy",
+          hourly_rate_cents: 1000,
+        },
+        {
+          id: "role-atelier",
+          name: "Atelier",
+          hourly_rate_cents: 2000,
+        },
+        {
+          id: "role-chantier",
+          name: "Chantier",
+          hourly_rate_cents: 3000,
+        },
+      ],
+      categories: [],
+    } as never);
+    vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
+      comparisons: [],
+    } as never);
+
+    const exportWithFlag = async (isLaborSplitEnabled: boolean) => {
+      const harness = createWorkbookHarness();
+      const exported = await streamEstimateVersionBdcV11Xlsx(VERSION_ID, {
+        workbookWriterFactory: harness.workbookWriterFactory,
+        isLaborSplitEnabled,
+      });
+      await new Response(exported.stream).arrayBuffer();
+      return harness.worksheets.find(
+        (entry) => entry.name === "BDC_V1_1"
+      )?.rows[1] as unknown[];
+    };
+
+    const legacyRow = await exportWithFlag(false);
+    expect(legacyRow[10]).toBe(1);
+    expect(legacyRow[12]).toBe(10);
+    expect(legacyRow[13]).toBe("Legacy");
+    expect(legacyRow[16]).toBe(10);
+
+    const splitRow = await exportWithFlag(true);
+    expect(splitRow[10]).toBe(5);
+    expect(splitRow[12]).toBe(26);
+    expect(splitRow[13]).toBe("Atelier: Atelier / Chantier: Chantier");
+    expect(splitRow[16]).toBe(130);
+  });
+
   it("chunks supplier comparison requests when estimate has more than 200 lines", async () => {
     const lineItems = Array.from({ length: 201 }, (_, index) => ({
       id: `line-${index + 1}`,

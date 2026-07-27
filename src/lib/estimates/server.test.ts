@@ -1,5 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockServiceRoleRpc = vi.fn();
+
+vi.mock("@supabase/supabase-js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@supabase/supabase-js")>();
+  return {
+    ...actual,
+    createClient: vi.fn(() => ({
+      rpc: mockServiceRoleRpc,
+    })),
+  };
+});
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
@@ -53,10 +65,7 @@ function createSupabaseMock(input: {
       | null;
   };
   touchResult?: {
-    data: {
-      id: string;
-      updated_at: string;
-    } | null;
+    data: Record<string, unknown> | null;
     error:
       | {
           code: string;
@@ -66,6 +75,7 @@ function createSupabaseMock(input: {
         }
       | null;
   };
+  recalculationLineItems?: Array<Record<string, unknown>>;
   auditLogInsertResult?: {
     data: unknown;
     error:
@@ -183,6 +193,21 @@ function createSupabaseMock(input: {
 
   estimateVersionUpdateBuilder.eq.mockReturnValue(estimateVersionUpdateBuilder);
 
+  const estimateItemsBuilder = {
+    eq: vi.fn(),
+    then: (
+      resolve: (value: {
+        data: Array<Record<string, unknown>>;
+        error: null;
+      }) => unknown
+    ) =>
+      Promise.resolve({
+        data: input.recalculationLineItems ?? [],
+        error: null,
+      }).then(resolve),
+  };
+  estimateItemsBuilder.eq.mockReturnValue(estimateItemsBuilder);
+
   const auditLogInsertSelectSingle = vi.fn().mockResolvedValue(
     input.auditLogInsertResult ?? {
       data: null,
@@ -279,6 +304,12 @@ function createSupabaseMock(input: {
       if (table === "audit_logs") {
         return {
           insert: auditLogInsert,
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => estimateItemsBuilder),
         };
       }
 
@@ -1133,6 +1164,157 @@ describe("patchEstimateVersion optimistic concurrency", () => {
       })
     );
   });
+
+  it("recalculates and atomically persists reverse-charge totals when only the contractor role is patched", async () => {
+    const updatedVersion = {
+      id: VERSION_ID,
+      updated_at: NEXT_VERSION_UPDATED_AT,
+      contractor_role: "subcontractor",
+      total_ht_cents: 10_000,
+      total_tax_cents: 0,
+      total_ttc_cents: 10_000,
+    };
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+          contractor_role: "subcontractor",
+          total_ht_cents: 10_000,
+          total_tax_cents: 0,
+          total_ttc_cents: 10_000,
+        },
+        error: null,
+      },
+      recalculationLineItems: [
+        {
+          id: ITEM_ID_1,
+          item_type: "line",
+          quantity: 1,
+          unit_price_ht_cents: 10_000,
+          tax_rate_bp: 2000,
+          k_fo: 1,
+          h_mo: 0,
+          h_mo_majoration: 1,
+          k_mo: 1,
+          pu_ht_cents: 10_000,
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    mockServiceRoleRpc.mockResolvedValueOnce({
+      data: updatedVersion,
+      error: null,
+    });
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          contractor_role: "subcontractor",
+        },
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: updatedVersion,
+    });
+
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith(
+      "patch_estimate_contractor_role",
+      expect.objectContaining({
+        p_version_id: VERSION_ID,
+        p_tenant_id: TENANT_ID,
+        p_expected_updated_at: VERSION_UPDATED_AT,
+        p_actor_user_id: USER_ID,
+        p_patch: expect.objectContaining({
+          contractor_role: "subcontractor",
+          total_ht_cents: 10_000,
+          total_tax_cents: 0,
+          total_ttc_cents: 10_000,
+        }),
+      })
+    );
+    expect(supabase.__mocks.estimateVersionUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      rpcCode: "40001",
+      rpcMessage: "ESTIMATE_DRAFT_LOCK_REQUIRED",
+      expectedStatus: 409,
+      expectedCode: "LOCK_REQUIRED",
+    },
+    {
+      rpcCode: "42501",
+      rpcMessage: "ESTIMATE_READ_ONLY",
+      expectedStatus: 403,
+      expectedCode: "READ_ONLY",
+    },
+    {
+      rpcCode: "P0001",
+      rpcMessage: "ESTIMATE_NOT_FOUND",
+      expectedStatus: 404,
+      expectedCode: "NOT_FOUND",
+    },
+    {
+      rpcCode: "40001",
+      rpcMessage: "ESTIMATE_VERSION_CONFLICT",
+      expectedStatus: 409,
+      expectedCode: "VERSION_CONFLICT",
+    },
+  ])(
+    "preserves the $rpcMessage race outcome from the contractor-role RPC",
+    async ({ rpcCode, rpcMessage, expectedStatus, expectedCode }) => {
+      const supabase = createSupabaseMock({
+        rpcResult: {
+          data: 0,
+          error: null,
+        },
+        recalculationLineItems: [
+          {
+            id: ITEM_ID_1,
+            item_type: "line",
+            quantity: 1,
+            unit_price_ht_cents: 10_000,
+            tax_rate_bp: 2000,
+            k_fo: 1,
+            h_mo: 0,
+            h_mo_majoration: 1,
+            k_mo: 1,
+            pu_ht_cents: 10_000,
+          },
+        ],
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+      mockServiceRoleRpc.mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: rpcCode,
+          message: rpcMessage,
+          details: null,
+          hint: null,
+        },
+      });
+
+      await expect(
+        patchEstimateVersion(
+          VERSION_ID,
+          {
+            contractor_role: "subcontractor",
+          },
+          VERSION_UPDATED_AT
+        )
+      ).rejects.toMatchObject({
+        status: expectedStatus,
+        code: expectedCode,
+      });
+    }
+  );
 
   it("returns 409 when a concurrent write invalidates the token before update", async () => {
     const supabase = createSupabaseMock({

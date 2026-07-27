@@ -84,6 +84,7 @@ function createSupabasePdfMock(input?: {
     phone: string | null;
     work_email: string | null;
   };
+  contractorRole?: "principal" | "subcontractor";
   uploadError?: unknown;
 }) {
   const tenantMembershipBuilder = {
@@ -120,6 +121,7 @@ function createSupabasePdfMock(input?: {
         margin_mode: "fixed",
         discount_bp: 0,
         tax_rate_bp: 2000,
+        contractor_role: input?.contractorRole ?? "principal",
         rounding_mode: "none",
         rounding_step_cents: 1,
         total_ht_cents: 10000,
@@ -376,6 +378,31 @@ describe("estimate pdf generator", () => {
         file_size_bytes: buffer.byteLength,
         download_url: "https://example.com/signed",
       })
+    );
+  });
+
+  it("renders reverse-charge PDFs without VAT or TTC amounts and with the legal notice", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(
+      Buffer.from("pdf-binary") as never
+    );
+    const supabase = createSupabasePdfMock({
+      contractorRole: "subcontractor",
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await generateEstimatePdfNow(VERSION_ID, {
+      force: true,
+      triggeredBy: "manual",
+    });
+
+    const renderedDocument = JSON.stringify(
+      vi.mocked(renderToBuffer).mock.calls[0]?.[0]
+    );
+    expect(renderedDocument).toContain("Autoliquidation");
+    expect(renderedDocument).toContain("Total HT");
+    expect(renderedDocument).not.toContain("Total TTC");
+    expect(renderedDocument).not.toMatch(
+      /"children":(?:\["TVA"\]|"TVA")/
     );
   });
 

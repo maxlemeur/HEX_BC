@@ -39,6 +39,7 @@ export type EstimateDocumentProps = {
   dateDevis: string;
   validiteJours: number;
   marginMultiplier: number;
+  globalCoefficient?: number | null;
   discountCents: number;
   taxRateBp: number;
   currency?: string | null;
@@ -188,6 +189,7 @@ export function EstimateDocument({
   dateDevis,
   validiteJours,
   marginMultiplier,
+  globalCoefficient = 1,
   discountCents,
   taxRateBp,
   currency,
@@ -240,6 +242,7 @@ export function EstimateDocument({
       isLaborSplitEnabled,
       laborRateById,
       calcEngineVersion,
+      globalCoefficient,
     }),
     calcEngineVersion,
     vatReverseCharge,
@@ -459,14 +462,16 @@ export function EstimateDocument({
                 {ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}
               </div>
             ) : null}
-            <div className="flex items-center justify-between bg-surface-subtle px-5 py-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {isVatReverseCharge ? "Total HT" : "Total TTC"}
-              </span>
-              <span className="text-sm font-semibold text-slate-600">
-                {formatCurrency(totalTtcCents, resolvedCurrency)}
-              </span>
-            </div>
+            {!isVatReverseCharge ? (
+              <div className="flex items-center justify-between bg-surface-subtle px-5 py-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Total TTC
+                </span>
+                <span className="text-sm font-semibold text-slate-600">
+                  {formatCurrency(totalTtcCents, resolvedCurrency)}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
 

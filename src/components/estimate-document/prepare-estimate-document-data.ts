@@ -76,12 +76,11 @@ export const DOCUMENT_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
  * Construit le breakdown du document à partir des grandeurs déjà résolues par
  * l'appelant.
  *
- * Les grandeurs de version sont NEUTRALISÉES (`marginMode: "fixed"`,
- * `globalCoefficient: 1`, pas de paliers ni de cascade) parce que les appelants
- * les ont déjà appliquées en amont : `marginMultiplier` est le multiplicateur
- * RÉSOLU (`appliedMarginMultiplier`) et `discountCents` le montant absolu déjà
- * calculé sur la base post-coefficient. C'est la reproduction exacte de l'appel
- * `computeAllSectionTotals` qui vivait ici — donc iso-comportement.
+ * La marge, les paliers et la cascade sont neutralisés parce que les appelants
+ * fournissent déjà le multiplicateur résolu et le montant de remise absolu. Le
+ * coefficient reste neutralisé en v1 pour préserver le rendu historique ; en
+ * v2 il est transmis au moteur afin que lignes, sections et pied restent
+ * réconciliés.
  *
  * Remplacé par `buildEstimateRenderModel` à l'étape 14, qui portera les vraies
  * grandeurs de version.
@@ -94,6 +93,7 @@ export function buildLegacyDocumentBreakdown({
   isLaborSplitEnabled,
   laborRateById,
   calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
+  globalCoefficient = 1,
 }: {
   items: EstimateItem[];
   marginMultiplier: number;
@@ -107,6 +107,12 @@ export function buildLegacyDocumentBreakdown({
    * en portée (tests, aperçus).
    */
   calcEngineVersion?: CalcEngineVersion;
+  /**
+   * Le moteur v2 répartit le coefficient sur les lignes et sections. Le moteur
+   * v1 conserve son rendu historique, où cette grandeur était déjà absorbée
+   * dans les totaux stockés mais pas redescendue dans le détail.
+   */
+  globalCoefficient?: number | null;
 }): EstimateBreakdown {
   const laborRateMap = new Map(Object.entries(laborRateById));
   return computeEstimateBreakdown({
@@ -114,7 +120,8 @@ export function buildLegacyDocumentBreakdown({
     marginMultiplier,
     marginMode: "fixed",
     marginTiers: [],
-    globalCoefficient: 1,
+    globalCoefficient:
+      calcEngineVersion === 2 ? (globalCoefficient ?? 1) : 1,
     discountMode: "simple",
     discountCents,
     discountStepsBp: [],

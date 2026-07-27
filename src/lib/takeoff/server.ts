@@ -7779,22 +7779,22 @@ export async function applyTakeoffJob(
           previewItems: mappingPreview.items,
           estimateLineByItemId,
         });
-      } catch (mappingError) {
+      } catch {
+        const linesApplied =
+          summary.created_count + summary.updated_count > 0;
         throw new TakeoffError({
           status: 500,
           code: TakeoffErrorCode.INTERNAL_ERROR,
-          message:
-            "Les lignes de metre ont ete appliquees au devis, mais les transformations de mapping (prix, renommage, categorie, ouvrages) ont echoue. Le devis contient donc ces lignes avec les valeurs brutes du metre : verifiez et corrigez leurs prix et designations avant envoi.",
+          message: linesApplied
+            ? "Les lignes de metre ont ete appliquees au devis, mais les transformations de mapping (prix, renommage, categorie, ouvrages) ont echoue. Le devis contient donc ces lignes avec les valeurs brutes du metre : verifiez et corrigez leurs prix et designations avant envoi."
+            : "L'application des ouvrages a echoue et aucune ligne de metre n'a ete ajoutee au devis. Verifiez le devis avant toute nouvelle tentative.",
           details: {
             job_id: normalizedJobId,
             estimate_version_id: jobRow.estimate_version_id,
             partial_apply: true,
-            lines_applied: true,
+            lines_applied: linesApplied,
             mapping_applied: false,
-            cause:
-              mappingError instanceof Error
-                ? mappingError.message
-                : String(mappingError),
+            cause_code: "MAPPING_TRANSFORM_FAILED",
           },
         });
       }

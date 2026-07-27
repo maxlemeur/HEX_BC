@@ -468,6 +468,7 @@ export default async function EstimateDetailPage({
             dateDevis={version.date_devis}
             validiteJours={version.validite_jours}
             marginMultiplier={appliedMarginMultiplier}
+            globalCoefficient={version.global_coefficient}
             discountCents={discountCents}
             taxRateBp={version.tax_rate_bp}
             isLaborSplitEnabled={isLaborSplitEnabled}

@@ -53,16 +53,21 @@ describe("MappingRuleEditor", () => {
 
     await user.selectOptions(screen.getByLabelText("Type de match"), "exact");
     await user.type(screen.getByLabelText("Pattern de correspondance"), "Tube PVC");
-    await user.type(screen.getByLabelText("Test designation (preview)"), "tube pvc");
+    await user.type(
+      screen.getByLabelText("Test de désignation (aperçu)"),
+      "tube pvc"
+    );
 
-    expect(screen.getByText("Correspondance detectee (exact).")).toBeInTheDocument();
+    expect(screen.getByText("Correspondance détectée (exacte).")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Type de match"), "regex");
     await user.clear(screen.getByLabelText("Pattern de correspondance"));
     await user.type(screen.getByLabelText("Pattern de correspondance"), "abc(");
 
     expect(
-      screen.getByText("Regex invalide: corrigez le pattern pour activer la preview.")
+      screen.getByText(
+        "Regex invalide : corrigez le pattern pour activer l'aperçu."
+      )
     ).toBeInTheDocument();
   });
 
@@ -79,20 +84,20 @@ describe("MappingRuleEditor", () => {
       />
     );
 
-    await user.type(screen.getByLabelText("Nom de la regle"), "Ouvrage PVC");
+    await user.type(screen.getByLabelText("Nom de la règle"), "Ouvrage PVC");
     await user.type(screen.getByLabelText("Pattern de correspondance"), "pvc");
     await user.selectOptions(screen.getByLabelText("Action"), "apply_assembly");
 
-    await user.click(screen.getByRole("button", { name: "Creer la regle" }));
+    await user.click(screen.getByRole("button", { name: "Créer la règle" }));
 
-    expect(screen.getByText("Selectionnez un ouvrage valide.")).toBeInTheDocument();
+    expect(screen.getByText("Sélectionnez un ouvrage valide.")).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
 
     await user.selectOptions(
       screen.getByLabelText("Ouvrage"),
       "11111111-1111-4111-8111-111111111111"
     );
-    await user.click(screen.getByRole("button", { name: "Creer la regle" }));
+    await user.click(screen.getByRole("button", { name: "Créer la règle" }));
 
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -130,7 +135,7 @@ describe("MappingRuleEditor", () => {
       })
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Enregistrer la regle" }));
+    await user.click(screen.getByRole("button", { name: "Enregistrer la règle" }));
 
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -143,7 +148,7 @@ describe("MappingRuleEditor", () => {
       },
     });
     expect(
-      screen.queryByText("L'ouvrage selectionne est introuvable dans la liste chargee.")
+      screen.queryByText("L'ouvrage sélectionné est introuvable dans la liste chargée.")
     ).not.toBeInTheDocument();
   });
 });

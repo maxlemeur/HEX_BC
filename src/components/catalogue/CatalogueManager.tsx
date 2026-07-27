@@ -202,7 +202,7 @@ export function CatalogueManager() {
     }
 
     if (!formState.reference.trim() || !formState.designation.trim()) {
-      setError("Reference et designation sont requises.");
+      setError("Référence et désignation sont requises.");
       return;
     }
 
@@ -230,7 +230,7 @@ export function CatalogueManager() {
           }),
         });
 
-        setSuccess("Ligne catalogue mise a jour.");
+        setSuccess("Ligne catalogue mise à jour.");
       } else {
         await fetchApi<{ item: CatalogueItem }>("/api/catalogue", {
           method: "POST",
@@ -249,7 +249,7 @@ export function CatalogueManager() {
           }),
         });
 
-        setSuccess("Ligne catalogue creee.");
+        setSuccess("Ligne catalogue créée.");
       }
 
       resetForm();
@@ -266,7 +266,8 @@ export function CatalogueManager() {
   }
 
   async function onDelete(item: CatalogueItem) {
-    if (!window.confirm(`Supprimer l'article "${item.designation}" ?`)) {
+    const articleLabel = item.designation;
+    if (!window.confirm(`Supprimer l'article "${articleLabel}" ?`)) {
       return;
     }
 
@@ -289,7 +290,7 @@ export function CatalogueManager() {
         resetForm();
       }
 
-      setSuccess("Ligne catalogue supprimee.");
+      setSuccess("Ligne catalogue supprimée.");
       await loadItems();
     } catch (deleteError) {
       setError(
@@ -302,7 +303,7 @@ export function CatalogueManager() {
 
   async function onRunLinking() {
     if (!linkImportId.trim()) {
-      setError("Selectionnez un import pour lancer la liaison.");
+      setError("Sélectionnez un import pour lancer la liaison.");
       return;
     }
 
@@ -328,11 +329,11 @@ export function CatalogueManager() {
       });
 
       setLinkSummary(summary);
-      setSuccess(linkDryRun ? "Simulation de liaison terminee." : "Liaison terminee.");
+      setSuccess(linkDryRun ? "Simulation de liaison terminée." : "Liaison terminée.");
       await loadItems();
     } catch (linkError) {
       setError(
-        linkError instanceof Error ? linkError.message : "Impossible de lier les lignes mappees."
+        linkError instanceof Error ? linkError.message : "Impossible de lier les lignes mappées."
       );
     } finally {
       setIsLinking(false);
@@ -363,7 +364,7 @@ export function CatalogueManager() {
               : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
           }`}
         >
-          Liaison lignes importees
+          Liaison lignes importées
         </button>
       </div>
 
@@ -378,7 +379,7 @@ export function CatalogueManager() {
               <div>
                 <h2 className="text-lg font-semibold text-[var(--slate-900)]">Catalogue articles</h2>
                 <p className="text-sm text-[var(--slate-500)]">
-                  Gerez les produits du catalogue (reference, designation, prix unitaire).
+                  Gérez les produits du catalogue (référence, désignation, prix unitaire).
                 </p>
               </div>
 
@@ -391,7 +392,7 @@ export function CatalogueManager() {
               >
                 <input
                   className="form-input"
-                  placeholder="Rechercher (reference ou designation)"
+                  placeholder="Rechercher (référence ou désignation)"
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
                 />
@@ -405,8 +406,8 @@ export function CatalogueManager() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Reference</th>
-                    <th>Designation</th>
+                    <th>Référence</th>
+                    <th>Désignation</th>
                     <th>Prix HT</th>
                     {/* M-20: Display TVA as % */}
                     <th>TVA</th>
@@ -476,7 +477,7 @@ export function CatalogueManager() {
             <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
               <div>
                 <label className="form-label" htmlFor="catalogue-reference">
-                  Reference
+                  Référence
                 </label>
                 <input
                   id="catalogue-reference"
@@ -491,7 +492,7 @@ export function CatalogueManager() {
 
               <div>
                 <label className="form-label" htmlFor="catalogue-designation">
-                  Designation
+                  Désignation
                 </label>
                 <input
                   id="catalogue-designation"
@@ -551,7 +552,7 @@ export function CatalogueManager() {
 
               <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
                 <button type="submit" className="btn btn-primary" disabled={isSaving}>
-                  {isSaving ? "Enregistrement..." : editingItem ? "Mettre a jour" : "Ajouter"}
+                  {isSaving ? "Enregistrement..." : editingItem ? "Mettre à jour" : "Ajouter"}
                 </button>
 
                 {editingItem ? (
@@ -575,10 +576,10 @@ export function CatalogueManager() {
         <section className="dashboard-card p-6">
           {/* M-22: French title */}
           <h2 className="text-lg font-semibold text-[var(--slate-900)]">
-            Liaison lignes importees &gt; catalogue
+            Liaison lignes importées &gt; catalogue
           </h2>
           <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Associe les lignes mappees par reference et designation aux produits du catalogue.
+            Associe les lignes mappées par référence et désignation aux produits du catalogue.
           </p>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -593,7 +594,7 @@ export function CatalogueManager() {
                 value={linkImportId}
                 onChange={(event) => setLinkImportId(event.target.value)}
               >
-                <option value="">Selectionnez un import...</option>
+                <option value="">Sélectionnez un import...</option>
                 {availableImports.map((imp) => (
                   <option key={imp.id} value={imp.id}>
                     {imp.filename} - {imp.row_count} lignes ({imp.status})
@@ -609,7 +610,7 @@ export function CatalogueManager() {
                 className="btn btn-secondary btn-sm"
                 onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
               >
-                {showAdvancedOptions ? "Masquer options" : "Options avancees"}
+                {showAdvancedOptions ? "Masquer options" : "Options avancées"}
               </button>
             </div>
           </div>
@@ -619,7 +620,7 @@ export function CatalogueManager() {
               <div>
                 {/* M-21: Renamed "Limite scan" */}
                 <label className="form-label" htmlFor="catalogue-link-limit">
-                  Nombre max de lignes a analyser
+                  Nombre max de lignes à analyser
                 </label>
                 <NumberInput
                   id="catalogue-link-limit"
@@ -642,7 +643,7 @@ export function CatalogueManager() {
                     checked={linkCreateMissing}
                     onChange={(event) => setLinkCreateMissing(event.target.checked)}
                   />
-                  Creer les articles manquants
+                  Créer les articles manquants
                 </label>
                 <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
                   <input
@@ -650,7 +651,7 @@ export function CatalogueManager() {
                     checked={linkUpdatePayload}
                     onChange={(event) => setLinkUpdatePayload(event.target.checked)}
                   />
-                  Mettre a jour le payload mappe
+                  Mettre à jour le payload mappé
                 </label>
               </div>
             </div>
@@ -710,12 +711,12 @@ export function CatalogueManager() {
                   </div>
                   <div>
                     <p className="font-semibold text-[var(--slate-900)]">
-                      {linkSummary.dry_run ? "Simulation terminee" : "Liaison terminee"}
+                      {linkSummary.dry_run ? "Simulation terminée" : "Liaison terminée"}
                     </p>
                     <p className="text-sm text-[var(--slate-600)]">
                       {linkSummary.scanned_rows > 0
                         ? `Taux de liaison : ${Math.round((linkSummary.linked_count / linkSummary.scanned_rows) * 100)} %`
-                        : "Aucune ligne scannee"
+                        : "Aucune ligne scannée"
                       }
                     </p>
                   </div>
@@ -725,15 +726,15 @@ export function CatalogueManager() {
               {/* Summary counters */}
               <div className="grid gap-3 sm:grid-cols-4">
                 <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Scannees</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Scannées</p>
                   <p className="mt-1 text-lg font-bold text-[var(--slate-900)]">{linkSummary.scanned_rows}</p>
                 </div>
                 <div className="rounded-xl border border-[var(--success)]/30 bg-[var(--success-light)] px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--success)]">Liees</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[var(--success)]">Liées</p>
                   <p className="mt-1 text-lg font-bold text-[var(--success)]">{linkSummary.linked_count}</p>
                 </div>
                 <div className="rounded-xl border border-[var(--info)]/30 bg-[var(--info-light)] px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--info)]">Creees catalogue</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[var(--info)]">Créées catalogue</p>
                   <p className="mt-1 text-lg font-bold text-[var(--info)]">{linkSummary.created_catalogue_count}</p>
                 </div>
                 <div className={`rounded-xl border px-4 py-3 text-center ${
@@ -760,7 +761,7 @@ export function CatalogueManager() {
                     Retour aux imports
                   </Link>
                   <p className="text-sm text-[var(--slate-500)]">
-                    Flux termine. Vous pouvez lancer un nouvel import ou consulter le catalogue.
+                    Flux terminé. Vous pouvez lancer un nouvel import ou consulter le catalogue.
                   </p>
                 </div>
               ) : null}

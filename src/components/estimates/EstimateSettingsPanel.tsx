@@ -621,14 +621,22 @@ export function EstimateSettingsPanel({
                 Entreprise principale — TVA facturée
               </option>
               <option value="subcontractor">
-                Sous-traitance — TVA autoliquidée
+                Autoliquidation — travaux immobiliers sous-traités éligibles
               </option>
             </select>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
               {settings.contractor_role === "subcontractor"
-                ? "Le devis est émis hors taxe et porte la mention « Autoliquidation » (art. 283, 2 nonies du CGI). La TVA est due par le preneur."
+                ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
                 : "Régime normal : la TVA est facturée au taux applicable."}
             </p>
+            {settings.contractor_role === "subcontractor" ? (
+              <p className="mt-1 text-xs text-[var(--warning,#b45309)]">
+                Vérifiez le contrat : le nettoyage faisant l’objet d’un contrat
+                séparé, la fabrication ou fourniture de biens, la location
+                d’engins et les prestations intellectuelles ne relèvent pas
+                automatiquement de ce régime.
+              </p>
+            ) : null}
             {/*
               EST-E27 — D2 : le logiciel PROPOSE le régime, il ne le déduit
               jamais. Les exclusions du dispositif (nettoyage sous contrat

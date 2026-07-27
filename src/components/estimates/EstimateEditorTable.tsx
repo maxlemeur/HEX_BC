@@ -1846,7 +1846,7 @@ export function EstimateEditorTable({
           hideEditingActions={isViewerMode}
           isLaborSplitEnabled={isLaborSplitEnabled}
           isPendingCreate={isPendingCreateItem(item)}
-          visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
+          visibleColumns={columnVisibility.visibleColumns}
           isHighlighted={highlightedItemIds.has(item.id)}
           isSearchMatch={
             normalizedSearchTerm.length > 0 &&

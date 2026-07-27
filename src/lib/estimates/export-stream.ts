@@ -2,17 +2,18 @@ import { createRequire } from "node:module";
 import { PassThrough, Readable } from "node:stream";
 
 import {
-  computeEstimateLineValues,
-  computeReadOnlyTotals,
+  allocateProRata,
+  computeEstimateBreakdown,
   computeStoredDiscountCents,
-  hasActiveLaborSplitPayload,
+  type EstimateBreakdown,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
-import { EXPORT_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { internalError } from "@/lib/estimates/errors";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
+import { bankersRound } from "@/lib/money";
 
 const moduleRequire = createRequire(import.meta.url);
 
@@ -94,7 +95,7 @@ type EstimateExportPayload = {
   versionStatus: string;
   /** EST-E27 : sous-traitance — l export ne porte aucune TVA. */
   vatReverseCharge: boolean;
-  totals: ReturnType<typeof computeReadOnlyTotals>;
+  totals: EstimateBreakdown["totals"];
   rows: ExportLineRow[];
 };
 
@@ -146,9 +147,33 @@ function toEuroAmount(valueCents: number | null | undefined): number | null {
 
 function buildLineRows(input: {
   items: EstimateItemRecord[];
-  version: EstimateVersionForCalc;
-  laborRateById: Map<string, number>;
+  breakdown: EstimateBreakdown;
 }) {
+  const lines = input.items.filter((item) => item.item_type === "line");
+  const lineValues = lines.map((item) => input.breakdown.lineById.get(item.id));
+  // Un export est un document comptable lisible : même avec un devis historique
+  // épinglé au moteur v1, ses lignes doivent se sommer au pied qui applique
+  // coefficient, remise et arrondi global. Cette allocation de présentation ne
+  // bascule pas le moteur du devis ; elle répartit seulement ses totaux établis.
+  const htShares = allocateProRata(
+    input.breakdown.totals.saleTotalCents,
+    lineValues.map((line) => line?.saleNetHtCents ?? 0)
+  );
+  // Le TTC arrondi est la grandeur contractuelle du pied. Sa TVA ajustée est
+  // donc dérivée une seule fois, puis répartie. On reconstruit chaque TTC par
+  // HT + TVA : aucune allocation indépendante ne peut casser l'identité
+  // comptable sur une ligne, même quand l'arrondi global porte un reliquat.
+  const adjustedTaxTotalCents = Math.max(
+    input.breakdown.totals.adjustedTaxCents,
+    0
+  );
+  const taxShares = allocateProRata(
+    adjustedTaxTotalCents,
+    lineValues.map((line) => line?.taxCents ?? 0)
+  );
+  const lineIndexById = new Map(
+    lines.map((line, index) => [line.id, index])
+  );
 
   return input.items.map((item): ExportLineRow => {
     if (item.item_type !== "line") {
@@ -165,39 +190,23 @@ function buildLineRows(input: {
       };
     }
 
-    const laborRateLegacyCents = item.labor_role_id
-      ? (input.laborRateById.get(item.labor_role_id) ?? 0)
-      : 0;
-    const laborRateAtelierCents = item.labor_role_atelier_id
-      ? (input.laborRateById.get(item.labor_role_atelier_id) ?? 0)
-      : 0;
-    const laborRateChantierCents = item.labor_role_chantier_id
-      ? (input.laborRateById.get(item.labor_role_chantier_id) ?? 0)
-      : 0;
-
-    const lineValues = computeEstimateLineValues(
-      {
-        ...item,
-        labor_role_hourly_rate_cents: laborRateLegacyCents,
-      },
-      {
-        marginMultiplier: input.version.margin_multiplier,
-        taxRateBp: item.tax_rate_bp ?? input.version.tax_rate_bp ?? 0,
-        isLaborSplitEnabled: hasActiveLaborSplitPayload(item),
-        laborRateAtelierCents,
-        laborRateChantierCents,
-      }
-    );
+    const lineIndex = lineIndexById.get(item.id);
+    const totalHtCents = lineIndex === undefined ? 0 : htShares[lineIndex];
+    const taxCents = lineIndex === undefined ? 0 : taxShares[lineIndex];
+    const totalTtcCents = totalHtCents + taxCents;
+    const quantity = Math.max(item.quantity ?? 0, 0);
 
     return {
       poste: `${item.position}`,
       designation: item.title,
       unite: item.description?.trim() ?? "",
       quantite: item.quantity ?? 0,
-      pu_ht: toEuroAmount(lineValues.puHtCents),
-      total_ht: toEuroAmount(lineValues.saleLineCents),
-      tva: toEuroAmount(lineValues.taxLineCents),
-      total_ttc: toEuroAmount(lineValues.ttcLineCents),
+      pu_ht: toEuroAmount(
+        quantity > 0 ? bankersRound(totalHtCents / quantity) : 0
+      ),
+      total_ht: toEuroAmount(totalHtCents),
+      tva: toEuroAmount(taxCents),
+      total_ttc: toEuroAmount(totalTtcCents),
       isSection: false,
     };
   });
@@ -335,7 +344,12 @@ async function writeWorkbook(input: {
           [string, string | number]
         >)
       : ([
-          ["Total TVA", toEuroAmount(input.payload.totals.taxCents) ?? 0],
+          [
+            "Total TVA",
+            toEuroAmount(
+              Math.max(input.payload.totals.adjustedTaxCents, 0)
+            ) ?? 0,
+          ],
           ["Total TTC", toEuroAmount(input.payload.totals.roundedTtcCents) ?? 0],
         ] as Array<[string, string | number]>)),
     [
@@ -360,7 +374,8 @@ async function writeWorkbook(input: {
 }
 
 async function buildEstimateExportPayload(
-  versionId: string
+  versionId: string,
+  isLaborSplitEnabled: boolean
 ): Promise<EstimateExportPayload> {
   const [versionDetails, listItemsResult] = await Promise.all([
     getEstimateVersionDetails(versionId),
@@ -376,23 +391,33 @@ async function buildEstimateExportPayload(
   // (applique global_coefficient et le repli discount_bp, cf. golden Surface-5).
   const discountCents = computeStoredDiscountCents(version, items);
 
-  const totals = computeReadOnlyTotals({
+  const calcEngineVersion = resolveCalcEngineVersion(
+    versionDetails.version as { calc_engine_version?: number | null }
+  );
+  const breakdown = computeEstimateBreakdown({
     items,
-    version,
+    marginMultiplier: version.margin_multiplier,
+    marginMode: version.margin_mode === "tiered" ? "tiered" : "fixed",
+    marginTiers: (versionDetails.margin_tiers ?? []).map((tier) => ({
+      threshold_cents: tier.threshold_cents,
+      multiplier: tier.multiplier,
+      position: tier.position,
+    })),
+    globalCoefficient: version.global_coefficient ?? 1,
+    discountMode: version.discount_mode === "cascade" ? "cascade" : "simple",
     discountCents,
+    discountStepsBp:
+      version.discount_steps?.filter(
+        (step): step is number => typeof step === "number"
+      ) ?? [],
+    taxRateBp: version.tax_rate_bp,
+    roundingMode: versionDetails.version.rounding_mode ?? "none",
+    roundingStepCents: versionDetails.version.rounding_step_cents ?? 0,
     laborRateById,
-    // EST-E26 (T6, étape 5) : la feuille « Résumé » reste sans split ici — le
-    // flag tenant n'est pas résolu dans ce module. Le câblage réel du contexte
-    // arrive en phase E (computeReadOnlyTotals → breakdown, spec §3 étape 17).
-    isLaborSplitEnabled: false,
-    // EST-E26 (T6, étape 9) : l'export reste épinglé au moteur historique, qui
-    // dérive le pied des colonnes stockées. Les trois grandeurs ci-dessous ne
-    // sont donc pas lues ; elles le deviendront avec le contexte tenant en
-    // phase E, en même temps que `isLaborSplitEnabled`.
-    marginTiers: [],
-    roundingMode: "none",
-    roundingStepCents: 0,
-    calcEngineVersion: EXPORT_CALC_ENGINE_VERSION,
+    isLaborSplitEnabled,
+    laborRateAtelierById: laborRateById,
+    laborRateChantierById: laborRateById,
+    calcEngineVersion,
   });
 
   return {
@@ -405,11 +430,10 @@ async function buildEstimateExportPayload(
     vatReverseCharge:
       (versionDetails.version as { contractor_role?: string | null })
         .contractor_role === "subcontractor",
-    totals,
+    totals: breakdown.totals,
     rows: buildLineRows({
       items,
-      version,
-      laborRateById,
+      breakdown,
     }),
   };
 }
@@ -418,9 +442,18 @@ export async function streamEstimateVersionXlsx(
   versionId: string,
   options?: {
     workbookWriterFactory?: WorkbookWriterFactory;
+    /**
+     * Valeur résolue par la route depuis le tenant authentifié. Le repli
+     * fail-closed évite qu'un payload split résiduel active la ventilation
+     * lorsque l'exporteur est appelé hors de cette route.
+     */
+    isLaborSplitEnabled?: boolean;
   }
 ): Promise<EstimateExportStreamResult> {
-  const payload = await buildEstimateExportPayload(versionId);
+  const payload = await buildEstimateExportPayload(
+    versionId,
+    options?.isLaborSplitEnabled === true
+  );
   const filename = buildFilename({
     projectReference: payload.projectReference,
     projectName: payload.projectName,

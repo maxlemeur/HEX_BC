@@ -45,10 +45,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Les trois etapes tournent meme si une precedente echoue : une PR voit
+      # Les etapes tournent meme si une precedente echoue : une PR voit
       # ainsi tous ses problemes en une passe au lieu d'un par aller-retour.
+      - name: Validate OpenAPI
+        id: openapi
+        run: npm run validate-openapi
+
       - name: Typecheck
         id: typecheck
+        if: ${{ !cancelled() }}
         run: npm run typecheck
 
       - name: Lint
@@ -56,7 +61,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run lint
 
-      - name: Unit tests
-        id: tests
+      # Les deux projets Vitest ont des environnements incompatibles. Les
+      # isoler empeche un test React/jsdom d'etre execute sous Node et rend le
+      # diagnostic CI explicite pour chaque perimetre.
+      - name: Unit tests (Node)
+        id: tests-node
         if: ${{ !cancelled() }}
-        run: npm test
+        run: npx vitest run --project=node --maxWorkers=4
+
+      - name: Unit tests (jsdom)
+        id: tests-jsdom
+        if: ${{ !cancelled() }}
+        run: npx vitest run --project=jsdom --maxWorkers=4

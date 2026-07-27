@@ -4,7 +4,9 @@ type PortalHeaderProps = {
   projectName: string;
   projectReference: string | null;
   versionNumber: number;
+  totalHtCents: number;
   totalTtcCents: number;
+  vatReverseCharge?: boolean;
   currency: SupportedEstimateCurrency;
   expiresAt: string;
   status: "pending" | "accepted" | "rejected" | "expired";
@@ -38,7 +40,9 @@ export function PortalHeader({
   projectName,
   projectReference,
   versionNumber,
+  totalHtCents,
   totalTtcCents,
+  vatReverseCharge = false,
   currency,
   expiresAt,
   status,
@@ -73,10 +77,13 @@ export function PortalHeader({
         </div>
         <div className="text-right">
           <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-            Montant TTC
+            {vatReverseCharge ? "Montant HT" : "Montant TTC"}
           </p>
           <p className="mt-1 text-2xl font-bold text-[var(--brand-blue)]">
-            {formatCurrency(totalTtcCents, currency)}
+            {formatCurrency(
+              vatReverseCharge ? totalHtCents : totalTtcCents,
+              currency
+            )}
           </p>
           <p
             className={`mt-1 text-xs ${

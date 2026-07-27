@@ -111,7 +111,11 @@ function createHarness(input?: {
   items?: EditorEstimateItem[];
   version?: EstimateVersionRow | null;
   isLaborSplitEnabled?: boolean;
-  settings?: { margin_multiplier: number; tax_rate_bp: number } | null;
+  settings?: {
+    margin_multiplier: number;
+    tax_rate_bp: number;
+    contractor_role?: string;
+  } | null;
   conflictHandled?: boolean;
 }) {
   let items = input?.items ?? [];
@@ -366,6 +370,28 @@ describe("useEstimateEditorPasteController anchors and payloads", () => {
     expect(harness.applyVersionToken).toHaveBeenCalledWith("token-1");
     expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe(
       "paste-insert"
+    );
+  });
+
+  it("keeps the nominal line rate but computes pasted line tax at zero under reverse charge", async () => {
+    const harness = createHarness({
+      settings: {
+        margin_multiplier: 1.2,
+        tax_rate_bp: 2000,
+        contractor_role: "subcontractor",
+      },
+    });
+
+    await act(async () => {
+      await harness.result.current.actions.pasteRows({
+        anchorRowId: null,
+        rows: [createRow("Ligne autoliquidée", { unit_price_ht: 100 })],
+      });
+    });
+
+    expect(mocks.computeEstimateLineValues).toHaveBeenCalledWith(
+      expect.objectContaining({ tax_rate_bp: 2000 }),
+      expect.objectContaining({ taxRateBp: 0 })
     );
   });
 

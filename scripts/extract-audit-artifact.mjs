@@ -1,16 +1,203 @@
-// Regenere docs/user_story/AUDIT-2026-07-inventaire.md depuis l export HTML de
-// l artefact d audit.
+// Regénère docs/user_story/AUDIT-2026-07-inventaire.md depuis :
 //
-//   node scripts/extract-audit-artifact.mjs <artefact.html> <sortie.md>
+//   - la source canonique normalisée JSON versionnée dans docs/user_story ;
+//   - l'export HTML historique, lorsqu'il est disponible.
 //
-// Conserve pour que l inventaire reste reproductible si l artefact evolue. Les
-// statuts de rapprochement (constante STATUTS) sont saisis a la main : les
-// reporter ici plutot que dans le markdown, sinon une regeneration les efface.
+//   node scripts/extract-audit-artifact.mjs <source.json|artefact.html> <sortie.md>
+//   node scripts/extract-audit-artifact.mjs --normalize-ledger <ledger.md> <source.json>
+//
+// Le JSON normalisé n'est PAS une copie de l'HTML brut (indisponible dans le
+// dépôt). Il porte l'inventaire contrôlable et la représentation ligne par ligne
+// du ledger publié, suffisante pour une régénération exacte et stable.
+//
+// En mode HTML, les statuts de rapprochement (constante STATUTS) restent saisis
+// ici : les reporter ici plutôt que dans le markdown, sinon une régénération
+// depuis l'ancien artefact les efface.
 // Extrait l'audit (27 bugs + 73 constats UX) de l'artefact HTML vers un
 // inventaire markdown exploitable et versionnable.
 import { readFileSync, writeFileSync } from "node:fs";
 
-const html = readFileSync(process.argv[2], "utf8");
+const parseTableCells = (line) =>
+  line
+    .slice(1, -1)
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.trim().replaceAll("\\|", "|"));
+
+const collectNormalizedInventory = (markdown) => {
+  const lines = markdown.split("\n");
+  const bugs = [];
+  const ux = [];
+  let currentPersona = null;
+
+  for (const line of lines) {
+    const personaMatch = line.match(/^### (.+) — \d+ constats$/);
+    if (personaMatch) {
+      currentPersona = personaMatch[1];
+      continue;
+    }
+
+    if (/^\| B\d{2} \|/.test(line)) {
+      const [id, severite, domaine, emplacement, titre, statut] =
+        parseTableCells(line);
+      bugs.push({ id, severite, domaine, emplacement, titre, statut });
+      continue;
+    }
+
+    if (/^\| UX\d{2} \|/.test(line)) {
+      const [id, severite, surface, observation, statut] =
+        parseTableCells(line);
+      ux.push({
+        id,
+        persona: currentPersona,
+        severite,
+        surface,
+        observation,
+        statut,
+      });
+    }
+  }
+
+  const campaignStart = lines.findIndex((line) =>
+    line.startsWith("### Campagne d'accents FR")
+  );
+  const campaignEnd =
+    campaignStart < 0
+      ? -1
+      : lines.findIndex(
+          (line, index) =>
+            index > campaignStart && /^Les \d+ restants/.test(line)
+        );
+
+  return {
+    bugs,
+    ux,
+    campaign:
+      campaignStart < 0
+        ? null
+        : {
+            heading: lines[campaignStart],
+            lines: lines.slice(
+              campaignStart,
+              campaignEnd < 0 ? lines.length : campaignEnd
+            ),
+          },
+  };
+};
+
+const renderCanonicalSource = (source) => {
+  if (
+    source?.schema_version !== 1 ||
+    source?.source_kind !== "normalized_audit_ledger" ||
+    !Array.isArray(source?.document?.lines) ||
+    typeof source?.document?.final_newline !== "boolean" ||
+    !Array.isArray(source?.inventory?.bugs) ||
+    !Array.isArray(source?.inventory?.ux)
+  ) {
+    throw new Error("Source canonique d'audit invalide.");
+  }
+
+  const expectedBugCount = source.expected_counts?.bugs;
+  const expectedUxCount = source.expected_counts?.ux;
+  if (
+    source.inventory.bugs.length !== expectedBugCount ||
+    source.inventory.ux.length !== expectedUxCount
+  ) {
+    throw new Error("Compteurs de la source canonique d'audit incohérents.");
+  }
+
+  const uniqueBugIds = new Set(source.inventory.bugs.map((bug) => bug.id));
+  const uniqueUxIds = new Set(source.inventory.ux.map((item) => item.id));
+  if (
+    uniqueBugIds.size !== expectedBugCount ||
+    uniqueUxIds.size !== expectedUxCount
+  ) {
+    throw new Error("Identifiants dupliqués dans la source canonique d'audit.");
+  }
+
+  const markdown = source.document.lines.join("\n");
+  const rendered = `${markdown}${source.document.final_newline ? "\n" : ""}`;
+  const renderedInventory = collectNormalizedInventory(rendered);
+  if (
+    renderedInventory.bugs.length !== expectedBugCount ||
+    renderedInventory.ux.length !== expectedUxCount
+  ) {
+    throw new Error("Le document canonique ne correspond pas à son inventaire.");
+  }
+  if (
+    JSON.stringify(renderedInventory) !== JSON.stringify(source.inventory)
+  ) {
+    throw new Error(
+      "L'inventaire normalisé diverge du document canonique publié."
+    );
+  }
+
+  return rendered;
+};
+
+const args = process.argv.slice(2);
+
+if (args[0] === "--normalize-ledger") {
+  const ledgerPath = args[1];
+  const sourcePath = args[2];
+  if (!ledgerPath || !sourcePath) {
+    throw new Error(
+      "Usage: --normalize-ledger <ledger.md> <source.json>"
+    );
+  }
+
+  const markdown = readFileSync(ledgerPath, "utf8");
+  const inventory = collectNormalizedInventory(markdown);
+  const source = {
+    schema_version: 1,
+    source_kind: "normalized_audit_ledger",
+    provenance: {
+      normalized_from: "docs/user_story/AUDIT-2026-07-inventaire.md",
+      original_artifact_url:
+        "https://claude.ai/code/artifact/91124126-27a6-4450-ac6d-b9b7745b0403",
+      original_html_available: false,
+      note:
+        "Source normalisée fidèle au ledger publié ; ce fichier n'est pas l'HTML brut de l'artefact.",
+    },
+    expected_counts: {
+      bugs: inventory.bugs.length,
+      ux: inventory.ux.length,
+    },
+    inventory,
+    document: {
+      lines: markdown.endsWith("\n")
+        ? markdown.slice(0, -1).split("\n")
+        : markdown.split("\n"),
+      final_newline: markdown.endsWith("\n"),
+    },
+  };
+
+  writeFileSync(sourcePath, `${JSON.stringify(source, null, 2)}\n`, "utf8");
+  console.log(
+    `normalized bugs=${inventory.bugs.length} ux=${inventory.ux.length} -> ${sourcePath}`
+  );
+  process.exit(0);
+}
+
+const inputPath = args[0];
+const outputPath = args[1];
+if (!inputPath || !outputPath) {
+  throw new Error(
+    "Usage: <source.json|artefact.html> <sortie.md>"
+  );
+}
+
+const input = readFileSync(inputPath, "utf8");
+if (inputPath.endsWith(".json")) {
+  const source = JSON.parse(input);
+  const markdown = renderCanonicalSource(source);
+  writeFileSync(outputPath, markdown, "utf8");
+  console.log(
+    `bugs=${source.inventory.bugs.length} ux=${source.inventory.ux.length} source=normalized -> ${outputPath}`
+  );
+  process.exit(0);
+}
+
+const html = input;
 
 const decode = (s) =>
   s
@@ -85,7 +272,7 @@ const STATUTS = {
   B03: "livré (`5d21030` préselection + `7977a53` sélection manuelle)",
   B04: "livré (`12550bc`)",
   B05: "livré (`1a58046`)",
-  B06: "à traiter — T6 phase E, étape 17",
+  B06: "traité (lot correctif 2026-07-27) — lignes et Résumé XLSX réconciliés sans bascule forcée du moteur",
   B07: "corrigé en moteur v2 (`8092b29`, `966db09`) mais **le gate n'est pas basculé**",
   B08: "livré (`ee5b242`)",
   B09: "livré (`26332ba`)",
@@ -96,7 +283,7 @@ const STATUTS = {
   B14: "livré (`c211dbb`)",
   B15: "livré (`ec13f18`)",
   B16: "livré (`ee5b242`)",
-  B17: "à traiter — T6 phase E, étape 17",
+  B17: "traité (lot correctif 2026-07-27) — coefficient, remise et arrondi TTC répartis sur les lignes exportées",
   B18: "livré (`e905d6d`)",
   B19: "livré (`6c5b5cc`)",
   B20: "livré (`a4d87c5`, étendu par `6b3521f` à patchEstimateVersion et duplicate)",
@@ -124,23 +311,23 @@ const STATUTS = {
   UX05: "livré (`3d5aaab`) — `confirmAndBulkDeleteSelection` confirme avant suppression",
   UX06: "livré (`1a58046`) — un champ vidé retombe sur 1 (neutre) et non sur 0",
   UX08: "livré (`9259f03`) — la case porte `onKeyDown` et `onClick`, opérable au clavier",
-  UX10: "à traiter (vérifié) — accents FR internes ; le client-facing est fait (`5503cd7`, `9de6a46`), l'interne non",
-  UX23: "à traiter (vérifié) — ex. « Verifiez les items en erreur. », « Apply controle termine » dans TakeoffReviewPage",
+  UX10: "**traité** (`6935dba`, `6865076`, `0e28d25`) — éditeur, messages d'erreur et centre de métrés ; garde `src/lib/i18n/fr-accents.test.ts`",
+  UX23: "**traité** (`6935dba`) — les exemples cités sont corrigés ; TakeoffReviewPage/Table sous garde",
   UX28: "livré (`12d77a8`) — piège de focus et restauration sur EvidencePanel",
   UX33: "à traiter (vérifié) — `EstimateDashboard` n'est importé nulle part, toujours mort",
-  UX34: "à traiter (vérifié) — même campagne d'accents que UX10",
+  UX34: "**traité** (`ce532c0`) — panneau de flux, intake, brouillons de commandes et suggestions cockpit sous garde",
   UX41: "livré (`e10b045`) — plus de `force:true` codé en dur dans « Marquer envoyé »",
   UX44: "à traiter (vérifié) — `onDirectionToggle={() => {}}` toujours no-op dans ApprovalQueuePage",
   UX51: "livré (`8a685cf`) — la clé `_freshnessLevel` a disparu, le filtre fonctionne",
-  UX52: "à traiter (vérifié) — ex. « Supprimer ce fournisseur ? » et suivants, parcours achats",
+  UX52: "**traité** (`157fe00`, complété le 2026-07-27) — comparateur fournisseurs, import CSV price book, catalogue et mapping sous garde",
   UX53: "livré (`ce09a53`) — fermeture par Échap et focus initial",
   UX55: "livré (`30a8b85` affichage par devise + `7977a53` sélection manuelle bloquée)",
   UX59: "à traiter (vérifié) — `aging` n'existe que dans les options de filtre, pas dans les stats",
-  UX64: "à traiter (vérifié) — le portail ne transmet ni `terms` ni `exclusions` : le client accepte des CGV qu'il ne voit pas",
-  UX65: "à traiter (vérifié) — aucun bouton de téléchargement PDF sur le portail",
+  UX64: "**traité** (lot correctif 2026-07-27) — le snapshot CGV/exclusions validé est affiché et contrôlé fail-closed à l'acceptation",
+  UX65: "**traité** (lot correctif 2026-07-27) — l'action d'impression reste disponible avant et après décision",
   UX66: "livré (`5503cd7`) — accents rétablis sur le portail et le document client",
   UX67: "à traiter (vérifié) — pages `expired` / `not-found` sans coordonnées émetteur",
-  UX68: "à traiter (vérifié) — `layout` et `issuer*` non transmis : le portail peut diverger du PDF reçu par email",
+  UX68: "**traité** (lot correctif 2026-07-27) — layout stocké et émetteur du document sont transmis au portail, avec fallback legacy",
 };
 
 const esc = (s) => (s || "").replace(/\|/g, "\\|");
@@ -148,6 +335,48 @@ const trunc = (s, n) => {
   const v = esc(s);
   return v.length > n ? `${v.slice(0, n - 1)}…` : v;
 };
+
+const resolveUxStatus = (id) =>
+  STATUTS[id] ?? "à traiter — non rouvert, aucun correctif livré ne le vise";
+const closedUxCount = ux.filter((item) =>
+  /^(livré|\*\*traité\*\*)/.test(resolveUxStatus(item.id))
+).length;
+const verifiedOpenUxCount = ux.filter((item) =>
+  resolveUxStatus(item.id).startsWith("à traiter (vérifié)")
+).length;
+const unopenedUxCount = ux.length - closedUxCount - verifiedOpenUxCount;
+
+const ACCENT_CAMPAIGN_SECTION = [
+  "### Campagne d'accents FR (UX10, UX23, UX34, UX52) — close sur les surfaces principales",
+  "",
+  "Les quatre constats visaient le même défaut sur quatre parcours. Sur 552",
+  "libellés suspects au départ, 252 sont corrigés ; les 300 restants sont",
+  "concentrés hors des écrans visés : `lib/openapi/registry.ts` (39, descriptions",
+  "de doc API jamais affichées), `lib/takeoff/server.ts` (36),",
+  "`lib/estimates/generated-ouvrages.ts` (16).",
+  "",
+  "Le gain est verrouillé par `src/lib/i18n/fr-accents.test.ts`, qui liste les",
+  "fichiers réellement relus et échoue si l'un régresse. **La liste s'étend",
+  "fichier par fichier, jamais en bloc** : une substitution automatique mot à mot",
+  "a été essayée puis abandonnée — sur 1170 chaînes elle francisait des noms de",
+  "tests anglais (« source details » → « source détails ») et laissait des",
+  "phrases à moitié corrigées (« déjà verrouillee »). Le garde a trouvé 21",
+  "fautes que la relecture manuelle avait manquées ; c'est lui qui fait",
+  "converger la campagne.",
+  "",
+  "Le 2026-07-27, la garde a été étendue à `CatalogueManager`,",
+  "`MappingRuleEditor` et `TakeoffTableView` après correction des libellés encore",
+  "non accentués découverts par la revue des commits.",
+  "",
+  "Deux pièges à connaître avant de reprendre le chantier :",
+  "",
+  "- Les tokens courts sont préfixes d'autres mots (« Termine » de « Terminer »,",
+  "  « Reference » de « References »). Ils se remplacent guillemets compris.",
+  "- Un en-tête de colonne dans une fixture de test (« Designation » dans un",
+  "  collage Excel simulé) est de la **donnée**, pas un libellé. L'accentuer",
+  "  affaiblit le test. La distinction ne se mécanise pas.",
+  "",
+];
 
 const out = [];
 out.push("# Audit produit du 2026-07-23 — inventaire versionné");
@@ -167,18 +396,18 @@ out.push(
   "> **Statut du rapprochement.** Les **27 bugs** et **24 des 73 constats UX/UI**"
 );
 out.push(
-  "> ont ete rapproches du code AU HEAD : la reference de l'audit a ete rouverte,"
+  "> ont été rapprochés du code AU HEAD : la référence de l'audit a été rouverte,"
 );
 out.push(
-  "> et le statut dit si le defaut est encore la ou quel commit l'a corrige."
+  "> et le statut dit si le défaut est encore là, ou quel commit l'a corrigé."
 );
 out.push(
   "> Les 49 autres portent un statut qui dit exactement ce qu'il vaut — non"
 );
 out.push(
-  "> rouverts, aucun correctif livre ne les vise. Ce n'est pas une preuve qu'ils"
+  "> rouverts, aucun correctif livré ne les vise. Ce n'est pas une preuve qu'ils"
 );
-out.push("> soient ouverts, seulement que personne n'a verifie. Voir §3.");
+out.push("> soient ouverts, seulement que personne n'a vérifié. Voir §3.");
 out.push("");
 out.push(`Généré depuis l'artefact : **${bugs.length} bugs**, **${ux.length} constats UX/UI**.`);
 out.push("");
@@ -218,52 +447,53 @@ for (const persona of personaNames) {
   out.push("|---|---|---|---|---|");
   for (const u of items) {
     out.push(
-      `| ${u.id} | ${esc(u.severite)} | ${trunc(u.surface, 45)} | ${trunc(u.observation, 160)} | ${STATUTS[u.id] ?? "à traiter — non rouvert, aucun correctif livré ne le vise"} |`
+      `| ${u.id} | ${esc(u.severite)} | ${trunc(u.surface, 45)} | ${trunc(u.observation, 160)} | ${resolveUxStatus(u.id)} |`
     );
   }
   out.push("");
 }
 out.push("---");
 out.push("");
-out.push("## 3. Ce qui reste a rapprocher");
+out.push("## 3. Ce qui reste à rapprocher");
 out.push("");
-out.push("Bilan du rapprochement UX au 2026-07-26 :");
+out.push("Bilan du rapprochement UX au 2026-07-27 :");
 out.push("");
 out.push("| Statut | Nombre |");
 out.push("|---|---|");
-out.push("| livre, avec le sha du correctif | 10 |");
-out.push("| a traiter — VERIFIE encore ouvert dans le code | 14 |");
-out.push("| non rouvert | 49 |");
+out.push(`| livré ou traité, avec sa preuve | ${closedUxCount} |`);
+out.push(`| à traiter — **vérifié** encore ouvert dans le code | ${verifiedOpenUxCount} |`);
+out.push(`| non rouvert | ${unopenedUxCount} |`);
 out.push("");
+out.push(...ACCENT_CAMPAIGN_SECTION);
 out.push(
-  "Les 49 restants sont en majorite des ameliorations de conception"
+  `Les ${unopenedUxCount} restants sont en majorité des améliorations de conception`
 );
 out.push(
-  "(visualiseur de plan, dates de pilotage, ecarts chiffres, architecture"
+  "(visualiseur de plan, dates de pilotage, écarts chiffres, architecture"
 );
 out.push(
-  "d information) qu aucun commit de la plage livree ne vise. Les rouvrir un a"
+  "d’information) qu’aucun commit de la plage livrée ne vise. Les rouvrir un à"
 );
 out.push(
-  "un reste a faire, mais le risque d en trouver un deja corrige est faible."
+  "un reste à faire, mais le risque d’en trouver un déjà corrigé est faible."
 );
 out.push("");
-out.push("Pour retrouver les correctifs livres :");
+out.push("Pour retrouver les correctifs livrés :");
 out.push("");
 out.push("```bash");
 out.push("git log --oneline e6d4ed2^..HEAD");
 out.push("```");
 out.push("");
 out.push(
-  "Marquer chaque ligne `livre (<sha>)`, `partiel (<sha>) — <ce qui reste>`,"
+  "Marquer chaque ligne `livré (<sha>)`, `partiel (<sha>) — <ce qui reste>`,"
 );
 out.push(
-  "`a traiter` ou `ecarte — <raison>`. Un constat laisse ouvert sans raison"
+  "`à traiter` ou `écarté — <raison>`. Un constat laissé ouvert sans raison"
 );
 out.push("explicite est un constat perdu.");
 out.push("");
 
-writeFileSync(process.argv[3], out.join("\n"), "utf8");
+writeFileSync(outputPath, out.join("\n"), "utf8");
 console.log(
-  `bugs=${bugs.length} ux=${ux.length} personas=${personaNames.length} -> ${process.argv[3]}`
+  `bugs=${bugs.length} ux=${ux.length} personas=${personaNames.length} source=html -> ${outputPath}`
 );

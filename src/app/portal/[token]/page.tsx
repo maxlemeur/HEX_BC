@@ -11,13 +11,8 @@ import {
 } from "@/lib/estimates/margin-tiers-loader";
 import { formatEstimateReference } from "@/lib/estimates/reference";
 import {
-  normalizeEstimatePdfLayoutOptions,
-  type EstimatePdfLayoutOptions,
-} from "@/lib/estimates/pdf-layout";
-import {
-  canUseEstimateTermsSnapshot,
-  parseEstimateTermsSnapshot,
-} from "@/lib/estimates/pdf-terms";
+  resolvePortalDocumentContract,
+} from "@/lib/estimates/portal-document-contract";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -105,7 +100,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     // deux chemins a tenir synchronises.
     supabase
       .from("estimate_documents")
-      .select("layout_options, terms_snapshot")
+      .select("status, layout_options, terms_snapshot, generated_by")
       .eq("version_id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
       .maybeSingle(),
@@ -115,7 +110,8 @@ export default async function PortalPage({ params }: PortalPageProps) {
     versionResult.error ||
     !versionResult.data ||
     itemsResult.error ||
-    !itemsResult.data
+    !itemsResult.data ||
+    documentResult.error
   ) {
     notFound();
   }
@@ -137,28 +133,22 @@ export default async function PortalPage({ params }: PortalPageProps) {
   // client cochait « J'accepte ce devis et ses conditions » sur une page qui ne
   // les affichait jamais — et pouvait voir une mise en page differente de celle
   // qu'il avait recue.
-  const storedLayout = normalizeEstimatePdfLayoutOptions(
-    (documentResult.data?.layout_options ?? undefined) as
-      | EstimatePdfLayoutOptions
-      | undefined
-  );
-  const storedTerms = parseEstimateTermsSnapshot(
-    documentResult.data?.terms_snapshot ?? null
-  );
-  const portalTerms =
-    storedLayout.includeTerms &&
-    storedTerms &&
-    canUseEstimateTermsSnapshot(storedTerms)
-      ? storedTerms
-      : null;
+  const documentContract = resolvePortalDocumentContract(documentResult.data);
+  if (!documentContract.ok) {
+    notFound();
+  }
+  const storedLayout = documentContract.layout;
+  const portalTerms = documentContract.terms;
 
-  // L'emetteur : le portail n'a pas d'utilisateur connecte, on lit donc le
-  // profil du proprietaire de l'affaire — la meme source que le PDF.
-  const issuerProfileResult = project?.user_id
+  // Le PDF persiste son générateur dans estimate_documents.generated_by. Cette
+  // identité immuable évite que le portail change d'émetteur après un transfert
+  // d'affaire. Le propriétaire reste uniquement le repli des anciens documents.
+  const issuerUserId = documentContract.issuerUserId ?? project?.user_id ?? null;
+  const issuerProfileResult = issuerUserId
     ? await supabase
         .from("profiles")
         .select("full_name, job_title, phone, work_email")
-        .eq("id", project.user_id)
+        .eq("id", issuerUserId)
         .maybeSingle()
     : null;
   const issuerProfile = issuerProfileResult?.data ?? null;
@@ -216,6 +206,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     renderMarginMode === "tiered"
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
+  const vatReverseCharge = version.contractor_role === "subcontractor";
 
   const baseTotals = computeEstimateTotals({
     lineItems: lineItemsForTotals,
@@ -230,6 +221,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     taxRateBp: version.tax_rate_bp,
     roundingMode: version.rounding_mode,
     roundingStepCents: version.rounding_step_cents,
+    vatReverseCharge,
   });
 
   const fallbackDiscountCents =
@@ -252,6 +244,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     taxRateBp: version.tax_rate_bp,
     roundingMode: version.rounding_mode,
     roundingStepCents: version.rounding_step_cents,
+    vatReverseCharge,
   });
 
   const discountCents = computedTotals.discountCents;
@@ -267,7 +260,10 @@ export default async function PortalPage({ params }: PortalPageProps) {
     ? version.total_ttc_cents
     : computedTotals.roundedTtcCents;
 
-  const totalTtcFormatted = formatCurrency(totalTtcCents, selectedCurrency);
+  const totalDisplayFormatted = formatCurrency(
+    vatReverseCharge ? totalHtCents : totalTtcCents,
+    selectedCurrency
+  );
   const estimateReference = formatEstimateReference(
     project?.estimate_reference,
     version.version_number
@@ -279,7 +275,9 @@ export default async function PortalPage({ params }: PortalPageProps) {
         projectName={project?.name ?? "Devis"}
         projectReference={estimateReference}
         versionNumber={version.version_number}
+        totalHtCents={totalHtCents}
         totalTtcCents={totalTtcCents}
+        vatReverseCharge={vatReverseCharge}
         currency={selectedCurrency}
         expiresAt={portalToken.expires_at}
         status={effectiveStatus}
@@ -288,7 +286,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
       <div className="print:py-0">
         <EstimateDocument
           calcEngineVersion={resolveCalcEngineVersion(version)}
-          vatReverseCharge={version.contractor_role === "subcontractor"}
+          vatReverseCharge={vatReverseCharge}
           projectName={project?.name ?? "Devis"}
           projectClient={project?.client_name}
           projectReference={project?.reference}
@@ -297,6 +295,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
           dateDevis={version.date_devis}
           validiteJours={version.validite_jours}
           marginMultiplier={appliedMarginMultiplier}
+          globalCoefficient={version.global_coefficient}
           discountCents={discountCents}
           taxRateBp={version.tax_rate_bp}
           currency={selectedCurrency}
@@ -319,7 +318,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
       <PortalActions
         token={token}
         status={effectiveStatus}
-        totalTtcFormatted={totalTtcFormatted}
+        totalTtcFormatted={totalDisplayFormatted}
         projectReference={estimateReference}
       />
     </div>

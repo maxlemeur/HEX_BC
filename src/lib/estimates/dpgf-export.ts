@@ -206,8 +206,19 @@ function resolveDepthByItemId(items: EstimateItemRecord[]) {
   return depthById;
 }
 
-function resolveLaborRoleLabel(item: EstimateItemRecord, laborRoleNameById: Map<string, string>) {
-  if (hasActiveLaborSplitPayload(item)) {
+function usesLaborSplit(
+  item: EstimateItemRecord,
+  isLaborSplitEnabled: boolean
+) {
+  return isLaborSplitEnabled && hasActiveLaborSplitPayload(item);
+}
+
+function resolveLaborRoleLabel(
+  item: EstimateItemRecord,
+  laborRoleNameById: Map<string, string>,
+  isLaborSplitEnabled: boolean
+) {
+  if (usesLaborSplit(item, isLaborSplitEnabled)) {
     const parts: string[] = [];
     if (item.labor_role_atelier_id) {
       parts.push(
@@ -226,15 +237,21 @@ function resolveLaborRoleLabel(item: EstimateItemRecord, laborRoleNameById: Map<
   return laborRoleNameById.get(item.labor_role_id) ?? "";
 }
 
-function resolveLaborHours(item: EstimateItemRecord) {
-  if (hasActiveLaborSplitPayload(item)) {
+function resolveLaborHours(
+  item: EstimateItemRecord,
+  isLaborSplitEnabled: boolean
+) {
+  if (usesLaborSplit(item, isLaborSplitEnabled)) {
     return (item.h_mo_atelier ?? 0) + (item.h_mo_chantier ?? 0);
   }
   return item.h_mo ?? 0;
 }
 
-function resolveLaborCoefficient(item: EstimateItemRecord) {
-  if (!hasActiveLaborSplitPayload(item)) {
+function resolveLaborCoefficient(
+  item: EstimateItemRecord,
+  isLaborSplitEnabled: boolean
+) {
+  if (!usesLaborSplit(item, isLaborSplitEnabled)) {
     return item.k_mo ?? 1;
   }
 
@@ -250,9 +267,10 @@ function resolveLaborCoefficient(item: EstimateItemRecord) {
 
 function resolveLaborRoleSplitLabels(
   item: EstimateItemRecord,
-  laborRoleNameById: Map<string, string>
+  laborRoleNameById: Map<string, string>,
+  isLaborSplitEnabled: boolean
 ) {
-  if (!hasActiveLaborSplitPayload(item)) {
+  if (!usesLaborSplit(item, isLaborSplitEnabled)) {
     return {
       atelier: "",
       chantier: "",
@@ -274,6 +292,7 @@ function buildDpgfRows(input: {
   supplyTypeById: Map<string, string>;
   laborRoleNameById: Map<string, string>;
   categoryById: Map<string, string>;
+  isLaborSplitEnabled: boolean;
 }) {
   const depthByItemId = resolveDepthByItemId(input.items);
 
@@ -306,8 +325,12 @@ function buildDpgfRows(input: {
       };
     }
 
-    const splitEnabled = hasActiveLaborSplitPayload(item);
-    const splitRoleLabels = resolveLaborRoleSplitLabels(item, input.laborRoleNameById);
+    const splitEnabled = usesLaborSplit(item, input.isLaborSplitEnabled);
+    const splitRoleLabels = resolveLaborRoleSplitLabels(
+      item,
+      input.laborRoleNameById,
+      input.isLaborSplitEnabled
+    );
 
     return {
       type: "line",
@@ -318,10 +341,14 @@ function buildDpgfRows(input: {
       prixUnitaireHtEur: toEuroAmount(item.unit_price_ht_cents),
       typeFo: item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "",
       kFo: item.k_fo ?? 1,
-      hMo: resolveLaborHours(item),
-      kMo: resolveLaborCoefficient(item),
+      hMo: resolveLaborHours(item, input.isLaborSplitEnabled),
+      kMo: resolveLaborCoefficient(item, input.isLaborSplitEnabled),
       majorationMo: item.h_mo_majoration ?? 1,
-      roleMo: resolveLaborRoleLabel(item, input.laborRoleNameById),
+      roleMo: resolveLaborRoleLabel(
+        item,
+        input.laborRoleNameById,
+        input.isLaborSplitEnabled
+      ),
       categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
       hMoAtelier: splitEnabled ? (item.h_mo_atelier ?? 0) : null,
       kMoAtelier: splitEnabled ? (item.k_mo_atelier ?? 1) : null,
@@ -430,7 +457,10 @@ async function writeWorkbook(input: {
   await workbook.commit();
 }
 
-async function buildDpgfExportPayload(versionId: string): Promise<DpgfExportPayload> {
+async function buildDpgfExportPayload(
+  versionId: string,
+  isLaborSplitEnabled: boolean
+): Promise<DpgfExportPayload> {
   const details = await getEstimateVersionDetails(versionId);
   const items = details.items as EstimateItemRecord[];
   const supplyTypeById = new Map(
@@ -456,6 +486,7 @@ async function buildDpgfExportPayload(versionId: string): Promise<DpgfExportPayl
       supplyTypeById,
       laborRoleNameById,
       categoryById,
+      isLaborSplitEnabled,
     }),
   };
 }
@@ -464,9 +495,13 @@ export async function streamEstimateVersionDpgfXlsx(
   versionId: string,
   options?: {
     workbookWriterFactory?: WorkbookWriterFactory;
+    isLaborSplitEnabled?: boolean;
   }
 ): Promise<EstimateExportStreamResult> {
-  const payload = await buildDpgfExportPayload(versionId);
+  const payload = await buildDpgfExportPayload(
+    versionId,
+    options?.isLaborSplitEnabled === true
+  );
   const filename = buildFilename({
     projectReference: payload.projectReference,
     projectName: payload.projectName,

@@ -12,6 +12,7 @@ const mockStorageUpload = vi.fn();
 const mockRpc = vi.fn();
 const mockEmailInsert = vi.fn();
 const mockVersionDataSingle = vi.fn();
+const mockDocumentMaybeSingle = vi.fn();
 
 function buildMockFrom() {
   return (table: string) => {
@@ -55,6 +56,16 @@ function buildMockFrom() {
             })),
           };
         }),
+      };
+    }
+    if (table === "estimate_documents") {
+      const builder = {
+        eq: vi.fn(),
+        maybeSingle: mockDocumentMaybeSingle,
+      };
+      builder.eq.mockReturnValue(builder);
+      return {
+        select: vi.fn(() => builder),
       };
     }
     if (table === "estimate_emails") {
@@ -112,6 +123,7 @@ function makeParams(token = VALID_TOKEN) {
 
 const PENDING_TOKEN = {
   id: "token-id-1",
+  tenant_id: "tenant-id-1",
   version_id: "version-id-1",
   status: "pending",
   expires_at: new Date(Date.now() + 86400000).toISOString(),
@@ -129,6 +141,15 @@ describe("POST /api/portal/[token]/accept", () => {
     mockStorageUpload.mockResolvedValue({ error: null });
     mockEmailInsert.mockResolvedValue({ error: null });
     mockVersionDataSingle.mockResolvedValue({ data: null, error: null });
+    mockDocumentMaybeSingle.mockResolvedValue({
+      data: {
+        status: "ready",
+        generated_by: "issuer-id-1",
+        layout_options: { includeTerms: false },
+        terms_snapshot: null,
+      },
+      error: null,
+    });
     // No email env vars by default (skip email sending)
     delete process.env.RESEND_API_KEY;
     delete process.env.EMAIL_FROM;
@@ -256,6 +277,83 @@ describe("POST /api/portal/[token]/accept", () => {
         p_decision: "accepted",
         p_client_ip: null,
       })
+    );
+  });
+
+  it("fails closed when the contractual document lookup fails", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockDocumentMaybeSingle.mockResolvedValueOnce({
+      data: null,
+      error: { code: "42501", message: "permission denied" },
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+
+    expect(res.status).toBe(503);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the stored layout expects CGV without a usable snapshot", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockDocumentMaybeSingle.mockResolvedValueOnce({
+      data: {
+        status: "ready",
+        generated_by: "issuer-id-1",
+        layout_options: { includeTerms: true },
+        terms_snapshot: null,
+      },
+      error: null,
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+
+    expect(res.status).toBe(409);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("accepts when the required stored CGV snapshot is valid", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockDocumentMaybeSingle.mockResolvedValueOnce({
+      data: {
+        status: "ready",
+        generated_by: "issuer-id-1",
+        layout_options: { includeTerms: true },
+        terms_snapshot: {
+          templateId: "11111111-1111-4111-8111-111111111111",
+          title: "CGV",
+          body: "Conditions contractuelles",
+          version: 3,
+          legalReviewedAt: "2026-07-01T00:00:00.000Z",
+          capturedAt: "2026-07-20T00:00:00.000Z",
+        },
+      },
+      error: null,
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_portal_estimate_decision",
+      expect.objectContaining({ p_decision: "accepted" })
     );
   });
 

@@ -13,6 +13,18 @@ type PortalActionsProps = {
   projectReference?: string | null;
 };
 
+function PortalPrintButton({ className = "" }: Readonly<{ className?: string }>) {
+  return (
+    <button
+      type="button"
+      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--slate-200)] bg-white px-6 py-3 text-sm font-semibold text-[var(--slate-700)] transition-colors hover:bg-[var(--slate-50)] ${className}`}
+      onClick={() => window.print()}
+    >
+      Imprimer / Enregistrer en PDF
+    </button>
+  );
+}
+
 export function PortalActions({
   token,
   status,
@@ -35,27 +47,32 @@ export function PortalActions({
 
   if (status === "accepted") {
     return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#059669"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
+      <div className="space-y-3">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#059669"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-emerald-800">
+              Ce devis a été accepté. Merci pour votre confiance.
+            </p>
           </div>
-          <p className="text-sm font-medium text-emerald-800">
-            Ce devis a été accepté. Merci pour votre confiance.
-          </p>
+        </div>
+        <div className="flex justify-end print:hidden">
+          <PortalPrintButton />
         </div>
       </div>
     );
@@ -63,28 +80,33 @@ export function PortalActions({
 
   if (status === "rejected") {
     return (
-      <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--slate-200)]">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--slate-500)"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
+      <div className="space-y-3">
+        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--slate-200)]">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--slate-500)"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m15 9-6 6" />
+                <path d="m9 9 6 6" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-[var(--slate-600)]">
+              Ce devis a été refusé.
+            </p>
           </div>
-          <p className="text-sm font-medium text-[var(--slate-600)]">
-            Ce devis a été refusé.
-          </p>
+        </div>
+        <div className="flex justify-end print:hidden">
+          <PortalPrintButton />
         </div>
       </div>
     );
@@ -129,13 +151,7 @@ export function PortalActions({
           document affiche — qui est desormais celui du PDF envoye, mise en
           page et CGV comprises.
         */}
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--slate-200)] bg-white px-6 py-3 text-sm font-semibold text-[var(--slate-700)] transition-colors hover:bg-[var(--slate-50)] sm:mr-auto"
-          onClick={() => window.print()}
-        >
-          Imprimer / Enregistrer en PDF
-        </button>
+        <PortalPrintButton className="sm:mr-auto" />
         <button
           type="button"
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-6 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"

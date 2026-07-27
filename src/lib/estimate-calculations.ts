@@ -1231,6 +1231,8 @@ export type EstimateComputationInput = {
   laborRateAtelierById: Map<string, number>;
   laborRateChantierById: Map<string, number>;
   calcEngineVersion: CalcEngineVersion;
+  /** TVA autoliquidee : le taux nominal reste stocke, le taux effectif est nul. */
+  vatReverseCharge?: boolean;
 };
 
 type NetSectionAccumulator = {
@@ -1390,6 +1392,7 @@ export function computeEstimateBreakdown(
     taxRateBp,
     calcEngineVersion,
   } = input;
+  const effectiveTaxRateBp = input.vatReverseCharge ? 0 : taxRateBp;
 
   const withRates = (item: EstimateItemRecord): EstimateItemRecord => ({
     ...item,
@@ -1424,12 +1427,13 @@ export function computeEstimateBreakdown(
     roundingMode: input.roundingMode,
     roundingStepCents: input.roundingStepCents,
     isLaborSplitEnabled,
+    vatReverseCharge: input.vatReverseCharge,
   });
 
   const splits = lines.map((item) =>
     computeEstimateLineSaleSplit(item, {
       marginMultiplier: footer.appliedMarginMultiplier,
-      taxRateBp,
+      taxRateBp: effectiveTaxRateBp,
       laborRateById,
       isLaborSplitEnabled,
       laborRateAtelierById,
@@ -1480,7 +1484,12 @@ export function computeEstimateBreakdown(
       moAtelierNet.push(atelier);
       moChantierNet.push(chantier);
       taxNet.push(
-        computeTaxCents(saleNet[index], item.tax_rate_bp ?? taxRateBp)
+        computeTaxCents(
+          saleNet[index],
+          input.vatReverseCharge
+            ? 0
+            : (item.tax_rate_bp ?? taxRateBp)
+        )
       );
     });
   } else {
@@ -1807,6 +1816,7 @@ export function computeReadOnlyTotals({
   roundingMode,
   roundingStepCents,
   calcEngineVersion,
+  vatReverseCharge,
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
 }: {
@@ -1825,6 +1835,8 @@ export function computeReadOnlyTotals({
   roundingMode: RoundingMode;
   roundingStepCents: number;
   calcEngineVersion: CalcEngineVersion;
+  /** Regime fiscal explicite du devis envoye. Ignore par le chemin v1 stocke. */
+  vatReverseCharge?: boolean;
   laborRateAtelierById?: Map<string, number>;
   laborRateChantierById?: Map<string, number>;
 }): EstimateTotals {
@@ -1850,6 +1862,7 @@ export function computeReadOnlyTotals({
       laborRateAtelierById,
       laborRateChantierById,
       calcEngineVersion,
+      vatReverseCharge,
     }).totals;
   }
 

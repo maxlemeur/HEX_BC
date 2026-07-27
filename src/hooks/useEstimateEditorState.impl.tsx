@@ -1054,6 +1054,7 @@ export function useEstimateEditorState({
         hourlyRateCents?: number;
         hourlyRateAtelierCents?: number;
         hourlyRateChantierCents?: number;
+        vatReverseCharge?: boolean;
       }
     ) => {
       const lineInput = buildLineCalculationInput(item, {
@@ -1065,7 +1066,7 @@ export function useEstimateEditorState({
       });
       const lineComputationOptions = {
         marginMultiplier: options.marginMultiplier,
-        taxRateBp: options.taxRateBp,
+        taxRateBp: options.vatReverseCharge ? 0 : options.taxRateBp,
         isLaborSplitEnabled,
       };
       return {
@@ -1100,6 +1101,7 @@ export function useEstimateEditorState({
         roundingMode: settings.rounding_mode,
         roundingStepCents: settings.rounding_step_cents,
         calcEngineVersion: EDITOR_CALC_ENGINE_VERSION,
+        vatReverseCharge: settings.contractor_role === "subcontractor",
       };
       return computeReadOnlyTotals(readOnlyTotalsInput);
     }
@@ -1184,6 +1186,7 @@ export function useEstimateEditorState({
       roundingMode: savedSettings.rounding_mode,
       roundingStepCents: savedSettings.rounding_step_cents,
       isLaborSplitEnabled,
+      vatReverseCharge: savedSettings.contractor_role === "subcontractor",
     };
     return computeEstimateTotals(totalsInput);
   }, [buildLineCalculationInput, isLaborSplitEnabled, items, savedSettings]);
@@ -1416,6 +1419,8 @@ export function useEstimateEditorState({
 
       const shouldUpdateLines =
         settingsSnapshot.tax_rate_bp !== versionSnapshot.tax_rate_bp ||
+        settingsSnapshot.contractor_role !==
+          (versionSnapshot.contractor_role ?? "principal") ||
         totalsSnapshot.appliedMarginMultiplier !==
           versionSnapshot.margin_multiplier;
       if (shouldUpdateLines) {
@@ -1424,6 +1429,8 @@ export function useEstimateEditorState({
             computeLineValuesWithLaborContext(item, {
               marginMultiplier: totalsSnapshot.appliedMarginMultiplier,
               taxRateBp: settingsSnapshot.tax_rate_bp,
+              vatReverseCharge:
+                settingsSnapshot.contractor_role === "subcontractor",
             });
           return {
             ...item,
@@ -1592,6 +1599,7 @@ export function useEstimateEditorState({
           taxRateBp: taxRate,
           rateOverrideByRoleId: id,
           hourlyRateCents: nextHourlyRate,
+          vatReverseCharge: settings.contractor_role === "subcontractor",
         });
         return {
           ...item,
@@ -1734,6 +1742,7 @@ export function useEstimateEditorState({
       const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
         marginMultiplier: settings?.margin_multiplier ?? 1,
         taxRateBp: taxRate,
+        vatReverseCharge: settings?.contractor_role === "subcontractor",
       });
       return {
         ...item,
@@ -1749,6 +1758,7 @@ export function useEstimateEditorState({
     },
     [
       computeLineValuesWithLaborContext,
+      settings?.contractor_role,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
     ]

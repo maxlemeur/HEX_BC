@@ -18,10 +18,15 @@ vi.mock("@/lib/estimates/bdc-export", () => ({
   streamEstimateVersionBdcV11Xlsx: vi.fn(),
 }));
 
+vi.mock("@/lib/feature-flags", () => ({
+  isFeatureEnabled: vi.fn(),
+}));
+
 import { GET } from "@/app/api/estimates/[versionId]/export/route";
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
+import { isFeatureEnabled } from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -78,9 +83,11 @@ function createSupabaseAuthMock(input: {
 describe("estimate export route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(isFeatureEnabled).mockResolvedValue(false);
   });
 
   it("returns streamed xlsx with expected headers for engineer role", async () => {
+    vi.mocked(isFeatureEnabled).mockResolvedValue(true);
     vi.mocked(createSupabaseServerClient).mockResolvedValue(
       createSupabaseAuthMock({
         userId: USER_ID,
@@ -115,7 +122,14 @@ describe("estimate export route", () => {
     );
     expect(response.headers.get("x-export-progress")).toBe("100");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(vi.mocked(streamEstimateVersionXlsx)).toHaveBeenCalledWith(VERSION_ID);
+    expect(vi.mocked(isFeatureEnabled)).toHaveBeenCalledWith(
+      TENANT_ID,
+      "EST_031_LABOR_SPLIT",
+      expect.objectContaining({ supabase: expect.any(Object) })
+    );
+    expect(vi.mocked(streamEstimateVersionXlsx)).toHaveBeenCalledWith(VERSION_ID, {
+      isLaborSplitEnabled: true,
+    });
     expect(vi.mocked(streamEstimateVersionDpgfXlsx)).not.toHaveBeenCalled();
     expect(vi.mocked(streamEstimateVersionBdcV11Xlsx)).not.toHaveBeenCalled();
 
@@ -150,7 +164,9 @@ describe("estimate export route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(vi.mocked(streamEstimateVersionDpgfXlsx)).toHaveBeenCalledWith(VERSION_ID);
+    expect(vi.mocked(streamEstimateVersionDpgfXlsx)).toHaveBeenCalledWith(VERSION_ID, {
+      isLaborSplitEnabled: false,
+    });
     expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
     expect(vi.mocked(streamEstimateVersionBdcV11Xlsx)).not.toHaveBeenCalled();
   });
@@ -182,7 +198,9 @@ describe("estimate export route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(vi.mocked(streamEstimateVersionBdcV11Xlsx)).toHaveBeenCalledWith(VERSION_ID);
+    expect(vi.mocked(streamEstimateVersionBdcV11Xlsx)).toHaveBeenCalledWith(VERSION_ID, {
+      isLaborSplitEnabled: false,
+    });
     expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
     expect(vi.mocked(streamEstimateVersionDpgfXlsx)).not.toHaveBeenCalled();
   });

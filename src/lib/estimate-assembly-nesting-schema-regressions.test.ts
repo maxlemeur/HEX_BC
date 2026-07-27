@@ -10,6 +10,15 @@ const migrationPath = join(
   "20260722132425_nested_estimate_assemblies.sql"
 );
 const sql = readFileSync(migrationPath, "utf8");
+const writeRoleMigrationSql = readFileSync(
+  join(
+    process.cwd(),
+    "supabase",
+    "migrations",
+    "20260727030000_harden_estimate_assembly_member_write_roles.sql"
+  ),
+  "utf8"
+);
 
 describe("nested estimate assembly schema regressions", () => {
   it("stores live child references under tenant-scoped RLS", () => {
@@ -59,5 +68,23 @@ describe("nested estimate assembly schema regressions", () => {
       /grant execute on function public\.replace_estimate_assembly_contents[\s\S]*to authenticated/i
     );
   });
-});
 
+  it("allows assembly-member writes to tenant writers but not viewers", () => {
+    for (const operation of ["insert", "update", "delete"]) {
+      expect(writeRoleMigrationSql).toMatch(
+        new RegExp(
+          `create policy "Tenant writers ${operation} estimate assembly members"[\\s\\S]*?` +
+            `has_tenant_role\\([\\s\\S]*?` +
+            `array\\['admin'::public\\.tenant_role, 'engineer'::public\\.tenant_role\\]`,
+          "i"
+        )
+      );
+    }
+    expect(writeRoleMigrationSql).not.toMatch(
+      /array\[[^\]]*'viewer'::public\.tenant_role/i
+    );
+    expect(writeRoleMigrationSql).not.toMatch(
+      /create policy "Tenant writers[\s\S]*is_tenant_member/i
+    );
+  });
+});

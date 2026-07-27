@@ -623,7 +623,8 @@ const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
 const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
 const VERSION_CONFLICT_ERROR_MESSAGE = "Version modifiee par un autre utilisateur";
-const ESTIMATE_SEAL_PAYLOAD_VERSION = 1;
+const CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION = 2;
+const LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION = 1;
 const ESTIMATE_STATUS_TRANSITIONS: Readonly<
   Record<EstimateStatus, readonly EstimateStatus[]>
 > = {
@@ -658,6 +659,7 @@ type EstimateSealVersionFields = Pick<
   | "tax_rate_bp"
   | "rounding_mode"
   | "rounding_step_cents"
+  | "calc_engine_version"
   | "contractor_role"
   | "seal_hash"
 >;
@@ -725,6 +727,11 @@ type EstimateSealPayload = {
     rounding_mode: EstimateVersionRow["rounding_mode"];
     rounding_step_cents: number;
     /**
+     * T6 — moteur de calcul ayant produit les montants contractuels. Obligatoire
+     * dans les sceaux v2 ; absent des sceaux v1 émis avant son introduction.
+     */
+    calc_engine_version?: number;
+    /**
      * EST-E27 — regime de TVA. Present dans le payload canonique UNIQUEMENT
      * hors valeur par defaut : une cle presente sur toutes les versions
      * changerait le hash de l'integralite du parc deja scelle.
@@ -745,6 +752,12 @@ type EstimateTotals = {
   total_ht_cents: number | null;
   total_tax_cents: number | null;
   total_ttc_cents: number | null;
+};
+
+type CalculatedEstimateTotals = {
+  total_ht_cents: number;
+  total_tax_cents: number;
+  total_ttc_cents: number;
 };
 
 type EstimateTotalsInvariantRule =
@@ -1942,10 +1955,21 @@ function assertEstimateStatusTransition(
   );
 }
 
-function buildCanonicalEstimateSealPayload(input: {
-  version: EstimateSealVersionFields;
-  items: EstimateItemRow[];
-}): EstimateSealPayload {
+function buildCanonicalEstimateSealPayload(
+  input: {
+    version: EstimateSealVersionFields;
+    items: EstimateItemRow[];
+  },
+  options?: {
+    payloadVersion?: number;
+    includeLaborSplit?: boolean;
+    includeCalcEngineVersion?: boolean;
+  }
+): EstimateSealPayload {
+  const payloadVersion =
+    options?.payloadVersion ?? CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION;
+  const includeLaborSplit = options?.includeLaborSplit ?? true;
+  const includeCalcEngineVersion = options?.includeCalcEngineVersion ?? true;
   const canonicalItems = [...input.items]
     .sort((left, right) => {
       if (left.position !== right.position) {
@@ -1967,7 +1991,7 @@ function buildCanonicalEstimateSealPayload(input: {
           | "k_mo_chantier"
           | "labor_role_chantier_id"
         >
-      > = hasActiveLaborSplitPayload(item)
+      > = includeLaborSplit && hasActiveLaborSplitPayload(item)
         ? {
             ...(item.h_mo_atelier != null
               ? { h_mo_atelier: item.h_mo_atelier }
@@ -2013,7 +2037,7 @@ function buildCanonicalEstimateSealPayload(input: {
 
   return {
     meta: {
-      payload_version: ESTIMATE_SEAL_PAYLOAD_VERSION,
+      payload_version: payloadVersion,
       version_id: input.version.id,
       tenant_id: input.version.tenant_id,
       project_id: input.version.project_id,
@@ -2029,6 +2053,12 @@ function buildCanonicalEstimateSealPayload(input: {
       tax_rate_bp: input.version.tax_rate_bp,
       rounding_mode: input.version.rounding_mode,
       rounding_step_cents: input.version.rounding_step_cents,
+      ...(includeCalcEngineVersion
+        ? {
+            calc_engine_version:
+              input.version.calc_engine_version ?? 1,
+          }
+        : {}),
       // EST-E27 : le regime de TVA est une donnee CONTRACTUELLE, il entre donc
       // dans le sceau. Inclusion CONDITIONNELLE, uniquement hors valeur par
       // defaut : ajouter une cle presente sur toutes les versions invaliderait
@@ -2057,7 +2087,7 @@ async function loadEstimateSealSource(input: {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, date_devis, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, contractor_role, seal_hash"
+      "id, tenant_id, project_id, version_number, date_devis, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, seal_hash"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -2219,6 +2249,108 @@ async function transitionEstimateVersionStatusAtomically(input: {
   return row as unknown as EstimateVersionRow;
 }
 
+async function patchEstimateContractorRoleAtomically(input: {
+  versionId: string;
+  tenantId: string;
+  expectedUpdatedAt: string;
+  actorUserId: string;
+  patch: EstimateVersionUpdate;
+}) {
+  const rpcClient = getServiceRoleSupabaseClient();
+  const { data, error } = await rpcClient.rpc(
+    "patch_estimate_contractor_role" as never,
+    {
+      p_version_id: input.versionId,
+      p_tenant_id: input.tenantId,
+      p_expected_updated_at: input.expectedUpdatedAt,
+      p_actor_user_id: input.actorUserId,
+      p_patch: input.patch as unknown as Json,
+    } as never
+  );
+
+  if (error) {
+    const rpcMessage = error.message ?? "";
+    const publicRpcDetails = error.code ? { code: error.code } : undefined;
+
+    // Les erreurs métier doivent être résolues avant le SQLSTATE : le verrou
+    // et le conflit optimiste utilisent tous deux 40001, mais n'ont ni le même
+    // code API ni la même action de reprise côté client.
+    if (rpcMessage.includes("ESTIMATE_DRAFT_LOCK_REQUIRED")) {
+      throw conflict(
+        "Un verrou actif est requis pour modifier cette version brouillon.",
+        { lock: null },
+        "LOCK_REQUIRED"
+      );
+    }
+
+    if (
+      rpcMessage.includes("ESTIMATE_READ_ONLY") ||
+      rpcMessage.includes("ESTIMATE_VERSION_READ_ONLY")
+    ) {
+      throw forbidden(
+        "Cette version est en lecture seule.",
+        publicRpcDetails,
+        "READ_ONLY"
+      );
+    }
+
+    if (
+      rpcMessage.includes("ESTIMATE_NOT_FOUND") ||
+      rpcMessage.includes("ESTIMATE_VERSION_NOT_FOUND")
+    ) {
+      throw notFound(
+        "Version de chiffrage introuvable.",
+        publicRpcDetails,
+        "NOT_FOUND"
+      );
+    }
+
+    if (
+      rpcMessage.includes("ESTIMATE_WRITE_FORBIDDEN") ||
+      rpcMessage.includes("ESTIMATE_TENANT_INACTIVE")
+    ) {
+      throw forbidden("Accès refusé.", publicRpcDetails, "FORBIDDEN");
+    }
+
+    if (
+      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_INVALID_ARGUMENTS") ||
+      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_INVALID_PAYLOAD") ||
+      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_UNEXPECTED_FIELDS") ||
+      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_INCOMPLETE") ||
+      rpcMessage.includes("ESTIMATE_REVERSE_CHARGE_TOTALS_INVALID")
+    ) {
+      throw badRequest(
+        "Le changement de régime de TVA est invalide.",
+        publicRpcDetails,
+        "BAD_REQUEST"
+      );
+    }
+
+    if (
+      error.code === "40001" ||
+      rpcMessage.includes("ESTIMATE_VERSION_CONFLICT")
+    ) {
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: input.expectedUpdatedAt,
+      }, "VERSION_CONFLICT");
+    }
+
+    throw mapSupabaseError(
+      error,
+      "Impossible de mettre à jour le régime de TVA."
+    );
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: input.expectedUpdatedAt,
+    }, "VERSION_CONFLICT");
+  }
+
+  return row as unknown as EstimateVersionRow;
+}
+
 function extractPatchedEstimateTotals(input: PatchEstimateVersionInput) {
   const patchedTotals: Partial<EstimateTotals> = {};
 
@@ -2233,6 +2365,45 @@ function extractPatchedEstimateTotals(input: PatchEstimateVersionInput) {
   }
 
   return patchedTotals;
+}
+
+function extractEstimateRecalculationOverrides(
+  input: PatchEstimateVersionInput
+): EstimateRecalculationVersionOverrides {
+  const overrides: EstimateRecalculationVersionOverrides = {};
+
+  if ("margin_multiplier" in input) {
+    overrides.margin_multiplier = input.margin_multiplier;
+  }
+  if ("margin_mode" in input) {
+    overrides.margin_mode = input.margin_mode;
+  }
+  if ("tax_rate_bp" in input) {
+    overrides.tax_rate_bp = input.tax_rate_bp;
+  }
+  if ("discount_bp" in input) {
+    overrides.discount_bp = input.discount_bp;
+  }
+  if ("discount_mode" in input) {
+    overrides.discount_mode = input.discount_mode;
+  }
+  if ("discount_steps" in input) {
+    overrides.discount_steps = input.discount_steps;
+  }
+  if ("global_coefficient" in input) {
+    overrides.global_coefficient = input.global_coefficient;
+  }
+  if ("rounding_mode" in input) {
+    overrides.rounding_mode = input.rounding_mode;
+  }
+  if ("rounding_step_cents" in input) {
+    overrides.rounding_step_cents = input.rounding_step_cents;
+  }
+  if ("contractor_role" in input) {
+    overrides.contractor_role = input.contractor_role;
+  }
+
+  return overrides;
 }
 
 function mergeEstimateTotalsForPatch(input: {
@@ -2914,15 +3085,46 @@ function toArrayNumberOrNull(value: unknown): Array<number | null> | null {
   });
 }
 
-async function recalculateEstimateVersionTotals(input: {
+type EstimateRecalculationVersionOverrides = Partial<
+  Pick<
+    EstimateVersionRow,
+    | "margin_multiplier"
+    | "margin_mode"
+    | "tax_rate_bp"
+    | "discount_bp"
+    | "discount_mode"
+    | "discount_steps"
+    | "global_coefficient"
+    | "rounding_mode"
+    | "rounding_step_cents"
+    | "contractor_role"
+  >
+>;
+
+type RecalculateEstimateVersionTotalsInput = {
   supabase: Supabase;
   tenantId: string;
   versionId: string;
-}) {
+  persist?: boolean;
+  versionOverrides?: EstimateRecalculationVersionOverrides;
+};
+
+async function recalculateEstimateVersionTotals(
+  input: RecalculateEstimateVersionTotalsInput & { persist: false }
+): Promise<{ totals: CalculatedEstimateTotals }>;
+async function recalculateEstimateVersionTotals(
+  input: RecalculateEstimateVersionTotalsInput
+): Promise<{
+  totals: CalculatedEstimateTotals;
+  version: { id: string; updated_at: string };
+}>;
+async function recalculateEstimateVersionTotals(
+  input: RecalculateEstimateVersionTotalsInput
+) {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, estimate_projects!inner(user_id)"
+      "id, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, contractor_role, estimate_projects!inner(user_id)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -2950,11 +3152,16 @@ async function recalculateEstimateVersionTotals(input: {
     | "global_coefficient"
     | "rounding_mode"
     | "rounding_step_cents"
+    | "contractor_role"
   > & {
     estimate_projects: { user_id: string } | { user_id: string }[] | null;
   };
+  const effectiveVersionRecord = {
+    ...versionRecord,
+    ...input.versionOverrides,
+  };
 
-  const project = resolveEmbeddedOne(versionRecord.estimate_projects);
+  const project = resolveEmbeddedOne(effectiveVersionRecord.estimate_projects);
   if (!project) {
     throw badRequest("Impossible de recalculer les totaux de la version cible.");
   }
@@ -3004,7 +3211,7 @@ async function recalculateEstimateVersionTotals(input: {
   }
 
   const marginTiers =
-    versionRecord.margin_mode === "tiered"
+    effectiveVersionRecord.margin_mode === "tiered"
       ? await loadMarginTiersForTotals({
           supabase: input.supabase,
           tenantId: input.tenantId,
@@ -3019,16 +3226,19 @@ async function recalculateEstimateVersionTotals(input: {
     { supabase: input.supabase }
   );
 
-  const discountSteps = toArrayNumberOrNull(versionRecord.discount_steps);
+  const discountSteps = toArrayNumberOrNull(
+    effectiveVersionRecord.discount_steps
+  );
   const discountCents = computeInitialDiscountCents(
     {
-      margin_multiplier: versionRecord.margin_multiplier ?? 1,
-      margin_mode: versionRecord.margin_mode ?? "fixed",
-      tax_rate_bp: versionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-      discount_bp: versionRecord.discount_bp ?? 0,
-      discount_mode: versionRecord.discount_mode ?? "simple",
+      margin_multiplier: effectiveVersionRecord.margin_multiplier ?? 1,
+      margin_mode: effectiveVersionRecord.margin_mode ?? "fixed",
+      tax_rate_bp:
+        effectiveVersionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+      discount_bp: effectiveVersionRecord.discount_bp ?? 0,
+      discount_mode: effectiveVersionRecord.discount_mode ?? "simple",
       discount_steps: discountSteps,
-      global_coefficient: versionRecord.global_coefficient ?? 1,
+      global_coefficient: effectiveVersionRecord.global_coefficient ?? 1,
     },
     lineItems,
     laborRatesById,
@@ -3042,7 +3252,9 @@ async function recalculateEstimateVersionTotals(input: {
     lineItems: lineItems.map((item) => ({
       quantity: item.quantity ?? 0,
       unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
-      tax_rate_bp: item.tax_rate_bp ?? (versionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP),
+      tax_rate_bp:
+        item.tax_rate_bp ??
+        (effectiveVersionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP),
       k_fo: item.k_fo ?? 1,
       h_mo: item.h_mo ?? 0,
       h_mo_majoration: item.h_mo_majoration ?? 1,
@@ -3064,18 +3276,23 @@ async function recalculateEstimateVersionTotals(input: {
         ? (laborRatesById.get(item.labor_role_chantier_id) ?? 0)
         : 0,
     })),
-    marginMultiplier: versionRecord.margin_multiplier ?? 1,
-    marginMode: versionRecord.margin_mode ?? "fixed",
+    marginMultiplier: effectiveVersionRecord.margin_multiplier ?? 1,
+    marginMode: effectiveVersionRecord.margin_mode ?? "fixed",
     marginTiers,
     isLaborSplitEnabled,
     discountCents,
-    discountMode: versionRecord.discount_mode ?? "simple",
+    discountMode: effectiveVersionRecord.discount_mode ?? "simple",
     discountStepsBp: discountSteps,
-    globalCoefficient: versionRecord.global_coefficient ?? 1,
-    taxRateBp: versionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-    roundingMode: versionRecord.rounding_mode ?? DEFAULT_ROUNDING_MODE,
+    globalCoefficient: effectiveVersionRecord.global_coefficient ?? 1,
+    taxRateBp:
+      effectiveVersionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+    roundingMode:
+      effectiveVersionRecord.rounding_mode ?? DEFAULT_ROUNDING_MODE,
     roundingStepCents:
-      versionRecord.rounding_step_cents ?? DEFAULT_ROUNDING_STEP_CENTS,
+      effectiveVersionRecord.rounding_step_cents ??
+      DEFAULT_ROUNDING_STEP_CENTS,
+    vatReverseCharge:
+      effectiveVersionRecord.contractor_role === "subcontractor",
   });
 
   const totals = {
@@ -3083,6 +3300,10 @@ async function recalculateEstimateVersionTotals(input: {
     total_tax_cents: totalsResult.adjustedTaxCents,
     total_ttc_cents: totalsResult.roundedTtcCents,
   };
+
+  if (input.persist === false) {
+    return { totals };
+  }
 
   const { data: versionToken, error: updateVersionError } = await input.supabase
     .from("estimate_versions")
@@ -6468,23 +6689,6 @@ export async function duplicateEstimateVersion(
   assertCanWriteEstimateWorkflows(context.tenantRole);
   await getVersionAccessOrThrow(supabase, versionId, context);
 
-  const { data: sourceVersion, error: sourceVersionError } = await supabase
-    .from("estimate_versions")
-    .select("exclusions")
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (sourceVersionError || !sourceVersion) {
-    if (sourceVersionError) {
-      throw mapSupabaseError(
-        sourceVersionError,
-        "Impossible de charger les exclusions du chiffrage."
-      );
-    }
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
     source_version_id: versionId,
     as_variant: options?.as_variant === true,
@@ -6497,18 +6701,6 @@ export async function duplicateEstimateVersion(
   const duplicatedVersionId = toRpcUuid(data);
   if (!duplicatedVersionId) {
     throw badRequest("Impossible de dupliquer le chiffrage.");
-  }
-
-  if (sourceVersion.exclusions) {
-    const { error: exclusionsError } = await supabase
-      .from("estimate_versions")
-      .update({ exclusions: sourceVersion.exclusions })
-      .eq("id", duplicatedVersionId)
-      .eq("tenant_id", tenantId);
-
-    if (exclusionsError) {
-      throw mapSupabaseError(exclusionsError, "Impossible de dupliquer les exclusions.");
-    }
   }
 
   await tryCarryOverTakeoffJobsToNewVersion({
@@ -7995,6 +8187,9 @@ export async function patchEstimateVersion(
   if ("tax_rate_bp" in input) {
     payload.tax_rate_bp = input.tax_rate_bp;
   }
+  if ("contractor_role" in input) {
+    payload.contractor_role = input.contractor_role;
+  }
   if ("rounding_mode" in input) {
     payload.rounding_mode = input.rounding_mode;
   }
@@ -8017,6 +8212,28 @@ export async function patchEstimateVersion(
     payload.total_ttc_cents = input.total_ttc_cents;
   }
 
+  let invariantPatch = input;
+  if ("contractor_role" in input) {
+    // Le régime de TVA est contractuel : ses totaux ne sont jamais acceptés
+    // depuis le client. On les recalcule avec les autres réglages du même PATCH.
+    // Une RPC revalide ensuite le snapshot et persiste rôle, taxes de lignes et
+    // totaux de version dans une seule transaction PostgreSQL.
+    const authoritativeResult = await recalculateEstimateVersionTotals({
+      supabase,
+      tenantId,
+      versionId,
+      persist: false,
+      versionOverrides: extractEstimateRecalculationOverrides(input),
+    });
+    payload.total_ht_cents = authoritativeResult.totals.total_ht_cents;
+    payload.total_tax_cents = authoritativeResult.totals.total_tax_cents;
+    payload.total_ttc_cents = authoritativeResult.totals.total_ttc_cents;
+    invariantPatch = {
+      ...input,
+      ...authoritativeResult.totals,
+    };
+  }
+
   const persistedTotals: EstimateTotals = {
     total_ht_cents: version.total_ht_cents ?? null,
     total_tax_cents: version.total_tax_cents ?? null,
@@ -8029,8 +8246,22 @@ export async function patchEstimateVersion(
     versionId,
     userId,
     persistedTotals,
-    patch: input,
+    patch: invariantPatch,
   });
+
+  if ("contractor_role" in input) {
+    const data = await patchEstimateContractorRoleAtomically({
+      versionId,
+      tenantId,
+      expectedUpdatedAt: version.updated_at,
+      actorUserId: userId,
+      patch: payload,
+    });
+
+    return {
+      version: data,
+    };
+  }
 
   const updateVersion = (updatePayload: EstimateVersionUpdate) =>
     supabase
@@ -8237,10 +8468,47 @@ export async function verifyEstimateSeal(versionId: string) {
     tenantId,
     versionId,
   });
-  const sealPayload = buildCanonicalEstimateSealPayload(sealSource);
-  const computedHash = computeEstimateSealHash(sealPayload);
+  const currentSealCandidate = {
+    scheme: "v2" as const,
+    hash: computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource)),
+  };
+  const legacySealCandidates = [
+    {
+      scheme: "v1_split" as const,
+      hash: computeEstimateSealHash(
+        buildCanonicalEstimateSealPayload(sealSource, {
+          payloadVersion: LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION,
+          includeCalcEngineVersion: false,
+        })
+      ),
+    },
+    {
+      scheme: "v1_pre_split" as const,
+      hash: computeEstimateSealHash(
+        buildCanonicalEstimateSealPayload(sealSource, {
+          payloadVersion: LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION,
+          includeLaborSplit: false,
+          includeCalcEngineVersion: false,
+        })
+      ),
+    },
+  ];
+  // A version produced by engine v2 was necessarily sealed with payload v2.
+  // Legacy fallbacks exist only for the engine-v1 fleet predating the payload.
+  const sealCandidates =
+    (sealSource.version.calc_engine_version ?? 1) >= 2
+      ? [currentSealCandidate]
+      : [currentSealCandidate, ...legacySealCandidates];
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
-  const isValid = storedHash !== null && computedHash === storedHash;
+  const matchedCandidate =
+    storedHash === null
+      ? null
+      : sealCandidates.find((candidate) => candidate.hash === storedHash) ?? null;
+  const isValid = matchedCandidate !== null;
+  // Pour un sceau historique valide, restituer le hash effectivement comparé
+  // conserve le contrat existant de l'API. Pour un échec, le hash v2 courant
+  // reste le diagnostic de référence.
+  const computedHash = matchedCandidate?.hash ?? sealCandidates[0].hash;
 
   await logEstimateVersionEvent({
     versionId,
@@ -8250,6 +8518,7 @@ export async function verifyEstimateSeal(versionId: string) {
       valid: isValid,
       computed_hash: computedHash,
       stored_hash: storedHash,
+      matched_seal_scheme: matchedCandidate?.scheme ?? null,
     },
     occurredAt: new Date().toISOString(),
   });

@@ -145,6 +145,135 @@ function createExpectedSealHash(input: {
     .toLowerCase();
 }
 
+function createExpectedSplitSealHash(
+  input: {
+    version: {
+      id: string;
+      tenant_id: string;
+      project_id: string;
+      version_number: number;
+      date_devis: string;
+      total_ht_cents: number;
+      total_tax_cents: number;
+      total_ttc_cents: number;
+      margin_multiplier: number;
+      discount_bp: number;
+      tax_rate_bp: number;
+      rounding_mode: "none" | "nearest" | "up" | "down";
+      rounding_step_cents: number;
+      calc_engine_version: number;
+      contractor_role?: string;
+    };
+    items: Array<{
+      id: string;
+      position: number;
+      item_type: "section" | "line";
+      title: string;
+      quantity: number | null;
+      unit_price_ht_cents: number | null;
+      tax_rate_bp: number | null;
+      k_fo: number | null;
+      h_mo: number | null;
+      h_mo_majoration?: number | null;
+      k_mo: number | null;
+      h_mo_atelier?: number | null;
+      k_mo_atelier?: number | null;
+      labor_role_atelier_id?: string | null;
+      h_mo_chantier?: number | null;
+      k_mo_chantier?: number | null;
+      labor_role_chantier_id?: string | null;
+      supply_type_id?: string | null;
+      pu_ht_cents: number | null;
+      line_total_ht_cents: number | null;
+      line_tax_cents: number | null;
+      line_total_ttc_cents: number | null;
+    }>;
+  },
+  options?: {
+    payloadVersion?: 1 | 2;
+    includeCalcEngineVersion?: boolean;
+  }
+) {
+  const payloadVersion = options?.payloadVersion ?? 2;
+  const includeCalcEngineVersion =
+    options?.includeCalcEngineVersion ?? true;
+  const payload = {
+    meta: {
+      payload_version: payloadVersion,
+      version_id: input.version.id,
+      tenant_id: input.version.tenant_id,
+      project_id: input.version.project_id,
+    },
+    version: {
+      version_number: input.version.version_number,
+      date_devis: input.version.date_devis,
+      total_ht_cents: input.version.total_ht_cents,
+      total_tax_cents: input.version.total_tax_cents,
+      total_ttc_cents: input.version.total_ttc_cents,
+      margin_multiplier: input.version.margin_multiplier,
+      discount_bp: input.version.discount_bp,
+      tax_rate_bp: input.version.tax_rate_bp,
+      rounding_mode: input.version.rounding_mode,
+      rounding_step_cents: input.version.rounding_step_cents,
+      ...(includeCalcEngineVersion
+        ? { calc_engine_version: input.version.calc_engine_version }
+        : {}),
+      ...(input.version.contractor_role &&
+      input.version.contractor_role !== "principal"
+        ? { contractor_role: input.version.contractor_role }
+        : {}),
+    },
+    items: [...input.items]
+      .sort((left, right) => {
+        if (left.position !== right.position) {
+          return left.position - right.position;
+        }
+        return left.id.localeCompare(right.id);
+      })
+      .map((item) => ({
+        id: item.id,
+        position: item.position,
+        item_type: item.item_type,
+        title: item.title,
+        quantity: item.quantity,
+        unit_price_ht_cents: item.unit_price_ht_cents,
+        tax_rate_bp: item.tax_rate_bp,
+        k_fo: item.k_fo,
+        h_mo: item.h_mo,
+        h_mo_majoration: item.h_mo_majoration ?? null,
+        k_mo: item.k_mo,
+        ...(item.h_mo_atelier != null
+          ? { h_mo_atelier: item.h_mo_atelier }
+          : {}),
+        ...(item.k_mo_atelier != null
+          ? { k_mo_atelier: item.k_mo_atelier }
+          : {}),
+        ...(item.labor_role_atelier_id != null
+          ? { labor_role_atelier_id: item.labor_role_atelier_id }
+          : {}),
+        ...(item.h_mo_chantier != null
+          ? { h_mo_chantier: item.h_mo_chantier }
+          : {}),
+        ...(item.k_mo_chantier != null
+          ? { k_mo_chantier: item.k_mo_chantier }
+          : {}),
+        ...(item.labor_role_chantier_id != null
+          ? { labor_role_chantier_id: item.labor_role_chantier_id }
+          : {}),
+        supply_type_id: item.supply_type_id ?? null,
+        pu_ht_cents: item.pu_ht_cents,
+        line_total_ht_cents: item.line_total_ht_cents,
+        line_tax_cents: item.line_tax_cents,
+        line_total_ttc_cents: item.line_total_ttc_cents,
+      })),
+  };
+
+  return createHash("sha256")
+    .update(JSON.stringify(payload))
+    .digest("hex")
+    .toLowerCase();
+}
+
 function createSupabaseSealMock(input: {
   versionSelectResponses: QueryResult[];
   estimateItemsResult: QueryResult;
@@ -868,9 +997,10 @@ describe("verifyEstimateSeal", () => {
       valid: true,
     });
 
-    // Le même sceau historique ne valide plus si une MO atelier est renseignée :
-    // la ventilation est désormais couverte par l'intégrité.
-    const tamperedSupabase = createSupabaseSealMock({
+    // Une ventilation peut avoir été présente AVANT son ajout au payload du
+    // sceau. Le vérificateur v1 pré-split doit accepter ce sceau historique au
+    // lieu de déclarer à tort une altération.
+    const historicalSplitSupabase = createSupabaseSealMock({
       versionSelectResponses: [
         { data: createVersionAccessRow("sent"), error: null },
         { data: { ...version, seal_hash: legacyHash }, error: null },
@@ -881,7 +1011,198 @@ describe("verifyEstimateSeal", () => {
       },
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(
-      tamperedSupabase as never
+      historicalSplitSupabase as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: true,
+    });
+  });
+
+  it("valide une vraie fixture v1 dont le hash contient la ventilation", async () => {
+    const version = {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      date_devis: "2026-02-21",
+      total_ht_cents: 10000,
+      total_tax_cents: 2000,
+      total_ttc_cents: 12000,
+      margin_multiplier: 1.2,
+      discount_bp: 0,
+      tax_rate_bp: 2000,
+      rounding_mode: "none" as const,
+      rounding_step_cents: 1,
+      calc_engine_version: 1,
+      contractor_role: "principal",
+    };
+    const splitItem = {
+      id: "abababab-abab-4bab-8bab-abababababab",
+      position: 1,
+      item_type: "line" as const,
+      title: "Ligne v1 ventilée",
+      quantity: 1,
+      unit_price_ht_cents: 10000,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: null,
+      k_mo: 1,
+      h_mo_atelier: 3,
+      k_mo_atelier: 1.1,
+      labor_role_atelier_id: "role-atelier",
+      h_mo_chantier: 2,
+      k_mo_chantier: 1.2,
+      labor_role_chantier_id: "role-chantier",
+      supply_type_id: null,
+      pu_ht_cents: 10000,
+      line_total_ht_cents: 10000,
+      line_tax_cents: 2000,
+      line_total_ttc_cents: 12000,
+    };
+    const v1SplitHash = createExpectedSplitSealHash(
+      { version, items: [splitItem] },
+      {
+        payloadVersion: 1,
+        includeCalcEngineVersion: false,
+      }
+    );
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        { data: { ...version, seal_hash: v1SplitHash }, error: null },
+      ],
+      estimateItemsResult: { data: [splitItem], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toEqual({
+      valid: true,
+      computed_hash: v1SplitHash,
+      stored_hash: v1SplitHash,
+    });
+  });
+
+  it("protege le moteur et la ventilation des nouveaux sceaux v2 sans fallback permissif", async () => {
+    const version = {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      date_devis: "2026-02-21",
+      total_ht_cents: 10000,
+      total_tax_cents: 2000,
+      total_ttc_cents: 12000,
+      margin_multiplier: 1.2,
+      discount_bp: 0,
+      tax_rate_bp: 2000,
+      rounding_mode: "none" as const,
+      rounding_step_cents: 1,
+      calc_engine_version: 2,
+      contractor_role: "principal",
+    };
+    const item = {
+      id: "99999999-9999-4999-8999-999999999999",
+      position: 1,
+      item_type: "line" as const,
+      title: "Ligne ventilée",
+      quantity: 1,
+      unit_price_ht_cents: 10000,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: null,
+      k_mo: 1,
+      h_mo_atelier: 5,
+      k_mo_atelier: 1,
+      labor_role_atelier_id: "role-a",
+      h_mo_chantier: null,
+      k_mo_chantier: 1,
+      labor_role_chantier_id: null,
+      supply_type_id: null,
+      pu_ht_cents: 10000,
+      line_total_ht_cents: 10000,
+      line_tax_cents: 2000,
+      line_total_ttc_cents: 12000,
+    };
+    const v2Hash = createExpectedSplitSealHash({
+      version,
+      items: [item],
+    });
+
+    const validSupabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        { data: { ...version, seal_hash: v2Hash }, error: null },
+      ],
+      estimateItemsResult: { data: [item], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      validSupabase as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: true,
+      computed_hash: v2Hash,
+    });
+
+    const v1HashOnEngineV2 = createExpectedSplitSealHash(
+      { version, items: [item] },
+      {
+        payloadVersion: 1,
+        includeCalcEngineVersion: false,
+      }
+    );
+    const legacyHashOnEngineV2Supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        {
+          data: { ...version, seal_hash: v1HashOnEngineV2 },
+          error: null,
+        },
+      ],
+      estimateItemsResult: { data: [item], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      legacyHashOnEngineV2Supabase as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: false,
+      stored_hash: v1HashOnEngineV2,
+    });
+
+    const splitTamperedSupabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        { data: { ...version, seal_hash: v2Hash }, error: null },
+      ],
+      estimateItemsResult: {
+        data: [{ ...item, h_mo_atelier: 6 }],
+        error: null,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      splitTamperedSupabase as never
+    );
+    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
+      valid: false,
+    });
+
+    const engineTamperedSupabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: createVersionAccessRow("sent"), error: null },
+        {
+          data: {
+            ...version,
+            calc_engine_version: 1,
+            seal_hash: v2Hash,
+          },
+          error: null,
+        },
+      ],
+      estimateItemsResult: { data: [item], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      engineTamperedSupabase as never
     );
     await expect(verifyEstimateSeal(VERSION_ID)).resolves.toMatchObject({
       valid: false,

@@ -4692,7 +4692,7 @@
         "tags": [
           "Estimate Versions"
         ],
-        "summary": "Creer une variante",
+        "summary": "Créer une variante",
         "description": "Cree une variante de la version en cours.",
         "parameters": [
           {

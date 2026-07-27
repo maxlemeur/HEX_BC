@@ -184,10 +184,10 @@ describe("MappingRulesManager", () => {
     expect(await screen.findByText("Renommer PVC")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Nouvelle regle" }));
-    await user.type(screen.getByLabelText("Nom de la regle"), "Ouvrage auto");
+    await user.type(screen.getByLabelText("Nom de la règle"), "Ouvrage auto");
     await user.type(screen.getByLabelText("Pattern de correspondance"), "cloison");
     await user.selectOptions(screen.getByLabelText("Action"), "skip");
-    await user.click(screen.getByRole("button", { name: "Creer la regle" }));
+    await user.click(screen.getByRole("button", { name: "Créer la règle" }));
 
     await waitFor(() => {
       expect(createTakeoffMappingRule).toHaveBeenCalledTimes(1);

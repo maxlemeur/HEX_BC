@@ -3,6 +3,7 @@ import { Resend } from "resend";
 
 import { COMPANY_INFO } from "@/lib/company-info";
 import { AcceptanceConfirmationEmailTemplate } from "@/lib/email/templates/acceptance-confirmation";
+import { resolvePortalDocumentContract } from "@/lib/estimates/portal-document-contract";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
@@ -89,7 +90,7 @@ export async function POST(
     // 1. Lookup portal token
     const { data: portalToken, error: lookupError } = await supabase
       .from("portal_tokens")
-      .select("id, version_id, status, expires_at, email")
+      .select("id, tenant_id, version_id, status, expires_at, email")
       .eq("token", token)
       .single();
 
@@ -111,6 +112,36 @@ export async function POST(
       return NextResponse.json(
         { error: "Ce lien a expire." },
         { status: 404 }
+      );
+    }
+
+    // The page is not a security boundary: a caller can invoke this route
+    // directly. Revalidate the immutable document contract before claiming the
+    // token so a required, missing or invalid CGV snapshot can never be
+    // accepted through an API-only bypass.
+    const { data: storedDocument, error: documentError } = await supabase
+      .from("estimate_documents")
+      .select("status, layout_options, terms_snapshot, generated_by")
+      .eq("version_id", portalToken.version_id)
+      .eq("tenant_id", portalToken.tenant_id)
+      .maybeSingle();
+
+    if (documentError) {
+      console.error("Portal acceptance document lookup error:", documentError);
+      return NextResponse.json(
+        { error: "Document contractuel temporairement indisponible." },
+        { status: 503 }
+      );
+    }
+
+    const documentContract = resolvePortalDocumentContract(storedDocument);
+    if (!documentContract.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "Ce document ne peut pas etre accepte car sa copie contractuelle est incomplete.",
+        },
+        { status: 409 }
       );
     }
 

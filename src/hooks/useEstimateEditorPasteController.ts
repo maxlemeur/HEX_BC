@@ -29,7 +29,7 @@ type RecreatedItems = {
 type EstimateEditorPasteControllerInput = {
   settings: Pick<
     EstimateSettingsState,
-    "margin_multiplier" | "tax_rate_bp"
+    "margin_multiplier" | "tax_rate_bp" | "contractor_role"
   > | null;
   isLaborSplitEnabled: boolean;
   isMutationBlocked: boolean;
@@ -108,6 +108,10 @@ export function useEstimateEditorPasteController({
 
       reportError(null);
       const snapshot = getItemsSnapshot();
+      const effectiveTaxRateBp =
+        settings.contractor_role === "subcontractor"
+          ? 0
+          : settings.tax_rate_bp;
       const anchorItem = anchorRowId
         ? (snapshot.find((item) => item.id === anchorRowId) ?? null)
         : null;
@@ -161,7 +165,7 @@ export function useEstimateEditorPasteController({
           },
           {
             marginMultiplier: settings.margin_multiplier,
-            taxRateBp: settings.tax_rate_bp,
+            taxRateBp: effectiveTaxRateBp,
             isLaborSplitEnabled,
           }
         );

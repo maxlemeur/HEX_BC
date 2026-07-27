@@ -337,7 +337,7 @@ describe("M-21: French labels for technical options", () => {
     const source = readSource("src/components/catalogue/CatalogueManager.tsx");
 
     expect(source).toContain("Simulation");
-    expect(source).toContain("Options avancees");
+    expect(source).toContain("Options avancées");
     // Should NOT have raw English jargon labels visible to users
     expect(source).not.toMatch(/>Dry run</);
   });
@@ -447,7 +447,7 @@ describe("M-11: French headers in DataPreview", () => {
     const source = readSource("src/components/mappings/DataPreview.tsx");
 
     // Should have at least some French labels
-    expect(source).toMatch(/Référence article|Designation|Quantite|Prix unitaire/);
+    expect(source).toMatch(/Référence article|Désignation|Quantité|Prix unitaire/);
   });
 });
 
@@ -460,7 +460,7 @@ describe("M-22: French title for liaison section", () => {
     const source = readSource("src/components/catalogue/CatalogueManager.tsx");
 
     // Should use French title
-    expect(source).toContain("Liaison lignes importees");
+    expect(source).toContain("Liaison lignes importées");
     // Should NOT have the old mixed English/ASCII title
     expect(source).not.toContain("mapped rows ->");
   });

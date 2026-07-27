@@ -19,17 +19,17 @@ const MATCH_TYPE_OPTIONS: Array<{
   {
     value: "contains",
     label: "Contains",
-    description: "Le pattern peut apparaitre n'importe ou dans la designation.",
+    description: "Le pattern peut apparaître n'importe où dans la désignation.",
   },
   {
     value: "exact",
     label: "Exact",
-    description: "La designation doit correspondre exactement au pattern.",
+    description: "La désignation doit correspondre exactement au pattern.",
   },
   {
     value: "regex",
     label: "Regex",
-    description: "Utilise une expression reguliere (mode insensible a la casse).",
+    description: "Utilise une expression régulière (mode insensible à la casse).",
   },
 ];
 
@@ -41,7 +41,7 @@ const ACTION_OPTIONS: Array<{
   {
     value: "rename",
     label: "Rename",
-    description: "Remplace la designation source par la designation cible.",
+    description: "Remplace la désignation source par la désignation cible.",
   },
   {
     value: "set_price",
@@ -51,12 +51,12 @@ const ACTION_OPTIONS: Array<{
   {
     value: "set_category",
     label: "Set category",
-    description: "Assigne une categorie via son UUID.",
+    description: "Assigne une catégorie via son UUID.",
   },
   {
     value: "apply_assembly",
     label: "Apply assembly",
-    description: "Applique un ouvrage predefini.",
+    description: "Applique un ouvrage prédéfini.",
   },
   {
     value: "skip",
@@ -186,13 +186,13 @@ function validateFormState(
   if (!state.name.trim()) {
     errors.name = "Le nom est obligatoire.";
   } else if (state.name.trim().length > 160) {
-    errors.name = "Le nom doit contenir au maximum 160 caracteres.";
+    errors.name = "Le nom doit contenir au maximum 160 caractères.";
   }
 
   if (!state.matchPattern.trim()) {
     errors.matchPattern = "Le pattern est obligatoire.";
   } else if (state.matchPattern.trim().length > 500) {
-    errors.matchPattern = "Le pattern doit contenir au maximum 500 caracteres.";
+    errors.matchPattern = "Le pattern doit contenir au maximum 500 caractères.";
   } else if (state.matchType === "regex") {
     try {
       new RegExp(state.matchPattern.trim());
@@ -203,31 +203,31 @@ function validateFormState(
 
   const parsedPriority = parsePriorityOrNull(state.priority);
   if (parsedPriority === null) {
-    errors.priority = "La priorite doit etre un entier entre 0 et 100000.";
+    errors.priority = "La priorité doit être un entier entre 0 et 100000.";
   }
 
   if (state.action === "rename") {
     if (!state.renameDesignation.trim()) {
-      errors.renameDesignation = "La designation cible est obligatoire.";
+      errors.renameDesignation = "La désignation cible est obligatoire.";
     } else if (state.renameDesignation.trim().length > 500) {
       errors.renameDesignation =
-        "La designation cible doit contenir au maximum 500 caracteres.";
+        "La désignation cible doit contenir au maximum 500 caractères.";
     }
   }
 
   if (state.action === "set_price") {
     const parsedPrice = parsePriorityOrNull(state.setPriceCents);
     if (parsedPrice === null) {
-      errors.setPriceCents = "Le prix unitaire doit etre un entier positif ou nul.";
+      errors.setPriceCents = "Le prix unitaire doit être un entier positif ou nul.";
     }
   }
 
   if (state.action === "set_category") {
     const normalizedCategoryId = state.setCategoryId.trim();
     if (!normalizedCategoryId) {
-      errors.setCategoryId = "L'UUID de categorie est obligatoire.";
+      errors.setCategoryId = "L'UUID de catégorie est obligatoire.";
     } else if (!UUID_PATTERN.test(normalizedCategoryId)) {
-      errors.setCategoryId = "UUID de categorie invalide.";
+      errors.setCategoryId = "UUID de catégorie invalide.";
     }
   }
 
@@ -236,7 +236,7 @@ function validateFormState(
     const allowedAssemblyId =
       options.allowAssemblyIdOutsideLoadedList?.trim() ?? null;
     if (!normalizedAssemblyId) {
-      errors.applyAssemblyId = "Selectionnez un ouvrage valide.";
+      errors.applyAssemblyId = "Sélectionnez un ouvrage valide.";
     } else if (!UUID_PATTERN.test(normalizedAssemblyId)) {
       errors.applyAssemblyId = "UUID d'ouvrage invalide.";
     } else if (
@@ -245,7 +245,7 @@ function validateFormState(
       normalizedAssemblyId !== allowedAssemblyId
     ) {
       errors.applyAssemblyId =
-        "L'ouvrage selectionne est introuvable dans la liste chargee.";
+        "L'ouvrage sélectionné est introuvable dans la liste chargée.";
     }
   }
 
@@ -263,14 +263,14 @@ function evaluatePreview(
   if (!normalizedDesignation) {
     return {
       state: "idle",
-      message: "Saisissez une designation de test pour verifier la regle.",
+      message: "Saisissez une désignation de test pour vérifier la règle.",
     };
   }
 
   if (!normalizedPattern) {
     return {
       state: "invalid",
-      message: "Le pattern est vide: impossible de calculer un match.",
+      message: "Le pattern est vide : impossible de calculer une correspondance.",
     };
   }
 
@@ -280,8 +280,8 @@ function evaluatePreview(
     return {
       state: isMatch ? "match" : "no-match",
       message: isMatch
-        ? "Correspondance detectee (exact)."
-        : "Aucune correspondance (exact).",
+        ? "Correspondance détectée (exacte)."
+        : "Aucune correspondance (exacte).",
     };
   }
 
@@ -292,8 +292,8 @@ function evaluatePreview(
     return {
       state: isMatch ? "match" : "no-match",
       message: isMatch
-        ? "Correspondance detectee (contains)."
-        : "Aucune correspondance (contains).",
+        ? "Correspondance détectée (contient)."
+        : "Aucune correspondance (contient).",
     };
   }
 
@@ -302,13 +302,13 @@ function evaluatePreview(
     return {
       state: isMatch ? "match" : "no-match",
       message: isMatch
-        ? "Correspondance detectee (regex)."
+        ? "Correspondance détectée (regex)."
         : "Aucune correspondance (regex).",
     };
   } catch {
     return {
       state: "invalid",
-      message: "Regex invalide: corrigez le pattern pour activer la preview.",
+      message: "Regex invalide : corrigez le pattern pour activer l'aperçu.",
     };
   }
 }
@@ -464,10 +464,10 @@ export function MappingRuleEditor({
     mode === "edit"
       ? isSubmitting
         ? "Enregistrement..."
-        : "Enregistrer la regle"
+        : "Enregistrer la règle"
       : isSubmitting
-        ? "Creation..."
-        : "Creer la regle";
+        ? "Création..."
+        : "Créer la règle";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -513,11 +513,11 @@ export function MappingRuleEditor({
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-[var(--slate-900)]">
           {mode === "edit"
-            ? "Edition d&apos;une regle de mapping"
-            : "Nouvelle regle de mapping"}
+            ? "Édition d&apos;une règle de mapping"
+            : "Nouvelle règle de mapping"}
         </h2>
         <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Configurez la correspondance designation et l&apos;action d&apos;enrichissement.
+          Configurez la correspondance de désignation et l&apos;action d&apos;enrichissement.
         </p>
       </div>
 
@@ -525,7 +525,7 @@ export function MappingRuleEditor({
         <div className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2">
             <label className="form-label" htmlFor="mapping-rule-name">
-              Nom de la regle
+              Nom de la règle
             </label>
             <input
               id="mapping-rule-name"
@@ -593,7 +593,7 @@ export function MappingRuleEditor({
 
         <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
           <label className="form-label" htmlFor="mapping-rule-preview-designation">
-            Test designation (preview)
+            Test de désignation (aperçu)
           </label>
           <input
             id="mapping-rule-preview-designation"
@@ -633,7 +633,7 @@ export function MappingRuleEditor({
 
           <div>
             <label className="form-label" htmlFor="mapping-rule-priority">
-              Priorite
+              Priorité
             </label>
             <input
               id="mapping-rule-priority"
@@ -659,7 +659,7 @@ export function MappingRuleEditor({
         {state.action === "rename" ? (
           <div>
             <label className="form-label" htmlFor="mapping-rule-action-rename">
-              Nouvelle designation
+              Nouvelle désignation
             </label>
             <input
               id="mapping-rule-action-rename"
@@ -711,7 +711,7 @@ export function MappingRuleEditor({
         {state.action === "set_category" ? (
           <div>
             <label className="form-label" htmlFor="mapping-rule-action-category">
-              UUID categorie
+              UUID catégorie
             </label>
             <input
               id="mapping-rule-action-category"
@@ -750,7 +750,7 @@ export function MappingRuleEditor({
               <option value="">
                 {assemblies.length === 0
                   ? "Aucun ouvrage disponible"
-                  : "Selectionner un ouvrage"}
+                  : "Sélectionner un ouvrage"}
               </option>
               {selectedAssemblyMissing ? (
                 <option value={state.applyAssemblyId}>
@@ -767,7 +767,7 @@ export function MappingRuleEditor({
               <p className="mt-1 text-xs text-rose-700">{errors.applyAssemblyId}</p>
             ) : (
               <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Charge depuis la bibliotheque d&apos;ouvrages du tenant (limite 100).
+                Chargé depuis la bibliothèque d&apos;ouvrages du tenant (limite 100).
               </p>
             )}
           </div>
@@ -775,7 +775,7 @@ export function MappingRuleEditor({
 
         {state.action === "skip" ? (
           <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-600)]">
-            Cette action ignore l&apos;item source: aucun parametre supplementaire requis.
+            Cette action ignore l&apos;item source : aucun paramètre supplémentaire requis.
           </div>
         ) : null}
 
@@ -787,7 +787,7 @@ export function MappingRuleEditor({
             disabled={isSubmitting}
           />
           <span className="text-sm font-medium text-[var(--slate-700)]">
-            Regle active
+            Règle active
           </span>
         </label>
 

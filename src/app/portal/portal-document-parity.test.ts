@@ -20,6 +20,9 @@ const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
 
 const PORTAL = read("src/app/portal/[token]/page.tsx");
 const PRINT = read("src/app/dashboard/estimates/[versionId]/print/page.tsx");
+const PORTAL_CONTRACT = read(
+  "src/lib/estimates/portal-document-contract.ts"
+);
 
 const CONTRACTUAL_PROPS = [
   "exclusions=",
@@ -46,9 +49,16 @@ describe("portail — parité documentaire avec l'impression", () => {
     expect(PORTAL).toContain("estimate_documents");
     expect(PORTAL).toContain("terms_snapshot");
     expect(PORTAL).toContain("layout_options");
+    expect(PORTAL).toContain("generated_by");
   });
 
   it("n'affiche pas de CGV brouillon au client", () => {
-    expect(PORTAL).toContain("canUseEstimateTermsSnapshot");
+    expect(PORTAL).toContain("resolvePortalDocumentContract");
+    expect(PORTAL_CONTRACT).toContain("canUseEstimateTermsSnapshot");
+  });
+
+  it("refuse la page si la copie contractuelle stockée est illisible", () => {
+    expect(PORTAL).toMatch(/documentResult\.error[\s\S]*notFound\(\)/);
+    expect(PORTAL).toMatch(/!documentContract\.ok[\s\S]*notFound\(\)/);
   });
 });

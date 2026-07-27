@@ -438,6 +438,28 @@ describe("computeReadOnlyTotals - garde-fou calcEngineVersion (EST-E26 étape 9)
     expect(totals.saleSubtotalBeforeCoefficientCents).toBe(100_000);
     expect(totals.globalCoefficient).toBe(1.1);
   });
+
+  it("v2 envoyé : applique l'autoliquidation puis restaure la TVA au retour principal", () => {
+    const subcontractorTotals = computeReadOnlyTotals({
+      ...base,
+      calcEngineVersion: 2,
+      vatReverseCharge: true,
+    });
+    expect(subcontractorTotals.saleTotalCents).toBe(110_000);
+    expect(subcontractorTotals.taxCents).toBe(0);
+    expect(subcontractorTotals.ttcCents).toBe(110_000);
+    expect(subcontractorTotals.roundedTtcCents).toBe(110_000);
+
+    const principalTotals = computeReadOnlyTotals({
+      ...base,
+      calcEngineVersion: 2,
+      vatReverseCharge: false,
+    });
+    expect(principalTotals.saleTotalCents).toBe(110_000);
+    expect(principalTotals.taxCents).toBe(22_000);
+    expect(principalTotals.ttcCents).toBe(132_000);
+    expect(principalTotals.roundedTtcCents).toBe(132_000);
+  });
 });
 
 describe("buildLegacyDocumentBreakdown - le document suit le moteur de la version", () => {
@@ -455,7 +477,7 @@ describe("buildLegacyDocumentBreakdown - le document suit le moteur de la versio
     }),
   ] as unknown as EstimateItem[];
 
-  const build = (calcEngineVersion: 1 | 2) =>
+  const build = (calcEngineVersion: 1 | 2, globalCoefficient = 1) =>
     buildLegacyDocumentBreakdown({
       items,
       marginMultiplier: 1,
@@ -464,6 +486,7 @@ describe("buildLegacyDocumentBreakdown - le document suit le moteur de la versio
       isLaborSplitEnabled: false,
       laborRateById: {},
       calcEngineVersion,
+      globalCoefficient,
     });
 
   it("le parametre est porte jusqu'au moteur : l'invariant distingue v1 de v2", () => {
@@ -491,6 +514,17 @@ describe("buildLegacyDocumentBreakdown - le document suit le moteur de la versio
       0
     );
     expect(sumLines).toBe(v2.totals.saleTotalCents);
+  });
+
+  it("v2 applique le coefficient global aux lignes et sections, sans modifier v1", () => {
+    const v1 = build(1, 1.2);
+    const v2 = build(2, 1.2);
+
+    expect(v1.totals.saleTotalCents).toBe(90_000);
+    expect(v1.sectionById.get("sec-1")?.totalHtCents).toBe(90_000);
+    expect(v2.totals.saleTotalCents).toBe(110_000);
+    expect(v2.sectionById.get("sec-1")?.totalHtCents).toBe(110_000);
+    expect(v2.lineById.get("l1")?.saleNetHtCents).toBe(110_000);
   });
 
   it("sans parametre, le document reste epingle au moteur historique", () => {

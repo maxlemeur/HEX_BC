@@ -1,9 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   EstimateSettingsPanel,
@@ -51,6 +51,8 @@ const baseSettings: EstimateSettingsState = {
   rounding_mode: "none",
   rounding_step_cents: 1,
 };
+
+afterEach(cleanup);
 
 describe("EstimateSettingsPanel", () => {
   it("keeps typing stable on simple numeric inputs", async () => {
@@ -113,5 +115,27 @@ describe("EstimateSettingsPanel", () => {
     await user.clear(stepInput);
     await user.type(stepInput, "7.5");
     expect((stepInput as HTMLInputElement).value).toBe("7.5");
+  });
+
+  it("requires an explicit eligible-work choice for reverse charge", async () => {
+    const user = userEvent.setup();
+    render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} />);
+
+    await user.selectOptions(
+      screen.getByLabelText("Régime de TVA"),
+      "subcontractor"
+    );
+
+    expect(
+      screen.getByRole("option", {
+        name: /travaux immobiliers sous-traités éligibles/i,
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/À sélectionner uniquement pour une sous-traitance/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/ne relèvent pas automatiquement de ce régime/i)
+    ).toBeInTheDocument();
   });
 });
