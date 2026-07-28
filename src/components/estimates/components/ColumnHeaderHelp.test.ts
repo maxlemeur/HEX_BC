@@ -4,14 +4,14 @@ import { COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/Column
 
 describe("estimate column header help", () => {
   it("documents the complete unit sale price formula", () => {
-    expect(COLUMN_HEADER_TOOLTIPS["P.U."]).toBe(
-      "P.U. = (PR. FO × K FO + h MO × K MO × prix horaire MO) × coefficient de marge. Si le taux horaire du rôle vaut 0 €/h, la MO contribue 0 € au P.U.",
+    expect(COLUMN_HEADER_TOOLTIPS["PU"]).toBe(
+      "PU = (PR FO × K FO + h MO × K MO × prix horaire MO) × coefficient de marge. Si le taux horaire du rôle vaut 0 €/h, la MO contribue 0 € au PU.",
     );
   });
 
   it("documents the line total formula", () => {
     expect(COLUMN_HEADER_TOOLTIPS["Prix total"]).toBe(
-      "Prix total HT = P.U. × Qté",
+      "Prix total HT = PU × Qté",
     );
   });
 

@@ -7,11 +7,8 @@ import {
   type RefObject,
 } from "react";
 
-import {
-  ColumnHeaderHelp,
-  COLUMN_HEADER_TOOLTIPS,
-} from "@/components/estimates/components/ColumnHeaderHelp";
 import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
+import { EstimateColumnsHelpPanel } from "@/components/estimates/components/EstimateColumnsHelpPanel";
 import { ProductionRibbon } from "@/components/dashboard/ProductionRibbon";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { type ColumnKey } from "@/hooks/useColumnVisibility";
@@ -19,6 +16,21 @@ import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateEditorBodyProps = ComponentProps<typeof EstimateEditorBody>;
+
+function ColumnHeaderLabel({
+  label,
+  allowWrap = false,
+}: Readonly<{ label: string; allowWrap?: boolean }>) {
+  return (
+    <span
+      className={`inline-flex items-center text-[10px] ${
+        allowWrap ? "whitespace-normal" : "whitespace-nowrap"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
 
 type EstimateEditorTableChromeProps = {
   tableCardRef: RefObject<HTMLDivElement | null>;
@@ -205,16 +217,22 @@ export function EstimateEditorTableChrome({
             style={dynamicGridStyle}
             data-testid="estimate-editor-table"
           >
-            <div className="estimate-table__super-head" aria-hidden="true">
+            <div
+              className="estimate-table__super-head"
+              aria-label="Groupes de colonnes"
+            >
               <div
-                className="estimate-super-head__spacer"
+                className="estimate-super-head__spacer estimate-super-head__spacer--help"
                 style={{ gridColumn: "1 / span 3" }}
-              />
+              >
+                <EstimateColumnsHelpPanel />
+              </div>
               <div
                 className="estimate-super-head__group estimate-super-head__group--fo"
                 style={{
                   gridColumn: `${superHeaderSpans.foStart} / span ${superHeaderSpans.foSpan}`,
                 }}
+                aria-hidden="true"
               >
                 Fournitures
               </div>
@@ -223,13 +241,28 @@ export function EstimateEditorTableChrome({
                 style={{
                   gridColumn: `${superHeaderSpans.moStart} / span ${superHeaderSpans.moSpan}`,
                 }}
+                aria-hidden="true"
               >
                 Main d&apos;oeuvre
               </div>
               <div
+                className="estimate-super-head__group estimate-super-head__group--sale"
+                style={{
+                  gridColumn: `${superHeaderSpans.puStart} / span 2`,
+                }}
+                aria-hidden="true"
+              >
+                Vente
+              </div>
+              <div
                 className="estimate-super-head__spacer"
                 style={{
-                  gridColumn: `${superHeaderSpans.puStart} / span 3`,
+                  gridColumn: `${superHeaderSpans.puStart + 2} / span ${
+                    1 +
+                    (visibleColumns.has("ds") ? 1 : 0) +
+                    (visibleColumns.has("marge") ? 1 : 0) +
+                    (visibleColumns.has("marque") ? 1 : 0)
+                  }`,
                 }}
               />
             </div>
@@ -250,180 +283,99 @@ export function EstimateEditorTableChrome({
                   aria-label="Sélectionner toutes les lignes visibles"
                   data-testid="estimate-editor-select-all-visible-lines-checkbox"
                 />
-                <ColumnHeaderHelp
-                  label="Désignation"
-                  tooltip={COLUMN_HEADER_TOOLTIPS["Désignation"]}
-                />
+                <ColumnHeaderLabel label="Désignation" />
               </div>
               <div className="relative">
-                <ColumnHeaderHelp
-                  label="Qté"
-                  tooltip={COLUMN_HEADER_TOOLTIPS["Qté"]}
-                />
+                <ColumnHeaderLabel label="Qté" />
               </div>
               <div className="relative">
-                <ColumnHeaderHelp
-                  label="U"
-                  tooltip={COLUMN_HEADER_TOOLTIPS["U"]}
-                />
+                <ColumnHeaderLabel label="U" />
               </div>
               <div className="relative estimate-col--fo">
-                <ColumnHeaderHelp
-                  label="PR. FO"
-                  tooltip={COLUMN_HEADER_TOOLTIPS["PR. FO"]}
-                />
+                <ColumnHeaderLabel label="PR FO" />
               </div>
               {isLaborSplitEnabled ? (
                 <>
                   <div className="relative estimate-col--fo">
-                    <ColumnHeaderHelp
-                      label="Type FO"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]}
-                    />
+                    <ColumnHeaderLabel label="Type FO" />
                   </div>
                   <div className="relative estimate-col--fo">
-                    <ColumnHeaderHelp
-                      label="K FO"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]}
-                    />
+                    <ColumnHeaderLabel label="K FO" />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="Majoration MO (%)"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="Majoration MO (%)" allowWrap />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="h MO atelier"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="h MO atelier" allowWrap />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="Type MO atelier"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="Type MO atelier" allowWrap />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="K MO atelier"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="K MO atelier" allowWrap />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="h MO chantier"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="h MO chantier" allowWrap />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="Type MO chantier"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="Type MO chantier" allowWrap />
                   </div>
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="K MO chantier"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]}
-                      allowWrap
-                    />
+                    <ColumnHeaderLabel label="K MO chantier" allowWrap />
                   </div>
                 </>
               ) : (
                 <>
                   {visibleColumns.has("supply_type") ? (
                     <div className="relative estimate-col--fo">
-                      <ColumnHeaderHelp
-                        label="Type FO"
-                        tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]}
-                      />
+                      <ColumnHeaderLabel label="Type FO" />
                     </div>
                   ) : null}
                   {visibleColumns.has("k_fo") ? (
                     <div className="relative estimate-col--fo">
-                      <ColumnHeaderHelp
-                        label="K FO"
-                        tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]}
-                      />
+                      <ColumnHeaderLabel label="K FO" />
                     </div>
                   ) : null}
                   <div className="relative estimate-col--mo">
-                    <ColumnHeaderHelp
-                      label="h MO"
-                      tooltip={COLUMN_HEADER_TOOLTIPS["h MO"]}
-                    />
+                    <ColumnHeaderLabel label="h MO" />
                   </div>
                   {visibleColumns.has("h_mo_majoration") ? (
                     <div className="relative estimate-col--mo">
-                      <ColumnHeaderHelp
-                        label="Majoration MO (%)"
-                        tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]}
-                        allowWrap
-                      />
+                      <ColumnHeaderLabel label="Majoration MO (%)" allowWrap />
                     </div>
                   ) : null}
                   {visibleColumns.has("labor_role") ? (
                     <div className="relative estimate-col--mo">
-                      <ColumnHeaderHelp
-                        label="Type MO"
-                        tooltip={COLUMN_HEADER_TOOLTIPS["Type MO"]}
-                      />
+                      <ColumnHeaderLabel label="Type MO" />
                     </div>
                   ) : null}
                   {visibleColumns.has("k_mo") ? (
                     <div className="relative estimate-col--mo">
-                      <ColumnHeaderHelp
-                        label="K MO"
-                        tooltip={COLUMN_HEADER_TOOLTIPS["K MO"]}
-                      />
+                      <ColumnHeaderLabel label="K MO" />
                     </div>
                   ) : null}
                 </>
               )}
-              <div className="relative estimate-cell--pu-separator">
-                <ColumnHeaderHelp
-                  label="P.U."
-                  tooltip={COLUMN_HEADER_TOOLTIPS["P.U."]}
-                />
+              <div className="relative estimate-cell--pu-separator estimate-col--sale">
+                <ColumnHeaderLabel label="PU" />
               </div>
-              <div className="relative">
-                <ColumnHeaderHelp
-                  label="Prix total"
-                  tooltip={COLUMN_HEADER_TOOLTIPS["Prix total"]}
-                />
+              <div className="relative estimate-col--sale">
+                <ColumnHeaderLabel label="Prix total" />
               </div>
               {/* EST-E15 increment 1 — sous-detail de prix, en lecture seule. */}
               {visibleColumns.has("ds") ? (
                 <div className="relative estimate-col--margin">
-                  <ColumnHeaderHelp
-                    label="Deboursé sec"
-                    tooltip={COLUMN_HEADER_TOOLTIPS["Deboursé sec"]}
-                    allowWrap
-                  />
+                  <ColumnHeaderLabel label="Deboursé sec" allowWrap />
                 </div>
               ) : null}
               {visibleColumns.has("marge") ? (
                 <div className="relative estimate-col--margin">
-                  <ColumnHeaderHelp
-                    label="Marge €"
-                    tooltip={COLUMN_HEADER_TOOLTIPS["Marge €"]}
-                  />
+                  <ColumnHeaderLabel label="Marge €" />
                 </div>
               ) : null}
               {visibleColumns.has("marque") ? (
                 <div className="relative estimate-col--margin">
-                  <ColumnHeaderHelp
-                    label="Marque %"
-                    tooltip={COLUMN_HEADER_TOOLTIPS["Marque %"]}
-                  />
+                  <ColumnHeaderLabel label="Marque %" />
                 </div>
               ) : null}
               <div></div>
@@ -496,9 +448,9 @@ export function EstimateEditorTableChrome({
                     {visibleColumns.has("k_mo") ? <div></div> : null}
                   </>
                 )}
-                <div></div>
+                <div className="estimate-col--sale"></div>
                 <div
-                  className="text-right font-semibold text-[var(--slate-900)]"
+                  className="estimate-col--sale text-right font-semibold text-[var(--slate-900)]"
                   title="Total HT"
                 >
                   {formatCurrency(grandTotals.htTotal, currency)}

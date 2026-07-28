@@ -408,7 +408,7 @@ describe("EstimateEditorTable integration", () => {
     expect(screen.getByText("Currency USD")).toBeInTheDocument();
   });
 
-  it("renders super-header spacers and nowrap/wrap header labels", () => {
+  it("renders clean column labels, a sale group, and centralized help", () => {
     localStorage.setItem("est-col-vis", "full");
     localStorage.setItem("est-col-override", "true");
     renderEstimateEditorTable();
@@ -418,6 +418,9 @@ describe("EstimateEditorTable integration", () => {
     expect(
       superHead?.querySelectorAll(".estimate-super-head__spacer"),
     ).toHaveLength(2);
+    expect(screen.getByText("Vente")).toHaveClass(
+      "estimate-super-head__group--sale",
+    );
 
     expect(screen.getByText("K FO").closest("span")).toHaveClass(
       "whitespace-nowrap",
@@ -425,6 +428,19 @@ describe("EstimateEditorTable integration", () => {
     expect(screen.getByText("Majoration MO (%)").closest("span")).toHaveClass(
       "whitespace-normal",
     );
+    expect(screen.getByText("PR FO")).toBeInTheDocument();
+    expect(screen.getByText("PU").closest("div")).toHaveClass(
+      "estimate-col--sale",
+    );
+    expect(screen.getByText("Prix total").closest("div")).toHaveClass(
+      "estimate-col--sale",
+    );
+    expect(
+      screen.queryByRole("button", { name: /^Aide :/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Aide colonnes" }),
+    ).toBeInTheDocument();
   });
 
   it("migrates legacy full preset to manual override when override key is missing", () => {

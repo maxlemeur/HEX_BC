@@ -930,7 +930,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           puCell,
-          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator",
+          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator estimate-col--sale",
         )}
       >
         <input
@@ -953,7 +953,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           totalCell,
-          "estimate-cell estimate-cell--total estimate-cell--readonly",
+          "estimate-cell estimate-cell--total estimate-cell--readonly estimate-col--sale",
         )}
       >
         <span>{formatCurrency(lineTotal, estimateCurrency)}</span>

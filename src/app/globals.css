@@ -2890,6 +2890,15 @@ body {
   border-bottom: 2px solid rgba(245, 158, 11, 0.35);
 }
 
+/* Vente (PU et prix total) */
+.estimate-col--sale {
+  background-color: rgba(124, 58, 237, 0.07);
+}
+
+.estimate-table__head .estimate-col--sale {
+  border-bottom: 2px solid rgba(124, 58, 237, 0.38);
+}
+
 /* Ensure FO/MO tint doesn't override error states */
 .estimate-cell--required-empty.estimate-col--fo,
 .estimate-cell--required-empty.estimate-col--mo {
@@ -2985,6 +2994,13 @@ body {
   background: var(--slate-50);
 }
 
+.estimate-super-head__spacer--help {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 2px 8px;
+}
+
 .estimate-super-head__group--fo {
   background: rgba(59, 130, 246, 0.10);
   color: rgba(59, 130, 246, 0.8);
@@ -2995,6 +3011,12 @@ body {
   background: rgba(245, 158, 11, 0.10);
   color: rgba(180, 120, 10, 0.9);
   border-bottom: 2px solid rgba(245, 158, 11, 0.35);
+}
+
+.estimate-super-head__group--sale {
+  background: rgba(124, 58, 237, 0.12);
+  color: rgb(109, 40, 217);
+  border-bottom: 2px solid rgba(124, 58, 237, 0.38);
 }
 
 /* ── PU / Results zone separator ── */
