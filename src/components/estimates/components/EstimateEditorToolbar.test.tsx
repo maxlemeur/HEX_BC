@@ -198,6 +198,8 @@ describe("EstimateEditorToolbar option 3", () => {
     const { callbacks } = renderToolbar({ showAssistants: true });
 
     const menu = openInsertionMenu();
+    expect(menu).toHaveClass("left-0");
+    expect(menu).not.toHaveClass("right-0");
     expect(
       within(menu).getByRole("menuitem", { name: "Insérer un template" }),
     ).toBeInTheDocument();
@@ -230,6 +232,8 @@ describe("EstimateEditorToolbar option 3", () => {
     const { callbacks } = renderToolbar();
 
     const dialog = openDisplayDialog();
+    expect(dialog).toHaveClass("left-0");
+    expect(dialog).not.toHaveClass("right-0");
     expect(
       within(dialog).getByRole("heading", { name: "Structure" }),
     ).toBeInTheDocument();

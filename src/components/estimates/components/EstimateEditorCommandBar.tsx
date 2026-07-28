@@ -285,7 +285,7 @@ export function EstimateEditorCommandBar({
               id={INSERT_PANEL_ID}
               role="menu"
               aria-label="Insérer dans le chiffrage"
-              className="absolute right-0 top-full z-40 mt-2 flex w-[min(320px,calc(100vw-32px))] flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl"
+              className="absolute left-0 top-full z-40 mt-2 flex w-[min(320px,calc(100vw-32px))] flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl"
             >
               {!isSimplifiedMode && onToggleQuickTemplatePicker ? (
                 <button
@@ -410,7 +410,7 @@ export function EstimateEditorCommandBar({
               id={DISPLAY_PANEL_ID}
               role="dialog"
               aria-label="Options d’affichage du chiffrage"
-              className="absolute right-0 top-full z-40 mt-2 max-h-[min(620px,calc(100vh-120px))] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-xl"
+              className="absolute left-0 top-full z-40 mt-2 max-h-[min(620px,calc(100vh-120px))] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-xl"
             >
               {onToggleFinalizationPanel ? (
                 <section aria-labelledby="estimate-display-finalization-title">

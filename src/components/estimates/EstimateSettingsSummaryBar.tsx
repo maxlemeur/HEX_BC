@@ -208,6 +208,7 @@ export function EstimateSettingsSummaryBar({
               {/* Overflow popover for simplified mode */}
               <Popover
                 hover
+                portal
                 trigger={
                   <button
                     type="button"
