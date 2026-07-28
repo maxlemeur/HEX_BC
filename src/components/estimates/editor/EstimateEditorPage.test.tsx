@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import type { EstimateEditorStateModel } from "@/hooks/useEstimateEditorState";
 
@@ -18,21 +19,6 @@ vi.mock("next/dynamic", () => ({
     },
 }));
 
-vi.mock("@/components/AffaireBreadcrumb", () => ({
-  AffaireBreadcrumb: ({
-    projectId,
-    projectName,
-    versionNumber,
-  }: {
-    projectId: string;
-    projectName: string;
-    versionNumber: number;
-  }) => (
-    <div data-testid="stub-affaire-breadcrumb">
-      {projectId}:{projectName}:V{versionNumber}
-    </div>
-  ),
-}));
 
 vi.mock("@/components/estimates/EstimateEditorSkeleton", () => ({
   EstimateEditorSkeleton: () => <div data-testid="stub-editor-skeleton" />,
@@ -42,12 +28,15 @@ vi.mock("@/components/estimates/editor/EstimateEditorToolbar", () => ({
   EstimateEditorToolbar: ({
     projectName,
     versionNumber,
+    summaryNode,
   }: {
     projectName: string;
     versionNumber: number;
+    summaryNode?: ReactNode;
   }) => (
     <div data-testid="stub-editor-toolbar">
       {projectName}:V{versionNumber}
+      {summaryNode}
     </div>
   ),
 }));
@@ -65,8 +54,20 @@ vi.mock("@/components/estimates/EstimateSettingsSummaryBar", () => ({
 }));
 
 vi.mock("@/components/estimates/EstimateEditorTable", () => ({
-  EstimateEditorTable: ({ versionId }: { versionId?: string }) => (
-    <div data-testid="stub-editor-table">{versionId}</div>
+  EstimateEditorTable: ({
+    versionId,
+    ribbonHeaderNode,
+    ribbonAlertsNode,
+  }: {
+    versionId?: string;
+    ribbonHeaderNode?: ReactNode;
+    ribbonAlertsNode?: ReactNode;
+  }) => (
+    <div>
+      {ribbonHeaderNode}
+      {ribbonAlertsNode}
+      <div data-testid="stub-editor-table">{versionId}</div>
+    </div>
   ),
 }));
 
@@ -229,9 +230,6 @@ describe("EstimateEditorPage", () => {
     );
 
     expect(screen.getByTestId("estimate-editor-page")).toBeInTheDocument();
-    expect(screen.getByTestId("stub-affaire-breadcrumb")).toHaveTextContent(
-      "project-1:Chantier Atlas:V4"
-    );
     expect(screen.getByTestId("stub-editor-toolbar")).toHaveTextContent(
       "Chantier Atlas:V4"
     );
@@ -297,7 +295,6 @@ describe("EstimateEditorPage", () => {
 
     render(<EstimateEditorPage versionId="version-4" />);
 
-    expect(screen.queryByTestId("stub-affaire-breadcrumb")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("estimate-editor-import-from-estimate-dialog-region")
     ).not.toBeInTheDocument();

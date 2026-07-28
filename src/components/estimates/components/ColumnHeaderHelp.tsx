@@ -42,7 +42,7 @@ export function ColumnHeaderHelp({
 }: ColumnHeaderHelpProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1 ${
+      className={`inline-flex items-center gap-1 text-[10px] ${
         allowWrap ? "whitespace-normal" : "whitespace-nowrap"
       }`}
     >
@@ -51,7 +51,7 @@ export function ColumnHeaderHelp({
         hover
         trigger={
           <button
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-blue-300 text-[10px] leading-none text-blue-400 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600"
+            className="inline-flex !h-4 !w-3 items-center justify-center border-0 bg-transparent p-0 !text-[9px] font-bold leading-none text-blue-400 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
             type="button"
             aria-label={`Aide : ${label}`}
           >

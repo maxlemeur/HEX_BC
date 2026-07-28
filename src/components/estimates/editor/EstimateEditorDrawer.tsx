@@ -30,7 +30,6 @@ type AuditLogEntry = {
 type EstimateEditorDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
-  actionError: string | null;
   projectName: string;
   versionNumber: number;
   settings: EstimateSettingsState;
@@ -69,7 +68,6 @@ type EstimateEditorDrawerProps = {
 export function EstimateEditorDrawer({
   isOpen,
   onClose,
-  actionError,
   projectName,
   versionNumber,
   settings,
@@ -140,13 +138,6 @@ export function EstimateEditorDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6 space-y-6">
-          {actionError ? (
-            <div className="alert alert-error" data-testid="estimate-editor-drawer-action-error">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
-              {actionError}
-            </div>
-          ) : null}
-
           <EstimateSettingsPanel
             projectName={projectName}
             versionNumber={versionNumber}

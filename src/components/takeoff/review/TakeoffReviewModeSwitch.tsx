@@ -91,10 +91,10 @@ export function TakeoffReviewModeSwitch({
 
   return (
     <div
-      role="radiogroup"
-      aria-label="Mode de revue"
+      role="tablist"
+      aria-label="Modes métier de la revue"
       onKeyDown={handleKeyDown}
-      className="flex w-full rounded-lg border border-[var(--border)] bg-[var(--slate-50)] p-0.5 sm:inline-flex sm:w-auto"
+      className="production-ribbon__tabs"
     >
       {MODE_OPTIONS.map((option) => {
         const isSelected = option.value === mode;
@@ -104,17 +104,16 @@ export function TakeoffReviewModeSwitch({
             ref={(el) => {
               if (el) buttonRefs.current.set(option.value, el);
             }}
+            id={`takeoff-review-mode-${option.value}-tab`}
             type="button"
-            role="radio"
-            aria-checked={isSelected}
+            role="tab"
+            aria-selected={isSelected}
+            aria-controls="takeoff-review-mode-panel"
             aria-label={`${option.label} : ${option.description}`}
             tabIndex={isSelected ? 0 : -1}
             onClick={() => onModeChange(option.value)}
-            className={`min-h-11 min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 sm:min-h-0 sm:flex-none sm:px-3 ${
-              isSelected
-                ? "bg-white text-[var(--slate-900)] shadow-sm ring-1 ring-[var(--primary)]/30"
-                : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-            }`}
+            className="production-ribbon__tab min-h-11 sm:min-h-[38px]"
+            data-active={isSelected ? "true" : undefined}
           >
             {option.label}
           </button>

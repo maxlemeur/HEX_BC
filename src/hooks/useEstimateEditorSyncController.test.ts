@@ -193,11 +193,17 @@ function createInput(
     getVersionSnapshot: vi.fn(() => version),
     getPersistedTotals: vi.fn(() => null),
     replaceItems: vi.fn(),
-    applyRestoredDraft: vi.fn(),
+    applyRestoredDraft: vi.fn(
+      (draft: Parameters<ControllerInput["applyRestoredDraft"]>[0]) => ({
+        restoredItems: draft.items,
+        skippedItemCount: 0,
+      })
+    ),
     applyVersionFlushResult: vi.fn(),
     setTotalsOutOfSync: vi.fn(),
     clearHistory: vi.fn(),
     reportError: vi.fn(),
+    reportNotice: vi.fn(),
     resolveErrorMessage: vi.fn((message: string) => `public:${message}`),
     ...overrides,
   };
@@ -888,9 +894,65 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(input.applyRestoredDraft).toHaveBeenCalledWith(draft);
     expect(readStoragePayload(window.sessionStorage, storageKey)).toEqual(draft);
     expect(result.current.state.hasRestorableDraft).toBe(false);
-    expect(input.reportError).toHaveBeenCalledWith(
-      "Modifications locales restaurees. Pensez a enregistrer le parametrage."
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
+    expect(input.reportError).toHaveBeenCalledWith(null);
+    expect(input.reportNotice).toHaveBeenLastCalledWith(
+      "Modifications locales restaurées. Les lignes sont resynchronisées automatiquement ; enregistrez le paramétrage pour confirmer les réglages."
     );
+    expect(
+      readStoragePayload(
+        window.localStorage,
+        `${AUTO_SAVE_STORAGE_PREFIX}version-1`
+      )
+    ).toMatchObject({
+      buffered_updates: [
+        {
+          id: "line-restored",
+          updates: {
+            title: "Ligne restauree",
+            parent_id: null,
+            position: 1,
+          },
+        },
+      ],
+    });
+  });
+
+  it("warns when a locally restored line no longer exists on the server", async () => {
+    const draft = {
+      settings: createSettings(),
+      items: [createItem("line-deleted")],
+      saved_at: "2026-07-15T09:30:00.000Z",
+    };
+    window.sessionStorage.setItem(
+      `${CONFLICT_STORAGE_PREFIX}version-1`,
+      JSON.stringify(draft)
+    );
+    const input = createInput({
+      applyRestoredDraft: vi.fn(() => ({
+        restoredItems: [],
+        skippedItemCount: 1,
+      })),
+    });
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await waitFor(() => {
+      expect(result.current.state.hasRestorableDraft).toBe(true);
+    });
+
+    act(() => {
+      result.current.actions.restoreConflictDraft();
+    });
+
+    expect(input.reportNotice).toHaveBeenLastCalledWith(
+      "Les modifications des lignes encore présentes ont été restaurées. Certaines différences de structure n’ont pas été réappliquées afin de préserver les données serveur."
+    );
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
+    expect(
+      window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}version-1`)
+    ).toBeNull();
   });
 
   it("clears a restorable draft without applying it", async () => {
@@ -917,6 +979,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(result.current.state.hasRestorableDraft).toBe(false);
     expect(input.applyRestoredDraft).not.toHaveBeenCalled();
+    expect(input.reportNotice).toHaveBeenLastCalledWith(null);
   });
 
   it("ignores a successful response from the previous route generation", async () => {

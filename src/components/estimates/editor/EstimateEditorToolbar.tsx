@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
+import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { ExportDropdown } from "@/components/ExportDropdown";
@@ -43,8 +44,23 @@ function estimateStatusClass(status: EstimateStatus) {
 }
 
 type MoreActionsDropdownProps = {
+  canSend: boolean;
+  canAccept: boolean;
+  isStatusActionsDisabled: boolean;
+  onSend: () => void;
+  onAccept: () => void;
+  onExportExcel: () => void;
+  onExportCSV: () => void;
+  onOpenExclusions: () => void;
   onExportDpgf: () => void;
   onExportBdc: () => void;
+  onImportDpgfSource: () => void;
+  showImportDpgfSource: boolean;
+  onOpenVersionZeroDialog?: () => void;
+  versionZeroActionLabel: string;
+  isVersionZeroActionDisabled: boolean;
+  isImportingDpgfSource: boolean;
+  isImportDpgfSourceDisabled: boolean;
   isExporting: boolean;
   isExportDisabled: boolean;
   activeExportMode: EstimateExportMode | "csv" | null;
@@ -54,9 +70,27 @@ type MoreActionsDropdownProps = {
   isArchiveDisabled: boolean;
 };
 
+const MORE_ACTIONS_FOCUSABLE =
+  "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
 function MoreActionsDropdown({
+  canSend,
+  canAccept,
+  isStatusActionsDisabled,
+  onSend,
+  onAccept,
+  onExportExcel,
+  onExportCSV,
+  onOpenExclusions,
   onExportDpgf,
   onExportBdc,
+  onImportDpgfSource,
+  showImportDpgfSource,
+  onOpenVersionZeroDialog,
+  versionZeroActionLabel,
+  isVersionZeroActionDisabled,
+  isImportingDpgfSource,
+  isImportDpgfSourceDisabled,
   isExporting,
   isExportDisabled,
   activeExportMode,
@@ -67,10 +101,19 @@ function MoreActionsDropdown({
 }: MoreActionsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = "estimate-page-toolbar-more-actions-menu";
 
   useEffect(() => {
     if (!isOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      panelRef.current
+        ?.querySelector<HTMLElement>(MORE_ACTIONS_FOCUSABLE)
+        ?.focus();
+    });
+    const handlePointerDown = (event: MouseEvent) => {
       if (
         containerRef.current &&
         !containerRef.current.contains(event.target as Node)
@@ -78,24 +121,73 @@ function MoreActionsDropdown({
         setIsOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, [isOpen]);
 
+  const close = () => setIsOpen(false);
   const menuItemClass =
-    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors";
+    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--brand-blue)]";
+
+  const handlePanelKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key !== "ArrowDown" &&
+      event.key !== "ArrowUp" &&
+      event.key !== "Home" &&
+      event.key !== "End"
+    ) {
+      return;
+    }
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(MORE_ACTIONS_FOCUSABLE)
+    );
+    if (focusable.length === 0) return;
+
+    event.preventDefault();
+    const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? focusable.length - 1
+          : event.key === "ArrowDown"
+            ? (currentIndex + 1 + focusable.length) % focusable.length
+            : (currentIndex - 1 + focusable.length) % focusable.length;
+    focusable[nextIndex]?.focus();
+  };
 
   return (
-    <div ref={containerRef} className="relative" data-testid="estimate-page-toolbar-more-actions">
+    <div
+      ref={containerRef}
+      className="relative"
+      data-testid="estimate-page-toolbar-more-actions"
+    >
       <button
+        ref={triggerRef}
         type="button"
         className="btn btn-secondary btn-sm"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
-        aria-haspopup="true"
+        aria-haspopup="menu"
+        aria-controls={panelId}
+        aria-label="Plus d'actions"
         data-testid="estimate-page-toolbar-more-actions-button"
       >
-        Plus d&apos;actions
+        <span className="hidden sm:inline">Plus d&apos;actions</span>
+        <span className="sm:hidden">Actions</span>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"
@@ -107,21 +199,128 @@ function MoreActionsDropdown({
           strokeLinecap="round"
           strokeLinejoin="round"
           className={`ml-1 transition-transform ${isOpen ? "rotate-180" : ""}`}
+          aria-hidden="true"
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
-      {isOpen && (
+      {isOpen ? (
         <div
-          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-lg z-50"
+          ref={panelRef}
+          id={panelId}
+          role="menu"
+          aria-label="Plus d'actions du chiffrage"
+          className="estimate-toolbar-actions-panel absolute right-0 top-full z-50 mt-2 max-h-[min(640px,calc(100vh-100px))] w-64 overflow-y-auto rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl"
           data-testid="estimate-page-toolbar-more-actions-menu"
+          onKeyDown={handlePanelKeyDown}
         >
+          <div className="estimate-toolbar-mobile-only" role="none">
+            {canSend ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItemClass}
+                onClick={() => {
+                  close();
+                  onSend();
+                }}
+                disabled={isStatusActionsDisabled}
+              >
+                Envoyer le chiffrage
+              </button>
+            ) : null}
+            {canAccept ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItemClass}
+                onClick={() => {
+                  close();
+                  onAccept();
+                }}
+                disabled={isStatusActionsDisabled}
+              >
+                Accepter le chiffrage
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemClass}
+              onClick={() => {
+                close();
+                onExportExcel();
+              }}
+              disabled={isExportDisabled}
+            >
+              Exporter Excel
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemClass}
+              onClick={() => {
+                close();
+                onExportCSV();
+              }}
+              disabled={isExportDisabled}
+            >
+              Exporter CSV
+            </button>
+            <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+          </div>
+          {showImportDpgfSource ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemClass}
+              onClick={() => {
+                close();
+                onImportDpgfSource();
+              }}
+              disabled={isImportDpgfSourceDisabled}
+              data-testid="estimate-page-toolbar-import-dpgf-source-button"
+            >
+              {isImportingDpgfSource
+                ? "Importer le DPGF source..."
+                : "Importer le DPGF source"}
+            </button>
+          ) : null}
+          {onOpenVersionZeroDialog ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemClass}
+              onClick={() => {
+                close();
+                onOpenVersionZeroDialog();
+              }}
+              disabled={isVersionZeroActionDisabled}
+              data-testid="estimate-page-toolbar-version-zero-button"
+            >
+              {versionZeroActionLabel}
+            </button>
+          ) : null}
           <button
             type="button"
+            role="menuitem"
             className={menuItemClass}
             onClick={() => {
-              setIsOpen(false);
+              close();
+              onOpenExclusions();
+            }}
+            data-testid="estimate-page-toolbar-exclusions-button"
+          >
+            Exclusions
+          </button>
+          <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemClass}
+            onClick={() => {
+              close();
               onExportDpgf();
             }}
             disabled={isExportDisabled}
@@ -133,9 +332,10 @@ function MoreActionsDropdown({
           </button>
           <button
             type="button"
+            role="menuitem"
             className={menuItemClass}
             onClick={() => {
-              setIsOpen(false);
+              close();
               onExportBdc();
             }}
             disabled={isExportDisabled}
@@ -145,20 +345,21 @@ function MoreActionsDropdown({
               ? "Export BDC V1.1..."
               : "Exporter BDC V1.1"}
           </button>
-          <div className="my-1">
+          <div role="none" className="my-1">
             <EstimatePdfDownloadButton versionId={versionId} />
           </div>
-          <div className="my-1">
+          <div role="none" className="my-1">
             <SaveAsTemplateButton versionId={versionId} />
           </div>
           {canArchive ? (
             <>
-              <div className="my-1 border-t border-[var(--slate-200)]" />
+              <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
               <button
                 type="button"
+                role="menuitem"
                 className={`${menuItemClass} text-danger hover:bg-error-light`}
                 onClick={() => {
-                  setIsOpen(false);
+                  close();
                   onArchive();
                 }}
                 disabled={isArchiveDisabled}
@@ -168,13 +369,24 @@ function MoreActionsDropdown({
               </button>
             </>
           ) : null}
+          <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+          <Link
+            role="menuitem"
+            className={menuItemClass}
+            href="/dashboard/estimates"
+            onClick={close}
+            data-testid="estimate-page-toolbar-back-to-list-link"
+          >
+            Retour à la liste
+          </Link>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
 type EstimateEditorToolbarProps = {
+  projectId?: string | null;
   projectName: string;
   versionNumber: number;
   status: EstimateStatus;
@@ -210,9 +422,11 @@ type EstimateEditorToolbarProps = {
   isImportingDpgfSource: boolean;
   isImportDpgfSourceDisabled: boolean;
   versionId: string;
+  summaryNode?: ReactNode;
 };
 
 export function EstimateEditorToolbar({
+  projectId = null,
   projectName,
   versionNumber,
   status,
@@ -244,127 +458,119 @@ export function EstimateEditorToolbar({
   isImportingDpgfSource,
   isImportDpgfSourceDisabled,
   versionId,
+  summaryNode,
 }: EstimateEditorToolbarProps) {
+  const breadcrumbs = projectId
+    ? [
+        { label: "Mes affaires", href: "/dashboard/affaires" },
+        {
+          label: projectName || "Affaire",
+          href: `/dashboard/affaires/${projectId}`,
+        },
+        { label: `V${versionNumber} · Chiffrage` },
+      ]
+    : [
+        { label: "Chiffrages", href: "/dashboard/estimates" },
+        { label: `V${versionNumber} · Chiffrage` },
+      ];
+
   return (
-    <div
-      className="page-header flex flex-wrap items-start justify-between gap-4"
-      data-testid="estimate-page-toolbar"
-    >
-      <div data-testid="estimate-page-toolbar-heading">
-        <h1 className="page-title" data-testid="estimate-page-toolbar-title">Éditer le chiffrage</h1>
-        <p className="page-description">
-          {projectName ? (
-            <>
-              {projectName}
-              {" — "}
-              <span className="font-semibold">V{versionNumber}</span>
-            </>
-          ) : (
-            <span className="font-semibold">V{versionNumber}</span>
-          )}
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2" data-testid="estimate-page-toolbar-actions">
-        <span className={estimateStatusClass(status)} data-testid="estimate-page-toolbar-status-badge">
-          {estimateStatusLabel(status)}
-        </span>
-        {showAutoSaveStatus ? (
-          <span className={autoSaveStatusClassName} data-testid="estimate-page-toolbar-autosave-status">
-            {autoSaveStatus === "saving" ? (
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                {autoSaveStatusLabel}
-              </span>
-            ) : autoSaveStatus === "saved" ? (
-              <span className="inline-flex items-center gap-1.5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                {autoSaveStatusLabel}
-              </span>
-            ) : (
-              autoSaveStatusLabel
-            )}
+    <ProductionRibbonHeader
+      breadcrumbs={breadcrumbs}
+      title="Éditer le chiffrage"
+      description={projectName ? `${projectName} · V${versionNumber}` : `Version ${versionNumber}`}
+      metrics={summaryNode}
+      testId="estimate-page-toolbar"
+      titleTestId="estimate-page-toolbar-title"
+      actions={
+        <div
+          className="flex items-center gap-2"
+          data-testid="estimate-page-toolbar-actions"
+        >
+          <span
+            className={estimateStatusClass(status)}
+            data-testid="estimate-page-toolbar-status-badge"
+          >
+            {estimateStatusLabel(status)}
           </span>
-        ) : null}
-        <ExportDropdown
-          onExportExcel={onExportExcel}
-          onExportCSV={onExportCSV}
-          disabled={isExportDisabled}
-          loading={isExporting}
-          loadingLabel={exportLoadingLabel}
-        />
-        {showImportDpgfSource ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onImportDpgfSource}
-            disabled={isImportDpgfSourceDisabled}
-            data-testid="estimate-page-toolbar-import-dpgf-source-button"
-          >
-            {isImportingDpgfSource
-              ? "Importer le DPGF source..."
-              : "Importer le DPGF source"}
-          </button>
-        ) : null}
-        {onOpenVersionZeroDialog ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onOpenVersionZeroDialog}
-            disabled={isVersionZeroActionDisabled}
-            data-testid="estimate-page-toolbar-version-zero-button"
-          >
-            {versionZeroActionLabel}
-          </button>
-        ) : null}
-        {canSend ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onSend}
-            disabled={isStatusActionsDisabled}
-            data-testid="estimate-page-toolbar-send-button"
-          >
-            Envoyer
-          </button>
-        ) : null}
-        {canAccept ? (
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={onAccept}
-            disabled={isStatusActionsDisabled}
-            data-testid="estimate-page-toolbar-accept-button"
-          >
-            Accepter
-          </button>
-        ) : null}
-        <button
-          className="btn btn-secondary btn-sm"
-          type="button"
-          onClick={onOpenExclusions}
-          data-testid="estimate-page-toolbar-exclusions-button"
-        >
-          Exclusions
-        </button>
-        <MoreActionsDropdown
-          onExportDpgf={onExportDpgf}
-          onExportBdc={onExportBdc}
-          isExporting={isExporting}
-          isExportDisabled={isExportDisabled}
-          activeExportMode={activeExportMode}
-          versionId={versionId}
-          canArchive={canArchive}
-          onArchive={onArchive}
-          isArchiveDisabled={isStatusActionsDisabled}
-        />
-        <Link
-          className="btn btn-secondary btn-sm"
-          href="/dashboard/estimates"
-          data-testid="estimate-page-toolbar-back-to-list-link"
-        >
-          Retour à la liste
-        </Link>
-      </div>
-    </div>
+          {showAutoSaveStatus ? (
+            <span
+              className={autoSaveStatusClassName}
+              data-testid="estimate-page-toolbar-autosave-status"
+              aria-live="polite"
+            >
+              {autoSaveStatus === "saving" ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  {autoSaveStatusLabel}
+                </span>
+              ) : autoSaveStatus === "saved" ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+                  {autoSaveStatusLabel}
+                </span>
+              ) : (
+                autoSaveStatusLabel
+              )}
+            </span>
+          ) : null}
+          <ExportDropdown
+            onExportExcel={onExportExcel}
+            onExportCSV={onExportCSV}
+            disabled={isExportDisabled}
+            loading={isExporting}
+            loadingLabel={exportLoadingLabel}
+          />
+          {canSend ? (
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={onSend}
+              disabled={isStatusActionsDisabled}
+              data-testid="estimate-page-toolbar-send-button"
+            >
+              Envoyer
+            </button>
+          ) : null}
+          {canAccept ? (
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={onAccept}
+              disabled={isStatusActionsDisabled}
+              data-testid="estimate-page-toolbar-accept-button"
+            >
+              Accepter
+            </button>
+          ) : null}
+          <MoreActionsDropdown
+            canSend={canSend}
+            canAccept={canAccept}
+            isStatusActionsDisabled={isStatusActionsDisabled}
+            onSend={onSend}
+            onAccept={onAccept}
+            onExportExcel={onExportExcel}
+            onExportCSV={onExportCSV}
+            onOpenExclusions={onOpenExclusions}
+            onExportDpgf={onExportDpgf}
+            onExportBdc={onExportBdc}
+            onImportDpgfSource={onImportDpgfSource}
+            showImportDpgfSource={showImportDpgfSource}
+            onOpenVersionZeroDialog={onOpenVersionZeroDialog}
+            versionZeroActionLabel={versionZeroActionLabel}
+            isVersionZeroActionDisabled={isVersionZeroActionDisabled}
+            isImportingDpgfSource={isImportingDpgfSource}
+            isImportDpgfSourceDisabled={isImportDpgfSourceDisabled}
+            isExporting={isExporting}
+            isExportDisabled={isExportDisabled}
+            activeExportMode={activeExportMode}
+            versionId={versionId}
+            canArchive={canArchive}
+            onArchive={onArchive}
+            isArchiveDisabled={isStatusActionsDisabled}
+          />
+        </div>
+      }
+    />
   );
 }

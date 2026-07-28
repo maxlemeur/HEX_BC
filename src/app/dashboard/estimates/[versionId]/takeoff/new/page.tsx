@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
+import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import { TakeoffUploadForm } from "@/components/takeoff/TakeoffUploadForm";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
@@ -35,20 +36,41 @@ export default async function TakeoffNewPage({
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Lancer une extraction</h1>
-          <p className="page-description">
-            Chargez votre fichier puis demarrez l&apos;extraction.
-          </p>
-        </div>
-        <Link
-          href={`/dashboard/estimates/${versionId}`}
-          className="btn btn-secondary btn-sm"
-        >
-          Retour au chiffrage
-        </Link>
-      </div>
+      <ProductionRibbon ariaLabel="Ruban métier des métrés">
+        <ProductionRibbonHeader
+          breadcrumbs={[
+            { label: "Chiffrages", href: "/dashboard/estimates" },
+            { label: "Chiffrage", href: `/dashboard/estimates/${versionId}` },
+            { label: "Métrés" },
+          ]}
+          title="Lancer une extraction"
+          description="Chargez un fichier puis démarrez l'extraction"
+          actions={
+            <Link
+              href={`/dashboard/estimates/${versionId}`}
+              className="btn btn-secondary btn-sm"
+            >
+              Retour au chiffrage
+            </Link>
+          }
+        />
+        <nav className="production-ribbon__tabs" aria-label="Navigation des métrés">
+          <Link
+            href={`/dashboard/estimates/${versionId}/takeoff`}
+            className="production-ribbon__tab"
+          >
+            Extractions
+          </Link>
+          <Link
+            href={`/dashboard/estimates/${versionId}/takeoff/new`}
+            className="production-ribbon__tab"
+            data-active="true"
+            aria-current="page"
+          >
+            Nouvelle extraction
+          </Link>
+        </nav>
+      </ProductionRibbon>
 
       <TakeoffDeprecationBanner descriptor={routeDescriptor} />
 

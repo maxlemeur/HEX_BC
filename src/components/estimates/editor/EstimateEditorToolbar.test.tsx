@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
@@ -53,11 +53,13 @@ describe("EstimateEditorToolbar page actions", () => {
   it("presents the assistant as one lightweight draft action", () => {
     renderToolbar();
 
+    fireEvent.click(screen.getByRole("button", { name: "Plus d'actions" }));
+
     expect(
-      screen.getByRole("button", { name: "Préparer un brouillon IA" })
+      screen.getByRole("menuitem", { name: "Préparer un brouillon IA" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Exclusions" })
+      screen.getByRole("menuitem", { name: "Exclusions" })
     ).toBeInTheDocument();
     expect(screen.queryByText("Assistant optionnel")).not.toBeInTheDocument();
     expect(screen.queryByText(/V0/)).not.toBeInTheDocument();
@@ -66,8 +68,26 @@ describe("EstimateEditorToolbar page actions", () => {
   it("uses the review wording when an AI draft already exists", () => {
     renderToolbar("Revoir le brouillon IA");
 
+    fireEvent.click(screen.getByRole("button", { name: "Plus d'actions" }));
+
     expect(
-      screen.getByRole("button", { name: "Revoir le brouillon IA" })
+      screen.getByRole("menuitem", { name: "Revoir le brouillon IA" })
     ).toBeInTheDocument();
+  });
+  it("closes the secondary actions with Escape and restores focus", () => {
+    renderToolbar();
+
+    const trigger = screen.getByRole("button", { name: "Plus d'actions" });
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("menu", { name: "Plus d'actions du chiffrage" })
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(
+      screen.queryByRole("menu", { name: "Plus d'actions du chiffrage" })
+    ).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });

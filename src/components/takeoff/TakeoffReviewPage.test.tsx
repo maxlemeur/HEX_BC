@@ -458,7 +458,7 @@ describe("TakeoffReviewPage", () => {
 
     // Mode switch shows Assiste as selected (default for simplified users)
     expect(
-      screen.getByRole("radio", { name: /Assiste/ })
+      screen.getByRole("tab", { name: /Assiste/ })
     ).toBeDefined();
     expect(screen.queryByPlaceholderText("Rechercher par titre...")).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
@@ -819,7 +819,7 @@ describe("TakeoffReviewPage", () => {
 
     // Mode switch shows Assiste as selected (default for simplified users)
     expect(
-      screen.getByRole("radio", { name: /Assiste/ })
+      screen.getByRole("tab", { name: /Assiste/ })
     ).toBeDefined();
     expect(screen.queryByText("Resume des changements")).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
@@ -836,16 +836,16 @@ describe("TakeoffReviewPage", () => {
     });
 
     // Mode switch should show all three modes
-    const assistedRadio = screen.getByRole("radio", { name: /Assiste/ });
-    const productionRadio = screen.getByRole("radio", { name: /Production/ });
-    const validationRadio = screen.getByRole("radio", { name: /Validation/ });
+    const assistedRadio = screen.getByRole("tab", { name: /Assiste/ });
+    const productionRadio = screen.getByRole("tab", { name: /Production/ });
+    const validationRadio = screen.getByRole("tab", { name: /Validation/ });
 
     expect(assistedRadio).toBeDefined();
     expect(productionRadio).toBeDefined();
     expect(validationRadio).toBeDefined();
 
     // Assiste should be selected by default (simplified user)
-    expect(assistedRadio.getAttribute("aria-checked")).toBe("true");
+    expect(assistedRadio.getAttribute("aria-selected")).toBe("true");
 
     // Click Production
     fireEvent.click(productionRadio);
@@ -877,7 +877,7 @@ describe("TakeoffReviewPage", () => {
     });
 
     expect(
-      screen.getByRole("radio", { name: /Validation/ }).getAttribute("aria-checked")
+      screen.getByRole("tab", { name: /Validation/ }).getAttribute("aria-selected")
     ).toBe("true");
     expect(
       screen.getByRole("link", { name: "Centre d'activité métrés" })
@@ -1111,7 +1111,7 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Resume des changements")).toBeDefined();
     });
 
-    fireEvent.click(screen.getByRole("radio", { name: /Assiste/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Assiste/ }));
 
     expect(mockReplace).toHaveBeenLastCalledWith(
       "?reviewMode=assisted&view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",
@@ -1127,7 +1127,7 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
-    fireEvent.click(screen.getByRole("radio", { name: /Production/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Production/ }));
 
     expect(mockReplace).toHaveBeenLastCalledWith(
       "?view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",

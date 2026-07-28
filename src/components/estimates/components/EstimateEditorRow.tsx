@@ -123,6 +123,7 @@ export type EstimateEditorRowProps = {
   addSectionLabel?: string;
   isSectionCollapsed?: boolean;
   onToggleSectionCollapsed?: (sectionId: string) => void;
+  onOpenMobileEditor?: (itemId: string) => void;
   isHighlighted?: boolean;
 };
 
@@ -228,7 +229,8 @@ function areEstimateEditorRowPropsEqual(
     previous.addLineLabel === next.addLineLabel &&
     previous.addSectionLabel === next.addSectionLabel &&
     previous.isSectionCollapsed === next.isSectionCollapsed &&
-    previous.onToggleSectionCollapsed === next.onToggleSectionCollapsed
+    previous.onToggleSectionCollapsed === next.onToggleSectionCollapsed &&
+    previous.onOpenMobileEditor === next.onOpenMobileEditor
   );
 }
 
@@ -265,6 +267,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   addSectionLabel = "+ Section",
   isSectionCollapsed = false,
   onToggleSectionCollapsed,
+  onOpenMobileEditor,
 }: EstimateEditorRowProps) {
   const navigation = useEstimateSpreadsheetNavigation();
   const {
@@ -667,6 +670,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       onConvertLineToSection={onConvertLineToSection}
       onToggleOutlierDismiss={onToggleOutlierDismiss}
       onLineSelectionInteraction={onLineSelectionInteraction}
+      onOpenMobileEditor={onOpenMobileEditor}
     />
   );
 }, areEstimateEditorRowPropsEqual);

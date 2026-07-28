@@ -28,6 +28,7 @@ type EstimateEditorAlertsProps = {
   isUndoingBulkSuggest: boolean;
   isUndoBulkSuggestDisabled: boolean;
   importSummaryMessage: string | null;
+  actionNotice: string | null;
   actionError: string | null;
 };
 
@@ -58,6 +59,7 @@ export function EstimateEditorAlerts({
   isUndoingBulkSuggest,
   isUndoBulkSuggestDisabled,
   importSummaryMessage,
+  actionNotice,
   actionError,
 }: EstimateEditorAlertsProps) {
   return (
@@ -249,6 +251,21 @@ export function EstimateEditorAlerts({
         </div>
       ) : null}
 
+      {actionNotice ? (
+        <div
+          className="alert alert-info mt-4"
+          role="status"
+          aria-live="polite"
+          data-testid="estimate-editor-alert-action-notice"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4" />
+            <path d="M12 16h.01" />
+          </svg>
+          {actionNotice}
+        </div>
+      ) : null}
       {actionError ? (
         <div className="alert alert-error mt-4" data-testid="estimate-editor-alert-action-error">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

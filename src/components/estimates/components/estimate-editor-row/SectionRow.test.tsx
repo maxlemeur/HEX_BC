@@ -186,6 +186,11 @@ describe("SectionRow", () => {
     expect(screen.getByText(SECTION_FO_TOTAL_HELP)).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("estimate-section-quick-actions-trigger"));
+    expect(
+      screen
+        .getByTestId("estimate-section-add-line-button")
+        .closest("[data-popover-portal='true']")
+    ).not.toBeNull();
     fireEvent.click(screen.getByTestId("estimate-section-add-line-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-section-button"));
     fireEvent.click(screen.getByTestId("estimate-section-add-aid-button"));

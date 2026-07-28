@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import { memo, useMemo } from "react";
 
-import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
 import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
@@ -59,6 +58,9 @@ export function EstimateEditorPage({
   });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsProps = readyMeta?.alertsProps ?? null;
+  const toolbarProps = readyMeta?.toolbarProps ?? null;
+  const summaryBarProps = readyMeta?.summaryBarProps ?? null;
+  const projectId = readyMeta?.projectId ?? null;
   const editorTableProps = readyMeta?.editorTableProps ?? null;
   const drawerProps = readyMeta?.drawerProps ?? null;
   const alertsRegion = useMemo(
@@ -70,14 +72,33 @@ export function EstimateEditorPage({
       ) : null,
     [alertsProps]
   );
+  const ribbonHeader = useMemo(
+    () =>
+      toolbarProps && summaryBarProps ? (
+        <EstimateEditorToolbar
+          {...toolbarProps}
+          projectId={projectId}
+          summaryNode={
+            <div data-testid="estimate-editor-summary-bar">
+              <EstimateSettingsSummaryBar {...summaryBarProps} />
+            </div>
+          }
+        />
+      ) : null,
+    [projectId, summaryBarProps, toolbarProps]
+  );
   const tableRegion = useMemo(
     () =>
       editorTableProps ? (
-        <div className="mt-6" data-testid="estimate-editor-table-region">
-          <MemoizedEstimateEditorTable {...editorTableProps} />
+        <div data-testid="estimate-editor-table-region">
+          <MemoizedEstimateEditorTable
+            {...editorTableProps}
+            ribbonHeaderNode={ribbonHeader}
+            ribbonAlertsNode={alertsRegion}
+          />
         </div>
       ) : null,
-    [editorTableProps]
+    [alertsRegion, editorTableProps, ribbonHeader]
   );
   const drawerRegion = useMemo(
     () =>
@@ -145,20 +166,8 @@ export function EstimateEditorPage({
 
   return (
     <div className="animate-fade-in" data-testid="estimate-editor-page">
-      {readyMeta.projectId && (
-        <AffaireBreadcrumb
-          projectId={readyMeta.projectId}
-          projectName={readyMeta.toolbarProps.projectName}
-          versionNumber={readyMeta.toolbarProps.versionNumber}
-          pageSuffix="Edition"
-        />
-      )}
-      <EstimateEditorToolbar {...readyMeta.toolbarProps} />
-      {alertsRegion}
-      <div data-testid="estimate-editor-summary-bar">
-        <EstimateSettingsSummaryBar {...readyMeta.summaryBarProps} />
-      </div>
       {tableRegion}
+
       {drawerRegion}
       <div data-testid="estimate-editor-bulk-suggest-dialog-region">
         <BulkSuggestDialog {...readyMeta.bulkSuggestDialogProps} />

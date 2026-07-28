@@ -41,6 +41,7 @@ import {
   type EditorConflictDraft,
 } from "@/lib/estimates/editor-drafts";
 import {
+  buildEstimateItemUpdatePayload,
   buildVersionTotalsPatch,
   type EditorEstimateItem,
   type EstimateItem,
@@ -62,6 +63,11 @@ export type EstimateEditorConflictDraft = EditorConflictDraft<
   EstimateItem
 >;
 
+type RestoredDraftApplication = {
+  restoredItems: EstimateItem[];
+  skippedItemCount: number;
+};
+
 type EstimateEditorSyncControllerInput = {
   routeVersionId: string;
   activeVersion: Pick<EstimateVersionRow, "id" | "status"> | null;
@@ -72,7 +78,9 @@ type EstimateEditorSyncControllerInput = {
   getVersionSnapshot: () => EstimateVersionRow | null;
   getPersistedTotals: () => EstimateTotals | null;
   replaceItems: (items: EditorEstimateItem[]) => void;
-  applyRestoredDraft: (draft: EstimateEditorConflictDraft) => void;
+  applyRestoredDraft: (
+    draft: EstimateEditorConflictDraft
+  ) => RestoredDraftApplication;
   applyVersionFlushResult: (input: {
     versionId: string;
     totalsPatch: EstimateVersionTotalsPatch | undefined;
@@ -81,6 +89,7 @@ type EstimateEditorSyncControllerInput = {
   setTotalsOutOfSync: (value: boolean) => void;
   clearHistory: () => void;
   reportError: (message: string | null) => void;
+  reportNotice: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
 };
 
@@ -188,6 +197,7 @@ export function useEstimateEditorSyncController({
   setTotalsOutOfSync,
   clearHistory,
   reportError,
+  reportNotice,
   resolveErrorMessage,
 }: EstimateEditorSyncControllerInput): EstimateEditorSyncController {
   const [hasPendingBufferedUpdates, setHasPendingBufferedUpdates] =
@@ -323,6 +333,7 @@ export function useEstimateEditorSyncController({
 
   useEffect(() => {
     return deferEffectStateUpdate(() => {
+      reportNotice(null);
       setRestorableDraft(
         routeVersionId
           ? readConflictDraftFromSession<EstimateSettingsState, EstimateItem>(
@@ -331,7 +342,7 @@ export function useEstimateEditorSyncController({
           : null
       );
     });
-  }, [routeVersionId]);
+  }, [reportNotice, routeVersionId]);
 
   const persistConflictDraft = useCallback(() => {
     if (!routeVersionId) return;
@@ -387,7 +398,8 @@ export function useEstimateEditorSyncController({
   const clearConflictDraft = useCallback(() => {
     clearConflictDraftFromSession(routeVersionId);
     setRestorableDraft(null);
-  }, [routeVersionId]);
+    reportNotice(null);
+  }, [reportNotice, routeVersionId]);
 
   const reloadAfterConflict = useCallback(() => {
     if (!routeVersionId) return;
@@ -398,15 +410,6 @@ export function useEstimateEditorSyncController({
     triggerVersionReload();
   }, [persistConflictDraft, reportError, routeVersionId, triggerVersionReload]);
 
-  const restoreConflictDraft = useCallback(() => {
-    if (!restorableDraft) return;
-
-    applyRestoredDraft(restorableDraft);
-    setRestorableDraft(null);
-    reportError(
-      "Modifications locales restaurees. Pensez a enregistrer le parametrage."
-    );
-  }, [applyRestoredDraft, reportError, restorableDraft]);
 
   const hasMatchingActiveVersion = activeVersion?.id === routeVersionId;
   const isDraftVersion =
@@ -721,6 +724,38 @@ export function useEstimateEditorSyncController({
     },
     [flushAutoSaveNow, persistBufferedItemUpdatesToLocal, scheduleAutoSave]
   );
+
+  const restoreConflictDraft = useCallback(() => {
+    if (!restorableDraft) return;
+
+    const { restoredItems, skippedItemCount } =
+      applyRestoredDraft(restorableDraft);
+    restoredItems.forEach((item) => {
+      enqueueItemUpdate(item.id, {
+        ...buildEstimateItemUpdatePayload(item),
+        parent_id: item.parent_id ?? null,
+        position: item.position,
+      });
+    });
+    if (restoredItems.length > 0) {
+      setTotalsOutOfSync(true);
+    }
+
+    setRestorableDraft(null);
+    reportError(null);
+    reportNotice(
+      skippedItemCount > 0
+        ? "Les modifications des lignes encore présentes ont été restaurées. Certaines différences de structure n’ont pas été réappliquées afin de préserver les données serveur."
+        : "Modifications locales restaurées. Les lignes sont resynchronisées automatiquement ; enregistrez le paramétrage pour confirmer les réglages."
+    );
+  }, [
+    applyRestoredDraft,
+    enqueueItemUpdate,
+    reportError,
+    reportNotice,
+    restorableDraft,
+    setTotalsOutOfSync,
+  ]);
 
   const ensureGroupedActionCanProceed = useCallback(
     async (actionLabel: string) => {

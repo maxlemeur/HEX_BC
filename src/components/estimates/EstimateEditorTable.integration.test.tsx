@@ -39,10 +39,17 @@ vi.mock("@/components/estimates/components/EstimateEditorBody", () => ({
 
 vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
   getSpreadsheetColumnKeys: () => ["title"],
-  EstimateEditorRow: ({ item, estimateCurrency, treeConnectorMeta, visibleColumns }: {
+  EstimateEditorRow: ({
+    item,
+    estimateCurrency,
+    treeConnectorMeta,
+    visibleColumns,
+    onOpenMobileEditor,
+  }: {
     item: EstimateItem;
     estimateCurrency: string;
     visibleColumns?: ReadonlySet<string>;
+    onOpenMobileEditor?: (itemId: string) => void;
     treeConnectorMeta?: {
       depth: number;
       isLastChild: boolean;
@@ -55,6 +62,7 @@ vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
       estimateCurrency={estimateCurrency}
       treeConnectorMeta={treeConnectorMeta}
       visibleColumns={visibleColumns}
+      onOpenMobileEditor={onOpenMobileEditor}
     />
   ),
 }));
@@ -63,11 +71,13 @@ function MockRow({
   item,
   estimateCurrency,
   treeConnectorMeta,
+  onOpenMobileEditor,
   visibleColumns,
 }: {
   item: EstimateItem;
   estimateCurrency: string;
   visibleColumns?: ReadonlySet<string>;
+  onOpenMobileEditor?: (itemId: string) => void;
   treeConnectorMeta?: {
     depth: number;
     isLastChild: boolean;
@@ -75,32 +85,51 @@ function MockRow({
     hasVisibleChildren: boolean;
   };
 }) {
-  const { onPatchItem, onLineSelectionInteraction } = useEstimateEditorRowActions();
+  const { onPatchItem, onLineSelectionInteraction } =
+    useEstimateEditorRowActions();
 
   return (
     <div
       data-estimate-item-id={item.id}
       data-connector-depth={treeConnectorMeta?.depth}
       data-connector-is-last-child={treeConnectorMeta?.isLastChild}
-      data-connector-ancestor-flags={treeConnectorMeta?.ancestorLastChildFlags.join(",")}
-      data-connector-has-visible-children={treeConnectorMeta?.hasVisibleChildren}
+      data-connector-ancestor-flags={treeConnectorMeta?.ancestorLastChildFlags.join(
+        ",",
+      )}
+      data-connector-has-visible-children={
+        treeConnectorMeta?.hasVisibleChildren
+      }
       data-visible-columns={
-        visibleColumns ? Array.from(visibleColumns).sort().join(",") : "undefined"
+        visibleColumns
+          ? Array.from(visibleColumns).sort().join(",")
+          : "undefined"
       }
     >
       <span>Currency {estimateCurrency}</span>
       <button
         type="button"
-        onClick={() => onPatchItem(item.id, { title: "Edited line" }, { persist: true })}
+        onClick={() =>
+          onPatchItem(item.id, { title: "Edited line" }, { persist: true })
+        }
       >
         Patch {item.id}
       </button>
       {item.item_type === "line" ? (
         <button
           type="button"
-          onClick={() => onLineSelectionInteraction({ id: item.id, ctrlKey: true })}
+          onClick={() =>
+            onLineSelectionInteraction({ id: item.id, ctrlKey: true })
+          }
         >
           Select {item.id}
+        </button>
+      ) : null}
+      {item.item_type === "line" && onOpenMobileEditor ? (
+        <button
+          type="button"
+          onClick={() => onOpenMobileEditor(item.id)}
+        >
+          Modifier {item.id}
         </button>
       ) : null}
     </div>
@@ -165,19 +194,19 @@ function renderEstimateEditorTable(options?: {
   const onPatchItem = vi.fn();
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
   const onBulkDeleteLines = vi.fn().mockResolvedValue(undefined);
-  const items =
-    options?.items ??
-    [
-      createItem({
-        id: "line-1",
-        item_type: "line",
-        title: "Tube acier",
-        quantity: 2,
-        unit_price_ht_cents: 950,
-        pu_ht_cents: 950,
-        line_total_ht_cents: 1900,
-      }),
-    ];
+  const onAddSection = vi.fn();
+  const onAddLine = vi.fn();
+  const items = options?.items ?? [
+    createItem({
+      id: "line-1",
+      item_type: "line",
+      title: "Tube acier",
+      quantity: 2,
+      unit_price_ht_cents: 950,
+      pu_ht_cents: 950,
+      line_total_ht_cents: 1900,
+    }),
+  ];
   const lineCount = items.filter((item) => item.item_type === "line").length;
 
   render(
@@ -236,8 +265,8 @@ function renderEstimateEditorTable(options?: {
         onOutlierDetectionMethodChange={vi.fn()}
         onOutlierThresholdChange={vi.fn()}
         onToggleOutlierDismiss={vi.fn()}
-        onAddSection={vi.fn()}
-        onAddLine={vi.fn()}
+        onAddSection={onAddSection}
+        onAddLine={onAddLine}
         onDeleteItem={vi.fn()}
         onPatchItem={onPatchItem}
         onApplyBulkMajoration={onApplyBulkMajoration}
@@ -260,13 +289,15 @@ function renderEstimateEditorTable(options?: {
         onReorder={vi.fn()}
         onMoveItem={vi.fn()}
       />
-    </UserProvider>
+    </UserProvider>,
   );
 
   return {
     onPatchItem,
     onApplyBulkMajoration,
     onBulkDeleteLines,
+    onAddSection,
+    onAddLine,
   };
 }
 
@@ -294,11 +325,11 @@ describe("EstimateEditorTable integration", () => {
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Sélectionner toutes les lignes visibles/i,
-      })
+      }),
     );
 
     const deleteButton = screen.getByTestId(
-      "estimate-editor-bulk-delete-selection-button"
+      "estimate-editor-bulk-delete-selection-button",
     );
 
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -317,10 +348,10 @@ describe("EstimateEditorTable integration", () => {
     renderEstimateEditorTable({ isLaborSplitEnabled: true });
 
     expect(
-      document.querySelector('[data-estimate-item-id="line-1"]')
+      document.querySelector('[data-estimate-item-id="line-1"]'),
     ).toHaveAttribute(
       "data-visible-columns",
-      "ds,h_mo_majoration,k_fo,k_mo,labor_role,marge,marque,supply_type"
+      "ds,h_mo_majoration,k_fo,k_mo,labor_role,marge,marque,supply_type",
     );
   });
 
@@ -332,7 +363,7 @@ describe("EstimateEditorTable integration", () => {
     expect(onPatchItem).toHaveBeenCalledWith(
       "line-1",
       { title: "Edited line" },
-      { persist: true }
+      { persist: true },
     );
   });
 
@@ -343,7 +374,9 @@ describe("EstimateEditorTable integration", () => {
     fireEvent.change(screen.getByLabelText("Majoration MO en pourcentage"), {
       target: { value: "120" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Appliquer majoration" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Appliquer majoration" }),
+    );
 
     await waitFor(() => {
       expect(onApplyBulkMajoration).toHaveBeenCalledWith(["line-1"], 1.2);
@@ -364,7 +397,9 @@ describe("EstimateEditorTable integration", () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledTimes(1);
     });
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Tube acier"));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("Tube acier"),
+    );
   });
 
   it("forwards active estimate currency to editor rows", () => {
@@ -381,14 +416,14 @@ describe("EstimateEditorTable integration", () => {
     const superHead = document.querySelector(".estimate-table__super-head");
     expect(superHead).toBeInTheDocument();
     expect(
-      superHead?.querySelectorAll(".estimate-super-head__spacer")
+      superHead?.querySelectorAll(".estimate-super-head__spacer"),
     ).toHaveLength(2);
 
     expect(screen.getByText("K FO").closest("span")).toHaveClass(
-      "whitespace-nowrap"
+      "whitespace-nowrap",
     );
     expect(screen.getByText("Majoration MO (%)").closest("span")).toHaveClass(
-      "whitespace-normal"
+      "whitespace-normal",
     );
   });
 
@@ -402,10 +437,242 @@ describe("EstimateEditorTable integration", () => {
     expect(localStorage.getItem("est-col-vis")).toBe("full");
   });
 
+  it("uses the existing essential view on mobile without overwriting the desktop preset", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(
+        (query: string) =>
+          ({
+            matches: query === "(max-width: 767px)",
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          }) as unknown as MediaQueryList,
+      ),
+    });
+
+    try {
+      localStorage.setItem("est-col-vis", "full");
+      localStorage.setItem("est-col-override", "true");
+
+      renderEstimateEditorTable();
+
+      expect(
+        document.querySelector('[data-estimate-item-id="line-1"]'),
+      ).toHaveAttribute("data-visible-columns", "");
+      expect(localStorage.getItem("est-col-vis")).toBe("full");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  it("uses a compact mobile list with quick add and a secondary full-table mode", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(
+        (query: string) =>
+          ({
+            matches: query === "(max-width: 767px)",
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          }) as unknown as MediaQueryList,
+      ),
+    });
+
+    try {
+      const { onAddSection } = renderEstimateEditorTable({
+        items: [
+          createItem({
+            id: "lot-1",
+            item_type: "section",
+            title: "Plomberie",
+            position: 1,
+          }),
+          createItem({
+            id: "line-1",
+            parent_id: "lot-1",
+            title: "Tube acier",
+            quantity: 2,
+            line_total_ht_cents: 1900,
+            position: 1,
+          }),
+        ],
+      });
+
+      expect(screen.getByTestId("estimate-mobile-list")).toHaveAttribute(
+        "data-mobile-view",
+        "compact",
+      );
+      expect(screen.getByTestId("estimate-editor-table-scroll")).toHaveAttribute(
+        "data-mobile-view",
+        "compact",
+      );
+      expect(screen.getByText("Tube acier")).toBeInTheDocument();
+      expect(screen.getByText("2 × u")).toBeInTheDocument();
+      expect(screen.getByText(/19,00/)).toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Modifier la ligne Tube acier" }),
+      );
+      expect(
+        screen.getByRole("dialog", { name: "Modifier la ligne" }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
+
+      fireEvent.click(screen.getByTestId("estimate-mobile-display-button"));
+      expect(
+        screen.getByRole("dialog", { name: "Options d’affichage" }),
+      ).toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", { name: /Tableau complet/i }),
+      );
+      expect(screen.getByTestId("estimate-editor-table-scroll")).toHaveAttribute(
+        "data-mobile-view",
+        "table",
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Revenir à la liste compacte" }),
+      );
+
+      fireEvent.click(screen.getByTestId("estimate-mobile-quick-add-button"));
+      expect(
+        screen.getByRole("dialog", { name: "Ajouter dans le chiffrage" }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Lot" }));
+      expect(onAddSection).toHaveBeenCalledWith(null);
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  it("opens the line editor only on mobile and supports consecutive entry", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(
+        (query: string) =>
+          ({
+            matches: query === "(max-width: 767px)",
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          }) as unknown as MediaQueryList,
+      ),
+    });
+
+    try {
+      const { onPatchItem } = renderEstimateEditorTable({
+        items: [
+          createItem({ id: "line-1", title: "Tube acier", position: 1 }),
+          createItem({ id: "line-2", title: "Coude acier", position: 2 }),
+        ],
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Modifier line-1" }));
+
+      expect(
+        screen.getByRole("dialog", { name: "Modifier la ligne" }),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("estimate-mobile-line-title-input")).toHaveValue(
+        "Tube acier",
+      );
+
+      const quantityInput = screen.getByLabelText("Quantité");
+      fireEvent.focus(quantityInput);
+      fireEvent.change(quantityInput, { target: { value: "3,5" } });
+      fireEvent.blur(quantityInput);
+
+      expect(onPatchItem).toHaveBeenCalledWith(
+        "line-1",
+        { quantity: 3.5 },
+        { persist: true },
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Suivante" }));
+      expect(screen.getByTestId("estimate-mobile-line-title-input")).toHaveValue(
+        "Coude acier",
+      );
+      expect(screen.getByRole("button", { name: "Suivante" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Précédente" })).toBeEnabled();
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  it("keeps the mobile line editor absent on tablet", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(
+        (query: string) =>
+          ({
+            matches:
+              query === "(min-width: 768px) and (max-width: 1024px)",
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          }) as unknown as MediaQueryList,
+      ),
+    });
+
+    try {
+      renderEstimateEditorTable();
+      expect(
+        screen.queryByRole("button", { name: "Modifier line-1" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
   it("propagates deep connector metadata for depth 3 line rows", () => {
     renderEstimateEditorTable({
       items: [
-        createItem({ id: "lot-1", item_type: "section", title: "Lot", position: 1 }),
+        createItem({
+          id: "lot-1",
+          item_type: "section",
+          title: "Lot",
+          position: 1,
+        }),
         createItem({
           id: "chapter-1",
           item_type: "section",
@@ -431,7 +698,7 @@ describe("EstimateEditorTable integration", () => {
     });
 
     const deepLineRow = document.querySelector<HTMLElement>(
-      '[data-estimate-item-id="line-deep"]'
+      '[data-estimate-item-id="line-deep"]',
     );
     expect(deepLineRow).not.toBeNull();
     expect(deepLineRow?.dataset.connectorDepth).toBe("3");

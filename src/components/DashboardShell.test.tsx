@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,8 +71,28 @@ vi.mock("@/hooks/useUiMode", () => ({
 vi.mock("@/lib/navigation/build-nav-groups", () => ({
   buildNavGroups: () => [
     {
-      key: "main",
-      label: "Principal",
+      key: "affaires",
+      label: "Mes affaires",
+      items: [
+        {
+          navId: "affaires",
+          href: "/dashboard/affaires",
+          label: "Mes affaires",
+          title: "Gerer les affaires",
+          icon: null,
+        },
+        {
+          navId: "takeoff",
+          href: "/dashboard/affaires/project-1/takeoff",
+          label: "Métrés plans",
+          title: "Ouvrir les métrés",
+          icon: null,
+        },
+      ],
+    },
+    {
+      key: "commandes",
+      label: "Commandes",
       items: [
         {
           navId: "orders",
@@ -103,43 +123,40 @@ afterEach(() => {
   document.body.style.overflow = "";
 });
 
-describe("DashboardShell mobile navigation", () => {
-  it("toggles the drawer, exposes its state and locks background scrolling", async () => {
-    const user = userEvent.setup();
+describe("DashboardShell universal topbar navigation", () => {
+  it("renders the same horizontal navigation on standard dashboard screens", () => {
     render(
       <DashboardShell displayName="Jean Dupont">
         <div>Contenu</div>
       </DashboardShell>
     );
 
-    const openButton = screen.getByRole("button", { name: "Ouvrir le menu" });
-    const sidebar = document.getElementById("dashboard-sidebar");
-
-    expect(openButton).toHaveAttribute("aria-expanded", "false");
-    expect(openButton).toHaveAttribute("aria-controls", "dashboard-sidebar");
-    expect(sidebar).not.toHaveAttribute("data-mobile-open");
-
-    await user.click(openButton);
-
-    const closeButton = screen.getByRole("button", { name: "Fermer le menu" });
-    expect(sidebar).toHaveAttribute("data-mobile-open", "true");
-    expect(sidebar).toHaveAttribute("role", "dialog");
-    expect(sidebar).toHaveAttribute("aria-modal", "true");
-    expect(screen.getByRole("main")).toHaveAttribute("inert");
-    expect(document.body.style.overflow).toBe("hidden");
-
-    await user.click(closeButton);
-
-    expect(screen.getByRole("button", { name: "Ouvrir le menu" })).toHaveAttribute(
-      "aria-expanded",
-      "false"
+    const topbar = screen.getByRole("banner");
+    const brandLink = within(topbar).getByRole("link", {
+      name: "Hydro Express — Accueil",
+    });
+    expect(topbar).toHaveClass("dashboard-global-topbar");
+    expect(brandLink).toHaveTextContent("Hydro Express");
+    expect(within(brandLink).queryByRole("img")).toBeNull();
+    expect(
+      screen.getByRole("menubar", { name: "Espaces de travail" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Commandes" })).toHaveAttribute(
+      "aria-current",
+      "page"
     );
-    expect(sidebar).not.toHaveAttribute("data-mobile-open");
-    expect(screen.getByRole("main")).not.toHaveAttribute("inert");
-    expect(document.body.style.overflow).toBe("");
+
+    const main = screen.getByRole("main");
+    const sidebar = document.getElementById("dashboard-sidebar");
+    expect(sidebar).toHaveClass("dashboard-sidebar--overlay");
+    expect(sidebar).not.toHaveClass("dashboard-sidebar--collapsed");
+    expect(main).toHaveClass("lg:pl-0");
+    expect(main.style.getPropertyValue("--sidebar-offset")).toBe("0px");
+    expect(main.firstElementChild).toHaveClass("py-6", "sm:py-8");
+    expect(main.firstElementChild).not.toHaveClass("dashboard-workspace-content");
   });
 
-  it("closes with Escape, restores focus and keeps navigation/footer reachable", async () => {
+  it("opens grouped destinations from the topbar with keyboard navigation", async () => {
     const user = userEvent.setup();
     render(
       <DashboardShell displayName="Jean Dupont">
@@ -147,21 +164,26 @@ describe("DashboardShell mobile navigation", () => {
       </DashboardShell>
     );
 
-    await user.click(screen.getByRole("button", { name: "Ouvrir le menu" }));
+    const affairesTrigger = screen.getByRole("menuitem", {
+      name: "Affaires",
+    });
+    affairesTrigger.focus();
+    await user.keyboard("{ArrowDown}");
+
+    const affairesMenu = await screen.findByRole("menu", {
+      name: "Mes affaires",
+    });
+    const menuItems = within(affairesMenu).getAllByRole("menuitem");
+    await waitFor(() => expect(menuItems[0]).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(menuItems[1]).toHaveFocus();
     await user.keyboard("{Escape}");
 
-    const openButton = screen.getByRole("button", { name: "Ouvrir le menu" });
-    await waitFor(() => expect(openButton).toHaveFocus());
-    expect(document.getElementById("dashboard-sidebar")).not.toHaveAttribute(
-      "data-mobile-open"
-    );
-
-    const navigation = screen.getByRole("navigation", { name: "Menu principal" });
-    expect(navigation).toHaveClass("min-h-0", "overflow-y-auto");
-    expect(screen.getByText("Jean Dupont")).toBeInTheDocument();
+    await waitFor(() => expect(affairesTrigger).toHaveFocus());
+    expect(screen.queryByRole("menu", { name: "Mes affaires" })).toBeNull();
   });
 
-  it("moves initial focus into the modal drawer and traps Tab navigation", async () => {
+  it("opens an accessible overlay menu, traps focus and restores it on Escape", async () => {
     const user = userEvent.setup();
     render(
       <DashboardShell displayName="Jean Dupont">
@@ -169,9 +191,23 @@ describe("DashboardShell mobile navigation", () => {
       </DashboardShell>
     );
 
-    await user.click(screen.getByRole("button", { name: "Ouvrir le menu" }));
+    const menuButton = screen.getByRole("button", {
+      name: "Ouvrir le menu principal",
+    });
+    const sidebar = document.getElementById("dashboard-sidebar");
+    expect(menuButton).toHaveAttribute("aria-expanded", "false");
+    expect(menuButton).toHaveAttribute("aria-controls", "dashboard-sidebar");
+    expect(menuButton).not.toHaveTextContent("Menu");
+
+    await user.click(menuButton);
 
     const closeButton = screen.getByRole("button", { name: "Fermer le menu" });
+    expect(sidebar).toHaveAttribute("data-drawer-open", "true");
+    expect(sidebar).toHaveAttribute("role", "dialog");
+    expect(sidebar).toHaveAttribute("aria-modal", "true");
+    expect(sidebar).toHaveAttribute("aria-label", "Navigation principale");
+    expect(screen.getByRole("main")).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("hidden");
     await waitFor(() => expect(closeButton).toHaveFocus());
 
     const signOutButton = screen.getByRole("button", { name: "Se deconnecter" });
@@ -179,8 +215,11 @@ describe("DashboardShell mobile navigation", () => {
     await user.keyboard("{Tab}");
     expect(closeButton).toHaveFocus();
 
-    await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(signOutButton).toHaveFocus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(menuButton).toHaveFocus());
+    expect(sidebar).not.toHaveAttribute("data-drawer-open");
+    expect(screen.getByRole("main")).not.toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("provides a skip link and focuses main content after client navigation", async () => {
@@ -204,42 +243,23 @@ describe("DashboardShell mobile navigation", () => {
     await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
   });
 
-  it("keeps dashboard content below the mobile header through tablet widths", () => {
-    render(
-      <DashboardShell displayName="Jean Dupont">
-        <div>Contenu</div>
-      </DashboardShell>
-    );
-
-    const contentContainer = screen.getByRole("main").firstElementChild;
-
-    expect(contentContainer).toHaveClass(
-      "pt-[4.5rem]",
-      "sm:pb-8",
-      "lg:py-8"
-    );
-    expect(contentContainer).not.toHaveClass("sm:py-8");
-  });
-
-  it("uses compact footer controls when the desktop sidebar is collapsed", async () => {
-    window.localStorage.setItem("sidebar-collapsed", "true");
+  it("keeps production workspaces full width below the same topbar", () => {
+    navigationState.pathname = "/dashboard/estimates/version-1/edit";
 
     render(
       <DashboardShell displayName="Jean Dupont">
-        <div>Contenu</div>
+        <div>Éditeur</div>
       </DashboardShell>
     );
 
-    const sidebar = document.getElementById("dashboard-sidebar");
-    await waitFor(() =>
-      expect(sidebar).toHaveClass("dashboard-sidebar--collapsed")
+    expect(
+      screen.getAllByRole("menubar", { name: "Espaces de travail" })
+    ).toHaveLength(1);
+    const main = screen.getByRole("main");
+    expect(main).toHaveClass("lg:pl-0");
+    expect(main.firstElementChild).toHaveClass(
+      "dashboard-workspace-content",
+      "pt-0"
     );
-
-    const modeSwitch = screen.getByRole("switch", {
-      name: /Mode (Expert|Simplifié) actif/,
-    });
-    expect(modeSwitch).toHaveClass("sidebar-mode-toggle");
-    expect(modeSwitch.querySelector(".sidebar-mode-toggle__labels")).not.toBeNull();
-    expect(modeSwitch.querySelector(".sidebar-mode-toggle__thumb")).not.toBeNull();
   });
 });

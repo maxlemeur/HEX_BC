@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
@@ -12,6 +12,7 @@ import {
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
+import { ProductionRibbon } from "@/components/dashboard/ProductionRibbon";
 import {
   BUSINESS_STATUS_FILTER_OPTIONS,
   BUSINESS_LEVEL_FILTER_OPTIONS,
@@ -54,6 +55,8 @@ type Props = {
     metadata?: Record<string, unknown> | null;
   }>;
   launchContext?: LaunchContext | null;
+  ribbonHeader?: ReactNode;
+  ribbonPreamble?: ReactNode;
 };
 
 const TABS = [
@@ -69,6 +72,8 @@ export default function TakeoffActivityCenter({
   versions,
   planSets,
   launchContext = null,
+  ribbonHeader,
+  ribbonPreamble,
 }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -258,14 +263,18 @@ export default function TakeoffActivityCenter({
 
   return (
     <div>
-      {/* Tab bar */}
-      <div
-        ref={tabListRef}
-        role="tablist"
-        aria-label="Onglets du centre d'activité"
-        className="flex border-b border-[var(--slate-200)] mb-4"
-        onKeyDown={handleTabKeyDown}
+      <ProductionRibbon
+        ariaLabel="Ruban métier des métrés"
+        testId="takeoff-activity-production-ribbon"
       >
+        {ribbonHeader}
+        <div
+          ref={tabListRef}
+          role="tablist"
+          aria-label="Onglets du centre d'activité"
+          className="production-ribbon__tabs"
+          onKeyDown={handleTabKeyDown}
+        >
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;
           return (
@@ -277,18 +286,18 @@ export default function TakeoffActivityCenter({
               aria-selected={isActive}
               aria-controls={`tabpanel-${tab.key}`}
               tabIndex={isActive ? 0 : -1}
-              className={`min-h-11 flex-1 px-3 py-2 text-sm transition-colors sm:flex-none sm:px-4 ${
-                isActive
-                  ? "border-b-2 border-[var(--brand-blue)] text-[var(--brand-blue)] font-semibold"
-                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-              }`}
+              className="production-ribbon__tab min-h-11 sm:min-h-[38px]"
+              data-active={isActive ? "true" : undefined}
               onClick={() => updateParams({ tab: tab.key })}
             >
               {tab.label}
             </button>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ProductionRibbon>
+
+      {ribbonPreamble ? <div className="mt-4">{ribbonPreamble}</div> : null}
 
       {/* Filter bar */}
       {shouldShowFilters ? (

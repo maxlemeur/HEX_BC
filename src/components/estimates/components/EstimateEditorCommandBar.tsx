@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
   ESTIMATE_QUALITY_FLAG_META,
@@ -10,6 +12,7 @@ import {
   useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
 import { usePopover } from "@/hooks/usePopover";
+import { ProductionRibbonTabs } from "@/components/dashboard/ProductionRibbonTabs";
 import type {
   EstimateEditorToolbarProps,
   EstimateQualityFilter,
@@ -20,6 +23,25 @@ import { parseNumberInput } from "@/lib/estimates/editor-values";
 const ROOT_KEY = "root";
 const INSERT_PANEL_ID = "estimate-editor-insert-panel";
 const DISPLAY_PANEL_ID = "estimate-editor-display-panel";
+const EDITOR_RIBBON_TABS = [
+  {
+    id: "chiffrage",
+    label: "Chiffrage",
+    panelId: "estimate-ribbon-panel-chiffrage",
+  },
+  {
+    id: "insertion",
+    label: "Insérer",
+    panelId: "estimate-ribbon-panel-insertion",
+  },
+  {
+    id: "display",
+    label: "Affichage & contrôle",
+    panelId: "estimate-ribbon-panel-display",
+  },
+] as const;
+
+type EditorRibbonTab = (typeof EDITOR_RIBBON_TABS)[number]["id"];
 
 function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
   if (value === "all_lines" || value === "with_anomalies") {
@@ -100,6 +122,8 @@ export function EstimateEditorCommandBar({
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
   const isSimplifiedMode = uiMode === "simplified";
+  const [activeRibbonTab, setActiveRibbonTab] =
+    useState<EditorRibbonTab>("chiffrage");
   const availableColumnPresets = isSimplifiedMode
     ? (["essential"] as const)
     : (Object.keys(columnPresetLabels) as Array<
@@ -135,39 +159,68 @@ export function EstimateEditorCommandBar({
 
   if (isViewerMode) {
     return (
-      <div
-        className="flex flex-wrap items-center gap-2"
-        data-testid="estimate-editor-table-toolbar"
-      >
-        <input
-          type="search"
-          className="form-input min-h-10 min-w-[220px] flex-1 text-sm"
-          placeholder="Rechercher dans le chiffrage..."
-          value={searchTerm}
-          onChange={(event) => onSearchChange(event.target.value)}
-          data-testid="estimate-editor-search-input"
+      <div data-testid="estimate-editor-table-toolbar">
+        <ProductionRibbonTabs
+          tabs={[
+            {
+              id: "consultation",
+              label: "Consultation",
+              panelId: "estimate-ribbon-panel-consultation",
+            },
+          ]}
+          activeTab="consultation"
+          onTabChange={() => undefined}
+          ariaLabel="Onglets du ruban de consultation"
         />
-        {onOpenSettings ? (
-          <button
-            className="btn btn-secondary btn-sm min-h-10"
-            type="button"
-            onClick={onOpenSettings}
-            data-testid="estimate-editor-settings-button"
-          >
-            Paramétrage
-          </button>
-        ) : null}
-        {commandButton}
+        <div
+          id="estimate-ribbon-panel-consultation"
+          role="tabpanel"
+          aria-labelledby="estimate-ribbon-panel-consultation-tab"
+          className="production-ribbon__commands"
+        >
+          <input
+            type="search"
+            className="form-input min-h-10 min-w-[220px] flex-1 text-sm"
+            placeholder="Rechercher dans le chiffrage..."
+            value={searchTerm}
+            onChange={(event) => onSearchChange(event.target.value)}
+            data-testid="estimate-editor-search-input"
+          />
+          {onOpenSettings ? (
+            <button
+              className="btn btn-secondary btn-sm min-h-10"
+              type="button"
+              onClick={onOpenSettings}
+              data-testid="estimate-editor-settings-button"
+            >
+              Paramétrage
+            </button>
+          ) : null}
+          {commandButton}
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="flex flex-col gap-3"
-      data-testid="estimate-editor-table-toolbar"
-    >
-      <div className="flex flex-wrap items-center gap-2">
+    <div data-testid="estimate-editor-table-toolbar">
+      <ProductionRibbonTabs
+        tabs={EDITOR_RIBBON_TABS.map((tab) => ({
+          ...tab,
+          badge:
+            tab.id === "display" ? qualityCounts.totalFlagsCount : undefined,
+        }))}
+        activeTab={activeRibbonTab}
+        onTabChange={(tabId) => setActiveRibbonTab(tabId as EditorRibbonTab)}
+        ariaLabel="Onglets métier du ruban de chiffrage"
+      />
+      <div
+        id="estimate-ribbon-panel-chiffrage"
+        role="tabpanel"
+        aria-labelledby="estimate-ribbon-panel-chiffrage-tab"
+        className="production-ribbon__commands"
+        hidden={activeRibbonTab !== "chiffrage"}
+      >
         <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-surface-subtle p-1">
           <button
             className="btn btn-ghost btn-sm min-h-9 px-2.5"
@@ -201,7 +254,16 @@ export function EstimateEditorCommandBar({
           onChange={(event) => onSearchChange(event.target.value)}
           data-testid="estimate-editor-search-input"
         />
+        {commandButton}
+      </div>
 
+      <div
+        id="estimate-ribbon-panel-insertion"
+        role="tabpanel"
+        aria-labelledby="estimate-ribbon-panel-insertion-tab"
+        className="production-ribbon__commands"
+        hidden={activeRibbonTab !== "insertion"}
+      >
         <div className="relative shrink-0" ref={insertContainerRef}>
           <button
             className="btn btn-secondary btn-sm min-h-10"
@@ -313,7 +375,15 @@ export function EstimateEditorCommandBar({
           ) : null}
           {quickTemplatePickerNode}
         </div>
+      </div>
 
+      <div
+        id="estimate-ribbon-panel-display"
+        role="tabpanel"
+        aria-labelledby="estimate-ribbon-panel-display-tab"
+        className="production-ribbon__commands"
+        hidden={activeRibbonTab !== "display"}
+      >
         <div className="relative shrink-0" ref={displayContainerRef}>
           <button
             className="btn btn-secondary btn-sm min-h-10"
@@ -642,8 +712,6 @@ export function EstimateEditorCommandBar({
             </div>
           ) : null}
         </div>
-
-        {commandButton}
       </div>
 
       {state.hasSelectedLines ? (

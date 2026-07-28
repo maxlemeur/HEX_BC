@@ -262,6 +262,7 @@ export function SectionRow({
           {!hideEditingActions ? (
             <Popover
               placement="bottom"
+              portal
               className="estimate-section-quick-actions"
               contentClassName="estimate-section-quick-actions__menu"
               trigger={

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export function usePopover({ hoverDelay = 200 }: { hoverDelay?: number } = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
@@ -17,6 +18,10 @@ export function usePopover({ hoverDelay = 200 }: { hoverDelay?: number } = {}) {
 
   const setContainerRef = useCallback((node: HTMLDivElement | null) => {
     setContainerEl(node);
+  }, []);
+
+  const setContentRef = useCallback((node: HTMLDivElement | null) => {
+    setContentEl(node);
   }, []);
 
   const handleMouseEnter = useCallback(() => {
@@ -40,7 +45,7 @@ export function usePopover({ hoverDelay = 200 }: { hoverDelay?: number } = {}) {
     if (!isOpen || !containerEl) return;
     const handleMouseDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (containerEl.contains(target)) return;
+      if (containerEl.contains(target) || contentEl?.contains(target)) return;
       setIsOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -52,7 +57,17 @@ export function usePopover({ hoverDelay = 200 }: { hoverDelay?: number } = {}) {
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, containerEl]);
+  }, [isOpen, containerEl, contentEl]);
 
-  return { isOpen, toggle, close, open, setContainerRef, handleMouseEnter, handleMouseLeave };
+  return {
+    isOpen,
+    toggle,
+    close,
+    open,
+    containerEl,
+    setContainerRef,
+    setContentRef,
+    handleMouseEnter,
+    handleMouseLeave,
+  };
 }

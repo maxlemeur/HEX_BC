@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { resolveEstimateEditorGridStyle } from "@/components/estimates/EstimateEditorTable";
+import {
+  resolveEstimateEditorGridStyle,
+  resolveEstimateViewportColumns,
+} from "@/components/estimates/EstimateEditorTable";
 import { resolveSectionContextMenuTop } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs";
 import type { ColumnKey } from "@/hooks/useColumnVisibility";
 
@@ -22,6 +25,17 @@ function toCustomProperties(
 }
 
 describe("estimate editor responsive grid", () => {
+  it("uses the existing essential columns on mobile without changing desktop preferences", () => {
+    const desktopColumns = new Set<ColumnKey>(["supply_type", "k_fo"]);
+
+    expect(resolveEstimateViewportColumns(desktopColumns, false)).toBe(
+      desktopColumns,
+    );
+    expect(
+      Array.from(resolveEstimateViewportColumns(desktopColumns, true)),
+    ).toEqual([]);
+    expect(desktopColumns).toEqual(new Set(["supply_type", "k_fo"]));
+  });
   it("provides distinct desktop and tablet tracks for every visible column", () => {
     const style = toCustomProperties(
       resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, false),
@@ -116,6 +130,24 @@ describe("estimate editor responsive grid", () => {
       /@media \(min-width: 768px\) and \(max-width: 1024px\)[\s\S]*?--estimate-grid: var\(--estimate-grid-tablet\);/,
     );
     expect(css).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1279px\)[\s\S]*?\.dashboard-workspace-content \.estimate-table-scroll \{[\s\S]*?width: calc\(100% \+ 3rem\);[\s\S]*?margin-inline: -1\.5rem;[\s\S]*?border-inline: 0;[\s\S]*?border-radius: 0;/,
+    );
+    expect(css).toMatch(
+      /@media \(min-width: 1280px\)[\s\S]*?\[data-testid="estimate-editor-table-shell"\]\[data-has-side-panel="false"\][\s\S]*?> \.estimate-table-scroll \{[\s\S]*?width: calc\(100% \+ 3rem\);[\s\S]*?margin-inline: -1\.5rem;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-workspace-content \.estimate-table-scroll \{[\s\S]*?width: calc\(100% \+ 1\.5rem\);[\s\S]*?margin-inline: -0\.75rem;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?\.estimate-table-scroll\[data-mobile-view="compact"\] \{[\s\S]*?display: none;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?\.estimate-mobile-list \{[\s\S]*?display: block;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?\[data-testid="estimate-editor-table-toolbar"\] \{[\s\S]*?display: none;/,
+    );
+    expect(css).toMatch(
       /\.estimate-row \.estimate-cell--designation \{[\s\S]*?position: sticky;[\s\S]*?left: 0;/,
     );
     expect(css).toMatch(
@@ -159,6 +191,9 @@ describe("estimate editor responsive grid", () => {
     );
     expect(chromeSource).toContain(
       "estimate-table-scroll overflow-x-auto xl:col-start-1 xl:row-start-2",
+    );
+    expect(chromeSource).toContain(
+      'data-has-side-panel={headerRight ? "true" : "false"}',
     );
     expect(checklistSource).toContain(
       "h-fit w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4",

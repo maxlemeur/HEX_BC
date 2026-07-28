@@ -151,6 +151,26 @@ function renderToolbar(overrides?: {
   return { actions, callbacks };
 }
 
+function selectRibbonTab(name: string | RegExp) {
+  fireEvent.click(screen.getByRole("tab", { name }));
+}
+
+function openInsertionMenu() {
+  selectRibbonTab("Insérer");
+  fireEvent.click(screen.getByTestId("estimate-editor-insert-button"));
+  return screen.getByRole("menu", {
+    name: "Insérer dans le chiffrage",
+  });
+}
+
+function openDisplayDialog() {
+  selectRibbonTab(/^Affichage & contrôle/);
+  fireEvent.click(screen.getByTestId("estimate-editor-display-button"));
+  return screen.getByRole("dialog", {
+    name: "Options d’affichage du chiffrage",
+  });
+}
+
 describe("EstimateEditorToolbar option 3", () => {
   it("presents one command row with explicit insertion and display groups", () => {
     renderToolbar({ showAssistants: true });
@@ -161,24 +181,23 @@ describe("EstimateEditorToolbar option 3", () => {
     expect(
       screen.getByPlaceholderText("Rechercher dans le chiffrage..."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Insérer" })).toHaveAttribute(
-      "title",
-    );
-    expect(screen.getByRole("button", { name: /Afficher/ })).toHaveAttribute(
-      "title",
-    );
     expect(screen.getByRole("button", { name: /Commandes/ })).toHaveAttribute(
       "title",
     );
+    selectRibbonTab("Insérer");
+    expect(
+      screen.getByTestId("estimate-editor-insert-button"),
+    ).toHaveAttribute("title");
+    selectRibbonTab(/^Affichage & contrôle/);
+    expect(
+      screen.getByTestId("estimate-editor-display-button"),
+    ).toHaveAttribute("title");
   });
 
   it("groups insertion sources and explains optional assistants", () => {
     const { callbacks } = renderToolbar({ showAssistants: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Insérer" }));
-    const menu = screen.getByRole("menu", {
-      name: "Insérer dans le chiffrage",
-    });
+    const menu = openInsertionMenu();
     expect(
       within(menu).getByRole("menuitem", { name: "Insérer un template" }),
     ).toBeInTheDocument();
@@ -196,10 +215,7 @@ describe("EstimateEditorToolbar option 3", () => {
   it("offers a single explicit entry point to add an ouvrage", () => {
     const { callbacks } = renderToolbar();
 
-    fireEvent.click(screen.getByRole("button", { name: "Insérer" }));
-    const menu = screen.getByRole("menu", {
-      name: "Insérer dans le chiffrage",
-    });
+    const menu = openInsertionMenu();
     expect(
       within(menu).queryByTestId("estimate-editor-quick-assembly-button"),
     ).not.toBeInTheDocument();
@@ -213,10 +229,7 @@ describe("EstimateEditorToolbar option 3", () => {
   it("groups structure, columns, quality and advanced controls under Afficher", () => {
     const { callbacks } = renderToolbar();
 
-    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
-    const dialog = screen.getByRole("dialog", {
-      name: "Options d’affichage du chiffrage",
-    });
+    const dialog = openDisplayDialog();
     expect(
       within(dialog).getByRole("heading", { name: "Structure" }),
     ).toBeInTheDocument();
@@ -239,10 +252,7 @@ describe("EstimateEditorToolbar option 3", () => {
   it("keeps the finalization inspector hidden behind an explicit display toggle", () => {
     const { callbacks } = renderToolbar();
 
-    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
-    const dialog = screen.getByRole("dialog", {
-      name: "Options d’affichage du chiffrage",
-    });
+    const dialog = openDisplayDialog();
     expect(
       within(dialog).getByRole("heading", { name: "Finalisation" }),
     ).toBeInTheDocument();
@@ -260,7 +270,7 @@ describe("EstimateEditorToolbar option 3", () => {
   it("labels the finalization toggle as Masquer when the inspector is open", () => {
     renderToolbar({ isFinalizationPanelOpen: true });
 
-    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
+    openDisplayDialog();
     const toggle = screen.getByTestId(
       "estimate-editor-toggle-finalization-button",
     );
@@ -317,7 +327,7 @@ describe("EstimateEditorToolbar option 3", () => {
 
   it("keeps simplified labor-split mode free of the advanced-column toggle", () => {
     renderToolbar({ uiMode: "simplified", isLaborSplitEnabled: true });
-    fireEvent.click(screen.getByRole("button", { name: /Afficher/ }));
+    openDisplayDialog();
     expect(
       screen.queryByRole("button", { name: "Colonnes avancées" }),
     ).not.toBeInTheDocument();

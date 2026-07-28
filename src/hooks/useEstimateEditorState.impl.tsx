@@ -327,6 +327,7 @@ export function useEstimateEditorState({
     activeSettingsSave.operationId === settingsSaveGenerationRef.current;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isSavingMarginTiers, setIsSavingMarginTiers] = useState(false);
   const [marginTiersError, setMarginTiersError] = useState<string | null>(null);
   const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
@@ -385,7 +386,29 @@ export function useEstimateEditorState({
           ),
         });
       }
-      setItems(draft.items);
+
+      const currentItems = itemsRef.current;
+      const currentItemIds = new Set(currentItems.map((item) => item.id));
+      const restoredItems = draft.items.filter((item) =>
+        currentItemIds.has(item.id)
+      );
+      const restoredItemIds = new Set(restoredItems.map((item) => item.id));
+      const serverOnlyItems = currentItems.filter(
+        (item) => !restoredItemIds.has(item.id)
+      );
+      const nextItems: EditorEstimateItem[] = [
+        ...restoredItems,
+        ...serverOnlyItems,
+      ];
+
+      itemsRef.current = nextItems;
+      setItems(nextItems);
+
+      return {
+        restoredItems,
+        skippedItemCount:
+          draft.items.length - restoredItems.length + serverOnlyItems.length,
+      };
     },
     []
   );
@@ -439,6 +462,7 @@ export function useEstimateEditorState({
     setTotalsOutOfSync,
     clearHistory: clearUndoRedoHistory,
     reportError: setActionError,
+    reportNotice: setActionNotice,
     resolveErrorMessage: resolveEstimateActionError,
   });
   const {
@@ -2377,7 +2401,6 @@ export function useEstimateEditorState({
       qualityFlagsByItemId,
       qualityCounts,
       qualityFilter,
-      actionError,
       marginMultiplier:
         totals?.appliedMarginMultiplier ?? editorTableBaseConfig.marginMultiplier,
       discountCents: editorTableBaseConfig.discountCents,
@@ -2442,7 +2465,6 @@ export function useEstimateEditorState({
       ) : null,
     }),
     [
-      actionError,
       categories,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
@@ -2601,10 +2623,12 @@ export function useEstimateEditorState({
       isUndoingBulkSuggest,
       isUndoBulkSuggestDisabled: isSaveBlocked,
       importSummaryMessage,
+      actionNotice,
       actionError,
     }),
     [
       actionError,
+      actionNotice,
       bulkSuggestAppliedCount,
       canSend,
       conflictState?.message,
@@ -2654,7 +2678,6 @@ export function useEstimateEditorState({
       ? {
           isOpen: isSettingsDrawerOpen,
           onClose: closeSettingsDrawer,
-          actionError,
           projectName,
           versionNumber: version.version_number,
           settings,

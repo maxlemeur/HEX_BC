@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -27,7 +28,11 @@ import { useUiMode } from "@/hooks/useUiMode";
 import {
   hasBlockingAnomaly,
 } from "@/components/takeoff/TakeoffReviewTable";
-import { getBusinessLevelLabel } from "@/components/takeoff/takeoff-job-list-shared";
+import {
+  getBusinessLevelLabel,
+  getStatusCss,
+  getStatusLabel,
+} from "@/components/takeoff/takeoff-job-list-shared";
 import {
   TakeoffApplyWizard,
   type TakeoffApplyWizardSubmitPayload,
@@ -1281,9 +1286,11 @@ export default function TakeoffReviewPage({
   if (loading) {
     return (
       <div className="animate-fade-in">
-        <div className="page-header">
-          <h1 className="page-title">Revue d&apos;extraction</h1>
-          <p className="page-description">Chargement...</p>
+        <div className="page-header flex items-start gap-3">
+          <div>
+            <h1 className="page-title">Revue d&apos;extraction</h1>
+            <p className="page-description">Chargement...</p>
+          </div>
         </div>
         <div className="dashboard-card p-6">
           <div className="space-y-3">
@@ -1304,9 +1311,11 @@ export default function TakeoffReviewPage({
   if (loadError) {
     return (
       <div className="animate-fade-in">
-        <div className="page-header">
-          <h1 className="page-title">Revue d&apos;extraction</h1>
-          <p className="page-description">{loadError}</p>
+        <div className="page-header flex items-start gap-3">
+          <div>
+            <h1 className="page-title">Revue d&apos;extraction</h1>
+            <p className="page-description">{loadError}</p>
+          </div>
         </div>
         <div className="mt-4 flex gap-3">
           <Link
@@ -1322,49 +1331,86 @@ export default function TakeoffReviewPage({
 
   return (
     <div className="animate-fade-in space-y-4">
-      {/* ---- Page header ---- */}
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">
-            {isAffaireContext ? "Revue des exceptions & preuves" : "Revue d'extraction"}
-          </h1>
-          <p className="page-description">
-            {jobFileName ?? "Extraction"} &mdash;{" "}
-            {currentReviewMode === "validation" && isAffaireContext
-              ? "commencez par les preuves manquantes, la faible confiance et les rapprochements DPGF à trancher."
-              : (
-                <>
-                  {tables.length > 0 && <>{tables.length} tables, </>}
-                  {items.length} item(s) extraits
-                </>
-              )}
-            {jobLevel && (
-              <Badge variant="neutral" size="sm" className="ml-2">
-                {getBusinessLevelLabel(jobLevel)}
-              </Badge>
-            )}
-          </p>
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-          <TakeoffReviewModeSwitch
-            mode={currentReviewMode}
-            onModeChange={setReviewMode}
-          />
-          <Link
-            href={
-              isAffaireContext
-                ? `/dashboard/affaires/${projectId}/takeoff`
-                : `/dashboard/estimates/${versionId}/takeoff/${jobId}`
-            }
-            className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
-          >
-            {isAffaireContext
-              ? "Centre d'activité métrés"
-              : "Retour a l'extraction"}
-          </Link>
-        </div>
-      </div>
+      <ProductionRibbon
+        ariaLabel="Ruban métier de la revue de métrés"
+        testId="takeoff-review-production-ribbon"
+      >
+        <ProductionRibbonHeader
+          breadcrumbs={
+            isAffaireContext
+              ? [
+                  { label: "Mes affaires", href: "/dashboard/affaires" },
+                  {
+                    label: "Métrés",
+                    href: `/dashboard/affaires/${projectId}/takeoff`,
+                  },
+                  {
+                    label:
+                      jobVersionNumber !== null
+                        ? `V${jobVersionNumber} · Revue`
+                        : "Revue",
+                  },
+                ]
+              : [
+                  { label: "Chiffrages", href: "/dashboard/estimates" },
+                  {
+                    label: "Métrés",
+                    href: `/dashboard/estimates/${versionId}/takeoff`,
+                  },
+                  { label: "Revue" },
+                ]
+          }
+          title={
+            isAffaireContext
+              ? "Revue des exceptions & preuves"
+              : "Revue d'extraction"
+          }
+          description={
+            <>
+              {jobFileName ?? "Extraction"} · {tables.length} table
+              {tables.length > 1 ? "s" : ""} · {items.length} item
+              {items.length > 1 ? "s" : ""}
+            </>
+          }
+          actions={
+            <>
+              {jobStatus ? (
+                <span className={`status-badge ${getStatusCss(jobStatus)}`}>
+                  {getStatusLabel(jobStatus)}
+                </span>
+              ) : null}
+              {jobLevel ? (
+                <Badge variant="neutral" size="sm">
+                  {getBusinessLevelLabel(jobLevel)}
+                </Badge>
+              ) : null}
+              <Link
+                href={
+                  isAffaireContext
+                    ? `/dashboard/affaires/${projectId}/takeoff`
+                    : `/dashboard/estimates/${versionId}/takeoff/${jobId}`
+                }
+                className="btn btn-secondary btn-sm"
+              >
+                {isAffaireContext
+                  ? "Centre d'activité métrés"
+                  : "Retour à l'extraction"}
+              </Link>
+            </>
+          }
+        />
+        <TakeoffReviewModeSwitch
+          mode={currentReviewMode}
+          onModeChange={setReviewMode}
+        />
+      </ProductionRibbon>
 
+      <div
+        id="takeoff-review-mode-panel"
+        role="tabpanel"
+        aria-labelledby={`takeoff-review-mode-${currentReviewMode}-tab`}
+        className="space-y-4"
+      >
       {/* ---- Confidence header (Level C only) ---- */}
       {jobLevel === "C" && (
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
@@ -1498,6 +1544,7 @@ export default function TakeoffReviewPage({
           Appliquer au chiffrage
         </Button>
       </div>}
+      </div>
 
       {/* ---- Exclusion modal ---- */}
       <ExclusionReasonModal

@@ -26,6 +26,7 @@ import {
   EstimateEditorRow,
   getSpreadsheetColumnKeys,
 } from "@/components/estimates/components/EstimateEditorRow";
+import { MobileEstimateLineEditor } from "@/components/estimates/components/estimate-editor-row/MobileEstimateLineEditor";
 import {
   EstimateSuggestionRow,
   type SuggestionPreview,
@@ -33,6 +34,10 @@ import {
 import { EstimateEditorTableChrome } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableChrome";
 import { EstimateEditorTableSectionDialogs } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs";
 import { EstimateEditorTableLineContextMenu } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu";
+import {
+  MobileEstimateList,
+  type MobileEstimateListRow,
+} from "@/components/estimates/components/estimate-editor-table/MobileEstimateList";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
 import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
 import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
@@ -80,6 +85,7 @@ import {
   useColumnVisibility,
   type ColumnKey,
 } from "@/hooks/useColumnVisibility";
+import { useIsMobileViewport } from "@/hooks/useIsTablet";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
   type EstimateQualityFlagCounts,
@@ -209,7 +215,8 @@ type EstimateEditorTableProps = {
   qualityFlagsByItemId: EstimateQualityFlagsByItemId;
   qualityCounts: EstimateQualityFlagCounts;
   qualityFilter: EstimateQualityFilter;
-  actionError: string | null;
+  /** @deprecated Les erreurs globales sont rendues par EstimateEditorAlerts. */
+  actionError?: string | null;
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
@@ -288,6 +295,8 @@ type EstimateEditorTableProps = {
   virtualization?: EstimateVirtualizationConfig;
   highlightedItemIds?: Set<string>;
   headerRight?: React.ReactNode;
+  ribbonHeaderNode?: React.ReactNode;
+  ribbonAlertsNode?: React.ReactNode;
   isFinalizationPanelOpen?: boolean;
   onToggleFinalizationPanel?: () => void;
   onOpenSettings?: () => void;
@@ -774,6 +783,15 @@ export function resolveEstimateEditorGridStyle(
   } as CSSProperties;
 }
 
+const MOBILE_ESSENTIAL_COLUMNS = new Set<ColumnKey>();
+
+export function resolveEstimateViewportColumns(
+  visibleColumns: ReadonlySet<ColumnKey>,
+  isMobileViewport: boolean
+): ReadonlySet<ColumnKey> {
+  return isMobileViewport ? MOBILE_ESSENTIAL_COLUMNS : visibleColumns;
+}
+
 export function EstimateEditorTable({
   versionId,
   currency = "EUR",
@@ -791,7 +809,7 @@ export function EstimateEditorTable({
   qualityFlagsByItemId,
   qualityCounts,
   qualityFilter,
-  actionError,
+  actionError = null,
   marginMultiplier,
   discountCents,
   taxRateBp,
@@ -839,6 +857,8 @@ export function EstimateEditorTable({
   virtualization,
   highlightedItemIds = EMPTY_HIGHLIGHTED_ITEM_IDS,
   headerRight,
+  ribbonHeaderNode,
+  ribbonAlertsNode,
   isFinalizationPanelOpen = false,
   onToggleFinalizationPanel,
   onOpenSettings,
@@ -847,11 +867,18 @@ export function EstimateEditorTable({
   const columnPreset = columnVisibility.preset;
   const setColumnPresetAuto = columnVisibility.setPresetAuto;
   const { mode: uiMode, isSimplified } = useUiMode();
+  const isMobileViewport = useIsMobileViewport();
+  const [showFullTableOnMobile, setShowFullTableOnMobile] = useState(false);
+  const viewportVisibleColumns = resolveEstimateViewportColumns(
+    columnVisibility.visibleColumns,
+    isMobileViewport && !showFullTableOnMobile
+  );
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
   const [isQuickTemplatePickerOpen, setIsQuickTemplatePickerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [mobileEditorItemId, setMobileEditorItemId] = useState<string | null>(null);
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
     () => new Set()
@@ -895,6 +922,43 @@ export function EstimateEditorTable({
     laborRateById,
     isLaborSplitEnabled,
   });
+  const mobileEditorItem = mobileEditorItemId
+    ? items.find(
+        (item) => item.id === mobileEditorItemId && item.item_type === "line",
+      ) ?? null
+    : null;
+  const mobileEditorLineIndex = mobileEditorItemId
+    ? visibleLineIdList.indexOf(mobileEditorItemId)
+    : -1;
+  const handleOpenMobileEditor = useCallback(
+    (itemId: string) => {
+      if (!isMobileViewport) return;
+      setMobileEditorItemId(itemId);
+    },
+    [isMobileViewport],
+  );
+  const handleGoToPreviousMobileLine = useCallback(() => {
+    const previousLineId = visibleLineIdList[mobileEditorLineIndex - 1];
+    if (previousLineId) {
+      setMobileEditorItemId(previousLineId);
+    }
+  }, [mobileEditorLineIndex, visibleLineIdList]);
+  const handleGoToNextMobileLine = useCallback(() => {
+    const nextLineId = visibleLineIdList[mobileEditorLineIndex + 1];
+    if (nextLineId) {
+      setMobileEditorItemId(nextLineId);
+    }
+  }, [mobileEditorLineIndex, visibleLineIdList]);
+
+  useEffect(() => {
+    if (
+      mobileEditorItemId !== null &&
+      (!isMobileViewport || mobileEditorItem === null)
+    ) {
+      setMobileEditorItemId(null);
+    }
+  }, [isMobileViewport, mobileEditorItem, mobileEditorItemId]);
+
   const sectionLevelById = useMemo(() => {
     const map = new Map<string, number>();
     items.forEach((item) => {
@@ -918,10 +982,10 @@ export function EstimateEditorTable({
   const dynamicGridStyle = useMemo(
     () =>
       resolveEstimateEditorGridStyle(
-        columnVisibility.visibleColumns,
+        viewportVisibleColumns,
         isLaborSplitEnabled
       ),
-    [columnVisibility.visibleColumns, isLaborSplitEnabled]
+    [viewportVisibleColumns, isLaborSplitEnabled]
   );
 
   const hasInitializedPresetRef = useRef(false);
@@ -966,17 +1030,17 @@ export function EstimateEditorTable({
     }
     const foSpan =
       1 +
-      (columnVisibility.visibleColumns.has("supply_type") ? 1 : 0) +
-      (columnVisibility.visibleColumns.has("k_fo") ? 1 : 0);
+      (viewportVisibleColumns.has("supply_type") ? 1 : 0) +
+      (viewportVisibleColumns.has("k_fo") ? 1 : 0);
     const moStart = foStart + foSpan;
     const moSpan =
       1 +
-      (columnVisibility.visibleColumns.has("h_mo_majoration") ? 1 : 0) +
-      (columnVisibility.visibleColumns.has("labor_role") ? 1 : 0) +
-      (columnVisibility.visibleColumns.has("k_mo") ? 1 : 0);
+      (viewportVisibleColumns.has("h_mo_majoration") ? 1 : 0) +
+      (viewportVisibleColumns.has("labor_role") ? 1 : 0) +
+      (viewportVisibleColumns.has("k_mo") ? 1 : 0);
     const puStart = moStart + moSpan;
     return { foStart, foSpan, moStart, moSpan, puStart };
-  }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+  }, [viewportVisibleColumns, isLaborSplitEnabled]);
 
   const hasPendingCreateItems = useMemo(
     () => items.some((item) => isPendingCreateItem(item)),
@@ -1636,12 +1700,12 @@ export function EstimateEditorTable({
       k_mo: "k_mo",
     };
     for (const [colKey, ssKey] of Object.entries(columnKeyToSpreadsheetKey)) {
-      if (!columnVisibility.visibleColumns.has(colKey as ColumnKey)) {
+      if (!viewportVisibleColumns.has(colKey as ColumnKey)) {
         hidden.add(ssKey);
       }
     }
     return hidden;
-  }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+  }, [viewportVisibleColumns, isLaborSplitEnabled]);
 
   const visibleItemsInOrderForRender = useMemo(() => {
     const ordered: EstimateItem[] = [];
@@ -1846,7 +1910,7 @@ export function EstimateEditorTable({
           hideEditingActions={isViewerMode}
           isLaborSplitEnabled={isLaborSplitEnabled}
           isPendingCreate={isPendingCreateItem(item)}
-          visibleColumns={columnVisibility.visibleColumns}
+          visibleColumns={viewportVisibleColumns}
           isHighlighted={highlightedItemIds.has(item.id)}
           isSearchMatch={
             normalizedSearchTerm.length > 0 &&
@@ -1861,13 +1925,18 @@ export function EstimateEditorTable({
           addSectionLabel={addSectionLabel}
           isSectionCollapsed={collapsedSectionIds.has(item.id)}
           onToggleSectionCollapsed={toggleSectionCollapsed}
+          onOpenMobileEditor={
+            isMobileViewport && item.item_type === "line"
+              ? handleOpenMobileEditor
+              : undefined
+          }
         />
       );
     },
     [
       bestSupplierPriceIdByItemId,
       canReorder,
-      columnVisibility.visibleColumns,
+      viewportVisibleColumns,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
       highlightedItemIds,
@@ -1886,6 +1955,8 @@ export function EstimateEditorTable({
       resolvedMaxSectionDepth,
       collapsedSectionIds,
       toggleSectionCollapsed,
+      handleOpenMobileEditor,
+      isMobileViewport,
     ]
   );
 
@@ -2021,6 +2092,53 @@ export function EstimateEditorTable({
     return { foTotal, moTotal, htTotal };
   }, [itemsByParent, getSectionTotals]);
 
+  const mobileListRows = useMemo<MobileEstimateListRow[]>(
+    () =>
+      visibleItemsInOrderForRender.map((item) => {
+        const depth = depthMap.get(item.id) ?? 0;
+        const sectionLevel =
+          item.item_type === "section"
+            ? (sectionLevelById.get(item.id) ?? depth + 1)
+            : null;
+
+        return {
+          item,
+          depth,
+          itemNumber: itemNumberById[item.id] ?? null,
+          unitValue: mergedUnitDrafts[item.id] ?? "",
+          qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
+          sectionTotalCents:
+            item.item_type === "section"
+              ? (getSectionTotals(item.id)?.totalHtCents ?? 0)
+              : null,
+          isCollapsed: collapsedSectionIds.has(item.id),
+          canAddLine:
+            sectionLevel !== null && sectionLevel <= resolvedMaxSectionDepth,
+          canAddSection:
+            sectionLevel !== null && sectionLevel < resolvedMaxSectionDepth,
+          addLineLabel:
+            sectionLevel !== null
+              ? formatAddLineLabelForSectionLevel(sectionLevel)
+              : "+ Ligne",
+          addSectionLabel:
+            sectionLevel !== null
+              ? formatAddSectionLabelForLevel(sectionLevel + 1)
+              : "+ Section",
+        };
+      }),
+    [
+      collapsedSectionIds,
+      depthMap,
+      getSectionTotals,
+      itemNumberById,
+      mergedUnitDrafts,
+      qualityFlagsByItemId,
+      resolvedMaxSectionDepth,
+      sectionLevelById,
+      visibleItemsInOrderForRender,
+    ],
+  );
+
   const sectionContextMeta = useMemo(() => {
     if (!sectionContextMenu) return null;
     const section = itemById.get(sectionContextMenu.sectionId);
@@ -2076,6 +2194,32 @@ export function EstimateEditorTable({
           <EstimateEditorTableChrome
             tableCardRef={tableCardRef}
             headerRight={headerRight}
+            ribbonHeaderNode={ribbonHeaderNode}
+            ribbonAlertsNode={ribbonAlertsNode}
+            mobileListNode={
+              isMobileViewport ? (
+                <MobileEstimateList
+                  rows={mobileListRows}
+                  currency={currency}
+                  lineCount={visibleLineIdList.length}
+                  grandTotalCents={grandTotals.htTotal}
+                  isReadOnly={isReadOnly}
+                  showFullTable={showFullTableOnMobile}
+                  columnPreset={columnVisibility.preset}
+                  columnPresetLabels={columnVisibility.presetLabels}
+                  onShowFullTableChange={setShowFullTableOnMobile}
+                  onColumnPresetChange={columnVisibility.setPreset}
+                  onOpenLine={handleOpenMobileEditor}
+                  onToggleSection={toggleSectionCollapsed}
+                  onExpandAllSections={handleExpandAllSections}
+                  onCollapseAllSections={handleCollapseAllSections}
+                  onAddLine={onAddLine}
+                  onAddSection={onAddSection}
+                  rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
+                />
+              ) : undefined
+            }
+            showFullTableOnMobile={showFullTableOnMobile}
             toolbarNode={
               <EstimateEditorToolbar
                 uiMode={uiMode}
@@ -2150,12 +2294,12 @@ export function EstimateEditorTable({
               />
             }
             activeLineBreadcrumb={activeLineBreadcrumb}
-            actionError={actionError}
+            actionError={actionError ?? null}
             scrollContainerRef={scrollContainerRef}
             isLaborSplitEnabled={isLaborSplitEnabled}
             dynamicGridStyle={dynamicGridStyle}
             superHeaderSpans={superHeaderSpans}
-            visibleColumns={columnVisibility.visibleColumns}
+            visibleColumns={viewportVisibleColumns}
             allVisibleSelected={allVisibleSelected}
             onToggleAllVisibleLines={toggleAllVisibleLines}
             visibleLineIdCount={visibleLineIdList.length}
@@ -2183,6 +2327,28 @@ export function EstimateEditorTable({
             grandTotals={grandTotals}
             currency={currency}
           />
+
+          {isMobileViewport && mobileEditorItem ? (
+            <MobileEstimateLineEditor
+              open
+              item={mobileEditorItem}
+              itemNumber={itemNumberById[mobileEditorItem.id] ?? null}
+              estimateCurrency={currency}
+              unitValue={mergedUnitDrafts[mobileEditorItem.id] ?? ""}
+              supplyTypeValue={mergedSupplyTypeDrafts[mobileEditorItem.id] ?? ""}
+              laborRoles={laborRoles}
+              isReadOnly={isReadOnly}
+              isLaborSplitEnabled={isLaborSplitEnabled}
+              canGoPrevious={mobileEditorLineIndex > 0}
+              canGoNext={
+                mobileEditorLineIndex >= 0 &&
+                mobileEditorLineIndex < visibleLineIdList.length - 1
+              }
+              onOpenChange={(open) => !open && setMobileEditorItemId(null)}
+              onGoPrevious={handleGoToPreviousMobileLine}
+              onGoNext={handleGoToNextMobileLine}
+            />
+          ) : null}
 
           <EstimateEditorTableSectionDialogs
             isViewerMode={isViewerMode}

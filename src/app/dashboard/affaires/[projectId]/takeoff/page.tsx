@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
+import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
 import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
@@ -98,35 +98,35 @@ export default async function AffaireTakeoffPage({ params }: Props) {
 
   return (
     <div className="min-w-0">
-      <HubBreadcrumb
-        hubHref="/dashboard/affaires"
-        hubLabel="Mes affaires"
-        intermediateHref={`/dashboard/affaires/${projectId}`}
-        intermediateLabel={project.name}
-        currentLabel="Métrés"
-      />
-
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-[var(--slate-900)]">
-          Centre d&apos;activité &mdash; Métrés
-        </h1>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Suivez les analyses de plans, les exceptions et l&apos;historique
-          d&apos;application.
-        </p>
-      </div>
-
-      <TakeoffRouteHierarchyBanner
-        descriptor={buildTakeoffRouteHierarchy({ kind: "affaire_takeoff" })}
-      />
-
-      <TakeoffFlowHierarchyPanel
-        currentKind="adjacent"
-        legacyPlanSetCount={countLegacyPlanSets(planSets)}
-      />
-
       <TakeoffActivityCenter
         projectId={projectId}
+        ribbonHeader={
+          <ProductionRibbonHeader
+            breadcrumbs={[
+              { label: "Mes affaires", href: "/dashboard/affaires" },
+              {
+                label: project.name,
+                href: `/dashboard/affaires/${projectId}`,
+              },
+              { label: "Métrés" },
+            ]}
+            title="Centre d'activité — Métrés"
+            description="Analyses de plans, exceptions et historique d'application"
+          />
+        }
+        ribbonPreamble={
+          <>
+            <TakeoffRouteHierarchyBanner
+              descriptor={buildTakeoffRouteHierarchy({
+                kind: "affaire_takeoff",
+              })}
+            />
+            <TakeoffFlowHierarchyPanel
+              currentKind="adjacent"
+              legacyPlanSetCount={countLegacyPlanSets(planSets)}
+            />
+          </>
+        }
         versions={versions}
         launchContext={launchContext}
         planSets={planSets.map((ps) => ({

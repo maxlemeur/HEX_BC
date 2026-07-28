@@ -182,6 +182,7 @@ type LineRowProps = {
     ctrlKey?: boolean;
     metaKey?: boolean;
   }) => void;
+  onOpenMobileEditor?: (itemId: string) => void;
 };
 
 export function LineRow({
@@ -288,6 +289,7 @@ export function LineRow({
   onConvertLineToSection,
   onToggleOutlierDismiss,
   onLineSelectionInteraction,
+  onOpenMobileEditor,
 }: LineRowProps) {
   const treeConnectorSegments = buildTreeConnectorSegments(treeConnectorMeta);
   const hasTreeConnectors =
@@ -533,6 +535,24 @@ export function LineRow({
                   isReadOnly={isReadOnly}
                   onApplySuggestion={onApplyCatalogueSuggestion}
                 />
+              ) : null}
+              {onOpenMobileEditor ? (
+                <button
+                  className="btn btn-secondary min-h-11 shrink-0 px-3 text-sm"
+                  type="button"
+                  data-testid="estimate-mobile-line-editor-trigger"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onOpenMobileEditor(item.id);
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenMobileEditor(item.id);
+                  }}
+                >
+                  Modifier
+                </button>
               ) : null}
             </div>
             <div className="estimate-line-designation__support">

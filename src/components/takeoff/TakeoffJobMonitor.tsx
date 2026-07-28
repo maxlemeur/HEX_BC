@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import { useUserContext } from "@/components/UserContext";
 import {
   TakeoffApplyWizard,
@@ -193,15 +194,20 @@ function Spinner() {
   );
 }
 
-function SkeletonCard() {
+function SkeletonCard({ versionId }: { versionId: string }) {
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Extraction</h1>
-          <p className="page-description">Chargement...</p>
-        </div>
-      </div>
+      <ProductionRibbon ariaLabel="Ruban métier des métrés">
+        <ProductionRibbonHeader
+          breadcrumbs={[
+            { label: "Chiffrages", href: "/dashboard/estimates" },
+            { label: "Métrés", href: `/dashboard/estimates/${versionId}/takeoff` },
+            { label: "Extraction" },
+          ]}
+          title="Extraction"
+          description="Chargement..."
+        />
+      </ProductionRibbon>
       <section className="dashboard-card p-6">
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -239,12 +245,17 @@ function FatalError({
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">{title}</h1>
-          <p className="page-description">{message}</p>
-        </div>
-      </div>
+      <ProductionRibbon ariaLabel="Ruban métier des métrés">
+        <ProductionRibbonHeader
+          breadcrumbs={[
+            { label: "Chiffrages", href: "/dashboard/estimates" },
+            { label: "Métrés", href: `/dashboard/estimates/${versionId}/takeoff` },
+            { label: "Extraction" },
+          ]}
+          title={title}
+          description={message}
+        />
+      </ProductionRibbon>
       <div className="mt-4 flex flex-wrap gap-3">
         <Link
           href={`/dashboard/estimates/${versionId}`}
@@ -602,7 +613,7 @@ export default function TakeoffJobMonitor({
 
   // Loading skeleton
   if (!data) {
-    return <SkeletonCard />;
+    return <SkeletonCard versionId={versionId} />;
   }
 
   const job = data.job;
@@ -616,34 +627,67 @@ export default function TakeoffJobMonitor({
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h1 className="page-title">Extraction</h1>
-          <span className={`status-badge ${getStatusCss(status)}`}>
-            {isActive && <Spinner />}
-            {getStatusLabel(status)}
+      <ProductionRibbon ariaLabel="Ruban métier des métrés">
+        <ProductionRibbonHeader
+          breadcrumbs={[
+            { label: "Chiffrages", href: "/dashboard/estimates" },
+            { label: "Métrés", href: `/dashboard/estimates/${versionId}/takeoff` },
+            { label: "Extraction" },
+          ]}
+          title="Extraction"
+          description={job.source_file_name ?? "Suivi du traitement"}
+          actions={
+            <>
+              <span className={`status-badge ${getStatusCss(status)}`}>
+                {isActive && <Spinner />}
+                {getStatusLabel(status)}
+              </span>
+              {job.operator_state && job.operator_state !== "none" ? (
+                <span
+                  className={`status-badge status-inline ${
+                    getOperatorStateBadgeVariant(job.operator_state) === "error"
+                      ? "status-canceled"
+                      : getOperatorStateBadgeVariant(job.operator_state) === "warning"
+                        ? "status-warning"
+                        : "status-sent"
+                  }`}
+                >
+                  {job.operator_state_label ?? job.operator_state}
+                </span>
+              ) : null}
+              <Link
+                href={`/dashboard/estimates/${versionId}/takeoff/new`}
+                className="btn btn-secondary btn-sm"
+              >
+                Nouvelle extraction
+              </Link>
+            </>
+          }
+        />
+        <nav className="production-ribbon__tabs" aria-label="Navigation de l'extraction">
+          <Link
+            href={`/dashboard/estimates/${versionId}/takeoff`}
+            className="production-ribbon__tab"
+          >
+            Extractions
+          </Link>
+          <span
+            className="production-ribbon__tab"
+            data-active="true"
+            aria-current="page"
+          >
+            Détails
           </span>
-          {job.operator_state && job.operator_state !== "none" ? (
-            <span
-              className={`status-badge status-inline ${
-                getOperatorStateBadgeVariant(job.operator_state) === "error"
-                  ? "status-canceled"
-                  : getOperatorStateBadgeVariant(job.operator_state) === "warning"
-                    ? "status-warning"
-                    : "status-sent"
-              }`}
+          {isCompleted ? (
+            <Link
+              href={`/dashboard/estimates/${versionId}/takeoff/${jobId}/review`}
+              className="production-ribbon__tab"
             >
-              {job.operator_state_label ?? job.operator_state}
-            </span>
+              Revue
+            </Link>
           ) : null}
-        </div>
-        <Link
-          href={`/dashboard/estimates/${versionId}/takeoff/new`}
-          className="btn btn-secondary btn-sm"
-        >
-          Nouvelle extraction
-        </Link>
-      </div>
+        </nav>
+      </ProductionRibbon>
 
       <section className="dashboard-card p-6">
         <dl>

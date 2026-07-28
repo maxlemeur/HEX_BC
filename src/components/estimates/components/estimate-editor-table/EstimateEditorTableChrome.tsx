@@ -12,6 +12,7 @@ import {
   COLUMN_HEADER_TOOLTIPS,
 } from "@/components/estimates/components/ColumnHeaderHelp";
 import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
+import { ProductionRibbon } from "@/components/dashboard/ProductionRibbon";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { type ColumnKey } from "@/hooks/useColumnVisibility";
 import type { Database } from "@/types/database";
@@ -23,6 +24,10 @@ type EstimateEditorTableChromeProps = {
   tableCardRef: RefObject<HTMLDivElement | null>;
   headerRight?: ReactNode;
   toolbarNode: ReactNode;
+  ribbonHeaderNode?: ReactNode;
+  ribbonAlertsNode?: ReactNode;
+  mobileListNode?: ReactNode;
+  showFullTableOnMobile?: boolean;
   activeLineBreadcrumb: string | null;
   actionError: string | null;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -35,7 +40,7 @@ type EstimateEditorTableChromeProps = {
     moSpan: number;
     puStart: number;
   };
-  visibleColumns: Set<ColumnKey>;
+  visibleColumns: ReadonlySet<ColumnKey>;
   allVisibleSelected: boolean;
   onToggleAllVisibleLines: (checked: boolean) => void;
   visibleLineIdCount: number;
@@ -72,6 +77,10 @@ export function EstimateEditorTableChrome({
   tableCardRef,
   headerRight,
   toolbarNode,
+  ribbonHeaderNode,
+  ribbonAlertsNode,
+  mobileListNode,
+  showFullTableOnMobile = false,
   activeLineBreadcrumb,
   actionError,
   scrollContainerRef,
@@ -117,19 +126,37 @@ export function EstimateEditorTableChrome({
         }
         data-testid="estimate-editor-table-shell"
         data-density="compact"
+        data-has-side-panel={headerRight ? "true" : "false"}
       >
         <div
-          className="dashboard-card relative z-10 p-3 sm:p-4"
+          className={
+            ribbonHeaderNode
+              ? "relative z-10"
+              : "dashboard-card relative z-10 p-3 sm:p-4"
+          }
           data-testid="estimate-editor-table-card"
         >
-          <div className="w-full min-w-0">
-            {toolbarNode}
-            {activeLineBreadcrumb ? (
-              <div className="mt-2 text-xs text-[var(--slate-500)]">
-                Chemin actif: {activeLineBreadcrumb}
-              </div>
-            ) : null}
-          </div>
+          {ribbonHeaderNode ? (
+            <ProductionRibbon
+              ariaLabel="Ruban métier du chiffrage"
+              testId="estimate-editor-production-ribbon"
+            >
+              {ribbonHeaderNode}
+              {toolbarNode}
+            </ProductionRibbon>
+          ) : (
+            <div className="w-full min-w-0">{toolbarNode}</div>
+          )}
+
+          {ribbonAlertsNode ? (
+            <div className="mt-3">{ribbonAlertsNode}</div>
+          ) : null}
+
+          {activeLineBreadcrumb ? (
+            <div className="mt-2 text-xs text-[var(--slate-500)]">
+              Chemin actif: {activeLineBreadcrumb}
+            </div>
+          ) : null}
 
           {actionError ? (
             <div
@@ -152,6 +179,7 @@ export function EstimateEditorTableChrome({
               {actionError}
             </div>
           ) : null}
+
         </div>
 
         {headerRight ? (
@@ -160,6 +188,8 @@ export function EstimateEditorTableChrome({
           </div>
         ) : null}
 
+        {mobileListNode}
+
         <div
           ref={scrollContainerRef}
           className={
@@ -167,6 +197,7 @@ export function EstimateEditorTableChrome({
               ? "estimate-table-scroll overflow-x-auto xl:col-start-1 xl:row-start-2"
               : "estimate-table-scroll mt-2 overflow-x-auto"
           }
+          data-mobile-view={showFullTableOnMobile ? "table" : "compact"}
           data-testid="estimate-editor-table-scroll"
         >
           <div

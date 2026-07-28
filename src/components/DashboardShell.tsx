@@ -14,12 +14,19 @@ import {
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { useUserContext } from "@/components/UserContext";
+import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
+import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { setLastAffaire, useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
+import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active";
+import {
+  getDashboardNavigationMode,
+  isProductionWorkspaceRoute,
+} from "@/lib/navigation/dashboard-navigation-mode";
 import { initStore } from "@/lib/stores/last-affaire-store";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +122,9 @@ export function DashboardShell({
   displayName: string;
 }>) {
   const pathname = usePathname();
+  const navigationMode = getDashboardNavigationMode(pathname);
+  const isWorkspace = navigationMode === "workspace";
+  const isProductionWorkspace = isProductionWorkspaceRoute(pathname);
   const userInitials = buildInitials(displayName);
   const { enabled: isSidebarFlagIndicatorEnabled } = useFeatureFlag(
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
@@ -143,11 +153,12 @@ export function DashboardShell({
 
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const mobileCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerCloseButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  const topbarRef = useRef<HTMLElement>(null);
   const mainContentRef = useRef<HTMLElement>(null);
   const previousPathnameRef = useRef(pathname);
 
@@ -167,7 +178,7 @@ export function DashboardShell({
   // Global listener for "?" key to open shortcuts modal
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (mobileOpen) return;
+      if (drawerOpen) return;
       if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
       if (isTextEditingTarget(e.target)) return;
       e.preventDefault();
@@ -175,7 +186,7 @@ export function DashboardShell({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [mobileOpen]);
+  }, [drawerOpen]);
 
   useEffect(() => {
     try {
@@ -200,28 +211,30 @@ export function DashboardShell({
   }, [collapsed, hasLoadedCollapsedPreference]);
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
-  const closeMobile = useCallback((restoreFocus = false) => {
-    setMobileOpen(false);
+  const openDrawer = useCallback(() => setDrawerOpen(true), []);
+  const closeDrawer = useCallback((restoreFocus = false) => {
+    setDrawerOpen(false);
     if (restoreFocus) {
-      window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+      window.requestAnimationFrame(() => menuButtonRef.current?.focus());
     }
   }, []);
 
   useEffect(() => {
-    if (!mobileOpen) {
+    if (!drawerOpen) {
       return;
     }
 
     const drawer = sidebarRef.current;
     const mainContent = mainContentRef.current;
+    const topbar = topbarRef.current;
     const previousOverflow = document.body.style.overflow;
     const focusFrame = window.requestAnimationFrame(() => {
-      mobileCloseButtonRef.current?.focus();
+      drawerCloseButtonRef.current?.focus();
     });
     const handleDrawerKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        closeMobile(true);
+        closeDrawer(true);
         return;
       }
 
@@ -232,12 +245,13 @@ export function DashboardShell({
       const focusableElements = Array.from(
         drawer.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE_SELECTOR)
       );
-      const firstFocusable = mobileCloseButtonRef.current ?? focusableElements[0];
+      const firstFocusable =
+        drawerCloseButtonRef.current ?? focusableElements[0];
       const lastFocusable = focusableElements.at(-1);
 
       if (!firstFocusable || !lastFocusable) {
         event.preventDefault();
-        mobileCloseButtonRef.current?.focus();
+        drawerCloseButtonRef.current?.focus();
         return;
       }
 
@@ -252,32 +266,34 @@ export function DashboardShell({
 
     document.body.style.overflow = "hidden";
     mainContent?.setAttribute("inert", "");
+    topbar?.setAttribute("inert", "");
     document.addEventListener("keydown", handleDrawerKeyDown);
 
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.body.style.overflow = previousOverflow;
       mainContent?.removeAttribute("inert");
+      topbar?.removeAttribute("inert");
       document.removeEventListener("keydown", handleDrawerKeyDown);
     };
-  }, [closeMobile, mobileOpen]);
+  }, [closeDrawer, drawerOpen]);
 
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
+    if (isWorkspace || typeof window.matchMedia !== "function") {
       return;
     }
 
     const desktopQuery = window.matchMedia("(min-width: 1024px)");
     const closeOnDesktop = (event: MediaQueryListEvent | MediaQueryList) => {
       if (event.matches) {
-        setMobileOpen(false);
+        setDrawerOpen(false);
       }
     };
 
     closeOnDesktop(desktopQuery);
     desktopQuery.addEventListener("change", closeOnDesktop);
     return () => desktopQuery.removeEventListener("change", closeOnDesktop);
-  }, []);
+  }, [isWorkspace]);
 
   useEffect(() => {
     if (previousPathnameRef.current === pathname) {
@@ -285,7 +301,7 @@ export function DashboardShell({
     }
 
     previousPathnameRef.current = pathname;
-    setMobileOpen(false);
+    setDrawerOpen(false);
     window.requestAnimationFrame(() => {
       mainContentRef.current?.focus({ preventScroll: true });
     });
@@ -303,100 +319,117 @@ export function DashboardShell({
       }),
     [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
   );
-
-  function isTakeoffRoute(p: string) {
-    return (
-      p.startsWith("/dashboard/takeoff") ||
-      /^\/dashboard\/affaires\/[^/]+\/takeoff/.test(p) ||
-      /^\/dashboard\/estimates\/[^/]+\/takeoff/.test(p)
-    );
-  }
+  const navigationContextValue = useMemo(
+    () => ({
+      mode: navigationMode,
+      pathname,
+      drawerOpen,
+      menuButtonRef,
+      openDrawer,
+      groups: navGroups,
+    }),
+    [drawerOpen, navigationMode, navGroups, openDrawer, pathname]
+  );
 
   function isActive(href: string) {
-    if (href === "/dashboard") {
-      return pathname === "/dashboard";
-    }
-    // Takeoff routes: match only "Metres plans"
-    if (
-      href === "/dashboard/takeoff" ||
-      /\/dashboard\/affaires\/[^/]+\/takeoff$/.test(href)
-    ) {
-      return isTakeoffRoute(pathname);
-    }
-    if (href === "/dashboard/affaires") {
-      if (isTakeoffRoute(pathname)) return false;
-      return (
-        pathname.startsWith("/dashboard/affaires") ||
-        pathname.startsWith("/dashboard/estimates")
-      );
-    }
-    if (href === "/dashboard/orders") {
-      return pathname.startsWith("/dashboard/orders");
-    }
-    if (href === "/dashboard/admin") {
-      return pathname.startsWith("/dashboard/admin") || pathname.startsWith("/dashboard/tenants");
-    }
-    if (href === "/dashboard/referentiel") {
-      return (
-        pathname.startsWith("/dashboard/referentiel") ||
-        pathname.startsWith("/dashboard/suppliers") ||
-        pathname.startsWith("/dashboard/sites") ||
-        pathname.startsWith("/dashboard/products") ||
-        pathname.startsWith("/dashboard/catalogue")
-      );
-    }
-    if (href === "/dashboard/tarifs") {
-      return (
-        pathname.startsWith("/dashboard/tarifs") ||
-        pathname.startsWith("/dashboard/prices") ||
-        pathname.startsWith("/dashboard/indices")
-      );
-    }
-    if (href === "/dashboard/analytics") {
-      return pathname.startsWith("/dashboard/analytics");
-    }
-    return pathname.startsWith(href);
+    return isDashboardNavItemActive(pathname, href);
   }
 
   return (
-    <div className="flex min-h-screen bg-[var(--background)]">
+    <DashboardNavigationProvider value={navigationContextValue}>
+      <div
+        className="flex min-h-screen flex-col bg-[var(--background)]"
+        data-navigation-mode={navigationMode}
+      >
       <a
         href="#dashboard-main-content"
         className="sr-only fixed left-3 top-3 z-[70] rounded-lg bg-white px-4 py-3 font-semibold text-[var(--brand-blue)] shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[var(--brand-blue)]"
       >
         Aller au contenu principal
       </a>
-      <div
-        className="no-print pointer-events-none fixed inset-x-0 top-0 z-30 h-16 border-b border-[var(--slate-200)]/80 bg-[var(--background)]/95 backdrop-blur lg:hidden"
-        aria-hidden="true"
-      />
 
-      {/* Mobile hamburger button */}
-      <button
-        ref={mobileMenuButtonRef}
-        type="button"
-        className={`no-print fixed left-3 top-2.5 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--brand-blue)] text-white shadow-lg transition-opacity lg:hidden ${
-          mobileOpen ? "pointer-events-none opacity-0" : "opacity-100"
-        }`}
-        onClick={() => setMobileOpen(true)}
-        aria-label="Ouvrir le menu"
-        aria-expanded={mobileOpen}
-        aria-controls="dashboard-sidebar"
-        aria-hidden={mobileOpen || undefined}
-        tabIndex={mobileOpen ? -1 : 0}
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 6h16" />
-          <path d="M4 12h16" />
-          <path d="M4 18h16" />
-        </svg>
-      </button>
+      <header ref={topbarRef} className="no-print dashboard-global-topbar">
+        <Link
+          href="/dashboard"
+          prefetch={false}
+          className="dashboard-global-topbar__brand"
+          aria-label="Hydro Express — Accueil"
+        >
+          <span>Hydro Express</span>
+        </Link>
 
-      {/* Mobile overlay */}
-      {mobileOpen ? (
+        <WorkspaceGlobalNavigation />
+
+        <div className="dashboard-global-topbar__tools">
+          <button
+            type="button"
+            className="dashboard-global-topbar__tool"
+            onClick={() => setShortcutsOpen(true)}
+            aria-label="Afficher les raccourcis clavier"
+            title="Raccourcis clavier"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
+            </svg>
+          </button>
+          <Link
+            href="/dashboard/profile"
+            prefetch={false}
+            className="dashboard-global-topbar__profile"
+            aria-label={`Ouvrir le profil de ${displayName || "Compte"}`}
+            title={displayName || "Compte"}
+          >
+            {userInitials}
+          </Link>
+        </div>
+      </header>
+      {!isWorkspace ? (
         <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
-          onClick={() => closeMobile(true)}
+          className="no-print pointer-events-none fixed inset-x-0 top-0 z-30 h-16 border-b border-[var(--slate-200)]/80 bg-[var(--background)]/95 backdrop-blur lg:hidden"
+          aria-hidden="true"
+        />
+      ) : null}
+
+      {/* Mobile hamburger button for persistent-navigation screens. */}
+      {!isWorkspace ? (
+        <button
+          ref={menuButtonRef}
+          type="button"
+          className={`no-print fixed left-3 top-2.5 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--brand-blue)] text-white shadow-lg transition-opacity lg:hidden ${
+            drawerOpen ? "pointer-events-none opacity-0" : "opacity-100"
+          }`}
+          onClick={openDrawer}
+          aria-label="Ouvrir le menu"
+          aria-expanded={drawerOpen}
+          aria-controls="dashboard-sidebar"
+          aria-hidden={drawerOpen || undefined}
+          tabIndex={drawerOpen ? -1 : 0}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 6h16" />
+            <path d="M4 12h16" />
+            <path d="M4 18h16" />
+          </svg>
+        </button>
+      ) : null}
+
+      {/* Modal backdrop: mobile on standard screens, all widths in workspaces. */}
+      {drawerOpen ? (
+        <div
+          className={`fixed inset-0 z-[55] bg-black/40${isWorkspace ? "" : " lg:hidden"}`}
+          onClick={() => closeDrawer(true)}
           aria-hidden="true"
         />
       ) : null}
@@ -404,18 +437,21 @@ export function DashboardShell({
       <aside
         ref={sidebarRef}
         id="dashboard-sidebar"
-        data-mobile-open={mobileOpen ? "true" : undefined}
-        role={mobileOpen ? "dialog" : undefined}
-        aria-modal={mobileOpen ? "true" : undefined}
-        aria-label={mobileOpen ? "Navigation principale" : undefined}
-        className={`no-print dashboard-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col${collapsed ? " dashboard-sidebar--collapsed" : ""}`}
+        data-mobile-open={drawerOpen ? "true" : undefined}
+        data-drawer-open={drawerOpen ? "true" : undefined}
+        role={drawerOpen ? "dialog" : undefined}
+        aria-modal={drawerOpen ? "true" : undefined}
+        aria-label={drawerOpen ? "Navigation principale" : undefined}
+        className={`no-print dashboard-sidebar fixed left-0 top-0 z-[60] flex h-screen flex-col${
+          isWorkspace ? " dashboard-sidebar--overlay" : ""
+        }${collapsed && !isWorkspace ? " dashboard-sidebar--collapsed" : ""}`}
       >
         <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
           <Link
             href="/dashboard"
             prefetch={false}
             className="sidebar-logo-link flex items-center gap-3 min-w-0"
-            onClick={() => setMobileOpen(false)}
+            onClick={() => setDrawerOpen(false)}
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
               <Image
@@ -439,10 +475,12 @@ export function DashboardShell({
             </div>
           </Link>
           <button
-            ref={mobileCloseButtonRef}
+            ref={drawerCloseButtonRef}
             type="button"
-            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white lg:hidden"
-            onClick={() => closeMobile(true)}
+            className={`ml-auto h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+              isWorkspace ? "flex" : "flex lg:hidden"
+            }`}
+            onClick={() => closeDrawer(true)}
             aria-label="Fermer le menu"
           >
             <svg
@@ -461,38 +499,39 @@ export function DashboardShell({
               <path d="m6 6 12 12" />
             </svg>
           </button>
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            className="sidebar-toggle"
-            aria-label={collapsed ? "Déployer le menu" : "Replier le menu"}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {!isWorkspace ? (
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              className="sidebar-toggle"
+              aria-label={collapsed ? "Déployer le menu" : "Replier le menu"}
             >
-              {collapsed ? (
-                <>
-                  <polyline points="13 17 18 12 13 7" />
-                  <polyline points="6 17 11 12 6 7" />
-                </>
-              ) : (
-                <>
-                  <polyline points="11 17 6 12 11 7" />
-                  <polyline points="18 17 13 12 18 7" />
-                </>
-              )}
-            </svg>
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {collapsed ? (
+                  <>
+                    <polyline points="13 17 18 12 13 7" />
+                    <polyline points="6 17 11 12 6 7" />
+                  </>
+                ) : (
+                  <>
+                    <polyline points="11 17 6 12 11 7" />
+                    <polyline points="18 17 13 12 18 7" />
+                  </>
+                )}
+              </svg>
+            </button>
+          ) : null}
         </div>
-
         <nav
           className="mt-4 min-h-0 flex-1 overflow-y-auto px-4 pb-4"
           aria-label="Menu principal"
@@ -513,8 +552,12 @@ export function DashboardShell({
                       prefetch={false}
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
-                      title={collapsed ? item.label : item.title}
-                      onClick={() => setMobileOpen(false)}
+                      title={collapsed && !isWorkspace ? item.label : item.title}
+                      onClick={() => {
+                        if (drawerOpen) {
+                          closeDrawer(active);
+                        }
+                      }}
                     >
                       {item.icon}
                       <span>{item.label}</span>
@@ -531,7 +574,10 @@ export function DashboardShell({
           <button
             type="button"
             className="mb-2 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white/90"
-            onClick={() => setShortcutsOpen(true)}
+            onClick={() => {
+              setDrawerOpen(false);
+              setShortcutsOpen(true);
+            }}
             title="Raccourcis clavier"
           >
             <svg
@@ -563,14 +609,14 @@ export function DashboardShell({
           </button>
 
           <div className={`sidebar-footer-profile flex items-center gap-3 rounded-xl bg-white/5 p-3 transition-all duration-200 ${
-            collapsed ? "lg:flex-col lg:gap-2 lg:p-2" : ""
+            collapsed && !isWorkspace ? "lg:flex-col lg:gap-2 lg:p-2" : ""
           }`}>
             <Link
               href="/dashboard/profile"
               prefetch={false}
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
-              title={collapsed ? displayName || "Compte" : undefined}
-              onClick={() => setMobileOpen(false)}
+              title={collapsed && !isWorkspace ? displayName || "Compte" : undefined}
+              onClick={() => setDrawerOpen(false)}
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange text-sm font-bold text-white">
                 {userInitials}
@@ -604,14 +650,24 @@ export function DashboardShell({
         id="dashboard-main-content"
         tabIndex={-1}
         data-density={density}
-        className="min-w-0 flex-1 min-h-screen pl-0 transition-[padding-left] duration-300 ease-in-out focus:outline-none lg:pl-[var(--sidebar-offset)]"
+        className={`min-w-0 min-h-0 flex-1 pl-0 transition-[padding-left] duration-300 ease-in-out focus:outline-none ${
+          isWorkspace ? "lg:pl-0" : "lg:pl-[var(--sidebar-offset)]"
+        }`}
         style={{
-          ["--sidebar-offset" as string]: collapsed
-            ? "var(--sidebar-collapsed-width)"
-            : "var(--sidebar-width)",
+          ["--sidebar-offset" as string]: isWorkspace
+            ? "0px"
+            : collapsed
+              ? "var(--sidebar-collapsed-width)"
+              : "var(--sidebar-width)",
         }}
       >
-        <div className="mx-auto w-full px-3 pb-6 pt-[4.5rem] sm:px-6 sm:pb-8 lg:py-8">
+        <div
+          className={`mx-auto w-full px-3 pb-6 sm:px-6 sm:pb-8 ${
+            isProductionWorkspace
+              ? "dashboard-workspace-content pt-0"
+              : "py-6 sm:py-8"
+          }`}
+        >
           {children}
         </div>
       </main>
@@ -621,6 +677,7 @@ export function DashboardShell({
         onOpenChange={setShortcutsOpen}
         activeContext={shortcutContext}
       />
-    </div>
+      </div>
+    </DashboardNavigationProvider>
   );
 }

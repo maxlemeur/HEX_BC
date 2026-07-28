@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/Skeleton";
+import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 
 function TableRowSkeleton({ index }: { index: number }) {
   return (
@@ -22,23 +23,35 @@ export function EstimateEditorSkeleton() {
   return (
     <div className="animate-fade-in" role="status" aria-live="polite">
       <span className="sr-only">Chargement du chiffrage...</span>
-      {/* Header */}
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Skeleton width={220} height={28} />
-          <Skeleton width={300} height={16} className="mt-2" />
+      <ProductionRibbon ariaLabel="Ruban métier du chiffrage">
+        <ProductionRibbonHeader
+          breadcrumbs={[{ label: "Chiffrage" }]}
+          title="Chargement du chiffrage"
+          description="Préparation de l'espace de production"
+          metrics={
+            <div className="flex gap-2">
+              <Skeleton width={86} height={28} rounded />
+              <Skeleton width={112} height={28} rounded />
+            </div>
+          }
+          actions={
+            <div className="flex gap-2">
+              <Skeleton width={90} height={36} className="rounded-lg" />
+              <Skeleton width={120} height={36} className="rounded-lg" />
+            </div>
+          }
+        />
+        <div className="production-ribbon__tabs" aria-hidden="true">
+          <Skeleton width={94} height={28} className="my-1" rounded />
+          <Skeleton width={82} height={28} className="my-1" rounded />
+          <Skeleton width={138} height={28} className="my-1" rounded />
         </div>
-
-        {/* Toolbar buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Skeleton width={80} height={28} rounded />
-          <Skeleton width={36} height={36} className="rounded-lg" />
-          <Skeleton width={100} height={36} className="rounded-lg" />
-          <Skeleton width={90} height={36} className="rounded-lg" />
-          <Skeleton width={36} height={36} className="rounded-lg" />
-          <Skeleton width={120} height={36} className="rounded-lg" />
+        <div className="production-ribbon__commands" aria-hidden="true">
+          <Skeleton width={130} height={36} rounded />
+          <Skeleton width={280} height={36} rounded />
+          <Skeleton width={100} height={36} rounded />
         </div>
-      </div>
+      </ProductionRibbon>
 
       {/* Table */}
       <div className="dashboard-card mt-6 overflow-hidden">
