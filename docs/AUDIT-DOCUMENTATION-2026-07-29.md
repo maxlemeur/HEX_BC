@@ -106,9 +106,9 @@ interdit explicitement de committer le premier. Risque de commit accidentel perm
 Le commit `65da8470` (2026-07-15) a appliqué un remplacement global `assemblage(s) → ouvrage(s)` sur
 toute la doc, sans relecture. Séquelles toujours présentes :
 
-- [docs/to-refacto/REF-007-affaire-hub.md:26](to-refacto/REF-007-affaire-hub.md) — « Le hub garde **l'ouvrage de page**. »
-- [docs/to-refacto/REF-015-takeoff-review-page.md:27](to-refacto/REF-015-takeoff-review-page.md) — « La page reste le point **d'ouvrage**. »
-- [docs/user_story/EST-E10-reuse-templates.md:115](user_story/EST-E10-reuse-templates.md) — « Macro-ouvrages (**ouvrages d'ouvrages** composes) »
+- `docs/to-refacto/REF-007-affaire-hub.md:26` — « Le hub garde **l'ouvrage de page**. »
+- `docs/to-refacto/REF-015-takeoff-review-page.md:27` — « La page reste le point **d'ouvrage**. »
+- `docs/user_story/EST-E10-reuse-templates.md:115` — « Macro-ouvrages (**ouvrages d'ouvrages** composes) »
 
 C'est la **seule modification** qu'ont subie `v1/`, `v2/`, `v3/` et `to-refacto/` depuis mars : un
 renommage automatique, jamais une mise à jour de contenu.
@@ -409,7 +409,7 @@ source de vérité = code + git*.
 ### 7.4 Ce qui doit être conservé tel quel
 
 - [AGENTS.md](../AGENTS.md) — le seul document fiable du dépôt
-- [docs/user_story/AUDIT-2026-07-inventaire.md](user_story/AUDIT-2026-07-inventaire.md) — ⚠️ **ne pas
+- `docs/user_story/AUDIT-2026-07-inventaire.md` — ⚠️ **ne pas
   toucher à la main** : généré par [scripts/extract-audit-artifact.mjs](../scripts/extract-audit-artifact.mjs)
   depuis `AUDIT-2026-07-source.normalized.json`, avec un test vitest qui vérifie la régénération à
   l'octet près ([audit-artifact-generator.test.ts:22](../src/lib/audit-artifact-generator.test.ts))

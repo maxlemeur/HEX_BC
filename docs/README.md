@@ -1,81 +1,91 @@
 # Documentation
 
-> Réorganisée le **2026-07-29**. Tout ce qui n'est pas listé ci-dessous comme *vivant* est dans
-> [`archive/`](archive/) et ne doit pas être utilisé pour inférer l'état du système.
+> **Refondue le 2026-07-29.** L'ancien corpus — 254 fichiers d'épics, tickets, plans et archives — a
+> été supprimé. Il déclarait 22 statuts faux sur 26, portait 197 liens cassés et citait 95 chemins de
+> code qui n'existaient plus.
+>
+> Tout ce qui suit obéit à un contrat unique : **chaque affirmation d'existence porte une référence
+> `fichier:ligne`, chaque affirmation d'absence porte la commande qui la prouve.**
+> En cas de divergence avec le code, **c'est la documentation qu'on corrige**.
 
 ## Par où commencer
 
 | Vous voulez… | Lisez |
 |---|---|
 | Travailler sur ce dépôt | [`../AGENTS.md`](../AGENTS.md) — le contrat opérationnel |
-| Comprendre le produit | [`../README.md`](../README.md) |
-| Toucher aux calculs | [`metier/regles-de-calcul.md`](metier/regles-de-calcul.md) — **obligatoire avant tout changement** |
+| Comprendre le produit en 2 minutes | [`../README.md`](../README.md) |
+| **Toucher aux calculs** | [`metier/regles-de-calcul.md`](metier/regles-de-calcul.md) — **obligatoire avant tout changement** |
 | Comprendre un terme métier | [`metier/glossaire.md`](metier/glossaire.md) |
 | Comprendre statuts et validations | [`metier/cycle-de-vie.md`](metier/cycle-de-vie.md) |
-| Savoir ce qui manque ou est cassé | [`metier/ecarts-standards-btp.md`](metier/ecarts-standards-btp.md) |
-| Savoir ce qui reste à faire | [`backlog/`](backlog/) |
+| Savoir ce qui est cassé ou manquant | [`metier/ecarts-standards-btp.md`](metier/ecarts-standards-btp.md) |
+| Travailler sur un domaine précis | [`domaines/`](domaines/) |
 
-## Documentation vivante
+---
 
-### `metier/` — règles métier
+## `metier/` — les règles transverses
 
-Établies par lecture du code, chaque règle ancrée sur un `fichier:ligne`. **En cas de divergence avec
-le code, c'est le code qui fait foi et ce document qui doit être corrigé.**
+| Document | Contenu |
+|---|---|
+| [`regles-de-calcul.md`](metier/regles-de-calcul.md) | Centimes et points de base, arrondis, formule de ligne, marge, coefficient, remises, TVA, autoliquidation, hiérarchie, **les deux moteurs de calcul et pourquoi un seul s'exécute** |
+| [`glossaire.md`](metier/glossaire.md) | Vocabulaire du chiffrage BTP — et ce que le produit en fait réellement |
+| [`cycle-de-vie.md`](metier/cycle-de-vie.md) | Statuts, transitions, immutabilité à trois couches, scellement, rôles, gating, approbations, portail, application d'un métré |
+| [`ecarts-standards-btp.md`](metier/ecarts-standards-btp.md) | **8 défauts actifs**, ce qui est absent (avec preuve), ce qui est présent mais contre-intuitif, la dette technique |
 
-- [`regles-de-calcul.md`](metier/regles-de-calcul.md) — montants, arrondis, formule de ligne, marge,
-  remises, TVA, hiérarchie, les deux moteurs de calcul
-- [`glossaire.md`](metier/glossaire.md) — vocabulaire du chiffrage BTP, et ce que le produit en fait
-- [`cycle-de-vie.md`](metier/cycle-de-vie.md) — statuts, immutabilité, scellement, rôles, gating,
-  approbations, portail, application d'un métré
-- [`ecarts-standards-btp.md`](metier/ecarts-standards-btp.md) — défauts actifs, dette assumée,
-  angles morts
+## `domaines/` — la référence fonctionnelle
 
-### `backlog/` — ce qui reste ouvert
+Un document par domaine, écrit depuis le code sans lire l'ancienne documentation.
 
-- [`tickets/`](backlog/tickets/) — 36 tickets encore ouverts, dont le bloc métier BTP (EST-301 → 364)
-- [`bugs-est-e23/`](backlog/bugs-est-e23/) — 3 bugs **encore présents en production**
-- [`refacto/`](backlog/refacto/) — REF-002, REF-007, REF-015 : les seuls refactos non faits
-- [`IAV2-E04-…`](backlog/) — seul épic IA encore ouvert
+| Domaine | Couvre |
+|---|---|
+| [`affaires-intake.md`](domaines/affaires-intake.md) | Hub affaire, dépôt et classification des pièces, brief IA, registre d'hypothèses, synchro plans, file manager |
+| [`chiffrage-editeur.md`](domaines/chiffrage-editeur.md) | Structure du devis, éditeur tableur, raccourcis, presse-papier, verrou, templates et ouvrages, brouillons IA, versions et diff, qualité |
+| [`metre-takeoff.md`](domaines/metre-takeoff.md) | Pipeline sync/batch, Gemini, niveaux A/B/C, jeux de plans, revue, preuves, rapprochement DPGF, radar de risque |
+| [`catalogue-prix.md`](domaines/catalogue-prix.md) | Produits, fournisseurs, pricebook, indices, taux de change, barèmes de marge, import CSV, fraîcheur des prix |
+| [`imports-dpgf.md`](domaines/imports-dpgf.md) | Chaîne canonique CSV/XLSX/**PDF** → `dpgf_rows_raw` → mappings → import, provenance |
+| [`validation-approbations.md`](domaines/validation-approbations.md) | Moteur de règles, les 19 drapeaux de gating, cycles de revue, journal, vue direction, cockpit, analytics |
+| [`sorties-documents.md`](domaines/sorties-documents.md) | PDF, exports DPGF/BDC/xlsx, email, portail client, bons de commande |
+| [`securite-multi-tenant.md`](domaines/securite-multi-tenant.md) | Tenants, rôles, RLS, triggers de garde, service-role, Storage, feature flags, audit, frontières à haut risque |
 
-### `user_story/` — épics actifs
+## Opérations
 
-Épics partiels, ouverts, ou en cours de bascule. Les épics livrés sont dans
-[`archive/2026-03/epics-livres/`](archive/2026-03/epics-livres/).
+| Document | Contenu |
+|---|---|
+| [`../supabase/README.md`](../supabase/README.md) | Base de données et migrations |
+| [`../e2e/README.md`](../e2e/README.md) | Suites de tests bout-en-bout |
+| [`test-logins.md`](test-logins.md) | Comptes de test — **aucun identifiant n'est jamais committé** |
+| [`sofinther-automation.md`](sofinther-automation.md) | Récupération des prix fournisseur |
+| [`security-remediation-91386191.md`](security-remediation-91386191.md) | Registre de remédiation, campagne close (95 constats traités) |
 
-⚠️ **Les statuts déclarés dans ces fichiers ne sont pas fiables** — l'audit en a trouvé 22 faux.
-Vérifiez dans le code avant d'agir.
+## Audit
 
-Cas particulier : [`user_story/AUDIT-2026-07-inventaire.md`](user_story/AUDIT-2026-07-inventaire.md)
-est **généré** par [`../scripts/extract-audit-artifact.mjs`](../scripts/extract-audit-artifact.mjs)
-depuis `AUDIT-2026-07-source.normalized.json`, et un test vitest vérifie sa régénération à l'octet
-près. **Ne jamais l'éditer à la main ni le déplacer.**
+[`audit/AUDIT-2026-07-inventaire.md`](audit/AUDIT-2026-07-inventaire.md) — 27 bugs et 73 constats
+UX/UI avec un statut de rapprochement par item.
 
-### Opérations
+> 🔒 **Fichier généré. Ne jamais l'éditer à la main ni le déplacer.** Il est régénéré par
+> [`../scripts/extract-audit-artifact.mjs`](../scripts/extract-audit-artifact.mjs) depuis
+> `audit/AUDIT-2026-07-source.normalized.json`, et
+> [`../src/lib/audit-artifact-generator.test.ts`](../src/lib/audit-artifact-generator.test.ts)
+> vérifie la régénération à l'octet près.
 
-- [`../supabase/README.md`](../supabase/README.md) — base de données, migrations
-- [`../e2e/README.md`](../e2e/README.md) — suites de tests bout-en-bout
-- [`test-logins.md`](test-logins.md) — comptes de test (jamais d'identifiant committé)
-- [`sofinther-automation.md`](sofinther-automation.md) — récupération des prix fournisseur
-- [`security-remediation-91386191.md`](security-remediation-91386191.md) — registre de remédiation
-  (campagne close : 95 constats traités)
-- [`performance/EST-264.md`](performance/EST-264.md) — protocole de benchmark de l'éditeur
+[`AUDIT-DOCUMENTATION-2026-07-29.md`](AUDIT-DOCUMENTATION-2026-07-29.md) — l'audit qui a motivé cette
+refonte. Instantané daté : son plan d'action est exécuté.
 
-### Audit
-
-- [`AUDIT-DOCUMENTATION-2026-07-29.md`](AUDIT-DOCUMENTATION-2026-07-29.md) — d'où vient cette
-  réorganisation, et pourquoi
-
-## Archive
-
-[`archive/2026-03/`](archive/2026-03/) contient les vagues produit v1 → vNext, les épics livrés, les
-~85 tickets livrés, les analyses et les prompts d'agent. **Lisez l'avertissement en entrée** avant de
-vous appuyer sur l'un de ces fichiers.
+---
 
 ## Règles de tenue
 
-1. **Un sujet, un document.** Pas de consolidation qui recopie une autre source.
-2. **Pas d'état sans preuve.** Une affirmation sur ce qui est implémenté cite un `fichier:ligne`.
-3. **Pas de statut non daté.** Un statut sans date est un mensonge en devenir.
-4. **Les artefacts éphémères ne sont pas de la documentation.** Handoffs, prompts d'agent et plans de
-   sprint n'ont pas leur place ici : l'historique git suffit.
-5. **Le code fait foi.** Quand la doc et le code divergent, c'est la doc qu'on corrige.
+Ces cinq règles sont ce qui a manqué au corpus précédent. Les tenir coûte moins cher que de refaire
+cet audit.
+
+1. **Pas d'affirmation sans preuve.** Une existence se cite `fichier:ligne` ; une absence se prouve
+   par la commande qui ne retourne rien. Une absence se périme comme une présence.
+2. **Pas de statut.** « À faire », « livré », « en cours » n'ont pas leur place ici : ces champs
+   mentaient dans 22 cas sur 26 parce que personne ne les relisait. L'état d'avancement appartient à
+   un tracker et à `git log`.
+3. **Un sujet, un document.** Pas de consolidation qui recopie une autre source : l'ancien corpus
+   avait trois documents décrivant le même plan vNext, et une analyse de 3 522 lignes qui recopiait
+   l'index en divergeant.
+4. **Les artefacts éphémères ne sont pas de la documentation.** Handoffs, prompts d'agent, plans de
+   sprint : l'historique git suffit.
+5. **Le code fait foi.** Quand la doc et le code divergent, c'est la doc qu'on corrige — jamais
+   l'inverse.

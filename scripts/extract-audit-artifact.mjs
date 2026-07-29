@@ -1,4 +1,4 @@
-// Regénère docs/user_story/AUDIT-2026-07-inventaire.md depuis :
+// Regénère docs/audit/AUDIT-2026-07-inventaire.md depuis :
 //
 //   - la source canonique normalisée JSON versionnée dans docs/user_story ;
 //   - l'export HTML historique, lorsqu'il est disponible.
@@ -151,7 +151,7 @@ if (args[0] === "--normalize-ledger") {
     schema_version: 1,
     source_kind: "normalized_audit_ledger",
     provenance: {
-      normalized_from: "docs/user_story/AUDIT-2026-07-inventaire.md",
+      normalized_from: "docs/audit/AUDIT-2026-07-inventaire.md",
       original_artifact_url:
         "https://claude.ai/code/artifact/91124126-27a6-4450-ac6d-b9b7745b0403",
       original_html_available: false,

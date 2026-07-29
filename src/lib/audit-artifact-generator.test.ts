@@ -28,11 +28,11 @@ describe("extract-audit-artifact", () => {
     const secondOutputPath = join(directory, "audit-second.md");
     const sourcePath = join(
       process.cwd(),
-      "docs/user_story/AUDIT-2026-07-source.normalized.json"
+      "docs/audit/AUDIT-2026-07-source.normalized.json"
     );
     const ledgerPath = join(
       process.cwd(),
-      "docs/user_story/AUDIT-2026-07-inventaire.md"
+      "docs/audit/AUDIT-2026-07-inventaire.md"
     );
 
     const runGenerator = (outputPath: string) =>
