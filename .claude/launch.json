@@ -2,11 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "miaouffrage-attach",
+      "port": 3000,
+      "url": "http://localhost:3000"
+    },
+    {
       "name": "miaouffrage-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "autoPort": true
+      "port": 3000
     }
   ]
 }
