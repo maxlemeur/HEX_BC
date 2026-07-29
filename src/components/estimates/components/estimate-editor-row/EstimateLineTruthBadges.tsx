@@ -3,9 +3,16 @@
 import { resolveEstimateLineTruth } from "@/lib/estimates/line-truth";
 import type { EstimateItem } from "@/components/estimates/components/estimate-editor-row/shared";
 
-function getToneClassName(
-  tone: "neutral" | "warning" | "danger" | "success"
-) {
+type Tone = "neutral" | "warning" | "danger" | "success";
+
+const TONE_SEVERITY: Record<Tone, number> = {
+  success: 0,
+  neutral: 1,
+  warning: 2,
+  danger: 3,
+};
+
+function getToneClassName(tone: Tone) {
   switch (tone) {
     case "success":
       return "border-emerald-200 bg-emerald-50 text-emerald-800";
@@ -64,25 +71,6 @@ function getCompactSourceLabel(
   }
 }
 
-function getCompactQtyLabel(
-  item: NonNullable<ReturnType<typeof resolveEstimateLineTruth>>
-) {
-  switch (item.qtyStatus.code) {
-    case "imported_unverified":
-      return "Qté import.";
-    case "measured":
-      return "Qté métré";
-    case "assumed":
-      return "Qté supp.";
-    case "provisional":
-      return "Qté provis.";
-    case "to_confirm":
-      return "À confirmer";
-    default:
-      return "Qté absente";
-  }
-}
-
 type EstimateLineTruthBadgesProps = {
   item: EstimateItem;
 };
@@ -95,7 +83,19 @@ export function EstimateLineTruthBadges({
     return null;
   }
 
+  const qtyTone = getQtyTone(lineTruth);
+  const confidenceTone = getConfidenceTone(lineTruth);
+  const tone =
+    TONE_SEVERITY[qtyTone] >= TONE_SEVERITY[confidenceTone]
+      ? qtyTone
+      : confidenceTone;
   const confidenceLabel = `Confiance ${lineTruth.confidence.label}`;
+  const fullLabel = `${lineTruth.source.label} — ${lineTruth.qtyStatus.label} — ${confidenceLabel}`;
+  const tooltip = [
+    lineTruth.source.detail ?? lineTruth.source.label,
+    lineTruth.qtyStatus.detail ?? lineTruth.qtyStatus.label,
+    lineTruth.confidence.detail ?? confidenceLabel,
+  ].join("\n");
 
   return (
     <div
@@ -103,40 +103,11 @@ export function EstimateLineTruthBadges({
       data-testid="estimate-line-truth"
     >
       <span
-        className={`estimate-line-truth__badge inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${getToneClassName("neutral")}`}
-        title={lineTruth.source.detail ?? lineTruth.source.label}
+        className={`estimate-line-truth__badge inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${getToneClassName(tone)}`}
+        title={tooltip}
       >
-        <span className="sr-only">{lineTruth.source.label}</span>
-        <span className="estimate-line-truth__label-full" aria-hidden="true">
-          {lineTruth.source.label}
-        </span>
-        <span className="estimate-line-truth__label-compact" aria-hidden="true">
-          {getCompactSourceLabel(lineTruth)}
-        </span>
-      </span>
-      <span
-        className={`estimate-line-truth__badge inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${getToneClassName(getQtyTone(lineTruth))}`}
-        title={lineTruth.qtyStatus.detail ?? lineTruth.qtyStatus.label}
-      >
-        <span className="sr-only">{lineTruth.qtyStatus.label}</span>
-        <span className="estimate-line-truth__label-full" aria-hidden="true">
-          {lineTruth.qtyStatus.label}
-        </span>
-        <span className="estimate-line-truth__label-compact" aria-hidden="true">
-          {getCompactQtyLabel(lineTruth)}
-        </span>
-      </span>
-      <span
-        className={`estimate-line-truth__badge inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${getToneClassName(getConfidenceTone(lineTruth))}`}
-        title={lineTruth.confidence.detail ?? confidenceLabel}
-      >
-        <span className="sr-only">{confidenceLabel}</span>
-        <span className="estimate-line-truth__label-full" aria-hidden="true">
-          {confidenceLabel}
-        </span>
-        <span className="estimate-line-truth__label-compact" aria-hidden="true">
-          Conf. {lineTruth.confidence.label === "moyenne" ? "moy." : lineTruth.confidence.label}
-        </span>
+        <span className="sr-only">{fullLabel}</span>
+        <span aria-hidden="true">{getCompactSourceLabel(lineTruth)}</span>
       </span>
     </div>
   );

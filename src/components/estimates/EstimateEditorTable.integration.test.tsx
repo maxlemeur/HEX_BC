@@ -351,8 +351,16 @@ describe("EstimateEditorTable integration", () => {
       document.querySelector('[data-estimate-item-id="line-1"]'),
     ).toHaveAttribute(
       "data-visible-columns",
-      "ds,h_mo_majoration,k_fo,k_mo,labor_role,marge,marque,supply_type",
+      "ds,k_fo,k_mo,labor_role,marge,marque,supply_type",
     );
+  });
+
+  it("masque Majoration MO (%) du preset Complet, activable via Personnalisé", () => {
+    localStorage.setItem("est-col-vis", "full");
+    localStorage.setItem("est-col-override", "true");
+    renderEstimateEditorTable();
+
+    expect(screen.queryByText("Majoration MO (%)")).not.toBeInTheDocument();
   });
 
   it("wires row edition callback to onPatchItem", () => {
@@ -409,7 +417,22 @@ describe("EstimateEditorTable integration", () => {
   });
 
   it("renders clean column labels, a sale group, and centralized help", () => {
-    localStorage.setItem("est-col-vis", "full");
+    // Preset « Personnalisé » avec toutes les colonnes : Majoration MO (%) est
+    // sortie du preset « Complet » et n'est plus visible que sur opt-in.
+    localStorage.setItem("est-col-vis", "custom");
+    localStorage.setItem(
+      "est-col-custom",
+      JSON.stringify([
+        "supply_type",
+        "k_fo",
+        "h_mo_majoration",
+        "labor_role",
+        "k_mo",
+        "ds",
+        "marge",
+        "marque",
+      ]),
+    );
     localStorage.setItem("est-col-override", "true");
     renderEstimateEditorTable();
 

@@ -124,7 +124,12 @@ describe("estimate editor responsive grid", () => {
     expect(css).toContain("--density-cell-px: 6px;");
     expect(css).toContain("--density-cell-py: 2px;");
     expect(css).toMatch(
-      /@media \(min-width: 1025px\)[\s\S]*?\.estimate-table \.estimate-line-designation \{[\s\S]*?flex-direction: row;[\s\S]*?\.estimate-table \.estimate-line-truth__badge \{[\s\S]*?width: 10px;/,
+      /@media \(min-width: 1025px\)[\s\S]*?\.estimate-table \.estimate-line-designation \{[\s\S]*?flex-direction: row;/,
+    );
+    // Le badge de provenance doit rester lisible en desktop : plus jamais
+    // d'écrasement en pastille 10px illisible.
+    expect(css).not.toMatch(
+      /\.estimate-table \.estimate-line-truth__badge \{[\s\S]*?font-size: 0;/,
     );
     expect(css).toMatch(
       /@media \(min-width: 768px\) and \(max-width: 1024px\)[\s\S]*?--estimate-grid: var\(--estimate-grid-tablet\);/,

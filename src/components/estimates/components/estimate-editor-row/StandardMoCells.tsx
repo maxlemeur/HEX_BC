@@ -187,37 +187,52 @@ export function StandardMoCells({
             }`
           )}
         >
-          <select
-            className="estimate-input estimate-select"
-            ref={laborRoleEditorProps.ref}
-            tabIndex={laborRoleEditorProps.tabIndex}
-            value={item.labor_role_id ?? ""}
-            aria-label={`Rôle de main-d'œuvre pour ${item.title || "sans titre"}`}
-            aria-invalid={missingLaborRateMessage ? true : undefined}
-            title={missingLaborRateMessage ?? undefined}
-            onFocus={laborRoleEditorProps.onFocus}
-            onBlur={laborRoleEditorProps.onBlur}
-            onKeyDown={laborRoleEditorProps.onKeyDown}
-            onChange={(event) =>
-              onPatchItem(
-                item.id,
-                { labor_role_id: event.target.value || null },
-                { persist: true }
-              )
-            }
-            disabled={isReadOnly}
-          >
-            <option value="">-</option>
-            {laborRoles.map((role) => (
-              <option
-                key={role.id}
-                value={role.id}
-                disabled={!role.is_active}
-              >
-                {formatLaborRoleOptionLabel(role)}
-              </option>
-            ))}
-          </select>
+          <div className="relative min-w-0 w-full">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-1 right-7 z-10 flex items-center truncate text-xs text-slate-700"
+              data-testid="estimate-labor-role-value"
+            >
+              {selectedLaborRole
+                ? `${selectedLaborRole.name}${
+                    !selectedLaborRole.is_active ? " (inactif)" : ""
+                  }`
+                : "-"}
+            </span>
+            <select
+              className="estimate-input estimate-select text-transparent"
+              style={{ color: "transparent" }}
+              ref={laborRoleEditorProps.ref}
+              tabIndex={laborRoleEditorProps.tabIndex}
+              value={item.labor_role_id ?? ""}
+              aria-label={`Rôle de main-d'œuvre pour ${item.title || "sans titre"}`}
+              aria-invalid={missingLaborRateMessage ? true : undefined}
+              title={missingLaborRateMessage ?? undefined}
+              onFocus={laborRoleEditorProps.onFocus}
+              onBlur={laborRoleEditorProps.onBlur}
+              onKeyDown={laborRoleEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { labor_role_id: event.target.value || null },
+                  { persist: true }
+                )
+              }
+              disabled={isReadOnly}
+            >
+              <option className="text-slate-700" value="">-</option>
+              {laborRoles.map((role) => (
+                <option
+                  className="text-slate-700"
+                  key={role.id}
+                  value={role.id}
+                  disabled={!role.is_active}
+                >
+                  {formatLaborRoleOptionLabel(role)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
       {(!visibleColumns || visibleColumns.has("k_mo")) ? (

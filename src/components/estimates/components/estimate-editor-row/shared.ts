@@ -47,7 +47,7 @@ export function formatLaborRoleOptionLabel(role: LaborRole) {
     maximumFractionDigits: 2,
   }).format(Math.max(role.hourly_rate_cents, 0) / 100);
 
-  return `${role.name} — ${hourlyRate} €/h${
+  return `${hourlyRate} €/h ${role.name}${
     !role.is_active ? " (inactif)" : ""
   }`;
 }

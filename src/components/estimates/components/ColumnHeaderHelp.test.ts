@@ -20,4 +20,22 @@ describe("estimate column header help", () => {
       "Coefficient fourniture — multiplie uniquement le prix de revient FO et ne modifie jamais la MO. Ex : K = 1.20 → +20% sur le prix FO",
     );
   });
+
+  it("presents K MO as an execution-difficulty coefficient, not a margin", () => {
+    // La sémantique métier (EST-E15) : k_mo est un coefficient de RENDEMENT
+    // (difficulté d'exécution, ex. travail en hauteur), pas une marge sur le
+    // taux horaire.
+    expect(COLUMN_HEADER_TOOLTIPS["K MO"]).toContain("rendement");
+    expect(COLUMN_HEADER_TOOLTIPS["K MO"]).toContain("travail en hauteur");
+    expect(COLUMN_HEADER_TOOLTIPS["K MO"]).not.toContain("marge");
+    expect(COLUMN_HEADER_TOOLTIPS["K MO atelier"]).toContain("rendement");
+    expect(COLUMN_HEADER_TOOLTIPS["K MO chantier"]).toContain("rendement");
+  });
+
+  it("marks Majoration MO as reserved for OPTIMA import/export compatibility", () => {
+    expect(COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]).toContain("OPTIMA");
+    expect(COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]).toContain(
+      "100% (neutre)",
+    );
+  });
 });

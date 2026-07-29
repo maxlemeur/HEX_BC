@@ -255,7 +255,7 @@ describe("EstimateEditorRow line cells", () => {
     expect(container.querySelectorAll("select.estimate-select")).toHaveLength(2);
   });
 
-  it("renders source, qty status and confidence badges for each line", () => {
+  it("announces source, qty status and confidence in a single badge label", () => {
     const view = renderRowWithItem(
       createItem({
         source_provider: "dpgf",
@@ -265,28 +265,42 @@ describe("EstimateEditorRow line cells", () => {
     );
 
     const row = within(view.container);
-    expect(
-      row.getByText("DPGF importee", { selector: ".sr-only" })
-    ).toBeInTheDocument();
-    expect(
-      row.getByText("Qte importee non verifiee", { selector: ".sr-only" })
-    ).toBeInTheDocument();
-    expect(
-      row.getByText("Confiance moyenne", { selector: ".sr-only" })
-    ).toBeInTheDocument();
+    // Les trois informations étaient portées par trois badges distincts ; elles
+    // sont désormais concaténées dans un badge unique, dont seul le libellé
+    // compact est visible. Le `.sr-only` doit donc toujours les annoncer toutes
+    // les trois, sous peine de régresser l'accessibilité.
+    const screenReaderLabel = row.getByText(/DPGF importee/, {
+      selector: ".sr-only",
+    });
+    expect(screenReaderLabel).toHaveTextContent(
+      "DPGF importee — Qte importee non verifiee — Confiance moyenne"
+    );
+
+    // Le libellé visible reste compact et masqué aux lecteurs d'écran.
+    const compactLabel = view.container.querySelector(
+      '.estimate-line-truth__badge [aria-hidden="true"]'
+    );
+    expect(compactLabel).toHaveTextContent("DPGF");
   });
 
-  it("shows the hourly rate and warns when a zero rate neutralizes K MO", () => {
+  it("shows the hourly rate in options without displaying it in the cell", () => {
     const view = renderRowWithItem(createItem(), 0);
 
     const roleSelect = within(view.container).getByRole("combobox", {
       name: "Rôle de main-d'œuvre pour Ligne test",
-    });
+    }) as HTMLSelectElement;
+    const selectedRoleDisplay = within(view.container).getByTestId(
+      "estimate-labor-role-value"
+    );
     const kMoInput = within(view.container).getByRole("textbox", {
       name: "Coefficient main-d'œuvre K MO pour Ligne test",
     });
 
-    expect(roleSelect).toHaveTextContent("Poseur — 0,00 €/h");
+    expect(roleSelect.selectedOptions[0]?.textContent).toBe("0,00 €/h Poseur");
+    expect(roleSelect.selectedOptions[0]?.textContent).not.toContain("—");
+    expect(roleSelect.style.color).toBe("transparent");
+    expect(selectedRoleDisplay).toHaveTextContent("Poseur");
+    expect(selectedRoleDisplay).not.toHaveTextContent("€/h");
     expect(roleSelect).toHaveAttribute("aria-invalid", "true");
     expect(kMoInput).toHaveAttribute(
       "title",

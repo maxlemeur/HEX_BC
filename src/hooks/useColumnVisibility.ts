@@ -21,12 +21,14 @@ const PRESET_COLUMNS: Record<ColumnPreset, ColumnKey[]> = {
   essential: [],
   standard: ["supply_type", "k_fo", "labor_role", "k_mo"],
   // Volontairement absentes de « Standard » : les y ajouter elargirait sans
-  // prevenir la grille des utilisateurs qui ont choisi cette densite. « Complet »
-  // veut dire complet.
+  // prevenir la grille des utilisateurs qui ont choisi cette densite.
+  // `h_mo_majoration` est absente de TOUS les presets : la majoration chantier
+  // n'est pas utilisee pour le moment (laisser a 100%, neutre) et le champ
+  // n'est conserve que pour la fidelite des imports/exports OPTIMA. La colonne
+  // reste activable individuellement via « Personnalise ».
   full: [
     "supply_type",
     "k_fo",
-    "h_mo_majoration",
     "labor_role",
     "k_mo",
     "ds",

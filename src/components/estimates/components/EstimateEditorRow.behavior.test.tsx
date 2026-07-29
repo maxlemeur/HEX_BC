@@ -384,20 +384,16 @@ describe("EstimateEditorRow behavior", () => {
       "line-responsive-designation",
       { x: 30, y: 40 },
     );
-    expect(truthBadges).toHaveLength(3);
-    truthBadges.forEach((badge) => {
-      expect(badge).toHaveClass("estimate-line-truth__badge");
-    });
+    expect(truthBadges).toHaveLength(1);
+    const [truthBadge] = truthBadges;
+    expect(truthBadge).toHaveClass("estimate-line-truth__badge");
+    expect(truthBadge.getAttribute("title")).toContain("Confiance moyenne");
+    expect(within(truthGroup).getByText("Manuelle")).toBeInTheDocument();
     expect(
-      within(truthGroup).getByText("Saisie manuelle", { selector: ".sr-only" })
-    ).toBeInTheDocument();
-    expect(
-      within(truthGroup).getByText("Qte supposee", { selector: ".sr-only" })
-    ).toBeInTheDocument();
-    expect(
-      within(truthGroup).getByText("Confiance moyenne", {
-        selector: ".sr-only",
-      })
+      within(truthGroup).getByText(
+        "Saisie manuelle — Qte supposee — Confiance moyenne",
+        { selector: ".sr-only" }
+      )
     ).toBeInTheDocument();
   });
 

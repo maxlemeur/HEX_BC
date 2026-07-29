@@ -3533,22 +3533,10 @@ body {
   white-space: nowrap;
 }
 
-.estimate-line-truth__label-compact {
-  display: none;
-}
-
 @media (max-width: 1440px) {
   .estimate-line-truth__badge {
     padding-inline: 5px;
     font-size: 10px;
-  }
-
-  .estimate-line-truth__label-full {
-    display: none;
-  }
-
-  .estimate-line-truth__label-compact {
-    display: inline;
   }
 }
 
@@ -3567,16 +3555,6 @@ body {
     flex: 0 0 auto;
     flex-wrap: nowrap;
     gap: 3px;
-  }
-
-  .estimate-table .estimate-line-truth__badge {
-    width: 10px;
-    height: 10px;
-    min-width: 10px;
-    padding: 0;
-    overflow: hidden;
-    border-radius: 999px;
-    font-size: 0;
   }
 
   .estimate-table .estimate-section-more-btn,
