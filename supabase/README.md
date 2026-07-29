@@ -7,30 +7,58 @@
 
 ## 2) Initialiser le schéma
 
-- Ouvrez **SQL Editor** dans Supabase
-- Exécutez `supabase/schema.sql`
+> ⚠️ **N'exécutez jamais `supabase/schema.sql` sur une base contenant des données.**
+> Ce fichier commence par une quarantaine de `drop table if exists … cascade` visant
+> `estimate_items`, `estimate_versions`, `tenants`, `purchase_orders`, `audit_logs`… Il **détruit**
+> la base. C'est de plus un **snapshot partiel et périmé** : il déclare 40 tables là où les
+> migrations en créent environ 99.
+>
+> **La source de vérité du schéma, c'est `supabase/migrations/`** (187 fichiers, de
+> `001_add_job_title_to_profiles.sql` à `20260727112139_revoke_trigger_function_api_execute.sql`).
 
-## 3) Runbook migrations via MCP
+Sur une base **neuve**, appliquez les migrations dans l'ordre :
 
-Ce runbook applique des migrations incrémentales (non destructives) sur le projet principal.
+```bash
+supabase link --project-ref <ref>
+supabase db push
+```
 
-1. Vérifier l'état sécurité avant migration:
-   - `mcp__supabase__get_advisors({ type: "security" })`
-2. Préparer la migration à appliquer:
-   - `name`: nom court en `snake_case` (ex: `004_harden_estimate_devis_rls_s1`)
-   - `query`: contenu SQL exact du fichier `supabase/migrations/<file>.sql`
-3. Appliquer dans l'ordre:
-   - `mcp__supabase__apply_migration` avec `004_harden_estimate_devis_rls_s1`
-   - `mcp__supabase__apply_migration` avec `005_set_search_path_estimate_functions_s1`
-4. Vérifier l'état sécurité après migration:
-   - `mcp__supabase__get_advisors({ type: "security" })`
-5. Contrôler les policies/fonctions ciblées si nécessaire:
-   - `pg_policies` pour `estimate_*` et `purchase_order_devis`
-   - `pg_proc.proconfig` pour `set_updated_at`, `guard_estimate_versions_readonly`, `duplicate_estimate_version`
+En local :
 
-Notes:
-- Les migrations SQL doivent être idempotentes (`if exists`, `create or replace`, `drop policy if exists`).
-- Ne pas utiliser de SQL destructif en prod (pas de `drop table`).
+```bash
+supabase start
+supabase db reset   # rejoue toutes les migrations depuis zéro
+```
+
+`supabase db reset` peut échouer : l'ordonnancement de la migration historique
+`001_add_job_title_to_profiles.sql` a déjà bloqué un reset canonique. Vérifiez la version du CLI et
+la baseline avant de conclure à une régression produit.
+
+Le test `src/lib/supabase-migration-history-regressions.test.ts` garde la cohérence de l'historique
+des migrations : lancez-le après tout ajout.
+
+## 3) Ajouter une migration
+
+1. Inspecter le schéma courant, l'historique, les RLS et l'autorisation serveur affectée.
+2. Créer un fichier **horodaté** : `supabase/migrations/<YYYYMMDDHHMMSS>_<snake_case>.sql`.
+   Ne jamais réécrire une migration déjà appliquée.
+3. Écrire du SQL **idempotent** (`if exists`, `create or replace`, `drop policy if exists`) et
+   **non destructif** (pas de `drop table` en production).
+4. Ajouter une régression structurelle ou comportementale ciblée.
+5. Valider localement ou sur un environnement Postgres isolé, puis lancer les tests applicatifs
+   et `npm run e2e:rls`.
+6. N'appliquer sur un projet partagé ou distant **que sur autorisation explicite de l'utilisateur**.
+
+### Runbook d'application via MCP
+
+Quand l'application distante est autorisée :
+
+1. `mcp__supabase__get_advisors({ type: "security" })` — état avant migration.
+2. `mcp__supabase__apply_migration` avec le nom du fichier et son contenu SQL exact, **dans l'ordre
+   chronologique des migrations non encore appliquées**.
+3. `mcp__supabase__get_advisors({ type: "security" })` — état après migration.
+4. Contrôler les objets ciblés si nécessaire : `pg_policies` pour les tables concernées,
+   `pg_proc.proconfig` pour le `search_path` des fonctions.
 
 ## 4) Variables d'environnement Next.js
 

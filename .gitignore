@@ -60,3 +60,11 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# QA visuelle et captures de travail (interdits de commit, cf. AGENTS.md)
+design-qa.md
+option-3-*.png
+outputs/
+
+# artefacts de scan securite (volumineux, non versionnes)
+.codex-security-work/

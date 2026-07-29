@@ -1,66 +1,110 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance pour Claude Code (claude.ai/code) sur ce dépôt.
 
-## Project Overview
+## Source de vérité
 
-Internal order management application (Générateur de commandes) built with Next.js 16 and Supabase. Allows managing customers, products, and creating orders with tax calculations and printable output.
+**[AGENTS.md](AGENTS.md) est le contrat opérationnel de ce dépôt.** Lis-le avant toute modification :
+périmètre, ordre de validation, invariants métier et sécurité, conventions, règles de publication.
+Ce fichier-ci n'en est qu'un rappel d'orientation ; en cas de divergence, `AGENTS.md` l'emporte.
 
-## Commands
+Pour l'état réel du système, la vérité est le **code**, les **migrations** et `package.json` — jamais
+un document. La documentation `docs/` a été auditée le 2026-07-29 : tout ce qui précède cette date,
+hors `docs/metier/` et `AGENTS.md`, doit être considéré comme un instantané historique.
+Voir [docs/AUDIT-DOCUMENTATION-2026-07-29.md](docs/AUDIT-DOCUMENTATION-2026-07-29.md).
+
+## Le produit
+
+Logiciel de **chiffrage BTP** français, multi-tenant. Pas un gestionnaire de commandes.
+
+```
+Affaire → pièces (DPGF, plans, CCTP) → import DPGF / métré IA → devis → validation
+        → PDF + envoi → portail client → bons de commande
+```
+
+Domaines dans `src/app/dashboard/` : `affaires`, `estimates`, `takeoff`, `referentiel`, `tarifs`,
+`approvals`, `direction`, `orders`, `analytics`, `admin`. Portail client public sous `src/app/portal/`.
+
+## Commandes
 
 ```bash
-npm run dev    # Start development server (http://localhost:3000)
-npm run build  # Production build
-npm run lint   # Run ESLint
+npm run dev          # développement
+npm run build        # valide l'OpenAPI PUIS construit — les deux doivent passer
+npm run typecheck    # TypeScript strict
+npm run lint         # ESLint, --max-warnings=0
+npm test             # Vitest (projets node + jsdom)
+npm run e2e:pw:critical
 ```
+
+Validation minimale attendue : test focalisé → `typecheck` → `lint`. Voir `AGENTS.md` § Test Strategy
+pour l'ordre complet.
 
 ## Architecture
 
-### Tech Stack
-- **Next.js 16** with App Router (React 19)
-- **Supabase** for database and authentication (Email/Password)
-- **Tailwind CSS 4** for styling
-- **TypeScript** with strict mode
+- `src/app/` — App Router : pages, layouts, server actions, `api/**` (122 route handlers)
+- `src/components/` — UI partagée et par domaine
+- `src/hooks/` — hooks React, dont ~19 contrôleurs de l'éditeur de devis
+- `src/lib/` — logique métier. Principaux : `estimates/`, `takeoff/`, `affaires/`, `catalogue/`,
+  `imports/`, `mappings/`, `approvals/`, `direction/`, `cockpit/`
+- `src/lib/openapi/` — génération OpenAPI depuis les schémas Zod ; `openapi.json` est versionné
+- `supabase/migrations/` — **187 migrations, source de vérité du schéma**
+- `supabase/functions/` — Edge Functions Deno
 
-### Directory Structure
-- `src/app/` - Next.js App Router pages
-  - `login/`, `signup/` - Auth pages (public)
-  - `dashboard/` - Protected area with layout that checks auth
-    - `customers/`, `products/`, `orders/` - CRUD pages
-    - `orders/[id]/print/` - Print-friendly order view
-- `src/lib/supabase/` - Supabase client utilities
-  - `client.ts` - Browser client (`createSupabaseBrowserClient`)
-  - `server.ts` - Server client (`createSupabaseServerClient`)
-- `src/lib/money.ts` - Currency utilities (EUR formatting, cents conversion, tax calculation)
-- `src/components/` - Shared components
-- `supabase/schema.sql` - Database schema
+**Authentification** : `middleware.ts` rafraîchit la session Supabase (cookies uniquement, aucune
+règle d'autorisation). L'autorisation passe par `getUserContext()` / `requireUser()`
+(`src/lib/auth/server.ts`), consommé par les layouts et les server actions.
 
-### Key Patterns
+**Clients Supabase** : `createSupabaseServerClient()` (async, Server Components),
+`createSupabaseBrowserClient()` (Client Components, avec `useMemo`), `service-role.ts` — **jamais**
+côté navigateur.
 
-**Authentication**: Dashboard layout (`src/app/dashboard/layout.tsx`) checks auth via `createSupabaseServerClient()` and redirects unauthenticated users to `/login`.
+## Base de données
 
-**Supabase Clients**:
-- Server Components: Use `createSupabaseServerClient()` (async)
-- Client Components: Use `createSupabaseBrowserClient()` with `useMemo`
+~99 tables `public`, **RLS active sur toutes**, isolation par `tenant_id`. Domaines : `estimate_*`
+(versions, items, catégories, approbations, drafts IA), `affaire_*` (intake, brief, registre),
+`takeoff_*` + `plan_*`, `dpgf_*`, catalogue (`products`, `suppliers`, `supplier_pricebook`),
+`purchase_order*`, `tenants` / `tenant_memberships`.
 
-**Money Handling**: All monetary values stored in cents (`*_cents` columns). Tax rates stored in basis points (`tax_rate_bp`, e.g., 2000 = 20%). Use `formatEUR()` for display, `parseEuroToCents()` for input parsing.
+⚠️ `supabase/schema.sql` est un **snapshot partiel et périmé** (40 tables) qui commence par ~40
+`drop table … cascade`. Ne jamais l'exécuter sur une base peuplée.
 
-### Database Schema
-Four tables with RLS enabled (authenticated users have full access):
-- `customers` - Client information
-- `products` - Product catalog (prices in cents, tax rate in basis points)
-- `orders` - Order headers with totals
-- `order_items` - Order line items with computed totals
+**Enums clés** :
 
-Order status enum: `draft`, `sent`, `accepted`, `canceled`
+| Enum | Valeurs |
+|---|---|
+| `estimate_status` | `draft`, `sent`, `accepted`, `archived` — sert au devis **et** à l'affaire |
+| `estimate_version_approval_status` | `not_required`, `required`, `in_review`, `approved`, `changes_requested` |
+| `estimate_item_type` | `section`, `line` |
+| `tenant_role` | `admin`, `engineer`, `viewer`, `director` |
+| `purchase_order_status` | `draft`, `sent`, `confirmed`, `received`, `canceled` |
 
-## Environment Variables
+Transitions de devis, contraintes par trigger : `draft → sent`, `sent → accepted|archived`,
+`accepted → archived`. **Aucun retour en arrière.**
 
-Required in `.env.local`:
-```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-```
+## Règles métier
 
-- Follow the team standard for commit messages (Conventional Commits if undecided).
-- Include the ticket number in commit messages when one exists.
+Les montants sont des **entiers de centimes** (`*_cents`), les taux des **points de base**
+(`*_bp`, 2000 = 20 %). `formatEUR()` pour l'affichage, `parseEuroToCents()` pour la saisie
+(`src/lib/money.ts`).
+
+⚠️ Deux méthodes d'arrondi coexistent, et cette hétérogénéité est **connue et non résolue** :
+`bankersRound` (PU, coefficient global, remises cascade, allocation) et `Math.round` (coût de ligne,
+vente de ligne, **TVA**). Ne pas « harmoniser » sans lire `docs/metier/regles-de-calcul.md`.
+
+⚠️ Deux moteurs de calcul coexistent, gouvernés par `estimate_versions.calc_engine_version`.
+**La v1 est ce qui s'exécute en production** ; la v2 (réconciliée) est écrite et testée mais
+l'éditeur épingle encore `EDITOR_CALC_ENGINE_VERSION = 1`. Toute modification de
+`src/lib/estimate-calculations.ts` change des montants contractuels sur des devis envoyés et
+scellés — lire `docs/metier/regles-de-calcul.md` avant d'y toucher.
+
+Détail complet : [docs/metier/regles-de-calcul.md](docs/metier/regles-de-calcul.md) et
+[docs/metier/cycle-de-vie.md](docs/metier/cycle-de-vie.md).
+
+## Conventions
+
+TypeScript strict, indentation 2 espaces, points-virgules, guillemets doubles. Alias `@/` pour
+`src/`. PascalCase pour les composants, `useX` pour les hooks, dossiers de route en minuscules.
+Tests colocalisés (`module.test.ts`, `Component.test.tsx`).
+
+Commits : Conventional Commits, avec le numéro de ticket quand il existe —
+`fix(EST-243): remove unused portal test imports`.
