@@ -62,6 +62,22 @@ La base s'initialise **par les migrations**, jamais par `schema.sql` — voir
 npm run dev     # http://localhost:3000
 ```
 
+Avant le démarrage, vérifiez que le port est libre sous PowerShell :
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue
+```
+
+Si le port 3000 est déjà occupé, choisissez explicitement un autre port (et utilisez cette même URL
+pour `E2E_BASE_URL` lors des tests bout-en-bout) :
+
+```bash
+npm run dev -- -p 3001
+```
+
+Si le conflit vient déjà de cette application, réutilisez son serveur ou arrêtez-le depuis son
+terminal : le verrou `.next/dev/lock` empêche deux serveurs de développement dans le même dossier.
+
 ## Commandes courantes
 
 ```bash
