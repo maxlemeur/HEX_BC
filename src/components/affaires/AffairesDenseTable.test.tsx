@@ -205,6 +205,31 @@ describe("AffairesDenseTable", () => {
     expect(onToggleFavorite).toHaveBeenCalledWith("project-1", true);
   });
 
+  it("allows manual selection only for draft affaires", () => {
+    const onToggleProjectSelection = vi.fn();
+    renderTable({
+      items: [
+        { ...baseItem, currentStatus: "draft" },
+        {
+          ...baseItem,
+          projectId: "project-2",
+          projectName: "Affaire envoyee",
+        },
+      ],
+      selectedProjectIds: ["project-1"],
+      onToggleProjectSelection,
+    });
+
+    const draftCheckbox = screen.getByRole("checkbox", {
+      name: "Selectionner l'affaire Affaire Alpha",
+    });
+    expect(draftCheckbox).toBeChecked();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+
+    fireEvent.click(draftCheckbox);
+    expect(onToggleProjectSelection).toHaveBeenCalledWith("project-1");
+  });
+
   it("routes manager queue changes back to the page query", () => {
     const { onManagerFilterChange } = renderTable();
 

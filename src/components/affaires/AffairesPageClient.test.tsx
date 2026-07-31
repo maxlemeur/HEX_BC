@@ -449,6 +449,39 @@ describe("AffairesPageClient", () => {
     });
   });
 
+  it("selects every displayed draft and confirms the exact bulk target count", () => {
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialSort="updatedAt"
+        initialDir="desc"
+      />
+    );
+
+    expect(screen.getByText("0 affaire selectionnee")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Selectionner les brouillons affiches (1)",
+      })
+    );
+
+    expect(screen.getByText("1 affaire selectionnee")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Supprimer la selection (1)" })
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Supprimer 1 affaire" })
+    ).toBeInTheDocument();
+  });
+
   it("syncs the manager queue filter to the URL", async () => {
     isExpertValue = true;
 

@@ -44,6 +44,8 @@ type Props = {
     | "ready"
     | "error"
     | "unavailable";
+  selectedProjectIds?: string[];
+  onToggleProjectSelection?: (projectId: string) => void;
 };
 
 function formatDate(iso: string): string {
@@ -72,7 +74,7 @@ function AffairesEmptyState({
 }) {
   return (
     <tr>
-      <td colSpan={10} className="py-16 text-center">
+      <td colSpan={11} className="py-16 text-center">
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
@@ -176,6 +178,8 @@ export function AffairesDenseTable({
   onManagerFilterChange,
   managerQueueSummary,
   managerQueueSummaryState,
+  selectedProjectIds = [],
+  onToggleProjectSelection,
 }: Readonly<Props>) {
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
@@ -341,6 +345,9 @@ export function AffairesDenseTable({
               <th scope="col" className="w-10">
                 <span className="sr-only">Détails</span>
               </th>
+              <th scope="col" className="w-10">
+                <span className="sr-only">Sélection</span>
+              </th>
               <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Nom affaire
               </th>
@@ -391,6 +398,8 @@ export function AffairesDenseTable({
                   item.currentVersionId !== null &&
                   item.currentVersionNumber !== null &&
                   item.currentStatus !== null;
+                const canSelect =
+                  !hasCurrentVersion || item.currentStatus === "draft";
 
                 const primaryHref = `/dashboard/affaires/${item.projectId}`;
                 const expanded = isExpanded(item.projectId);
@@ -426,6 +435,22 @@ export function AffairesDenseTable({
                           <path d="m9 18 6-6-6-6" />
                         </svg>
                       </button>
+                    </td>
+                    <td
+                      className="px-2 py-3 text-center"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {canSelect && onToggleProjectSelection ? (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
+                          checked={selectedProjectIds.includes(item.projectId)}
+                          aria-label={`Selectionner l'affaire ${item.projectName}`}
+                          onChange={() =>
+                            onToggleProjectSelection(item.projectId)
+                          }
+                        />
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 font-medium text-[var(--slate-900)] max-w-[200px] truncate">
                       {item.projectName}
@@ -607,7 +632,7 @@ export function AffairesDenseTable({
 
                   {expanded && (
                     <tr className="expanded-content-row">
-                      <td colSpan={10}>
+                      <td colSpan={11}>
                         <div className="expanded-content animate-expand-down">
                           {cached === "loading" ? (
                             <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">

@@ -26,6 +26,8 @@ type Props = {
   onCreateAffaire?: () => void;
   onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
   favoritePendingIds: string[];
+  selectedProjectIds?: string[];
+  onToggleProjectSelection?: (projectId: string) => void;
 };
 
 function formatDate(iso: string): string {
@@ -47,6 +49,8 @@ export function AffairesCardList({
   onCreateAffaire,
   onToggleFavorite,
   favoritePendingIds,
+  selectedProjectIds = [],
+  onToggleProjectSelection,
 }: Readonly<Props>) {
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
@@ -189,6 +193,19 @@ export function AffairesCardList({
 
             {/* Actions */}
             <div className="flex items-center gap-1 px-4 pb-4 pt-3 border-t border-[var(--slate-100)]">
+              {canDelete && onToggleProjectSelection ? (
+                <label className="mr-1 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center sm:min-h-8 sm:min-w-8">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
+                    checked={selectedProjectIds.includes(item.projectId)}
+                    aria-label={`Selectionner l'affaire ${item.projectName}`}
+                    onChange={() =>
+                      onToggleProjectSelection(item.projectId)
+                    }
+                  />
+                </label>
+              ) : null}
               <AffaireFavoriteButton
                 isFavorite={item.isFavorite}
                 isPending={favoritePendingIds.includes(item.projectId)}

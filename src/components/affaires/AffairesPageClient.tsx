@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { useUiMode } from "@/hooks/useUiMode";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";
@@ -19,6 +20,7 @@ import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
 import { AffairesCardList } from "./AffairesCardList";
+import { useBulkDeleteAffaires } from "./useBulkDeleteAffaires";
 import type {
   AffaireManagerQueueFilter,
   AffairePageDataResult,
@@ -73,6 +75,12 @@ function writeStoredPageSize(size: AffairePageSize) {
   }
 }
 
+function isDraftSelectable(
+  item: AffairePageDataResult["list"]["items"][number]
+) {
+  return !item.hasCurrentVersion || item.currentStatus === "draft";
+}
+
 // -- Props --
 
 type Props = {
@@ -122,6 +130,7 @@ export function AffairesPageClient({
   const [favoritesOnly, setFavoritesOnly] = useState(initialFavoritesOnly);
   const [managerFilter, setManagerFilter] =
     useState<AffaireManagerQueueFilter>(initialManager);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
 
   const [pageSize, setPageSize] = useState<AffairePageSize>(initialSize);
   const [cursorStack, setCursorStack] = useState<string[]>(
@@ -161,6 +170,16 @@ export function AffairesPageClient({
     }),
     [favoriteOverrides, initialData]
   );
+
+  useEffect(() => {
+    const visibleIds = new Set(
+      initialData.list.items.map((item) => item.projectId)
+    );
+    setSelectedProjectIds((current) => {
+      const next = current.filter((projectId) => visibleIds.has(projectId));
+      return next.length === current.length ? current : next;
+    });
+  }, [initialData.list.items]);
 
   useEffect(() => {
     if (!isExpert) {
@@ -486,6 +505,75 @@ export function AffairesPageClient({
     router.push("/dashboard/affaires/new");
   }, [router]);
 
+  const handleToggleProjectSelection = useCallback((projectId: string) => {
+    setSelectedProjectIds((current) =>
+      current.includes(projectId)
+        ? current.filter((selectedId) => selectedId !== projectId)
+        : [...current, projectId]
+    );
+  }, []);
+
+  const visibleDraftIds = useMemo(
+    () =>
+      data.list.items
+        .filter(isDraftSelectable)
+        .map((item) => item.projectId),
+    [data.list.items]
+  );
+  const allVisibleDraftsSelected =
+    visibleDraftIds.length > 0 &&
+    visibleDraftIds.every((projectId) =>
+      selectedProjectIds.includes(projectId)
+    );
+
+  const handleToggleAllVisibleDrafts = useCallback(() => {
+    setSelectedProjectIds((current) => {
+      if (
+        visibleDraftIds.length > 0 &&
+        visibleDraftIds.every((projectId) => current.includes(projectId))
+      ) {
+        return current.filter(
+          (projectId) => !visibleDraftIds.includes(projectId)
+        );
+      }
+      return [...new Set([...current, ...visibleDraftIds])];
+    });
+  }, [visibleDraftIds]);
+
+  const handleBulkDeleteCompleted = useCallback(
+    (result: {
+      deletedIds: string[];
+      failures: Array<{ projectId: string }>;
+    }) => {
+      const deletedIds = new Set(result.deletedIds);
+      setSelectedProjectIds((current) =>
+        current.filter((projectId) => !deletedIds.has(projectId))
+      );
+
+      if (result.deletedIds.length > 0 && result.failures.length === 0) {
+        toast.success({
+          title: `${result.deletedIds.length} affaire${result.deletedIds.length > 1 ? "s" : ""} supprimee${result.deletedIds.length > 1 ? "s" : ""}`,
+        });
+      } else if (result.deletedIds.length > 0) {
+        toast.warning({
+          title: "Suppression partielle",
+          description: `${result.deletedIds.length} affaire${result.deletedIds.length > 1 ? "s" : ""} supprimee${result.deletedIds.length > 1 ? "s" : ""}, ${result.failures.length} non supprimee${result.failures.length > 1 ? "s" : ""}. Les echecs restent selectionnes.`,
+        });
+      } else {
+        toast.error({
+          title: "Aucune affaire supprimee",
+          description: `${result.failures.length} affaire${result.failures.length > 1 ? "s n'ont" : " n'a"} pas pu etre supprimee${result.failures.length > 1 ? "s" : ""}.`,
+        });
+      }
+
+      router.refresh();
+    },
+    [router, toast]
+  );
+  const bulkDelete = useBulkDeleteAffaires({
+    onCompleted: handleBulkDeleteCompleted,
+  });
+
   // -- Computed --
 
   const activeFilterCount = useMemo(() => {
@@ -502,6 +590,7 @@ export function AffairesPageClient({
 
   return (
     <div className="animate-fade-in">
+      <ConfirmModal {...bulkDelete.modalProps} />
       {/* Header */}
       <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0">
@@ -577,6 +666,45 @@ export function AffairesPageClient({
         onClearAll={handleClearAll}
       />
 
+      <div
+        className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-white px-3 py-2"
+        aria-live="polite"
+      >
+        <span className="text-sm font-medium text-[var(--slate-700)]">
+          {selectedProjectIds.length} affaire
+          {selectedProjectIds.length > 1 ? "s" : ""} selectionnee
+          {selectedProjectIds.length > 1 ? "s" : ""}
+        </span>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={visibleDraftIds.length === 0}
+          aria-pressed={allVisibleDraftsSelected}
+          onClick={handleToggleAllVisibleDrafts}
+        >
+          {allVisibleDraftsSelected ? "Retirer" : "Selectionner"} les brouillons
+          affiches ({visibleDraftIds.length})
+        </button>
+        {selectedProjectIds.length > 0 ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSelectedProjectIds([])}
+            >
+              Effacer la selection
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={() => bulkDelete.requestDelete(selectedProjectIds)}
+            >
+              Supprimer la selection ({selectedProjectIds.length})
+            </button>
+          </>
+        ) : null}
+      </div>
+
       {/* Content */}
       <div className="mt-4">
         {isExpert ? (
@@ -588,6 +716,8 @@ export function AffairesPageClient({
                 onCreateAffaire={handleCreateAffaire}
                 onToggleFavorite={handleToggleFavorite}
                 favoritePendingIds={favoritePendingIds}
+                selectedProjectIds={selectedProjectIds}
+                onToggleProjectSelection={handleToggleProjectSelection}
               />
             </div>
             <div className="hidden xl:block">
@@ -601,6 +731,8 @@ export function AffairesPageClient({
                 onManagerFilterChange={handleManagerFilterChange}
                 managerQueueSummary={managerQueueSummary}
                 managerQueueSummaryState={managerQueueSummaryState}
+                selectedProjectIds={selectedProjectIds}
+                onToggleProjectSelection={handleToggleProjectSelection}
               />
             </div>
           </>
@@ -611,6 +743,8 @@ export function AffairesPageClient({
             onCreateAffaire={handleCreateAffaire}
             onToggleFavorite={handleToggleFavorite}
             favoritePendingIds={favoritePendingIds}
+            selectedProjectIds={selectedProjectIds}
+            onToggleProjectSelection={handleToggleProjectSelection}
           />
         )}
       </div>
