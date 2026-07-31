@@ -18,6 +18,19 @@ export default defineConfig({
     },
   },
   test: {
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/**/*.spec.{ts,tsx}",
+        "src/**/*.test-utils.{ts,tsx}",
+        "src/test/**",
+        "src/types/**",
+        "src/**/*.d.ts",
+      ],
+      reporter: ["text", "json-summary"],
+    },
     projects: [
       {
         resolve: {

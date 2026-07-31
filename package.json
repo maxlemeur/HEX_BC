@@ -34,7 +34,10 @@
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",
     "prices:sofinther": "node --import tsx scripts/sofinther-prices.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:jsdom": "vitest run --project=jsdom",
+    "test:node": "vitest run --project=node"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

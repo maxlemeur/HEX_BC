@@ -93,7 +93,7 @@ function toImportRows(
   return rows;
 }
 
-function parseWorkbook(
+export function parseWorkbook(
   buffer: ArrayBuffer,
   headerRowNumber?: number | null
 ): ParsedImportRow[] {
@@ -123,36 +123,36 @@ function postResponse(response: ParseWorkerResponse) {
   self.postMessage(response);
 }
 
-self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
-  const payload = event.data;
-  const requestId = payload?.requestId;
+if (typeof self !== "undefined") {
+  self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
+    const payload = event.data;
+    const requestId = payload?.requestId;
 
-  if (!requestId || !(payload.buffer instanceof ArrayBuffer)) {
-    postResponse({
-      requestId: requestId ?? "unknown",
-      ok: false,
-      error: "Requete worker invalide.",
-    });
-    return;
-  }
+    if (!requestId || !(payload.buffer instanceof ArrayBuffer)) {
+      postResponse({
+        requestId: requestId ?? "unknown",
+        ok: false,
+        error: "Requete worker invalide.",
+      });
+      return;
+    }
 
-  try {
-    const rows = parseWorkbook(payload.buffer, payload.headerRowNumber ?? null);
-    postResponse({
-      requestId,
-      ok: true,
-      rows,
-    });
-  } catch (error) {
-    postResponse({
-      requestId,
-      ok: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Le parsing XLSX a echoue dans le worker.",
-    });
-  }
-};
-
-export {};
+    try {
+      const rows = parseWorkbook(payload.buffer, payload.headerRowNumber ?? null);
+      postResponse({
+        requestId,
+        ok: true,
+        rows,
+      });
+    } catch (error) {
+      postResponse({
+        requestId,
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Le parsing XLSX a echoue dans le worker.",
+      });
+    }
+  };
+}

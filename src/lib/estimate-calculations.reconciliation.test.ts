@@ -22,6 +22,7 @@ import {
   prepareEstimateDocumentData,
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
+import { createSeededRandom } from "@/test/seeded-random";
 
 function makeLine(overrides: Partial<EstimateItemRecord> = {}): EstimateItemRecord {
   return {
@@ -202,48 +203,49 @@ describe("computeEstimateBreakdown - réconciliation (EST-E26 §5)", () => {
   });
 
   it("T1 : invariant universel (property-based, 300 devis v2)", () => {
+    const random = createSeededRandom(0x5eed_e027);
     const taxRates = [0, 550, 1_000, 2_000];
     for (let draw = 0; draw < 300; draw += 1) {
       const items: EstimateItemRecord[] = [];
       let position = 0;
-      const sectionCount = 1 + Math.floor(Math.random() * 3);
+      const sectionCount = 1 + Math.floor(random() * 3);
       for (let s = 0; s < sectionCount; s += 1) {
         const sectionId = `sec-${s}`;
         items.push(makeSection({ id: sectionId, parent_id: null, position: position++ }));
-        const lineCount = Math.floor(Math.random() * 5);
+        const lineCount = Math.floor(random() * 5);
         for (let l = 0; l < lineCount; l += 1) {
           items.push(
             makeLine({
               id: `l-${s}-${l}`,
               parent_id: sectionId,
               position: position++,
-              unit_price_ht_cents: Math.floor(Math.random() * 500_000),
-              tax_rate_bp: taxRates[Math.floor(Math.random() * taxRates.length)],
+              unit_price_ht_cents: Math.floor(random() * 500_000),
+              tax_rate_bp: taxRates[Math.floor(random() * taxRates.length)],
             })
           );
         }
       }
-      const rootCount = Math.floor(Math.random() * 3);
+      const rootCount = Math.floor(random() * 3);
       for (let r = 0; r < rootCount; r += 1) {
         items.push(
           makeLine({
             id: `root-${r}`,
             parent_id: null,
             position: position++,
-            unit_price_ht_cents: Math.floor(Math.random() * 500_000),
-            tax_rate_bp: taxRates[Math.floor(Math.random() * taxRates.length)],
+            unit_price_ht_cents: Math.floor(random() * 500_000),
+            tax_rate_bp: taxRates[Math.floor(random() * taxRates.length)],
           })
         );
       }
 
-      const cascade = Math.random() < 0.5;
+      const cascade = random() < 0.5;
       const bd = computeEstimateBreakdown(
         makeInput(items, {
-          marginMultiplier: 0.5 + Math.random() * 1.5,
-          globalCoefficient: 0.5 + Math.random() * 1.5,
+          marginMultiplier: 0.5 + random() * 1.5,
+          globalCoefficient: 0.5 + random() * 1.5,
           discountMode: cascade ? "cascade" : "simple",
-          discountStepsBp: cascade ? [Math.floor(Math.random() * 3_000)] : [],
-          discountCents: Math.floor(Math.random() * 50_000),
+          discountStepsBp: cascade ? [Math.floor(random() * 3_000)] : [],
+          discountCents: Math.floor(random() * 50_000),
         })
       );
 

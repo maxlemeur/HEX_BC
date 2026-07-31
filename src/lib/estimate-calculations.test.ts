@@ -18,6 +18,7 @@ import {
 } from "@/lib/estimate-calculations";
 import { getMarginTiers } from "@/lib/estimates/margin-tiers";
 import { bankersRound } from "@/lib/money";
+import { createSeededRandom } from "@/test/seeded-random";
 
 function createLine(overrides: Partial<EstimateLineLike> = {}): EstimateLineLike {
   return {
@@ -1536,17 +1537,37 @@ describe("allocateProRata (EST-E26 phase C, étape 7)", () => {
   });
 
   it("invariant property-based : Σ === amount, 0 <= part <= amount (10 000 tirages)", () => {
+    const seed = 0x5eed_e026;
+    const random = createSeededRandom(seed);
+    let failure: string | null = null;
+
     for (let draw = 0; draw < 10_000; draw += 1) {
-      const n = 1 + Math.floor(Math.random() * 50);
-      const amount = Math.floor(Math.random() * 5_000_000);
+      const n = 1 + Math.floor(random() * 50);
+      const amount = Math.floor(random() * 5_000_000);
       const weights = Array.from({ length: n }, () =>
-        Math.floor(Math.random() * 100_000)
+        Math.floor(random() * 100_000)
       );
       const parts = allocateProRata(amount, weights);
-      expect(parts).toHaveLength(n);
-      expect(parts.reduce((sum, part) => sum + part, 0)).toBe(amount);
-      expect(parts.every((part) => part >= 0 && part <= amount)).toBe(true);
+      const sum = parts.reduce((total, part) => total + part, 0);
+      const issues: string[] = [];
+
+      if (parts.length !== n) {
+        issues.push(`length=${parts.length}, expected=${n}`);
+      }
+      if (sum !== amount) {
+        issues.push(`sum=${sum}, expected=${amount}`);
+      }
+      if (!parts.every((part) => part >= 0 && part <= amount)) {
+        issues.push(`part outside [0, ${amount}]`);
+      }
+
+      if (issues.length > 0) {
+        failure = JSON.stringify({ seed, draw, amount, weights, parts, issues });
+        break;
+      }
     }
+
+    expect(failure).toBeNull();
   });
 });
 

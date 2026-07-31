@@ -1723,17 +1723,26 @@ export async function materializeVersionZeroDraft(input: {
     versionId: input.versionId,
     userId,
   });
-  await assertVersionIsEmpty({
-    supabase,
-    tenantId,
-    versionId: input.versionId,
-  });
 
   const draft = await loadDraftOrThrow({
     supabase,
     tenantId,
     versionId: input.versionId,
     draftId: input.draftId,
+  });
+
+  if (VERSION_ZERO_TERMINAL_STATUSES.includes(draft.status)) {
+    throw conflict(
+      "Ce snapshot V0 ne peut plus etre materialise.",
+      { draftId: draft.id, status: draft.status },
+      "EST384_DRAFT_NOT_REVIEWABLE"
+    );
+  }
+
+  await assertVersionIsEmpty({
+    supabase,
+    tenantId,
+    versionId: input.versionId,
   });
   const review = await fetchVersionZeroReview({
     versionId: input.versionId,
@@ -2019,42 +2028,38 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
   );
 
   const applicationByItemId = new Map<string, JsonRecord[]>();
-  applications.forEach((application) => {
-    const line = linesById.get(application.line_id);
-    const lot = application.lot_id ? lotsById.get(application.lot_id) : null;
-    const draft = draftsById.get(application.draft_id);
-    if (!line || !draft) return;
+  applications
+    .slice()
+    .sort((left, right) => left.application_order - right.application_order)
+    .forEach((application) => {
+      const line = linesById.get(application.line_id);
+      const lot = application.lot_id ? lotsById.get(application.lot_id) : null;
+      const draft = draftsById.get(application.draft_id);
+      if (!line || !draft) return;
 
-    const metadata = applicationByItemId.get(application.estimate_item_id) ?? [];
-    metadata.push({
-      draft_id: draft.id,
-      lot_id: lot?.id ?? null,
-      lot_label: lot?.lot_label ?? null,
-      review_status: line.review_status,
-      confidence: line.confidence,
-      generated_at: draft.created_at,
-      materialized_at: draft.materialized_at,
-      proposed: {
-        title: line.proposed_title,
-        description: line.proposed_description,
-        quantity: line.proposed_quantity,
-        unit: line.proposed_unit,
-      },
-      edited: {
-        title: line.edited_title,
-        description: line.edited_description,
-        quantity: line.edited_quantity,
-        unit: line.edited_unit,
-      },
-      provenance: readStringArrayFromJson(toJsonRecord(line.provenance).items as Json),
-      facts: readStringArrayFromJson(line.facts),
-      hypotheses: readStringArrayFromJson(line.hypotheses),
-      inferences: readStringArrayFromJson(line.inferences),
-      missing_signals: readStringArrayFromJson(line.missing_signals),
-      risk_signals: readStringArrayFromJson(extractLineMetadata(line).risk_signals as Json),
+      const normalizedLine = normalizeReviewLine(line);
+      const metadata = applicationByItemId.get(application.estimate_item_id) ?? [];
+      metadata.push({
+        draft_id: draft.id,
+        lot_id: lot?.id ?? null,
+        lot_label: lot?.lot_label ?? null,
+        application_order: application.application_order,
+        review_status: normalizedLine.reviewStatus,
+        confidence: normalizedLine.confidence,
+        generated_at: draft.created_at,
+        materialized_at: draft.materialized_at,
+        proposed: normalizedLine.proposed,
+        edited: normalizedLine.edited,
+        effective: normalizedLine.effective,
+        provenance: normalizedLine.provenance,
+        facts: normalizedLine.facts,
+        hypotheses: normalizedLine.hypotheses,
+        inferences: normalizedLine.inferences,
+        missing_signals: normalizedLine.missingSignals,
+        risk_signals: normalizedLine.riskSignals,
+      });
+      applicationByItemId.set(application.estimate_item_id, metadata);
     });
-    applicationByItemId.set(application.estimate_item_id, metadata);
-  });
 
   return input.items.map((item) => {
     const applicationsForItem = applicationByItemId.get(item.id);
@@ -2065,6 +2070,7 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
     return {
       ...item,
       source_metadata: {
+        ...toJsonRecord(item.source_metadata),
         applications: applicationsForItem,
       } as Json,
     };
