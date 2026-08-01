@@ -61,4 +61,27 @@ describe("AffairesPage", () => {
     expect(fetchAffairePageData).toHaveBeenCalledTimes(1);
     expect(clientElement.props.initialData).toBe(data);
   });
+
+  it("forwards the normalized favorites filter to the server query", async () => {
+    vi.mocked(fetchAffairePageData).mockResolvedValue(data);
+
+    const pageElement = (await AffairesPage({
+      searchParams: Promise.resolve({ favorites: "1", size: "100" }),
+    })) as ReactElement<{ children: ReactElement }>;
+    const resultsElement = Children.only(pageElement.props.children) as ReactElement<{
+      query: unknown;
+    }>;
+    const renderResults = resultsElement.type as unknown as (
+      props: typeof resultsElement.props
+    ) => Promise<ReactElement>;
+
+    await renderResults(resultsElement.props);
+
+    expect(fetchAffairePageData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favorites: true,
+        size: 100,
+      })
+    );
+  });
 });

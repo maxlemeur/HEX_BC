@@ -17,7 +17,16 @@ async function AffairesPageResults({
 }: Readonly<{
   query: NormalizedAffaireListQuery;
 }>) {
-  const data = await fetchAffairePageData(query);
+  const data = await fetchAffairePageData({
+    q: query.q,
+    status: query.status,
+    favorites: query.favoritesOnly,
+    manager: query.manager,
+    size: query.size,
+    cursor: query.cursor,
+    sort: query.sort,
+    dir: query.dir,
+  });
 
   return (
     <AffairesPageClient
