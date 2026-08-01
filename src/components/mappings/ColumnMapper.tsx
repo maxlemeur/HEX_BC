@@ -212,7 +212,7 @@ export function ColumnMapper({
               className={`px-2.5 py-1.5 transition-colors ${filterMode === "unmapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
               onClick={() => setFilterMode("unmapped")}
             >
-              Non mappees ({sourceColumns.length - mappedCount})
+              Non mappées / ignorées ({sourceColumns.length - mappedCount})
             </button>
           </div>
         </div>
@@ -297,7 +297,7 @@ export function ColumnMapper({
                           onChange={(event) => setMapping(sourceColumn, event.target.value)}
                           disabled={disabled}
                         >
-                          <option value="">-- Choisir un champ --</option>
+                          <option value="">Ne pas mapper</option>
                           {targetFields.map((target) => (
                             <option key={target.value} value={target.value}>
                               {target.label}

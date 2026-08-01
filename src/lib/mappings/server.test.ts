@@ -383,7 +383,6 @@ describe("mapping API helpers", () => {
   it("exposes validation summary for valid and invalid mappings", async () => {
     const valid = await validateMapping({
       mapping: {
-        code: "hex_code",
         designation: "designation",
       },
     });
@@ -614,7 +613,7 @@ describe("mapping server workflows", () => {
     expect(result.auto_validation).toEqual({
       can_auto_validate: false,
       threshold: 0.8,
-      required_fields: ["hex_code", "designation"],
+      required_fields: ["designation"],
       missing_required_fields: [],
       low_confidence_required_fields: ["designation"],
     });

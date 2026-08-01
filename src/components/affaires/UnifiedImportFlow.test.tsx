@@ -327,6 +327,9 @@ describe("UnifiedImportFlow", () => {
       await screen.findByRole("button", { name: /Créer le chiffrage/i })
     );
 
+    await user.click(
+      await screen.findByRole("button", { name: /^Continuer$/i })
+    );
     await waitFor(() => {
       expect(screen.getByText("Plans step")).toBeInTheDocument();
     });
@@ -385,6 +388,9 @@ describe("UnifiedImportFlow", () => {
       await screen.findByRole("button", { name: /Créer le chiffrage/i })
     );
 
+    await user.click(
+      await screen.findByRole("button", { name: /^Continuer$/i })
+    );
     await waitFor(() => {
       expect(screen.getByText("Plans step")).toBeInTheDocument();
     });
@@ -414,11 +420,11 @@ describe("UnifiedImportFlow", () => {
         totalTtcCents: 12000,
       },
       stats: {
-        totalRows: 1,
-        validRows: 1,
-        invalidRows: 0,
-        insertedRows: 1,
-        skippedRows: 0,
+        totalRows: 72,
+        validRows: 68,
+        invalidRows: 4,
+        insertedRows: 68,
+        skippedRows: 4,
       },
     });
 
@@ -438,6 +444,21 @@ describe("UnifiedImportFlow", () => {
     await advanceToConfirmation(user);
     await user.click(
       await screen.findByRole("button", { name: /Créer le chiffrage/i })
+    );
+
+    expect(await screen.findByText("Lignes créées")).toBeInTheDocument();
+    expect(screen.getByText("Lignes rejetées")).toBeInTheDocument();
+    expect(screen.getByText("Lignes créées").parentElement).toHaveTextContent("68");
+    expect(screen.getByText("Lignes rejetées").parentElement).toHaveTextContent(
+      "4"
+    );
+    expect(mockPush).not.toHaveBeenCalled();
+
+    expect(
+      screen.queryByRole("button", { name: "Retour" })
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: /^Continuer$/i })
     );
 
     await waitFor(() => {

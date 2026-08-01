@@ -19,7 +19,6 @@ const MAPPING_TARGET_FIELDS = [
 
 export type MappingTargetField = (typeof MAPPING_TARGET_FIELDS)[number];
 export const REQUIRED_MAPPING_TARGET_FIELDS: MappingTargetField[] = [
-  "hex_code",
   "designation",
 ];
 

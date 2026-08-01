@@ -18,6 +18,7 @@ type ConfirmationStepProps = {
   mapping: ColumnMapping;
   validation: MappingValidation | null;
   onBack?: () => void;
+  onResultReady?: (result: ConfirmUnifiedImportFlowResult) => void;
   onSuccess: (result: ConfirmUnifiedImportFlowResult) => void;
 };
 
@@ -28,9 +29,12 @@ export function ConfirmationStep({
   validation,
   onBack,
   onSuccess,
+  onResultReady,
 }: ConfirmationStepProps) {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirmationResult, setConfirmationResult] =
+    useState<ConfirmUnifiedImportFlowResult | null>(null);
   const [carryOverPreview, setCarryOverPreview] = useState<Awaited<
     ReturnType<typeof getUnifiedImportFlowTakeoffCarryOverPreview>
   > | null>(null);
@@ -97,7 +101,8 @@ export function ConfirmationStep({
           previewSourceVersionId,
         });
 
-        onSuccess(result);
+        setConfirmationResult(result);
+        onResultReady?.(result);
       } catch (err) {
         setConfirmError(
           err instanceof Error
@@ -108,11 +113,90 @@ export function ConfirmationStep({
         setIsConfirming(false);
       }
     },
-    [importId, mapping, onSuccess, previewSourceVersionId, projectId],
+    [importId, mapping, onResultReady, previewSourceVersionId, projectId],
   );
 
   const carryOverPreviewCopy =
     carryOverPreview !== null ? getTakeoffCarryOverPreviewCopy(carryOverPreview) : null;
+
+  if (confirmationResult) {
+    const isVersionCreated = confirmationResult.mode === "version_created";
+    const primaryCount = isVersionCreated
+      ? confirmationResult.stats.insertedRows
+      : confirmationResult.stats.validRows;
+    const rejectedCount = isVersionCreated
+      ? confirmationResult.stats.skippedRows
+      : confirmationResult.stats.invalidRows;
+
+    return (
+      <div
+        className="dashboard-card border border-[var(--success)]/25 p-6"
+        role="status"
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+              {isVersionCreated ? "Devis créé" : "Mapping enregistré"}
+            </h3>
+            <p className="mt-1 text-sm text-[var(--slate-600)]">
+              Le résultat de l&apos;import est disponible avant de continuer.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+              {isVersionCreated ? "Lignes créées" : "Lignes prêtes"}
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-emerald-800">
+              {primaryCount}
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+              Lignes rejetées
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-amber-800">
+              {rejectedCount}
+            </p>
+          </div>
+        </div>
+
+        {isVersionCreated && (
+          <p className="mt-4 text-xs text-[var(--slate-500)]">
+            Les lignes sans quantité ou avec une quantité égale à 0 sont conservées.
+            Leur total reste à 0 jusqu&apos;à la saisie d&apos;une quantité.
+          </p>
+        )}
+
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => onSuccess(confirmationResult)}
+          >
+            Continuer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard-card p-6">

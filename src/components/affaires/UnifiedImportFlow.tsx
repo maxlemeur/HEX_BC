@@ -238,7 +238,7 @@ export function UnifiedImportFlow({
 
       <div className="flex items-center justify-between gap-3">
         <ProgressHeader currentStep={step} steps={stepperSteps} />
-        {step !== "plans" && backButton}
+        {step !== "plans" && confirmResult === null && backButton}
       </div>
 
       {step === "upload" && (
@@ -276,6 +276,7 @@ export function UnifiedImportFlow({
           validation={previewData?.validation ?? null}
           onBack={handleBack}
           onSuccess={handleConfirmSuccess}
+          onResultReady={setConfirmResult}
         />
       )}
 

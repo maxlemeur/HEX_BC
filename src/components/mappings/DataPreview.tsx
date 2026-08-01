@@ -134,7 +134,7 @@ export function DataPreview({
               <th>Designation</th>
               <th>Quantite</th>
               <th>Unite</th>
-              <th>Prix unitaire HT</th>
+              <th>Prix fourniture</th>
               <th>Type FO</th>
               <th>Majoration MO</th>
               <th>Etat</th>

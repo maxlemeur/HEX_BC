@@ -1120,7 +1120,7 @@ const MAPPING_STATUS_LABEL: Record<string, string> = {
   archived: "Archivé",
 };
 
-function DpgfSourceCard({
+export function DpgfSourceCard({
   dpgfSource,
   errorMessage,
   onStartImport,
@@ -1212,6 +1212,21 @@ function DpgfSourceCard({
               </Badge>
             )}
           </div>
+          {onStartImport ? (
+            <div className="flex flex-col gap-3 border-t border-[var(--slate-200)] pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-[var(--slate-500)]">
+                Relancez le mapping depuis l&apos;Excel. Le devis reste inchangé
+                jusqu&apos;à la confirmation.
+              </p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm shrink-0"
+                onClick={onStartImport}
+              >
+                Reprendre l&apos;import
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </section>

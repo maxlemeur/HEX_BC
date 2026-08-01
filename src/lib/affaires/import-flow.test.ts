@@ -98,5 +98,108 @@ describe("import-flow helpers", () => {
       skippedRows: 1,
     });
   });
+
+  it("accepts missing or zero quantities when a supply price is available", () => {
+    const normalized = normalizeMappedRowsForEstimateCreation(
+      [
+        {
+          id: "row-missing-quantity",
+          payload: {
+            mapped_row: {
+              designation: "Tube acier",
+              unit_price_ht: "40,74",
+            },
+          },
+        },
+        {
+          id: "row-zero-quantity",
+          payload: {
+            mapped_row: {
+              designation: "Coude acier",
+              quantity: "0",
+              unit_price_ht: "24,38",
+            },
+          },
+        },
+      ],
+      {
+        marginMultiplier: 1.3,
+        defaultTaxRateBp: 2000,
+      },
+    );
+
+    expect(normalized.invalidLines).toHaveLength(0);
+    expect(normalized.validLines).toEqual([
+      expect.objectContaining({
+        mappedRowId: "row-missing-quantity",
+        quantity: 0,
+        unitPriceHtCents: 4074,
+        lineTotalHtCents: 0,
+      }),
+      expect.objectContaining({
+        mappedRowId: "row-zero-quantity",
+        quantity: 0,
+        unitPriceHtCents: 2438,
+        lineTotalHtCents: 0,
+      }),
+    ]);
+  });
+
+  it("still rejects negative quantities and totals that cannot be divided by zero", () => {
+    const normalized = normalizeMappedRowsForEstimateCreation(
+      [
+        {
+          id: "row-negative-quantity",
+          payload: {
+            mapped_row: {
+              designation: "Tube cuivre",
+              quantity: "-1",
+              unit_price_ht: "15",
+            },
+          },
+        },
+        {
+          id: "row-zero-with-total-only",
+          payload: {
+            mapped_row: {
+              designation: "Robinet",
+              quantity: "0",
+              total_ht: "120",
+            },
+          },
+        },
+        {
+          id: "row-malformed-quantity",
+          payload: {
+            mapped_row: {
+              designation: "Vanne",
+              quantity: "inconnue",
+              unit_price_ht: "30",
+            },
+          },
+        },
+      ],
+      {
+        marginMultiplier: 1.3,
+        defaultTaxRateBp: 2000,
+      },
+    );
+
+    expect(normalized.validLines).toHaveLength(0);
+    expect(normalized.invalidLines).toEqual([
+      expect.objectContaining({
+        mappedRowId: "row-negative-quantity",
+        reason: "invalid_quantity",
+      }),
+      expect.objectContaining({
+        mappedRowId: "row-zero-with-total-only",
+        reason: "invalid_unit_price",
+      }),
+      expect.objectContaining({
+        mappedRowId: "row-malformed-quantity",
+        reason: "invalid_quantity",
+      }),
+    ]);
+  });
 });
 

@@ -209,8 +209,10 @@ export function normalizeMappedRowsForEstimateCreation(
       return;
     }
 
-    const quantity = parseLocalizedNumber(mappedRow.quantity);
-    if (quantity === null || quantity <= 0) {
+    const quantityText = normalizeText(mappedRow.quantity);
+    const parsedQuantity = parseLocalizedNumber(mappedRow.quantity);
+    const quantity = parsedQuantity ?? 0;
+    if ((quantityText.length > 0 && parsedQuantity === null) || quantity < 0) {
       invalidLines.push({
         mappedRowId: row.id,
         rowIndex,
@@ -226,7 +228,7 @@ export function normalizeMappedRowsForEstimateCreation(
     const resolvedUnitPrice =
       unitPriceRaw !== null
         ? unitPriceRaw
-        : totalHtRaw !== null
+        : totalHtRaw !== null && roundedQuantity > 0
           ? totalHtRaw / roundedQuantity
           : null;
 
