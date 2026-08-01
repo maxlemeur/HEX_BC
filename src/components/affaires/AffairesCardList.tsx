@@ -26,9 +26,11 @@ type Props = {
   onCreateAffaire?: () => void;
   onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
   favoritePendingIds: string[];
-  selectedProjectIds?: string[];
+  selectedProjectIds?: ReadonlySet<string>;
   onToggleProjectSelection?: (projectId: string) => void;
 };
+
+const EMPTY_SELECTED_PROJECT_IDS: ReadonlySet<string> = new Set();
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-FR", {
@@ -49,7 +51,7 @@ export function AffairesCardList({
   onCreateAffaire,
   onToggleFavorite,
   favoritePendingIds,
-  selectedProjectIds = [],
+  selectedProjectIds = EMPTY_SELECTED_PROJECT_IDS,
   onToggleProjectSelection,
 }: Readonly<Props>) {
   const router = useRouter();
@@ -120,7 +122,7 @@ export function AffairesCardList({
         return (
           <div
             key={item.projectId}
-            className="dashboard-card animate-fade-in relative overflow-hidden transition-shadow hover:shadow-md"
+            className="dashboard-card animate-fade-in relative overflow-hidden transition-shadow hover:shadow-md [content-visibility:auto] [contain-intrinsic-size:auto_220px]"
           >
             <Link
               href={primaryHref}
@@ -198,7 +200,7 @@ export function AffairesCardList({
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
-                    checked={selectedProjectIds.includes(item.projectId)}
+                    checked={selectedProjectIds.has(item.projectId)}
                     aria-label={`Selectionner l'affaire ${item.projectName}`}
                     onChange={() =>
                       onToggleProjectSelection(item.projectId)

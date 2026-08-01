@@ -71,7 +71,7 @@ export function useBulkDeleteAffaires({
       ? {
           open: true,
           title: `Supprimer ${targetCount} affaire${targetCount > 1 ? "s" : ""}`,
-          message: `Vous allez supprimer definitivement ${targetCount} affaire${targetCount > 1 ? "s" : ""} selectionnee${targetCount > 1 ? "s" : ""}. Seules les affaires dont toutes les versions sont en brouillon seront supprimees. Cette action est irreversible.`,
+          message: `Vous allez supprimer définitivement ${targetCount} affaire${targetCount > 1 ? "s" : ""} sélectionnée${targetCount > 1 ? "s" : ""}. Leurs versions, chiffrages, métrés et historiques directement rattachés seront aussi supprimés. Les documents associés ne seront plus accessibles depuis ces affaires. Seules les affaires dont toutes les versions sont en brouillon seront supprimées. Cette action est irréversible.`,
           confirmLabel: deleting
             ? "Suppression..."
             : `Supprimer ${targetCount} affaire${targetCount > 1 ? "s" : ""}`,

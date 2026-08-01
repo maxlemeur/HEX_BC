@@ -232,6 +232,7 @@ describe("AffairesDenseTable", () => {
     expect(onToggleFavorite).toHaveBeenCalledWith("project-1", true);
   });
 
+
   it("allows manual selection only for draft affaires", () => {
     const onToggleProjectSelection = vi.fn();
     renderTable({
@@ -243,7 +244,7 @@ describe("AffairesDenseTable", () => {
           projectName: "Affaire envoyee",
         },
       ],
-      selectedProjectIds: ["project-1"],
+      selectedProjectIds: new Set(["project-1"]),
       onToggleProjectSelection,
     });
 
@@ -262,7 +263,6 @@ describe("AffairesDenseTable", () => {
     fireEvent.click(draftCheckbox);
     expect(onToggleProjectSelection).toHaveBeenCalledWith("project-1");
   });
-
   it("routes manager queue changes back to the page query", () => {
     const { onManagerFilterChange } = renderTable();
 

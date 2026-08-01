@@ -1612,38 +1612,66 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
 ): Promise<AffaireListPageResult<TPageSize>> {
   const decodedCursor = query.cursor ? decodeAffaireCursor(query.cursor) : null;
   assertAffaireCursorMatchesSort(decodedCursor, query.sort);
-  const fetchLimit = query.size + 1;
+  const targetRowCount = query.size + 1;
+  const rows: ListAffairesPageRow[] = [];
+  let pageCursor = decodedCursor;
 
-  const { data, error } = await context.supabase.rpc("list_affaires_page", {
-    p_tenant_id: context.tenantId,
-    p_owner_user_id: getOwnerScopeUserId(context),
-    p_limit: fetchLimit,
-    p_search: query.q,
-    p_statuses: query.status,
-    p_favorites_only: query.favoritesOnly,
-    p_cursor_updated_at:
-      decodedCursor?.sort === "updatedAt" ? decodedCursor.value : null,
-    p_cursor_name: decodedCursor?.sort === "name" ? decodedCursor.value : null,
-    p_cursor_total_ht_cents:
-      decodedCursor?.sort === "totalHtCents" ? decodedCursor.value : null,
-    p_cursor_project_id: decodedCursor?.projectId ?? null,
-    p_sort_by: query.sort,
-    p_sort_dir: query.dir,
-  } as never);
+  for (let batchIndex = 0; rows.length < targetRowCount; batchIndex += 1) {
+    if (batchIndex >= 20) {
+      throw new Error("AFFAIRES_PAGE_BATCH_LIMIT_EXCEEDED");
+    }
 
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger la liste des affaires.");
+    const fetchLimit = targetRowCount - rows.length;
+    const { data, error } = await context.supabase.rpc("list_affaires_page", {
+      p_tenant_id: context.tenantId,
+      p_owner_user_id: getOwnerScopeUserId(context),
+      p_limit: fetchLimit,
+      p_search: query.q,
+      p_statuses: query.status,
+      p_favorites_only: query.favoritesOnly,
+      p_cursor_updated_at:
+        pageCursor?.sort === "updatedAt" ? pageCursor.value : null,
+      p_cursor_name: pageCursor?.sort === "name" ? pageCursor.value : null,
+      p_cursor_total_ht_cents:
+        pageCursor?.sort === "totalHtCents" ? pageCursor.value : null,
+      p_cursor_project_id: pageCursor?.projectId ?? null,
+      p_sort_by: query.sort,
+      p_sort_dir: query.dir,
+    } as never);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de charger la liste des affaires.");
+    }
+
+    const batchRows = (data ?? []) as ListAffairesPageRow[];
+    rows.push(...batchRows);
+
+    if (
+      batchRows.length === 0 ||
+      batchRows.length >= fetchLimit ||
+      targetRowCount <= 101
+    ) {
+      break;
+    }
+
+    const lastBatchRow = batchRows.at(-1);
+    if (!lastBatchRow) {
+      break;
+    }
+    pageCursor = createAffaireCursorPayload(
+      toAffaireListItem(lastBatchRow),
+      query.sort
+    );
   }
-
-  const rows = (data ?? []) as ListAffairesPageRow[];
   const hasNextPage = rows.length > query.size;
   const pageRows = hasNextPage ? rows.slice(0, query.size) : rows;
   const items = pageRows.map(toAffaireListItem);
 
   const lastItem = items[items.length - 1] ?? null;
-  const nextCursor = hasNextPage && lastItem
-    ? encodeAffaireCursor(createAffaireCursorPayload(lastItem, query.sort))
-    : null;
+  const nextCursor =
+    hasNextPage && lastItem
+      ? encodeAffaireCursor(createAffaireCursorPayload(lastItem, query.sort))
+      : null;
 
   return {
     items,

@@ -251,7 +251,7 @@ describe("affaires query schemas", () => {
   it("normalizes URL search params", () => {
     const params = new URLSearchParams();
     params.set("q", "  chantier alpha  ");
-    params.set("size", "50");
+    params.set("size", "1000");
     params.set("sort", "amount");
     params.set("dir", "asc");
     params.set("cursor", "  cursor-value  ");
@@ -268,7 +268,7 @@ describe("affaires query schemas", () => {
       status: ["draft", "accepted", "sent"],
       favoritesOnly: true,
       manager: "revalidation",
-      size: 50,
+      size: 1000,
       cursor: "cursor-value",
       sort: "updatedAt",
       dir: "asc",
@@ -596,6 +596,40 @@ describe("affaires server (list + counters)", () => {
     expect(result.nextCursor).toBeNull();
   });
 
+
+  it("loads a 1,000-affaire page through the legacy 101-row RPC cap", async () => {
+    const allRows = Array.from({ length: 1001 }, (_, index) =>
+      buildAffaireRow(index + 1)
+    );
+    let offset = 0;
+    const context = createContext({ role: "admin" });
+    context.supabase.rpc.mockImplementation(
+      (_name: string, args: { p_limit: number }) => {
+        const batchSize = Math.min(args.p_limit, 101);
+        const data = allRows.slice(offset, offset + batchSize);
+        offset += data.length;
+        return Promise.resolve({ data, error: null });
+      }
+    );
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireList({ size: 1000 });
+
+    expect(context.supabase.rpc).toHaveBeenCalledTimes(10);
+    expect(context.supabase.rpc.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ p_limit: 1001, p_cursor_project_id: null })
+    );
+    expect(context.supabase.rpc.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        p_limit: 900,
+        p_cursor_project_id: allRows[100]!.project_id,
+      })
+    );
+    expect(result.items).toHaveLength(1000);
+    expect(result.pageSize).toBe(1000);
+    expect(result.hasNextPage).toBe(true);
+    expect(result.nextCursor).toBeTruthy();
+  });
   it("passes name and amount cursors to the matching server sort", async () => {
     const row = buildAffaireRow(1);
     const context = createContext({

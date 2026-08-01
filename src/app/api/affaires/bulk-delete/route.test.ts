@@ -40,7 +40,7 @@ describe("POST /api/affaires/bulk-delete", () => {
         body: JSON.stringify({
           projectIds: [PROJECT_A, PROJECT_B, PROJECT_A],
         }),
-      })
+      }),
     );
 
     expect(response.status).toBe(200);
@@ -69,7 +69,23 @@ describe("POST /api/affaires/bulk-delete", () => {
       new Request("http://localhost/api/affaires/bulk-delete", {
         method: "POST",
         body: JSON.stringify({ projectIds: [] }),
-      })
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(bulkDeleteDraftAffairesMock).not.toHaveBeenCalled();
+  });
+  it("rejects selections above the 1,000-affaire API limit", async () => {
+    const projectIds = Array.from(
+      { length: 1001 },
+      (_, index) =>
+        `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    const response = await POST(
+      new Request("http://localhost/api/affaires/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ projectIds }),
+      }),
     );
 
     expect(response.status).toBe(400);

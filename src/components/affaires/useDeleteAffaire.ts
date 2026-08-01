@@ -61,7 +61,7 @@ export function useDeleteAffaire() {
       ? {
           open: true,
           title: "Supprimer l'affaire",
-          message: `Etes-vous sur de vouloir supprimer l'affaire « ${target.projectName} » ? Cette action est irreversible.`,
+          message: `Êtes-vous sûr de vouloir supprimer définitivement l'affaire « ${target.projectName} » ? Ses versions, chiffrages, métrés et historiques directement rattachés seront aussi supprimés. Les documents associés ne seront plus accessibles depuis l'affaire. Cette action est irréversible.`,
           confirmLabel: deleting ? "Suppression..." : "Supprimer",
           variant: "danger" as const,
           confirmDisabled: deleting,

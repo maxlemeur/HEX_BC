@@ -1,12 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useBulkDeleteAffaires } from "./useBulkDeleteAffaires";
+import { useBulkArchiveAffaires } from "./useBulkArchiveAffaires";
 
 const PROJECT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PROJECT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-describe("useBulkDeleteAffaires", () => {
+describe("useBulkArchiveAffaires", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -15,7 +15,7 @@ describe("useBulkDeleteAffaires", () => {
     vi.unstubAllGlobals();
   });
 
-  it("confirms the exact target count and forwards partial results", async () => {
+  it("confirms the exact target count and preserves history in its copy", async () => {
     const onCompleted = vi.fn();
     vi.mocked(fetch).mockResolvedValue(
       new Response(
@@ -23,7 +23,7 @@ describe("useBulkDeleteAffaires", () => {
           ok: true,
           data: {
             requestedCount: 2,
-            deletedIds: [PROJECT_A],
+            archivedIds: [PROJECT_A],
             failures: [
               {
                 projectId: PROJECT_B,
@@ -33,40 +33,34 @@ describe("useBulkDeleteAffaires", () => {
             ],
           },
         }),
-        { status: 200 }
-      )
+        { status: 200 },
+      ),
     );
     const { result } = renderHook(() =>
-      useBulkDeleteAffaires({ onCompleted })
+      useBulkArchiveAffaires({ onCompleted }),
     );
 
     act(() => {
-      result.current.requestDelete([PROJECT_A, PROJECT_B, PROJECT_A]);
+      result.current.requestArchive([PROJECT_A, PROJECT_B, PROJECT_A]);
     });
 
-    expect(result.current.modalProps.title).toBe("Supprimer 2 affaires");
+    expect(result.current.modalProps.title).toBe("Archiver 2 affaires");
     expect(result.current.modalProps.message).toContain(
-      "2 affaires sélectionnées",
-    );
-    expect(result.current.modalProps.message).toContain(
-      "versions, chiffrages, métrés et historiques directement rattachés",
-    );
-    expect(result.current.modalProps.message).toContain(
-      "documents associés ne seront plus accessibles",
+      "leur historique restera conserve",
     );
 
     await act(async () => {
       await result.current.modalProps.onConfirm();
     });
 
-    expect(fetch).toHaveBeenCalledWith("/api/affaires/bulk-delete", {
+    expect(fetch).toHaveBeenCalledWith("/api/affaires/bulk-archive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectIds: [PROJECT_A, PROJECT_B] }),
     });
     expect(onCompleted).toHaveBeenCalledWith({
       requestedCount: 2,
-      deletedIds: [PROJECT_A],
+      archivedIds: [PROJECT_A],
       failures: [
         {
           projectId: PROJECT_B,
@@ -85,15 +79,15 @@ describe("useBulkDeleteAffaires", () => {
           ok: false,
           error: { message: "Service indisponible." },
         }),
-        { status: 503 }
-      )
+        { status: 503 },
+      ),
     );
     const { result } = renderHook(() =>
-      useBulkDeleteAffaires({ onCompleted: vi.fn() })
+      useBulkArchiveAffaires({ onCompleted: vi.fn() }),
     );
 
     act(() => {
-      result.current.requestDelete([PROJECT_A]);
+      result.current.requestArchive([PROJECT_A]);
     });
     await act(async () => {
       await result.current.modalProps.onConfirm();
@@ -101,7 +95,7 @@ describe("useBulkDeleteAffaires", () => {
 
     await waitFor(() => {
       expect(result.current.modalProps.errorMessage).toBe(
-        "Service indisponible."
+        "Service indisponible.",
       );
     });
     expect(result.current.modalProps.open).toBe(true);

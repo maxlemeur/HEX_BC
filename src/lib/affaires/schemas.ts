@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { Database } from "@/types/database";
 
-export const AFFAIRE_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+export const AFFAIRE_PAGE_SIZE_OPTIONS = [20, 50, 100, 1000] as const;
 export type AffairePageSize = (typeof AFFAIRE_PAGE_SIZE_OPTIONS)[number];
 
 export const AFFAIRE_SORT_VALUES = [

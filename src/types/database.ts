@@ -2808,6 +2808,17 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      bulk_archive_draft_affaires: {
+        Args: {
+          p_tenant_id: string;
+          p_project_ids: string[];
+        };
+        Returns: {
+          project_id: string;
+          outcome: string;
+          message: string | null;
+        }[];
+      };
       bulk_delete_draft_affaires: {
         Args: {
           p_tenant_id: string;

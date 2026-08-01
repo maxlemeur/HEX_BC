@@ -20,6 +20,7 @@ import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
 import { AffairesCardList } from "./AffairesCardList";
+import { useBulkArchiveAffaires } from "./useBulkArchiveAffaires";
 import { useBulkDeleteAffaires } from "./useBulkDeleteAffaires";
 import type {
   AffaireManagerQueueFilter,
@@ -30,6 +31,7 @@ import type {
   AffaireStatus,
 } from "./types";
 import type { SortOption, SortState } from "@/components/TableFilterBar/types";
+import { AFFAIRE_PAGE_SIZE_OPTIONS } from "@/lib/affaires/schemas";
 import type { EstimateStatus } from "@/lib/estimates/client";
 
 const AffairesDenseTable = dynamic(
@@ -42,7 +44,8 @@ const AffairesDenseTable = dynamic(
 
 // -- Constants --
 
-const PAGE_SIZE_OPTIONS: AffairePageSize[] = [20, 50, 100];
+const PAGE_SIZE_OPTIONS: readonly AffairePageSize[] =
+  AFFAIRE_PAGE_SIZE_OPTIONS;
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
 const PAGE_SIZE_STORAGE_KEY = "affaires-page-size";
 const MANAGER_QUEUE_FETCH_TIMEOUT_MS = 8_000;
@@ -170,16 +173,6 @@ export function AffairesPageClient({
     }),
     [favoriteOverrides, initialData]
   );
-
-  useEffect(() => {
-    const visibleIds = new Set(
-      initialData.list.items.map((item) => item.projectId)
-    );
-    setSelectedProjectIds((current) => {
-      const next = current.filter((projectId) => visibleIds.has(projectId));
-      return next.length === current.length ? current : next;
-    });
-  }, [initialData.list.items]);
 
   useEffect(() => {
     if (!isExpert) {
@@ -333,6 +326,8 @@ export function AffairesPageClient({
     ) {
       return;
     }
+
+    setSelectedProjectIds([]);
 
     // Reset cursor when filters change
     if (
@@ -520,25 +515,64 @@ export function AffairesPageClient({
         .map((item) => item.projectId),
     [data.list.items]
   );
+  const visibleDraftIdSet = useMemo(
+    () => new Set(visibleDraftIds),
+    [visibleDraftIds]
+  );
+  const selectedProjectIdSet = useMemo(
+    () => new Set(selectedProjectIds),
+    [selectedProjectIds]
+  );
   const allVisibleDraftsSelected =
     visibleDraftIds.length > 0 &&
-    visibleDraftIds.every((projectId) =>
-      selectedProjectIds.includes(projectId)
-    );
+    visibleDraftIds.every((projectId) => selectedProjectIdSet.has(projectId));
 
   const handleToggleAllVisibleDrafts = useCallback(() => {
     setSelectedProjectIds((current) => {
+      const currentSet = new Set(current);
       if (
         visibleDraftIds.length > 0 &&
-        visibleDraftIds.every((projectId) => current.includes(projectId))
+        visibleDraftIds.every((projectId) => currentSet.has(projectId))
       ) {
-        return current.filter(
-          (projectId) => !visibleDraftIds.includes(projectId)
-        );
+        return current.filter((projectId) => !visibleDraftIdSet.has(projectId));
       }
       return [...new Set([...current, ...visibleDraftIds])];
     });
-  }, [visibleDraftIds]);
+  }, [visibleDraftIds, visibleDraftIdSet]);
+
+  const handleBulkArchiveCompleted = useCallback(
+    (result: {
+      archivedIds: string[];
+      failures: Array<{ projectId: string }>;
+    }) => {
+      const archivedIds = new Set(result.archivedIds);
+      setSelectedProjectIds((current) =>
+        current.filter((projectId) => !archivedIds.has(projectId)),
+      );
+
+      if (result.archivedIds.length > 0 && result.failures.length === 0) {
+        toast.success({
+          title: `${result.archivedIds.length} affaire${result.archivedIds.length > 1 ? "s" : ""} archivee${result.archivedIds.length > 1 ? "s" : ""}`,
+        });
+      } else if (result.archivedIds.length > 0) {
+        toast.warning({
+          title: "Archivage partiel",
+          description: `${result.archivedIds.length} affaire${result.archivedIds.length > 1 ? "s" : ""} archivee${result.archivedIds.length > 1 ? "s" : ""}, ${result.failures.length} non archivee${result.failures.length > 1 ? "s" : ""}. Les echecs restent selectionnes.`,
+        });
+      } else {
+        toast.error({
+          title: "Aucune affaire archivee",
+          description: `${result.failures.length} affaire${result.failures.length > 1 ? "s n'ont" : " n'a"} pas pu etre archivee${result.failures.length > 1 ? "s" : ""}.`,
+        });
+      }
+
+      router.refresh();
+    },
+    [router, toast],
+  );
+  const bulkArchive = useBulkArchiveAffaires({
+    onCompleted: handleBulkArchiveCompleted,
+  });
 
   const handleBulkDeleteCompleted = useCallback(
     (result: {
@@ -590,6 +624,7 @@ export function AffairesPageClient({
 
   return (
     <div className="animate-fade-in">
+      <ConfirmModal {...bulkArchive.modalProps} />
       <ConfirmModal {...bulkDelete.modalProps} />
       {/* Header */}
       <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -692,14 +727,21 @@ export function AffairesPageClient({
               className="btn btn-secondary btn-sm"
               onClick={() => setSelectedProjectIds([])}
             >
-              Effacer la selection
+              Tout désélectionner
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => bulkArchive.requestArchive(selectedProjectIds)}
+            >
+              Archiver
             </button>
             <button
               type="button"
               className="btn btn-danger btn-sm"
               onClick={() => bulkDelete.requestDelete(selectedProjectIds)}
             >
-              Supprimer la selection ({selectedProjectIds.length})
+              Supprimer
             </button>
           </>
         ) : null}
@@ -716,7 +758,7 @@ export function AffairesPageClient({
                 onCreateAffaire={handleCreateAffaire}
                 onToggleFavorite={handleToggleFavorite}
                 favoritePendingIds={favoritePendingIds}
-                selectedProjectIds={selectedProjectIds}
+                selectedProjectIds={selectedProjectIdSet}
                 onToggleProjectSelection={handleToggleProjectSelection}
               />
             </div>
@@ -727,12 +769,12 @@ export function AffairesPageClient({
                 onCreateAffaire={handleCreateAffaire}
                 onToggleFavorite={handleToggleFavorite}
                 favoritePendingIds={favoritePendingIds}
+                selectedProjectIds={selectedProjectIdSet}
+                onToggleProjectSelection={handleToggleProjectSelection}
                 managerFilter={managerFilter}
                 onManagerFilterChange={handleManagerFilterChange}
                 managerQueueSummary={managerQueueSummary}
                 managerQueueSummaryState={managerQueueSummaryState}
-                selectedProjectIds={selectedProjectIds}
-                onToggleProjectSelection={handleToggleProjectSelection}
               />
             </div>
           </>
@@ -743,7 +785,7 @@ export function AffairesPageClient({
             onCreateAffaire={handleCreateAffaire}
             onToggleFavorite={handleToggleFavorite}
             favoritePendingIds={favoritePendingIds}
-            selectedProjectIds={selectedProjectIds}
+            selectedProjectIds={selectedProjectIdSet}
             onToggleProjectSelection={handleToggleProjectSelection}
           />
         )}

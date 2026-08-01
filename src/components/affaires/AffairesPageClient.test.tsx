@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AffairePageDataResult } from "./types";
+import type { AffairePageDataResult, AffaireStatus } from "./types";
 
 const replaceMock = vi.fn();
 const refreshMock = vi.fn();
@@ -449,6 +449,7 @@ describe("AffairesPageClient", () => {
     });
   });
 
+
   it("selects every displayed draft and confirms the exact bulk target count", () => {
     render(
       <AffairesPageClient
@@ -473,15 +474,76 @@ describe("AffairesPageClient", () => {
     );
 
     expect(screen.getByText("1 affaire selectionnee")).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Supprimer la selection (1)" })
-    );
 
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archiver" }),
+    );
     expect(
-      screen.getByRole("heading", { name: "Supprimer 1 affaire" })
+      screen.getByRole("heading", { name: "Archiver 1 affaire" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/historique restera conserve/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Annuler" }));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Supprimer" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Supprimer 1 affaire" }),
     ).toBeInTheDocument();
   });
 
+  it("keeps partial failures selected across refresh and clears them on page changes", async () => {
+    const renderProps = {
+      initialQ: "",
+      initialStatuses: [] as AffaireStatus[],
+      initialFavoritesOnly: false,
+      initialManager: "all" as const,
+      initialCursor: null,
+      initialSize: 20 as const,
+      initialSort: "updatedAt" as const,
+      initialDir: "desc" as const,
+    };
+    const { rerender } = render(
+      <AffairesPageClient initialData={initialData} {...renderProps} />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Selectionner les brouillons affiches (1)",
+      })
+    );
+    expect(screen.getByText("1 affaire selectionnee")).toBeInTheDocument();
+
+    rerender(
+      <AffairesPageClient
+        initialData={{
+          ...initialData,
+          list: {
+            ...initialData.list,
+            items: [
+              {
+                ...initialData.list.items[0],
+                projectId: "33333333-3333-4333-8333-333333333333",
+                projectName: "Affaire apparue pendant le rafraichissement",
+              },
+            ],
+          },
+        }}
+        {...renderProps}
+      />
+    );
+
+    expect(screen.getByText("1 affaire selectionnee")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "1000" }));
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenLastCalledWith(
+        "/dashboard/affaires?size=1000",
+        { scroll: false }
+      );
+      expect(screen.getByText("0 affaire selectionnee")).toBeInTheDocument();
+    });
+  });
   it("syncs the manager queue filter to the URL", async () => {
     isExpertValue = true;
 

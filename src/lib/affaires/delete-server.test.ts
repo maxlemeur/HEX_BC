@@ -7,6 +7,7 @@ vi.mock("@/lib/estimates/server", () => ({
 }));
 
 import {
+  bulkArchiveDraftAffaires,
   bulkDeleteAffairesInputSchema,
   bulkDeleteDraftAffaires,
 } from "./delete-server";
@@ -89,7 +90,7 @@ describe("bulkDeleteDraftAffaires", () => {
     });
 
     await expect(
-      bulkDeleteDraftAffaires([PROJECT_A, PROJECT_B])
+      bulkDeleteDraftAffaires([PROJECT_A, PROJECT_B]),
     ).resolves.toEqual({
       requestedCount: 2,
       deletedIds: [PROJECT_A],
@@ -102,24 +103,177 @@ describe("bulkDeleteDraftAffaires", () => {
       ],
     });
   });
+  it("chunks large selections into safe 100-affaire RPC calls", async () => {
+    const projectIds = Array.from(
+      { length: 205 },
+      (_, index) =>
+        `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    const rpc = vi
+      .fn()
+      .mockImplementation((_name: string, args: { p_project_ids: string[] }) =>
+        Promise.resolve({
+          data: args.p_project_ids.map((projectId) => ({
+            project_id: projectId,
+            outcome: "deleted",
+            message: null,
+          })),
+          error: null,
+        }),
+      );
+    getAuthenticatedContextMock.mockResolvedValue({
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+      supabase: { rpc },
+    });
+
+    const result = await bulkDeleteDraftAffaires(projectIds);
+
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc.mock.calls.map((call) => call[1].p_project_ids.length)).toEqual([
+      100, 100, 5,
+    ]);
+    expect(result.deletedIds).toHaveLength(205);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("reports unprocessed identifiers when a later RPC batch fails", async () => {
+    const projectIds = Array.from(
+      { length: 105 },
+      (_, index) =>
+        `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: projectIds.slice(0, 100).map((projectId) => ({
+          project_id: projectId,
+          outcome: "deleted",
+          message: null,
+        })),
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: "08006", message: "connection failure" },
+      });
+    getAuthenticatedContextMock.mockResolvedValue({
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+      supabase: { rpc },
+    });
+
+    const result = await bulkDeleteDraftAffaires(projectIds);
+
+    expect(result.deletedIds).toHaveLength(100);
+    expect(result.failures).toHaveLength(5);
+    expect(result.failures.map((failure) => failure.projectId)).toEqual(
+      projectIds.slice(100),
+    );
+  });
 });
 
+describe("bulkArchiveDraftAffaires", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("scopes archive requests to the authenticated tenant and reports partial results", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: [
+        { project_id: PROJECT_A, outcome: "archived", message: null },
+        {
+          project_id: PROJECT_B,
+          outcome: "not_eligible",
+          message: "Affaire non eligible.",
+        },
+      ],
+      error: null,
+    });
+    getAuthenticatedContextMock.mockResolvedValue({
+      tenantId: TENANT_ID,
+      tenantRole: "engineer",
+      supabase: { rpc },
+    });
+
+    const result = await bulkArchiveDraftAffaires([
+      PROJECT_A,
+      PROJECT_B,
+      PROJECT_A,
+    ]);
+
+    expect(rpc).toHaveBeenCalledWith("bulk_archive_draft_affaires", {
+      p_tenant_id: TENANT_ID,
+      p_project_ids: [PROJECT_A, PROJECT_B],
+    });
+    expect(result).toEqual({
+      requestedCount: 2,
+      archivedIds: [PROJECT_A],
+      failures: [
+        {
+          projectId: PROJECT_B,
+          reason: "not_eligible",
+          message: "Affaire non eligible.",
+        },
+      ],
+    });
+  });
+
+  it("chunks large archive selections into safe 100-affaire RPC calls", async () => {
+    const projectIds = Array.from(
+      { length: 205 },
+      (_, index) =>
+        `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    const rpc = vi
+      .fn()
+      .mockImplementation((_name: string, args: { p_project_ids: string[] }) =>
+        Promise.resolve({
+          data: args.p_project_ids.map((projectId) => ({
+            project_id: projectId,
+            outcome: "archived",
+            message: null,
+          })),
+          error: null,
+        }),
+      );
+    getAuthenticatedContextMock.mockResolvedValue({
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+      supabase: { rpc },
+    });
+
+    const result = await bulkArchiveDraftAffaires(projectIds);
+
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc.mock.calls.map((call) => call[1].p_project_ids.length)).toEqual([
+      100, 100, 5,
+    ]);
+    expect(result.archivedIds).toHaveLength(205);
+    expect(result.failures).toEqual([]);
+  });
+});
 describe("bulkDeleteAffairesInputSchema", () => {
-  it("deduplicates identifiers and rejects oversized batches", () => {
+  it("deduplicates identifiers and enforces the 1,000-affaire API limit", () => {
     expect(
       bulkDeleteAffairesInputSchema.parse({
         projectIds: [PROJECT_A, PROJECT_A],
-      }).projectIds
+      }).projectIds,
     ).toEqual([PROJECT_A]);
 
+    const maximumBatch = Array.from(
+      { length: 1000 },
+      (_, index) =>
+        `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    expect(
+      bulkDeleteAffairesInputSchema.parse({ projectIds: maximumBatch })
+        .projectIds,
+    ).toHaveLength(1000);
     expect(() =>
       bulkDeleteAffairesInputSchema.parse({
-        projectIds: Array.from(
-          { length: 101 },
-          (_, index) =>
-            `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`
-        ),
-      })
+        projectIds: [...maximumBatch, "00001000-0000-4000-8000-000000000000"],
+      }),
     ).toThrow();
   });
 });

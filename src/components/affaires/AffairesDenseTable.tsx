@@ -51,9 +51,11 @@ type Props = {
     | "ready"
     | "error"
     | "unavailable";
-  selectedProjectIds?: string[];
+  selectedProjectIds?: ReadonlySet<string>;
   onToggleProjectSelection?: (projectId: string) => void;
 };
+
+const EMPTY_SELECTED_PROJECT_IDS: ReadonlySet<string> = new Set();
 
 function formatDate(iso: string): string {
   return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
@@ -180,7 +182,7 @@ export function AffairesDenseTable({
   onManagerFilterChange,
   managerQueueSummary,
   managerQueueSummaryState,
-  selectedProjectIds = [],
+  selectedProjectIds = EMPTY_SELECTED_PROJECT_IDS,
   onToggleProjectSelection,
 }: Readonly<Props>) {
   const router = useRouter();
@@ -189,11 +191,6 @@ export function AffairesDenseTable({
     () => new Set(favoritePendingIds),
     [favoritePendingIds]
   );
-  const selectedProjectIdSet = useMemo(
-    () => new Set(selectedProjectIds),
-    [selectedProjectIds]
-  );
-
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandCache, setExpandCache] = useState<
     Record<string, AffaireDenseExpandData | "loading" | "error">
@@ -421,7 +418,7 @@ export function AffairesDenseTable({
                   <tr
                     tabIndex={0}
                     aria-label={`Ouvrir l’affaire ${item.projectName}`}
-                    className="cursor-pointer border-b border-[var(--slate-100)] transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)]"
+                    className="cursor-pointer border-b border-[var(--slate-100)] transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)] [content-visibility:auto] [contain-intrinsic-size:auto_52px]"
                     onClick={() => router.push(primaryHref)}
                     onKeyDown={(event) => {
                       if (
@@ -468,7 +465,7 @@ export function AffairesDenseTable({
                         <input
                           type="checkbox"
                           className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
-                          checked={selectedProjectIdSet.has(item.projectId)}
+                          checked={selectedProjectIds.has(item.projectId)}
                           aria-label={`Sélectionner l'affaire ${item.projectName}`}
                           onChange={() =>
                             onToggleProjectSelection(item.projectId)
