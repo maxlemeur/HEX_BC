@@ -207,4 +207,28 @@ describe("ui/Modal", () => {
       "min-w-11"
     );
   });
+
+  it("composes a caller close handler with the modal close action", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const onOpenChange = vi.fn<(open: boolean) => void>();
+
+    render(
+      createElement(
+        Modal.Root,
+        { open: true, onOpenChange } as never,
+        createElement(
+          Modal.Content,
+          null,
+          createElement(Modal.Title, null, "Produit"),
+          createElement(Modal.Close, { onClick } as never, "Fermer")
+        )
+      )
+    );
+
+    await user.click(screen.getByRole("button", { name: "Fermer" }));
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });

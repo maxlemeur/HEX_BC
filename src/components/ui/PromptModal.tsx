@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useState } from "react";
+
+import { Modal } from "@/components/ui/Modal";
 
 type PromptModalProps = {
   open: boolean;
@@ -45,11 +47,11 @@ function PromptModalInner({
   onCancel,
 }: Omit<PromptModalProps, "open">) {
   const [value, setValue] = useState(defaultValue ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
+    (event: React.FormEvent) => {
+      event.preventDefault();
       const trimmed = value.trim();
       if (trimmed) onConfirm(trimmed);
     },
@@ -57,34 +59,50 @@ function PromptModalInner({
   );
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    <Modal.Root
+      open
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          onCancel();
+        }
+      }}
     >
-      <form
-        className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl"
-        onSubmit={handleSubmit}
-      >
-        <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
-        <label className="mt-4 block text-sm font-medium text-slate-600">
-          {label}
-        </label>
-        <input
-          ref={inputRef}
-          className="form-input mt-1"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          autoFocus
-        />
-        <div className="mt-6 flex justify-end gap-3">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
-            Annuler
-          </button>
-          <button type="submit" className="btn btn-primary btn-sm" disabled={!value.trim()}>
-            {confirmLabel}
-          </button>
-        </div>
-      </form>
-    </div>
+      <Modal.Content containerClassName="sm:max-w-md">
+        <form onSubmit={handleSubmit}>
+          <Modal.Header>
+            <Modal.Title>{title}</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <label
+              className="block text-sm font-medium text-slate-600"
+              htmlFor={inputId}
+            >
+              {label}
+            </label>
+            <input
+              id={inputId}
+              name="promptValue"
+              className="form-input mt-1"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              autoComplete="off"
+              data-modal-autofocus="true"
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Modal.Close className="btn btn-secondary btn-sm">
+              Annuler
+            </Modal.Close>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              disabled={!value.trim()}
+            >
+              {confirmLabel}
+            </button>
+          </Modal.Footer>
+        </form>
+      </Modal.Content>
+    </Modal.Root>
   );
 }

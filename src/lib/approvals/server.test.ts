@@ -105,7 +105,7 @@ describe("fetchApprovalQueue", () => {
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
     await expect(
-      fetchApprovalQueue({ sortBy: "priority", onlyExceptions: false })
+      fetchApprovalQueue({ sortBy: "priority", sortDir: "desc", onlyExceptions: false })
     ).resolves.toEqual([]);
 
     expect(rpc).not.toHaveBeenCalled();
@@ -156,6 +156,7 @@ describe("fetchApprovalQueue", () => {
 
     const result = await fetchApprovalQueue({
       sortBy: "amount",
+      sortDir: "desc",
       onlyExceptions: true,
     });
 
@@ -180,6 +181,38 @@ describe("fetchApprovalQueue", () => {
     });
   });
 
+  it("reverses the canonical RPC order for the opposite direction", async () => {
+    const rows = [
+      approvalRow(),
+      approvalRow({
+        project_id: "project-2",
+        version_id: "version-2",
+        cycle_id: "cycle-2",
+        project_name: "Affaire Beta",
+      }),
+    ];
+    const { context } = createContext({
+      rpcResult: { data: rows, error: null },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchDirectionProjectSignals).mockResolvedValue({
+      latestJobId: null,
+      alerts: [],
+    } as never);
+
+    const result = await fetchApprovalQueue({
+      sortBy: "amount",
+      sortDir: "asc",
+      onlyExceptions: false,
+    });
+
+    expect(result.map((item) => item.projectId)).toEqual([
+      "project-2",
+      "project-1",
+    ]);
+    expect(rows[0]?.project_id).toBe("project-1");
+  });
+
   it("surfaces an RPC failure with its provider message", async () => {
     const { context } = createContext({
       rpcResult: {
@@ -190,7 +223,7 @@ describe("fetchApprovalQueue", () => {
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
     await expect(
-      fetchApprovalQueue({ sortBy: "age", onlyExceptions: false })
+      fetchApprovalQueue({ sortBy: "age", sortDir: "asc", onlyExceptions: false })
     ).rejects.toThrow(
       "Erreur lors du chargement de la file d'approbation: database unavailable"
     );

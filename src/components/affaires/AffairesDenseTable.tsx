@@ -20,6 +20,13 @@ import type {
   AffaireManagerQueueSummary,
 } from "./types";
 
+const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+const ESTIMATE_CURRENCY = normalizeEstimateCurrency("EUR") ?? "EUR";
+
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
   required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
   in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
@@ -49,16 +56,11 @@ type Props = {
 };
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
 }
 
 function formatAmount(cents: number): string {
-  const currency = normalizeEstimateCurrency("EUR") ?? "EUR";
-  return formatCurrency(cents, currency);
+  return formatCurrency(cents, ESTIMATE_CURRENCY);
 }
 
 function formatManagerQueueCount(count: number, label: string): string {
@@ -183,6 +185,14 @@ export function AffairesDenseTable({
 }: Readonly<Props>) {
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
+  const favoritePendingIdSet = useMemo(
+    () => new Set(favoritePendingIds),
+    [favoritePendingIds]
+  );
+  const selectedProjectIdSet = useMemo(
+    () => new Set(selectedProjectIds),
+    [selectedProjectIds]
+  );
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandCache, setExpandCache] = useState<
@@ -404,12 +414,24 @@ export function AffairesDenseTable({
                 const primaryHref = `/dashboard/affaires/${item.projectId}`;
                 const expanded = isExpanded(item.projectId);
                 const cached = expandCache[item.projectId];
+                const detailsId = `affaire-${item.projectId}-details`;
 
                 return (
                   <Fragment key={item.projectId}>
                   <tr
-                    className="border-b border-[var(--slate-100)] cursor-pointer hover:bg-[var(--slate-50)] transition-colors"
+                    tabIndex={0}
+                    aria-label={`Ouvrir l’affaire ${item.projectName}`}
+                    className="cursor-pointer border-b border-[var(--slate-100)] transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)]"
                     onClick={() => router.push(primaryHref)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.target === event.currentTarget &&
+                        event.key === "Enter"
+                      ) {
+                        event.preventDefault();
+                        router.push(primaryHref);
+                      }
+                    }}
                   >
                     <td>
                       <button
@@ -419,8 +441,9 @@ export function AffairesDenseTable({
                           event.stopPropagation();
                           handleToggleExpand(item.projectId);
                         }}
+                        aria-controls={detailsId}
                         aria-expanded={expanded}
-                        aria-label={expanded ? "Replier" : "Déplier"}
+                        aria-label={`${expanded ? "Replier" : "Déplier"} les détails de l’affaire ${item.projectName}`}
                       >
                         <svg
                           width="16"
@@ -431,6 +454,7 @@ export function AffairesDenseTable({
                           strokeWidth="2"
                           strokeLinecap="round"
                           strokeLinejoin="round"
+                          aria-hidden="true"
                         >
                           <path d="m9 18 6-6-6-6" />
                         </svg>
@@ -444,8 +468,8 @@ export function AffairesDenseTable({
                         <input
                           type="checkbox"
                           className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
-                          checked={selectedProjectIds.includes(item.projectId)}
-                          aria-label={`Selectionner l'affaire ${item.projectName}`}
+                          checked={selectedProjectIdSet.has(item.projectId)}
+                          aria-label={`Sélectionner l'affaire ${item.projectName}`}
                           onChange={() =>
                             onToggleProjectSelection(item.projectId)
                           }
@@ -510,20 +534,19 @@ export function AffairesDenseTable({
                       <div className="inline-flex items-center gap-1">
                         <AffaireFavoriteButton
                           isFavorite={item.isFavorite}
-                          isPending={favoritePendingIds.includes(item.projectId)}
+                          isPending={favoritePendingIdSet.has(item.projectId)}
                           onToggle={() =>
                             onToggleFavorite(item.projectId, !item.isFavorite)
                           }
                         />
                         {/* Hub affaire – toujours visible */}
-                        <button
-                          type="button"
+                        <Link
+                          href={`/dashboard/affaires/${item.projectId}`}
+                          prefetch={false}
                           title="Hub affaire"
-                          className="inline-flex items-center justify-center rounded p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            router.push(`/dashboard/affaires/${item.projectId}`);
-                          }}
+                          aria-label={`Ouvrir le hub de l’affaire ${item.projectName}`}
+                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <svg
                             width="16"
@@ -539,17 +562,16 @@ export function AffairesDenseTable({
                             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                             <polyline points="9 22 9 12 15 12 15 22" />
                           </svg>
-                        </button>
+                        </Link>
                         {/* Detail estimation – visible quand non-brouillon */}
                         {hasCurrentVersion && item.currentStatus !== "draft" && (
-                          <button
-                            type="button"
-                            title="Voir le detail"
-                            className="inline-flex items-center justify-center rounded p-1 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              router.push(`/dashboard/estimates/${item.currentVersionId}`);
-                            }}
+                          <Link
+                            href={`/dashboard/estimates/${item.currentVersionId}`}
+                            prefetch={false}
+                            title="Voir le détail"
+                            aria-label={`Voir le détail du chiffrage de l’affaire ${item.projectName}`}
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <svg
                               width="16"
@@ -565,22 +587,21 @@ export function AffairesDenseTable({
                               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                               <circle cx="12" cy="12" r="3" />
                             </svg>
-                          </button>
+                          </Link>
                         )}
                         {/* Editer – visible quand brouillon */}
                         {(!hasCurrentVersion || item.currentStatus === "draft") && (
-                          <button
-                            type="button"
-                            title="Editer l'affaire"
-                            className="inline-flex items-center justify-center rounded p-1 text-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              router.push(
-                                hasCurrentVersion
-                                  ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                                  : `/dashboard/affaires/${item.projectId}`
-                              );
-                            }}
+                          <Link
+                            href={
+                              hasCurrentVersion
+                                ? `/dashboard/estimates/${item.currentVersionId}/edit`
+                                : `/dashboard/affaires/${item.projectId}`
+                            }
+                            prefetch={false}
+                            title="Éditer l’affaire"
+                            aria-label={`Éditer l’affaire ${item.projectName}`}
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <svg
                               width="16"
@@ -596,14 +617,15 @@ export function AffairesDenseTable({
                               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                             </svg>
-                          </button>
+                          </Link>
                         )}
                         {/* Supprimer – visible quand brouillon */}
                         {(!hasCurrentVersion || item.currentStatus === "draft") && (
                           <button
                             type="button"
-                            title="Supprimer l'affaire"
-                            className="inline-flex items-center justify-center rounded p-1 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Supprimer l’affaire"
+                            aria-label={`Supprimer l’affaire ${item.projectName}`}
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
                             onClick={(event) => {
                               event.stopPropagation();
                               requestDelete(item.projectId, item.projectName);
@@ -630,18 +652,22 @@ export function AffairesDenseTable({
                     </td>
                   </tr>
 
-                  {expanded && (
-                    <tr className="expanded-content-row">
+                  {expanded ? (
+                    <tr id={detailsId} className="expanded-content-row">
                       <td colSpan={11}>
-                        <div className="expanded-content animate-expand-down">
+                        <div
+                          className="expanded-content animate-expand-down"
+                          aria-busy={cached === "loading"}
+                          aria-live="polite"
+                        >
                           {cached === "loading" ? (
                             <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">
-                              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
-                              <span className="text-sm text-[var(--slate-500)]">Chargement...</span>
+                              <div aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+                              <span className="text-sm text-[var(--slate-500)]">Chargement…</span>
                             </div>
                           ) : cached === "error" ? (
                             <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
-                              Erreur lors du chargement.
+                              Erreur lors du chargement. Repliez puis dépliez la ligne pour réessayer.
                             </div>
                           ) : cached ? (
                             <ExpandedContent
@@ -653,7 +679,7 @@ export function AffairesDenseTable({
                         </div>
                       </td>
                     </tr>
-                  )}
+                  ) : null}
                   </Fragment>
                 );
               })

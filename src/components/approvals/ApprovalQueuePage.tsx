@@ -1,11 +1,18 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import type { ApprovalQueueItem } from "@/lib/approvals/server";
-import type { ApprovalQueueSortBy } from "@/lib/approvals/schemas";
-import type { SortOption, SortState } from "@/components/TableFilterBar/types";
+import type {
+  ApprovalQueueSortBy,
+  ApprovalQueueSortDirection,
+} from "@/lib/approvals/schemas";
+import type {
+  SortDirection,
+  SortOption,
+  SortState,
+} from "@/components/TableFilterBar/types";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ApprovalQueueCardList } from "./ApprovalQueueCardList";
 
@@ -19,24 +26,37 @@ const SORT_OPTIONS: SortOption[] = [
 type ApprovalQueuePageProps = {
   initialData: ApprovalQueueItem[];
   initialSortBy: ApprovalQueueSortBy;
+  initialSortDir: ApprovalQueueSortDirection;
   initialOnlyExceptions: boolean;
 };
 
 export function ApprovalQueuePage({
   initialData,
   initialSortBy,
+  initialSortDir,
   initialOnlyExceptions,
 }: ApprovalQueuePageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
-  const sortBy = (searchParams.get("sortBy") as ApprovalQueueSortBy) || initialSortBy;
-  const onlyExceptions = searchParams.get("onlyExceptions") === "true" || initialOnlyExceptions;
+  const rawSortBy = searchParams.get("sortBy");
+  const sortBy = SORT_OPTIONS.some((option) => option.key === rawSortBy)
+    ? (rawSortBy as ApprovalQueueSortBy)
+    : initialSortBy;
+  const rawSortDir = searchParams.get("sortDir");
+  const sortDir = rawSortDir === "asc" || rawSortDir === "desc"
+    ? rawSortDir
+    : initialSortDir;
+  const rawOnlyExceptions = searchParams.get("onlyExceptions");
+  const onlyExceptions = rawOnlyExceptions === null
+    ? initialOnlyExceptions
+    : rawOnlyExceptions === "true";
 
-  const sortState: SortState = useMemo(() => {
-    const option = SORT_OPTIONS.find((o) => o.key === sortBy);
-    return { key: sortBy, direction: option?.defaultDirection ?? "desc" };
-  }, [sortBy]);
+  const sortState: SortState = useMemo(
+    () => ({ key: sortBy, direction: sortDir }),
+    [sortBy, sortDir]
+  );
 
   const updateParams = useCallback(
     (updates: Record<string, string | null>) => {
@@ -48,27 +68,55 @@ export function ApprovalQueuePage({
           params.set(key, value);
         }
       }
-      router.push(`/dashboard/approvals?${params.toString()}`);
+
+      const query = params.toString();
+      const href = query
+        ? `/dashboard/approvals?${query}`
+        : "/dashboard/approvals";
+      startTransition(() => {
+        router.push(href);
+      });
     },
     [router, searchParams]
   );
 
   const handleSortChange = useCallback(
-    (key: string) => {
-      updateParams({ sortBy: key });
+    (key: string, direction?: SortDirection) => {
+      const option = SORT_OPTIONS.find((candidate) => candidate.key === key);
+      if (!option) return;
+
+      updateParams({
+        sortBy: option.key,
+        sortDir: direction ?? option.defaultDirection ?? "asc",
+      });
     },
     [updateParams]
   );
 
-  const handleExceptionsToggle = useCallback(() => {
+  const handleDirectionToggle = useCallback(() => {
     updateParams({
-      onlyExceptions: onlyExceptions ? null : "true",
+      sortDir: sortDir === "asc" ? "desc" : "asc",
     });
-  }, [updateParams, onlyExceptions]);
+  }, [sortDir, updateParams]);
+
+  const handleExceptionsToggle = useCallback(() => {
+    const nextOnlyExceptions = !onlyExceptions;
+    updateParams({
+      onlyExceptions:
+        nextOnlyExceptions === initialOnlyExceptions
+          ? null
+          : String(nextOnlyExceptions),
+    });
+  }, [initialOnlyExceptions, onlyExceptions, updateParams]);
 
   return (
-    <div className="space-y-6">
-      {/* Toolbar */}
+    <div className="space-y-6" aria-busy={isPending}>
+      {isPending ? (
+        <p role="status" className="sr-only">
+          Actualisation de la file d’approbation…
+        </p>
+      ) : null}
+
       <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <div role="status" aria-live="polite" aria-atomic="true">
           <h1 className="text-lg font-semibold text-[var(--slate-800)]">
@@ -83,6 +131,7 @@ export function ApprovalQueuePage({
           <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--slate-600)]">
             <input
               type="checkbox"
+              name="onlyExceptions"
               checked={onlyExceptions}
               onChange={handleExceptionsToggle}
               className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)] focus:ring-[var(--brand-blue)]"
@@ -95,13 +144,12 @@ export function ApprovalQueuePage({
               options={SORT_OPTIONS}
               value={sortState}
               onSortChange={handleSortChange}
-              onDirectionToggle={() => {}}
+              onDirectionToggle={handleDirectionToggle}
             />
           </div>
         </div>
       </div>
 
-      {/* Card list */}
       <ApprovalQueueCardList items={initialData} />
     </div>
   );

@@ -3,7 +3,10 @@ import Link from "next/link";
 import { buildDashboardShortcuts } from "@/app/dashboard/dashboard-shortcuts";
 import { DashboardHomeResumeLink } from "@/components/dashboard/DashboardHomeResumeLink";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fetchAffairePageData, type AffaireListItem } from "@/lib/affaires/server";
+import {
+  fetchAffaireDashboardOverview,
+  type AffaireListItem,
+} from "@/lib/affaires/server";
 import { getUserContext } from "@/lib/auth/server";
 
 const STATUS_LABELS: Record<"draft" | "sent" | "accepted" | "archived", string> = {
@@ -58,18 +61,18 @@ function ShortcutIcon() {
 }
 
 export default async function DashboardPage() {
-  const [{ profile }, affairesData] = await Promise.all([
+  const [{ profile }, overview] = await Promise.all([
     getUserContext(),
-    fetchAffairePageData({ size: 20, dir: "desc" }),
+    fetchAffaireDashboardOverview(),
   ]);
   const role = profile?.tenant_role ?? null;
   const canCreateAffaire = role === "admin" || role === "engineer";
-  const statusCounts = affairesData.counters.statusCounts;
+  const statusCounts = overview.counters.statusCounts;
   const activeCount = Math.max(
     0,
-    affairesData.counters.totalCount - statusCounts.archived
+    overview.counters.totalCount - statusCounts.archived
   );
-  const recentAffaires = affairesData.list.items.slice(0, 5);
+  const recentAffaires = overview.recentAffaires;
   const shortcuts = buildDashboardShortcuts(role, profile?.ui_mode ?? "simplified");
   const metrics = [
     { label: "Affaires actives", value: activeCount, accent: true },

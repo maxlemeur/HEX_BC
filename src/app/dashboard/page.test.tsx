@@ -1,10 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AffaireListItem, AffairePageDataResult } from "@/lib/affaires/server";
+import type {
+  AffaireDashboardOverviewResult,
+  AffaireListItem,
+} from "@/lib/affaires/server";
 
-const { fetchAffairePageDataMock, getUserContextMock } = vi.hoisted(() => ({
-  fetchAffairePageDataMock: vi.fn(),
+const { fetchAffaireDashboardOverviewMock, getUserContextMock } = vi.hoisted(() => ({
+  fetchAffaireDashboardOverviewMock: vi.fn(),
   getUserContextMock: vi.fn(),
 }));
 
@@ -31,7 +34,7 @@ vi.mock("@/components/dashboard/DashboardHomeResumeLink", () => ({
 }));
 
 vi.mock("@/lib/affaires/server", () => ({
-  fetchAffairePageData: fetchAffairePageDataMock,
+  fetchAffaireDashboardOverview: fetchAffaireDashboardOverviewMock,
 }));
 
 vi.mock("@/lib/auth/server", () => ({
@@ -62,13 +65,8 @@ function makeAffaire(index: number): AffaireListItem {
   };
 }
 
-const data: AffairePageDataResult = {
-  list: {
-    items: Array.from({ length: 6 }, (_, index) => makeAffaire(index + 1)),
-    pageSize: 20,
-    nextCursor: null,
-    hasNextPage: false,
-  },
+const data: AffaireDashboardOverviewResult = {
+  recentAffaires: Array.from({ length: 5 }, (_, index) => makeAffaire(index + 1)),
   counters: {
     totalCount: 18,
     filteredCount: 18,
@@ -79,11 +77,10 @@ const data: AffairePageDataResult = {
       archived: 2,
     },
   },
-  managerQueue: null,
 };
 
 beforeEach(() => {
-  fetchAffairePageDataMock.mockResolvedValue(data);
+  fetchAffaireDashboardOverviewMock.mockResolvedValue(data);
   getUserContextMock.mockResolvedValue({
     userEmail: "admin@example.com",
     tenantId: "tenant-1",
@@ -92,13 +89,11 @@ beforeEach(() => {
 });
 
 describe("DashboardPage", () => {
-  it("renders bounded current metrics and only five recent affaires", async () => {
+  it("renders bounded current metrics and five recent affaires", async () => {
     const markup = renderToStaticMarkup(await DashboardPage());
 
-    expect(fetchAffairePageDataMock).toHaveBeenCalledWith({
-      size: 20,
-      dir: "desc",
-    });
+    expect(fetchAffaireDashboardOverviewMock).toHaveBeenCalledTimes(1);
+    expect(fetchAffaireDashboardOverviewMock).toHaveBeenCalledWith();
     expect(markup).toContain("Vue d’ensemble");
     expect(markup).toContain("Affaires actives");
     expect(markup).toContain(">16<");

@@ -17,15 +17,24 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/link", () => ({
   default: function MockLink({
     href,
-    className,
+    prefetch,
     children,
-  }: {
+    onClick,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
     href: string;
-    className?: string;
-    children: React.ReactNode;
+    prefetch?: boolean;
   }) {
     return (
-      <a href={href} className={className}>
+      <a
+        href={href}
+        data-prefetch={prefetch}
+        onClick={(event) => {
+          event.preventDefault();
+          onClick?.(event);
+        }}
+        {...props}
+      >
         {children}
       </a>
     );
@@ -134,13 +143,31 @@ describe("AffairesDenseTable", () => {
     expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
   });
 
-  it("does not trigger row navigation when the hub action is clicked", () => {
+  it("supports keyboard navigation on the affaire row", () => {
     renderTable();
 
-    fireEvent.click(screen.getByRole("button", { name: "Hub affaire" }));
+    fireEvent.keyDown(
+      screen.getByRole("row", { name: "Ouvrir l’affaire Affaire Alpha" }),
+      { key: "Enter" }
+    );
 
-    expect(pushMock).toHaveBeenCalledTimes(1);
     expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
+  });
+
+  it("uses a semantic hub link without triggering row navigation", () => {
+    renderTable();
+
+    const hubLink = screen.getByRole("link", {
+      name: "Ouvrir le hub de l’affaire Affaire Alpha",
+    });
+    expect(hubLink).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1"
+    );
+
+    fireEvent.click(hubLink);
+
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it("keeps secondary version and DPGF information in the expanded summary", async () => {
@@ -165,7 +192,7 @@ describe("AffairesDenseTable", () => {
       "État de l’approbation interne requise avant l’envoi au client."
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Déplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Déplier les détails de l’affaire Affaire Alpha" }));
 
     expect(await screen.findByText("Nombre de versions :")).toBeInTheDocument();
     expect(screen.getByText("Aucune DPGF importée")).toBeInTheDocument();
@@ -185,7 +212,7 @@ describe("AffairesDenseTable", () => {
 
     expect(fetchExpandDataMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Déplier" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Déplier les détails de l’affaire/ })[0]!);
 
     expect(pushMock).not.toHaveBeenCalled();
     expect(fetchExpandDataMock).toHaveBeenCalledTimes(1);
@@ -221,10 +248,16 @@ describe("AffairesDenseTable", () => {
     });
 
     const draftCheckbox = screen.getByRole("checkbox", {
-      name: "Selectionner l'affaire Affaire Alpha",
+      name: "Sélectionner l'affaire Affaire Alpha",
     });
     expect(draftCheckbox).toBeChecked();
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(
+      screen.getByRole("link", { name: "Éditer l’affaire Affaire Alpha" })
+    ).toHaveAttribute("href", "/dashboard/estimates/version-1/edit");
+    expect(
+      screen.getByRole("button", { name: "Supprimer l’affaire Affaire Alpha" })
+    ).toBeInTheDocument();
 
     fireEvent.click(draftCheckbox);
     expect(onToggleProjectSelection).toHaveBeenCalledWith("project-1");

@@ -19,6 +19,7 @@ export default async function ApprovalsPageRoute({ searchParams }: Props) {
       <ApprovalQueuePage
         initialData={data}
         initialSortBy={query.sortBy}
+        initialSortDir={query.sortDir}
         initialOnlyExceptions={query.onlyExceptions}
       />
     </Suspense>

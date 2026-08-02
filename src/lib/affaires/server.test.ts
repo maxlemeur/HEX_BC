@@ -36,6 +36,7 @@ import {
   buildAffaireHubReadinessSnapshot,
   buildAffaireSubmissionReadinessSnapshot,
   fetchAffaireCounters,
+  fetchAffaireDashboardOverview,
   fetchAffaireHubDpgfSource,
   fetchAffaireHubFinishLineSummary,
   fetchAffaireHubMarginAnalysis,
@@ -867,6 +868,58 @@ describe("affaires server (list + counters)", () => {
     expect(context.supabase.rpc).toHaveBeenCalledTimes(2);
     expect(result.list.items).toHaveLength(1);
     expect(result.counters.totalCount).toBe(1);
+  });
+
+  it("bounds the dashboard overview query to five recent affaires", async () => {
+    const context = createContext({ role: "engineer" });
+
+    context.supabase.rpc.mockImplementation(
+      async (fnName: string): Promise<RpcResult> => {
+        if (fnName === "list_affaires_page") {
+          return {
+            data: Array.from({ length: 6 }, (_, index) =>
+              buildAffaireRow(index + 1)
+            ),
+            error: null,
+          };
+        }
+
+        if (fnName === "get_affaires_counters") {
+          return {
+            data: [
+              {
+                total_count: 18,
+                filtered_count: 18,
+                draft_count: 7,
+                sent_count: 4,
+                accepted_count: 5,
+                archived_count: 2,
+              },
+            ],
+            error: null,
+          };
+        }
+
+        return { data: [], error: null };
+      }
+    );
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireDashboardOverview();
+
+    expect(getAuthenticatedContext).toHaveBeenCalledTimes(1);
+    expect(context.supabase.rpc).toHaveBeenCalledWith(
+      "list_affaires_page",
+      expect.objectContaining({
+        p_limit: 6,
+        p_sort_by: "updatedAt",
+        p_sort_dir: "desc",
+      })
+    );
+    expect(result.recentAffaires).toHaveLength(5);
+    expect(result.recentAffaires.at(-1)?.projectName).toBe("Projet 5");
+    expect(result.counters.totalCount).toBe(18);
   });
 
   it("passes favorites filter to list and counters and maps favorite rows", async () => {

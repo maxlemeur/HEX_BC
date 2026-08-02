@@ -1,22 +1,28 @@
 "use client";
 
-import { createContext, useContext, useEffect, useId, useMemo, useRef } from "react";
+import { createContext, use, useEffect, useId, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { cn } from "@/lib/utils";
 
 type ModalContextValue = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  titleId: string;
-  contentRef: React.RefObject<HTMLDivElement | null>;
+  state: {
+    open: boolean;
+  };
+  actions: {
+    setOpen: (open: boolean) => void;
+  };
+  meta: {
+    titleId: string;
+    contentRef: React.RefObject<HTMLDivElement | null>;
+  };
 };
 
 const ModalContext = createContext<ModalContextValue | null>(null);
 
 function useModalContext() {
-  const context = useContext(ModalContext);
+  const context = use(ModalContext);
   if (!context) {
     throw new Error("Modal compound components must be used inside Modal.Root");
   }
@@ -107,10 +113,9 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
 
   const value = useMemo(
     () => ({
-      open,
-      onOpenChange,
-      titleId,
-      contentRef,
+      state: { open },
+      actions: { setOpen: onOpenChange },
+      meta: { titleId, contentRef },
     }),
     [open, onOpenChange, titleId]
   );
@@ -133,7 +138,12 @@ function Content({
   containerClassName,
   ...props
 }: Readonly<ModalContentProps>) {
-  const { open, onOpenChange, titleId, contentRef } = useModalContext();
+  const {
+    state: { open },
+    actions: { setOpen },
+    meta: { titleId, contentRef },
+  } = useModalContext();
+  const prefersReducedMotion = useReducedMotion();
 
   if (typeof document === "undefined") {
     return null;
@@ -144,7 +154,7 @@ function Content({
       {open ? (
         <div
           data-ui-modal-root="true"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center overscroll-contain bg-[rgb(2_6_23_/_0.45)] p-4"
         >
           <button
             aria-hidden="true"
@@ -154,16 +164,24 @@ function Content({
             className="absolute inset-0 cursor-default border-0 bg-transparent p-0 focus-visible:outline-none"
             onMouseDown={() => {
               if (closeOnOverlayClick) {
-                onOpenChange(false);
+                setOpen(false);
               }
             }}
           />
 
           <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            exit={
+              prefersReducedMotion
+                ? { opacity: 1, scale: 1 }
+                : { opacity: 0, scale: 0.96 }
+            }
+            transition={
+              prefersReducedMotion
+                ? { duration: 0 }
+                : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }
+            }
             className={cn(
               "relative z-10 w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl",
               containerClassName
@@ -188,7 +206,7 @@ function Content({
                 if (event.key === "Escape") {
                   event.preventDefault();
                   if (closeOnEscapeKey) {
-                    onOpenChange(false);
+                    setOpen(false);
                   }
                 }
 
@@ -230,7 +248,9 @@ function Header({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
 }
 
 function Title({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
-  const { titleId } = useModalContext();
+  const {
+    meta: { titleId },
+  } = useModalContext();
   return (
     <h2
       id={titleId}
@@ -252,21 +272,32 @@ function Footer({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
 
 type ModalCloseProps = React.ButtonHTMLAttributes<HTMLButtonElement>;
 
-function Close({ className, children = "Fermer", ...props }: Readonly<ModalCloseProps>) {
-  const { onOpenChange } = useModalContext();
+function Close({
+  className,
+  children = "Fermer",
+  onClick,
+  type = "button",
+  ...props
+}: Readonly<ModalCloseProps>) {
+  const {
+    actions: { setOpen },
+  } = useModalContext();
+
   return (
     <button
-      type="button"
+      {...props}
+      type={type}
       className={cn(
         "font-body inline-flex h-11 min-w-11 items-center justify-center rounded-button-sm px-3 text-sm font-medium sm:h-8 sm:min-w-8",
         "text-slate-600 transition hover:bg-slate-100 hover:text-slate-900",
         className
       )}
       onClick={(event) => {
-        onOpenChange(false);
-        props.onClick?.(event);
+        onClick?.(event);
+        if (!event.defaultPrevented) {
+          setOpen(false);
+        }
       }}
-      {...props}
     >
       {children}
     </button>

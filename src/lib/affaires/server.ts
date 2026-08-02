@@ -88,9 +88,11 @@ export type AffaireListItem = {
   currentApprovalStatus: string | null;
 };
 
-export type AffaireListPageResult = {
+export type AffaireListPageResult<
+  TPageSize extends number = AffairePageSize,
+> = {
   items: AffaireListItem[];
-  pageSize: AffairePageSize;
+  pageSize: TPageSize;
   nextCursor: string | null;
   hasNextPage: boolean;
 };
@@ -116,6 +118,11 @@ export type AffairePageDataResult = {
   list: AffaireListPageResult;
   counters: AffaireCountersResult;
   managerQueue?: AffaireManagerQueueSummary | null;
+};
+
+export type AffaireDashboardOverviewResult = {
+  recentAffaires: AffaireListItem[];
+  counters: AffaireCountersResult;
 };
 
 type AffaireHubProjectRow = Pick<
@@ -1592,10 +1599,17 @@ async function fetchAffaireHubPlansSummaryWithContext(
   };
 }
 
-async function fetchAffaireListWithContext(
+type AffaireListFetchQuery<TPageSize extends number> = Omit<
+  NormalizedAffaireListQuery,
+  "size"
+> & {
+  size: TPageSize;
+};
+
+async function fetchAffaireListWithContext<TPageSize extends number>(
   context: AffaireContext,
-  query: NormalizedAffaireListQuery
-): Promise<AffaireListPageResult> {
+  query: AffaireListFetchQuery<TPageSize>
+): Promise<AffaireListPageResult<TPageSize>> {
   const decodedCursor = query.cursor ? decodeAffaireCursor(query.cursor) : null;
   assertAffaireCursorMatchesSort(decodedCursor, query.sort);
   const fetchLimit = query.size + 1;
@@ -1670,7 +1684,7 @@ async function fetchAllAffaireListItemsWithContext(
 
   while (true) {
     assertManagerQueueWithinLimits({ deadlineAt });
-    const page = await fetchAffaireListWithContext(context, {
+    const page: AffaireListPageResult = await fetchAffaireListWithContext(context, {
       ...query,
       manager: "all",
       size: MANAGER_QUEUE_LIST_PAGE_SIZE,
@@ -1962,6 +1976,25 @@ export async function fetchAffaireManagerQueueSummary(
     cursor: null,
   });
   return result.summary;
+}
+
+const DASHBOARD_RECENT_AFFAIRE_LIMIT = 5;
+
+export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardOverviewResult> {
+  const context = await getAuthenticatedContext();
+  const query = normalizeAffaireListQuery({ dir: "desc" });
+  const [list, counters] = await Promise.all([
+    fetchAffaireListWithContext(context, {
+      ...query,
+      size: DASHBOARD_RECENT_AFFAIRE_LIMIT,
+    }),
+    fetchAffaireCountersWithContext(context, query),
+  ]);
+
+  return {
+    recentAffaires: list.items,
+    counters,
+  };
 }
 
 export async function fetchAffairePageData(

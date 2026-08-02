@@ -2,7 +2,10 @@ import { getAuthenticatedContext } from "@/lib/estimates/server";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import type { TakeoffRiskCauseCode } from "@/lib/takeoff/types";
-import type { ApprovalQueueQuery } from "./schemas";
+import {
+  APPROVAL_QUEUE_DEFAULT_DIRECTIONS,
+  type ApprovalQueueQuery,
+} from "./schemas";
 
 // ---------------------------------------------------------------------------
 // Exception group mapping (causeCode → FE exception category)
@@ -200,11 +203,16 @@ export async function fetchApprovalQueue(
     })
   );
 
-  return query.onlyExceptions
+  const filteredItems = query.onlyExceptions
     ? itemsWithSignals.filter(
         (item) => item.exceptionCount > 0 || item.syntheticAlerts.length > 0
       )
     : itemsWithSignals;
+  const canonicalDirection = APPROVAL_QUEUE_DEFAULT_DIRECTIONS[query.sortBy];
+
+  return query.sortDir === canonicalDirection
+    ? filteredItems
+    : filteredItems.toReversed();
 }
 
 // ---------------------------------------------------------------------------
