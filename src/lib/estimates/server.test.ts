@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { mockRequestHeadersGet } = vi.hoisted(() => ({
+  mockRequestHeadersGet: vi.fn(),
+}));
 const mockServiceRoleRpc = vi.fn();
 
 vi.mock("@supabase/supabase-js", async (importOriginal) => {
@@ -14,6 +17,12 @@ vi.mock("@supabase/supabase-js", async (importOriginal) => {
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
+}));
+
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => ({
+    get: mockRequestHeadersGet,
+  })),
 }));
 
 import {
@@ -49,6 +58,10 @@ const TEMPLATE_VERSION_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const VERSION_UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_VERSION_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2099-02-20T10:00:00.000Z";
+const LOCK_SESSION_ID = "abababab-1111-4111-8111-abababababab";
+const OTHER_LOCK_SESSION_ID = "abababab-2222-4222-8222-abababababab";
+
+mockRequestHeadersGet.mockReturnValue(LOCK_SESSION_ID);
 const ROOT_SECTION_ID = "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0";
 const SECOND_LEVEL_SECTION_ID = "f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1";
 
@@ -88,6 +101,7 @@ function createSupabaseMock(input: {
       | null;
   };
   draftLockUserId?: string | null;
+  draftLockSessionId?: string | null;
   rejectExclusionsColumn?: boolean;
 }) {
   const tenantMembershipBuilder = {
@@ -237,6 +251,7 @@ function createSupabaseMock(input: {
               id: "lock-1",
               version_id: VERSION_ID,
               user_id: input.draftLockUserId ?? USER_ID,
+              session_id: input.draftLockSessionId ?? LOCK_SESSION_ID,
               locked_at: VERSION_UPDATED_AT,
               expires_at: LOCK_EXPIRES_AT,
             },
@@ -711,6 +726,45 @@ describe("bulkUpdateEstimateItems regressions", () => {
       message: "Un verrou actif est requis pour modifier cette version brouillon.",
       details: {
         lock: null,
+      },
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects writes from another page owned by the same user", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: null,
+        error: null,
+      },
+      draftLockSessionId: OTHER_LOCK_SESSION_ID,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(
+        VERSION_ID,
+        [
+          {
+            id: ITEM_ID_1,
+            title: "Ligne 1",
+          },
+        ],
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      message: "Cette version est déjà verrouillée dans une autre page d'édition.",
+      details: {
+        lock: {
+          user_id: USER_ID,
+          session_id: OTHER_LOCK_SESSION_ID,
+          is_current_user: true,
+          is_current_session: false,
+        },
       },
     });
 

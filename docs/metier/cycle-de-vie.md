@@ -62,14 +62,14 @@ appelé sur une vingtaine de sites d'écriture.
 
 | Propriété | Valeur |
 |---|---|
-| TTL | **30 minutes** (`:45`) |
-| Titulaires simultanés | 1 par version |
+| TTL | **2 minutes** |
+| Titulaires simultanés | 1 couple `(utilisateur, page)` par version |
 | Conflit | HTTP **409** (`:302-304`) |
 | Forçage | **admin uniquement** (`:473-494`) |
 | Nettoyage | RPC `cleanup_expired_draft_locks` |
+| Renouvellement / reprise | heartbeat 30 s ; nouvelle tentative 5 s + focus |
 
-Une écriture sans verrou est refusée. Le module takeoff sonde d'ailleurs la possession du verrou avant
-d'appliquer un job (`takeoff/server.ts:7053-7105`).
+Une écriture sans bail correspondant à l'utilisateur **et** à l'UUID de la page (`x-estimate-draft-lock-session-id`) est refusée. Deux onglets du même compte sont donc traités comme deux éditeurs concurrents. Le module takeoff sonde également la possession du verrou avant d'appliquer un job.
 
 ---
 

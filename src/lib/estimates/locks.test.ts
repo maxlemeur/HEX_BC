@@ -13,6 +13,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
+const SESSION_ID = "66666666-6666-4666-8666-666666666666";
+const OTHER_SESSION_ID = "77777777-7777-4777-8777-777777777777";
 const TENANT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -36,6 +38,7 @@ type LockRow = {
   id: string;
   version_id: string;
   user_id: string;
+  session_id: string;
   tenant_id: string;
   locked_at: string;
   expires_at: string;
@@ -74,6 +77,7 @@ function createLockRow(userId: string, overrides?: Partial<LockRow>): LockRow {
     id: LOCK_ID,
     version_id: VERSION_ID,
     user_id: userId,
+    session_id: userId === USER_ID ? SESSION_ID : OTHER_SESSION_ID,
     tenant_id: TENANT_ID,
     locked_at: LOCKED_AT,
     expires_at: EXPIRES_AT,
@@ -280,13 +284,18 @@ describe("estimate draft locks", () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const result = await acquireLock(VERSION_ID);
+    const result = await acquireLock(VERSION_ID, SESSION_ID);
 
     expect(supabase.rpc).toHaveBeenCalledWith("cleanup_expired_draft_locks", {
       target_tenant_id: TENANT_ID,
     });
     expect(result.lock.user_id).toBe(USER_ID);
+    expect(result.lock.session_id).toBe(SESSION_ID);
     expect(result.lock.is_current_user).toBe(true);
+    expect(result.lock.is_current_session).toBe(true);
+    expect(supabase.__mocks.draftLockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ session_id: SESSION_ID })
+    );
   });
 
   it("returns 409 with owner details when another user owns the lock", async () => {
@@ -315,7 +324,7 @@ describe("estimate draft locks", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    await expect(acquireLock(VERSION_ID)).rejects.toMatchObject({
+    await expect(acquireLock(VERSION_ID, SESSION_ID)).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
       details: {
@@ -324,6 +333,41 @@ describe("estimate draft locks", () => {
           owner: {
             full_name: "Alice Martin",
           },
+        },
+      },
+    });
+  });
+
+  it("rejects another page opened by the same user", async () => {
+    const supabase = createSupabaseMock({
+      insertLockResult: {
+        data: null,
+        error: createSupabaseError(
+          "23505",
+          "duplicate key value violates unique constraint"
+        ),
+      },
+      existingLockResults: [
+        {
+          data: createLockRow(USER_ID, { session_id: OTHER_SESSION_ID }),
+          error: null,
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      acquireLock(VERSION_ID, SESSION_ID)
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      details: {
+        lock: {
+          user_id: USER_ID,
+          session_id: OTHER_SESSION_ID,
+          is_current_user: true,
+          is_current_session: false,
         },
       },
     });
@@ -341,7 +385,7 @@ describe("estimate draft locks", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const result = await renewLock(VERSION_ID);
+    const result = await renewLock(VERSION_ID, SESSION_ID);
 
     expect(result.lock.user_id).toBe(USER_ID);
     expect(result.lock.owner?.id).toBe(USER_ID);
@@ -374,7 +418,7 @@ describe("estimate draft locks", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    await expect(releaseLock(VERSION_ID)).rejects.toMatchObject({
+    await expect(releaseLock(VERSION_ID, SESSION_ID)).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
       details: {
@@ -388,6 +432,37 @@ describe("estimate draft locks", () => {
     });
   });
 
+  it("does not release a lock held by another page of the same user", async () => {
+    const supabase = createSupabaseMock({
+      deleteLockResult: {
+        data: null,
+        error: null,
+      },
+      existingLockResults: [
+        {
+          data: createLockRow(USER_ID, { session_id: OTHER_SESSION_ID }),
+          error: null,
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      releaseLock(VERSION_ID, SESSION_ID)
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      details: {
+        lock: {
+          user_id: USER_ID,
+          session_id: OTHER_SESSION_ID,
+          is_current_session: false,
+        },
+      },
+    });
+  });
+
   it("rejects force release for non-admin users", async () => {
     const supabase = createSupabaseMock({
       role: "engineer",
@@ -396,7 +471,7 @@ describe("estimate draft locks", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      releaseLock(VERSION_ID, {
+      releaseLock(VERSION_ID, SESSION_ID, {
         force: true,
       })
     ).rejects.toMatchObject({
@@ -427,7 +502,7 @@ describe("estimate draft locks", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const result = await releaseLock(VERSION_ID, {
+    const result = await releaseLock(VERSION_ID, SESSION_ID, {
       force: true,
     });
 

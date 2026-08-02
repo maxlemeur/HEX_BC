@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
+
 import {
   acquireEstimateDraftLock,
   batchEstimateOperations,
@@ -111,6 +113,9 @@ describe("estimate client optimistic concurrency", () => {
         credentials: "same-origin",
         headers: expect.objectContaining({
           "If-Match": UPDATED_AT,
+          [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: expect.stringMatching(
+            /^[0-9a-f-]{36}$/i
+          ),
         }),
       })
     );
@@ -189,6 +194,9 @@ describe("estimate client optimistic concurrency", () => {
         credentials: "same-origin",
         headers: expect.objectContaining({
           "If-Match": UPDATED_AT,
+          [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: expect.stringMatching(
+            /^[0-9a-f-]{36}$/i
+          ),
         }),
       })
     );
@@ -428,6 +436,9 @@ describe("estimate client optimistic concurrency", () => {
         credentials: "same-origin",
         headers: expect.objectContaining({
           "If-Match": UPDATED_AT,
+          [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: expect.stringMatching(
+            /^[0-9a-f-]{36}$/i
+          ),
         }),
       })
     );
@@ -519,6 +530,9 @@ describe("estimate client optimistic concurrency", () => {
         credentials: "same-origin",
         headers: expect.objectContaining({
           "If-Match": UPDATED_AT,
+          [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: expect.stringMatching(
+            /^[0-9a-f-]{36}$/i
+          ),
         }),
       })
     );
@@ -713,6 +727,7 @@ describe("estimate client draft lock wrappers", () => {
               holder_name: "Alice Martin",
               expires_at: LOCK_EXPIRES_AT,
               is_owner: true,
+              is_current_session: true,
             },
           },
         }),
@@ -745,6 +760,7 @@ describe("estimate client draft lock wrappers", () => {
         lockedAt: null,
         expiresAt: LOCK_EXPIRES_AT,
         isOwnedByCurrentUser: true,
+        isOwnedByCurrentSession: true,
       },
     });
   });
@@ -762,6 +778,8 @@ describe("estimate client draft lock wrappers", () => {
               user_id: LOCK_USER_ID,
               holder_name: "Alice Martin",
               expires_at: LOCK_EXPIRES_AT,
+              is_current_user: false,
+              is_current_session: false,
             },
           },
         }),
@@ -785,7 +803,8 @@ describe("estimate client draft lock wrappers", () => {
         holderName: "Alice Martin",
         lockedAt: null,
         expiresAt: LOCK_EXPIRES_AT,
-        isOwnedByCurrentUser: null,
+        isOwnedByCurrentUser: false,
+        isOwnedByCurrentSession: false,
       },
     });
   });
@@ -803,6 +822,7 @@ describe("estimate client draft lock wrappers", () => {
               holder_name: "Alice Martin",
               expires_at: LOCK_EXPIRES_AT,
               is_owner: true,
+              is_current_session: true,
             },
           },
         }),
@@ -1645,7 +1665,10 @@ describe("estimate client assemblies wrappers", () => {
       `/api/estimates/${VERSION_ID}/pdf?force=1`,
       expect.objectContaining({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: expect.any(String),
+        }),
         body: JSON.stringify({ layout }),
       })
     );

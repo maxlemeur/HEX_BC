@@ -21,7 +21,8 @@ vi.mock("@/lib/estimates/client", () => ({
   isEstimateApiError: mocks.isEstimateApiError,
 }));
 
-const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+const HEARTBEAT_INTERVAL_MS = 30 * 1000;
+const ACQUIRE_RETRY_INTERVAL_MS = 5 * 1000;
 
 type ApiLikeError = {
   __estimateApiError: true;
@@ -45,6 +46,7 @@ function createLock(
     lockedAt: "2026-07-15T10:00:00.000Z",
     expiresAt: "2026-07-15T10:15:00.000Z",
     isOwnedByCurrentUser: true,
+    isOwnedByCurrentSession: true,
     ...overrides,
   };
 }
@@ -137,6 +139,7 @@ describe("useDraftLock", () => {
       acquired: true,
       lock: createLock({
         isOwnedByCurrentUser: null,
+        isOwnedByCurrentSession: null,
         userId: "user-current",
       }),
     });
@@ -181,6 +184,62 @@ describe("useDraftLock", () => {
     expect(result.current.holderName).toBe("Bob Dupont");
     expect(result.current.isOwnedByCurrentUser).toBe(false);
     expect(result.current.error).toBeNull();
+  });
+
+  it("treats another page of the same user as a conflicting editor", async () => {
+    const otherPageLock = createLock({
+      isOwnedByCurrentUser: true,
+      isOwnedByCurrentSession: false,
+    });
+    mocks.acquireDraftLock.mockResolvedValueOnce({
+      acquired: false,
+      lock: otherPageLock,
+    });
+
+    const { result } = renderHook(() =>
+      useDraftLock({
+        versionId: "version-1",
+        currentUserId: "user-1",
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLockedByOther).toBe(true);
+    });
+
+    expect(result.current.isOwnedByCurrentUser).toBe(false);
+    expect(result.current.holderName).toBe(
+      "vous dans un autre onglet ou appareil"
+    );
+  });
+
+  it("automatically acquires after the other page releases the lock", async () => {
+    vi.useFakeTimers();
+    const otherPageLock = createLock({
+      isOwnedByCurrentUser: true,
+      isOwnedByCurrentSession: false,
+    });
+    mocks.acquireDraftLock
+      .mockResolvedValueOnce({ acquired: false, lock: otherPageLock })
+      .mockResolvedValueOnce({ acquired: true, lock: createLock() });
+
+    const { result } = renderHook(() =>
+      useDraftLock({
+        versionId: "version-1",
+        currentUserId: "user-1",
+      })
+    );
+
+    await flushAsyncWork();
+    expect(result.current.isLockedByOther).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACQUIRE_RETRY_INTERVAL_MS);
+    });
+
+    expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(2);
+    expect(result.current.isOwnedByCurrentUser).toBe(true);
+    expect(result.current.isLockedByOther).toBe(false);
   });
 
   it("surfaces acquisition errors and clears them after a successful retry", async () => {

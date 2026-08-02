@@ -924,9 +924,11 @@ const estimateDraftLockSchema = z.object({
   version_id: uuidSchema,
   tenant_id: uuidSchema,
   user_id: uuidSchema,
+  session_id: uuidSchema,
   locked_at: z.string(),
   expires_at: z.string(),
   is_current_user: z.boolean(),
+  is_current_session: z.boolean(),
   is_expired: z.boolean(),
   owner: estimateDraftLockOwnerSchema.nullable(),
 });
@@ -2992,6 +2994,15 @@ const estimateExplanationCompareVersionQueryParameter = queryParameter({
   required: true,
 });
 
+const estimateDraftLockSessionHeaderParameter = headerParameter({
+  name: "x-estimate-draft-lock-session-id",
+  description:
+    "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+  schemaName: "EstimateDraftLockSessionHeaderParameter",
+  schema: uuidSchema,
+  required: true,
+});
+
 const lockForceQueryParameter = queryParameter({
   name: "force",
   description: "Forcer l'operation de verrouillage/deverrouillage.",
@@ -4740,7 +4751,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Acquerir un verrou",
     description: "Acquiert le verrou d'edition d'une version brouillon.",
     tags: ["Estimate Locks"],
-    parameters: [versionIdPathParameter],
+    parameters: [
+      versionIdPathParameter,
+      estimateDraftLockSessionHeaderParameter,
+    ],
     responses: {
       "201": jsonResponse("Verrou acquis.", apiEstimateDraftLockSchemaDefinition),
     },
@@ -4751,7 +4765,11 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Renouveler un verrou",
     description: "Renouvelle le verrou d'edition sur la version brouillon.",
     tags: ["Estimate Locks"],
-    parameters: [versionIdPathParameter, lockForceQueryParameter],
+    parameters: [
+      versionIdPathParameter,
+      estimateDraftLockSessionHeaderParameter,
+      lockForceQueryParameter,
+    ],
     responses: {
       "200": jsonResponse("Verrou renouvele.", apiEstimateDraftLockSchemaDefinition),
     },
@@ -4762,7 +4780,11 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Relacher un verrou",
     description: "Relache le verrou d'edition sur la version brouillon.",
     tags: ["Estimate Locks"],
-    parameters: [versionIdPathParameter, lockForceQueryParameter],
+    parameters: [
+      versionIdPathParameter,
+      estimateDraftLockSessionHeaderParameter,
+      lockForceQueryParameter,
+    ],
     responses: {
       "200": jsonResponse(
         "Verrou relache.",

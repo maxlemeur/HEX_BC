@@ -11,7 +11,8 @@ import {
   type ReleaseEstimateDraftLockOptions,
 } from "@/lib/estimates/client";
 
-const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+const HEARTBEAT_INTERVAL_MS = 30 * 1000;
+const ACQUIRE_RETRY_INTERVAL_MS = 5 * 1000;
 
 type UseDraftLockOptions = {
   versionId: string;
@@ -42,6 +43,10 @@ function resolveLockOwnership(
   currentUserId: string | null | undefined
 ): boolean | null {
   if (!lock) return null;
+
+  if (typeof lock.isOwnedByCurrentSession === "boolean") {
+    return lock.isOwnedByCurrentSession;
+  }
 
   if (typeof lock.isOwnedByCurrentUser === "boolean") {
     return lock.isOwnedByCurrentUser;
@@ -85,6 +90,7 @@ export function useDraftLock({
   const isOwnedByCurrentUserRef = useRef(false);
   const targetGenerationRef = useRef(0);
   const activeTargetRef = useRef<DraftLockTarget | null>(null);
+  const acquisitionInFlightRef = useRef(new Set<number>());
   const releaseQueueByVersionRef = useRef(
     new Map<string, Promise<unknown>>()
   );
@@ -211,8 +217,14 @@ export function useDraftLock({
   );
 
   const acquireForTarget = useCallback(async (target: DraftLockTarget) => {
-    if (!isCurrentTarget(target)) return false;
+    if (
+      !isCurrentTarget(target) ||
+      acquisitionInFlightRef.current.has(target.generation)
+    ) {
+      return false;
+    }
 
+    acquisitionInFlightRef.current.add(target.generation);
     setIsAcquiring(true);
     setError(null);
 
@@ -254,6 +266,7 @@ export function useDraftLock({
       );
       return false;
     } finally {
+      acquisitionInFlightRef.current.delete(target.generation);
       if (isCurrentTarget(target)) {
         setIsAcquiring(false);
       }
@@ -404,6 +417,45 @@ export function useDraftLock({
   }, [enabled, isOwnedByCurrentUser, renewForTarget, versionId]);
 
   useEffect(() => {
+    if (!enabled || !versionId || isOwnedByCurrentUser) return;
+    const target = activeTargetRef.current;
+    if (!target || target.versionId !== versionId) return;
+
+    const intervalId = window.setInterval(() => {
+      void acquireForTarget(target);
+    }, ACQUIRE_RETRY_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [acquireForTarget, enabled, isOwnedByCurrentUser, versionId]);
+
+  useEffect(() => {
+    if (!enabled || !versionId) return;
+    const target = activeTargetRef.current;
+    if (!target || target.versionId !== versionId) return;
+
+    const refreshLease = () => {
+      if (document.visibilityState === "hidden") return;
+
+      if (isOwnedByCurrentUserRef.current) {
+        void renewForTarget(target);
+        return;
+      }
+
+      void acquireForTarget(target);
+    };
+
+    window.addEventListener("focus", refreshLease);
+    document.addEventListener("visibilitychange", refreshLease);
+
+    return () => {
+      window.removeEventListener("focus", refreshLease);
+      document.removeEventListener("visibilitychange", refreshLease);
+    };
+  }, [acquireForTarget, enabled, renewForTarget, versionId]);
+
+  useEffect(() => {
     if (!enabled || !versionId) return;
     const target = activeTargetRef.current;
     if (!target || target.versionId !== versionId) return;
@@ -420,8 +472,19 @@ export function useDraftLock({
   }, [enabled, releaseForVersion, versionId]);
 
   const holderName = useMemo(() => {
+    if (
+      lock?.isOwnedByCurrentUser === true &&
+      lock.isOwnedByCurrentSession === false
+    ) {
+      return "vous dans un autre onglet ou appareil";
+    }
+
     return lock?.holderName ?? null;
-  }, [lock?.holderName]);
+  }, [
+    lock?.holderName,
+    lock?.isOwnedByCurrentSession,
+    lock?.isOwnedByCurrentUser,
+  ]);
 
   return {
     lock,

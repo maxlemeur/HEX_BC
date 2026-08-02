@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
+} from "@/lib/estimates/lock-session";
 import { acquireLock, releaseLock, renewLock } from "@/lib/estimates/locks";
 
 const versionIdParamSchema = z.object({
@@ -10,6 +14,18 @@ const versionIdParamSchema = z.object({
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
+}
+
+function getSessionId(request: Request) {
+  const sessionId = normalizeEstimateDraftLockSessionId(
+    request.headers.get(ESTIMATE_DRAFT_LOCK_SESSION_HEADER)
+  );
+
+  if (!sessionId) {
+    throw badRequest("Identifiant de page d'édition invalide.");
+  }
+
+  return sessionId;
 }
 
 function parseForceQuery(request: Request) {
@@ -31,12 +47,13 @@ function parseForceQuery(request: Request) {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
     const versionId = await getVersionId(params);
-    const data = await acquireLock(versionId);
+    const sessionId = getSessionId(request);
+    const data = await acquireLock(versionId, sessionId);
     return ok(data, 201);
   } catch (error) {
     return toErrorResponse(error);
@@ -49,8 +66,9 @@ export async function PATCH(
 ) {
   try {
     const versionId = await getVersionId(params);
+    const sessionId = getSessionId(request);
     const force = parseForceQuery(request);
-    const data = await renewLock(versionId, {
+    const data = await renewLock(versionId, sessionId, {
       force,
     });
     return ok(data);
@@ -65,8 +83,9 @@ export async function DELETE(
 ) {
   try {
     const versionId = await getVersionId(params);
+    const sessionId = getSessionId(request);
     const force = parseForceQuery(request);
-    const data = await releaseLock(versionId, {
+    const data = await releaseLock(versionId, sessionId, {
       force,
     });
     return ok(data);

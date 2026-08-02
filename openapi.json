@@ -2753,6 +2753,15 @@
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
             }
+          },
+          {
+            "name": "x-estimate-draft-lock-session-id",
+            "in": "header",
+            "description": "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateDraftLockSessionHeaderParameter"
+            }
           }
         ],
         "responses": {
@@ -2842,6 +2851,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "x-estimate-draft-lock-session-id",
+            "in": "header",
+            "description": "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateDraftLockSessionHeaderParameter"
             }
           },
           {
@@ -2941,6 +2959,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "x-estimate-draft-lock-session-id",
+            "in": "header",
+            "description": "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateDraftLockSessionHeaderParameter"
             }
           },
           {
@@ -17260,6 +17287,11 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "EstimateDraftLockSessionHeaderParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
       "ApiEstimateDraftLockResponse": {
         "type": "object",
         "properties": {
@@ -17293,6 +17325,11 @@
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
+                  "session_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
                   "locked_at": {
                     "type": "string"
                   },
@@ -17300,6 +17337,9 @@
                     "type": "string"
                   },
                   "is_current_user": {
+                    "type": "boolean"
+                  },
+                  "is_current_session": {
                     "type": "boolean"
                   },
                   "is_expired": {
@@ -17354,9 +17394,11 @@
                   "version_id",
                   "tenant_id",
                   "user_id",
+                  "session_id",
                   "locked_at",
                   "expires_at",
                   "is_current_user",
+                  "is_current_session",
                   "is_expired",
                   "owner"
                 ],
@@ -17422,6 +17464,11 @@
                         "format": "uuid",
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       },
+                      "session_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
                       "locked_at": {
                         "type": "string"
                       },
@@ -17429,6 +17476,9 @@
                         "type": "string"
                       },
                       "is_current_user": {
+                        "type": "boolean"
+                      },
+                      "is_current_session": {
                         "type": "boolean"
                       },
                       "is_expired": {
@@ -17483,9 +17533,11 @@
                       "version_id",
                       "tenant_id",
                       "user_id",
+                      "session_id",
                       "locked_at",
                       "expires_at",
                       "is_current_user",
+                      "is_current_session",
                       "is_expired",
                       "owner"
                     ],

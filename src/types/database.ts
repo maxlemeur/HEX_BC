@@ -1785,6 +1785,7 @@ export type Database = {
           id: string;
           version_id: string;
           user_id: string;
+          session_id: string;
           tenant_id: string;
           locked_at: string;
           expires_at: string;
@@ -1794,6 +1795,7 @@ export type Database = {
           id?: string;
           version_id: string;
           user_id: string;
+          session_id: string;
           tenant_id?: string;
           locked_at?: string;
           expires_at?: string;
@@ -1803,6 +1805,7 @@ export type Database = {
           id?: string;
           version_id?: string;
           user_id?: string;
+          session_id?: string;
           tenant_id?: string;
           locked_at?: string;
           expires_at?: string;

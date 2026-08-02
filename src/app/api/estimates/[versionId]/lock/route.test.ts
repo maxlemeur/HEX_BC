@@ -12,9 +12,20 @@ import {
   POST,
 } from "@/app/api/estimates/[versionId]/lock/route";
 import { conflict, forbidden } from "@/lib/estimates/errors";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { acquireLock, releaseLock, renewLock } from "@/lib/estimates/locks";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SESSION_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+function createLockRequest(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set(ESTIMATE_DRAFT_LOCK_SESSION_HEADER, SESSION_ID);
+  return new Request(input, {
+    ...init,
+    headers,
+  });
+}
 
 describe("estimate lock route", () => {
   beforeEach(() => {
@@ -29,7 +40,7 @@ describe("estimate lock route", () => {
       },
     } as never);
 
-    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
+    const request = createLockRequest(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
       method: "POST",
     });
 
@@ -39,7 +50,7 @@ describe("estimate lock route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(201);
-    expect(vi.mocked(acquireLock)).toHaveBeenCalledWith(VERSION_ID);
+    expect(vi.mocked(acquireLock)).toHaveBeenCalledWith(VERSION_ID, SESSION_ID);
     expect(payload).toEqual(
       expect.objectContaining({
         ok: true,
@@ -53,7 +64,7 @@ describe("estimate lock route", () => {
   });
 
   it("returns 400 when versionId is invalid", async () => {
-    const request = new Request("http://localhost/api/estimates/not-a-uuid/lock", {
+    const request = createLockRequest("http://localhost/api/estimates/not-a-uuid/lock", {
       method: "POST",
     });
 
@@ -82,7 +93,7 @@ describe("estimate lock route", () => {
       },
     } as never);
 
-    const request = new Request(
+    const request = createLockRequest(
       `http://localhost/api/estimates/${VERSION_ID}/lock?force=1`,
       {
         method: "PATCH",
@@ -94,9 +105,13 @@ describe("estimate lock route", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(vi.mocked(renewLock)).toHaveBeenCalledWith(VERSION_ID, {
-      force: true,
-    });
+    expect(vi.mocked(renewLock)).toHaveBeenCalledWith(
+      VERSION_ID,
+      SESSION_ID,
+      {
+        force: true,
+      }
+    );
   });
 
   it("forwards force=false by default to release", async () => {
@@ -105,7 +120,7 @@ describe("estimate lock route", () => {
       lock: null,
     } as never);
 
-    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
+    const request = createLockRequest(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
       method: "DELETE",
     });
 
@@ -114,13 +129,41 @@ describe("estimate lock route", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(vi.mocked(releaseLock)).toHaveBeenCalledWith(VERSION_ID, {
-      force: false,
+    expect(vi.mocked(releaseLock)).toHaveBeenCalledWith(
+      VERSION_ID,
+      SESSION_ID,
+      {
+        force: false,
+      }
+    );
+  });
+
+  it("rejects a missing page session identifier", async () => {
+    const request = new Request(
+      `http://localhost/api/estimates/${VERSION_ID}/lock`,
+      { method: "POST" }
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
     });
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          code: "BAD_REQUEST",
+          message: "Identifiant de page d'édition invalide.",
+        }),
+      })
+    );
+    expect(vi.mocked(acquireLock)).not.toHaveBeenCalled();
   });
 
   it("returns 400 when force query param is invalid", async () => {
-    const request = new Request(
+    const request = createLockRequest(
       `http://localhost/api/estimates/${VERSION_ID}/lock?force=maybe`,
       {
         method: "DELETE",
@@ -154,7 +197,7 @@ describe("estimate lock route", () => {
       })
     );
 
-    const postRequest = new Request(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
+    const postRequest = createLockRequest(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
       method: "POST",
     });
 
@@ -177,7 +220,7 @@ describe("estimate lock route", () => {
       forbidden("Seuls les admins peuvent forcer le verrou de brouillon.")
     );
 
-    const patchRequest = new Request(
+    const patchRequest = createLockRequest(
       `http://localhost/api/estimates/${VERSION_ID}/lock?force=1`,
       {
         method: "PATCH",

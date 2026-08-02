@@ -1,4 +1,7 @@
 import { downloadBlob } from "@/lib/browser-download";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+} from "@/lib/estimates/lock-session";
 import type { Database } from "@/types/database";
 import {
   isEstimateApprovalDecisionFilter,
@@ -66,6 +69,61 @@ const ESTIMATE_STATUS_VALUES: EstimateStatus[] = [
   "archived",
 ];
 const ESTIMATE_CURRENCY_VALUES = ["EUR", "USD", "GBP"] as const;
+const ESTIMATE_VERSION_API_PATH_PATTERN =
+  /^\/api\/estimates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?]|$)/i;
+const ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY =
+  "__miaouffrageEstimateDraftLockSessions";
+
+type EstimateDraftLockSessionGlobal = typeof globalThis & {
+  __miaouffrageEstimateDraftLockSessions?: Map<string, string>;
+};
+
+function createEstimateDraftLockSessionId() {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  if (randomUuid) return randomUuid;
+
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (digit) =>
+    (
+      Number(digit) ^
+      ((Math.random() * 16) >> (Number(digit) / 4))
+    ).toString(16)
+  );
+}
+
+export function getEstimateDraftLockSessionId(versionId: string) {
+  const scope = globalThis as EstimateDraftLockSessionGlobal;
+  const store =
+    scope[ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY] ??
+    new Map<string, string>();
+  scope[ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY] = store;
+
+  const existingSessionId = store.get(versionId);
+  if (existingSessionId) return existingSessionId;
+
+  const sessionId = createEstimateDraftLockSessionId();
+  store.set(versionId, sessionId);
+  return sessionId;
+}
+
+function withEstimateDraftLockSessionHeader(
+  path: string,
+  init: RequestInit
+): RequestInit {
+  const versionId = path.match(ESTIMATE_VERSION_API_PATH_PATTERN)?.[1];
+  if (!versionId) return init;
+
+  const headers: Record<string, string> =
+    init.headers instanceof Headers || Array.isArray(init.headers)
+      ? Object.fromEntries(new Headers(init.headers).entries())
+      : { ...(init.headers ?? {}) };
+  headers[ESTIMATE_DRAFT_LOCK_SESSION_HEADER] =
+    getEstimateDraftLockSessionId(versionId);
+
+  return {
+    ...init,
+    headers,
+  };
+}
 
 type JsonRecord = Record<string, unknown>;
 type VersionZeroDraftCounts = NonNullable<
@@ -875,6 +933,7 @@ export type EstimateDraftLock = {
   lockedAt: string | null;
   expiresAt: string | null;
   isOwnedByCurrentUser: boolean | null;
+  isOwnedByCurrentSession: boolean | null;
 };
 
 export type EstimateVersionEvent = {
@@ -1998,9 +2057,10 @@ async function requestJson<T>(
   init: RequestInit,
   fallbackMessage: string
 ): Promise<T> {
+  const requestInit = withEstimateDraftLockSessionHeader(path, init);
   const response = await fetch(path, {
     credentials: "same-origin",
-    ...init,
+    ...requestInit,
   });
   const payload = await readJson(response);
 
@@ -3463,6 +3523,15 @@ function parseEstimateDraftLock(
     toBooleanValue(root.ownedByCurrentUser) ??
     null;
 
+  const isOwnedByCurrentSession =
+    toBooleanValue(lockEntity.is_current_session) ??
+    toBooleanValue(lockEntity.isCurrentSession) ??
+    toBooleanValue(lockEntity.is_owned_by_current_session) ??
+    toBooleanValue(lockEntity.isOwnedByCurrentSession) ??
+    toBooleanValue(root.is_current_session) ??
+    toBooleanValue(root.isOwnedByCurrentSession) ??
+    null;
+
   return {
     versionId,
     userId,
@@ -3470,6 +3539,7 @@ function parseEstimateDraftLock(
     lockedAt,
     expiresAt,
     isOwnedByCurrentUser,
+    isOwnedByCurrentSession,
   };
 }
 
@@ -4804,7 +4874,7 @@ export async function acquireEstimateDraftLock(
     const lock = parseEstimateDraftLock(payload, versionId);
     const acquired =
       extractBoolean(payload, ["acquired", "is_acquired"]) ??
-      lock?.isOwnedByCurrentUser ??
+      lock?.isOwnedByCurrentSession ??
       true;
 
     return {
@@ -4837,7 +4907,7 @@ export async function renewEstimateDraftLock(
     const lock = parseEstimateDraftLock(payload, versionId);
     const renewed =
       extractBoolean(payload, ["renewed", "is_renewed"]) ??
-      lock?.isOwnedByCurrentUser ??
+      lock?.isOwnedByCurrentSession ??
       true;
 
     return {

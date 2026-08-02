@@ -14,8 +14,12 @@ import {
 type Supabase = SupabaseClient<Database>;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
-type DraftLockRow = Database["public"]["Tables"]["draft_locks"]["Row"];
-type DraftLockInsert = Database["public"]["Tables"]["draft_locks"]["Insert"];
+type DraftLockRow = Database["public"]["Tables"]["draft_locks"]["Row"] & {
+  session_id: string;
+};
+type DraftLockInsert = Database["public"]["Tables"]["draft_locks"]["Insert"] & {
+  session_id: string;
+};
 type TenantMembershipRow = Pick<
   Database["public"]["Tables"]["tenant_memberships"]["Row"],
   "tenant_id" | "role" | "is_default" | "created_at"
@@ -42,7 +46,7 @@ type AuthenticatedContext = {
   tenantRole: TenantRole;
 };
 
-const DRAFT_LOCK_TTL_MINUTES = 30;
+const DRAFT_LOCK_TTL_SECONDS = 120;
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 
 type LockOwner = {
@@ -56,9 +60,11 @@ export type DraftLock = {
   version_id: string;
   tenant_id: string;
   user_id: string;
+  session_id: string;
   locked_at: string;
   expires_at: string;
   is_current_user: boolean;
+  is_current_session: boolean;
   is_expired: boolean;
   owner: LockOwner | null;
 };
@@ -110,7 +116,7 @@ function assertDraftStatus(status: EstimateStatus) {
 }
 
 function toLockExpiryIsoDate() {
-  return new Date(Date.now() + DRAFT_LOCK_TTL_MINUTES * 60 * 1000).toISOString();
+  return new Date(Date.now() + DRAFT_LOCK_TTL_SECONDS * 1000).toISOString();
 }
 
 function isExpiredLock(expiresAt: string) {
@@ -218,7 +224,7 @@ async function getLockRowByVersionId(input: {
 }) {
   const { data, error } = await input.supabase
     .from("draft_locks")
-    .select("id, version_id, user_id, tenant_id, locked_at, expires_at, created_at")
+    .select("id, version_id, user_id, session_id, tenant_id, locked_at, expires_at, created_at")
     .eq("version_id", input.versionId)
     .eq("tenant_id", input.tenantId)
     .maybeSingle();
@@ -248,6 +254,7 @@ async function toDraftLock(input: {
   supabase: Supabase;
   row: DraftLockRow;
   currentUserId: string;
+  currentSessionId?: string | null;
 }): Promise<DraftLock> {
   const owner = await getLockOwnerById(input.supabase, input.row.user_id);
 
@@ -256,9 +263,11 @@ async function toDraftLock(input: {
     version_id: input.row.version_id,
     tenant_id: input.row.tenant_id,
     user_id: input.row.user_id,
+    session_id: input.row.session_id,
     locked_at: input.row.locked_at,
     expires_at: input.row.expires_at,
     is_current_user: input.row.user_id === input.currentUserId,
+    is_current_session: input.row.session_id === input.currentSessionId,
     is_expired: isExpiredLock(input.row.expires_at),
     owner: owner
       ? {
@@ -273,6 +282,7 @@ async function toDraftLock(input: {
 async function getDraftLockInfoInternal(input: {
   context: AuthenticatedContext;
   versionId: string;
+  sessionId?: string | null;
 }) {
   const lockRow = await getLockRowByVersionId({
     supabase: input.context.supabase,
@@ -288,6 +298,7 @@ async function getDraftLockInfoInternal(input: {
     supabase: input.context.supabase,
     row: lockRow,
     currentUserId: input.context.userId,
+    currentSessionId: input.sessionId,
   });
 }
 
@@ -295,6 +306,7 @@ async function renewLockInternal(
   context: AuthenticatedContext,
   versionId: string,
   options: {
+    sessionId: string;
     force: boolean;
     requireDraftCheck: boolean;
   }
@@ -316,11 +328,13 @@ async function renewLockInternal(
     .eq("tenant_id", context.tenantId);
 
   if (!options.force) {
-    query = query.eq("user_id", context.userId);
+    query = query
+      .eq("user_id", context.userId)
+      .eq("session_id", options.sessionId);
   }
 
   const { data, error } = await query
-    .select("id, version_id, user_id, tenant_id, locked_at, expires_at, created_at")
+    .select("id, version_id, user_id, session_id, tenant_id, locked_at, expires_at, created_at")
     .maybeSingle();
 
   if (error) {
@@ -334,6 +348,7 @@ async function renewLockInternal(
       supabase: context.supabase,
       row: lockRow,
       currentUserId: context.userId,
+      currentSessionId: options.sessionId,
     });
 
     return {
@@ -344,15 +359,16 @@ async function renewLockInternal(
   const existingLock = await getDraftLockInfoInternal({
     context,
     versionId,
+    sessionId: options.sessionId,
   });
 
-  if (existingLock && !options.force && existingLock.user_id !== context.userId) {
-    throw conflict(
-      "Cette version est déjà verrouillée par un autre utilisateur.",
-      {
-        lock: existingLock,
-      }
-    );
+  if (existingLock && !options.force) {
+    const message = existingLock.is_current_user
+      ? "Cette version est déjà verrouillée dans une autre page d'édition."
+      : "Cette version est déjà verrouillée par un autre utilisateur.";
+    throw conflict(message, {
+      lock: existingLock,
+    });
   }
 
   throw notFound("Aucun verrou actif pour cette version.");
@@ -362,6 +378,7 @@ async function releaseLockInternal(
   context: AuthenticatedContext,
   versionId: string,
   options: {
+    sessionId: string;
     force: boolean;
   }
 ): Promise<ReleaseDraftLockResult> {
@@ -378,11 +395,13 @@ async function releaseLockInternal(
     .eq("tenant_id", context.tenantId);
 
   if (!options.force) {
-    query = query.eq("user_id", context.userId);
+    query = query
+      .eq("user_id", context.userId)
+      .eq("session_id", options.sessionId);
   }
 
   const { data, error } = await query
-    .select("id, version_id, user_id, tenant_id, locked_at, expires_at, created_at")
+    .select("id, version_id, user_id, session_id, tenant_id, locked_at, expires_at, created_at")
     .maybeSingle();
 
   if (error) {
@@ -396,6 +415,7 @@ async function releaseLockInternal(
       supabase: context.supabase,
       row: lockRow,
       currentUserId: context.userId,
+      currentSessionId: options.sessionId,
     });
 
     return {
@@ -407,15 +427,16 @@ async function releaseLockInternal(
   const existingLock = await getDraftLockInfoInternal({
     context,
     versionId,
+    sessionId: options.sessionId,
   });
 
-  if (existingLock && !options.force && existingLock.user_id !== context.userId) {
-    throw conflict(
-      "Cette version est déjà verrouillée par un autre utilisateur.",
-      {
-        lock: existingLock,
-      }
-    );
+  if (existingLock && !options.force) {
+    const message = existingLock.is_current_user
+      ? "Cette version est déjà verrouillée dans une autre page d'édition."
+      : "Cette version est déjà verrouillée par un autre utilisateur.";
+    throw conflict(message, {
+      lock: existingLock,
+    });
   }
 
   return {
@@ -424,7 +445,10 @@ async function releaseLockInternal(
   };
 }
 
-export async function getLockInfo(versionId: string): Promise<GetDraftLockInfoResult> {
+export async function getLockInfo(
+  versionId: string,
+  sessionId?: string | null
+): Promise<GetDraftLockInfoResult> {
   const context = await getAuthenticatedContext();
 
   await assertVersionAccessOrThrow(context, versionId, { requireDraft: false });
@@ -432,6 +456,7 @@ export async function getLockInfo(versionId: string): Promise<GetDraftLockInfoRe
   const lock = await getDraftLockInfoInternal({
     context,
     versionId,
+    sessionId,
   });
 
   return {
@@ -439,7 +464,10 @@ export async function getLockInfo(versionId: string): Promise<GetDraftLockInfoRe
   };
 }
 
-export async function acquireLock(versionId: string): Promise<AcquireDraftLockResult> {
+export async function acquireLock(
+  versionId: string,
+  sessionId: string
+): Promise<AcquireDraftLockResult> {
   const context = await getAuthenticatedContext();
 
   await assertVersionAccessOrThrow(context, versionId, { requireDraft: true });
@@ -448,6 +476,7 @@ export async function acquireLock(versionId: string): Promise<AcquireDraftLockRe
   const payload: DraftLockInsert = {
     version_id: versionId,
     user_id: context.userId,
+    session_id: sessionId,
     tenant_id: context.tenantId,
     expires_at: toLockExpiryIsoDate(),
   };
@@ -455,7 +484,7 @@ export async function acquireLock(versionId: string): Promise<AcquireDraftLockRe
   const { data, error } = await context.supabase
     .from("draft_locks")
     .insert(payload)
-    .select("id, version_id, user_id, tenant_id, locked_at, expires_at, created_at")
+    .select("id, version_id, user_id, session_id, tenant_id, locked_at, expires_at, created_at")
     .single();
 
   if (data && !error) {
@@ -463,6 +492,7 @@ export async function acquireLock(versionId: string): Promise<AcquireDraftLockRe
       supabase: context.supabase,
       row: data as DraftLockRow,
       currentUserId: context.userId,
+      currentSessionId: sessionId,
     });
 
     return {
@@ -474,17 +504,22 @@ export async function acquireLock(versionId: string): Promise<AcquireDraftLockRe
     const existingLock = await getDraftLockInfoInternal({
       context,
       versionId,
+      sessionId,
     });
 
-    if (existingLock?.user_id === context.userId) {
+    if (existingLock?.is_current_user && existingLock.is_current_session) {
       return renewLockInternal(context, versionId, {
+        sessionId,
         force: false,
         requireDraftCheck: false,
       });
     }
 
+    const message = existingLock?.is_current_user
+      ? "Cette version est déjà verrouillée dans une autre page d'édition."
+      : "Cette version est déjà verrouillée par un autre utilisateur.";
     throw conflict(
-      "Cette version est déjà verrouillée par un autre utilisateur.",
+      message,
       existingLock
         ? {
             lock: existingLock,
@@ -502,12 +537,14 @@ export async function acquireLock(versionId: string): Promise<AcquireDraftLockRe
 
 export async function renewLock(
   versionId: string,
+  sessionId: string,
   options?: {
     force?: boolean;
   }
 ): Promise<RenewDraftLockResult> {
   const context = await getAuthenticatedContext();
   return renewLockInternal(context, versionId, {
+    sessionId,
     force: options?.force === true,
     requireDraftCheck: true,
   });
@@ -515,20 +552,23 @@ export async function renewLock(
 
 export async function releaseLock(
   versionId: string,
+  sessionId: string,
   options?: {
     force?: boolean;
   }
 ): Promise<ReleaseDraftLockResult> {
   const context = await getAuthenticatedContext();
   return releaseLockInternal(context, versionId, {
+    sessionId,
     force: options?.force === true,
   });
 }
 
 export async function forceReleaseLock(
-  versionId: string
+  versionId: string,
+  sessionId: string
 ): Promise<ReleaseDraftLockResult> {
-  return releaseLock(versionId, {
+  return releaseLock(versionId, sessionId, {
     force: true,
   });
 }

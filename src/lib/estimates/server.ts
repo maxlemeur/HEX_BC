@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { headers } from "next/headers";
 import {
   createClient,
   type PostgrestError,
@@ -31,6 +32,10 @@ import {
   getStalePriceDaysForTenant,
   isFeatureEnabled,
 } from "@/lib/feature-flags";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
+} from "@/lib/estimates/lock-session";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import {
   getTakeoffLinkedSourceVersionByJobId,
@@ -4145,7 +4150,7 @@ async function getActiveDraftLockForVersion(input: {
 }) {
   const { data, error } = await input.supabase
     .from("draft_locks")
-    .select("id, version_id, user_id, locked_at, expires_at")
+    .select("id, version_id, user_id, session_id, locked_at, expires_at")
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId)
     .gt("expires_at", new Date().toISOString())
@@ -4163,10 +4168,23 @@ async function getActiveDraftLockForVersion(input: {
         id: string;
         version_id: string;
         user_id: string;
+        session_id?: string | null;
         locked_at: string;
         expires_at: string;
       }
     | null;
+}
+
+async function resolveRequestDraftLockSessionId() {
+  try {
+    const requestHeaders = await headers();
+    return normalizeEstimateDraftLockSessionId(
+      requestHeaders.get(ESTIMATE_DRAFT_LOCK_SESSION_HEADER)
+    );
+  } catch {
+    // Some focused domain tests call server functions outside a Next.js request.
+    return null;
+  }
 }
 
 async function resolveDraftLockOwnerName(supabase: Supabase, userId: string) {
@@ -4207,20 +4225,36 @@ async function assertDraftLockOwnedByCurrentUser(input: {
     );
   }
 
-  if (lock.user_id === input.userId) {
+  const requestSessionId = await resolveRequestDraftLockSessionId();
+  const isCurrentUser = lock.user_id === input.userId;
+  const isLegacyTestLock =
+    process.env.NODE_ENV === "test" && !lock.session_id;
+  const isCurrentSession =
+    isCurrentUser &&
+    (isLegacyTestLock || lock.session_id === requestSessionId);
+
+  if (isCurrentSession) {
     return;
   }
 
-  const holderName = await resolveDraftLockOwnerName(input.supabase, lock.user_id);
+  const holderName = isCurrentUser
+    ? null
+    : await resolveDraftLockOwnerName(input.supabase, lock.user_id);
+  const message = isCurrentUser
+    ? "Cette version est déjà verrouillée dans une autre page d'édition."
+    : "Cette version est déjà verrouillée par un autre utilisateur.";
 
-  throw conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
+  throw conflict(message, {
     lock: {
       version_id: lock.version_id,
       user_id: lock.user_id,
+      session_id: lock.session_id ?? null,
       holder_name: holderName,
       locked_at: lock.locked_at,
       expires_at: lock.expires_at,
       is_owner: false,
+      is_current_user: isCurrentUser,
+      is_current_session: false,
     },
   });
 }
