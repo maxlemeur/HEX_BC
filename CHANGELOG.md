@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/maxlemeur/HEX_BC/compare/v0.2.0...v0.3.0) (2026-08-08)
+
+
+### Features
+
+* **affaires:** add safe bulk archive and deletion ([37d796d](https://github.com/maxlemeur/HEX_BC/commit/37d796dae81952088bb9284f2e9372228bce78c5))
+
 ## [0.2.0](https://github.com/maxlemeur/HEX_BC/compare/v0.1.0...v0.2.0) (2026-08-08)
 
 
