@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/maxlemeur/HEX_BC/compare/v0.3.0...v0.3.1) (2026-08-08)
+
+
+### Bug Fixes
+
+* **security:** revoke anonymous structured import execution ([dd7009d](https://github.com/maxlemeur/HEX_BC/commit/dd7009d86084659c7bb08fb1f7b6818daa6ce923))
+
 ## [0.3.0](https://github.com/maxlemeur/HEX_BC/compare/v0.2.0...v0.3.0) (2026-08-08)
 
 
