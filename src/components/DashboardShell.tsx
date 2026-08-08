@@ -646,15 +646,6 @@ export function DashboardShell({
               <SignOutButton />
             </div>
           </div>
-          <p
-            className="sidebar-label mt-3 text-center text-[10px] font-medium tracking-wide text-white/40"
-            role="note"
-            aria-label={`Version de l'application ${appVersion}${
-              appBuildId ? `, build ${appBuildId}` : ""
-            }`}
-          >
-            {`v${appVersion}${appBuildId ? ` · ${appBuildId}` : ""}`}
-          </p>
         </div>
       </aside>
 
@@ -683,6 +674,16 @@ export function DashboardShell({
         >
           {children}
         </div>
+        <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-[10px] font-medium tracking-wide text-[var(--slate-400)] sm:px-6">
+          <p
+            role="note"
+            aria-label={`Version de l'application ${appVersion}${
+              appBuildId ? `, build ${appBuildId}` : ""
+            }`}
+          >
+            {`v${appVersion}${appBuildId ? ` · ${appBuildId}` : ""}`}
+          </p>
+        </footer>
       </main>
 
       <KeyboardShortcutsModal
