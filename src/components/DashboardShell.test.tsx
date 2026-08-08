@@ -126,7 +126,11 @@ afterEach(() => {
 describe("DashboardShell universal topbar navigation", () => {
   it("renders the same horizontal navigation on standard dashboard screens", () => {
     render(
-      <DashboardShell displayName="Jean Dupont">
+      <DashboardShell
+        appBuildId="abcdef1"
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
         <div>Contenu</div>
       </DashboardShell>
     );
@@ -154,12 +158,21 @@ describe("DashboardShell universal topbar navigation", () => {
     expect(main.style.getPropertyValue("--sidebar-offset")).toBe("0px");
     expect(main.firstElementChild).toHaveClass("py-6", "sm:py-8");
     expect(main.firstElementChild).not.toHaveClass("dashboard-workspace-content");
+    expect(
+      screen.getByRole("note", {
+        name: "Version de l'application 1.2.3, build abcdef1",
+      })
+    ).toHaveTextContent("v1.2.3 · abcdef1");
   });
 
   it("opens grouped destinations from the topbar with keyboard navigation", async () => {
     const user = userEvent.setup();
     render(
-      <DashboardShell displayName="Jean Dupont">
+      <DashboardShell
+        appBuildId={null}
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
         <div>Contenu</div>
       </DashboardShell>
     );
@@ -186,7 +199,11 @@ describe("DashboardShell universal topbar navigation", () => {
   it("opens an accessible overlay menu, traps focus and restores it on Escape", async () => {
     const user = userEvent.setup();
     render(
-      <DashboardShell displayName="Jean Dupont">
+      <DashboardShell
+        appBuildId={null}
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
         <div>Contenu</div>
       </DashboardShell>
     );
@@ -224,7 +241,11 @@ describe("DashboardShell universal topbar navigation", () => {
 
   it("provides a skip link and focuses main content after client navigation", async () => {
     const { rerender } = render(
-      <DashboardShell displayName="Jean Dupont">
+      <DashboardShell
+        appBuildId={null}
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
         <div>Contenu</div>
       </DashboardShell>
     );
@@ -235,7 +256,11 @@ describe("DashboardShell universal topbar navigation", () => {
 
     navigationState.pathname = "/dashboard/affaires";
     rerender(
-      <DashboardShell displayName="Jean Dupont">
+      <DashboardShell
+        appBuildId={null}
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
         <div>Nouveau contenu</div>
       </DashboardShell>
     );
@@ -247,7 +272,11 @@ describe("DashboardShell universal topbar navigation", () => {
     navigationState.pathname = "/dashboard/estimates/version-1/edit";
 
     render(
-      <DashboardShell displayName="Jean Dupont">
+      <DashboardShell
+        appBuildId={null}
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
         <div>Éditeur</div>
       </DashboardShell>
     );

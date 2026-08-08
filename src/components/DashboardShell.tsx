@@ -115,9 +115,13 @@ function ModeToggleSwitch({
 }
 
 export function DashboardShell({
+  appBuildId,
+  appVersion,
   children,
   displayName,
 }: Readonly<{
+  appBuildId: string | null;
+  appVersion: string;
   children: React.ReactNode;
   displayName: string;
 }>) {
@@ -642,6 +646,15 @@ export function DashboardShell({
               <SignOutButton />
             </div>
           </div>
+          <p
+            className="sidebar-label mt-3 text-center text-[10px] font-medium tracking-wide text-white/40"
+            role="note"
+            aria-label={`Version de l'application ${appVersion}${
+              appBuildId ? `, build ${appBuildId}` : ""
+            }`}
+          >
+            {`v${appVersion}${appBuildId ? ` · ${appBuildId}` : ""}`}
+          </p>
         </div>
       </aside>
 
