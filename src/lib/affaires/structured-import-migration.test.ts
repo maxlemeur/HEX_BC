@@ -10,6 +10,13 @@ const migrationPath = join(
   "20260802175032_structured_dpgf_import_hierarchy.sql",
 );
 const migration = readFileSync(migrationPath, "utf8");
+const permissionMigrationPath = join(
+  process.cwd(),
+  "supabase",
+  "migrations",
+  "20260808204122_revoke_structured_dpgf_import_anon_execute.sql",
+);
+const permissionMigration = readFileSync(permissionMigrationPath, "utf8");
 
 describe("structured DPGF import migration", () => {
   it("keeps the existing RPC signature and defaults legacy entries to lines", () => {
@@ -38,5 +45,14 @@ describe("structured DPGF import migration", () => {
     expect(migration).toContain("v_import.filename");
     expect(migration).toContain("source_metadata");
     expect(migration).toContain("source_page");
+  });
+
+  it("keeps the RPC inaccessible to public and anonymous callers", () => {
+    expect(permissionMigration).toMatch(
+      /revoke execute on function public\.create_estimate_version_from_import_lines\(\s*uuid,\s*uuid,\s*text,\s*text,\s*jsonb\s*\) from public, anon;/,
+    );
+    expect(permissionMigration).toMatch(
+      /grant execute on function public\.create_estimate_version_from_import_lines\(\s*uuid,\s*uuid,\s*text,\s*text,\s*jsonb\s*\) to authenticated;/,
+    );
   });
 });
