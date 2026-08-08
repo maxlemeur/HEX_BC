@@ -1,6 +1,6 @@
 # Domaine — Imports & mappings (chaîne DPGF)
 
-> **Source : le code au 2026-07-29.** Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Source : le code au 2026-08-02.** Les références de fichier désignent le contrat opérationnel ; en cas de divergence, le code fait foi et ce document doit être corrigé.
 
 `AGENTS.md:97-100` pose quatre invariants de domaine : chemin canonique `dpgf_rows_raw` → mappings → `confirmUnifiedImportFlow` ; les imports PDF alimentent ce contrat partagé sans forker CSV/XLS/XLSX ; les régressions PDF couvrent extraction **et** import canonique ; la provenance (`sourceDocumentId`, `_timax_provenance`) est préservée. Ce document décrit l'implémentation qui réalise ces invariants.
 
@@ -80,6 +80,8 @@ Les extensions acceptées par l'UI sont `csv, xlsx, xls, pdf` (`src/components/a
 - **PDF** : `postTabularPdfReview` puis `postReviewedPdfImport` (`src/hooks/useImportFlow.ts:287-319`, `:321-362`).
 
 Le worker CSV détecte le délimiteur parmi `, ; \t |` sur la première ligne non vide (`src/workers/csv-parser.worker.ts:28`, `:81-100`) et l'encodage entre `utf-8` et `windows-1252` par comptage de caractères de remplacement (`src/workers/csv-parser.worker.ts:169-200`). Les deux workers dédoublonnent les en-têtes par suffixe `_2`, `_3` (`src/workers/csv-parser.worker.ts:42-51`, `src/workers/xlsx-parser.worker.ts:33-42`).
+
+Pour un classeur multi-onglets, les parseurs XLSX serveur et navigateur évaluent les 30 premières lignes de chaque feuille à partir des marqueurs DPGF (désignation, quantité, unité, prix fourniture, heures de main-d’œuvre et commentaire). La feuille obtenant le meilleur score est retenue ; en cas d’égalité, la première feuille DPGF éligible dans l’ordre du classeur gagne. En l’absence de marqueur, le comportement historique est conservé avec la première feuille. Ce choix partagé évite d’importer un onglet de paramètres tel que `Renseignement`.
 
 Le pré-scan d'en-têtes de l'assistant autonome lit les 8192 premiers octets pour un CSV et 10 lignes pour un classeur (`src/components/imports/importWizardFileScan.ts:31`, `:50`) ; il exige au moins 3 cellules non numériques pour retenir une ligne d'en-tête XLSX (`:65-75`) et au moins 2 en-têtes pour passer à l'état `ready` (`src/components/imports/useImportWizardFileStage.ts:167-175`).
 
@@ -245,7 +247,67 @@ Un second RPC, `create_affaire_from_import_lines` (`supabase/migrations/20260305
 
 Chemin autonome parallèle : `/dashboard/imports` (`src/app/dashboard/imports/page.tsx:15`) puis `/dashboard/mappings?import_id=…` (`src/app/dashboard/mappings/page.tsx:22-38`), avec le même `useImportFlow` et le même panneau de revue PDF (`src/components/imports/ImportWizard.tsx:24-70`, `src/components/imports/ImportWizardFileStageSection.tsx:236-237`).
 
+## 12.1 Import XLSX structuré (contrat du 2026-08-02)
+
+Cette section remplace, pour le flux unifié, les règles historiques de quantité
+strictement positive et de section générique unique décrites plus haut.
+
+### Métadonnée XLSX réservée
+
+Les parseurs XLSX serveur et navigateur effectuent une seconde lecture avec
+ExcelJS. Chaque ligne brute reçoit la clé réservée **_timax_structure** :
+
+- **sheet_name** et **source_row_number** ;
+- **bold_columns** et **merged_columns**, après normalisation des en-têtes ;
+- **outline_level** si le classeur porte un niveau de plan ;
+- **column_order**, nécessaire pour repérer la première colonne après la
+  persistance en JSONB.
+
+**_timax_structure** et **_timax_provenance** restent dans le payload brut, mais
+**isImportReservedKey** les masque des colonnes, exemples et propositions du
+mapping. Une ligne ne contenant que ces métadonnées n'est pas une ligne métier.
+
+### Mapping DPGF
+
+Les priorités dédiées sont : **PR. FO → unit_price_ht**, **h MO →
+labor_hours**, **Qte → quantity**, **U → unit** et **commentaire → notes**.
+Quand ces colonnes caractérisent un DPGF, la première colonne de
+**column_order** est proposée comme **designation**. Dans ce même contexte,
+**PRT MO**, **P.U.** et **Prix total** ne reçoivent pas de suggestion
+heuristique. L'unité alimente la description visible ; le commentaire reste
+séparé dans les métadonnées de provenance.
+
+### Aperçu et décisions
+
+L'action **structure-preview** recharge toutes les lignes, reapplique le mapping
+et renvoie les candidats dans l'ordre source avec confiance, raisons,
+feuille/ligne et nombre de lignes de pied ignorées.
+
+- Un titre XLSX en gras sans prix est présélectionné comme section de niveau 1.
+- Un candidat sémantique CSV/PDF a une confiance moyenne et reste une ligne.
+- TOTAL, SOUS-TOTAL, TOTAUX et toutes les lignes suivantes sont exclus.
+- Une ligne opérationnelle sans quantité ou prix, ou avec -/—, est conservée à
+  zéro.
+
+La confirmation transmet uniquement les décisions **rowIndex, kind, level**.
+Le serveur recalcule les candidats et refuse les indices inconnus, doublons,
+niveaux invalides et niveaux 2 sans niveau 1 précédent.
+
+### Matérialisation et provenance
+
+La migration **20260802175032_structured_dpgf_import_hierarchy.sql** conserve la
+signature du RPC existant. La racine Import DPGF reste présente ; un niveau 1
+source devient son enfant, un niveau 2 devient enfant du dernier niveau 1, et
+les lignes rejoignent la section active la plus profonde. Un élément historique
+sans **item_type** reste une ligne. Les compteurs et totaux portent uniquement
+sur les lignes.
+
+Sections et lignes enregistrent **source_provider = dpgf**, le nom du fichier,
+la page éventuelle et les identifiants import/mapping/ligne, feuille/ligne
+source, commentaires et provenance dans **source_metadata**.
+
 ## 13. Couverture de test
+
 
 Tests unitaires et d'intégration (Vitest) : `src/lib/imports/server.test.ts` couvre notamment la persistance des lignes PDF approuvées dans le pipeline canonique (`:358`), la construction depuis `tables` sans enveloppe de lignes (`:496`), le rejet des payloads PDF sans `sourceKind` explicite (`:562`, `:618`, `:650`, `:682`), l'absence de `approvedTables` (`:590`) et un import multipart de PDF DPGF réaliste (`:783`). `src/lib/imports/tabular-pdf-extraction.test.ts` couvre les budgets et la terminaison du worker bloqué sans repli `pdftotext` (`:145`), ainsi qu'une extraction DPGF réaliste (`:439`). Autres fichiers : `src/lib/imports/tabular-pdf.test.ts`, `src/lib/imports/header-row.test.ts`, `src/lib/mappings/server.test.ts`, `src/app/dashboard/affaires/_actions/import-flow.test.ts`, `src/components/affaires/UnifiedImportFlow.test.tsx`, `src/components/imports/ImportWizard.test.tsx`.
 

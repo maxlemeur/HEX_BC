@@ -5,6 +5,7 @@ import path from "node:path";
 import { loadEnvConfig } from "@next/env";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
+import { Workbook } from "exceljs";
 import * as XLSX from "xlsx";
 
 loadEnvConfig(path.resolve(__dirname, "../.."));
@@ -96,6 +97,35 @@ function createMaterializedDpgfWorkbook(filePath: string) {
 
   XLSX.utils.book_append_sheet(workbook, sheet, "DPGF");
   XLSX.writeFile(workbook, filePath, { bookType: "xlsx" });
+}
+
+async function createStructuredDpgfWorkbook(filePath: string) {
+  const workbook = new Workbook();
+  const sheet = workbook.addWorksheet("plb Z3-5");
+
+  sheet.addRow(["", "Qte", "U", "PR. FO", "h MO", "commentaire"]);
+  sheet.addRow(["Eaux usées"]);
+  sheet.addRow(["EUEV"]);
+  sheet.addRow(["Tube acier DN100", 200, "ml", 40.74, 1.2, "Sous-sol"]);
+  sheet.addRow(["Poste hors lot", "—", "ens", "—", 0, "A chiffrer"]);
+  sheet.addRow(["TOTAL HT"]);
+  sheet.addRow(["Conditions générales de vente"]);
+
+  sheet.getCell("A2").font = { bold: true };
+  sheet.getCell("A3").font = { bold: true };
+  sheet.mergeCells("A2:F2");
+  sheet.mergeCells("A3:F3");
+
+  await workbook.xlsx.writeFile(filePath);
+}
+
+async function fetchEstimateItems(page: Page, versionId: string) {
+  const response = await page.request.get("/api/estimates/" + versionId + "/items");
+  expect(response.status()).toBe(200);
+  const payload = (await response.json()) as {
+    data?: { items?: Array<Record<string, unknown>> };
+  };
+  return payload.data?.items ?? [];
 }
 
 async function extractProjectId(page: Page, versionId: string) {
@@ -687,6 +717,116 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     const lines = await fetchLineItems(page, targetVersion.id);
     expect(lines.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("US-2.4 reviews XLSX titles and materializes a two-level DPGF hierarchy", async ({
+    page,
+  }, testInfo) => {
+    const fixturePath = testInfo.outputPath("us24-structured.xlsx");
+    await createStructuredDpgfWorkbook(fixturePath);
+
+    const { versionId: sourceVersionId } = await createEstimateViaWizard(page, {
+      projectName: buildEstimateName("VNEXT-US24"),
+      title: "US-2.4 source version",
+    });
+    const projectId = await extractProjectId(page, sourceVersionId);
+    await uploadAndClassifyIntakeDpgf(page, { projectId, fixturePath });
+
+    await page.goto("/dashboard/affaires/" + projectId);
+    await page.getByRole("button", { name: /Lancer l'import structure/i }).click();
+    await expect(page.getByText("Glissez-deposez votre fichier DPGF ici")).toBeVisible();
+
+    await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
+    await page.getByRole("button", { name: "Lancer l'import" }).click();
+    await expect(page.getByRole("button", { name: /Suivant : Apercu/i })).toBeVisible({
+      timeout: 60_000,
+    });
+
+    await ensureMapping(page, "column_1", "designation");
+    await ensureMapping(page, "Qte", "quantity");
+    await ensureMapping(page, "U", "unit");
+    await ensureMapping(page, "PR._FO", "unit_price_ht");
+    await ensureMapping(page, "h_MO", "labor_hours");
+    await ensureMapping(page, "commentaire", "notes");
+
+    await page.getByRole("button", { name: /Suivant : Apercu/i }).click();
+    await expect(page.getByText("Structure du DPGF")).toBeVisible();
+    await expect(page.getByLabel("Type de Eaux usées")).toHaveValue("section");
+    await expect(page.getByLabel("Type de EUEV")).toHaveValue("section");
+    await page.getByLabel("Niveau de EUEV").selectOption("2");
+
+    await page.getByRole("button", { name: /Suivant : Confirmation/i }).click();
+    await expect(page.getByText("Structure source")).toBeVisible();
+    await expect(
+      page.getByText("Sections retenues").locator(".."),
+    ).toContainText("2");
+    await expect(
+      page.getByText("Lignes à 0 €").locator(".."),
+    ).toContainText("1");
+    await expect(
+      page.getByText("Pied de tableau ignoré").locator(".."),
+    ).toContainText("2");
+
+    await page.getByRole("button", { name: /Créer le chiffrage/i }).click();
+    await expect
+      .poll(async () => fetchLatestProjectVersion(projectId), {
+        timeout: 60_000,
+      })
+      .toMatchObject({ versionNumber: 2 });
+
+    const targetVersion = await fetchLatestProjectVersion(projectId);
+    expect(targetVersion.id).not.toBe(sourceVersionId);
+    const items = await fetchEstimateItems(page, targetVersion.id);
+    const sections = items.filter((item) => item.item_type === "section");
+    const lines = items.filter((item) => item.item_type === "line");
+
+    expect(sections).toHaveLength(3);
+    expect(lines).toHaveLength(2);
+
+    const root = sections.find(
+      (item) =>
+        item.parent_id === null &&
+        typeof item.title === "string" &&
+        item.title.startsWith("Import DPGF"),
+    );
+    const eauxUsees = sections.find((item) => item.title === "Eaux usées");
+    const euev = sections.find((item) => item.title === "EUEV");
+
+    expect(root).toBeTruthy();
+    expect(eauxUsees).toBeTruthy();
+    expect(euev).toBeTruthy();
+    expect(eauxUsees?.parent_id).toBe(root?.id);
+    expect(euev?.parent_id).toBe(eauxUsees?.id);
+
+    const firstLine = lines.find((item) => item.title === "Tube acier DN100");
+    const zeroLine = lines.find((item) => item.title === "Poste hors lot");
+    expect(firstLine).toMatchObject({
+      parent_id: euev?.id,
+      description: "ml",
+      quantity: 200,
+      unit_price_ht_cents: 4074,
+      h_mo: 1.2,
+      source_provider: "dpgf",
+      source_file_name: "us24-structured.xlsx",
+    });
+    expect(firstLine?.source_metadata).toMatchObject({
+      sheet_name: "plb Z3-5",
+      source_row_number: 4,
+      notes: "Sous-sol",
+      import_id: expect.any(String),
+      mapping_id: expect.any(String),
+    });
+    expect(zeroLine).toMatchObject({
+      parent_id: euev?.id,
+      description: "ens",
+      quantity: 0,
+      unit_price_ht_cents: 0,
+      source_provider: "dpgf",
+    });
+    expect(items.some((item) => item.title === "TOTAL HT")).toBe(false);
+    expect(
+      items.some((item) => item.title === "Conditions générales de vente"),
+    ).toBe(false);
   });
 
   test("US-4.1 keeps supplier CSV import guided and explicit inside the canonical flow", async ({

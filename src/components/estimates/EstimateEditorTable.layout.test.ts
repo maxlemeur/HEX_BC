@@ -86,7 +86,7 @@ describe("estimate editor responsive grid", () => {
     });
   });
 
-  it("insère le sous-détail de prix entre le prix total et les actions", () => {
+  it("insère le sous-détail de prix entre la main-d'œuvre et la vente", () => {
     const withMargin = toCustomProperties(
       resolveEstimateEditorGridStyle(
         new Set<ColumnKey>(["ds", "marge", "marque"]),
@@ -96,7 +96,7 @@ describe("estimate editor responsive grid", () => {
 
     expect(withMargin).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 56px 88px 100px 100px 100px 78px 42px",
+        "minmax(260px, 3fr) 64px 54px 88px 56px 100px 100px 78px 88px 100px 42px",
       "--estimate-desktop-min-width": "1030px",
     });
   });

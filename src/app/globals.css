@@ -3001,6 +3001,12 @@ body {
   padding: 2px 8px;
 }
 
+.estimate-super-head__group--margin {
+  background: rgba(16, 185, 129, 0.1);
+  color: rgb(4, 120, 87);
+  border-bottom: 2px solid rgba(16, 185, 129, 0.35);
+}
+
 .estimate-super-head__group--fo {
   background: rgba(59, 130, 246, 0.10);
   color: rgba(59, 130, 246, 0.8);

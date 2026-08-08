@@ -66,6 +66,12 @@ export const previewMappingSchema = z.object({
   limit: z.number().int().min(1).max(200).optional().default(20),
 });
 
+export const structurePreviewMappingSchema = z.object({
+  action: z.literal("structure-preview"),
+  import_id: z.string().uuid(UUID_ERROR_MESSAGE),
+  mapping: mappingRecordSchema.optional().default({}),
+});
+
 export const suggestionsMappingSchema = z.object({
   action: z.literal("suggestions"),
   import_id: z.string().uuid(UUID_ERROR_MESSAGE),
@@ -109,6 +115,7 @@ export const saveTemplateSchema = z.object({
 
 export const mappingsActionSchema = z.discriminatedUnion("action", [
   previewMappingSchema,
+  structurePreviewMappingSchema,
   suggestionsMappingSchema,
   validateMappingSchema,
   duplicatesMappingSchema,

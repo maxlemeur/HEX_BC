@@ -127,6 +127,11 @@ export function EstimateEditorTableChrome({
   grandTotals,
   currency = "EUR",
 }: EstimateEditorTableChromeProps) {
+  const priceBreakdownSpan =
+    (visibleColumns.has("ds") ? 1 : 0) +
+    (visibleColumns.has("marge") ? 1 : 0) +
+    (visibleColumns.has("marque") ? 1 : 0);
+
   return (
     <>
       <div
@@ -246,6 +251,16 @@ export function EstimateEditorTableChrome({
                 Main d&apos;oeuvre
               </div>
               <div
+                className="estimate-super-head__group estimate-super-head__group--margin"
+                style={{
+                  gridColumn: `${superHeaderSpans.puStart - priceBreakdownSpan} / span ${priceBreakdownSpan}`,
+                }}
+                hidden={priceBreakdownSpan === 0}
+                aria-hidden="true"
+              >
+                Rentabilité
+              </div>
+              <div
                 className="estimate-super-head__group estimate-super-head__group--sale"
                 style={{
                   gridColumn: `${superHeaderSpans.puStart} / span 2`,
@@ -257,12 +272,7 @@ export function EstimateEditorTableChrome({
               <div
                 className="estimate-super-head__spacer"
                 style={{
-                  gridColumn: `${superHeaderSpans.puStart + 2} / span ${
-                    1 +
-                    (visibleColumns.has("ds") ? 1 : 0) +
-                    (visibleColumns.has("marge") ? 1 : 0) +
-                    (visibleColumns.has("marque") ? 1 : 0)
-                  }`,
+                  gridColumn: `${superHeaderSpans.puStart + 2} / span 1`,
                 }}
               />
             </div>
@@ -356,12 +366,6 @@ export function EstimateEditorTableChrome({
                   ) : null}
                 </>
               )}
-              <div className="relative estimate-cell--pu-separator estimate-col--sale">
-                <ColumnHeaderLabel label="PU" />
-              </div>
-              <div className="relative estimate-col--sale">
-                <ColumnHeaderLabel label="Prix total" />
-              </div>
               {/* EST-E15 increment 1 — sous-detail de prix, en lecture seule. */}
               {visibleColumns.has("ds") ? (
                 <div className="relative estimate-col--margin">
@@ -378,6 +382,12 @@ export function EstimateEditorTableChrome({
                   <ColumnHeaderLabel label="Marque %" />
                 </div>
               ) : null}
+              <div className="relative estimate-cell--pu-separator estimate-col--sale">
+                <ColumnHeaderLabel label="PU" />
+              </div>
+              <div className="relative estimate-col--sale">
+                <ColumnHeaderLabel label="Prix total" />
+              </div>
               <div></div>
             </div>
 
@@ -448,6 +458,9 @@ export function EstimateEditorTableChrome({
                     {visibleColumns.has("k_mo") ? <div></div> : null}
                   </>
                 )}
+                {visibleColumns.has("ds") ? <div></div> : null}
+                {visibleColumns.has("marge") ? <div></div> : null}
+                {visibleColumns.has("marque") ? <div></div> : null}
                 <div className="estimate-col--sale"></div>
                 <div
                   className="estimate-col--sale text-right font-semibold text-[var(--slate-900)]"

@@ -1,8 +1,15 @@
 import { resolveHeaderRowIndex } from "./header-row";
+import { attachImportRowStructure } from "./payload";
+import { selectDpgfSheetIndex } from "./sheet-selection";
+import {
+  hasNonReservedValue,
+  normalizeRowObject as normalizeTabularRowObject,
+  type NormalizedImportRow,
+  type SimpleJsonValue,
+} from "./tabular-normalization";
 
 export type ImportSourceFormat = "json" | "csv" | "xlsx";
-export type SimpleJsonValue = string | number | boolean | null;
-export type NormalizedImportRow = Record<string, SimpleJsonValue>;
+export type { ImportJsonValue, NormalizedImportRow, SimpleJsonValue } from "./tabular-normalization";
 
 export type ParsedImportFile = {
   sourceFormat: "csv" | "xlsx";
@@ -14,9 +21,17 @@ export type ParseImportFileOptions = {
   headerRowNumber?: number | null;
 };
 
+type ParsedWorkbookRowStyle = {
+  source_row_number: number;
+  bold_column_indexes: number[];
+  merged_column_indexes: number[];
+  outline_level: number | null;
+};
+
 type ParseWorkbookResult = {
   sheetName: string | null;
   matrix: unknown[][];
+  rowStyles: ParsedWorkbookRowStyle[];
 };
 
 type ParseWorkbookRunner = (
@@ -73,7 +88,7 @@ function normalizeHeaderValue(value: unknown, index: number) {
     return optimaHeader;
   }
 
-  const sanitized = raw
+  const sanitized = stripAccents(raw)
     .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9_.-]+/g, "_")
     .replace(/^_+|_+$/g, "");
@@ -117,22 +132,11 @@ function normalizeCellValue(value: unknown): SimpleJsonValue {
 }
 
 function normalizeRowObject(row: Record<string, unknown>) {
-  const normalized: NormalizedImportRow = {};
-  const counts = new Map<string, number>();
-
-  Object.entries(row).forEach(([rawKey, rawValue], index) => {
-    const baseKey = normalizeHeaderValue(rawKey, index);
-    const count = (counts.get(baseKey) ?? 0) + 1;
-    counts.set(baseKey, count);
-    const key = count === 1 ? baseKey : `${baseKey}_${count}`;
-    normalized[key] = normalizeCellValue(rawValue);
-  });
-
-  return normalized;
+  return normalizeTabularRowObject(row);
 }
 
 function hasNonNullValue(row: NormalizedImportRow) {
-  return Object.values(row).some((value) => value !== null);
+  return hasNonReservedValue(row);
 }
 
 function buildHeaders(firstRow: unknown[], columnCount: number) {
@@ -171,39 +175,95 @@ export function detectImportSourceFormat(
 
 // K-02: Parse timeout (30s) to prevent malicious files from blocking the server
 const PARSE_TIMEOUT_MS = 30_000;
+const DPGF_SHEET_SELECTOR_SOURCE = selectDpgfSheetIndex.toString();
 const WORKER_PARSE_SCRIPT = `
 const { parentPort, workerData } = require("node:worker_threads");
 const XLSX = require("xlsx");
+const __name = (target) => target;
+const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
 
-try {
-  const workbook = XLSX.read(workerData.fileBytes, {
-    type: "buffer",
-    raw: true,
-    cellDates: false,
-  });
-  const sheetName = workbook.SheetNames[0] ?? null;
-  let matrix = [];
-
-  if (sheetName) {
-    const sheet = workbook.Sheets[sheetName];
-    matrix = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
+(async () => {
+  try {
+    const fileBuffer = Buffer.from(workerData.fileBytes);
+    const workbook = XLSX.read(fileBuffer, {
+      type: "buffer",
       raw: true,
-      defval: null,
-      blankrows: true,
+      cellDates: false,
+    });
+    const sheetMatrices = workbook.SheetNames.map((candidateSheetName) => {
+      const candidateSheet = workbook.Sheets[candidateSheetName];
+      if (!candidateSheet) return [];
+
+      return XLSX.utils.sheet_to_json(candidateSheet, {
+        header: 1,
+        raw: true,
+        defval: null,
+        blankrows: true,
+      });
+    });
+    const selectedSheetIndex = selectDpgfSheetIndex(
+      workbook.SheetNames,
+      sheetMatrices
+    );
+    const sheetName = workbook.SheetNames[selectedSheetIndex] ?? null;
+    const matrix = selectedSheetIndex >= 0 ? sheetMatrices[selectedSheetIndex] ?? [] : [];
+
+    const rowStyles = Array.from({ length: matrix.length }, (_, index) => ({
+      source_row_number: index + 1,
+      bold_column_indexes: [],
+      merged_column_indexes: [],
+      outline_level: null,
+    }));
+
+    if (sheetName) {
+      try {
+        const ExcelJS = require("exceljs");
+        const styleWorkbook = new ExcelJS.Workbook();
+        await styleWorkbook.xlsx.load(fileBuffer);
+        const styleSheet =
+          styleWorkbook.getWorksheet(sheetName) ?? styleWorkbook.worksheets[0];
+
+        if (styleSheet) {
+          for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
+            const styleRow = styleSheet.getRow(rowIndex + 1);
+            const matrixRow = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+            const columnCount = Math.max(matrixRow.length, styleSheet.columnCount);
+            const boldColumnIndexes = [];
+            const mergedColumnIndexes = [];
+
+            for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+              const cell = styleRow.getCell(columnIndex + 1);
+              if (cell.font && cell.font.bold === true) boldColumnIndexes.push(columnIndex);
+              if (cell.isMerged === true) mergedColumnIndexes.push(columnIndex);
+            }
+
+            rowStyles[rowIndex] = {
+              source_row_number: rowIndex + 1,
+              bold_column_indexes: boldColumnIndexes,
+              merged_column_indexes: mergedColumnIndexes,
+              outline_level:
+                Number.isInteger(styleRow.outlineLevel) && styleRow.outlineLevel > 0
+                  ? styleRow.outlineLevel
+                  : null,
+            };
+          }
+        }
+      } catch {
+        // Legacy XLS files still use the value parser without style metadata.
+      }
+    }
+
+    parentPort.postMessage({ ok: true, sheetName, matrix, rowStyles });
+  } catch (error) {
+    parentPort.postMessage({
+      ok: false,
+      error:
+        error && typeof error === "object" && typeof error.message === "string"
+          ? error.message
+          : "Impossible de parser le fichier.",
     });
   }
-
-  parentPort.postMessage({ ok: true, sheetName, matrix });
-} catch (error) {
-  parentPort.postMessage({
-    ok: false,
-    error:
-      error && typeof error === "object" && typeof error.message === "string"
-        ? error.message
-        : "Impossible de parser le fichier.",
-  });
-}
+})();
 `;
 
 function buildParseTimeoutError(timeoutMs: number) {
@@ -268,6 +328,32 @@ async function runWorkbookParseInWorker(
         }
 
         const matrix = Array.isArray(record.matrix) ? (record.matrix as unknown[][]) : [];
+        const rawRowStyles = Array.isArray(record.rowStyles) ? record.rowStyles : [];
+        const rowStyles = Array.from({ length: matrix.length }, (_, index) => {
+          const rawStyle = isPlainObject(rawRowStyles[index]) ? rawRowStyles[index] : null;
+          const normalizeIndexes = (value: unknown) =>
+            Array.isArray(value)
+              ? value.flatMap((entry) => {
+                  const parsed = Number(entry);
+                  return Number.isInteger(parsed) && parsed >= 0 ? [parsed] : [];
+                })
+              : [];
+          const sourceRowNumber = Number(rawStyle?.source_row_number);
+          const outlineLevel = Number(rawStyle?.outline_level);
+
+          return {
+            source_row_number:
+              Number.isInteger(sourceRowNumber) && sourceRowNumber > 0
+                ? sourceRowNumber
+                : index + 1,
+            bold_column_indexes: normalizeIndexes(rawStyle?.bold_column_indexes),
+            merged_column_indexes: normalizeIndexes(rawStyle?.merged_column_indexes),
+            outline_level:
+              Number.isInteger(outlineLevel) && outlineLevel > 0
+                ? outlineLevel
+                : null,
+          } satisfies ParsedWorkbookRowStyle;
+        });
         const sheetName =
           typeof record.sheetName === "string" && record.sheetName.trim().length > 0
             ? record.sheetName
@@ -276,6 +362,7 @@ async function runWorkbookParseInWorker(
         resolve({
           sheetName,
           matrix,
+          rowStyles,
         });
       });
     });
@@ -333,7 +420,7 @@ export async function parseImportFile(
     throw new Error("Le fichier est vide.");
   }
 
-  const { sheetName, matrix } = await parseWorkbookMatrixWithTimeout(fileBytes);
+  const { sheetName, matrix, rowStyles } = await parseWorkbookMatrixWithTimeout(fileBytes);
   if (!sheetName) {
     return {
       sourceFormat,
@@ -373,7 +460,8 @@ export async function parseImportFile(
   const bodyRows = matrix.slice(headerRowIndex + 1);
 
   const rows: NormalizedImportRow[] = [];
-  for (const row of bodyRows) {
+  for (let bodyIndex = 0; bodyIndex < bodyRows.length; bodyIndex += 1) {
+    const row = bodyRows[bodyIndex];
     const values = Array.isArray(row) ? row : [];
     const normalizedRow: NormalizedImportRow = {};
 
@@ -381,9 +469,27 @@ export async function parseImportFile(
       normalizedRow[header] = normalizeCellValue(values[index]);
     });
 
-    if (hasNonNullValue(normalizedRow)) {
-      rows.push(normalizedRow);
-    }
+    if (!hasNonNullValue(normalizedRow)) continue;
+
+    const sourceMatrixIndex = headerRowIndex + bodyIndex + 1;
+    const rowStyle = rowStyles[sourceMatrixIndex];
+    const structure =
+      sourceFormat === "xlsx"
+        ? {
+            sheet_name: sheetName,
+            source_row_number: rowStyle?.source_row_number ?? sourceMatrixIndex + 1,
+            bold_columns: (rowStyle?.bold_column_indexes ?? []).flatMap(
+              (index) => headers[index] ?? []
+            ),
+            merged_columns: (rowStyle?.merged_column_indexes ?? []).flatMap(
+              (index) => headers[index] ?? []
+            ),
+            outline_level: rowStyle?.outline_level ?? null,
+            column_order: headers,
+          }
+        : null;
+
+    rows.push(attachImportRowStructure(normalizedRow, structure));
   }
 
   return {

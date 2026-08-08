@@ -1,9 +1,17 @@
+import { Workbook } from "exceljs";
 import * as XLSX from "xlsx";
 
 import { resolveHeaderRowIndex } from "../lib/imports/header-row";
+import { attachImportRowStructure } from "../lib/imports/payload";
+import { selectDpgfSheetIndex } from "../lib/imports/sheet-selection";
+import {
+  buildHeaders,
+  hasNonReservedValue,
+  normalizeCellValue,
+  type NormalizedImportRow,
+} from "../lib/imports/tabular-normalization";
 
-type ParsedImportScalar = string | number | boolean | null;
-type ParsedImportRow = Record<string, ParsedImportScalar>;
+type ParsedImportRow = NormalizedImportRow;
 
 type ParseWorkerRequest = {
   requestId: string;
@@ -25,43 +33,78 @@ type ParseWorkerErrorResponse = {
 
 type ParseWorkerResponse = ParseWorkerSuccessResponse | ParseWorkerErrorResponse;
 
-function sanitizeHeader(value: string, index: number): string {
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : `col_${index + 1}`;
-}
+type ParsedWorkbookRowStyle = {
+  sourceRowNumber: number;
+  boldColumnIndexes: number[];
+  mergedColumnIndexes: number[];
+  outlineLevel: number | null;
+};
 
-function buildHeaders(rawHeaders: string[]): string[] {
-  const collisions = new Map<string, number>();
+async function extractRowStyles(
+  buffer: ArrayBuffer,
+  sheetName: string,
+  matrix: unknown[][]
+): Promise<ParsedWorkbookRowStyle[]> {
+  const fallback = Array.from({ length: matrix.length }, (_, index) => ({
+    sourceRowNumber: index + 1,
+    boldColumnIndexes: [],
+    mergedColumnIndexes: [],
+    outlineLevel: null,
+  }));
 
-  return rawHeaders.map((value, index) => {
-    const base = sanitizeHeader(value, index);
-    const nextCount = (collisions.get(base) ?? 0) + 1;
-    collisions.set(base, nextCount);
-    return nextCount === 1 ? base : `${base}_${nextCount}`;
-  });
-}
+  try {
+    const styleWorkbook = new Workbook();
+    await styleWorkbook.xlsx.load(buffer as never);
+    const styleSheet =
+      styleWorkbook.getWorksheet(sheetName) ?? styleWorkbook.worksheets[0];
+    if (!styleSheet) return fallback;
 
-function cellToString(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toISOString();
-  return String(value).trim();
-}
+    return fallback.map((entry, rowIndex) => {
+      const styleRow = styleSheet.getRow(rowIndex + 1);
+      const matrixRow = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+      const columnCount = Math.max(matrixRow.length, styleSheet.columnCount);
+      const boldColumnIndexes: number[] = [];
+      const mergedColumnIndexes: number[] = [];
 
-function rowHasValues(row: string[]): boolean {
-  return row.some((cell) => cell.trim().length > 0);
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        const cell = styleRow.getCell(columnIndex + 1);
+        if (cell.font?.bold === true) boldColumnIndexes.push(columnIndex);
+        if (cell.isMerged) mergedColumnIndexes.push(columnIndex);
+      }
+
+      const outlineLevel = styleRow.outlineLevel;
+      return {
+        sourceRowNumber: entry.sourceRowNumber,
+        boldColumnIndexes,
+        mergedColumnIndexes,
+        outlineLevel:
+          typeof outlineLevel === "number" && Number.isInteger(outlineLevel) && outlineLevel > 0
+            ? outlineLevel
+            : null,
+      };
+    });
+  } catch {
+    return fallback;
+  }
 }
 
 function toImportRows(
   matrix: unknown[][],
+  sheetName: string,
+  rowStyles: ParsedWorkbookRowStyle[],
   headerRowNumber?: number | null
 ): ParsedImportRow[] {
   if (matrix.length === 0) return [];
 
+  const columnCount = matrix.reduce(
+    (max, row) => Math.max(max, Array.isArray(row) ? row.length : 0),
+    0
+  );
   const headerRowIndex = resolveHeaderRowIndex(matrix, { headerRowNumber });
   const rawHeaderRow = Array.isArray(matrix[headerRowIndex])
     ? matrix[headerRowIndex]
     : [];
-  const headers = buildHeaders(rawHeaderRow.map((cell) => cellToString(cell)));
+  const headers = buildHeaders(rawHeaderRow, columnCount);
 
   const rows: ParsedImportRow[] = [];
   for (
@@ -69,54 +112,67 @@ function toImportRows(
     sourceIndex < matrix.length;
     sourceIndex += 1
   ) {
-    const sourceRow = Array.isArray(matrix[sourceIndex])
-      ? matrix[sourceIndex].map((cell) => cellToString(cell))
-      : [];
-    if (!rowHasValues(sourceRow)) continue;
-
+    const sourceRow = Array.isArray(matrix[sourceIndex]) ? matrix[sourceIndex] : [];
     const row: ParsedImportRow = {};
-    const maxLength = Math.max(headers.length, sourceRow.length);
 
-    for (let index = 0; index < maxLength; index += 1) {
-      const key = headers[index] ?? `col_${index + 1}`;
-      row[key] = sourceRow[index] ?? "";
-    }
+    headers.forEach((header, columnIndex) => {
+      row[header] = normalizeCellValue(sourceRow[columnIndex]);
+    });
 
-    const hasValues = Object.values(row).some(
-      (value) => String(value ?? "").trim().length > 0
+    if (!hasNonReservedValue(row)) continue;
+
+    const rowStyle = rowStyles[sourceIndex];
+    rows.push(
+      attachImportRowStructure(row, {
+        sheet_name: sheetName,
+        source_row_number: rowStyle?.sourceRowNumber ?? sourceIndex + 1,
+        bold_columns: (rowStyle?.boldColumnIndexes ?? []).flatMap(
+          (index) => headers[index] ?? []
+        ),
+        merged_columns: (rowStyle?.mergedColumnIndexes ?? []).flatMap(
+          (index) => headers[index] ?? []
+        ),
+        outline_level: rowStyle?.outlineLevel ?? null,
+        column_order: headers,
+      })
     );
-    if (!hasValues) continue;
-
-    rows.push(row);
   }
 
   return rows;
 }
 
-export function parseWorkbook(
+export async function parseWorkbook(
   buffer: ArrayBuffer,
   headerRowNumber?: number | null
-): ParsedImportRow[] {
+): Promise<ParsedImportRow[]> {
   const workbook = XLSX.read(buffer, {
     type: "array",
-    raw: false,
+    raw: true,
     cellDates: false,
   });
 
-  const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) return [];
+  const sheetMatrices = workbook.SheetNames.map((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return [];
 
-  const firstSheet = workbook.Sheets[firstSheetName];
-  if (!firstSheet) return [];
-
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
-    header: 1,
-    defval: "",
-    blankrows: true,
-    raw: false,
+    return XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      defval: null,
+      blankrows: true,
+      raw: true,
+    }) as unknown[][];
   });
+  const selectedSheetIndex = selectDpgfSheetIndex(
+    workbook.SheetNames,
+    sheetMatrices
+  );
+  const selectedSheetName = workbook.SheetNames[selectedSheetIndex];
+  const matrix = sheetMatrices[selectedSheetIndex];
+  if (!selectedSheetName || !matrix) return [];
 
-  return toImportRows(matrix as unknown[][], headerRowNumber);
+  const rowStyles = await extractRowStyles(buffer, selectedSheetName, matrix);
+
+  return toImportRows(matrix, selectedSheetName, rowStyles, headerRowNumber);
 }
 
 function postResponse(response: ParseWorkerResponse) {
@@ -124,7 +180,7 @@ function postResponse(response: ParseWorkerResponse) {
 }
 
 if (typeof self !== "undefined") {
-  self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
+  self.onmessage = async (event: MessageEvent<ParseWorkerRequest>) => {
     const payload = event.data;
     const requestId = payload?.requestId;
 
@@ -138,7 +194,7 @@ if (typeof self !== "undefined") {
     }
 
     try {
-      const rows = parseWorkbook(payload.buffer, payload.headerRowNumber ?? null);
+      const rows = await parseWorkbook(payload.buffer, payload.headerRowNumber ?? null);
       postResponse({
         requestId,
         ok: true,

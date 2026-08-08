@@ -77,4 +77,24 @@ describe("mapping schemas", () => {
     expect(parsed.name).toBeUndefined();
     expect(parsed.notes).toBeUndefined();
   });
+
+  it("accepts a structure preview request with the current mapping", () => {
+    const parsed = mappingsActionSchema.parse({
+      action: "structure-preview",
+      import_id: "11111111-1111-4111-8111-111111111111",
+      mapping: {
+        Qte: "quantity",
+        "PR._FO": "unit_price_ht",
+      },
+    });
+
+    expect(parsed).toEqual({
+      action: "structure-preview",
+      import_id: "11111111-1111-4111-8111-111111111111",
+      mapping: {
+        Qte: "quantity",
+        "PR._FO": "unit_price_ht",
+      },
+    });
+  });
 });

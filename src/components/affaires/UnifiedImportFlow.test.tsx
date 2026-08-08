@@ -130,6 +130,7 @@ async function advanceToConfirmation(user: ReturnType<typeof userEvent.setup>) {
 
 describe("UnifiedImportFlow", () => {
   let currentLastImportId: string | null;
+  let structurePreviewResponse: Record<string, unknown>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -143,6 +144,19 @@ describe("UnifiedImportFlow", () => {
       actionRequiredJobs: 0,
     });
     currentLastImportId = "11111111-1111-4111-8111-111111111111";
+    structurePreviewResponse = {
+      candidates: [],
+      footer_row_indexes: [],
+      summary: {
+        total_rows: 10,
+        candidate_rows: 0,
+        high_confidence_candidates: 0,
+        medium_confidence_candidates: 0,
+        zero_price_rows: 0,
+        ignored_footer_rows: 0,
+        footer_start_row_index: null,
+      },
+    };
     const imports = [
       {
         id: "11111111-1111-4111-8111-111111111111",
@@ -192,6 +206,13 @@ describe("UnifiedImportFlow", () => {
           init?.body && typeof init.body === "string"
             ? (JSON.parse(init.body) as { action?: string })
             : null;
+
+        if (body?.action === "structure-preview") {
+          return jsonResponse({
+            ok: true,
+            data: structurePreviewResponse,
+          });
+        }
 
         if (body?.action === "preview") {
           return jsonResponse({
@@ -281,6 +302,129 @@ describe("UnifiedImportFlow", () => {
 
     await user.click(screen.getByRole("button", { name: "Annuler l'import" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("reviews title levels and sends only the validated structure decisions", async () => {
+    const user = userEvent.setup();
+    structurePreviewResponse = {
+      candidates: [
+        {
+          row_index: 0,
+          title: "Eaux usées",
+          confidence: "high",
+          suggested_kind: "section",
+          suggested_level: 1,
+          reasons: ["bold_designation", "no_price"],
+          sheet_name: "plb Z3-5",
+          source_row_number: 12,
+        },
+        {
+          row_index: 8,
+          title: "EUEV",
+          confidence: "high",
+          suggested_kind: "section",
+          suggested_level: 1,
+          reasons: ["bold_designation", "no_price"],
+          sheet_name: "plb Z3-5",
+          source_row_number: 20,
+        },
+      ],
+      footer_row_indexes: [93, 94],
+      summary: {
+        total_rows: 95,
+        candidate_rows: 2,
+        high_confidence_candidates: 2,
+        medium_confidence_candidates: 0,
+        zero_price_rows: 11,
+        ignored_footer_rows: 2,
+        footer_start_row_index: 93,
+      },
+    };
+    confirmUnifiedImportFlowMock.mockResolvedValue({
+      mode: "version_created",
+      importId: "11111111-1111-4111-8111-111111111111",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      mappingId: "33333333-3333-4333-8333-333333333333",
+      versionId: "44444444-4444-4444-8444-444444444444",
+      redirectTo: "/dashboard/estimates/44444444-4444-4444-8444-444444444444/edit",
+      totals: {
+        totalHtCents: 814800,
+        totalTaxCents: 162960,
+        totalTtcCents: 977760,
+      },
+      stats: {
+        totalRows: 95,
+        validRows: 81,
+        invalidRows: 0,
+        insertedRows: 79,
+        insertedSections: 2,
+        zeroPriceRows: 11,
+        ignoredRows: 2,
+        ignoredFooterRows: 2,
+        skippedRows: 14,
+      },
+    });
+
+    render(
+      <UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Suivant : Apercu/i }),
+      ).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Suivant : Apercu/i }));
+
+    expect(await screen.findByText("Structure du DPGF")).toBeInTheDocument();
+    expect(screen.getByLabelText("Type de Eaux usées")).toHaveValue("section");
+    expect(screen.getByLabelText("Type de EUEV")).toHaveValue("section");
+
+    await user.selectOptions(screen.getByLabelText("Niveau de EUEV"), "2");
+    await user.selectOptions(screen.getByLabelText("Type de Eaux usées"), "line");
+
+    expect(
+      await screen.findByText(/ne peut pas être de niveau 2/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Suivant : Confirmation/i }),
+    ).toBeDisabled();
+
+    await user.selectOptions(screen.getByLabelText("Type de Eaux usées"), "section");
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Suivant : Confirmation/i }),
+      ).toBeEnabled();
+    });
+    await user.click(
+      screen.getByRole("button", { name: /Suivant : Confirmation/i }),
+    );
+
+    expect(await screen.findByText("Structure source")).toBeInTheDocument();
+    expect(screen.getByText("Sections retenues").parentElement).toHaveTextContent("2");
+    expect(screen.getByText("Lignes à 0 €").parentElement).toHaveTextContent("11");
+    expect(screen.getByText("Pied de tableau ignoré").parentElement).toHaveTextContent("2");
+
+    await user.click(
+      await screen.findByRole("button", { name: /Créer le chiffrage/i }),
+    );
+
+    await waitFor(() => {
+      expect(confirmUnifiedImportFlowMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          structurePlan: {
+            decisions: [
+              { rowIndex: 0, kind: "section", level: 1 },
+              { rowIndex: 8, kind: "section", level: 2 },
+            ],
+          },
+        }),
+      );
+    });
+    expect(await screen.findByText("Lignes ignorées")).toBeInTheDocument();
+    expect(screen.getByText("Lignes ignorées").parentElement).toHaveTextContent("2");
+    expect(screen.getByText("Lignes rejetées").parentElement).toHaveTextContent("0");
   });
 
   it("opens the plans step after confirmation when takeoff is enabled", async () => {

@@ -6,6 +6,11 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
 import type { MappingTemplateExactMatch } from "@/lib/mappings/server";
 
+import {
+  buildDefaultStructureDecisions,
+  getStructureReviewError,
+  StructureReview,
+} from "./StructureReview";
 import { fetchApi } from "./api";
 import type {
   DuplicatesSummary,
@@ -13,6 +18,8 @@ import type {
   MappingValidation,
   PreviewData,
   PreviewStepResult,
+  StructureDecision,
+  StructurePreviewData,
 } from "./types";
 
 const LazyDataPreview = dynamic(
@@ -56,6 +63,12 @@ export function PreviewStep({
   const [error, setError] = useState<string | null>(null);
   const [previewLimit, setPreviewLimit] = useState(50);
   const requestIdRef = useRef(0);
+  const [structurePreview, setStructurePreview] =
+    useState<StructurePreviewData | null>(null);
+  const [structureDecisions, setStructureDecisions] = useState<StructureDecision[]>([]);
+  const [isStructureLoading, setIsStructureLoading] = useState(true);
+  const [structureError, setStructureError] = useState<string | null>(null);
+  const structureRequestIdRef = useRef(0);
 
   const handlePreviewLimitChange = useCallback((limit: number) => {
     setPreviewLimit(limit);
@@ -108,8 +121,59 @@ export function PreviewStep({
     };
   }, [importId, mapping, previewLimit]);
 
-  if (error) {
-    return <div className="alert alert-error">{error}</div>;
+  useEffect(() => {
+    let cancelled = false;
+    const requestId = ++structureRequestIdRef.current;
+
+    setIsStructureLoading(true);
+    setStructureError(null);
+
+    fetchApi<StructurePreviewData>("/api/mappings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "structure-preview",
+        import_id: importId,
+        mapping,
+      }),
+    })
+      .then((data) => {
+        if (cancelled || structureRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setStructurePreview(data);
+        setStructureDecisions(buildDefaultStructureDecisions(data));
+      })
+      .catch((err) => {
+        if (cancelled || structureRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setStructureError(
+          err instanceof Error
+            ? err.message
+            : "Impossible de charger la structure du DPGF.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled && structureRequestIdRef.current === requestId) {
+          setIsStructureLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [importId, mapping]);
+
+  const structureValidationError = getStructureReviewError(
+    structurePreview,
+    structureDecisions,
+  );
+
+  if (error || structureError) {
+    return <div className="alert alert-error">{error ?? structureError}</div>;
   }
 
   return (
@@ -154,6 +218,12 @@ export function PreviewStep({
           )}
         </div>
       )}
+      <StructureReview
+        preview={structurePreview}
+        decisions={structureDecisions}
+        isLoading={isStructureLoading}
+        onChange={setStructureDecisions}
+      />
 
       <LazyDataPreview
         rows={rows}
@@ -175,9 +245,17 @@ export function PreviewStep({
         <button
           type="button"
           className="btn btn-primary"
-          disabled={isLoading}
+          disabled={isLoading || isStructureLoading || structureValidationError !== null}
           onClick={() =>
-            startTransition(() => onNext({ rows, validation, duplicates }))
+            startTransition(() =>
+              onNext({
+                rows,
+                validation,
+                duplicates,
+                structurePreview: structurePreview!,
+                structurePlan: { decisions: structureDecisions },
+              }),
+            )
           }
         >
           <span className="flex items-center gap-2">

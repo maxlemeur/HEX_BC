@@ -1,0 +1,42 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const migrationPath = join(
+  process.cwd(),
+  "supabase",
+  "migrations",
+  "20260802175032_structured_dpgf_import_hierarchy.sql",
+);
+const migration = readFileSync(migrationPath, "utf8");
+
+describe("structured DPGF import migration", () => {
+  it("keeps the existing RPC signature and defaults legacy entries to lines", () => {
+    expect(migration).toMatch(
+      /create or replace function public\.create_estimate_version_from_import_lines\([\s\S]*p_lines jsonb[\s\S]*\)/,
+    );
+    expect(migration).toContain("if v_item_type is null then");
+    expect(migration).toContain("v_item_type := 'line';");
+  });
+
+  it("parents source levels below the import root and lines below the deepest section", () => {
+    expect(migration).toContain("v_parent_id := v_root_section_id;");
+    expect(migration).toContain("v_parent_id := v_level_one_section_id;");
+    expect(migration).toMatch(
+      /v_parent_id := coalesce\([\s\S]*v_level_two_section_id,[\s\S]*v_level_one_section_id,[\s\S]*v_root_section_id[\s\S]*\);/,
+    );
+    expect(migration).toContain(
+      "A level 2 section requires a preceding level 1 section",
+    );
+  });
+
+  it("counts and totals only lines while persisting DPGF provenance", () => {
+    expect(migration).toContain("v_inserted_count := v_inserted_count + 1;");
+    expect(migration).toContain("and i.item_type = 'line';");
+    expect(migration).toContain("'dpgf'");
+    expect(migration).toContain("v_import.filename");
+    expect(migration).toContain("source_metadata");
+    expect(migration).toContain("source_page");
+  });
+});

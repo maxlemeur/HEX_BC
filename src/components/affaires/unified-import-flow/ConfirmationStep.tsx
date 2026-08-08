@@ -10,7 +10,11 @@ import {
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
 
 import { getTakeoffCarryOverPreviewCopy } from "./takeoffPreview";
-import type { MappingValidation } from "./types";
+import type {
+  MappingValidation,
+  StructureDecision,
+  StructurePreviewData,
+} from "./types";
 
 type ConfirmationStepProps = {
   importId: string;
@@ -18,6 +22,8 @@ type ConfirmationStepProps = {
   mapping: ColumnMapping;
   validation: MappingValidation | null;
   onBack?: () => void;
+  structurePreview: StructurePreviewData | null;
+  structurePlan: { decisions: StructureDecision[] };
   onResultReady?: (result: ConfirmUnifiedImportFlowResult) => void;
   onSuccess: (result: ConfirmUnifiedImportFlowResult) => void;
 };
@@ -29,6 +35,8 @@ export function ConfirmationStep({
   validation,
   onBack,
   onSuccess,
+  structurePreview,
+  structurePlan,
   onResultReady,
 }: ConfirmationStepProps) {
   const [isConfirming, setIsConfirming] = useState(false);
@@ -99,6 +107,7 @@ export function ConfirmationStep({
           mapping,
           createEstimate,
           previewSourceVersionId,
+          structurePlan,
         });
 
         setConfirmationResult(result);
@@ -113,20 +122,22 @@ export function ConfirmationStep({
         setIsConfirming(false);
       }
     },
-    [importId, mapping, onResultReady, previewSourceVersionId, projectId],
+    [importId, mapping, onResultReady, previewSourceVersionId, projectId, structurePlan],
   );
 
   const carryOverPreviewCopy =
     carryOverPreview !== null ? getTakeoffCarryOverPreviewCopy(carryOverPreview) : null;
+  const selectedSectionCount = structurePlan.decisions.filter(
+    (decision) => decision.kind === "section",
+  ).length;
 
   if (confirmationResult) {
     const isVersionCreated = confirmationResult.mode === "version_created";
     const primaryCount = isVersionCreated
       ? confirmationResult.stats.insertedRows
       : confirmationResult.stats.validRows;
-    const rejectedCount = isVersionCreated
-      ? confirmationResult.stats.skippedRows
-      : confirmationResult.stats.invalidRows;
+    const rejectedCount = confirmationResult.stats.invalidRows;
+    const ignoredCount = confirmationResult.stats.ignoredRows ?? 0;
 
     return (
       <div
@@ -159,7 +170,7 @@ export function ConfirmationStep({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
             <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
               {isVersionCreated ? "Lignes créées" : "Lignes prêtes"}
@@ -174,6 +185,30 @@ export function ConfirmationStep({
             </p>
             <p className="mt-1 text-2xl font-semibold text-amber-800">
               {rejectedCount}
+            </p>
+          </div>
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-orange-700">
+              Lignes ignorées
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-orange-800">
+              {ignoredCount}
+            </p>
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-blue-700">
+              Sections créées
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-blue-800">
+              {confirmationResult.stats.insertedSections ?? 0}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+              Lignes à 0 €
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-slate-800">
+              {confirmationResult.stats.zeroPriceRows ?? 0}
             </p>
           </div>
         </div>
@@ -247,6 +282,38 @@ export function ConfirmationStep({
       </div>
 
       <div className="mt-4">
+        {structurePreview && (
+          <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-4">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700">
+              Structure source
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-[var(--slate-500)]">Sections retenues</p>
+                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                  {selectedSectionCount}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--slate-500)]">Lignes à 0 €</p>
+                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                  {structurePreview.summary.zero_price_rows}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--slate-500)]">Pied de tableau ignoré</p>
+                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                  {structurePreview.summary.ignored_footer_rows}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-[var(--slate-500)]">
+              Le serveur revalidera les titres, leurs niveaux et les lignes de fin avant
+              de créer la version.
+            </p>
+          </div>
+        )}
+
         {isCarryOverPreviewLoading ? (
           <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4 text-sm text-[var(--slate-500)]">
             Analyse du carry-over takeoff…

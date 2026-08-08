@@ -381,13 +381,6 @@ export function SectionRow({
           {(!visibleColumns || visibleColumns.has("k_mo")) ? <div /> : null}
         </>
       )}
-      <div />
-      <div
-        className="estimate-section-total-cell estimate-section-total-cell--ht"
-        title={`TTC ${formatCurrency(sectionTotals?.totalTtcCents ?? 0, estimateCurrency)}`}
-      >
-        HT {formatCurrency(sectionTotals?.totalHtCents ?? 0, estimateCurrency)}
-      </div>
       {/*
         EST-E15 : cellules d'alignement pour le sous-detail de prix. Un
         sous-total de marge par chapitre demanderait d'agreger les couts des
@@ -397,6 +390,13 @@ export function SectionRow({
       {visibleColumns?.has("ds") ? <div /> : null}
       {visibleColumns?.has("marge") ? <div /> : null}
       {visibleColumns?.has("marque") ? <div /> : null}
+      <div />
+      <div
+        className="estimate-section-total-cell estimate-section-total-cell--ht"
+        title={`TTC ${formatCurrency(sectionTotals?.totalTtcCents ?? 0, estimateCurrency)}`}
+      >
+        HT {formatCurrency(sectionTotals?.totalHtCents ?? 0, estimateCurrency)}
+      </div>
       <div className="estimate-cell estimate-cell--actions">
         <button
           className="estimate-section-more-btn"

@@ -9,7 +9,7 @@ import {
 } from "@/lib/affaires/import-flow";
 import {
   type Supabase,
-  type RpcImportLinesPayload,
+  type RpcImportItemPayload,
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
   assertProjectAccessOrThrow,
@@ -20,8 +20,7 @@ import {
   getCurrentMembershipOrThrow,
   getImportOrThrow,
   normalizeNullableText,
-  sortValidLinesForEstimateCreation,
-  toRpcImportLines,
+  toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
@@ -60,6 +59,10 @@ export type ConfirmUnifiedImportFlowResult = {
     invalidRows: number;
     insertedRows: number;
     skippedRows: number;
+    insertedSections: number;
+    zeroPriceRows: number;
+    ignoredRows: number;
+    ignoredFooterRows: number;
   };
 };
 
@@ -71,6 +74,19 @@ type RpcCreateVersionResultRow = {
   total_tax_cents: number;
   total_ttc_cents: number;
 };
+
+const structureDecisionSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().nonnegative(),
+    kind: z.literal("section"),
+    level: z.union([z.literal(1), z.literal(2)]),
+  }),
+  z.object({
+    rowIndex: z.number().int().nonnegative(),
+    kind: z.enum(["line", "ignore"]),
+    level: z.null(),
+  }),
+]);
 
 const confirmUnifiedImportFlowSchema = z.object({
   importId: z.string().uuid("importId invalide."),
@@ -84,6 +100,7 @@ const confirmUnifiedImportFlowSchema = z.object({
     .optional(),
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
+  structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
 });
 export type ConfirmUnifiedImportFlowInput = z.infer<typeof confirmUnifiedImportFlowSchema>;
 
@@ -101,7 +118,7 @@ async function createVersionFromMappedRows(input: {
   projectId: string;
   versionTitle: string | null;
   sectionTitle: string | null;
-  lines: RpcImportLinesPayload[];
+  lines: RpcImportItemPayload[];
 }) {
   const { data, error } = await input.supabase.rpc("create_estimate_version_from_import_lines", {
     p_project_id: input.projectId,
@@ -316,10 +333,17 @@ export async function confirmUnifiedImportFlow(
     );
   }
 
-  const normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, {
-    marginMultiplier: versionContext.margin_multiplier,
-    defaultTaxRateBp: versionContext.tax_rate_bp,
-  });
+  const normalizedRows = normalizeMappedRowsForEstimateCreation(
+    mappedRows,
+    {
+      marginMultiplier: versionContext.margin_multiplier,
+      defaultTaxRateBp: versionContext.tax_rate_bp,
+    },
+    {
+      detectStructure: true,
+      structureDecisions: parsed.data.structurePlan?.decisions ?? [],
+    }
+  );
 
   if (parsed.data.createEstimate && normalizedRows.validLines.length === 0) {
     throw new Error("Aucune ligne valide a inserer pour creer le chiffrage.");
@@ -359,9 +383,10 @@ export async function confirmUnifiedImportFlow(
     projectId,
     versionTitle: normalizeNullableText(parsed.data.versionTitle),
     sectionTitle: normalizeNullableText(parsed.data.sectionTitle),
-    lines: toRpcImportLines(
-      sortValidLinesForEstimateCreation(normalizedRows.validLines)
-    ),
+    lines: toRpcImportItems(normalizedRows.validItems, {
+      importId: parsed.data.importId,
+      mappingId,
+    }),
   });
 
   let takeoffCarryOver: TakeoffCarryOverStatus | null =
@@ -405,7 +430,11 @@ export async function confirmUnifiedImportFlow(
     }
   }
 
-  const stats = buildImportFlowStats(normalizedRows, createdVersion.inserted_count);
+  const stats = buildImportFlowStats(
+    normalizedRows,
+    createdVersion.inserted_count,
+    normalizedRows.validSections.length
+  );
   const redirectTo = `/dashboard/estimates/${createdVersion.version_id}/edit`;
 
   revalidateImportFlowPaths(projectId, createdVersion.version_id);

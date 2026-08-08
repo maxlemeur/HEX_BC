@@ -5,7 +5,11 @@ import { ZodError } from "zod";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
-import { isImportReservedKey } from "@/lib/imports/payload";
+import {
+  isImportReservedKey,
+  readImportRowStructure,
+} from "@/lib/imports/payload";
+import { analyzeImportStructure } from "@/lib/imports/structure";
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
@@ -855,6 +859,20 @@ function guessTargetFieldWithScore(
   }
 
   if (
+    wordSet.has("fo") &&
+    (wordSet.has("pr") || wordSet.has("prix") || normalized.includes("prix fourniture"))
+  ) {
+    return { target: "unit_price_ht", score: 0.64 };
+  }
+
+  if (
+    wordSet.has("mo") &&
+    (wordSet.has("h") || wordSet.has("heure") || wordSet.has("heures"))
+  ) {
+    return { target: "labor_hours", score: 0.61 };
+  }
+
+  if (
     normalized.includes("prix unitaire") ||
     wordSet.has("pu") ||
     normalized.includes("unit price")
@@ -888,6 +906,75 @@ function guessTargetFieldWithScore(
   }
 
   return null;
+}
+
+function guessContextualDesignation(input: {
+  sourceColumn: string;
+  sourceColumns: string[];
+  sampleRows: Array<{ payload: unknown }>;
+  sampleValues: Record<string, string[]>;
+}): { target: MappingTargetField; score: number } | null {
+  let firstColumn: string | null = null;
+
+  for (const row of input.sampleRows) {
+    const rawRow = asRecord(row.payload);
+    const structure = readImportRowStructure(rawRow);
+    const candidate = structure?.column_order.find(
+      (column) => !isImportReservedKey(column)
+    );
+    if (candidate) {
+      firstColumn = candidate;
+      break;
+    }
+  }
+
+  if (!firstColumn || firstColumn !== input.sourceColumn) return null;
+
+  const contextualTargets = new Set(
+    input.sourceColumns.flatMap((column) => {
+      if (column === input.sourceColumn) return [];
+      const suggestion = guessTargetFieldWithScore(column);
+      return suggestion ? [suggestion.target] : [];
+    })
+  );
+  const hasDpgfContext =
+    contextualTargets.has("quantity") &&
+    (contextualTargets.has("unit") ||
+      contextualTargets.has("unit_price_ht") ||
+      contextualTargets.has("labor_hours"));
+  if (!hasDpgfContext) return null;
+
+  const samples = input.sampleValues[input.sourceColumn] ?? [];
+  const hasDescriptiveText = samples.some(
+    (sample) => /[a-zA-ZÀ-ÿ]/.test(sample) && sample.trim().length >= 3
+  );
+
+  return hasDescriptiveText ? { target: "designation", score: 0.51 } : null;
+}
+function isDpgfComputedColumnToIgnore(
+  sourceColumn: string,
+  sourceColumns: string[]
+) {
+  const normalize = (value: string) =>
+    stripAccents(value.trim().toLowerCase())
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const normalizedSource = normalize(sourceColumn);
+  if (!["prt mo", "p u", "prix total"].includes(normalizedSource)) {
+    return false;
+  }
+
+  const normalizedColumns = sourceColumns.map(normalize);
+  const hasSupplyPrice = normalizedColumns.some((column) => {
+    const words = new Set(column.split(" ").filter(Boolean));
+    return words.has("fo") && (words.has("pr") || words.has("prix"));
+  });
+  const hasLaborHours = normalizedColumns.some((column) => {
+    const words = new Set(column.split(" ").filter(Boolean));
+    return words.has("mo") && words.has("h");
+  });
+
+  return hasSupplyPrice && hasLaborHours;
 }
 
 export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetField | null {
@@ -1362,6 +1449,34 @@ export async function previewMapping(input: {
   };
 }
 
+export async function previewImportStructure(input: {
+  import_id: string;
+  mapping: SourceToTargetMapping;
+}) {
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  await ensureImportAccess(supabase, input.import_id, {
+    userId,
+    tenantId,
+    isTenantAdmin,
+  });
+
+  const rows = await loadAllImportRows(supabase, input.import_id, tenantId);
+  const sourceColumns = toSourceColumns(rows);
+  const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+
+  return analyzeImportStructure(
+    rows.map((row) => {
+      const rawRow = asRecord(row.payload) ?? {};
+      return {
+        id: row.id,
+        rowIndex: row.row_index,
+        rawRow,
+        mappedRow: applyMappingToPayload(rawRow, scopedMapping),
+      };
+    })
+  );
+}
+
 export async function suggestMapping(input: { import_id: string }): Promise<MappingSuggestion> {
   const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
   const importSummary = await ensureImportAccess(supabase, input.import_id, {
@@ -1374,6 +1489,7 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
     loadImportRows(supabase, input.import_id, tenantId, 100),
     loadAllImportSourceColumns(supabase, input.import_id, tenantId),
   ]);
+  const sampleValues = extractSampleValues(sampleRows);
   const sourceColumnsCacheKey = JSON.stringify(
     [...sourceColumns].sort((left, right) => left.localeCompare(right))
   );
@@ -1415,6 +1531,10 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
 
     for (const sourceColumn of sourceColumns) {
       const normalizedSource = normalizeSourceColumnKey(sourceColumn);
+      if (isDpgfComputedColumnToIgnore(sourceColumn, sourceColumns)) {
+        continue;
+      }
+
       const memoryCandidates = memoryByNormalizedSource.get(normalizedSource) ?? [];
 
       let bestMemoryCandidate: MappingSuggestionCandidate | null = null;
@@ -1452,7 +1572,14 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
         continue;
       }
 
-      const heuristicSuggestion = guessTargetFieldWithScore(sourceColumn);
+      const heuristicSuggestion =
+        guessTargetFieldWithScore(sourceColumn) ??
+        guessContextualDesignation({
+          sourceColumn,
+          sourceColumns,
+          sampleRows,
+          sampleValues,
+        });
       if (!heuristicSuggestion) continue;
 
       candidatesBySource.set(sourceColumn, {
@@ -1493,7 +1620,7 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
     suggestions,
     source_columns: sourceColumns,
     templates,
-    sample_values: extractSampleValues(sampleRows),
+    sample_values: sampleValues,
     confidence_by_source: confidenceBySource,
     template_exact_match: exactTemplateMatch
       ? {

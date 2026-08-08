@@ -253,6 +253,10 @@ describe("confirmUnifiedImportFlow", () => {
       invalidRows: 0,
       insertedRows: 0,
       skippedRows: 1,
+      insertedSections: 0,
+      zeroPriceRows: 0,
+      ignoredRows: 0,
+      ignoredFooterRows: 0,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard/imports");
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard/mappings");
@@ -406,6 +410,171 @@ describe("confirmUnifiedImportFlow", () => {
     const rpcCall = vi.mocked(supabase.rpc).mock.calls[0];
     const payload = rpcCall?.[1] as { p_lines: Array<{ row_index: number }> } | undefined;
     expect(payload?.p_lines.map((line) => line.row_index)).toEqual([1, 2]);
+  });
+
+  it("sends reviewed sections, source provenance, and operational lines to the RPC", async () => {
+    const rawStructure = (sourceRowNumber: number, bold: boolean) => ({
+      sheet_name: "plb Z3-5",
+      source_row_number: sourceRowNumber,
+      bold_columns: bold ? ["column_1"] : [],
+      merged_columns: [],
+      outline_level: null,
+      column_order: ["column_1", "Qte", "U", "PR._FO", "h_MO", "commentaire"],
+    });
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID),
+      projectBuilder: createProjectSelectBuilder(true),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        {
+          id: "mapped-section-l1",
+          payload: {
+            row_index: 0,
+            raw_row: {
+              column_1: "Eaux usées",
+              _timax_structure: rawStructure(2, true),
+            },
+            mapped_row: {
+              designation: "Eaux usées",
+            },
+          },
+        },
+        {
+          id: "mapped-section-l2",
+          payload: {
+            row_index: 1,
+            raw_row: {
+              column_1: "EUEV",
+              _timax_structure: rawStructure(3, true),
+            },
+            mapped_row: {
+              designation: "EUEV",
+            },
+          },
+        },
+        {
+          id: "mapped-line",
+          payload: {
+            row_index: 2,
+            raw_row: {
+              column_1: "Tube acier DN100",
+              _timax_structure: rawStructure(4, false),
+              _timax_provenance: {
+                source_page: 7,
+                table_index: 0,
+                extraction_method: "tabular_pdf",
+                source_document_id: "source-document-1",
+              },
+            },
+            mapped_row: {
+              designation: "Tube acier DN100",
+              quantity: 200,
+              unit: "ml",
+              unit_price_ht: 40.74,
+              labor_hours: 1.2,
+              notes: "Sous-sol",
+            },
+          },
+        },
+        {
+          id: "mapped-footer",
+          payload: {
+            row_index: 3,
+            raw_row: {
+              column_1: "TOTAL HT",
+              _timax_structure: rawStructure(5, true),
+            },
+            mapped_row: {
+              designation: "TOTAL HT",
+            },
+          },
+        },
+      ]),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
+      rpcResult: {
+        data: [
+          {
+            version_id: VERSION_ID,
+            section_id: "77777777-7777-4777-8777-777777777777",
+            inserted_count: 1,
+            total_ht_cents: 814800,
+            total_tax_cents: 162960,
+            total_ttc_cents: 977760,
+          },
+        ],
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await confirmUnifiedImportFlow({
+      importId: IMPORT_ID,
+      projectId: PROJECT_ID,
+      createEstimate: true,
+      structurePlan: {
+        decisions: [
+          { rowIndex: 0, kind: "section", level: 1 },
+          { rowIndex: 1, kind: "section", level: 2 },
+        ],
+      },
+    });
+
+    const rpcCall = vi.mocked(supabase.rpc).mock.calls[0];
+    const payload = rpcCall?.[1] as {
+      p_lines: Array<Record<string, unknown>>;
+    } | undefined;
+
+    expect(payload?.p_lines.map((item) => item.item_type)).toEqual([
+      "section",
+      "section",
+      "line",
+    ]);
+    expect(payload?.p_lines[1]).toMatchObject({
+      title: "EUEV",
+      section_level: 2,
+      source_metadata: {
+        import_id: IMPORT_ID,
+        mapping_id: "mapping-latest",
+        sheet_name: "plb Z3-5",
+        source_row_number: 3,
+      },
+    });
+    expect(payload?.p_lines[2]).toMatchObject({
+      title: "Tube acier DN100",
+      description: "ml",
+      quantity: 200,
+      unit_price_ht_cents: 4074,
+      h_mo: 1.2,
+      notes: "Sous-sol",
+      source_page: 7,
+      source_metadata: {
+        notes: "Sous-sol",
+        import_id: IMPORT_ID,
+        mapping_id: "mapping-latest",
+        sheet_name: "plb Z3-5",
+        source_row_number: 4,
+        _timax_structure: expect.objectContaining({
+          sheet_name: "plb Z3-5",
+          source_row_number: 4,
+        }),
+        _timax_provenance: {
+          source_page: 7,
+          table_index: 0,
+          extraction_method: "tabular_pdf",
+          source_document_id: "source-document-1",
+        },
+      },
+    });
+    expect(result.stats).toMatchObject({
+      insertedRows: 1,
+      insertedSections: 2,
+      zeroPriceRows: 0,
+      ignoredRows: 1,
+      ignoredFooterRows: 1,
+      skippedRows: 1,
+    });
   });
 
   it("rejects version creation when the previewed carry-over source version changed", async () => {

@@ -1,8 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
-import type { ValidImportFlowLine } from "@/lib/affaires/import-flow";
+import type {
+  ValidImportFlowItem,
+  ValidImportFlowLine,
+} from "@/lib/affaires/import-flow";
 
 export type Supabase = SupabaseClient<Database>;
 export type TenantMembershipRow = Pick<
@@ -23,10 +26,14 @@ export const DEFAULT_MARGIN_MULTIPLIER = 1;
 export const DEFAULT_TAX_RATE_BP = 2000;
 
 export type RpcImportLinesPayload = {
+  item_type: "line";
   mapped_row_id: string;
   row_index: number;
   title: string;
   description: string | null;
+  notes: string | null;
+  source_page: number | null;
+  source_metadata: Json;
   quantity: number;
   unit_price_ht_cents: number;
   tax_rate_bp: number;
@@ -39,6 +46,36 @@ export type RpcImportLinesPayload = {
   line_tax_cents: number;
   line_total_ttc_cents: number;
 };
+
+export type RpcImportSectionPayload = {
+  item_type: "section";
+  mapped_row_id: string;
+  row_index: number;
+  title: string;
+  section_level: 1 | 2;
+  source_page: number | null;
+  source_metadata: Json;
+};
+
+type RpcImportProvenance = {
+  importId: string;
+  mappingId: string | null;
+};
+
+function toRpcSourceMetadata(
+  sourceMetadata: Record<string, unknown>,
+  provenance?: RpcImportProvenance
+): Json {
+  if (!provenance) return sourceMetadata as Json;
+
+  return {
+    ...sourceMetadata,
+    import_id: provenance.importId,
+    mapping_id: provenance.mappingId,
+  } as Json;
+}
+
+export type RpcImportItemPayload = RpcImportLinesPayload | RpcImportSectionPayload;
 
 export function normalizeNullableText(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
@@ -233,10 +270,14 @@ export function sortValidLinesForEstimateCreation(lines: ValidImportFlowLine[]):
 
 export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPayload[] {
   return lines.map((line) => ({
+    item_type: "line",
     mapped_row_id: line.mappedRowId,
     row_index: line.rowIndex,
     title: line.title,
     description: line.description,
+    notes: line.notes,
+    source_page: line.sourcePage,
+    source_metadata: line.sourceMetadata as Json,
     quantity: line.quantity,
     unit_price_ht_cents: line.unitPriceHtCents,
     tax_rate_bp: line.taxRateBp,
@@ -249,4 +290,29 @@ export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPa
     line_tax_cents: line.lineTaxCents,
     line_total_ttc_cents: line.lineTotalTtcCents,
   }));
+}
+
+export function toRpcImportItems(
+  items: ValidImportFlowItem[],
+  provenance?: RpcImportProvenance
+): RpcImportItemPayload[] {
+  return items.map((item) => {
+    if (item.itemType === "line") {
+      const payload = toRpcImportLines([item])[0]!;
+      return {
+        ...payload,
+        source_metadata: toRpcSourceMetadata(item.sourceMetadata, provenance),
+      };
+    }
+
+    return {
+      item_type: "section",
+      mapped_row_id: item.mappedRowId,
+      row_index: item.rowIndex,
+      title: item.title,
+      section_level: item.level,
+      source_page: item.sourcePage,
+      source_metadata: toRpcSourceMetadata(item.sourceMetadata, provenance),
+    };
+  });
 }

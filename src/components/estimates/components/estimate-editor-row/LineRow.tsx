@@ -923,41 +923,6 @@ export function LineRow({
           onPatchItem={onPatchItem}
         />
       )}
-      <div
-        {...puCellProps}
-        role="gridcell"
-        onKeyDown={toCellKeyDownHandler(puCellProps.onKeyDown)}
-        className={toCellClassName(
-          navigation,
-          puCell,
-          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator estimate-col--sale",
-        )}
-      >
-        <input
-          className="estimate-input"
-          type="text"
-          value={formatNumberDisplay((item.pu_ht_cents ?? 0) / 100, {
-            minDecimals: 2,
-            maxDecimals: 2,
-          })}
-          placeholder="0.00"
-          readOnly
-          tabIndex={-1}
-          aria-readonly
-        />
-      </div>
-      <div
-        {...totalCellProps}
-        role="gridcell"
-        onKeyDown={toCellKeyDownHandler(totalCellProps.onKeyDown)}
-        className={toCellClassName(
-          navigation,
-          totalCell,
-          "estimate-cell estimate-cell--total estimate-cell--readonly estimate-col--sale",
-        )}
-      >
-        <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
-      </div>
       {/*
         EST-E15 increment 1 — le sous-detail de prix, en lecture seule.
         Le deboursé sec etait deja calcule par le moteur a chaque mutation puis
@@ -1000,6 +965,41 @@ export function LineRow({
           <span>{formatMarkupRatio(lineMargin.markupRatio)}</span>
         </div>
       ) : null}
+      <div
+        {...puCellProps}
+        role="gridcell"
+        onKeyDown={toCellKeyDownHandler(puCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          puCell,
+          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator estimate-col--sale",
+        )}
+      >
+        <input
+          className="estimate-input"
+          type="text"
+          value={formatNumberDisplay((item.pu_ht_cents ?? 0) / 100, {
+            minDecimals: 2,
+            maxDecimals: 2,
+          })}
+          placeholder="0.00"
+          readOnly
+          tabIndex={-1}
+          aria-readonly
+        />
+      </div>
+      <div
+        {...totalCellProps}
+        role="gridcell"
+        onKeyDown={toCellKeyDownHandler(totalCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          totalCell,
+          "estimate-cell estimate-cell--total estimate-cell--readonly estimate-col--sale",
+        )}
+      >
+        <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
+      </div>
       <div className="estimate-cell estimate-cell--actions">
         {hideEditingActions ? (
           <button

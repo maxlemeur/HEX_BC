@@ -5,6 +5,7 @@ import {
   listMappings,
   ok,
   previewMapping,
+  previewImportStructure,
   saveTemplate,
   suggestMapping,
   toErrorResponse,
@@ -64,6 +65,10 @@ export async function POST(request: Request) {
     switch (payload.action) {
       case "preview": {
         const data = await previewMapping(payload);
+        return ok(data);
+      }
+      case "structure-preview": {
+        const data = await previewImportStructure(payload);
         return ok(data);
       }
       case "suggestions": {

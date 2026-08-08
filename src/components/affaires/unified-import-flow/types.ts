@@ -4,6 +4,10 @@ import type {
   MappingSuggestionConfidence,
   MappingTemplateExactMatch,
 } from "@/lib/mappings/server";
+import type {
+  ImportStructureDecision,
+  ImportStructurePreview,
+} from "@/lib/imports/structure";
 
 export type Step = "upload" | "mapping" | "preview" | "confirmation" | "plans";
 
@@ -86,8 +90,13 @@ export type MappingStepResult = {
   templateExactMatch?: MappingTemplateExactMatch | null;
 };
 
+export type StructureDecision = ImportStructureDecision;
+export type StructurePreviewData = ImportStructurePreview;
+
 export type PreviewStepResult = {
   rows: MappingPreviewRow[];
   validation: MappingValidation | null;
   duplicates: DuplicatesSummary | null;
+  structurePreview: StructurePreviewData;
+  structurePlan: { decisions: StructureDecision[] };
 };

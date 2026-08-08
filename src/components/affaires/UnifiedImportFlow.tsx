@@ -274,6 +274,8 @@ export function UnifiedImportFlow({
           projectId={projectId}
           mapping={currentMapping}
           validation={previewData?.validation ?? null}
+          structurePreview={previewData?.structurePreview ?? null}
+          structurePlan={previewData?.structurePlan ?? { decisions: [] }}
           onBack={handleBack}
           onSuccess={handleConfirmSuccess}
           onResultReady={setConfirmResult}

@@ -10,6 +10,7 @@ import {
   findDuplicates,
   guessTargetFieldFromColumn,
   listMappings,
+  previewImportStructure,
   ok,
   previewMapping,
   saveTemplate,
@@ -264,6 +265,11 @@ describe("guessTargetFieldFromColumn", () => {
     expect(guessTargetFieldFromColumn("Famille produit")).toBe("category");
     expect(guessTargetFieldFromColumn("Reference fournisseur")).toBe("supplier_ref");
     expect(guessTargetFieldFromColumn("Heures main d oeuvre")).toBe("labor_hours");
+    expect(guessTargetFieldFromColumn("PR. FO")).toBe("unit_price_ht");
+    expect(guessTargetFieldFromColumn("h MO")).toBe("labor_hours");
+    expect(guessTargetFieldFromColumn("Qte")).toBe("quantity");
+    expect(guessTargetFieldFromColumn("U")).toBe("unit");
+    expect(guessTargetFieldFromColumn("commentaire")).toBe("notes");
     expect(guessTargetFieldFromColumn("Note interne")).toBe("notes");
   });
 
@@ -558,6 +564,173 @@ describe("mapping server workflows", () => {
       unresolved_source_columns_count: 0,
     });
     expect(result.rows).toHaveLength(2);
+  });
+
+  it("suggests the DPGF source columns while ignoring computed price columns", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            column_1: "Tube acier",
+            Qte: 200,
+            U: "ml",
+            "PR._FO": 40.74,
+            h_MO: 1.2,
+            commentaire: "Sous-sol",
+            "PRT MO": 12,
+            "P.U.": 52.74,
+            "Prix total": 10_548,
+            _timax_structure: {
+              sheet_name: "plb Z3-5",
+              source_row_number: 3,
+              bold_columns: [],
+              merged_columns: [],
+              outline_level: null,
+              column_order: [
+                "column_1",
+                "Qte",
+                "U",
+                "PR._FO",
+                "h_MO",
+                "commentaire",
+                "PRT MO",
+                "P.U.",
+                "Prix total",
+              ],
+            },
+          },
+        },
+      ],
+      memoryRows: [
+        {
+          source_column: "P.U.",
+          target_field: "unit_price_ht",
+          usage_count: 100,
+          confidence: 1,
+          last_used_at: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          source_column: "PRT MO",
+          target_field: "labor_hours",
+          usage_count: 100,
+          confidence: 1,
+          last_used_at: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          source_column: "Prix total",
+          target_field: "total_ht",
+          usage_count: 100,
+          confidence: 1,
+          last_used_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({ import_id: IMPORT_ID });
+
+    expect(result.suggestions).toMatchObject({
+      column_1: "designation",
+      Qte: "quantity",
+      U: "unit",
+      "PR._FO": "unit_price_ht",
+      h_MO: "labor_hours",
+      commentaire: "notes",
+    });
+    expect(result.suggestions["PRT MO"]).toBeUndefined();
+    expect(result.suggestions["P.U."]).toBeUndefined();
+    expect(result.suggestions["Prix total"]).toBeUndefined();
+    expect(result.source_columns).not.toContain("_timax_structure");
+    expect(result.sample_values._timax_structure).toBeUndefined();
+  });
+
+  it("returns reviewed structure candidates and footer counts", async () => {
+    const metadata = {
+      sheet_name: "plb Z3-5",
+      bold_columns: ["Désignation"],
+      merged_columns: [],
+      outline_level: null,
+      column_order: ["Désignation", "Qte", "U", "PR._FO"],
+    };
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 0,
+          payload: {
+            Désignation: "Eaux usées",
+            Qte: null,
+            U: null,
+            "PR._FO": null,
+            _timax_structure: {
+              ...metadata,
+              source_row_number: 2,
+            },
+          },
+        },
+        {
+          row_index: 1,
+          payload: {
+            Désignation: "Tube hors lot",
+            Qte: "—",
+            U: "ml",
+            "PR._FO": "—",
+            _timax_structure: {
+              ...metadata,
+              bold_columns: [],
+              source_row_number: 3,
+            },
+          },
+        },
+        {
+          row_index: 2,
+          payload: {
+            Désignation: "TOTAL HT",
+            _timax_structure: {
+              ...metadata,
+              bold_columns: [],
+              source_row_number: 4,
+            },
+          },
+        },
+        {
+          row_index: 3,
+          payload: {
+            Désignation: "Conditions de validité",
+            _timax_structure: {
+              ...metadata,
+              bold_columns: [],
+              source_row_number: 5,
+            },
+          },
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await previewImportStructure({
+      import_id: IMPORT_ID,
+      mapping: {
+        Désignation: "designation",
+        Qte: "quantity",
+        U: "unit",
+        "PR._FO": "unit_price_ht",
+      },
+    });
+
+    expect(result.candidates).toEqual([
+      expect.objectContaining({
+        row_index: 0,
+        title: "Eaux usées",
+        confidence: "high",
+        suggested_kind: "section",
+      }),
+    ]);
+    expect(result.footer_row_indexes).toEqual([2, 3]);
+    expect(result.summary).toMatchObject({
+      zero_price_rows: 1,
+      ignored_footer_rows: 2,
+    });
   });
 
   it("merges mapping memory with heuristic suggestions", async () => {

@@ -764,14 +764,13 @@ export function resolveEstimateEditorGridStyle(
     addOptionalColumn("k_mo", 56, 56);
   }
 
-  pushFixed(88, 82); // P.U.
-  pushFixed(100, 94); // Prix total
-
-  // EST-E15 increment 1 : sous-detail de prix, insere APRES le prix total et
-  // AVANT la colonne d'actions.
+  // EST-E15 : sous-detail de prix, place entre la main-d'oeuvre et la vente.
   addOptionalColumn("ds", 100, 94);
   addOptionalColumn("marge", 100, 94);
   addOptionalColumn("marque", 78, 72);
+
+  pushFixed(88, 82); // P.U.
+  pushFixed(100, 94); // Prix total
 
   pushFixed(42, 40); // Actions
 
@@ -1025,8 +1024,18 @@ export function EstimateEditorTable({
   // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
     const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
+    const priceBreakdownSpan =
+      (viewportVisibleColumns.has("ds") ? 1 : 0) +
+      (viewportVisibleColumns.has("marge") ? 1 : 0) +
+      (viewportVisibleColumns.has("marque") ? 1 : 0);
     if (isLaborSplitEnabled) {
-      return { foStart, foSpan: 3, moStart: 7, moSpan: 7, puStart: 14 };
+      return {
+        foStart,
+        foSpan: 3,
+        moStart: 7,
+        moSpan: 7,
+        puStart: 14 + priceBreakdownSpan,
+      };
     }
     const foSpan =
       1 +
@@ -1038,7 +1047,7 @@ export function EstimateEditorTable({
       (viewportVisibleColumns.has("h_mo_majoration") ? 1 : 0) +
       (viewportVisibleColumns.has("labor_role") ? 1 : 0) +
       (viewportVisibleColumns.has("k_mo") ? 1 : 0);
-    const puStart = moStart + moSpan;
+    const puStart = moStart + moSpan + priceBreakdownSpan;
     return { foStart, foSpan, moStart, moSpan, puStart };
   }, [viewportVisibleColumns, isLaborSplitEnabled]);
 

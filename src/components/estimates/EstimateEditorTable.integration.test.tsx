@@ -444,6 +444,9 @@ describe("EstimateEditorTable integration", () => {
     expect(screen.getByText("Vente")).toHaveClass(
       "estimate-super-head__group--sale",
     );
+    expect(screen.getByText("Rentabilité")).toHaveClass(
+      "estimate-super-head__group--margin",
+    );
 
     expect(screen.getByText("K FO").closest("span")).toHaveClass(
       "whitespace-nowrap",
@@ -457,6 +460,18 @@ describe("EstimateEditorTable integration", () => {
     );
     expect(screen.getByText("Prix total").closest("div")).toHaveClass(
       "estimate-col--sale",
+    );
+    const headerLabels = Array.from(
+      document.querySelectorAll(
+        '[data-testid="estimate-editor-table-head"] > div',
+      ),
+      (cell) => cell.textContent?.trim() ?? "",
+    );
+    expect(headerLabels.indexOf("K MO")).toBeLessThan(
+      headerLabels.indexOf("Deboursé sec"),
+    );
+    expect(headerLabels.indexOf("Marque %")).toBeLessThan(
+      headerLabels.indexOf("PU"),
     );
     expect(
       screen.queryByRole("button", { name: /^Aide :/ }),
