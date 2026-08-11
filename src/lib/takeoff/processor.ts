@@ -3,7 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 
 import { mapSupabaseError } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import {
   buildPdfChunks,

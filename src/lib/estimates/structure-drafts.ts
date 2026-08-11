@@ -12,7 +12,9 @@ import {
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getAuthenticatedTenantContext as getAuthenticatedContext,
+} from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -21,7 +23,6 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "./errors";
 import {
   applyEstimateStructureDraftSchema,
@@ -59,10 +60,6 @@ type EstimateStructureDraftApplyRpcResult =
   Database["public"]["Functions"]["apply_estimate_structure_draft"]["Returns"][number];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 type GenerateEstimateStructureDraftInput = z.infer<
   typeof generateEstimateStructureDraftSchema
 >;
@@ -487,41 +484,6 @@ function canAccessOwnerResource(input: {
 export function assertDraftStatus(status: EstimateStatus) {
   if (status === "draft") return;
   throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
-}
-
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
-  };
 }
 
 async function getVersionAccessOrThrow(

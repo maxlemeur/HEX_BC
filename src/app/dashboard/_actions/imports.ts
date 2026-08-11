@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import {
+  readActiveTenantMembership,
+  type ServerSupabaseClient,
+} from "@/lib/auth/tenant-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -22,27 +26,23 @@ type LinkImportToProjectInput = {
 };
 
 async function getCurrentMembershipOrThrow(
+  supabase: ServerSupabaseClient,
   userId: string
 ): Promise<TenantMembershipRow> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const { membership, error } = await readActiveTenantMembership(supabase, userId);
 
   if (error) {
     throw new Error("Impossible de charger le tenant courant.");
   }
 
-  const membership = data?.[0] as TenantMembershipRow | undefined;
   if (!membership) {
     throw new Error("Aucun tenant actif pour cet utilisateur.");
   }
 
-  return membership;
+  return {
+    tenant_id: membership.tenant_id,
+    role: membership.role,
+  };
 }
 
 export async function linkImportToProject(input: LinkImportToProjectInput) {
@@ -61,7 +61,7 @@ export async function linkImportToProject(input: LinkImportToProjectInput) {
     throw new Error("Authentification requise.");
   }
 
-  const membership = await getCurrentMembershipOrThrow(user.id);
+  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
   const projectId = parsed.data.projectId ?? null;
   const isTenantAdmin = membership.role === "admin";
 

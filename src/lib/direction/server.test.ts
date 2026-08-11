@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
@@ -29,7 +29,7 @@ vi.mock("@/lib/direction/alerts", () => ({
   ),
 }));
 
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   fetchDirectionDashboardPageData,
   fetchDirectionProjectSignals,

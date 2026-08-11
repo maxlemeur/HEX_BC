@@ -4,7 +4,7 @@ import { inflateRawSync } from "node:zlib";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   badRequest,
   forbidden,

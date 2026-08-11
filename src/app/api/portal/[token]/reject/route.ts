@@ -41,8 +41,11 @@ export async function POST(
     // 1. Lookup portal token
     const { data: portalToken, error: lookupError } = await supabase
       .from("portal_tokens")
-      .select("id, version_id, status, expires_at")
+      .select(
+        "id, tenant_id, version_id, status, expires_at, tenants!inner(is_active)"
+      )
       .eq("token", token)
+      .eq("tenants.is_active", true)
       .single();
 
     if (lookupError || !portalToken) {

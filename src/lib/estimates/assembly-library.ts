@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { mapSupabaseError } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
 const assemblyLibraryFilterSchema = z.enum(["all", "favorites", "recent"]);
 const assemblyLibrarySortSchema = z.enum([

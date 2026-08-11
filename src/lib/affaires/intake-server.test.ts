@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
@@ -14,7 +14,7 @@ vi.mock("@/lib/takeoff/gemini-client", () => ({
   callGeminiStructured: vi.fn(),
 }));
 
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-server";
 import {
   __securityTesting__,

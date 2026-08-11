@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 import { cache } from "react";
 import { ZodError } from "zod";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  readActiveTenantMembership,
+  readAuthenticatedUser,
+} from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 import {
   isImportReservedKey,
@@ -27,10 +30,6 @@ type MappedRowInsert = Database["public"]["Tables"]["dpgf_rows_mapped"]["Insert"
 type TemplateRow = Database["public"]["Tables"]["mapping_templates"]["Row"];
 type TemplateInsert = Database["public"]["Tables"]["mapping_templates"]["Insert"];
 type MemoryRow = Database["public"]["Tables"]["mapping_memory"]["Row"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role"
->;
 type AuthenticatedContext = {
   supabase: Supabase;
   userId: string;
@@ -982,16 +981,25 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
 }
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, error: userError } = await readAuthenticatedUser();
 
-  if (!user) {
+  if (userError || !user) {
     throw unauthorized();
   }
 
-  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, user.id);
+
+  if (membershipError) {
+    throw mapSupabaseError(
+      membershipError,
+      "Impossible de charger le tenant courant."
+    );
+  }
+
+  if (!membership) {
+    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+  }
 
   return {
     supabase,
@@ -999,31 +1007,6 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
     tenantId: membership.tenant_id,
     isTenantAdmin: membership.role === "admin",
   };
-}
-
-async function getCurrentMembershipOrThrow(
-  supabase: Supabase,
-  userId: string
-): Promise<TenantMembershipRow> {
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = data?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return membership;
 }
 
 async function ensureImportAccess(

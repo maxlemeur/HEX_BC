@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(() => ({})),
+}));
+
 import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 

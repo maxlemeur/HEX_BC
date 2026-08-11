@@ -27,7 +27,7 @@ export const createSupabaseServerClient = cache(async () => {
         return cookieStore.getAll();
       },
       setAll() {
-        // Server Components are read-only: session refresh must happen in middleware.
+        // Server Components are read-only: session refresh happens in src/proxy.ts.
       },
     },
   });

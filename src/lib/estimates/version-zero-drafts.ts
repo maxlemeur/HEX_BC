@@ -11,8 +11,10 @@ import {
   internalError,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "@/lib/estimates/errors";
+import {
+  getAuthenticatedTenantContext as getAuthenticatedContext,
+} from "@/lib/auth/tenant-context";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
@@ -22,7 +24,6 @@ import {
   generateEstimateStructureDraft,
   withEstimateAiGenerationLease,
 } from "@/lib/estimates/structure-drafts";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 import type { Database, Json } from "@/types/database";
 
@@ -88,10 +89,6 @@ type VersionAccessRow = Pick<
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 
 type AffaireBriefRow = {
   id: string;
@@ -428,41 +425,6 @@ function extractLotMetadata(row: EstimateVersionZeroLotRow) {
 
 function extractLineMetadata(row: EstimateVersionZeroLineRow) {
   return toJsonRecord(row.metadata);
-}
-
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
-  };
 }
 
 async function getVersionAccessOrThrow(

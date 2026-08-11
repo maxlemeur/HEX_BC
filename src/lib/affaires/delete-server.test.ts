@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthenticatedContextMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: getAuthenticatedContextMock,
 }));
 

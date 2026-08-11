@@ -1,12 +1,15 @@
 import { z } from "zod";
 
+import {
+  readActiveTenantMembership,
+  readAuthenticatedUser,
+} from "@/lib/auth/tenant-context";
 import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
 import {
   listFeatureFlagsForTenant,
   normalizeFeatureFlagKey,
   toggleFeatureFlagForTenant,
 } from "@/lib/feature-flags";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const tenantQuerySchema = z.object({
   tenant_id: z.string().uuid("tenant_id invalide.").optional(),
@@ -29,33 +32,20 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 }
 
 async function getActorContext() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  const { supabase, user, error } = await readAuthenticatedUser();
 
   if (error || !user) {
     throw unauthorized();
   }
 
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, user.id);
 
   if (membershipError) {
     throw badRequest("Impossible de charger le tenant courant.");
   }
 
-  const defaultTenantId =
-    memberships?.[0] && typeof memberships[0].tenant_id === "string"
-      ? memberships[0].tenant_id
-      : null;
+  const defaultTenantId = membership?.tenant_id ?? null;
 
   if (!defaultTenantId) {
     throw unauthorized();

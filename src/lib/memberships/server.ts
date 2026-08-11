@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  readActiveTenantMembership,
+  readAuthenticatedUser,
+} from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
 
@@ -55,45 +58,31 @@ function sanitizeSearchTerm(value: string) {
 }
 
 async function getAuthenticatedContext() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  const { supabase, user, error } = await readAuthenticatedUser();
 
   if (error || !user) {
     throw unauthorized();
   }
 
-  return {
-    supabase,
-    userId: user.id,
-  };
-}
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, user.id);
 
-async function getCurrentMembershipOrThrow(supabase: Supabase, userId: string) {
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("id, tenant_id, user_id, role, is_default, created_at, updated_at")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le tenant courant.");
+  if (membershipError) {
+    throw mapSupabaseError(
+      membershipError,
+      "Impossible de charger le tenant courant."
+    );
   }
-
-  const membership = data?.[0] as TenantMembershipRow | undefined;
 
   if (!membership) {
     throw forbidden("Aucun tenant actif pour cet utilisateur.");
   }
 
-  await getTenantOrThrow(supabase, membership.tenant_id);
-
-  return membership;
+  return {
+    supabase,
+    userId: user.id,
+    membership,
+  };
 }
 
 function assertTenantAdmin(role: TenantRole) {
@@ -245,8 +234,8 @@ async function mapMembershipWithProfile(supabase: Supabase, membership: TenantMe
 }
 
 export async function listTenantMemberships(query: MembershipsListQueryInput) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const actorMembership = await getCurrentMembershipOrThrow(supabase, userId);
+  const { supabase, userId, membership: actorMembership } =
+    await getAuthenticatedContext();
   assertTenantAdmin(actorMembership.role);
 
   const tenant = await getTenantOrThrow(supabase, actorMembership.tenant_id);
@@ -272,8 +261,8 @@ export async function listTenantMemberships(query: MembershipsListQueryInput) {
 }
 
 export async function createMembership(input: CreateMembershipInput) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const actorMembership = await getCurrentMembershipOrThrow(supabase, userId);
+  const { supabase, membership: actorMembership } =
+    await getAuthenticatedContext();
   assertTenantAdmin(actorMembership.role);
 
   const { data: existingMembership, error: existingMembershipError } = await supabase
@@ -339,8 +328,8 @@ export async function createMembership(input: CreateMembershipInput) {
 }
 
 export async function updateMembership(membershipId: string, input: UpdateMembershipInput) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const actorMembership = await getCurrentMembershipOrThrow(supabase, userId);
+  const { supabase, membership: actorMembership } =
+    await getAuthenticatedContext();
   assertTenantAdmin(actorMembership.role);
 
   const targetMembership = await getMembershipByIdOrThrow(supabase, membershipId);
@@ -381,8 +370,8 @@ export async function updateMembership(membershipId: string, input: UpdateMember
 }
 
 export async function deleteMembership(membershipId: string) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const actorMembership = await getCurrentMembershipOrThrow(supabase, userId);
+  const { supabase, userId, membership: actorMembership } =
+    await getAuthenticatedContext();
   assertTenantAdmin(actorMembership.role);
 
   const targetMembership = await getMembershipByIdOrThrow(supabase, membershipId);

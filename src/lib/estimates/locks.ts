@@ -1,6 +1,8 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getAuthenticatedTenantContext as getAuthenticatedContext,
+} from "@/lib/auth/tenant-context";
 import type { Database } from "@/types/database";
 
 import {
@@ -8,7 +10,6 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "./errors";
 
 type Supabase = SupabaseClient<Database>;
@@ -20,10 +21,6 @@ type DraftLockRow = Database["public"]["Tables"]["draft_locks"]["Row"] & {
 type DraftLockInsert = Database["public"]["Tables"]["draft_locks"]["Insert"] & {
   session_id: string;
 };
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 type EmbeddedProjectAccess = Pick<
   Database["public"]["Tables"]["estimate_projects"]["Row"],
   "tenant_id" | "user_id"
@@ -132,42 +129,6 @@ function isUniqueLockError(error: PostgrestError) {
     normalizedMessage.includes("duplicate key") ||
     normalizedMessage.includes("unique")
   );
-}
-
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
-  };
 }
 
 async function assertVersionAccessOrThrow(

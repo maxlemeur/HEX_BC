@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/estimates/server", () => ({
   assertDraftStatus: vi.fn(),
   bulkUpdateEstimateItems: vi.fn(),
-  getAuthenticatedContext: vi.fn(),
   insertAssemblyIntoVersion: vi.fn(),
+}));
+
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedContext: vi.fn(),
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
@@ -14,9 +17,9 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 
 import {
   bulkUpdateEstimateItems,
-  getAuthenticatedContext,
   insertAssemblyIntoVersion,
 } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   assertTakeoffEnabled,
   getTakeoffLowConfidenceThresholdForTenant,

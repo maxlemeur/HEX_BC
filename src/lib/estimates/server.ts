@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import {
-  createClient,
   type PostgrestError,
   type SupabaseClient,
 } from "@supabase/supabase-js";
@@ -50,7 +49,11 @@ import type {
   EstimateSupplierPreselectionReview,
   EstimateSupplierPreselectionSummary,
 } from "@/lib/estimates/supplier-preselection";
+import {
+  getAuthenticatedTenantContext,
+} from "@/lib/auth/tenant-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -60,7 +63,6 @@ import {
   internalError,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "./errors";
 import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
@@ -212,10 +214,6 @@ type EstimateVersionStatusEventType = Extract<
 >;
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 type EmbeddedProjectAccess = Pick<
   EstimateProjectRow,
   | "id"
@@ -647,8 +645,6 @@ const ESTIMATE_VERSION_STATUS_EVENT_TYPES: Readonly<
   archived: "archived",
 };
 
-let serviceRoleSupabaseClient: Supabase | null = null;
-
 type EstimateSealVersionFields = Pick<
   EstimateVersionRow,
   | "id"
@@ -752,6 +748,13 @@ type AuthenticatedContext = {
   tenantId: string;
   tenantRole: TenantRole;
 };
+
+export async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
+  const { supabase, userId, tenantId, tenantRole } =
+    await getAuthenticatedTenantContext();
+
+  return { supabase, userId, tenantId, tenantRole };
+}
 
 type EstimateTotals = {
   total_ht_cents: number | null;
@@ -2127,33 +2130,14 @@ async function loadEstimateSealSource(input: {
 }
 
 function getServiceRoleSupabaseClient() {
-  if (serviceRoleSupabaseClient) {
-    return serviceRoleSupabaseClient;
-  }
-
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  let serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  // Allow mocked service-role logging in test runs even without env vars.
-  if ((!supabaseUrl || !serviceRoleKey) && process.env.NODE_ENV === "test") {
-    supabaseUrl = supabaseUrl ?? "http://localhost:54321";
-    serviceRoleKey = serviceRoleKey ?? "test-service-role";
-  }
-
-  if (!supabaseUrl || !serviceRoleKey) {
+  try {
+    return createServiceRoleClient();
+  } catch (error) {
     throw internalError(
-      "Configuration Supabase service role manquante pour executer le workflow protege."
+      "Configuration Supabase service role manquante pour executer le workflow protege.",
+      error
     );
   }
-
-  serviceRoleSupabaseClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-
-  return serviceRoleSupabaseClient;
 }
 
 function resolveStatusEventType(
@@ -3677,42 +3661,6 @@ function canAccessEstimateReadResource(input: {
     canAccessOwnerResource(input) ||
     input.context.tenantRole === "director"
   );
-}
-
-export async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
-  };
 }
 
 function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void {

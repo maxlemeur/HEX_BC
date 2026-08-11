@@ -194,6 +194,7 @@
     "20260802175032_structured_dpgf_import_hierarchy.sql": "078e1d4a4ecbcba8eafa319bad640e009ad3360113fc839442d8aec3266b1b58",
     "20260808204122_revoke_structured_dpgf_import_anon_execute.sql": "bf912c2b42c1c6e78de627692c234fa2add595d31dde4ffeee7ac40854f0d88d",
     "20260811184019_restore_service_role_table_privileges.sql": "f4d8d75d051ddc12495817a48653fab3e50bc97f2e6e23f49cc01f458ad525ec",
-    "20260811185118_restore_authenticated_estimate_privileges.sql": "34bc97c009b68bbf3e06a50e82fd95bd00b91eec7700f72cbaa8a5b78692e0b4"
+    "20260811185118_restore_authenticated_estimate_privileges.sql": "34bc97c009b68bbf3e06a50e82fd95bd00b91eec7700f72cbaa8a5b78692e0b4",
+    "20260811212848_enforce_active_tenant_boundaries.sql": "7a4ee0b0c279fbc18f61fce150d4833994d0f9c86a72563ed2769eccd174bb99"
   }
 }

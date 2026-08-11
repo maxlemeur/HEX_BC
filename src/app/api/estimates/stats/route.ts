@@ -1,19 +1,13 @@
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
-  forbidden,
   mapSupabaseError,
   ok,
   toErrorResponse,
-  unauthorized,
 } from "@/lib/estimates/errors";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 type EstimateStatsVersionRow = Pick<
   Database["public"]["Tables"]["estimate_versions"]["Row"],
   "id" | "status" | "created_at" | "updated_at" | "total_ht_cents"
@@ -58,40 +52,14 @@ function buildRecentMonths(now: Date, count: number) {
 }
 
 async function getActorContext() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
+  const { supabase, userId, tenantId, tenantRole } =
+    await getAuthenticatedTenantContext();
 
   return {
     supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
+    userId,
+    tenantId,
+    tenantRole,
   };
 }
 

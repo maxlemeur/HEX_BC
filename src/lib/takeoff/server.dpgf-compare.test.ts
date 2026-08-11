@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/server", () => ({
-  getAuthenticatedContext: vi.fn(),
   assertDraftStatus: vi.fn(),
   bulkUpdateEstimateItems: vi.fn(),
   insertAssemblyIntoVersion: vi.fn(),
+}));
+
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedContext: vi.fn(),
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
@@ -16,7 +19,7 @@ vi.mock("@/lib/takeoff/version-links", () => ({
   listAccessibleTakeoffJobsForVersion: vi.fn(),
 }));
 
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { buildTakeoffDpgfReviewReference } from "@/lib/takeoff/dpgf-compare";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";

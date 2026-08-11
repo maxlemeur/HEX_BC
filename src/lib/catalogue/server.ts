@@ -2,7 +2,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
 
 import type {
   BulkCreateSupplierPricesAtomicInput,
@@ -563,13 +563,9 @@ async function insertManyWithFallback(
 }
 
 async function getAuthenticatedContext() {
-  const typedClient = await createSupabaseServerClient();
+  const { supabase: typedClient, user, error: userError } =
+    await readAuthenticatedUser();
   const supabase = typedClient as unknown as RuntimeSupabase;
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
 
   if (userError) {
     throw unauthorized();

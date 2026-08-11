@@ -1,6 +1,6 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 
-import type { getAuthenticatedContext } from "@/lib/estimates/server";
+import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import {
   TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { getAuthenticatedContext } from "@/lib/estimates/server";
+import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";

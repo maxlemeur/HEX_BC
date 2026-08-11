@@ -11,6 +11,9 @@ vi.mock("next/cache", () => ({
 
 vi.mock("@/lib/estimates/server", () => ({
   duplicateEstimateVersion: duplicateEstimateVersionMock,
+}));
+
+vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(() => ({
     tenantId: "tenant-1",
     supabase: {

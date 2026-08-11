@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getAuthenticatedTenantContext,
+} from "@/lib/auth/tenant-context";
 import {
   buildAffaireRegisterSubmissionSignalMessage,
   fetchAffaireRegisterGateSummary,
@@ -29,17 +31,12 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "./errors";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 type TenantMembershipAccessRow = Pick<
   Database["public"]["Tables"]["tenant_memberships"]["Row"],
   "tenant_id" | "user_id" | "role" | "is_default" | "created_at"
@@ -315,6 +312,17 @@ type AuthenticatedContext = {
   tenantId: string;
   tenantRole: TenantRole;
 };
+
+async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
+  const context = await getAuthenticatedTenantContext();
+
+  return {
+    supabase: context.supabase as unknown as Supabase,
+    userId: context.userId,
+    tenantId: context.tenantId,
+    tenantRole: context.tenantRole,
+  };
+}
 
 type EmbeddedProfileName = Pick<
   Database["public"]["Tables"]["profiles"]["Row"],
@@ -3720,44 +3728,6 @@ export async function updateEstimateReviewCorrectionItemStatus(input: {
     versionId: row.version_id ?? input.versionId,
     status: row.status ?? input.status,
     treatedAt: row.treated_at ?? new Date().toISOString(),
-  };
-}
-
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const rawSupabase = await createSupabaseServerClient();
-  const supabase = rawSupabase as unknown as Supabase;
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
   };
 }
 

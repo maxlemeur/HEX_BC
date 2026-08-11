@@ -2,10 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import {
-  duplicateEstimateVersion,
-  getAuthenticatedContext,
-} from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { duplicateEstimateVersion } from "@/lib/estimates/server";
 import { createTakeoffJobFromPlanSet } from "@/lib/takeoff/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 

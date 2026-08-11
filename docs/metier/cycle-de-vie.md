@@ -103,8 +103,8 @@ Vérification : `verifyEstimateSeal` / route `GET /api/estimates/[versionId]/ver
 | Lecture | tous les membres du tenant |
 
 L'isolation multi-tenant est portée par les RLS (**664 policies**), avec `force row level security` sur
-les tables sensibles. Le middleware ne fait que rafraîchir la session : **il ne porte aucune règle
-d'autorisation de route**.
+les tables sensibles. `src/proxy.ts` rafraîchit la session et redirige selon la présence d'un
+utilisateur ; **les rôles et autorisations tenant restent portés par le serveur et le RLS**.
 
 ---
 

@@ -1,13 +1,12 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   forbidden,
   mapSupabaseError,
   ok,
   toErrorResponse,
-  unauthorized,
 } from "@/lib/estimates/errors";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   buildTakeoffMetricsStatsPayload,
@@ -21,54 +20,24 @@ import {
 import type { Database } from "@/types/database";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const TAKEOFF_METRICS_JOB_BATCH_SIZE = 100;
 type SupabaseQueryError = PostgrestError;
 
 async function getActorContext() {
-  const supabase = await createSupabaseServerClient();
+  const { supabase, userId, tenantId, tenantRole } =
+    await getAuthenticatedTenantContext();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  if (membership.role !== TENANT_ADMIN_ROLE) {
+  if (tenantRole !== TENANT_ADMIN_ROLE) {
     throw forbidden("Acces reserve aux administrateurs.");
   }
 
   return {
     supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
+    userId,
+    tenantId,
+    tenantRole,
   };
 }
 

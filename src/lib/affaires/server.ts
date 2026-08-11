@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   computeEstimateBreakdown,
   computeStoredDiscountCents,
@@ -12,7 +13,6 @@ import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import {
-  getAuthenticatedContext,
   getEstimateSendGating,
   getEstimateSupplierComparisons,
   listEstimateItems,

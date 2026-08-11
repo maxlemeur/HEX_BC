@@ -47,11 +47,11 @@ pour l'ordre complet.
 - `src/lib/` — logique métier. Principaux : `estimates/`, `takeoff/`, `affaires/`, `catalogue/`,
   `imports/`, `mappings/`, `approvals/`, `direction/`, `cockpit/`
 - `src/lib/openapi/` — génération OpenAPI depuis les schémas Zod ; `openapi.json` est versionné
-- `supabase/migrations/` — **187 migrations, source de vérité du schéma**
+- `supabase/migrations/` — **195 migrations, source de vérité du schéma**
 - `supabase/functions/` — Edge Functions Deno
 
-**Authentification** : `middleware.ts` rafraîchit la session Supabase (cookies uniquement, aucune
-règle d'autorisation). L'autorisation passe par `getUserContext()` / `requireUser()`
+**Authentification** : `src/proxy.ts` rafraîchit la session Supabase (cookies et redirections de session,
+sans règle d'autorisation métier). L'autorisation passe par `getUserContext()` / `requireUser()`
 (`src/lib/auth/server.ts`), consommé par les layouts et les server actions.
 
 **Clients Supabase** : `createSupabaseServerClient()` (async, Server Components),

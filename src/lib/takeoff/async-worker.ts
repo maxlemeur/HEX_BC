@@ -1,5 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
   TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS,
@@ -106,7 +105,6 @@ type TakeoffWorkerRepository = {
 type ProcessTakeoffJobAttemptOptions = {
   correlationId: string;
   trigger: TakeoffJobAttemptTrigger;
-  serviceRoleKey?: string;
   now?: () => Date;
   processLevelAFn?: typeof processLevelA;
   processLevelBFn?: typeof processLevelB;
@@ -115,40 +113,6 @@ type ProcessTakeoffJobAttemptOptions = {
   repository?: TakeoffWorkerRepository;
   logger?: Pick<typeof console, "info" | "warn" | "error">;
 };
-
-const serviceRoleSupabaseClients = new Map<string, SupabaseClientLike>();
-
-function getTakeoffServiceRoleClient(serviceRoleKeyOverride?: string): SupabaseClientLike {
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  let serviceRoleKey = serviceRoleKeyOverride ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if ((!supabaseUrl || !serviceRoleKey) && process.env.NODE_ENV === "test") {
-    supabaseUrl = supabaseUrl ?? "http://localhost:54321";
-    serviceRoleKey = serviceRoleKey ?? "test-service-role";
-  }
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for takeoff async worker."
-    );
-  }
-
-  const cacheKey = `${supabaseUrl}::${serviceRoleKey}`;
-  const cachedClient = serviceRoleSupabaseClients.get(cacheKey);
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }) as unknown as SupabaseClientLike;
-
-  serviceRoleSupabaseClients.set(cacheKey, client);
-  return client;
-}
 
 function getRetryBackoffSeconds(retryCount: number) {
   const clamped = Math.max(0, Math.min(retryCount, TAKEOFF_RETRY_BACKOFF_SECONDS.length - 1));
@@ -476,7 +440,8 @@ export async function processTakeoffJobAttempt(
   const now = options.now ?? (() => new Date());
   const startedAt = now();
   const logger = options.logger ?? console;
-  const serviceRoleClient = getTakeoffServiceRoleClient(options.serviceRoleKey);
+  const serviceRoleClient =
+    createServiceRoleClient() as unknown as SupabaseClientLike;
   const repository =
     options.repository ??
     createSupabaseTakeoffWorkerRepository(serviceRoleClient);

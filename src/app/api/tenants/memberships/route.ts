@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import {
+  readActiveTenantMembership,
+  readAuthenticatedUser,
+  type ServerSupabaseClient,
+} from "@/lib/auth/tenant-context";
+import {
   badRequest,
   forbidden,
   mapSupabaseError,
@@ -10,10 +15,9 @@ import {
   unauthorized,
 } from "@/lib/memberships/errors";
 import { tenantRoleSchema } from "@/lib/memberships/schemas";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
-type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+type Supabase = ServerSupabaseClient;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type TenantRow = Database["public"]["Tables"]["tenants"]["Row"];
 type TenantMembershipRow = Database["public"]["Tables"]["tenant_memberships"]["Row"];
@@ -63,39 +67,27 @@ function assertActorIsTenantAdmin(actorMembership: TenantMembershipRow) {
 }
 
 async function getActorContext() {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const { supabase, user, error: authError } = await readAuthenticatedUser();
 
   if (authError || !user) {
     throw unauthorized();
   }
 
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select(membershipSelect)
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, user.id);
 
   if (membershipError) {
     throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
   }
 
-  const actorMembership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!actorMembership) {
+  if (!membership) {
     throw forbidden("Aucun tenant actif pour cet utilisateur.");
   }
 
   return {
     supabase,
     userId: user.id,
-    actorMembership,
+    actorMembership: membership,
   };
 }
 
@@ -268,63 +260,33 @@ async function setMembershipAsDefault(input: {
   userId: string;
   membershipId: string;
 }) {
-  const { data: ownMemberships, error: ownMembershipsError } = await input.supabase
-    .from("tenant_memberships")
-    .select("id, tenant_id, user_id, role, is_default, created_at, updated_at")
-    .eq("user_id", input.userId)
-    .order("created_at", { ascending: true });
-
-  if (ownMembershipsError) {
-    throw mapSupabaseError(ownMembershipsError, "Impossible de charger vos memberships.");
-  }
-
-  const targetMembership = (ownMemberships ?? []).find(
-    (membership) => membership.id === input.membershipId
-  ) as TenantMembershipRow | undefined;
-
-  if (!targetMembership) {
-    throw notFound("Membership cible introuvable.");
-  }
-
-  if (targetMembership.role !== "admin") {
-    throw forbidden("Acces reserve aux administrateurs du tenant.");
-  }
-
-  const blockedDefaultInOtherTenant = (ownMemberships ?? []).find(
-    (membership) =>
-      membership.is_default &&
-      membership.id !== targetMembership.id &&
-      membership.role !== "admin"
+  const { error: switchError } = await input.supabase.rpc(
+    "set_active_tenant_membership_default" as never,
+    { p_membership_id: input.membershipId } as never
   );
 
-  if (blockedDefaultInOtherTenant) {
-    throw forbidden(
-      "Impossible de changer le tenant par defaut depuis ce compte admin."
+  if (switchError) {
+    if (switchError.message === "TENANT_DEFAULT_SWITCH_FORBIDDEN") {
+      throw forbidden(
+        "Impossible de changer le tenant par defaut depuis ce compte admin."
+      );
+    }
+
+    throw mapSupabaseError(
+      switchError,
+      "Impossible de definir le tenant par defaut."
     );
-  }
-
-  const { error: unsetError } = await input.supabase
-    .from("tenant_memberships")
-    .update({ is_default: false })
-    .eq("user_id", input.userId)
-    .eq("is_default", true)
-    .neq("id", targetMembership.id);
-
-  if (unsetError) {
-    throw mapSupabaseError(unsetError, "Impossible de mettre a jour le tenant par defaut.");
   }
 
   const { data, error } = await input.supabase
     .from("tenant_memberships")
-    .update({ is_default: true })
-    .eq("id", targetMembership.id)
-    .eq("user_id", input.userId)
-    .eq("tenant_id", targetMembership.tenant_id)
     .select(membershipSelect)
+    .eq("id", input.membershipId)
+    .eq("user_id", input.userId)
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de definir le tenant par defaut.");
+    throw mapSupabaseError(error, "Impossible de relire le tenant par defaut.");
   }
 
   if (!data) {

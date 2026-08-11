@@ -185,6 +185,14 @@ class MembershipQuery {
       throw new Error(`Unexpected table: ${this.table}`);
     }
 
+    if (
+      this.selectedColumns.includes("tenants!inner(is_active)") &&
+      this.hasFilter("tenants.is_active", true) &&
+      !this.scenario.tenantActive
+    ) {
+      return { data: [], error: null };
+    }
+
     if (this.mode === "insert") {
       return { data: this.scenario.createdMembership, error: null };
     }
@@ -284,6 +292,20 @@ describe("memberships service authorization", () => {
     await expect(
       createMembership({ user_id: TARGET_USER_ID, role: "engineer" })
     ).rejects.toMatchObject({ status: 403 });
+
+    expect(createServiceRoleClient).not.toHaveBeenCalled();
+    expect(mutationQueries(queries)).toHaveLength(0);
+  });
+
+  it("rejects membership administration when the current tenant is inactive", async () => {
+    const { queries } = createMembershipHarness({ tenantActive: false });
+
+    await expect(
+      createMembership({ user_id: TARGET_USER_ID, role: "engineer" })
+    ).rejects.toMatchObject({
+      status: 403,
+      message: "Aucun tenant actif pour cet utilisateur.",
+    });
 
     expect(createServiceRoleClient).not.toHaveBeenCalled();
     expect(mutationQueries(queries)).toHaveLength(0);

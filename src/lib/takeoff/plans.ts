@@ -12,7 +12,7 @@ import {
   payloadTooLarge,
   unprocessableEntity,
 } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
+import { readActiveTenantMembership } from "@/lib/auth/tenant-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeUiMode, type UiMode } from "@/lib/ui-mode";
 import type { Database } from "@/types/database";
@@ -44,15 +45,14 @@ export const getUserProfile = cache(async (userId: string) => {
     return null;
   }
 
-  const { data: membershipData } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, userId);
 
-  const membership = membershipData?.[0] ?? null;
+  if (membershipError) {
+    console.error("Unable to resolve active tenant membership", {
+      code: membershipError.code,
+    });
+  }
 
   return {
     ...profileData,

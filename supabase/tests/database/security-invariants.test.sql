@@ -343,6 +343,175 @@ select ok(
   'guarded takeoff apply RPC is exposed only to authenticated callers'
 );
 
+select ok(
+  exists (
+    select 1
+    from pg_policies as policy
+    where policy.schemaname = 'public'
+      and policy.tablename = 'tenant_memberships'
+      and policy.policyname = 'Users can view memberships in own tenants'
+      and upper(policy.cmd) = 'SELECT'
+      and 'authenticated' = any(policy.roles)
+      and position('is_tenant_member' in lower(coalesce(policy.qual, ''))) > 0
+      and position('has_tenant_role' in lower(coalesce(policy.qual, ''))) > 0
+  ),
+  'membership discovery delegates active-tenant checks to hardened helpers'
+);
+
+with tenant_privileges(privilege_name, authenticated_expected) as (
+  values
+    ('SELECT', true),
+    ('INSERT', false),
+    ('UPDATE', false),
+    ('DELETE', false),
+    ('TRUNCATE', false),
+    ('REFERENCES', false),
+    ('TRIGGER', false)
+)
+select ok(
+  has_table_privilege(
+    'authenticated',
+    'public.tenants',
+    expected.privilege_name
+  ) = expected.authenticated_expected
+    and not has_table_privilege(
+      'anon',
+      'public.tenants',
+      expected.privilege_name
+    ),
+  format(
+    'tenant privilege %s is least-privilege for authenticated and revoked from anon',
+    expected.privilege_name
+  )
+)
+from tenant_privileges as expected;
+
+select ok(
+  exists (
+    select 1
+    from pg_policies as policy
+    where policy.schemaname = 'public'
+      and policy.tablename = 'tenants'
+      and policy.policyname = 'Users can view own tenants'
+      and upper(policy.cmd) = 'SELECT'
+      and 'authenticated' = any(policy.roles)
+      and position('is_active' in lower(coalesce(policy.qual, ''))) > 0
+      and position('is_tenant_member' in lower(coalesce(policy.qual, ''))) > 0
+  ),
+  'tenant discovery hides inactive tenants before returning metadata'
+);
+
+with expected_membership_privileges(privilege_name) as (
+  values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')
+)
+select ok(
+  has_table_privilege(
+    'authenticated',
+    'public.tenant_memberships',
+    expected.privilege_name
+  ),
+  format(
+    'authenticated keeps %s on tenant_memberships before RLS filters rows',
+    expected.privilege_name
+  )
+)
+from expected_membership_privileges as expected;
+
+with forbidden_membership_privileges(privilege_name) as (
+  values
+    ('SELECT'),
+    ('INSERT'),
+    ('UPDATE'),
+    ('DELETE'),
+    ('TRUNCATE'),
+    ('REFERENCES'),
+    ('TRIGGER')
+)
+select ok(
+  not has_table_privilege('anon', 'public.tenant_memberships', forbidden.privilege_name)
+    and (
+      forbidden.privilege_name in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
+      or not has_table_privilege(
+        'authenticated',
+        'public.tenant_memberships',
+        forbidden.privilege_name
+      )
+    ),
+  format(
+    'tenant_memberships privilege %s remains least-privilege',
+    forbidden.privilege_name
+  )
+)
+from forbidden_membership_privileges as forbidden;
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
+    where procedure.oid =
+      'public.set_active_tenant_membership_default(uuid)'::regprocedure
+      and procedure.prosecdef
+      and position('tenant.is_active' in procedure.prosrc) > 0
+      and position('for update' in lower(procedure.prosrc)) > 0
+      and position('is_default = false' in procedure.prosrc) > 0
+      and position('is_default = true' in procedure.prosrc) > 0
+      and exists (
+        select 1
+        from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
+        where setting like 'search_path=%'
+      )
+  )
+  and has_function_privilege(
+    'authenticated',
+    'public.set_active_tenant_membership_default(uuid)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.set_active_tenant_membership_default(uuid)'::regprocedure,
+    'EXECUTE'
+  ),
+  'default-tenant switch is atomic, active-only and authenticated-only'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
+    where procedure.oid =
+      'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure
+      and procedure.prosecdef = false
+      and position('join public.tenants t on t.id = ev.tenant_id' in procedure.prosrc) > 0
+      and position('and t.is_active' in procedure.prosrc) > 0
+      and position('for update of ev, t' in procedure.prosrc) > 0
+      and exists (
+        select 1
+        from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
+        where setting like 'search_path=%'
+      )
+  ),
+  'portal decision RPC locks an active tenant with its estimate version'
+);
+
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure,
+    'EXECUTE'
+  ),
+  'portal decision RPC remains service-role only'
+);
+
 -- CLI 2.109.1 executes these four legacy date-only migrations during reset,
 -- but leaves their versions blank in the tracked-history column. Prove their
 -- surviving schema effects instead of rewriting deployed filenames.

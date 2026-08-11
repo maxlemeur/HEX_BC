@@ -3,7 +3,7 @@ import { cache } from "react";
 
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { forbidden } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { normalizeRiskAlertRow } from "@/lib/takeoff/risk-radar";
 import type {

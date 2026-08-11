@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { readActiveTenantMembership } from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 
 import type {
@@ -87,24 +88,20 @@ export async function getCurrentMembershipOrThrow(
   supabase: Supabase,
   userId: string
 ): Promise<TenantMembershipRow> {
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const { membership, error } = await readActiveTenantMembership(supabase, userId);
 
   if (error) {
     throw new Error("Impossible de charger le tenant courant.");
   }
 
-  const membership = data?.[0] as TenantMembershipRow | undefined;
   if (!membership) {
     throw new Error("Aucun tenant actif pour cet utilisateur.");
   }
 
-  return membership;
+  return {
+    tenant_id: membership.tenant_id,
+    role: membership.role,
+  };
 }
 
 export async function getImportOrThrow(input: {

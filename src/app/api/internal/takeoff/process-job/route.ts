@@ -40,7 +40,6 @@ async function parseWorkerPayload(request: Request): Promise<{
   jobId: string;
   correlationId: string;
   trigger: TakeoffJobAttemptTrigger;
-  serviceRoleKey?: string;
 }> {
   let payload: unknown;
 
@@ -70,8 +69,6 @@ async function parseWorkerPayload(request: Request): Promise<{
         ? correlationFromHeader
         : crypto.randomUUID()),
     trigger: parsed.data.trigger ?? "manual",
-    serviceRoleKey:
-      request.headers.get("x-supabase-service-role-key")?.trim() || undefined,
   };
 }
 
@@ -83,7 +80,6 @@ export async function POST(request: Request) {
     const outcome = await processTakeoffJobAttempt(payload.jobId, {
       correlationId: payload.correlationId,
       trigger: payload.trigger,
-      serviceRoleKey: payload.serviceRoleKey,
     });
 
     const status = outcome.should_requeue || outcome.status === "in_progress" ? 202 : 200;

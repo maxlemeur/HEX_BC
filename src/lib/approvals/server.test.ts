@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
@@ -13,7 +13,7 @@ import {
   markApprovalQueueItemState,
 } from "@/lib/approvals/server";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
 const NOW = Date.parse("2026-07-31T12:00:00.000Z");
 

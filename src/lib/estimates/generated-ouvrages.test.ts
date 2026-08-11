@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/estimates/server", () => ({
   assertDraftStatus: vi.fn(),
   createEstimateItem: vi.fn(),
+}));
+
+vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
@@ -23,8 +26,8 @@ import {
 import {
   assertDraftStatus,
   createEstimateItem,
-  getAuthenticatedContext,
 } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 
@@ -132,6 +135,16 @@ function createAuthenticatedContext(supabase: ReturnType<typeof createSupabaseSt
     tenantId: TENANT_ID,
     tenantRole: "engineer",
     userId: USER_ID,
+    isTenantAdmin: false,
+    membership: {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      role: "engineer",
+      is_default: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    },
   });
   vi.mocked(assertDraftStatus).mockImplementation(() => undefined);
 }

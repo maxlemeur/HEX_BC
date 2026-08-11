@@ -257,7 +257,6 @@ async function invokeInternalWorker(
         "Content-Type": "application/json",
         "x-takeoff-worker-secret": config.workerSecret,
         "x-correlation-id": payload.correlation_id,
-        "x-supabase-service-role-key": config.serviceRoleKey,
       },
       body: JSON.stringify(payload),
       signal: controller.signal,

@@ -1,11 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { fromMock, redirectMock, tokenSingleMock, tokenUpdateEqMock } = vi.hoisted(
+const {
+  fromMock,
+  redirectMock,
+  tokenEqMock,
+  tokenSelectMock,
+  tokenSingleMock,
+  tokenUpdateEqMock,
+} = vi.hoisted(
   () => ({
     fromMock: vi.fn(),
     redirectMock: vi.fn((location: string) => {
       throw new Error(`redirect:${location}`);
     }),
+    tokenEqMock: vi.fn(),
+    tokenSelectMock: vi.fn(),
     tokenSingleMock: vi.fn(),
     tokenUpdateEqMock: vi.fn().mockResolvedValue({ error: null }),
   })
@@ -26,11 +35,15 @@ vi.mock("@/lib/supabase/service-role", () => ({
       }
 
       return {
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
+        select: vi.fn((columns: string) => {
+          tokenSelectMock(columns);
+          const builder = {
+            eq: tokenEqMock,
             single: tokenSingleMock,
-          })),
-        })),
+          };
+          tokenEqMock.mockReturnValue(builder);
+          return builder;
+        }),
         update: vi.fn(() => ({
           eq: tokenUpdateEqMock,
         })),
@@ -42,6 +55,28 @@ vi.mock("@/lib/supabase/service-role", () => ({
 import PortalPage from "./page";
 
 describe("portal capability read boundary", () => {
+  it("hides a token owned by an inactive tenant before estimate reads", async () => {
+    vi.clearAllMocks();
+    tokenSingleMock.mockResolvedValueOnce({
+      data: null,
+      error: { code: "PGRST116" },
+    });
+
+    await expect(
+      PortalPage({
+        params: Promise.resolve({
+          token: "44444444-4444-4444-8444-444444444444",
+        }),
+      })
+    ).rejects.toThrow("not-found");
+
+    expect(tokenSelectMock).toHaveBeenCalledWith(
+      expect.stringContaining("tenants!inner(is_active)")
+    );
+    expect(tokenEqMock).toHaveBeenCalledWith("tenants.is_active", true);
+    expect(fromMock).toHaveBeenCalledOnce();
+  });
+
   it.each(["pending", "accepted", "rejected"] as const)(
     "redirects an expired %s capability before loading estimate data",
     async (status) => {

@@ -5,13 +5,9 @@ const { mockRequestHeadersGet } = vi.hoisted(() => ({
 }));
 const mockServiceRoleRpc = vi.fn();
 
-vi.mock("@supabase/supabase-js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@supabase/supabase-js")>();
+vi.mock("@/lib/supabase/service-role", () => {
   return {
-    ...actual,
-    createClient: vi.fn(() => ({
-      rpc: mockServiceRoleRpc,
-    })),
+    createServiceRoleClient: vi.fn(() => ({ rpc: mockServiceRoleRpc })),
   };
 });
 

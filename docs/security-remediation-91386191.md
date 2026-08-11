@@ -213,6 +213,38 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   directe et RPC d'une version non-draft. Le test HTTP reste unitaire avec RPC mockée.
 - Aucun projet Supabase distant n'a été lié ou modifié pendant cette revalidation.
 
+### Unification de la frontière tenant actif — 2026-08-11
+
+- La résolution applicative du tenant converge vers
+  `src/lib/auth/tenant-context.ts` : session, membership active ordonnée puis
+  contexte strict. Les anciens clones et les imports auth du god-module Estimates
+  ont été remplacés, tandis que la façade publique historique reste compatible.
+- La construction des clients service-role converge vers la factory serveur
+  canonique. Le worker takeoff ne reçoit plus la clé privilégiée dans un header
+  Edge Function → Next.js ; le secret worker distinct reste l'authentification du
+  relais. Une régression d'architecture interdit le retour de ces deux dérives.
+- La migration `20260811212848_enforce_active_tenant_boundaries.sql` fixe les ACL
+  fraîches de `tenants` et `tenant_memberships` en moindre privilège, puis impose
+  `is_active` aux deux policies de découverte. Elle ferme notamment la branche
+  historique où le créateur pouvait encore lire les métadonnées d'un tenant
+  suspendu.
+- Les trois entrées publiques du portail filtrent le tenant actif. La RPC de
+  décision service-role joint et verrouille tenant et version actifs avant le
+  token ; un refus laisse token `pending` et version `sent` sans effet partiel.
+- Une RPC `SECURITY DEFINER` séparée sérialise le changement de tenant par défaut
+  sur les seules memberships de `auth.uid()`. Elle peut retirer proprement un
+  défaut devenu invisible car suspendu, mais refuse cible inactive, autre
+  utilisateur et ancien défaut non-admin.
+- Preuve locale canonique : inventaire de 195 migrations, reset frais, pgTAP et
+  matrice RLS 2/2 verts. Le test utilise la relation PostgREST réelle
+  `tenants!inner`, un tenant dont l'ingénieur est `created_by`, puis vérifie que
+  tenant et membership deviennent invisibles après suspension.
+- Les liens portail restent suspendus de façon réversible et ne sont pas expirés
+  par la migration. Le traitement des jobs takeoff/intake déjà en file au moment
+  d'une suspension nécessite une décision de cycle de vie et reste explicitement
+  au lot workflows.
+- Aucun projet Supabase distant n'a été lié ou modifié pendant ce lot.
+
 ## Bilan terminal
 
 - `fixed` : 95.

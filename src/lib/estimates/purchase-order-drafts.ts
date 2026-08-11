@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  readActiveTenantMembership,
+  readAuthenticatedUser,
+} from "@/lib/auth/tenant-context";
 import { buildPurchaseOrderReference } from "@/lib/reference";
 import {
   badRequest,
@@ -16,7 +20,6 @@ import {
   type EstimateSupplierComparisonRiskFlag,
 } from "@/lib/estimates/server";
 import { computeTotalsFromInputs, type LineInput } from "@/lib/order-calculations";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   estimatePurchaseOrderDraftsCreateSchema,
   estimatePurchaseOrderDraftGroupSchema,
@@ -234,28 +237,18 @@ function normalizeStringIds(rows: unknown[] | null | undefined, key: string) {
 }
 
 async function getDraftOrderContext() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, error: userError } = await readAuthenticatedUser();
 
-  if (!user) {
+  if (userError || !user) {
     throw unauthorized();
   }
 
-  const { data: memberships, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const { membership, error } = await readActiveTenantMembership(supabase, user.id);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de resoudre le tenant utilisateur.");
   }
 
-  const membership = memberships?.[0] ?? null;
   if (!membership?.tenant_id) {
     throw unauthorized("Tenant introuvable.");
   }

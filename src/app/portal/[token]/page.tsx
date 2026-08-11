@@ -53,8 +53,11 @@ export default async function PortalPage({ params }: PortalPageProps) {
   // 1. Lookup portal token
   const { data: portalToken, error: tokenError } = await supabase
     .from("portal_tokens")
-    .select("id, tenant_id, version_id, status, expires_at, email")
+    .select(
+      "id, tenant_id, version_id, status, expires_at, email, tenants!inner(is_active)"
+    )
     .eq("token", token)
+    .eq("tenants.is_active", true)
     .single();
 
   if (tokenError || !portalToken) {

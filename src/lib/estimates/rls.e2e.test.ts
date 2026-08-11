@@ -20,6 +20,7 @@ type MatrixTable =
 type OptionalMatrixTable = "portal_tokens";
 type KnownCleanupTable =
   | MatrixTable
+  | OptionalMatrixTable
   | "draft_locks"
   | "estimate_projects"
   | "plan_sets"
@@ -243,6 +244,7 @@ async function createTenantAndMemberships() {
       id: tenantId,
       name: `RLS E2E ${runTag} primary`,
       slug: `rls-e2e-${runTag}-a`,
+      created_by: users.engineer.userId,
     },
     {
       id: isolatedTenantId,
@@ -2178,6 +2180,236 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
 }
 
+async function assertInactiveTenantBoundaries() {
+  const projectId = randomUUID();
+  const versionId = randomUUID();
+  const portalTokenId = randomUUID();
+
+  const { error: projectError } = await serviceClient
+    .from("estimate_projects")
+    .insert({
+      id: projectId,
+      tenant_id: seedContext.tenantId,
+      user_id: users.engineer.userId,
+      name: nextSuffix("inactive-portal-project"),
+    });
+  await assertNoError("seed inactive portal project", projectError);
+  trackRow("estimate_projects", projectId);
+
+  const { error: versionError } = await serviceClient
+    .from("estimate_versions")
+    .insert({
+      id: versionId,
+      tenant_id: seedContext.tenantId,
+      project_id: projectId,
+      version_number: nextVersionNumber(),
+      status: "sent",
+      title: nextSuffix("inactive-portal-version"),
+    });
+  await assertNoError("seed inactive portal version", versionError);
+  trackRow("estimate_versions", versionId);
+
+  const { error: tokenError } = await serviceClient.from("portal_tokens").insert({
+    id: portalTokenId,
+    tenant_id: seedContext.tenantId,
+    version_id: versionId,
+    email: "inactive-tenant@example.test",
+    expires_at: "2099-01-01T00:00:00.000Z",
+    status: "pending",
+  });
+  await assertNoError("seed inactive portal token", tokenError);
+  trackRow("portal_tokens", portalTokenId);
+
+  const { data: activeMembership, error: activeMembershipError } =
+    await users.engineer.client
+      .from("tenant_memberships")
+      .select("tenant_id, tenants!inner(is_active)")
+      .eq("tenant_id", seedContext.tenantId)
+      .eq("user_id", users.engineer.userId)
+      .eq("tenants.is_active", true)
+      .single();
+  await assertNoError("read active tenant membership", activeMembershipError);
+  if (activeMembership?.tenant_id !== seedContext.tenantId) {
+    throw new Error("Active tenant membership was not visible to its user");
+  }
+
+  const { data: ownMembershipRows, error: ownMembershipRowsError } =
+    await serviceAdmin
+      .from("tenant_memberships")
+      .select("id, tenant_id, user_id, role, is_default")
+      .in("user_id", Object.values(users).map((user) => user.userId));
+  await assertNoError("load default-switch fixtures", ownMembershipRowsError);
+  const ownMemberships = (ownMembershipRows ?? []) as Array<{
+    id: string;
+    tenant_id: string;
+    user_id: string;
+    role: string;
+    is_default: boolean;
+  }>;
+  const membershipFor = (role: RoleKey, primary: boolean) =>
+    ownMemberships.find(
+      (membership) =>
+        membership.user_id === users[role].userId &&
+        (membership.tenant_id === seedContext.tenantId) === primary
+    );
+  const adminPrimaryMembership = membershipFor("admin", true);
+  const adminFallbackMembership = membershipFor("admin", false);
+  const engineerFallbackMembership = membershipFor("engineer", false);
+  const viewerFallbackMembership = membershipFor("viewer", false);
+  if (
+    !adminPrimaryMembership ||
+    !adminFallbackMembership ||
+    !engineerFallbackMembership ||
+    !viewerFallbackMembership
+  ) {
+    throw new Error("Default-switch fixtures are incomplete");
+  }
+
+  const { error: deactivateError } = await serviceClient
+    .from("tenants")
+    .update({ is_active: false })
+    .eq("id", seedContext.tenantId);
+  await assertNoError("deactivate primary tenant", deactivateError);
+
+  try {
+    const { data: hiddenMembership, error: membershipError } =
+      await users.engineer.client
+        .from("tenant_memberships")
+        .select("tenant_id, tenants!inner(is_active)")
+        .eq("tenant_id", seedContext.tenantId)
+        .eq("user_id", users.engineer.userId)
+        .eq("tenants.is_active", true)
+        .maybeSingle();
+    await assertNoError("read inactive tenant membership", membershipError);
+    if (hiddenMembership) {
+      throw new Error("Inactive tenant membership remained visible to its user");
+    }
+
+    const { data: hiddenTenant, error: tenantError } =
+      await users.engineer.client
+        .from("tenants")
+        .select("id")
+        .eq("id", seedContext.tenantId)
+        .maybeSingle();
+    await assertNoError("read inactive tenant", tenantError);
+    if (hiddenTenant) {
+      throw new Error("Inactive tenant metadata remained visible to its user");
+    }
+
+    const { data: currentTenantId, error: currentTenantError } =
+      await users.engineer.client.rpc("current_tenant_id");
+    await assertNoError("resolve active fallback tenant", currentTenantError);
+    if (currentTenantId === seedContext.tenantId) {
+      throw new Error("current_tenant_id returned an inactive tenant");
+    }
+
+    const inactiveTargetResult = await callLooseRpc(
+      asAnyClient(users.admin.client),
+      "set_active_tenant_membership_default",
+      { p_membership_id: adminPrimaryMembership.id }
+    );
+    if (inactiveTargetResult.error?.code !== "42501") {
+      throw new Error("Inactive membership became the default tenant");
+    }
+
+    const foreignTargetResult = await callLooseRpc(
+      asAnyClient(users.admin.client),
+      "set_active_tenant_membership_default",
+      { p_membership_id: viewerFallbackMembership.id }
+    );
+    if (foreignTargetResult.error?.code !== "42501") {
+      throw new Error("Another user's membership became the default tenant");
+    }
+
+    const blockedEngineerSwitch = await callLooseRpc(
+      asAnyClient(users.engineer.client),
+      "set_active_tenant_membership_default",
+      { p_membership_id: engineerFallbackMembership.id }
+    );
+    if (
+      blockedEngineerSwitch.error?.code !== "42501" ||
+      blockedEngineerSwitch.error.message !== "TENANT_DEFAULT_SWITCH_FORBIDDEN"
+    ) {
+      throw new Error("A non-admin historical default did not block tenant switching");
+    }
+
+    const adminSwitchResult = await callLooseRpc(
+      asAnyClient(users.admin.client),
+      "set_active_tenant_membership_default",
+      { p_membership_id: adminFallbackMembership.id }
+    );
+    await assertNoError("switch from inactive admin default", adminSwitchResult.error);
+    if (adminSwitchResult.data !== adminFallbackMembership.id) {
+      throw new Error("Default-switch RPC returned the wrong membership");
+    }
+
+    const { data: adminDefaults, error: adminDefaultsError } =
+      await serviceAdmin
+        .from("tenant_memberships")
+        .select("id")
+        .eq("user_id", users.admin.userId)
+        .eq("is_default", true);
+    await assertNoError("verify atomic default switch", adminDefaultsError);
+    if (
+      adminDefaults?.length !== 1 ||
+      adminDefaults[0]?.id !== adminFallbackMembership.id
+    ) {
+      throw new Error("Default-switch RPC did not leave exactly one target default");
+    }
+
+    const claimResult = await callLooseRpc(
+      serviceAdmin,
+      "claim_portal_estimate_decision",
+      {
+        p_portal_token_id: portalTokenId,
+        p_decision: "accepted",
+        p_client_ip: null,
+        p_reject_reason: null,
+      }
+    );
+    if (claimResult.error?.code !== "P0001") {
+      throw new Error(
+        `Inactive portal claim did not fail closed [${claimResult.error?.code ?? "no-code"}]`
+      );
+    }
+
+    const [{ data: token }, { data: version }] = await Promise.all([
+      serviceClient
+        .from("portal_tokens")
+        .select("status")
+        .eq("id", portalTokenId)
+        .single(),
+      serviceClient
+        .from("estimate_versions")
+        .select("status")
+        .eq("id", versionId)
+        .single(),
+    ]);
+    if (token?.status !== "pending" || version?.status !== "sent") {
+      throw new Error("Inactive portal claim left a partial decision mutation");
+    }
+  } finally {
+    const { error: reactivateError } = await serviceClient
+      .from("tenants")
+      .update({ is_active: true })
+      .eq("id", seedContext.tenantId);
+    await assertNoError("reactivate primary tenant", reactivateError);
+
+    const { error: clearAdminDefaultsError } = await serviceAdmin
+      .from("tenant_memberships")
+      .update({ is_default: false })
+      .eq("user_id", users.admin.userId)
+      .eq("is_default", true);
+    await assertNoError("clear admin default-switch fixture", clearAdminDefaultsError);
+    const { error: restoreAdminDefaultError } = await serviceAdmin
+      .from("tenant_memberships")
+      .update({ is_default: true })
+      .eq("id", adminPrimaryMembership.id)
+      .eq("user_id", users.admin.userId);
+    await assertNoError("restore primary admin default", restoreAdminDefaultError);
+  }
+}
+
 async function cleanupTrackedRows(table: KnownCleanupTable) {
   const ids = Array.from(createdRows[table] ?? []);
   if (ids.length === 0) {
@@ -2294,6 +2526,7 @@ describe.runIf(RLS_E2E_ENABLED)("EST-261 RLS matrix E2E", () => {
         "takeoff_jobs",
         "draft_locks",
         "plan_sets",
+        "portal_tokens",
         "estimate_items",
         "estimate_suggestion_rules",
         "labor_roles",
@@ -2379,6 +2612,7 @@ describe.runIf(RLS_E2E_ENABLED)("EST-261 RLS matrix E2E", () => {
       await assertViewerOwnerEstimateMutationsDenied();
       await assertGovernedEstimateProjectDeletes();
       await assertAuthenticatedTakeoffWorkflow();
+      await assertInactiveTenantBoundaries();
 
       expect(mismatches).toEqual([]);
     },

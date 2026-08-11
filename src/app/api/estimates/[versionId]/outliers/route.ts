@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import type { EstimateOutlierFlagKey } from "@/lib/estimates/outlier-detection";
 import {
   badRequest,
@@ -10,16 +11,10 @@ import {
   notFound,
   ok,
   toErrorResponse,
-  unauthorized,
 } from "@/lib/estimates/errors";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 type EmbeddedProjectAccess = Pick<
   Database["public"]["Tables"]["estimate_projects"]["Row"],
   "id" | "tenant_id" | "user_id"
@@ -121,40 +116,13 @@ async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
 }
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const rawSupabase = await createSupabaseServerClient();
-  const supabase = rawSupabase as unknown as Supabase;
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
+  const context = await getAuthenticatedTenantContext();
 
   return {
-    supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
-    tenantRole: membership.role,
+    supabase: context.supabase as unknown as Supabase,
+    userId: context.userId,
+    tenantId: context.tenantId,
+    tenantRole: context.tenantRole,
   };
 }
 

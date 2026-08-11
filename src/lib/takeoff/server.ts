@@ -2,10 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   assertDraftStatus,
   bulkUpdateEstimateItems,
-  getAuthenticatedContext,
   insertAssemblyIntoVersion,
   suggestEstimateCataloguePrices,
   updateEstimateItem,

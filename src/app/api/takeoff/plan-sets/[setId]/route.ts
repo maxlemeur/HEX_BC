@@ -8,7 +8,7 @@ import {
   toErrorResponse,
   unprocessableEntity,
 } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { deletePlanSet, getPlanSet, planSetIdSchema } from "@/lib/takeoff/plans";
 

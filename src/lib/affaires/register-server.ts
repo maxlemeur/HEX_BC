@@ -1,15 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
   badRequest,
   forbidden,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "@/lib/estimates/errors";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database, Json } from "@/types/database";
 
@@ -358,12 +357,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toStringOrNull(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function normalizeTenantRole(value: unknown): TenantRole | null {
-  return value === "admin" || value === "director" || value === "engineer" || value === "viewer"
-    ? value
-    : null;
 }
 
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
@@ -755,38 +748,13 @@ function normalizeEstimateItemScopeRow(row: unknown): EstimateItemScopeRow | nul
 }
 
 async function getAuthenticatedRegisterContext(): Promise<AuthenticatedRegisterContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = Array.isArray(memberships) ? memberships[0] : null;
-  const tenantRole = normalizeTenantRole((membership as { role?: unknown } | null)?.role);
-
-  if (!membership || typeof membership.tenant_id !== "string" || !tenantRole) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
+  const { supabase, userId, tenantId, tenantRole } =
+    await getAuthenticatedTenantContext();
 
   return {
     supabase,
-    userId: user.id,
-    tenantId: membership.tenant_id,
+    userId,
+    tenantId,
     tenantRole,
   };
 }

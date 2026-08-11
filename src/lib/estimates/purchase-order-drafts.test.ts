@@ -73,19 +73,23 @@ function createSupabaseMock(options?: {
   draftedOrderIdsByCall?: string[][];
   draftedSourceItemIdsByCall?: string[][];
 }) {
-  const membershipsLimit = vi.fn().mockResolvedValue({
-    data: [
-      {
-        tenant_id: TENANT_ID,
-        role: "engineer",
-        is_default: true,
-        created_at: "2026-03-11T10:00:00.000Z",
-      },
-    ],
-    error: null,
-  });
-  const membershipsOrder = vi.fn(() => ({ order: membershipsOrder, limit: membershipsLimit }));
-  membershipsOrder.mockReturnValue({ order: membershipsOrder, limit: membershipsLimit });
+  const membershipsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn().mockResolvedValue({
+      data: [
+        {
+          tenant_id: TENANT_ID,
+          role: "engineer",
+          is_default: true,
+          created_at: "2026-03-11T10:00:00.000Z",
+        },
+      ],
+      error: null,
+    }),
+  };
+  membershipsBuilder.eq.mockReturnValue(membershipsBuilder);
+  membershipsBuilder.order.mockReturnValue(membershipsBuilder);
 
   const deliverySitesIn = vi.fn().mockResolvedValue({
     data: [{ id: DELIVERY_SITE_ID }],
@@ -178,11 +182,7 @@ function createSupabaseMock(options?: {
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
-          select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              order: membershipsOrder,
-            })),
-          })),
+          select: vi.fn(() => membershipsBuilder),
         };
       }
 

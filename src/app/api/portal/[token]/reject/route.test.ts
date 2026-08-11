@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ---------------------------------------------------------------------------
 
 const mockSingle = vi.fn();
+const mockTokenSelect = vi.fn();
+const mockTokenEq = vi.fn();
 const mockEqChain = vi.fn();
 const mockUpdate = vi.fn();
 const mockFrom = vi.fn();
@@ -15,11 +17,15 @@ function setupFromMock() {
   mockFrom.mockImplementation((table: string) => {
     if (table === "portal_tokens") {
       return {
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
+        select: vi.fn((columns: string) => {
+          mockTokenSelect(columns);
+          const builder = {
+            eq: mockTokenEq,
             single: mockSingle,
-          })),
-        })),
+          };
+          mockTokenEq.mockReturnValue(builder);
+          return builder;
+        }),
         update: vi.fn((data: unknown) => {
           mockUpdate(data);
           return {
@@ -105,6 +111,22 @@ describe("POST /api/portal/[token]/reject", () => {
     expect(res.status).toBe(404);
     const json = await res.json();
     expect(json.error).toMatch(/invalide/i);
+  });
+
+  it("treats a token from an inactive tenant as invalid", async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: null,
+      error: { code: "PGRST116" },
+    });
+
+    const res = await POST(makeRequest({}), makeParams());
+
+    expect(res.status).toBe(404);
+    expect(mockTokenSelect).toHaveBeenCalledWith(
+      expect.stringContaining("tenants!inner(is_active)")
+    );
+    expect(mockTokenEq).toHaveBeenCalledWith("tenants.is_active", true);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
   it("returns 409 for already-processed token", async () => {

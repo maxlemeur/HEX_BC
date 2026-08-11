@@ -1,27 +1,21 @@
 import { z } from "zod";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   badRequest,
   forbidden,
-  mapSupabaseError,
   toErrorResponse,
-  unauthorized,
 } from "@/lib/estimates/errors";
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
 import { ESTIMATE_LABOR_SPLIT_FLAG_KEY } from "@/lib/estimates/calc-context";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
 export const runtime = "nodejs";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role" | "is_default" | "created_at"
->;
 
 const paramsSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -61,40 +55,16 @@ function parseMode(request: Request): ExportMode {
 }
 
 async function assertExportAccess() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, tenantId, tenantRole } =
+    await getAuthenticatedTenantContext();
 
-  if (!user) {
-    throw unauthorized();
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", user.id)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = memberships?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership?.tenant_id || !membership.role) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  if (!isExportAllowedRole(membership.role)) {
+  if (!isExportAllowedRole(tenantRole)) {
     throw forbidden("Export reserve aux roles admin et engineer.");
   }
 
   return {
     supabase,
-    tenantId: membership.tenant_id,
+    tenantId,
   };
 }
 

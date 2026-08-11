@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   assertDraftStatus,
   createEstimateItem,
-  getAuthenticatedContext,
 } from "@/lib/estimates/server";
 import {
   badRequest,

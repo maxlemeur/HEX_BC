@@ -1,4 +1,4 @@
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import type { TakeoffRiskCauseCode } from "@/lib/takeoff/types";

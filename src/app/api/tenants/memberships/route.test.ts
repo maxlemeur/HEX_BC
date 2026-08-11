@@ -41,10 +41,6 @@ describe("tenants memberships set-default regressions", () => {
     ];
 
     let selectCallCount = 0;
-    const unsetEqCalls: Array<[string, unknown]> = [];
-    const unsetNeqCalls: Array<[string, unknown]> = [];
-    const setEqCalls: Array<[string, unknown]> = [];
-
     const tenantMembershipsTable = {
       select: vi.fn(() => {
         selectCallCount += 1;
@@ -66,54 +62,19 @@ describe("tenants memberships set-default regressions", () => {
           return actorBuilder;
         }
 
-        const ownMembershipsBuilder = {
+        const targetMembershipBuilder = {
           eq: vi.fn(),
-          order: vi.fn(),
-        };
-
-        ownMembershipsBuilder.eq.mockReturnValue(ownMembershipsBuilder);
-        ownMembershipsBuilder.order.mockResolvedValue({
-          data: ownMemberships,
-          error: null,
-        });
-
-        return ownMembershipsBuilder;
-      }),
-      update: vi.fn((payload: { is_default: boolean }) => {
-        if (payload.is_default === false) {
-          const unsetBuilder = {
-            eq: vi.fn((column: string, value: unknown) => {
-              unsetEqCalls.push([column, value]);
-              return unsetBuilder;
-            }),
-            neq: vi.fn((column: string, value: unknown) => {
-              unsetNeqCalls.push([column, value]);
-              return Promise.resolve({
-                error: null,
-              });
-            }),
-          };
-
-          return unsetBuilder;
-        }
-
-        const setBuilder = {
-          eq: vi.fn((column: string, value: unknown) => {
-            setEqCalls.push([column, value]);
-            return setBuilder;
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: {
+              ...ownMemberships[1],
+              is_default: true,
+            },
+            error: null,
           }),
-          select: vi.fn(() => ({
-            maybeSingle: vi.fn().mockResolvedValue({
-              data: {
-                ...ownMemberships[1],
-                is_default: true,
-              },
-              error: null,
-            }),
-          })),
         };
 
-        return setBuilder;
+        targetMembershipBuilder.eq.mockReturnValue(targetMembershipBuilder);
+        return targetMembershipBuilder;
       }),
     };
 
@@ -155,6 +116,10 @@ describe("tenants memberships set-default regressions", () => {
 
         throw new Error(`Unexpected table: ${table}`);
       }),
+      rpc: vi.fn().mockResolvedValue({
+        data: TARGET_MEMBERSHIP_ID,
+        error: null,
+      }),
     };
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -186,12 +151,9 @@ describe("tenants memberships set-default regressions", () => {
     expect(body.data.membership?.id).toBe(TARGET_MEMBERSHIP_ID);
     expect(body.data.membership?.is_default).toBe(true);
 
-    expect(unsetEqCalls).toContainEqual(["user_id", USER_ID]);
-    expect(unsetEqCalls).toContainEqual(["is_default", true]);
-    expect(unsetNeqCalls).toContainEqual(["id", TARGET_MEMBERSHIP_ID]);
-
-    expect(setEqCalls).toContainEqual(["id", TARGET_MEMBERSHIP_ID]);
-    expect(setEqCalls).toContainEqual(["user_id", USER_ID]);
-    expect(setEqCalls).toContainEqual(["tenant_id", TARGET_TENANT_ID]);
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "set_active_tenant_membership_default",
+      { p_membership_id: TARGET_MEMBERSHIP_ID }
+    );
   });
 });

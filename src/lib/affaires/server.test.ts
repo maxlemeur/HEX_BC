@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/server", () => ({
-  getAuthenticatedContext: vi.fn(),
   getEstimateSendGating: vi.fn(),
   getEstimateSupplierComparisons: vi.fn(),
   listEstimateItems: vi.fn(),
   listEstimateProjectVersions: vi.fn(),
+}));
+
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedContext: vi.fn(),
 }));
 
 vi.mock("@/lib/takeoff/server", () => ({
@@ -21,11 +24,11 @@ vi.mock("@/lib/affaires/intake-server", () => ({
 }));
 
 import { ApiError } from "@/lib/estimates/errors";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
-  getAuthenticatedContext,
   getEstimateSendGating,
   getEstimateSupplierComparisons,
   listEstimateItems,

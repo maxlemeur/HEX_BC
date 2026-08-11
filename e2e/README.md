@@ -125,6 +125,12 @@ Playwright config is in `playwright.config.ts` with:
   avec cascade réelle des journaux append-only, ainsi que les frontières
   `takeoff_jobs`/`takeoff_items` (rôles, statuts, worker/provider, retry/reconcile,
   source, plan-set, draft-lock et apply atomique).
+- Il vérifie aussi la frontière tenant actif avec la requête PostgREST réelle
+  `tenant_memberships -> tenants!inner`, masque tenant et membership suspendus,
+  puis refuse atomiquement la décision d'un token portail sans modifier le token
+  ni la version.
+- Le même test vérifie le basculement atomique d'un tenant par défaut suspendu et
+  les refus d'une cible inactive, étrangère ou bloquée par un défaut non-admin.
 - Le second test couvre l'isolation cross-tenant (un non-membre doit être refusé).
 - `portal_tokens` is probed and reported when absent from the current schema snapshot.
 - La commande canonique est `npm run db:ci:local` : elle crée une pile loopback

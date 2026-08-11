@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/estimates/server", () => ({
   assertDraftStatus: vi.fn(),
   bulkUpdateEstimateItems: vi.fn(),
-  getAuthenticatedContext: vi.fn(),
   insertAssemblyIntoVersion: vi.fn(),
   suggestEstimateCataloguePrices: vi.fn(),
   updateEstimateItem: vi.fn(),
+}));
+
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedContext: vi.fn(),
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
@@ -18,7 +21,7 @@ vi.mock("@/lib/takeoff/version-links", () => ({
   listAccessibleTakeoffJobsForVersion: vi.fn(),
 }));
 
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   batchUpdateTakeoffItems,
   requestTakeoffPriceSuggestion,

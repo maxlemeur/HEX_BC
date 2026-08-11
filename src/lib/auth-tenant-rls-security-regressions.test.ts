@@ -16,6 +16,21 @@ const membershipServerSource = fs.readFileSync(
   path.resolve(process.cwd(), "src/lib/memberships/server.ts"),
   "utf8"
 );
+const tenantContextSource = fs.readFileSync(
+  path.resolve(process.cwd(), "src/lib/auth/tenant-context.ts"),
+  "utf8"
+);
+const authServerSource = fs.readFileSync(
+  path.resolve(process.cwd(), "src/lib/auth/server.ts"),
+  "utf8"
+);
+const activeBoundaryMigrationSql = fs.readFileSync(
+  path.resolve(
+    process.cwd(),
+    "supabase/migrations/20260811212848_enforce_active_tenant_boundaries.sql"
+  ),
+  "utf8"
+);
 
 function functionBody(sql: string, functionName: string) {
   const match = sql.match(
@@ -27,6 +42,33 @@ function functionBody(sql: string, functionName: string) {
 
   expect(match, `${functionName} must be defined`).not.toBeNull();
   return match?.[0] ?? "";
+}
+
+function productionSourceFiles(directory = path.resolve(process.cwd(), "src")): string[] {
+  const files: string[] = [];
+
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const absolutePath = path.join(directory, entry.name);
+    const relativePath = path
+      .relative(process.cwd(), absolutePath)
+      .replaceAll("\\", "/");
+
+    if (entry.isDirectory()) {
+      if (relativePath === "src/test") continue;
+      files.push(...productionSourceFiles(absolutePath));
+      continue;
+    }
+
+    if (
+      entry.isFile() &&
+      /\.(?:ts|tsx)$/.test(entry.name) &&
+      !/\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)
+    ) {
+      files.push(absolutePath);
+    }
+  }
+
+  return files;
 }
 
 describe("active tenant and profile RLS security", () => {
@@ -99,8 +141,90 @@ describe("active tenant and profile RLS security", () => {
   });
 
   it("rejects inactive current tenants before membership administration", () => {
+    expect(tenantContextSource).toMatch(/tenants!inner\(is_active\)/);
+    expect(tenantContextSource).toMatch(/\.eq\("tenants\.is_active", true\)/);
     expect(membershipServerSource).toMatch(
-      /async function getCurrentMembershipOrThrow[\s\S]*await getTenantOrThrow\(supabase, membership\.tenant_id\);[\s\S]*return membership;/
+      /readActiveTenantMembership\(supabase, user\.id\)/
     );
+    expect(authServerSource).toMatch(
+      /readActiveTenantMembership\(supabase, userId\)/
+    );
+    expect(activeBoundaryMigrationSql).toMatch(
+      /create policy "Users can view memberships in own tenants"[\s\S]*is_tenant_member\(tenant_id\)[\s\S]*has_tenant_role/i
+    );
+  });
+
+  it("keeps public portal capabilities behind the active tenant lock", () => {
+    const portalDecision = functionBody(
+      activeBoundaryMigrationSql,
+      "claim_portal_estimate_decision"
+    );
+
+    expect(portalDecision).toMatch(
+      /join public\.tenants t on t\.id = ev\.tenant_id[\s\S]*t\.is_active[\s\S]*for update of ev, t/i
+    );
+    expect(activeBoundaryMigrationSql).toMatch(
+      /revoke all on function public\.claim_portal_estimate_decision\(uuid, text, inet, text\)[\s\S]*from public, anon, authenticated/i
+    );
+    expect(activeBoundaryMigrationSql).toMatch(
+      /grant execute on function public\.claim_portal_estimate_decision\(uuid, text, inet, text\)[\s\S]*to service_role/i
+    );
+  });
+
+  it("keeps authenticated context imports out of the estimates god-module", () => {
+    const offenders = productionSourceFiles()
+      .filter((file) =>
+        /import\s*{[^}]*\bgetAuthenticatedContext\b[^}]*}\s*from\s*["']@\/lib\/estimates\/server["']/.test(
+          fs.readFileSync(file, "utf8")
+        )
+      )
+      .map((file) => path.relative(process.cwd(), file).replaceAll("\\", "/"));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("centralizes service-role client construction and never relays its key", () => {
+    const canonicalFactory = path.resolve(
+      process.cwd(),
+      "src/lib/supabase/service-role.ts"
+    );
+    const directFactories = productionSourceFiles()
+      .filter((file) => file !== canonicalFactory)
+      .filter((file) => {
+        const source = fs.readFileSync(file, "utf8");
+        return (
+          source.includes("SUPABASE_SERVICE_ROLE_KEY") &&
+          /import\s*{[^}]*\bcreateClient\b[^}]*}\s*from\s*["']@supabase\/supabase-js["']/.test(
+            source
+          )
+        );
+      })
+      .map((file) => path.relative(process.cwd(), file).replaceAll("\\", "/"));
+
+    expect(directFactories).toEqual([]);
+
+    const workerSources = [
+      "src/lib/takeoff/async-worker.ts",
+      "src/app/api/internal/takeoff/process-job/route.ts",
+      "supabase/functions/process_takeoff_job/index.ts",
+    ].map((file) => fs.readFileSync(path.resolve(process.cwd(), file), "utf8"));
+
+    expect(workerSources.join("\n")).not.toContain("x-supabase-service-role-key");
+    expect(workerSources[0]).toMatch(
+      /import \{ createServiceRoleClient \} from "@\/lib\/supabase\/service-role"/
+    );
+  });
+
+  it("keeps src/proxy.ts as the only Next.js session boundary", () => {
+    const legacyMiddleware = path.resolve(process.cwd(), "middleware.ts");
+    const proxySource = fs.readFileSync(
+      path.resolve(process.cwd(), "src/proxy.ts"),
+      "utf8"
+    );
+
+    expect(fs.existsSync(legacyMiddleware)).toBe(false);
+    expect(proxySource).toMatch(/export async function proxy\(/);
+    expect(proxySource).toMatch(/!user && pathname\.startsWith\("\/dashboard"\)/);
+    expect(proxySource).toMatch(/user && \(pathname === "\/login" \|\| pathname === "\/signup"\)/);
   });
 });

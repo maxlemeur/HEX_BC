@@ -20,7 +20,7 @@ partie de ce chantier sans autorisation distincte.
 | 0 | Prérequis | Migrer Next.js vers 16.3 | — | — | Terminé | `chore(deps): upgrade Next.js to 16.3` |
 | 1 | P0 | Corriger les dépendances exposées et identifiants E2E | 5/5/2 | 40 | Terminé | `fix(security): harden document dependencies and E2E credentials` |
 | 2 | P0 | Rendre migrations et RLS réellement reproductibles | 5/5/3 | 30 | Terminé | `fix(db): make local migrations and RLS reproducible` |
-| 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | À faire | — |
+| 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | Terminé | `fix(auth): unify active tenant boundaries` |
 | 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | À faire | — |
 | 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | À faire | — |
 | 6 | P1 | Décomposer les hotspots par strangler | 5/4/3 | 27 | À faire | — |
@@ -49,9 +49,8 @@ Le score reprend la formule de priorisation de l'audit :
   requis pour cette montée mineure déjà située en 16.x ; les incompatibilités
   locales restent néanmoins vérifiées par recherche et par build.
 - `src/proxy.ts` est l'unique frontière compilée par Next.js 16.3.0. Le vieux
-  `middleware.ts`, absent du bundle et fonctionnellement divergent, est conservé
-  dans ce lot afin que sa suppression ou fusion soit traitée avec les invariants
-  auth du lot 3 plutôt que par une suppression mécanique.
+  `middleware.ts`, absent du bundle et fonctionnellement divergent, avait été
+  conservé afin que sa suppression soit traitée avec les invariants auth du lot 3.
 - Le lockfile reflète les dépendances natives de Next.js 16.3, notamment Sharp 0.35.
 - L'audit de production après migration recense 6 vulnérabilités restantes
   (4 élevées, 2 modérées), contre 17 avant migration. Elles relèvent du lot 1.
@@ -193,11 +192,71 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 3 — Frontière auth/tenant/service-role
 
-- [ ] Créer un contexte serveur unique qui exige un tenant actif.
-- [ ] Séparer clairement session utilisateur, autorisation tenant et capacité service-role.
-- [ ] Migrer les consommateurs par façade compatible et ajouter des règles d'architecture.
-- [ ] Couvrir les chemins positifs, tenant inactif et accès inter-tenant.
-- [ ] Valider, documenter et committer le lot.
+- [x] Créer un contexte serveur unique qui exige un tenant actif.
+- [x] Séparer clairement session utilisateur, autorisation tenant et capacité service-role.
+- [x] Migrer les consommateurs par façade compatible et ajouter des règles d'architecture.
+- [x] Couvrir les chemins positifs, tenant inactif et accès inter-tenant.
+- [x] Valider et documenter le lot.
+- [x] Committer le lot.
+
+### Preuves et décisions
+
+- `src/lib/auth/tenant-context.ts` est la frontière canonique : lecture de la
+  session, résolution ordonnée d'une membership dont le tenant est actif, puis
+  contexte strict avec rôle et statut administrateur. La façade historique
+  d'Estimates reste un adaptateur étroit, sans seconde implémentation.
+- Les clones de résolution tenant et les consommateurs qui importaient le
+  god-module Estimates pour l'auth utilisent désormais ce module. Les variantes
+  dont le contrat d'erreur est spécifique réutilisent les primitives neutres au
+  lieu de dupliquer la requête.
+- La construction et le cache service-role locaux d'Estimates sont supprimés au
+  profit de `src/lib/supabase/service-role.ts` ; son petit wrapper de compatibilité
+  ne fait que déléguer. Le worker takeoff utilise lui aussi cette factory et la
+  clé service-role n'est plus relayée par header entre l'Edge Function et Next.js.
+- Une régression d'architecture scanne les sources de production : elle interdit
+  le retour d'un import auth depuis le god-module Estimates, toute nouvelle
+  factory service-role directe et tout header de relais de la clé privilégiée.
+  Les mocks testent désormais la frontière canonique.
+- Le `middleware.ts` legacy, ignoré par Next.js 16, est supprimé. La régression
+  interdit son retour et reconnaît `src/proxy.ts` comme unique frontière de refresh
+  cookies et de redirection de session ; la documentation sécurité est alignée.
+- La migration append-only
+  `20260811212848_enforce_active_tenant_boundaries.sql` rend les ACL legacy
+  déterministes : `authenticated` a uniquement `SELECT` sur `tenants` et le CRUD
+  requis sur `tenant_memberships`, toujours sous RLS ; `anon` et `PUBLIC` restent
+  révoqués. Les policies masquent tenant et memberships dès suspension.
+- Les pages et décisions du portail public filtrent aussi le tenant actif. La RPC
+  service-role verrouille ensemble tenant et version avant de réclamer un token :
+  une suspension concurrente ne peut donc laisser une décision partielle.
+- Les tokens existants ne sont ni expirés ni détruits : ils sont suspendus tant
+  que le tenant est inactif et redeviennent utilisables après réactivation
+  seulement s'ils sont encore pending et non expirés.
+- Le changement de tenant par défaut passe par une RPC atomique et bornée à
+  `auth.uid()`. Elle verrouille aussi l'ancien défaut masqué par une suspension,
+  refuse une cible inactive ou étrangère et préserve la règle qui interdit de
+  quitter un défaut non-admin.
+- Limite volontaire : les workers takeoff/intake utilisant le service-role ne
+  définissent pas encore le cycle de vie d'un travail déjà en file lors d'une
+  suspension. Cette décision métier (pause réversible, annulation ou reprise) est
+  reportée au lot 5 plutôt que d'introduire silencieusement un état irréversible.
+
+### Validation
+
+- `npm run supabase:validate` : 195 fichiers et 195 versions uniques, manifeste exact.
+- `npm run supabase:migrations:git-guard` : succès, quatre chemins Supabase autorisés.
+- `npm run db:ci:local` : reset frais, inventaire exact, pgTAP vert et matrice RLS
+  comportementale 2/2 verte. Le scénario couvre la relation PostgREST
+  `tenants!inner`, le contournement historique `created_by`, le tenant suspendu et
+  le token portail sans mutation partielle, ainsi que le basculement atomique
+  depuis un ancien défaut suspendu.
+- Tests ciblés worker/factory/frontières d'architecture : 4 fichiers et 25 tests verts.
+- `npm run lint` et `npm run typecheck` : succès.
+- `npx vitest run --maxWorkers=4` : 515 fichiers réussis, 1 ignoré ;
+  3 583 tests réussis, 2 ignorés.
+- `npm run build` : OpenAPI valide, compilation Next.js 16.3 réussie et 42 pages
+  statiques générées ; la sortie confirme `src/proxy.ts` comme unique Proxy.
+- Effets externes : aucun projet Supabase distant lié ou modifié, aucun push ni
+  déploiement.
 
 ## Lot 4 — Garde-fous CI et locaux
 
@@ -215,6 +274,8 @@ Le score reprend la formule de priorisation de l'audit :
 - [ ] Introduire une outbox idempotente pour les envois et dispatchs externes retenus.
 - [ ] Distinguer état métier, livraison en attente, succès et échec réconciliable.
 - [ ] Ajouter retry, reprise des états bloqués et tests d'échec intermédiaire.
+- [ ] Définir puis tester le cycle de vie des jobs takeoff/intake déjà en file
+  lorsqu'un tenant est suspendu, sans appel fournisseur sur un tenant inactif.
 - [ ] Valider, documenter et committer le lot.
 
 ## Lot 6 — Décomposition des hotspots par strangler

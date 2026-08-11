@@ -1,8 +1,8 @@
 # Sécurité, multi-tenant et plateforme
 
-> **Source : le code au 2026-07-29** (dernier commit `6cacda36`, `git log -1 --format='%H %ad' --date=short`). Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Source : le code relu au 2026-08-12 pour les frontières auth/tenant.** Les métriques globales non liées restent la photographie du 2026-07-29. En cas de divergence, le code fait foi et ce document doit être corrigé.
 
-Périmètre couvert : `middleware.ts`, `src/lib/auth/**`, `src/lib/supabase/**`, `src/lib/memberships/**`, `src/lib/feature-flags.ts`, `src/lib/file-validation.ts`, les pages `dashboard/{admin,memberships,tenants,profile}`, les routes `api/{memberships,tenants,feature-flags,audit,admin,internal,portal}`, `src/app/{login,signup}`, les tests `*security-regressions.test.ts` + `rls.e2e.test.ts`, et les migrations de durcissement.
+Périmètre couvert : `src/proxy.ts`, `src/lib/auth/**`, `src/lib/supabase/**`, `src/lib/memberships/**`, `src/lib/feature-flags.ts`, `src/lib/file-validation.ts`, les pages `dashboard/{admin,memberships,tenants,profile}`, les routes `api/{memberships,tenants,feature-flags,audit,admin,internal,portal}`, `src/app/{login,signup}`, les tests `*security-regressions.test.ts` + `rls.e2e.test.ts`, et les migrations de durcissement.
 
 ---
 
@@ -77,17 +77,17 @@ Deux invariants supplémentaires côté serveur : un admin ne peut pas retirer l
 
 ---
 
-## 3. Authentification : ce que fait le middleware, et ce qu'il ne fait pas
+## 3. Authentification : ce que fait la Proxy, et ce qu'elle ne fait pas
 
-`middleware.ts` s'applique à tout sauf `_next/static`, `_next/image`, `favicon.ico` (`middleware.ts:40-42`). Son unique effet est de reconstruire un client Supabase depuis les cookies puis d'appeler `await supabase.auth.getUser()` pour rafraîchir les cookies de session (`middleware.ts:21-37`). Si `NEXT_PUBLIC_SUPABASE_URL` ou `NEXT_PUBLIC_SUPABASE_ANON_KEY` manquent, il retourne `NextResponse.next()` sans rien faire (`middleware.ts:13-15`).
+`src/proxy.ts` est l'unique frontière Next.js 16 compilée pour toutes les routes sauf `_next/static`, `_next/image` et `favicon.ico`. Elle reconstruit un client Supabase depuis les cookies, appelle `auth.getUser()` et propage les cookies rafraîchis. Une configuration Supabase publique absente échoue explicitement au lieu de laisser passer une session non vérifiée.
 
-Il **ne redirige pas**, **ne refuse aucune requête** et **ne vérifie aucun rôle** : `grep -c "redirect" middleware.ts` renvoie `0`. La protection des routes est donc entièrement portée par :
+La Proxy redirige un visiteur non authentifié de `/dashboard/**` vers `/login`, et un utilisateur déjà authentifié de `/login` ou `/signup` vers `/dashboard`. Elle ne décide toutefois d'aucun rôle ni tenant ; ces autorisations restent portées par :
 
 - Les Server Components : `requireUser()` fait `redirect("/login")` si `auth.getUser()` ne retourne rien — `src/lib/auth/server.ts:22-33` ; `getUserContext()` l'appelle et joint le profil + le premier membership — `src/lib/auth/server.ts:65-73`. Le layout dashboard consomme `getUserContext()` — `src/app/dashboard/layout.tsx:11`.
-- Les route handlers : chacun résout son contexte, directement ou via `src/lib/estimates/server.ts:3677-3709` (`getAuthenticatedContext`), `src/lib/memberships/server.ts:57-73`, `src/app/api/feature-flags/route.ts:31-69`, ou `src/app/api/audit/route.ts:39-45`.
+- Les route handlers : les chemins tenant stricts convergent vers `src/lib/auth/tenant-context.ts`, qui exige une membership jointe à un tenant actif ; les variantes auth-only réutilisent ses primitives neutres.
 - Le RLS Postgres, qui reste la dernière barrière si un handler oublie un contrôle.
 
-Le client serveur (`src/lib/supabase/server.ts:20-34`) a un `setAll()` volontairement vide : le rafraîchissement de session ne peut se produire que dans le middleware (`src/lib/supabase/server.ts:29-31`).
+Le client Server Component (`src/lib/supabase/server.ts`) a un `setAll()` volontairement vide : le rafraîchissement de session est porté par `src/proxy.ts`.
 
 `src/app/api/docs/route.ts` n'exige aucune authentification : il est gouverné par `ENABLE_OPENAPI_DOCS`, `NODE_ENV !== "production"` ou `VERCEL_ENV === "preview"` — `src/app/api/docs/route.ts:17-28`.
 
@@ -164,7 +164,7 @@ L'usage service-role dans `listCandidates` est délibéré et testé : le RLS `p
 
 Deux RPC exigent explicitement le rôle Postgres `service_role` et sont révoquées de `public, anon, authenticated` : `claim_portal_estimate_decision` (`20260713135408_…sql:62-66`, `:172-175`) et `update_affaire_register_entry_with_event` (assertions : `src/lib/ingestion-security-regressions.test.ts:46-55`).
 
-Une clé service-role peut aussi être fournie **par en-tête HTTP** au worker takeoff : `x-supabase-service-role-key` (`src/app/api/internal/takeoff/process-job/route.ts:73-74`), consommée par `src/lib/takeoff/async-worker.ts:123`.
+Le worker takeoff construit son client privilégié localement via la factory canonique `src/lib/supabase/service-role.ts`. Le relais Edge → Next ne transporte que `x-takeoff-worker-secret` et `x-correlation-id` ; aucune clé service-role ne traverse cette frontière HTTP.
 
 ---
 
@@ -284,8 +284,8 @@ CI (`.github/workflows/`, 4 fichiers) :
 
 | Variable | Exposition | Usage |
 | --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | navigateur | `src/lib/supabase/client.ts:6-7`, `server.ts:8-9`, `middleware.ts:5-6` |
-| `SUPABASE_SERVICE_ROLE_KEY` | serveur | `src/lib/supabase/service-role.ts:31` ; aussi `src/lib/estimates/server.ts:2130`, `src/lib/takeoff/async-worker.ts:123`, `src/lib/takeoff/edge-trigger.ts:21` |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | navigateur | `src/lib/supabase/client.ts`, `src/lib/supabase/server.ts`, `src/proxy.ts` |
+| `SUPABASE_SERVICE_ROLE_KEY` | serveur | construction des clients centralisée dans `src/lib/supabase/service-role.ts`; `src/lib/takeoff/edge-trigger.ts` l'utilise uniquement pour appeler l'Edge Function, sans la relayer au worker Next.js |
 | `TAKEOFF_WORKER_SECRET` | serveur | `src/app/api/internal/takeoff/process-job/route.ts:18` |
 | `TAKEOFF_WORKER_URL` | serveur | déclaré en `.env.example:9` |
 | `GEMINI_API_KEY` | serveur | `src/lib/takeoff/gemini-client.ts:974`, `:1037`, `:1115` |
@@ -302,7 +302,7 @@ CI (`.github/workflows/`, 4 fichiers) :
 
 **Tokens portail.** Le token est un `uuid not null default gen_random_uuid()` stocké **en clair**, indexé en unique — `20260305150000_create_labor_roles.sql:70`, `:83-84`. Il n'y a ni hachage ni secret dérivé. L'expiration est portée par `expires_at` (colonne obligatoire, `:72`) et vérifiée à chaque lecture (`src/app/portal/[token]/page.tsx:65-75`, `src/app/api/portal/[token]/accept/route.ts:111-116`). Le portail est entièrement servi par un client service-role : `src/app/portal/[token]/page.tsx:51`. Aucune limitation de débit n'est présente sur ces routes : `grep -rin "ratelimit\|rate-limit" src/app/api/portal/ src/app/portal/ | wc -l` renvoie `0` — la connaissance du token vaut donc lecture complète du devis, et l'énumération n'est freinée que par l'espace UUID. La décision d'acceptation passe par `claim_portal_estimate_decision`, qui exige `current_user = 'service_role'`, verrouille la version en `for update`, n'accepte que le statut `sent`, et périme les autres tokens de la même version (`20260713135408_…sql:62-66`, `:85-144`). La route d'acceptation revalide le contrat documentaire côté API, en commentant explicitement que la page n'est pas une frontière de sécurité (`src/app/api/portal/[token]/accept/route.ts:118-146`). La signature est plafonnée à `700_000` caractères base64 et doit commencer par `data:image/png;base64,` (`:13-14`, `:70-86`).
 
-**Service-role.** Client mis en cache au niveau module (`src/lib/supabase/service-role.ts:5`) : il traverse les requêtes du même processus. Trois sites l'utilisent sans aucun utilisateur authentifié (portail). Le worker takeoff accepte une clé service-role **fournie par l'appelant** dans l'en-tête `x-supabase-service-role-key` (`src/app/api/internal/takeoff/process-job/route.ts:73-74`).
+**Service-role.** Client mis en cache au niveau module (`src/lib/supabase/service-role.ts:5`) : il traverse les requêtes du même processus. Trois sites l'utilisent sans aucun utilisateur authentifié (portail). Le worker takeoff réutilise cette factory canonique localement ; l'appelant HTTP ne peut plus fournir ni substituer la clé service-role.
 
 **Worker takeoff.** L'authentification est une comparaison de chaînes non constante en temps : `providedSecret !== expectedSecret` (`src/app/api/internal/takeoff/process-job/route.ts:34`) ; `grep -rn "timingSafeEqual" src/ | wc -l` renvoie `0`. En `NODE_ENV === "test"`, un secret de repli codé en dur est utilisé si la variable est absente (`:23-25`).
 

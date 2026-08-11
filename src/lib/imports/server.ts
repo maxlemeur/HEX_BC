@@ -3,7 +3,11 @@ import { randomUUID } from "crypto";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  readActiveTenantMembership,
+  readAuthenticatedUser,
+  type ActiveTenantMembership,
+} from "@/lib/auth/tenant-context";
 import type { Database } from "@/types/database";
 
 import {
@@ -34,10 +38,6 @@ type ImportRow = Database["public"]["Tables"]["dpgf_imports"]["Row"];
 type ImportInsert = Database["public"]["Tables"]["dpgf_imports"]["Insert"];
 type ImportUpdate = Database["public"]["Tables"]["dpgf_imports"]["Update"];
 type RawRowInsert = Database["public"]["Tables"]["dpgf_rows_raw"]["Insert"];
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "role"
->;
 type JsonRecord = Record<string, unknown>;
 type ImportSourceKind = "tabular" | "tabular_pdf";
 type PersistedImportSourceFormat = ImportSourceFormat | "pdf";
@@ -45,7 +45,7 @@ type AuthenticatedContext = {
   supabase: Supabase;
   userId: string;
   tenantId: string;
-  tenantRole: TenantMembershipRow["role"];
+  tenantRole: ActiveTenantMembership["role"];
   isTenantAdmin: boolean;
 };
 
@@ -718,16 +718,25 @@ export async function validateTabularPdfReviewFile(file: File) {
 }
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, error: userError } = await readAuthenticatedUser();
 
-  if (!user) {
+  if (userError || !user) {
     throw unauthorized();
   }
 
-  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, user.id);
+
+  if (membershipError) {
+    throw mapSupabaseError(
+      membershipError,
+      "Impossible de charger le tenant courant."
+    );
+  }
+
+  if (!membership) {
+    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+  }
 
   return {
     supabase,
@@ -744,31 +753,6 @@ function requireImportWriteRole(context: AuthenticatedContext) {
       "Seuls les ingenieurs et administrateurs peuvent creer ou modifier un import DPGF."
     );
   }
-}
-
-async function getCurrentMembershipOrThrow(
-  supabase: Supabase,
-  userId: string
-): Promise<TenantMembershipRow> {
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, role, is_default, created_at")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le tenant courant.");
-  }
-
-  const membership = data?.[0] as TenantMembershipRow | undefined;
-
-  if (!membership) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
-  }
-
-  return membership;
 }
 
 async function ensureProjectCanBeLinked(params: {
