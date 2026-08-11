@@ -62,10 +62,13 @@ test.describe("V3-006 — Plan Center affaire", () => {
     ]).catch(() => "unknown");
 
     test.skip(
-      pageState === "unavailable",
-      "Takeoff disabled for this tenant in current environment."
+      !process.env.CI && pageState === "unavailable",
+      "Takeoff disabled for this tenant in the local environment."
     );
-    expect(pageState).toBe("plans");
+    expect(
+      pageState,
+      "The critical E2E tenant must expose the plan center."
+    ).toBe("plans");
 
     // 3. Verify breadcrumb 3 levels
     const breadcrumb = page.locator("nav[aria-label=\"Fil d'Ariane\"]");

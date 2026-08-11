@@ -1,15 +1,9 @@
 name: Quality Gate
 
-# Typecheck, lint et tests unitaires.
-#
-# Aucun job n'executait `tsc`, `eslint` ni `vitest` : seuls Playwright (qui
-# demande des secrets Supabase et ne couvre que le parcours critique) et le
-# backup tournaient. C'est ce qui a permis a deux tests unitaires de rester
-# rouges pendant des dizaines de commits, dont un qui signalait une vraie
-# regression de persistance.
-#
-# Ce job ne demande aucun secret : il doit rester le garde-fou le plus rapide
-# et le plus fiable de la CI.
+# Garde-fou sans secret : dependances, architecture, OpenAPI, qualite statique,
+# tests bornes, couverture des frontieres critiques et artefact Webpack reel.
+# Le smoke lance l'artefact avec `next start`; Playwright garde la validation
+# fonctionnelle distante dans un workflow separe et serialise.
 
 on:
   pull_request:
@@ -17,14 +11,17 @@ on:
   push:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 concurrency:
-  group: quality-gate-${{ github.ref }}
-  cancel-in-progress: true
+  group: quality-gate-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality-gate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     env:
       CI: "1"
       # Valeurs factices : les modules importes a la compilation instancient un
@@ -34,16 +31,29 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        run: npm run audit:dependencies
+
+      - name: Verify dependency signatures
+        if: ${{ !cancelled() }}
+        run: npm run audit:signatures
+
+      - name: Enforce architecture budgets
+        if: ${{ !cancelled() }}
+        run: npm run check:architecture
 
       # Les etapes tournent meme si une precedente echoue : une PR voit
       # ainsi tous ses problemes en une passe au lieu d'un par aller-retour.
@@ -67,9 +77,19 @@ jobs:
       - name: Unit tests (Node)
         id: tests-node
         if: ${{ !cancelled() }}
-        run: npx vitest run --project=node --maxWorkers=4
+        run: npm run test:ci:node
 
       - name: Unit tests (jsdom)
         id: tests-jsdom
         if: ${{ !cancelled() }}
-        run: npx vitest run --project=jsdom --maxWorkers=4
+        run: npm run test:ci:jsdom
+
+      - name: Critical boundary coverage
+        id: critical-coverage
+        if: ${{ !cancelled() }}
+        run: npm run test:critical-coverage
+
+      - name: Production Webpack build and smoke
+        id: production-smoke
+        if: ${{ !cancelled() }}
+        run: npm run verify:production

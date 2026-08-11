@@ -33,6 +33,8 @@ npm run build        # valide l'OpenAPI PUIS construit — les deux doivent pass
 npm run typecheck    # TypeScript strict
 npm run lint         # ESLint, --max-warnings=0
 npm test             # Vitest (projets node + jsdom)
+npm run check:quality # garde-fous CI sans secret, hors build
+npm run check:release # check:quality + build Webpack et smoke next start
 npm run e2e:pw:critical
 ```
 

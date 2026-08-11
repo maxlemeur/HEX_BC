@@ -253,7 +253,10 @@ L'export CSV d'historique d'anomalies neutralise les formules (`^[\t\r\n ]*[=+\-
 
 ## 10. Tests de régression et CI
 
-Dix suites, exécutées par le projet Vitest `node` (`vitest.config.ts:28-33`). Neuf d'entre elles lisent le SQL des migrations avec `fs.readFileSync` et vérifient des motifs par expressions régulières — elles attestent du **contenu des fichiers de migration**, pas du comportement d'une base réelle.
+Le socle comprend des régressions structurelles exécutées par Vitest `node` et
+une matrice qui se connecte réellement à la pile Supabase locale. Les suites qui
+lisent le SQL des migrations avec `fs.readFileSync` attestent du **contenu des
+fichiers**, pas à elles seules du comportement d'une base réelle.
 
 | Fichier | Cas | Objet |
 | --- | --- | --- |
@@ -268,26 +271,54 @@ Dix suites, exécutées par le projet Vitest `node` (`vitest.config.ts:28-33`). 
 | `src/lib/takeoff/apply-storage-security-regressions.test.ts` | 11 | garde d'apply, override consommable une fois, Storage takeoff, policies restrictives |
 | `src/lib/estimates/rls.e2e.test.ts` | 2 | **matrice RLS réelle** contre une base Supabase |
 
-`rls.e2e.test.ts` est le seul à se connecter : il est gardé par `describe.runIf(RLS_E2E_ENABLED)` avec `RLS_E2E_ENABLED = process.env.RLS_E2E === "1"` (`src/lib/estimates/rls.e2e.test.ts:8`, `:705`). Il authentifie trois comptes (`admin`, `engineer`, `viewer`), sème deux tenants et compare 4 opérations CRUD × 6 tables à `EXPECTED_MATRIX` (`:64-110`), plus un cas d'isolation inter-tenant (`:847`). `portal_tokens` est traité en table optionnelle (`:74`).
+`rls.e2e.test.ts` est le seul à se connecter. Il est gardé par
+`describe.runIf(RLS_E2E_ENABLED)`, authentifie trois rôles éphémères
+(`admin`, `engineer`, `viewer`), sème deux tenants et exerce les frontières
+tenant, portail, Estimates et takeoff ainsi que l'isolation inter-tenant. Le
+runner local exige exactement les deux tests de premier niveau réussis : un
+skip ou une matrice vide fait échouer le job.
 
-CI (`.github/workflows/`, 4 fichiers) :
+CI (`.github/workflows/`, 5 fichiers) :
 
-- `quality-gate.yml` : sur `pull_request` et `push` vers `main`, sans aucun secret (variables Supabase factices `:32-33`) — OpenAPI, `typecheck`, `lint`, puis `vitest run --project=node` et `--project=jsdom` séparément (`:50-75`). Les étapes utilisent `if: ${{ !cancelled() }}` pour toutes s'exécuter.
-- `e2e-rls-matrix.yml` : job `rls-matrix`, `RLS_E2E: "1"` (`:15`), 9 secrets requis (`:16-24`). Une étape « Validate required environment » vérifie leur présence ; si l'un manque, elle émet `::warning::RLS matrix E2E skipped…`, pose `ready=false` et **sort en succès** (`:59-63`). L'installation et `npm run e2e:rls` sont conditionnées à `ready == 'true'` (`:67-73`). **Le job passe donc au vert sans avoir exécuté la matrice si les secrets ne sont pas configurés.**
-- `e2e-playwright-critical.yml`, `supabase-backup.yml` : hors périmètre de ce document.
+- `quality-gate.yml` : sur `pull_request` et `push` vers `main`, sans secret
+  distant. Il contrôle audit et signatures des dépendances, budgets
+  d'architecture, OpenAPI, TypeScript, ESLint, les deux projets Vitest avec un
+  pool borné, la couverture ciblée des frontières critiques, puis construit
+  l'artefact Webpack utilisé par Vercel et le démarre avec `next start` pour un
+  smoke HTTP.
+- `e2e-rls-matrix.yml` : sans secret distant, il vérifie l'historique append-only,
+  démarre une pile Supabase isolée, rejoue les migrations, exécute pgTAP et la
+  matrice RLS avec des utilisateurs locaux éphémères, puis nettoie la pile. Un
+  skip, zéro test, une migration divergente ou un nettoyage en échec rend le job
+  rouge.
+- `e2e-playwright-critical.yml` : uniquement sur `push main`, dans
+  l'environnement GitHub nommé `e2e-staging`. Les secrets sont limités
+  aux deux steps qui en ont besoin, la cible Supabase doit correspondre au nom
+  d'hôte autorisé, les runs sont sérialisés et aucune clé service-role n'est
+  injectée. Les traces d'authentification ne sont pas archivées. Les règles de
+  protection de cet environnement sont une configuration distante à vérifier.
+- `supabase-backup.yml` : dump planifié avec la CLI Supabase verrouillée par le
+  lock npm et artefact à rétention configurée. `release-please.yml` ouvre ou met
+  à jour la release PR puis, après sa fusion, crée le tag et la GitHub Release ;
+  il ne déploie pas l'application.
+
+Les actions tierces sont référencées par SHA complet. L'obligation effective de
+ces jobs avant merge dépend toutefois des règles GitHub de protection de
+branche, qui ne sont pas prouvables depuis le checkout local.
 
 ---
 
 ## 11. Variables d'environnement sensibles
 
-`.env.example` déclare 9 variables (`.env.example:1-9`). Aucune valeur n'est reproduite ici.
+`.env.example` déclare 10 variables sans valeur. Aucune valeur n'est reproduite ici.
 
 | Variable | Exposition | Usage |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | navigateur | `src/lib/supabase/client.ts`, `src/lib/supabase/server.ts`, `src/proxy.ts` |
+| `E2E_ALLOWED_SUPABASE_HOST` | CI E2E | nom d'hôte exact autorisé pour la cible Supabase distante de staging |
 | `SUPABASE_SERVICE_ROLE_KEY` | serveur | construction des clients centralisée dans `src/lib/supabase/service-role.ts`; `src/lib/takeoff/edge-trigger.ts` l'utilise uniquement pour appeler l'Edge Function, sans la relayer au worker Next.js |
 | `TAKEOFF_WORKER_SECRET` | serveur | `src/app/api/internal/takeoff/process-job/route.ts:18` |
-| `TAKEOFF_WORKER_URL` | serveur | déclaré en `.env.example:9` |
+| `TAKEOFF_WORKER_URL` | serveur | déclaré en `.env.example:10` |
 | `GEMINI_API_KEY` | serveur | `src/lib/takeoff/gemini-client.ts:974`, `:1037`, `:1115` |
 | `RESEND_API_KEY`, `EMAIL_FROM` | serveur | `src/lib/email/send-estimate.ts:74-80`, `src/app/api/portal/[token]/accept/route.ts:209-210` |
 | `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL` | navigateur | `src/lib/email/send-estimate.ts:59` |
@@ -312,8 +343,13 @@ CI (`.github/workflows/`, 4 fichiers) :
 
 **Protections partielles à connaître.**
 
-- `getAuthenticatedContext()` (`src/lib/estimates/server.ts:3687-3709`) et `getUserProfile()` (`src/lib/auth/server.ts:47-62`) sélectionnent le premier membership **sans filtrer `tenants.is_active`**, contrairement à `current_tenant_id()` (`20260713135334_…sql:11-17`). Le rôle applicatif peut donc être calculé depuis un tenant désactivé ; les policies SQL, elles, refuseront. `src/lib/memberships/server.ts:94` fait le contrôle explicite via `getTenantOrThrow` (`:104-122`), ce qui est précisément l'invariant testé en `src/lib/auth-tenant-rls-security-regressions.test.ts:101-105`.
+- La résolution applicative converge vers `src/lib/auth/tenant-context.ts` et
+  filtre `tenants!inner(is_active)` ; la base applique le même invariant aux
+  memberships et au portail. Les workers service-role déjà en file exigent
+  encore une décision métier séparée sur leur comportement lors d'une
+  suspension de tenant.
 - `is_admin_user()` accorde un accès transverse à tous les tenants actifs dès que le JWT porte le claim (`021_…_v2.sql:9-11`).
-- La matrice RLS n'est vérifiée en CI que si neuf secrets sont configurés, sinon le job réussit sans rien exécuter (`e2e-rls-matrix.yml:59-63`).
-- Neuf des dix suites « sécurité » comparent du texte SQL ; elles ne prouvent pas l'état de la base cible.
+- Les régressions qui comparent du texte SQL ne prouvent pas l'état d'une base
+  distante ; la matrice locale prouve un reset frais, pas l'alignement d'un
+  projet Supabase partagé.
 - Aucun en-tête de sécurité HTTP applicatif (`next.config.ts` ne définit pas `headers()`).

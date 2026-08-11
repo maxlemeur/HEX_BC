@@ -18,6 +18,8 @@ export default defineConfig({
     },
   },
   test: {
+    pool: "forks",
+    maxWorkers: 4,
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],

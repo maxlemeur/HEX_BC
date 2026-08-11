@@ -21,7 +21,7 @@ partie de ce chantier sans autorisation distincte.
 | 1 | P0 | Corriger les dépendances exposées et identifiants E2E | 5/5/2 | 40 | Terminé | `fix(security): harden document dependencies and E2E credentials` |
 | 2 | P0 | Rendre migrations et RLS réellement reproductibles | 5/5/3 | 30 | Terminé | `fix(db): make local migrations and RLS reproducible` |
 | 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | Terminé | `fix(auth): unify active tenant boundaries` |
-| 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | À faire | — |
+| 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | Terminé | `ci: enforce production quality gates` |
 | 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | À faire | — |
 | 6 | P1 | Décomposer les hotspots par strangler | 5/4/3 | 27 | À faire | — |
 | 7 | P2 | Terminer le moteur de calcul v2 et gouverner les contrats | 4/4/4 | 16 | À faire | — |
@@ -260,12 +260,74 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 4 — Garde-fous CI et locaux
 
-- [ ] Ajouter build et smoke de production aux contrôles requis.
-- [ ] Stabiliser le pool Vitest global et rendre les limites de ressources explicites en CI.
-- [ ] Ajouter audit de dépendances avec exceptions explicites, justifiées et expirables.
-- [ ] Empêcher les nouveaux cycles et l'aggravation des hotspots par baseline.
-- [ ] Ajouter des seuils ciblés sur les frontières critiques, sans seuil global cosmétique.
-- [ ] Valider, documenter et committer le lot.
+- [x] Ajouter build et smoke de production aux contrôles requis.
+- [x] Stabiliser le pool Vitest global et rendre les limites de ressources explicites en CI.
+- [x] Ajouter audit de dépendances avec exceptions explicites, justifiées et expirables.
+- [x] Empêcher les nouveaux cycles et l'aggravation des hotspots par baseline.
+- [x] Ajouter des seuils ciblés sur les frontières critiques, sans seuil global cosmétique.
+- [x] Valider, documenter et committer le lot.
+
+### Preuves et décisions
+
+- Le check existant `Quality Gate` reste sans secret et conserve son nom afin de
+  réutiliser une éventuelle règle de branche. Il contrôle désormais dépendances,
+  signatures, architecture, OpenAPI, TypeScript, ESLint, les deux projets Vitest,
+  les seuils critiques, puis le même build Webpack que celui configuré dans
+  `vercel.json`.
+- `verify:production` produit lui-même l'artefact, démarre directement
+  `next start` sur loopback, vérifie `/`, `/login`, la redirection d'authentification de
+  `/dashboard` et un asset émis sous `/_next/static`, puis exige la terminaison du
+  processus et la fermeture du stub local. Le premier prototype a révélé puis
+  corrigé un orphelin Windows causé par le wrapper `npm run start`.
+- Vitest utilise explicitement `forks` et quatre workers. Un timeout XLSX observé
+  sous contention n'était pas reproductible fonctionnellement ; les deux cas
+  `header-row` concernés par le timeout observé disposent désormais d'un budget
+  de 15 secondes. Les autres tests conservent le timeout strict par défaut.
+- L'audit npm bloque toute alerte `moderate`, `high` ou `critical`. Une exception
+  doit correspondre exactement au paquet et à la source npm, nommer un responsable,
+  contenir une justification et une expiration UTC ; exception expirée, dupliquée
+  ou devenue inutile fait elle aussi échouer le gate. La baseline ne contient
+  aucune exception.
+- Le budget d'architecture analyse les imports runtime TypeScript et refuse tout
+  nouveau cycle ou extension de composante fortement connexe. Le seul cycle
+  autorisé reste Estimates ↔ ouvrages générés. Les 37 modules déjà au-dessus de
+  1 000 lignes non vides ont chacun un plafond exact ; tout autre module dépassant
+  1 000 lignes échoue. Une hausse de baseline reste un changement de configuration
+  visible à relire, pas une autorisation implicite.
+- La couverture est ciblée sur `tenant-context`, la factory service-role et le
+  validateur E2E, avec seuils par fichier. Aucun seuil global artificiel ne masque
+  les grands domaines historiques encore insuffisamment couverts.
+- Les actions GitHub sont épinglées par SHA complet et Dependabot suit npm et les
+  actions. Le backup installe sans scripts, vérifie les signatures puis la CLI
+  Supabase verrouillée `2.109.1` avant de recevoir l'URL DB dans les seuls steps de
+  validation et dump.
+- Les workflows qui reçoivent un secret ne sont plus déclenchables manuellement
+  depuis une branche. Le Playwright distant ne tourne qu'après `push main`, dans
+  l'environnement GitHub nommé `e2e-staging`, sans service-role ni traces archivées ;
+  les deux skips takeoff deviennent des échecs CI, les flakies sont refusés, et les
+  scénarios critiques vérifient route et statut final.
+- Limite assumée : le workflow de PR couvre le build/smoke sans secret et les tests
+  auth unitaires, pas le Playwright distant. La suite distante détecte donc une
+  régression fonctionnelle après le push sur `main`. L'environnement `e2e-staging` et le statut
+  « required » des checks sont des configurations GitHub externes non vérifiées ici.
+
+### Validation
+
+- `npm run check:quality` : succès en 150,6 s. Audit à zéro finding bloquant,
+  868 paquets signés et 309 attestations vérifiées ; OpenAPI, typecheck et lint verts.
+- Projet Vitest Node : 321 fichiers réussis, 1 ignoré ; 2 317 tests réussis,
+  2 ignorés. Projet jsdom : 198 fichiers et 1 297 tests réussis.
+- Couverture critique : 12/12 tests ; 95,91 % statements, 95,45 % branches,
+  100 % fonctions et 97,91 % lignes au total, avec seuils par frontière respectés.
+- Architecture : 820 modules, 37 budgets explicites et un seul cycle runtime
+  autorisé. Les cinq régressions synthétiques du garde sont vertes.
+- `npm run verify:production` : Webpack, 42/42 pages, quatre probes HTTP dont un
+  asset `_next/static`, puis PID et port fermés ; durée 66,1 s.
+- Découverte Playwright critique : 37 tests dans 8 fichiers. La suite distante
+  n'a pas été exécutée faute d'autorisation et de secrets staging dans ce checkout.
+- `git diff --check` : succès, hors avertissements de normalisation CRLF. Aucun
+  workflow GitHub distant, backup, push, release, déploiement ou effet Supabase
+  distant n'a été exécuté.
 
 ## Lot 5 — Workflows et effets externes transactionnels
 

@@ -17,7 +17,9 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
   - Checks the Login form fields
 
 - `npm run e2e:auth` logs in and saves an auth state file for future tests.
-- `npm run e2e:pw:critical` runs the Playwright critical-path suite (`e2e/estimates/*`).
+- `npm run e2e:pw:critical` runs the explicit `chromium-critical` project: seven
+  production-compatible specs plus the authentication setup. The full
+  `e2e/estimates/*` corpus remains available through `npm run e2e:pw`.
 - `npm run e2e:pw:headed` runs the same suite in headed mode.
 - `npm run e2e:pw:report` opens the generated Playwright HTML report.
 - `npm run e2e:rls` runs the EST-261 RLS matrix integration suite.
@@ -108,7 +110,16 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
 Playwright config is in `playwright.config.ts` with:
 - automatic screenshots on failure (`screenshot: only-on-failure`),
 - HTML report output in `playwright-report/`,
-- CI artifact upload from `.github/workflows/e2e-playwright-critical.yml`.
+- CI retries treated as failures (`failOnFlakyTests`) and traces disabled in CI,
+- CI artifact upload from `.github/workflows/e2e-playwright-critical.yml`, excluding
+  `trace.zip` and retaining reports for three days.
+
+The remote critical workflow runs only after a push to `main`, inside the
+`e2e-staging` environment. Repository code from a pull request is never
+run with remote credentials. The environment must define the four E2E secrets and
+the non-secret `E2E_ALLOWED_SUPABASE_HOST` variable; the URL hostname must match it
+exactly. The workflow does not expose a service-role key. Pull requests are instead
+guarded by the secretless Webpack production build and HTTP smoke in `Quality Gate`.
 
 ### RLS matrix (EST-261 partial)
 
@@ -161,6 +172,9 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
 - `E2E_HEADED=1` to run with a visible browser window
 - `E2E_SESSION` to control the agent-browser session name
 - `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state (required; no committed fallback)
+- `E2E_ALLOWED_SUPABASE_HOST` for the exact Supabase hostname authorized for the
+  remote critical suite (for example `staging-project.supabase.co`); loopback runs
+  must explicitly use `localhost` or `127.0.0.1`.
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
 - `E2E_AUTH_CACHE` (default: `1` for HEX flows). Set `0`/`false`/`off`/`no` to disable cache and force UI login.
 - `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2` for `ti-141-db-rls.ps1` secondary account checks

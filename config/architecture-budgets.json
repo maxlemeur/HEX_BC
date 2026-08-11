@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "sourceDirectory": "src",
+  "excludedModulePaths": [
+    "src/types/database.ts"
+  ],
+  "allowedCycles": [
+    [
+      "src/lib/estimates/generated-ouvrages.ts",
+      "src/lib/estimates/server.ts"
+    ]
+  ],
+  "hotspotNonEmptyLineBudgets": {
+    "src/app/dashboard/orders/page.tsx": 1397,
+    "src/app/page.tsx": 1492,
+    "src/components/affaires/AffaireFlowHierarchyPanel.tsx": 2704,
+    "src/components/affaires/AffaireHub.tsx": 1990,
+    "src/components/affaires/AffairePilotagePanel.logic.ts": 1227,
+    "src/components/estimates/AssemblyEditorDialog.tsx": 1156,
+    "src/components/estimates/EstimateEditorTable.tsx": 2299,
+    "src/components/estimates/components/EstimateEditorToolbar.tsx": 1284,
+    "src/components/estimates/components/estimate-editor-row/LineRow.tsx": 1053,
+    "src/components/takeoff/TakeoffReviewPage.tsx": 1460,
+    "src/hooks/useEstimateEditorState.impl.tsx": 2743,
+    "src/hooks/useEstimateEditorSuggestionsController.ts": 1197,
+    "src/lib/affaires/hub-dev-scenarios.ts": 1308,
+    "src/lib/affaires/intake-server.ts": 3020,
+    "src/lib/affaires/register-server.ts": 2453,
+    "src/lib/affaires/register.ts": 1126,
+    "src/lib/affaires/server.ts": 2274,
+    "src/lib/catalogue/server.ts": 1843,
+    "src/lib/direction/server.ts": 1100,
+    "src/lib/estimate-calculations.ts": 1822,
+    "src/lib/estimates/client.ts": 5074,
+    "src/lib/estimates/explanations.ts": 1697,
+    "src/lib/estimates/generated-ouvrages.ts": 4073,
+    "src/lib/estimates/pdf-generator.tsx": 2092,
+    "src/lib/estimates/rules-engine.ts": 4381,
+    "src/lib/estimates/schemas.ts": 1643,
+    "src/lib/estimates/server.ts": 9096,
+    "src/lib/estimates/structure-drafts.ts": 2946,
+    "src/lib/estimates/version-zero-drafts.ts": 1853,
+    "src/lib/imports/server.ts": 1004,
+    "src/lib/mappings/server.ts": 1549,
+    "src/lib/openapi/registry.ts": 4928,
+    "src/lib/takeoff/gemini-client.ts": 1124,
+    "src/lib/takeoff/plans.ts": 1264,
+    "src/lib/takeoff/processor.ts": 4131,
+    "src/lib/takeoff/server.ts": 8217,
+    "src/lib/takeoff/types.ts": 1077
+  },
+  "maxNewModuleNonEmptyLines": 1000
+}

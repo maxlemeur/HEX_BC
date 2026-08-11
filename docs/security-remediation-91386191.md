@@ -245,6 +245,30 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   au lot workflows.
 - Aucun projet Supabase distant n'a été lié ou modifié pendant ce lot.
 
+### Garde-fous CI et supply chain — 2026-08-12
+
+- Le check sans secret `Quality Gate` couvre désormais audit npm
+  `moderate|high|critical`, signatures du registre, budgets d'architecture,
+  OpenAPI, analyse statique, tests Node/jsdom, seuils de couverture ciblés et
+  build Webpack suivi d'un smoke réel sous `next start`.
+- Les exceptions d'audit sont exactes, attribuées et expirables ; la baseline est
+  vide. Les actions tierces sont épinglées par SHA complet et Dependabot suit npm
+  ainsi que GitHub Actions.
+- Les workflows Playwright, backup et release qui manipulent des secrets ne sont
+  plus exécutables depuis une branche choisie manuellement. Les secrets E2E et DB
+  sont bornés à leurs steps d'usage ; aucune clé service-role n'est injectée au
+  Playwright distant et aucune trace n'est archivée en CI.
+- Le backup installe le lockfile sans lifecycle scripts, vérifie les signatures et
+  la version exacte de la CLI Supabase avant de recevoir l'URL de base. Aucun dump
+  ni accès Supabase distant n'a été exécuté pendant ce lot.
+- La validation locale finale est verte : 2 317 tests Node, 1 297 tests jsdom,
+  12 tests de couverture critique, audit sans finding, 868 signatures, 820 modules
+  analysés, un cycle runtime autorisé et smoke Webpack sur 42 pages.
+- Limites externes : le Playwright staging n'a pas été exécuté localement ; il ne
+  tourne que sur `push main`, typiquement après merge. La protection de
+  l'environnement staging et le caractère required des checks dépendent de la
+  configuration GitHub distante.
+
 ## Bilan terminal
 
 - `fixed` : 95.

@@ -47,11 +47,14 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
 
     const pageHeading = page.getByRole("heading", { name: /Plans/i });
     const plansPageLoaded = await pageHeading.isVisible({ timeout: 5_000 }).catch(() => false);
-    if (!plansPageLoaded) {
-      // Takeoff module not enabled for this tenant — skip gracefully
-      test.skip();
-      return;
-    }
+    test.skip(
+      !process.env.CI && !plansPageLoaded,
+      "Takeoff disabled for this tenant in the local environment."
+    );
+    expect(
+      plansPageLoaded,
+      "The critical E2E tenant must expose the takeoff module."
+    ).toBe(true);
 
     await page.getByRole("button", { name: /Creer.*jeu de plans/i }).first().click();
     const createDialog = page.getByRole("dialog");

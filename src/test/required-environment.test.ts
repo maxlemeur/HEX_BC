@@ -53,6 +53,7 @@ describe("required environment values", () => {
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "public-test-value",
       E2E_LOGIN_EMAIL: "tester@example.test",
       E2E_LOGIN_PASSWORD: "sensitive-test-value",
+      E2E_ALLOWED_SUPABASE_HOST: "example.test",
     };
 
     expect(() =>
@@ -67,6 +68,7 @@ describe("required environment values", () => {
         NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
         E2E_LOGIN_EMAIL: " ",
         E2E_LOGIN_PASSWORD: "",
+        E2E_ALLOWED_SUPABASE_HOST: "",
       });
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
@@ -76,7 +78,60 @@ describe("required environment values", () => {
     expect(errorMessage).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY");
     expect(errorMessage).toContain("E2E_LOGIN_EMAIL");
     expect(errorMessage).toContain("E2E_LOGIN_PASSWORD");
+    expect(errorMessage).toContain("E2E_ALLOWED_SUPABASE_HOST");
     expect(errorMessage).not.toContain("public-test-value");
     expect(errorMessage).not.toContain("sensitive-test-value");
+  });
+
+  it("rejects malformed, non-HTTPS, and non-allowlisted remote Supabase URLs", () => {
+    const configuredEnvironment = {
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "public-test-value",
+      E2E_LOGIN_EMAIL: "tester@example.test",
+      E2E_LOGIN_PASSWORD: "sensitive-test-value",
+      E2E_ALLOWED_SUPABASE_HOST: "staging-project.supabase.co",
+    };
+
+    expect(() =>
+      requireCriticalE2EEnvironment({
+        ...configuredEnvironment,
+        NEXT_PUBLIC_SUPABASE_URL: "not-a-url",
+      })
+    ).toThrow("Invalid URL in required environment variable");
+
+    expect(() =>
+      requireCriticalE2EEnvironment({
+        ...configuredEnvironment,
+        NEXT_PUBLIC_SUPABASE_URL: "https://production-project.supabase.co",
+      })
+    ).toThrow("does not target the allowlisted critical E2E host");
+
+    expect(() =>
+      requireCriticalE2EEnvironment({
+        ...configuredEnvironment,
+        NEXT_PUBLIC_SUPABASE_URL: "http://staging-project.supabase.co",
+      })
+    ).toThrow("must use HTTPS");
+
+    for (const url of [
+      "https://user@staging-project.supabase.co",
+      "https://staging-project.supabase.co/auth/v1",
+      "https://staging-project.supabase.co?redirect=remote",
+      "https://staging-project.supabase.co:8443",
+    ]) {
+      expect(() =>
+        requireCriticalE2EEnvironment({
+          ...configuredEnvironment,
+          NEXT_PUBLIC_SUPABASE_URL: url,
+        })
+      ).toThrow("must be a bare allowlisted origin");
+    }
+
+    expect(() =>
+      requireCriticalE2EEnvironment({
+        ...configuredEnvironment,
+        NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+        E2E_ALLOWED_SUPABASE_HOST: "127.0.0.1",
+      })
+    ).not.toThrow();
   });
 });

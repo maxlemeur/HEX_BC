@@ -2,13 +2,16 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 const AUDITED_ROUTES = [
-  "/dashboard",
-  "/dashboard/affaires",
-  "/dashboard/takeoff",
-  "/dashboard/admin/flags",
-  "/dashboard/admin/anomaly-history",
-  "/dashboard/products",
-  "/dashboard/prices",
+  { path: "/dashboard", heading: "Vue d’ensemble" },
+  { path: "/dashboard/affaires", heading: "Affaires" },
+  { path: "/dashboard/takeoff", heading: "Métrés — Analyse de plans" },
+  { path: "/dashboard/admin/flags", heading: "Fonctionnalités" },
+  {
+    path: "/dashboard/admin/anomaly-history",
+    heading: "Historique des anomalies",
+  },
+  { path: "/dashboard/products", heading: "Produits & prix de référence" },
+  { path: "/dashboard/prices", heading: "Prix fournisseurs" },
 ] as const;
 
 const VIEWPORTS = [
@@ -18,11 +21,19 @@ const VIEWPORTS = [
   { name: "desktop", width: 1440, height: 900 },
 ] as const;
 
-async function waitForDashboard(page: Page) {
+async function waitForDashboard(
+  page: Page,
+  expectedRoute: (typeof AUDITED_ROUTES)[number]
+) {
+  await expect(page).toHaveURL((url) => url.pathname === expectedRoute.path);
   await expect(page.locator("main")).toBeVisible();
-  const pageHeading = page.locator("main h1");
-  await expect(pageHeading).toHaveCount(1);
-  await expect(pageHeading).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: expectedRoute.heading,
+      exact: true,
+    })
+  ).toBeVisible();
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
   // The longest staggered card entrance completes in under one second.
   // Axe must inspect the settled colors rather than opacity-blended transition frames.
@@ -34,9 +45,9 @@ for (const viewport of VIEWPORTS) {
     test.use({ viewport });
 
     for (const route of AUDITED_ROUTES) {
-      test(`${route} reste lisible et sans violation majeure`, async ({ page }) => {
-        await page.goto(route, { waitUntil: "domcontentloaded" });
-        await waitForDashboard(page);
+      test(`${route.path} reste lisible et sans violation majeure`, async ({ page }) => {
+        await page.goto(route.path, { waitUntil: "domcontentloaded" });
+        await waitForDashboard(page, route);
 
         const overflow = await page.evaluate(() => ({
           clientWidth: document.documentElement.clientWidth,
@@ -67,7 +78,7 @@ for (const viewport of VIEWPORTS) {
 test("le tiroir mobile conserve le focus et neutralise le contenu", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
-  await waitForDashboard(page);
+  await waitForDashboard(page, AUDITED_ROUTES[0]);
 
   const openButton = page.getByRole("button", { name: "Ouvrir le menu" });
   await openButton.click();

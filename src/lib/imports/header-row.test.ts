@@ -98,7 +98,7 @@ describe("parseImportFile with header-row options", () => {
     expect(parsed.headers).toEqual(["Description", "Famille_Achat", "PU_FO"]);
     expect(parsed.rows).toHaveLength(2);
     expect(parsed.rows[0]?.Description).toBe("Tube DN15");
-  });
+  }, 15_000);
 
   it("respects a manual header row override", async () => {
     const file = createWorkbookFile([
@@ -112,7 +112,7 @@ describe("parseImportFile with header-row options", () => {
     const parsed = await parseImportFile(file, { headerRowNumber: 3 });
     expect(parsed.headers).toEqual(["Description", "Famille_Achat", "PU_FO"]);
     expect(parsed.rows).toHaveLength(2);
-  });
+  }, 15_000);
 
   it("times out when workbook parsing does not complete in time", async () => {
     vi.useFakeTimers();

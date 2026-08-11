@@ -3,34 +3,37 @@ name: Supabase Backup
 on:
   schedule:
     - cron: "25 2 * * *"
-  workflow_dispatch:
-    inputs:
-      retention_days:
-        description: "Artifact retention in days"
-        required: false
-        default: "30"
 
 jobs:
   backup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
     env:
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-      RETENTION_DAYS: ${{ inputs.retention_days || '30' }}
+      RETENTION_DAYS: "30"
+      DO_NOT_TRACK: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
 
-      - name: Install Supabase CLI
-        run: npm install -g supabase@2.75.0
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Verify dependency signatures
+        run: npm audit signatures
+
+      - name: Verify locked Supabase CLI
+        run: test "$(npx --no-install supabase --version)" = "2.109.1"
 
       - name: Validate required secrets
         run: |
@@ -39,9 +42,13 @@ jobs:
             echo "Use a percent-encoded Postgres connection string."
             exit 1
           fi
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
 
       - name: Dump database
         id: dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
 
@@ -51,17 +58,17 @@ jobs:
 
           mkdir -p "$outdir"
 
-          supabase db dump \
+          npx --no-install supabase db dump \
             --db-url "$SUPABASE_DB_URL" \
             --schema public,auth,storage \
             --file "$outdir/schema.sql"
 
-          supabase db dump \
+          npx --no-install supabase db dump \
             --db-url "$SUPABASE_DB_URL" \
             --role-only \
             --file "$outdir/roles.sql"
 
-          supabase db dump \
+          npx --no-install supabase db dump \
             --db-url "$SUPABASE_DB_URL" \
             --data-only \
             --use-copy \
@@ -74,7 +81,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload backup artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.dump.outputs.archive }}
           path: ${{ steps.dump.outputs.archive }}

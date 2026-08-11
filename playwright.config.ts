@@ -25,7 +25,10 @@ function resolveWebServer() {
   const port = parsedBaseUrl.port || "3000";
 
   return {
-    command: `TAKEOFF_MODULE_ENABLED_BY_DEFAULT=1 npm run dev -- --port ${port}`,
+    command: `npm run dev -- --port ${port}`,
+    env: {
+      TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
+    },
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
@@ -36,6 +39,7 @@ export default defineConfig({
   testDir: "./e2e/estimates",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
+  failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   timeout: 90_000,
@@ -48,7 +52,7 @@ export default defineConfig({
   outputDir: "test-results/playwright",
   use: {
     baseURL,
-    trace: "on-first-retry",
+    trace: process.env.CI ? "off" : "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     headless: process.env.E2E_HEADED === "1" ? false : true,
@@ -62,6 +66,24 @@ export default defineConfig({
     },
     {
       name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "e2e/.auth/playwright-user.json",
+      },
+      dependencies: ["setup"],
+    },
+    {
+      name: "chromium-critical",
+      testMatch: [
+        /dashboard-ux\.spec\.ts/,
+        /duplicate\.spec\.ts/,
+        /full-lifecycle\.spec\.ts/,
+        /hub-launch-metre\.spec\.ts/,
+        /import-dpgf\.spec\.ts/,
+        /plan-center\.spec\.ts/,
+        /team-a-hub-prod\.spec\.ts/,
+      ],
+      testIgnore: /team-a-hub-dev-scenarios\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: "e2e/.auth/playwright-user.json",

@@ -58,16 +58,18 @@ test.describe("EST-262 - parcours critique (creation, edition, statut, sortie)",
       .filter({ hasText: /Envoy/i })
       .first();
 
-    const sendOutcome = await Promise.race([
-      gatingDialog
-        .waitFor({ state: "visible", timeout: 8_000 })
-        .then(() => "dialog" as const),
-      sentBadge.waitFor({ state: "visible", timeout: 8_000 }).then(() => "sent" as const),
-    ]).catch(() => "unknown" as const);
+    await expect(
+      sentBadge.or(gatingDialog).first(),
+      "Sending must either change the status or expose the validation gate."
+    ).toBeVisible({ timeout: 15_000 });
+
+    const sendOutcome = (await sentBadge.isVisible()) ? "sent" : "dialog";
+    let expectedFinalStatus: "draft" | "sent" | "accepted";
 
     if (sendOutcome === "sent") {
-      await expectCurrentStatus(page, "sent");
-    } else if (sendOutcome === "dialog" || (await gatingDialog.isVisible().catch(() => false))) {
+      expectedFinalStatus = "sent";
+    } else {
+      await expect(gatingDialog).toBeVisible();
       const confirmSendButton = gatingDialog.getByRole("button", {
         name: /^Envoyer$/,
       });
@@ -75,11 +77,12 @@ test.describe("EST-262 - parcours critique (creation, edition, statut, sortie)",
       if (await confirmSendButton.isEnabled()) {
         await confirmSendButton.click();
         await expectCurrentStatus(page, "sent");
+        expectedFinalStatus = "sent";
 
         const acceptButton = page.getByRole("button", { name: /^Accepter$/ });
         if (await acceptButton.isVisible()) {
           await acceptButton.click();
-          await expectCurrentStatus(page, "accepted");
+          expectedFinalStatus = "accepted";
         }
       } else {
         await expect(
@@ -90,8 +93,11 @@ test.describe("EST-262 - parcours critique (creation, edition, statut, sortie)",
         });
         await cancelButton.first().click();
         await expect(gatingDialog).toBeHidden();
+        expectedFinalStatus = "draft";
       }
     }
+
+    await expectCurrentStatus(page, expectedFinalStatus);
 
     await exportEstimateAsXlsx(page, versionId);
     await exportEstimateAsXlsx(page, versionId, "dpgf");
