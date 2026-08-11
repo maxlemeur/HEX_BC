@@ -1624,11 +1624,14 @@ type ApplyTakeoffRpcArgs = {
   target_section_id: string | null;
 };
 
-function isApplyTakeoffRpcSignatureMismatch(error: ApplyTakeoffRpcError) {
+function isApplyTakeoffRpcSignatureMismatch(
+  error: ApplyTakeoffRpcError,
+  functionName: "apply_takeoff_job" | "apply_takeoff_job_guarded"
+) {
   const normalizedMessage = (error.message ?? "").toLowerCase();
   return (
     error.code === "PGRST202" ||
-    normalizedMessage.includes("could not find the function public.apply_takeoff_job")
+    normalizedMessage.includes(`could not find the function public.${functionName}`)
   );
 }
 
@@ -1636,8 +1639,8 @@ async function invokeApplyTakeoffRpc(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   args: ApplyTakeoffRpcArgs;
 }) {
-  const primaryAttempt = await input.supabase.rpc(
-    "apply_takeoff_job" as never,
+  const guardedAttempt = await input.supabase.rpc(
+    "apply_takeoff_job_guarded" as never,
     {
       p_job_id: input.args.job_id,
       p_strategy: input.args.strategy,
@@ -1645,8 +1648,29 @@ async function invokeApplyTakeoffRpc(input: {
     } as never
   );
 
-  if (!primaryAttempt.error || !isApplyTakeoffRpcSignatureMismatch(primaryAttempt.error)) {
-    return primaryAttempt;
+  if (
+    !guardedAttempt.error ||
+    !isApplyTakeoffRpcSignatureMismatch(
+      guardedAttempt.error,
+      "apply_takeoff_job_guarded"
+    )
+  ) {
+    return guardedAttempt;
+  }
+
+  const legacyAttempt = await input.supabase.rpc(
+    "apply_takeoff_job" as never,
+    {
+      p_job_id: input.args.job_id,
+      p_strategy: input.args.strategy,
+      p_target_section_id: input.args.target_section_id,
+    } as never
+  );
+  if (
+    !legacyAttempt.error ||
+    !isApplyTakeoffRpcSignatureMismatch(legacyAttempt.error, "apply_takeoff_job")
+  ) {
+    return legacyAttempt;
   }
 
   return input.supabase.rpc("apply_takeoff_job" as never, input.args as never);
@@ -6532,6 +6556,54 @@ function buildTakeoffJobResetUpdate(input: { retryCount: number }) {
   };
 }
 
+function assertTakeoffProviderBatchCanReset(
+  existingJob: TakeoffJobDetailRow,
+  jobId: string
+) {
+  const hasProviderBatchReference =
+    existingJob.processing_strategy === "batch" &&
+    typeof existingJob.provider_batch_id === "string" &&
+    existingJob.provider_batch_id.length > 0;
+  const hasSucceededProviderBatch =
+    hasProviderBatchReference && existingJob.provider_batch_state === "succeeded";
+  const hasLiveProviderBatch =
+    hasProviderBatchReference &&
+    !(
+      existingJob.provider_batch_state &&
+      TAKEOFF_PROVIDER_TERMINAL_STATES.has(existingJob.provider_batch_state)
+    );
+
+  if (hasSucceededProviderBatch) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Le batch provider a deja reussi. Relancez un reconcile au lieu d'une resoumission.",
+      details: {
+        provider_batch_id: existingJob.provider_batch_id,
+        provider_batch_state: existingJob.provider_batch_state,
+      },
+      retryable: false,
+      jobId,
+    });
+  }
+
+  if (hasLiveProviderBatch) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Le job possede deja un batch provider actif. Relancez un reconcile au lieu d'une resoumission.",
+      details: {
+        provider_batch_id: existingJob.provider_batch_id,
+        provider_batch_state: existingJob.provider_batch_state,
+      },
+      retryable: false,
+      jobId,
+    });
+  }
+}
+
 export async function reconcileTakeoffJobNow(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
@@ -6703,48 +6775,7 @@ export async function resubmitTakeoffJob(
   }
 
   const retryCount = existingJob.retry_count ?? 0;
-  const hasProviderBatchReference =
-    existingJob.processing_strategy === "batch" &&
-    typeof existingJob.provider_batch_id === "string" &&
-    existingJob.provider_batch_id.length > 0;
-  const hasSucceededProviderBatch =
-    hasProviderBatchReference && existingJob.provider_batch_state === "succeeded";
-  const hasLiveProviderBatch =
-    hasProviderBatchReference &&
-    !(
-      existingJob.provider_batch_state &&
-      TAKEOFF_PROVIDER_TERMINAL_STATES.has(existingJob.provider_batch_state)
-    );
-
-  if (hasSucceededProviderBatch) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.CONFLICT,
-      message:
-        "Le batch provider a deja reussi. Relancez un reconcile au lieu d'une resoumission.",
-      details: {
-        provider_batch_id: existingJob.provider_batch_id,
-        provider_batch_state: existingJob.provider_batch_state,
-      },
-      retryable: false,
-      jobId: normalizedJobId,
-    });
-  }
-
-  if (hasLiveProviderBatch) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.CONFLICT,
-      message:
-        "Le job possede deja un batch provider actif. Relancez un reconcile au lieu d'une resoumission.",
-      details: {
-        provider_batch_id: existingJob.provider_batch_id,
-        provider_batch_state: existingJob.provider_batch_state,
-      },
-      retryable: false,
-      jobId: normalizedJobId,
-    });
-  }
+  assertTakeoffProviderBatchCanReset(existingJob, normalizedJobId);
 
   if (retryCount >= TAKEOFF_RETRY_MAX) {
     throw new TakeoffError({
@@ -6867,6 +6898,7 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
   }
 
   const retryCount = existingJob.retry_count ?? 0;
+  assertTakeoffProviderBatchCanReset(existingJob, normalizedJobId);
   if (retryCount >= TAKEOFF_RETRY_MAX) {
     throw new TakeoffError({
       status: 409,
@@ -8611,6 +8643,31 @@ export async function batchUpdateTakeoffItems(
           next: entry.fields.evidence,
         });
         updatePayload.evidence = entry.fields.evidence;
+      }
+
+      const editsVerifiedContent = (
+        [
+          "designation",
+          "quantity",
+          "unit",
+          "is_excluded",
+          "exclusion_reason",
+          "evidence",
+        ] as const
+      ).some((field) => entry.fields[field] !== undefined);
+      if (
+        typedItem.is_verified &&
+        editsVerifiedContent &&
+        entry.fields.is_verified === undefined
+      ) {
+        auditFields.push({
+          field: "is_verified",
+          previous: true,
+          next: false,
+        });
+        updatePayload.is_verified = false;
+        updatePayload.verified_at = null;
+        updatePayload.verified_by = null;
       }
 
       // Execute update

@@ -83,6 +83,7 @@ type StoredTakeoffItem = {
 };
 
 type SupabaseMockOptions = {
+  guardedRpcMissing?: boolean;
   jobStatus?: string;
   jobLevel?: string;
   takeoffItems?: StoredTakeoffItem[];
@@ -368,7 +369,20 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn(async (fn: string) => {
-      if (fn !== "apply_takeoff_job") {
+      if (fn === "apply_takeoff_job_guarded" && options.guardedRpcMissing) {
+        return {
+          data: null,
+          error: {
+            code: "PGRST202",
+            message:
+              "Could not find the function public.apply_takeoff_job_guarded",
+          },
+        };
+      }
+      if (
+        fn !== "apply_takeoff_job_guarded" &&
+        !(options.guardedRpcMissing && fn === "apply_takeoff_job")
+      ) {
         throw new Error(`Unexpected rpc function: ${fn}`);
       }
 
@@ -436,7 +450,7 @@ describe("applyTakeoffJob", () => {
       VERSION_UPDATED_AT
     );
     expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job",
+      "apply_takeoff_job_guarded",
       expect.objectContaining({
         p_job_id: JOB_ID,
         p_strategy: "merge",
@@ -455,6 +469,40 @@ describe("applyTakeoffJob", () => {
       "takeoff.apply.started",
       "takeoff.apply.completed",
     ]);
+  });
+
+  it("falls back to the legacy RPC only when the guarded RPC is absent", async () => {
+    const supabase = createSupabaseMock({ guardedRpcMissing: true });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
+    });
+
+    expect(response.job.status).toBe("applied");
+    expect(supabase.rpc).toHaveBeenNthCalledWith(
+      1,
+      "apply_takeoff_job_guarded",
+      expect.any(Object)
+    );
+    expect(supabase.rpc).toHaveBeenNthCalledWith(
+      2,
+      "apply_takeoff_job",
+      expect.objectContaining({ p_job_id: JOB_ID })
+    );
   });
 
   it("maps rpc conflicts to TakeoffError and logs failed audit event", async () => {

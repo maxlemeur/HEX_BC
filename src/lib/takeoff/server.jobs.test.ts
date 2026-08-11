@@ -844,6 +844,40 @@ describe("takeoff job server helpers (TKF-009)", () => {
     });
   });
 
+  it.each(["running", "succeeded"] as const)(
+    "blocks retry while provider batch state is %s",
+    async (providerBatchState) => {
+      const supabase = createSupabaseMock({
+        jobs: [
+          baseJob({
+            status: "failed",
+            retry_count: 0,
+            completed_at: "2026-02-25T08:00:00.000Z",
+            processing_strategy: "batch",
+            provider_batch_id: `batch-${providerBatchState}`,
+            provider_batch_state: providerBatchState,
+          }),
+        ],
+      });
+
+      vi.mocked(getAuthenticatedContext).mockResolvedValue({
+        supabase,
+        userId: USER_ID,
+        tenantId: TENANT_ID,
+        tenantRole: "admin",
+      } as never);
+
+      await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
+        status: 409,
+        code: "CONFLICT",
+        details: expect.objectContaining({
+          provider_batch_id: `batch-${providerBatchState}`,
+          provider_batch_state: providerBatchState,
+        }),
+      });
+    }
+  );
+
   it("enforces retry backoff", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-25T10:00:10.000Z"));

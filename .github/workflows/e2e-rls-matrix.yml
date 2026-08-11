@@ -6,26 +6,30 @@ on:
   push:
     branches: ["main"]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-rls-matrix-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   rls-matrix:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     env:
       CI: "1"
-      RLS_E2E: "1"
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      RLS_E2E_ADMIN_EMAIL: ${{ secrets.RLS_E2E_ADMIN_EMAIL }}
-      RLS_E2E_ADMIN_PASSWORD: ${{ secrets.RLS_E2E_ADMIN_PASSWORD }}
-      RLS_E2E_ENGINEER_EMAIL: ${{ secrets.RLS_E2E_ENGINEER_EMAIL }}
-      RLS_E2E_ENGINEER_PASSWORD: ${{ secrets.RLS_E2E_ENGINEER_PASSWORD }}
-      RLS_E2E_VIEWER_EMAIL: ${{ secrets.RLS_E2E_VIEWER_EMAIL }}
-      RLS_E2E_VIEWER_PASSWORD: ${{ secrets.RLS_E2E_VIEWER_PASSWORD }}
+      DO_NOT_TRACK: "1"
+      MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      MIGRATION_DIFF_MODE: ${{ github.event_name }}
+      SUPABASE_TELEMETRY_DISABLED: "1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,41 +37,11 @@ jobs:
           node-version: "24"
           cache: "npm"
 
-      - name: Validate required environment
-        id: rls-env
-        run: |
-          required=(
-            NEXT_PUBLIC_SUPABASE_URL
-            NEXT_PUBLIC_SUPABASE_ANON_KEY
-            SUPABASE_SERVICE_ROLE_KEY
-            RLS_E2E_ADMIN_EMAIL
-            RLS_E2E_ADMIN_PASSWORD
-            RLS_E2E_ENGINEER_EMAIL
-            RLS_E2E_ENGINEER_PASSWORD
-            RLS_E2E_VIEWER_EMAIL
-            RLS_E2E_VIEWER_PASSWORD
-          )
-
-          missing=0
-          for var_name in "${required[@]}"; do
-            if [ -z "${!var_name}" ]; then
-              echo "Missing required secret: ${var_name}"
-              missing=1
-            fi
-          done
-
-          if [ "$missing" -ne 0 ]; then
-            echo "::warning::RLS matrix E2E skipped because required secrets are not configured."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-
       - name: Install dependencies
-        if: steps.rls-env.outputs.ready == 'true'
         run: npm ci
 
-      - name: Run RLS matrix E2E test
-        if: steps.rls-env.outputs.ready == 'true'
-        run: npm run e2e:rls
+      - name: Enforce append-only migration history
+        run: npm run supabase:migrations:git-guard
+
+      - name: Validate and test the local database
+        run: npm run db:ci:local

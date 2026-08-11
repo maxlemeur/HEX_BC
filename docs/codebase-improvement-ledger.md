@@ -19,7 +19,7 @@ partie de ce chantier sans autorisation distincte.
 | ---: | :---: | --- | :---: | ---: | :---: | --- |
 | 0 | Prérequis | Migrer Next.js vers 16.3 | — | — | Terminé | `chore(deps): upgrade Next.js to 16.3` |
 | 1 | P0 | Corriger les dépendances exposées et identifiants E2E | 5/5/2 | 40 | Terminé | `fix(security): harden document dependencies and E2E credentials` |
-| 2 | P0 | Rendre migrations et RLS réellement reproductibles | 5/5/3 | 30 | À faire | — |
+| 2 | P0 | Rendre migrations et RLS réellement reproductibles | 5/5/3 | 30 | Terminé | `fix(db): make local migrations and RLS reproducible` |
 | 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | À faire | — |
 | 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | À faire | — |
 | 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | À faire | — |
@@ -124,11 +124,72 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 2 — Migrations et RLS reproductibles
 
-- [ ] Rejouer l'historique dans une base éphémère et identifier le premier blocage réel.
-- [ ] Corriger uniquement par nouvelles migrations ou outillage, sans réécrire l'historique.
-- [ ] Rendre la matrice RLS comportementale et impossible à déclarer verte sans exécution.
-- [ ] Synchroniser la documentation et les preuves de schéma.
-- [ ] Valider, documenter et committer le lot.
+- [x] Rejouer l'historique dans une base éphémère et identifier le premier blocage réel.
+- [x] Corriger uniquement par nouvelles migrations ou outillage, sans réécrire l'historique.
+- [x] Rendre la matrice RLS comportementale et impossible à déclarer verte sans exécution.
+- [x] Synchroniser la documentation et les preuves de schéma.
+- [x] Valider et documenter le lot.
+- [x] Committer le lot.
+
+### Preuves et décisions
+
+- Supabase CLI est épinglé exactement à `2.109.1`, version du dernier reset
+  historique prouvé. Le seed est explicitement désactivé tant qu'aucun
+  `supabase/seed.sql` suivi n'existe.
+- Le manifeste SHA-256 couvre les 194 migrations. Les 35 noms legacy et l'unique
+  tombstone vide sont figés ; toute nouvelle migration doit utiliser un horodatage
+  UTC à 14 chiffres strictement postérieur à la base Git.
+- Le garde Git compare la branche au SHA cible : une migration déjà présente ne
+  peut être ni modifiée, ni supprimée, ni renommée, même si son hash de manifeste
+  est modifié dans le même changement. Seuls l'ajout d'une migration canonique et
+  l'évolution cohérente du manifeste sont admis.
+- Le workflow `E2E RLS Matrix` n'utilise plus aucun secret distant ni chemin de
+  succès par skip. Il démarre un projet Supabase éphémère à ports uniques, rejoue
+  l'historique, contrôle l'inventaire, exécute pgTAP, provisionne trois utilisateurs
+  Auth locaux, exige exactement deux tests RLS réussis, puis arrête sans backup et
+  supprime la pile éphémère. Cette suppression est la frontière de cleanup : le test
+  ne contourne pas les triggers immuables pour effacer ses fixtures.
+- Les quatre migrations historiques date-only restent non renommées. Comme la CLI
+  les exécute mais ne les marque pas dans la colonne d'historique appliqué, pgTAP
+  vérifie directement leurs neuf index, la liaison DPGF, l'unicité tenant-aware,
+  les trois RPC analytics et l'absence de l'ancienne contrainte.
+- Deux nouvelles migrations UTC restaurent les privilèges relationnels absents
+  d'un reset frais : capacité serveur sur les tables/séquences publiques, puis
+  allowlist Data API des tables Estimates, audit, plans et takeoff réellement utilisées.
+  `audit_logs` reste append-only hors lecture admin.
+- Le privilège `DELETE` de `estimate_projects` reste nécessaire à la RPC
+  `SECURITY INVOKER` appelée par la route API, ainsi qu'aux quatre rollbacks de
+  création. Une policy
+  restrictive ajoute les invariants opérateur et non-archivé ; le trigger existant
+  conserve l'invariant « versions draft uniquement » sans récursion RLS.
+- Les écritures takeoff authentifiées sont limitées à `admin|engineer`. Une policy
+  et des triggers refusent un état initial, tenant, version, chemin Storage ou
+  plan-set forgé, ainsi que les champs worker/provider. La RPC d'application gardée
+  pose seule le marqueur transactionnel et refuse les viewers ; la matrice exerce
+  aussi le cas d'un propriétaire rétrogradé viewer.
+- Le workflow échoue fermé sur toute dérive détectée. Son caractère bloquant pour
+  un merge dépend toutefois de la protection de branche GitHub, non vérifiée ici.
+- La route DELETE délègue désormais au chemin canonique
+  `bulkDeleteDraftAffaires`/RPC. La matrice appelle réellement la RPC sur une affaire
+  avec journaux intake/register, vérifie leur cascade et refuse une version non-draft.
+  Le test de route couvre séparément le mapping HTTP avec une RPC mockée ; il ne
+  constitue pas un E2E HTTP vers PostgreSQL.
+
+### Validation
+
+- `npm run supabase:migrations:git-guard` : succès sur le diff local, trois chemins
+  Supabase ajoutés dans ce lot.
+- `npm run supabase:validate` : 194 fichiers, 194 versions uniques, manifeste exact.
+- `npm run db:ci:local` : reset réel vert sous Docker, inventaire local cohérent,
+  pgTAP vert et matrice RLS comportementale 2/2 verte avec trois comptes éphémères.
+- Tests ciblés runner, garde Git, historique, route DELETE, helper de suppression et
+  workflows takeoff : 7 fichiers et 66 tests verts ; lint global et typecheck verts.
+- `npm audit` et `npm audit --omit=dev` : zéro vulnérabilité après ajout de la CLI.
+- Les deux runs Vitest globaux antérieurs aux derniers scénarios ne sont pas une
+  preuve du snapshot final : l'un avait un timeout isolé, l'autre une sortie de
+  worker sans assertion métier en échec. La stabilité du pool reste au lot 4.
+- Effets externes : aucun projet lié, aucune migration distante, aucun push ni
+  déploiement.
 
 ## Lot 3 — Frontière auth/tenant/service-role
 
@@ -141,6 +202,7 @@ Le score reprend la formule de priorisation de l'audit :
 ## Lot 4 — Garde-fous CI et locaux
 
 - [ ] Ajouter build et smoke de production aux contrôles requis.
+- [ ] Stabiliser le pool Vitest global et rendre les limites de ressources explicites en CI.
 - [ ] Ajouter audit de dépendances avec exceptions explicites, justifiées et expirables.
 - [ ] Empêcher les nouveaux cycles et l'aggravation des hotspots par baseline.
 - [ ] Ajouter des seuils ciblés sur les frontières critiques, sans seuil global cosmétique.
@@ -148,6 +210,7 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 5 — Workflows et effets externes transactionnels
 
+- [ ] Remplacer ou transactionnaliser les quatre DELETE directs de rollback de création et couvrir leurs échecs intermédiaires.
 - [ ] Transactionnaliser d'abord la réécriture des bons de commande.
 - [ ] Introduire une outbox idempotente pour les envois et dispatchs externes retenus.
 - [ ] Distinguer état métier, livraison en attente, succès et échec réconciliable.

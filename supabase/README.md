@@ -13,8 +13,9 @@
 > la base. C'est de plus un **snapshot partiel et périmé** : il déclare 40 tables là où les
 > migrations en créent environ 99.
 >
-> **La source de vérité du schéma, c'est `supabase/migrations/`** (187 fichiers, de
-> `001_add_job_title_to_profiles.sql` à `20260727112139_revoke_trigger_function_api_execute.sql`).
+> **La source de vérité du schéma, c'est `supabase/migrations/`** (194 fichiers, de
+> `001_add_job_title_to_profiles.sql` à
+> `20260811185118_restore_authenticated_estimate_privileges.sql`).
 
 Sur une base **neuve**, appliquez les migrations dans l'ordre :
 
@@ -23,31 +24,36 @@ supabase link --project-ref <ref>
 supabase db push
 ```
 
-En local :
+La preuve locale canonique est une commande unique :
 
 ```bash
-supabase start
-supabase db reset   # rejoue toutes les migrations depuis zéro
+npm run db:ci:local
 ```
 
-`supabase db reset` peut échouer : l'ordonnancement de la migration historique
-`001_add_job_title_to_profiles.sql` a déjà bloqué un reset canonique. Vérifiez la version du CLI et
-la baseline avant de conclure à une régression produit.
+Elle utilise la CLI Supabase `2.109.1` épinglée dans le projet, crée une pile à
+ports uniques, rejoue les migrations sans seed, compare l'inventaire appliqué,
+exécute pgTAP puis la matrice RLS avec trois utilisateurs Auth locaux. Dans son
+bloc de cleanup, elle arrête la pile sans backup et supprime son workdir isolé ;
+un échec de ce cleanup fait échouer la commande. Elle refuse les variables et
+commandes qui pourraient cibler un projet distant.
 
-Le test `src/lib/supabase-migration-history-regressions.test.ts` garde la cohérence de l'historique
-des migrations : lancez-le après tout ajout.
+Les quatre versions date-only historiques (`20260222`, `20260304`, `20260305`,
+`20260306`) sont exécutées par la CLI mais restent volontairement sans version
+appliquée dans sa sortie. Leurs effets SQL sont couverts directement par pgTAP ;
+ne les renommez et ne les rejouez jamais sous un nouvel identifiant sans preuve
+catalogue préalable.
 
 ## 3) Ajouter une migration
 
 1. Inspecter le schéma courant, l'historique, les RLS et l'autorisation serveur affectée.
-2. Créer un fichier **horodaté** : `supabase/migrations/<YYYYMMDDHHMMSS>_<snake_case>.sql`.
+2. Créer un fichier **horodaté en UTC** : `supabase/migrations/<YYYYMMDDHHMMSS>_<snake_case>.sql`.
    Ne jamais réécrire une migration déjà appliquée.
-3. Écrire du SQL **idempotent** (`if exists`, `create or replace`, `drop policy if exists`) et
+3. Ajouter son hash immuable avec `npm run supabase:manifest:add`.
+4. Écrire du SQL **idempotent** (`if exists`, `create or replace`, `drop policy if exists`) et
    **non destructif** (pas de `drop table` en production).
-4. Ajouter une régression structurelle ou comportementale ciblée.
-5. Valider localement ou sur un environnement Postgres isolé, puis lancer les tests applicatifs
-   et `npm run e2e:rls`.
-6. N'appliquer sur un projet partagé ou distant **que sur autorisation explicite de l'utilisateur**.
+5. Ajouter une régression structurelle ou comportementale ciblée.
+6. Lancer `npm run supabase:migrations:git-guard`, puis `npm run db:ci:local`.
+7. N'appliquer sur un projet partagé ou distant **que sur autorisation explicite de l'utilisateur**.
 
 ### Runbook d'application via MCP
 

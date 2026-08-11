@@ -186,6 +186,33 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
 - Validation centrale combinée : `npm run lint`, `npm run typecheck`, `npm run build` et `git diff --check` verts ; Vitest global 2 613/2 613 tests actifs verts, 2 ignorés, 0 échec. Les tests ciblés PDF/review/multipart sont 38/38 verts.
 - Compatibilité conservée : les anciens identifiants date-only `20260222`, `20260304`, `20260305` et `20260306` ne sont pas renommés afin de rester alignés avec les historiques déployés. Un environnement distant ayant historiquement enregistré une seule moitié d'un ancien doublon doit faire l'objet d'un contrôle de schéma avant déploiement ; le reset frais et l'historique local sont complets.
 
+### Revalidation reproductibilité Supabase — 2026-08-11
+
+- La preuve du 14 juillet portait sur 160 migrations. L'inventaire dépôt sur base
+  fraîche est désormais revalidé de bout en bout avec 194 fichiers et identifiants
+  uniques, sous la même CLI Supabase épinglée `2.109.1`.
+- `npm run db:ci:local` a démarré une pile Docker éphémère, réussi le reset complet,
+  vérifié les 190 versions suivies comme appliquées et les quatre versions legacy
+  date-only par invariants catalogue, puis passé pgTAP et les deux tests RLS principaux
+  avec trois comptes Auth locaux. La pile éphémère a ensuite été arrêtée sans backup
+  et supprimée, ce qui efface ensemble comptes et données de test.
+- Le reset a exposé deux écarts réels de reproductibilité : les privilèges de
+  relation `service_role`, puis les privilèges Data API requis avant évaluation
+  RLS. Ils sont restaurés par deux nouvelles migrations UTC, avec un contrat
+  append-only explicite sur `audit_logs`, une policy restrictive sur les suppressions
+  d'affaires et des garde-fous opérateur/worker sur les mutations plans/takeoff. Les
+  tables volontairement server-only ne sont pas accordées globalement à `authenticated`.
+- Le workflow RLS est local-only et fail-closed. Un garde Git ancré au SHA cible
+  fait échouer le workflow sur toute modification, suppression ou renommage d'une
+  migration existante, même accompagnée d'une mise à jour de son hash de manifeste.
+  La protection de branche qui rendrait ce check obligatoire au merge n'a pas été
+  vérifiée depuis le dépôt local.
+- La route de suppression délègue désormais à `bulkDeleteDraftAffaires`, qui appelle
+  la RPC canonique. La matrice PostgreSQL supprime réellement une affaire draft avec
+  journaux intake/register et vérifie leur cascade ; elle refuse aussi la suppression
+  directe et RPC d'une version non-draft. Le test HTTP reste unitaire avec RPC mockée.
+- Aucun projet Supabase distant n'a été lié ou modifié pendant cette revalidation.
+
 ## Bilan terminal
 
 - `fixed` : 95.

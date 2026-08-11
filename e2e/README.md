@@ -120,10 +120,18 @@ Playwright config is in `playwright.config.ts` with:
   - `labor_roles`
   - `estimate_suggestion_rules`
   - `audit_logs`
-- Includes cross-tenant isolation assertions (non-member access must fail).
+- Le premier des deux tests Vitest couvre aussi les mutations d'un propriétaire
+  rétrogradé viewer, le DELETE gouverné d'`estimate_projects`, la RPC de suppression
+  avec cascade réelle des journaux append-only, ainsi que les frontières
+  `takeoff_jobs`/`takeoff_items` (rôles, statuts, worker/provider, retry/reconcile,
+  source, plan-set, draft-lock et apply atomique).
+- Le second test couvre l'isolation cross-tenant (un non-membre doit être refusé).
 - `portal_tokens` is probed and reported when absent from the current schema snapshot.
-- Requires `RLS_E2E=1` and dedicated account credentials (see env vars below).
-- CI blocking workflow: `.github/workflows/e2e-rls-matrix.yml`.
+- La commande canonique est `npm run db:ci:local` : elle crée une pile loopback
+  éphémère et trois comptes Auth jetables. La suite refuse désormais une URL distante
+  ou une exécution hors de ce runner local.
+- Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
+  only when repository branch protection requires this check.
 
 ### Runner options
 
@@ -150,13 +158,13 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
 - `E2E_AUTH_CACHE` (default: `1` for HEX flows). Set `0`/`false`/`off`/`no` to disable cache and force UI login.
 - `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2` for `ti-141-db-rls.ps1` secondary account checks
-- `RLS_E2E=1` to enable `npm run e2e:rls`
-- `RLS_E2E_ADMIN_EMAIL` and `RLS_E2E_ADMIN_PASSWORD`
-- `RLS_E2E_ENGINEER_EMAIL` and `RLS_E2E_ENGINEER_PASSWORD`
-  - fallback: `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD`
-- `RLS_E2E_VIEWER_EMAIL` and `RLS_E2E_VIEWER_PASSWORD`
-  - fallback: `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2`
-- `SUPABASE_SERVICE_ROLE_KEY` for seeding/cleanup in the RLS matrix suite
+- Les variables `RLS_E2E_*`, l'URL loopback et les clés locales sont internes au
+  runner `db:ci:local` ; elles ne doivent pas être configurées avec des secrets distants.
+
+Pour la matrice RLS canonique, utilisez `npm run db:ci:local` : la commande
+provisionne trois comptes sur une pile Supabase locale, sans secret ni fallback E2E,
+puis détruit la pile sans backup. `npm run e2e:rls` est une sous-commande interne et
+refuse de s'exécuter hors de ce contexte local éphémère.
 
 The expected test-account roles are documented in [`docs/test-logins.md`](../docs/test-logins.md).
 
