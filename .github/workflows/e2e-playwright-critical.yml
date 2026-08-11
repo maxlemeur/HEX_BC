@@ -33,25 +33,7 @@ jobs:
         run: npm ci
 
       - name: Validate required environment
-        run: |
-          missing=0
-          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ]; then
-            echo "Missing secret: NEXT_PUBLIC_SUPABASE_URL"
-            missing=1
-          fi
-
-          if [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
-            echo "Missing secret: NEXT_PUBLIC_SUPABASE_ANON_KEY"
-            missing=1
-          fi
-
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-          if [ -z "$E2E_LOGIN_EMAIL" ] || [ -z "$E2E_LOGIN_PASSWORD" ]; then
-            echo "E2E login secrets not set: fallback defaults from README will be used."
-          fi
+        run: npm run e2e:validate-env
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium

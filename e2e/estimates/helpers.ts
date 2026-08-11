@@ -2,22 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { expect, type Locator, type Page } from "@playwright/test";
+import { requireE2ELoginCredentials } from "../../src/test/required-environment";
 
-const DEFAULT_E2E_LOGIN_EMAIL = "e2e.hex@example.com";
-const DEFAULT_E2E_LOGIN_PASSWORD = "E2eTest-2026!";
 const ESTIMATE_EDIT_URL_PATTERN =
   /\/dashboard\/estimates\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/edit(?:[/?#].*)?$/i;
 const NO_ACTIVE_TENANT_PATTERN = /Aucun tenant actif pour cet utilisateur/i;
-
-function getLoginEmail() {
-  const fromEnv = process.env.E2E_LOGIN_EMAIL?.trim();
-  return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_E2E_LOGIN_EMAIL;
-}
-
-function getLoginPassword() {
-  const fromEnv = process.env.E2E_LOGIN_PASSWORD?.trim();
-  return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_E2E_LOGIN_PASSWORD;
-}
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -304,6 +293,7 @@ export function extractVersionIdFromUrl(url: string) {
 }
 
 export async function loginWithUi(page: Page) {
+  const { email, password } = requireE2ELoginCredentials();
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -316,8 +306,8 @@ export async function loginWithUi(page: Page) {
 
     await expect(page.getByRole("heading", { name: /Connexion/i })).toBeVisible();
 
-    await page.getByLabel("Email").fill(getLoginEmail());
-    await page.locator("#password").fill(getLoginPassword());
+    await page.getByLabel("Email").fill(email);
+    await page.locator("#password").fill(password);
     await page.getByRole("button", { name: /Se connecter/i }).click();
 
     try {

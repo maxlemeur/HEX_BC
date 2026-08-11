@@ -307,6 +307,7 @@ async function extractLayoutText() {
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(workerData.fileBytes),
     disableWorker: true,
+    enableScripting: false,
     isEvalSupported: false,
     standardFontDataUrl: workerData.standardFontDataUrl,
     useWorkerFetch: false,

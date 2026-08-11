@@ -18,7 +18,7 @@ partie de ce chantier sans autorisation distincte.
 | Ordre | Priorité | Lot | I/R/E | Score | Statut | Commit |
 | ---: | :---: | --- | :---: | ---: | :---: | --- |
 | 0 | Prérequis | Migrer Next.js vers 16.3 | — | — | Terminé | `chore(deps): upgrade Next.js to 16.3` |
-| 1 | P0 | Corriger les dépendances exposées et identifiants E2E | 5/5/2 | 40 | À faire | — |
+| 1 | P0 | Corriger les dépendances exposées et identifiants E2E | 5/5/2 | 40 | Terminé | `fix(security): harden document dependencies and E2E credentials` |
 | 2 | P0 | Rendre migrations et RLS réellement reproductibles | 5/5/3 | 30 | À faire | — |
 | 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | À faire | — |
 | 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | À faire | — |
@@ -71,12 +71,56 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 1 — Dépendances exposées et identifiants E2E
 
-- [ ] Recalculer l'audit de production après le lot Next.js.
-- [ ] Mettre à niveau PDF.js et ses tests de worker/budget.
-- [ ] Remplacer ou confiner les parseurs tableurs encore vulnérables.
-- [ ] Supprimer tout identifiant E2E de repli du code et échouer fermé sans secrets.
-- [ ] Ajouter les régressions et contrôles de dépendances adaptés.
-- [ ] Valider, documenter et committer le lot.
+- [x] Recalculer l'audit de production après le lot Next.js.
+- [x] Mettre à niveau PDF.js et ses tests de worker/budget.
+- [x] Remplacer ou confiner les parseurs tableurs encore vulnérables.
+- [x] Supprimer tout identifiant E2E de repli du code et échouer fermé sans secrets.
+- [x] Ajouter les régressions et contrôles de dépendances adaptés.
+- [x] Valider, documenter et committer le lot.
+
+### Preuves et décisions
+
+- `pdfjs-dist` est épinglé à 6.2.108, première version corrigée de
+  GHSA-hq66-cqwq-w95j. Le parseur désactive explicitement le scripting et reste
+  enfermé dans un `worker_threads.Worker` terminable avec budgets de temps et de
+  mémoire déjà couverts par les tests.
+- Les polices standard résolues dynamiquement par PDF.js sont maintenant incluses
+  dans les traces des trois routes `/api/imports`. Les manifestes de production
+  contiennent le module PDF.js et les polices sous Turbopack comme sous Webpack.
+- SheetJS est remplacé par le tarball officiel 0.20.3, avec URL versionnée et
+  intégrité SHA-512 dans le lockfile. Les chemins CommonJS, ESM, worker et les
+  exports XLSX existants ont été exercés.
+- La dépendance `uuid` d'ExcelJS est forcée à 11.1.1. Une régression traverse la
+  mise en forme conditionnelle qui appelle `uuid.v4()` et une autre le writer
+  streaming réellement utilisé par les exports.
+- Les valeurs E2E de repli ont été retirées du code et de la documentation
+  courante. Un validateur unique exige les quatre variables critiques, rejette
+  les valeurs blanches et ne rapporte que leurs noms ; la CI appelle ce même
+  contrat avant Playwright. La clé service-role reste facultative et n'est pas
+  injectée globalement afin de ne pas contourner les tests RLS utilisateur.
+- La rotation/révocation du compte exposé et une éventuelle purge destructive de
+  l'historique Git sont des effets externes non exécutés dans ce lot. Les valeurs
+  antérieures doivent être considérées compromises jusqu'à rotation.
+- Limite conservatrice : un ancien fichier BIFF `.xls` utilisant une codepage
+  étendue n'est pas présent dans les fixtures. Les formats XLSX/XLSM du dépôt
+  passent ; la compatibilité de ce cas historique reste à verrouiller séparément.
+
+### Validation
+
+- `npm ci` : succès depuis le lockfile, 850 paquets installés ; audit complet à
+  zéro vulnérabilité connue.
+- `npm audit --omit=dev` : zéro vulnérabilité de production.
+- Tests ciblés : 14 fichiers et 72 assertions réussis après isolation des groupes ;
+  un premier run groupé avait fait sortir un worker Vitest sans assertion en échec.
+- `npm run lint` et `npm run typecheck` : succès.
+- `npx vitest run --maxWorkers=4` : 512 fichiers réussis, 1 ignoré ;
+  3 554 tests réussis, 2 ignorés.
+- Contrat Playwright : le projet setup découvre bien le test d'authentification et
+  le validateur accepte un environnement synthétique complet.
+- `npm run build` et `npm run build -- --webpack` : succès avec Next.js 16.3.0 ;
+  OpenAPI est valide et synchronisé dans les deux cas.
+- Effets externes : aucun push, déploiement, envoi, rotation de compte ou
+  changement Supabase distant.
 
 ## Lot 2 — Migrations et RLS reproductibles
 

@@ -2,8 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
-    "/api/imports": ["./node_modules/pdfjs-dist/legacy/build/pdf.mjs"],
-    "/api/imports/**": ["./node_modules/pdfjs-dist/legacy/build/pdf.mjs"],
+    "/api/imports": [
+      "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",
+      "./node_modules/pdfjs-dist/standard_fonts/**",
+    ],
+    "/api/imports/**": [
+      "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",
+      "./node_modules/pdfjs-dist/standard_fonts/**",
+    ],
   },
   async redirects() {
     return [

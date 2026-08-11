@@ -30,11 +30,9 @@ dont l'absence de champ « unité » sur les lignes de devis et une divergence `
 
 [README.md:38-41](../README.md) contient :
 
-```
-## Test user (E2E)
-Email: e2e.hex@example.com
-Password: E2eTest-2026!
-```
+> Les valeurs exposées ont été retirées de la version courante. Le constat
+> historique et la nécessité de rotation restent valides ; aucune valeur de
+> connexion ne doit être recopiée dans la documentation.
 
 - Le dépôt `maxlemeur/HEX_BC` est **PUBLIC** sur GitHub (`"visibility": "PUBLIC"`).
 - Introduit par le commit `6414ac6d` du **2026-02-02** → **près de 6 mois d'exposition**.

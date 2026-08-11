@@ -146,7 +146,7 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
 - `E2E_BASE_URL` (default: `http://localhost:3000`)
 - `E2E_HEADED=1` to run with a visible browser window
 - `E2E_SESSION` to control the agent-browser session name
-- `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state
+- `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state (required; no committed fallback)
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
 - `E2E_AUTH_CACHE` (default: `1` for HEX flows). Set `0`/`false`/`off`/`no` to disable cache and force UI login.
 - `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2` for `ti-141-db-rls.ps1` secondary account checks
@@ -158,7 +158,7 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
   - fallback: `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2`
 - `SUPABASE_SERVICE_ROLE_KEY` for seeding/cleanup in the RLS matrix suite
 
-Known shared test accounts are documented in [docs/test-logins.md](/home/tchau@france.groupe.intra/CascadeProjects/HEX_BC/docs/test-logins.md).
+The expected test-account roles are documented in [`docs/test-logins.md`](../docs/test-logins.md).
 
 If `E2E_LOGIN_EMAIL_2` or `E2E_LOGIN_PASSWORD_2` is missing, `ti-141-db-rls.ps1` now fails fast (no `SKIP` fallback).
 
