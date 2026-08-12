@@ -214,7 +214,9 @@ describe("streamEstimateVersionXlsx", () => {
     expect(exported.filename).toBe("devis-ALPHA_2026-v4.xlsx");
     expect(exported.contentType).toBe(ESTIMATE_EXPORT_XLSX_CONTENT_TYPE);
     expect(exported.progress).toBe(ESTIMATE_EXPORT_PROGRESS_COMPLETE);
-    expect(vi.mocked(getEstimateVersionDetails)).toHaveBeenCalledWith(VERSION_ID);
+    expect(vi.mocked(getEstimateVersionDetails)).toHaveBeenCalledWith(VERSION_ID, {
+      includeExportCalculationContext: true,
+    });
     expect(vi.mocked(listEstimateItems)).toHaveBeenCalledWith(VERSION_ID);
 
     const bytes = Buffer.from(await new Response(exported.stream).arrayBuffer());
@@ -351,6 +353,94 @@ describe("streamEstimateVersionXlsx", () => {
 
     await expect(exportWithFlag(false)).resolves.toBe(10);
     await expect(exportWithFlag(true)).resolves.toBe(130);
+  });
+
+  it("replays a fresh v2 review snapshot while the version is still draft", async () => {
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID,
+        version_number: 5,
+        status: "draft",
+        title: "Snapshot v2",
+        margin_multiplier: 9,
+        margin_mode: "tiered",
+        global_coefficient: 3,
+        tax_rate_bp: 2_000,
+        discount_bp: 9_999,
+        discount_mode: "simple",
+        discount_steps: [],
+        rounding_mode: "nearest",
+        rounding_step_cents: 100,
+        calc_engine_version: 2,
+        content_revision: 12,
+        calc_snapshot_content_revision: 12,
+        total_ht_cents: 19_000,
+        total_tax_cents: 3_800,
+        total_ttc_cents: 22_800,
+        estimate_projects: {
+          id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+          name: "Projet Snapshot",
+          reference: "SNAP/2026",
+        },
+      },
+      labor_roles: [],
+      margin_tiers: [],
+      is_labor_split_enabled: null,
+    } as never);
+    vi.mocked(listEstimateItems).mockResolvedValue({
+      items: [
+        {
+          id: "line-snapshot",
+          item_type: "line",
+          parent_id: null,
+          position: 1,
+          title: "Ligne snapshot",
+          description: "u",
+          quantity: 2,
+          unit_price_ht_cents: 1,
+          tax_rate_bp: 1,
+          k_fo: 99,
+          h_mo: 99,
+          h_mo_majoration: 99,
+          k_mo: 99,
+          labor_role_id: "role-live-disparu",
+          h_mo_atelier: 99,
+          k_mo_atelier: 99,
+          labor_role_atelier_id: "role-live-disparu",
+          h_mo_chantier: 99,
+          k_mo_chantier: 99,
+          labor_role_chantier_id: "role-live-disparu",
+          pu_ht_cents: 7_777,
+          snapshot_pu_ht_cents: 9_500,
+          snapshot_fo_ht_cents: 12_000,
+          snapshot_mo_ht_cents: 7_000,
+          snapshot_mo_atelier_ht_cents: 3_000,
+          snapshot_mo_chantier_ht_cents: 4_000,
+          category_id: null,
+          supply_type_id: null,
+          line_total_ht_cents: 19_000,
+          line_tax_cents: 3_800,
+          line_total_ttc_cents: 22_800,
+        },
+      ],
+    } as never);
+
+    const exportRows = async (isLaborSplitEnabled: boolean) => {
+      const harness = createWorkbookHarness();
+      const exported = await streamEstimateVersionXlsx(VERSION_ID, {
+        workbookWriterFactory: harness.workbookWriterFactory,
+        isLaborSplitEnabled,
+      });
+      await new Response(exported.stream).arrayBuffer();
+      const rows = harness.worksheets.find((sheet) => sheet.name === "Devis")
+        ?.rows as unknown[][];
+      return rows.find((row) => row[1] === "Ligne snapshot");
+    };
+
+    const splitOff = await exportRows(false);
+    const splitOn = await exportRows(true);
+    expect(splitOff).toEqual(splitOn);
+    expect(splitOff?.slice(4, 8)).toEqual([95, 190, 38, 228]);
   });
 
   it("reconciles coefficient and discount on standard v1 exports without switching engines", async () => {

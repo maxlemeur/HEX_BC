@@ -3,8 +3,14 @@ import { notFound, redirect } from "next/navigation";
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { PortalActions } from "@/components/portal/PortalActions";
 import { PortalHeader } from "@/components/portal/PortalHeader";
-import { computeEstimateTotals } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import {
+  buildStoredEstimateBreakdown,
+  computeEstimateTotals,
+} from "@/lib/estimate-calculations";
+import {
+  resolveCalcEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -86,7 +92,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     supabase
       .from("estimate_versions")
       .select(
-        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name, user_id )"
+        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name, user_id )"
       )
       .eq("id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
@@ -121,15 +127,18 @@ export default async function PortalPage({ params }: PortalPageProps) {
 
   const version = versionResult.data as EstimateVersion;
   const items = itemsResult.data as EstimateItem[];
+  const calcEngineVersion = resolveCalcEngineVersion(version);
+  const preserveStoredSnapshot =
+    shouldPreserveStoredEstimateV2Snapshot(version);
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const project = resolveProject(version.estimate_projects);
 
   // 4. Resolve labor rates
-  const isLaborSplitEnabled = await isFeatureEnabled(
-    version.tenant_id,
-    "EST_031_LABOR_SPLIT",
-    { supabase }
-  );
+  const isLaborSplitEnabled = preserveStoredSnapshot
+    ? true
+    : await isFeatureEnabled(version.tenant_id, "EST_031_LABOR_SPLIT", {
+        supabase,
+      });
 
   // UX-D : mise en page et CGV reprises du document STOCKE, celui qui a servi au
   // PDF envoye par email. Le portail cessait de les transmettre, si bien que le
@@ -156,7 +165,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     : null;
   const issuerProfile = issuerProfileResult?.data ?? null;
 
-  const laborRoleIds = Array.from(
+  const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
     new Set(
       items
         .flatMap((item) => [
@@ -206,49 +215,51 @@ export default async function PortalPage({ params }: PortalPageProps) {
     version.margin_mode
   );
   const marginTiers =
-    renderMarginMode === "tiered"
+    !preserveStoredSnapshot && renderMarginMode === "tiered"
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
   const vatReverseCharge = version.contractor_role === "subcontractor";
 
-  const baseTotals = computeEstimateTotals({
-    lineItems: lineItemsForTotals,
-    marginMultiplier: version.margin_multiplier,
-    marginMode: renderMarginMode,
-    marginTiers,
-    isLaborSplitEnabled,
-    discountCents: 0,
-    discountMode: version.discount_mode,
-    discountStepsBp: version.discount_steps,
-    globalCoefficient: version.global_coefficient,
-    taxRateBp: version.tax_rate_bp,
-    roundingMode: version.rounding_mode,
-    roundingStepCents: version.rounding_step_cents,
-    vatReverseCharge,
-  });
-
-  const fallbackDiscountCents =
-    baseTotals.saleSubtotalCents > 0
-      ? Math.round(
-          (baseTotals.saleSubtotalCents * version.discount_bp) / 10000
-        )
-      : 0;
-
-  const computedTotals = computeEstimateTotals({
-    lineItems: lineItemsForTotals,
-    marginMultiplier: version.margin_multiplier,
-    marginMode: renderMarginMode,
-    marginTiers,
-    isLaborSplitEnabled,
-    discountCents: fallbackDiscountCents,
-    discountMode: version.discount_mode,
-    discountStepsBp: version.discount_steps,
-    globalCoefficient: version.global_coefficient,
-    taxRateBp: version.tax_rate_bp,
-    roundingMode: version.rounding_mode,
-    roundingStepCents: version.rounding_step_cents,
-    vatReverseCharge,
-  });
+  const computedTotals = preserveStoredSnapshot
+    ? buildStoredEstimateBreakdown({ items, version }).totals
+    : (() => {
+        const baseTotals = computeEstimateTotals({
+          lineItems: lineItemsForTotals,
+          marginMultiplier: version.margin_multiplier,
+          marginMode: renderMarginMode,
+          marginTiers,
+          isLaborSplitEnabled,
+          discountCents: 0,
+          discountMode: version.discount_mode,
+          discountStepsBp: version.discount_steps,
+          globalCoefficient: version.global_coefficient,
+          taxRateBp: version.tax_rate_bp,
+          roundingMode: version.rounding_mode,
+          roundingStepCents: version.rounding_step_cents,
+          vatReverseCharge,
+        });
+        const fallbackDiscountCents =
+          baseTotals.saleSubtotalCents > 0
+            ? Math.round(
+                (baseTotals.saleSubtotalCents * version.discount_bp) / 10000
+              )
+            : 0;
+        return computeEstimateTotals({
+          lineItems: lineItemsForTotals,
+          marginMultiplier: version.margin_multiplier,
+          marginMode: renderMarginMode,
+          marginTiers,
+          isLaborSplitEnabled,
+          discountCents: fallbackDiscountCents,
+          discountMode: version.discount_mode,
+          discountStepsBp: version.discount_steps,
+          globalCoefficient: version.global_coefficient,
+          taxRateBp: version.tax_rate_bp,
+          roundingMode: version.rounding_mode,
+          roundingStepCents: version.rounding_step_cents,
+          vatReverseCharge,
+        });
+      })();
 
   const discountCents = computedTotals.discountCents;
   const appliedMarginMultiplier = computedTotals.appliedMarginMultiplier;
@@ -288,7 +299,8 @@ export default async function PortalPage({ params }: PortalPageProps) {
 
       <div className="print:py-0">
         <EstimateDocument
-          calcEngineVersion={resolveCalcEngineVersion(version)}
+          calcEngineVersion={calcEngineVersion}
+          preserveStoredSnapshot={preserveStoredSnapshot}
           vatReverseCharge={vatReverseCharge}
           projectName={project?.name ?? "Devis"}
           projectClient={project?.client_name}

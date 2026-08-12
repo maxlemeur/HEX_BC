@@ -12,7 +12,10 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import {
+  resolveCalcEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
 import { resolveRenderMarginMode } from "@/lib/estimates/margin-tiers-loader";
 import {
   buildLegacyDocumentBreakdown,
@@ -138,6 +141,7 @@ type VersionWithProject = Pick<
   | "total_ttc_cents"
   | "currency"
   | "content_revision"
+  | "calc_snapshot_content_revision"
   | "status"
 > & {
   estimate_projects: EmbeddedProject | EmbeddedProject[] | null;
@@ -731,7 +735,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
+      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1207,7 +1211,12 @@ function PdfEstimateTable({
                   { width: widths.unitPrice },
                 ]}
               >
-                {formatCurrency(item.pu_ht_cents ?? 0, resolvedCurrency)}
+                {formatCurrency(
+                  prepared.lineUnitPriceHtById[item.id] ??
+                    item.pu_ht_cents ??
+                    0,
+                  resolvedCurrency,
+                )}
               </Text>
             ) : null}
             {layout.priceMode === "fo_mo_and_total" ? (
@@ -1591,8 +1600,11 @@ export async function generateEstimatePdfNow(
         (termsTemplate ? createEstimateTermsSnapshot(termsTemplate) : null))
       : storedTermsSnapshot;
     const lineItems = items.filter((item) => item.item_type === "line");
+    const calcEngineVersion = resolveCalcEngineVersion(access.version);
+    const preserveStoredSnapshot =
+      shouldPreserveStoredEstimateV2Snapshot(access.version);
 
-    const laborRoleIds = Array.from(
+    const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
       new Set(
         lineItems
           .flatMap((item) => [
@@ -1624,11 +1636,11 @@ export async function generateEstimatePdfNow(
 
     // EST-E26 (T6, étape 5) : le PDF respecte le flag tenant réel au lieu du
     // `isLaborSplitEnabled: false` codé en dur, pour être cohérent avec l'écran.
-    const isLaborSplitEnabled = await isFeatureEnabled(
-      context.tenantId,
-      "EST_031_LABOR_SPLIT",
-      { supabase: context.supabase },
-    );
+    const isLaborSplitEnabled = preserveStoredSnapshot
+      ? true
+      : await isFeatureEnabled(context.tenantId, "EST_031_LABOR_SPLIT", {
+          supabase: context.supabase,
+        });
 
     // EST-E26 (T6, étape 6) : barème du tenant injecté (marginTiers requis).
     // Hors brouillon, le mode est figé : le PDF d’un devis transmis reproduit la
@@ -1638,7 +1650,7 @@ export async function generateEstimatePdfNow(
       access.version.margin_mode
     );
     const marginTiers =
-      renderMarginMode === "tiered"
+      !preserveStoredSnapshot && renderMarginMode === "tiered"
         ? await loadMarginTiersForTotals({
             supabase: context.supabase,
             tenantId: access.version.tenant_id,
@@ -1647,43 +1659,65 @@ export async function generateEstimatePdfNow(
 
     const vatReverseCharge =
       access.version.contractor_role === "subcontractor";
-    const baseTotals = computeEstimateTotals({
-      lineItems: lineItemsForTotals,
-      marginMultiplier: access.version.margin_multiplier,
-      marginMode: renderMarginMode,
-      marginTiers,
-      isLaborSplitEnabled,
-      discountCents: 0,
-      discountMode: access.version.discount_mode,
-      discountStepsBp: access.version.discount_steps,
-      globalCoefficient: access.version.global_coefficient,
-      taxRateBp: access.version.tax_rate_bp,
-      roundingMode: access.version.rounding_mode,
-      roundingStepCents: access.version.rounding_step_cents,
-      vatReverseCharge,
-    });
-    const fallbackDiscountCents =
-      baseTotals.saleSubtotalCents > 0
-        ? Math.round(
-            (baseTotals.saleSubtotalCents * access.version.discount_bp) / 10000,
-          )
-        : 0;
-
-    const computedTotals = computeEstimateTotals({
-      lineItems: lineItemsForTotals,
-      marginMultiplier: access.version.margin_multiplier,
-      marginMode: renderMarginMode,
-      marginTiers,
-      isLaborSplitEnabled,
-      discountCents: fallbackDiscountCents,
-      discountMode: access.version.discount_mode,
-      discountStepsBp: access.version.discount_steps,
-      globalCoefficient: access.version.global_coefficient,
-      taxRateBp: access.version.tax_rate_bp,
-      roundingMode: access.version.rounding_mode,
-      roundingStepCents: access.version.rounding_step_cents,
-      vatReverseCharge,
-    });
+    const storedBreakdown = preserveStoredSnapshot
+      ? buildLegacyDocumentBreakdown({
+          items,
+          marginMultiplier: access.version.margin_multiplier,
+          discountCents: 0,
+          taxRateBp: access.version.tax_rate_bp,
+          isLaborSplitEnabled: true,
+          laborRateById: {},
+          calcEngineVersion,
+          globalCoefficient: access.version.global_coefficient,
+          preserveStoredSnapshot: true,
+          versionTotals: {
+            total_ht_cents: access.version.total_ht_cents,
+            total_tax_cents: access.version.total_tax_cents,
+            total_ttc_cents: access.version.total_ttc_cents,
+          },
+        })
+      : null;
+    const computedTotals =
+      storedBreakdown?.totals ??
+      (() => {
+        const baseTotals = computeEstimateTotals({
+          lineItems: lineItemsForTotals,
+          marginMultiplier: access.version.margin_multiplier,
+          marginMode: renderMarginMode,
+          marginTiers,
+          isLaborSplitEnabled,
+          discountCents: 0,
+          discountMode: access.version.discount_mode,
+          discountStepsBp: access.version.discount_steps,
+          globalCoefficient: access.version.global_coefficient,
+          taxRateBp: access.version.tax_rate_bp,
+          roundingMode: access.version.rounding_mode,
+          roundingStepCents: access.version.rounding_step_cents,
+          vatReverseCharge,
+        });
+        const fallbackDiscountCents =
+          baseTotals.saleSubtotalCents > 0
+            ? Math.round(
+                (baseTotals.saleSubtotalCents * access.version.discount_bp) /
+                  10000,
+              )
+            : 0;
+        return computeEstimateTotals({
+          lineItems: lineItemsForTotals,
+          marginMultiplier: access.version.margin_multiplier,
+          marginMode: renderMarginMode,
+          marginTiers,
+          isLaborSplitEnabled,
+          discountCents: fallbackDiscountCents,
+          discountMode: access.version.discount_mode,
+          discountStepsBp: access.version.discount_steps,
+          globalCoefficient: access.version.global_coefficient,
+          taxRateBp: access.version.tax_rate_bp,
+          roundingMode: access.version.rounding_mode,
+          roundingStepCents: access.version.rounding_step_cents,
+          vatReverseCharge,
+        });
+      })();
 
     const totalHtCents =
       access.version.total_ht_cents ?? computedTotals.saleTotalCents;
@@ -1692,22 +1726,22 @@ export async function generateEstimatePdfNow(
     const totalTtcCents =
       access.version.total_ttc_cents ?? computedTotals.roundedTtcCents;
 
-    // EST-E26 : moteur de la VERSION rendue, plus une constante epinglee.
-    const calcEngineVersion = resolveCalcEngineVersion(access.version);
     const prepared = prepareEstimateDocumentData({
       items,
       // EST-E26 (T6, étape 12) : le PDF dérive du même breakdown que le document
       // écran — plus de recalcul parallèle des sections et des lignes.
-      breakdown: buildLegacyDocumentBreakdown({
-        items,
-        marginMultiplier: computedTotals.appliedMarginMultiplier,
-        discountCents: computedTotals.discountCents,
-        taxRateBp: access.version.tax_rate_bp,
-        isLaborSplitEnabled,
-        laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
-        calcEngineVersion,
-        globalCoefficient: access.version.global_coefficient,
-      }),
+      breakdown:
+        storedBreakdown ??
+        buildLegacyDocumentBreakdown({
+          items,
+          marginMultiplier: computedTotals.appliedMarginMultiplier,
+          discountCents: computedTotals.discountCents,
+          taxRateBp: access.version.tax_rate_bp,
+          isLaborSplitEnabled,
+          laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
+          calcEngineVersion,
+          globalCoefficient: access.version.global_coefficient,
+        }),
       calcEngineVersion,
       vatReverseCharge,
       taxRateBp: access.version.tax_rate_bp,

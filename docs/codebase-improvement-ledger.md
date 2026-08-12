@@ -24,7 +24,7 @@ partie de ce chantier sans autorisation distincte.
 | 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | Terminé | `ci: enforce production quality gates` |
 | 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | Terminé | `fix(workflows): make external effects recoverable` |
 | 6 | P1 | Décomposer les hotspots par strangler | 5/4/3 | 27 | Terminé | `refactor(architecture): deepen workflow modules` |
-| 7 | P2 | Terminer le moteur de calcul v2 et gouverner les contrats | 4/4/4 | 16 | À faire | — |
+| 7 | P2 | Terminer le moteur de calcul v2 et gouverner les contrats | 4/4/4 | 16 | Terminé | `feat(estimates): govern calculation engine v2` |
 
 Le score reprend la formule de priorisation de l'audit :
 `(impact + risque) × (6 - effort)`.
@@ -453,9 +453,104 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 7 — Moteur de calcul v2 et contrats
 
-- [ ] Établir des fixtures golden v1/v2 et préserver les devis historiques scellés.
-- [ ] Basculer les nouvelles versions, l'éditeur et les exports sur le contrat gouverné.
-- [ ] Réduire progressivement les branches v1 sans réécrire l'historique métier.
-- [ ] Vérifier l'exhaustivité routes ↔ OpenAPI et expliciter les exclusions.
-- [ ] Régénérer et valider les artefacts de contrat concernés.
-- [ ] Valider, documenter et committer le lot.
+- [x] Établir des fixtures golden v1/v2 et préserver les devis historiques scellés.
+- [x] Basculer les nouvelles versions, l'éditeur et les exports sur le contrat gouverné.
+- [x] Conserver le moteur v1 comme contrat de compatibilité sans réécrire l'historique métier.
+- [x] Inventorier les routes ↔ OpenAPI et expliciter les exclusions.
+- [x] Régénérer puis valider les artefacts de contrat et le manifeste de migrations.
+- [x] Exécuter les validations finales, relire le diff complet et committer le lot.
+
+### Périmètre et décisions — terminé
+
+- Toutes les créations de devis qui ne sont pas une duplication passent par la
+  façade `persistCanonicalEstimateV2` de
+  `src/lib/estimates/canonical-v2-creation.ts`. Elle normalise les sources
+  vierge, template et import DPGF, calcule le contrat v2, puis franchit un seul
+  seam atomique : la RPC service-role `persist_estimate_creation_atomic`. La
+  RPC reçoit explicitement `tenant_id` et `actor_user_id`, vérifie l'acteur et
+  ses droits, puis crée ou réutilise le projet, la version, la hiérarchie et le
+  lien d'import dans une transaction. Le régime contractuel de TVA est conservé
+  depuis la requête ou la dernière version ; le cas `subcontractor` est contrôlé
+  jusqu'aux totaux de ligne et au pied sans TVA.
+- La duplication reste une opération distincte via
+  `duplicate_estimate_version` : elle repart en brouillon, ne reprend pas le
+  sceau et conserve `calc_engine_version` de la version source. Les anciens
+  créateurs SQL sont retirés des chemins applicatifs et leurs droits d'exécution
+  sont révoqués ; aucune version historique n'est réécrite ni basculée en v2.
+  La même transaction conserve l'AID, la provenance et les liens Takeoff issus
+  des jobs directs, des liens hérités et des décisions de revue ; il n'existe
+  plus de second passage best-effort propre à la duplication.
+- Les brouillons v2 sont calculés en direct. Avant la première capture
+  d'approbation et avant l'envoi, `freeze_estimate_v2_snapshot` fige par CAS le
+  contexte de calcul, la révision, les totaux de version et cinq colonnes par
+  ligne : PU HT net, FO nette, MO nette, MO atelier nette et MO chantier nette.
+  Les totaux HT, TVA et TTC de ligne sont figés dans la même opération. Le mode
+  `approval` refuse un verrou actif détenu par un autre utilisateur ; le mode
+  `send` exige le verrou de brouillon de l'acteur.
+- Les changements externes qui participent au calcul invalident atomiquement le
+  snapshot des brouillons concernés : tranches de marge, taux ou propriétaire
+  d'un rôle référencé et flag `EST_031_LABOR_SPLIT`. Les versions finalisées
+  restent immuables. La marge effective v2 provient du multiplicateur réellement
+  figé ; en mode par tranches, un snapshot absent ou périmé échoue fermé.
+- En v2, tout rôle de main-d'œuvre référencé doit appartenir au propriétaire de
+  l'affaire. Le calcul applicatif, la création atomique, le trigger d'item et le
+  gel SQL refusent une incohérence avec
+  `ESTIMATE_LABOR_ROLE_OWNER_MISMATCH`. Le repli historique à un taux nul reste
+  volontairement limité au moteur v1.
+- Les surfaces non brouillon relisent les montants figés au lieu de recalculer
+  avec les tarifs, paliers ou flags courants : fiche et impression, éditeur en
+  lecture seule, PDF, portail client et exports CSV/XLSX/DPGF/BDC. Le sceau v3
+  couvre la hiérarchie, les entrées, le contexte, la révision, les cinq snapshots
+  et les totaux ; la vérification conserve les candidats v2 et v1 historiques.
+- La soumission d'approbation passe par `open_estimate_review_cycle`, une RPC
+  service-role idempotente qui crée dans une seule transaction cycle,
+  approbations et événement `approval_submitted`. Après une modification, la
+  resoumission remplace le cycle obsolète et ses approbations actives sans
+  fabriquer de décision. La file, les commentaires et les corrections refusent
+  les cycles remplacés ; une demande de corrections crée atomiquement un item
+  `pending` par commentaire. Les cycles remplacés restent auditables en base,
+  mais ne disposent pas encore d'un rendu dédié dans l'historique UI.
+- L'inventaire OpenAPI découvre les méthodes HTTP réellement exportées par les
+  fichiers `route.ts` et échoue fermé sur toute opération absente, doublonnée ou
+  exclusion obsolète. Le contrat courant répartit 170 opérations en 165
+  documentées et 5 exclusions d'infrastructure ou de compatibilité explicitement
+  justifiées dans `src/lib/openapi/route-exclusions.ts`.
+- Le refactor suit des modules profonds : `estimate-allocation.ts`,
+  `estimate-v2-snapshot.ts`, `useEstimateEditorCalculation.ts`,
+  `canonical-v2-creation.ts`, `estimate-seal.ts`, `v2-snapshot-server.ts`,
+  `approval-v2-snapshot.ts`, `route-contracts*.ts` et `route-coverage.ts`.
+  Les orchestrateurs conservent leurs responsabilités de coordination et aucun
+  plafond d'architecture n'est relevé pour absorber le lot.
+- Contrôle final du 12 août : `npm run check:architecture` passe sur 850 modules,
+  sans cycle runtime autorisé ni détecté et sans relèvement de plafond.
+
+### Validation — preuves de clôture
+
+- Tests ciblés : les régressions calcul, snapshot, approbation, création canonique,
+  email, PDF, exports et OpenAPI passent ; elles sont aussi incluses dans les
+  suites complètes ci-dessous.
+- Reset Supabase, pgTAP et matrice RLS : `npm run db:ci:local` passe sur une
+  stack Docker éphémère isolée. Le reset local, l'application et l'inventaire
+  des 203 migrations, les cinq fichiers pgTAP et la matrice RLS comportementale
+  passent ensemble. Cette preuve ne touche aucune base Supabase distante.
+- OpenAPI : `npm run validate-openapi` passe avec 125 routes et 170 opérations,
+  dont 165 documentées et 5 exclusions explicites. Le manifeste Supabase passe
+  `npm run supabase:validate` avec 203 fichiers et 203 versions uniques.
+- Qualité agrégée : `npm run check:quality` passe, avec audits dépendances et
+  signatures, TypeScript, ESLint, architecture et toutes les suites applicatives.
+  Les 868 paquets audités possèdent une signature de registre vérifiée et 309 une
+  attestation ; aucune alerte de dépendance bloquante ni exception active.
+- Vitest complet : projet Node, 337 fichiers passés et 1 ignoré, 2 474 tests
+  passés et 2 ignorés ; projet jsdom, 200 fichiers et 1 314 tests passés.
+- Couverture critique : 12/12 tests, 95,91 % des instructions, 95,45 % des
+  branches, 100 % des fonctions et 97,91 % des lignes.
+- Build Next.js 16.3 : `npm run verify:production` passe avec Webpack,
+  compilation en 10,3 s, TypeScript en 4,2 s, 42/42 pages générées et smoke HTTP
+  du serveur de production réussi.
+- `git diff --check` passe ; seuls des avertissements de normalisation CRLF→LF
+  sont émis. Deux contre-revues finales indépendantes n'ont identifié aucun
+  blocker P0/P1 résiduel ; la dernière a été répétée après la preuve SQL.
+- Commit local dédié : `feat(estimates): govern calculation engine v2`.
+- Effets externes : aucun n'est requis ni autorisé par ce lot ; la clôture devra
+  consigner les actions réellement exécutées sans revendiquer push, déploiement
+  ou migration Supabase distante.

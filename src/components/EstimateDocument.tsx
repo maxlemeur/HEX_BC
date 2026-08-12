@@ -60,6 +60,8 @@ export type EstimateDocumentProps = {
   calcEngineVersion?: CalcEngineVersion;
   /** EST-E27 : sous-traitance — le document porte la mention d autoliquidation. */
   vatReverseCharge?: boolean;
+  /** Version finalisee v2 : rend uniquement le snapshot contractuel persiste. */
+  preserveStoredSnapshot?: boolean;
   maxVisibleSectionLevel?: number | null;
 };
 
@@ -208,6 +210,7 @@ export function EstimateDocument({
   terms,
   calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
   vatReverseCharge = false,
+  preserveStoredSnapshot = false,
   maxVisibleSectionLevel = null,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
@@ -222,6 +225,7 @@ export function EstimateDocument({
     numberingById,
     sectionTotalsById,
     lineSplitsById,
+    lineUnitPriceHtById,
     layout: resolvedLayout,
     taxEnabled,
     vatReverseCharge: isVatReverseCharge,
@@ -243,6 +247,12 @@ export function EstimateDocument({
       laborRateById,
       calcEngineVersion,
       globalCoefficient,
+      preserveStoredSnapshot,
+      versionTotals: {
+        total_ht_cents: totalHtCents,
+        total_tax_cents: totalTaxCents,
+        total_ttc_cents: totalTtcCents,
+      },
     }),
     calcEngineVersion,
     vatReverseCharge,
@@ -430,6 +440,7 @@ export function EstimateDocument({
                 numberingById={numberingById}
                 sectionTotalsById={sectionTotalsById}
                 lineSplitsById={lineSplitsById}
+                lineUnitPriceHtById={lineUnitPriceHtById}
                 currency={resolvedCurrency}
                 layout={resolvedLayout}
               />

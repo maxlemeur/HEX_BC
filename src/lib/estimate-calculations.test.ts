@@ -1505,6 +1505,47 @@ describe("B5: extracted business helpers", () => {
     expect(result[0].line_total_ttc_cents).toBe(3600);
   });
 
+  it("preserves line tax rates only for the unified engine", () => {
+    const version = { margin_multiplier: 1, tax_rate_bp: 2_000, discount_bp: 0 };
+    const items = [
+      createItemRecord({
+        unit_price_ht_cents: 1_000,
+        tax_rate_bp: 1_000,
+      }),
+    ];
+    const rateById = new Map<string, number>();
+
+    const legacy = normalizeDraftItems({
+      items,
+      version,
+      rateById,
+      isLaborSplitEnabled: false,
+      calcEngineVersion: 1,
+    });
+    const unified = normalizeDraftItems({
+      items,
+      version,
+      rateById,
+      isLaborSplitEnabled: false,
+      calcEngineVersion: 2,
+    });
+
+    expect(legacy[0]).toMatchObject({ tax_rate_bp: 2_000, line_tax_cents: 200 });
+    expect(unified[0]).toMatchObject({ tax_rate_bp: 1_000, line_tax_cents: 100 });
+  });
+
+  it("keeps a v2 inherited line rate nullable", () => {
+    const result = normalizeDraftItems({
+      items: [createItemRecord({ unit_price_ht_cents: 1_000, tax_rate_bp: null })],
+      version: { margin_multiplier: 1, tax_rate_bp: 2_000, discount_bp: 0 },
+      rateById: new Map(),
+      isLaborSplitEnabled: false,
+      calcEngineVersion: 2,
+    });
+
+    expect(result[0]).toMatchObject({ tax_rate_bp: null, line_tax_cents: 200 });
+  });
+
   it("normalizeDraftItems skips sections", () => {
     const version = { margin_multiplier: 1.5, tax_rate_bp: 2000, discount_bp: 0 };
     const section = createItemRecord({ item_type: "section" });

@@ -48,6 +48,7 @@ import { useEstimateEditorBulkController } from "@/hooks/useEstimateEditorBulkCo
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorImportController } from "@/hooks/useEstimateEditorImportController";
 import { useEstimateEditorItemsController } from "@/hooks/useEstimateEditorItemsController";
+import { useEstimateEditorCalculation } from "@/hooks/useEstimateEditorCalculation";
 import { useEstimateEditorOrderingController } from "@/hooks/useEstimateEditorOrderingController";
 import { useEstimateEditorPasteController } from "@/hooks/useEstimateEditorPasteController";
 import { useEstimateEditorQualityController } from "@/hooks/useEstimateEditorQualityController";
@@ -63,14 +64,12 @@ import { useUiMode } from "@/hooks/useUiMode";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
   computeEstimateLineValues,
-  computeEstimateTotals,
   computeInitialDiscountCents,
   computeStoredDiscountCents,
   normalizeDraftItems,
-  computeReadOnlyTotals,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
-import { EDITOR_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   DEFAULT_ESTIMATE_CURRENCY,
   resolveEstimateCurrency,
@@ -585,6 +584,7 @@ export function useEstimateEditorState({
                 rateAtelierById,
                 rateChantierById,
                 isLaborSplitEnabled,
+                calcEngineVersion: resolveCalcEngineVersion(versionRow),
               })
             : itemsRows;
 
@@ -599,6 +599,7 @@ export function useEstimateEditorState({
         )
           ? Math.max(versionRow.global_coefficient ?? 1, 0)
           : 1;
+        const storedCalcEngineVersion = resolveCalcEngineVersion(versionRow);
         const discountCents =
           versionRow.status === "draft"
             ? computeInitialDiscountCents(
@@ -607,9 +608,15 @@ export function useEstimateEditorState({
                 rateById,
                 isLaborSplitEnabled,
                 rateAtelierById,
-                rateChantierById
+                rateChantierById,
+                {
+                  calcEngineVersion: resolveCalcEngineVersion(versionRow),
+                  marginTiers: data.marginTiers ?? [],
+                }
               )
-            : computeStoredDiscountCents(versionRow, itemsRows);
+            : storedCalcEngineVersion === 2
+              ? 0
+              : computeStoredDiscountCents(versionRow, itemsRows);
 
         const initialSettings = {
           title: versionRow.title ?? "",
@@ -758,6 +765,7 @@ export function useEstimateEditorState({
   }, [reloadNonce, resolvedVersionId]);
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
+  const calcEngineVersion = resolveCalcEngineVersion(version);
 
   useLayoutEffect(() => {
     versionRef.current = version;
@@ -1101,66 +1109,22 @@ export function useEstimateEditorState({
     [buildLineCalculationInput, isLaborSplitEnabled]
   );
 
-  const totals: EstimateTotals | null = useMemo(() => {
-    if (!settings) return null;
-    if (isReadOnly && version) {
-      const readOnlyVersion = {
-        ...version,
-        discount_mode: settings.discount_mode ?? version.discount_mode,
-        discount_steps: settings.discount_steps ?? version.discount_steps,
-        global_coefficient:
-          settings.global_coefficient ?? version.global_coefficient,
-      };
-      const readOnlyTotalsInput = {
-        items,
-        version: readOnlyVersion,
-        discountCents: settings.discount_cents,
-        laborRateById,
-        isLaborSplitEnabled,
-        laborRateAtelierById,
-        laborRateChantierById,
-        // EST-E26 (T6, étape 9) : grandeurs de version requises par le moteur
-        // unifié. Ignorées tant que la version reste en moteur 1.
-        marginTiers: settings.margin_tiers ?? [],
-        roundingMode: settings.rounding_mode,
-        roundingStepCents: settings.rounding_step_cents,
-        calcEngineVersion: EDITOR_CALC_ENGINE_VERSION,
-        vatReverseCharge: settings.contractor_role === "subcontractor",
-      };
-      return computeReadOnlyTotals(readOnlyTotalsInput);
-    }
-    const lineItems = items
-      .filter((item) => item.item_type === "line")
-      .map((item) => buildLineCalculationInput(item));
-    const totalsInput = {
-      lineItems,
-      marginMultiplier: settings.margin_multiplier,
-      marginMode: settings.margin_mode ?? "fixed",
-      marginTiers: settings.margin_tiers ?? [],
-      discountCents: settings.discount_cents,
-      discountMode: settings.discount_mode,
-      discountStepsBp: settings.discount_steps,
-      globalCoefficient: settings.global_coefficient,
-      taxRateBp: settings.tax_rate_bp,
-      roundingMode: settings.rounding_mode,
-      roundingStepCents: settings.rounding_step_cents,
-      isLaborSplitEnabled,
-      // EST-E27 : l editeur applique le MEME regime que le document. Sans cela
-      // le chiffreur verrait un TTC que le devis remis au client n affiche pas.
-      vatReverseCharge: settings.contractor_role === "subcontractor",
-    };
-    return computeEstimateTotals(totalsInput);
-  }, [
-    buildLineCalculationInput,
-    isLaborSplitEnabled,
-    isReadOnly,
+  const {
+    totals,
+    editorDisplayItems,
+    persistedTotals,
+  } = useEstimateEditorCalculation({
     items,
-    laborRateAtelierById,
-    laborRateById,
-    laborRateChantierById,
     settings,
+    savedSettings,
     version,
-  ]);
+    calcEngineVersion,
+    isReadOnly,
+    isLaborSplitEnabled,
+    laborRateById,
+    laborRateAtelierById,
+    laborRateChantierById,
+  });
 
   const exportController = useEstimateEditorExportController({
     versionId: resolvedVersionId,
@@ -1168,7 +1132,7 @@ export function useEstimateEditorState({
     version,
     settings,
     totals,
-    items,
+    items: editorDisplayItems,
     supplyTypeById,
     laborRoleById,
     qualityFlagsByItemId,
@@ -1191,29 +1155,6 @@ export function useEstimateEditorState({
     isDisabled: isExportDisabled,
     loadingLabel: exportLoadingLabel,
   } = exportController.meta;
-
-  const persistedTotals: EstimateTotals | null = useMemo(() => {
-    if (!savedSettings) return null;
-    const lineItems = items
-      .filter((item) => item.item_type === "line")
-      .map((item) => buildLineCalculationInput(item));
-    const totalsInput = {
-      lineItems,
-      marginMultiplier: savedSettings.margin_multiplier,
-      marginMode: savedSettings.margin_mode ?? "fixed",
-      marginTiers: savedSettings.margin_tiers ?? [],
-      discountCents: savedSettings.discount_cents,
-      discountMode: savedSettings.discount_mode,
-      discountStepsBp: savedSettings.discount_steps,
-      globalCoefficient: savedSettings.global_coefficient,
-      taxRateBp: savedSettings.tax_rate_bp,
-      roundingMode: savedSettings.rounding_mode,
-      roundingStepCents: savedSettings.rounding_step_cents,
-      isLaborSplitEnabled,
-      vatReverseCharge: savedSettings.contractor_role === "subcontractor",
-    };
-    return computeEstimateTotals(totalsInput);
-  }, [buildLineCalculationInput, isLaborSplitEnabled, items, savedSettings]);
 
   useEffect(() => {
     persistedTotalsRef.current = persistedTotals;
@@ -1252,6 +1193,7 @@ export function useEstimateEditorState({
               rateAtelierById: laborRateAtelierById,
               rateChantierById: laborRateChantierById,
               isLaborSplitEnabled,
+              calcEngineVersion: resolveCalcEngineVersion(activeVersion),
             })
           : itemsRows;
 
@@ -1452,13 +1394,19 @@ export function useEstimateEditorState({
           const { lineInput, lineValues } =
             computeLineValuesWithLaborContext(item, {
               marginMultiplier: totalsSnapshot.appliedMarginMultiplier,
-              taxRateBp: settingsSnapshot.tax_rate_bp,
+              taxRateBp:
+                resolveCalcEngineVersion(versionSnapshot) === 2
+                  ? (item.tax_rate_bp ?? settingsSnapshot.tax_rate_bp)
+                  : settingsSnapshot.tax_rate_bp,
               vatReverseCharge:
                 settingsSnapshot.contractor_role === "subcontractor",
             });
           return {
             ...item,
-            tax_rate_bp: lineInput.tax_rate_bp,
+            tax_rate_bp:
+              resolveCalcEngineVersion(versionSnapshot) === 2
+                ? item.tax_rate_bp
+                : lineInput.tax_rate_bp,
             k_fo: lineInput.k_fo,
             h_mo: lineInput.h_mo,
             k_mo: lineInput.k_mo,
@@ -1923,6 +1871,7 @@ export function useEstimateEditorState({
               rateAtelierById: laborRateAtelierById,
               rateChantierById: laborRateChantierById,
               isLaborSplitEnabled,
+              calcEngineVersion: resolveCalcEngineVersion(refreshedVersion),
             })
           : refreshedItems;
 
@@ -2387,7 +2336,7 @@ export function useEstimateEditorState({
   const editorTableProps = useMemo<EstimateEditorTableProps>(
     () => ({
       versionId: version?.id ?? resolvedVersionId,
-      items,
+      items: editorDisplayItems,
       categories,
       supplyTypes,
       laborRoles,
@@ -2405,6 +2354,15 @@ export function useEstimateEditorState({
         totals?.appliedMarginMultiplier ?? editorTableBaseConfig.marginMultiplier,
       discountCents: editorTableBaseConfig.discountCents,
       taxRateBp: editorTableBaseConfig.taxRateBp,
+      sectionCalculation: {
+        marginMode: settings?.margin_mode ?? "fixed",
+        marginTiers: settings?.margin_tiers ?? [],
+        globalCoefficient: settings?.global_coefficient ?? 1,
+        discountMode: settings?.discount_mode ?? "simple",
+        discountStepsBp: settings?.discount_steps ?? [],
+        calcEngineVersion,
+        preserveStoredSnapshot: isReadOnly,
+      },
       currency: settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY,
       laborRateById,
       isLaborSplitEnabled,
@@ -2466,10 +2424,12 @@ export function useEstimateEditorState({
     }),
     [
       categories,
+      calcEngineVersion,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
       editorTableBaseConfig,
       editorTableVirtualization,
+      editorDisplayItems,
       highlightedItemIds,
       handleAddLine,
       handleAddSection,
@@ -2503,8 +2463,8 @@ export function useEstimateEditorState({
       canUndo,
       canRedo,
       isUndoRedoBusy,
-      items,
       isLaborSplitEnabled,
+      isReadOnly,
       isViewerReadOnly,
       laborRateById,
       laborRoles,
@@ -2530,6 +2490,11 @@ export function useEstimateEditorState({
       handleToggleFinalizationPanel,
       handleShowChecklistAnomalies,
       settings?.currency,
+      settings?.discount_mode,
+      settings?.discount_steps,
+      settings?.global_coefficient,
+      settings?.margin_mode,
+      settings?.margin_tiers,
       totals?.appliedMarginMultiplier,
       version?.id,
       version?.max_section_depth,

@@ -66,6 +66,13 @@ function createLine(
     source_file_name: overrides.source_file_name ?? null,
     source_page: overrides.source_page ?? null,
     source_metadata: overrides.source_metadata ?? {},
+    snapshot_pu_ht_cents: overrides.snapshot_pu_ht_cents ?? null,
+    snapshot_fo_ht_cents: overrides.snapshot_fo_ht_cents ?? null,
+    snapshot_mo_ht_cents: overrides.snapshot_mo_ht_cents ?? null,
+    snapshot_mo_atelier_ht_cents:
+      overrides.snapshot_mo_atelier_ht_cents ?? null,
+    snapshot_mo_chantier_ht_cents:
+      overrides.snapshot_mo_chantier_ht_cents ?? null,
   };
 }
 

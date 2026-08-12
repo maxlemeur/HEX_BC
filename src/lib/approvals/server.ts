@@ -195,6 +195,7 @@ export async function fetchApprovalQueue(
         const signals = await fetchDirectionProjectSignals(item.projectId, item.versionId);
         return {
           ...item,
+          marginBp: signals.marginBp ?? item.marginBp,
           syntheticAlerts: signals.alerts,
         };
       } catch {
@@ -209,6 +210,15 @@ export async function fetchApprovalQueue(
       )
     : itemsWithSignals;
   const canonicalDirection = APPROVAL_QUEUE_DEFAULT_DIRECTIONS[query.sortBy];
+
+  if (query.sortBy === "margin") {
+    const direction = query.sortDir === "asc" ? 1 : -1;
+    return filteredItems.toSorted((left, right) => {
+      if (left.marginBp === null) return right.marginBp === null ? 0 : 1;
+      if (right.marginBp === null) return -1;
+      return (left.marginBp - right.marginBp) * direction;
+    });
+  }
 
   return query.sortDir === canonicalDirection
     ? filteredItems

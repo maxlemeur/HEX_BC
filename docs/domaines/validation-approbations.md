@@ -1,6 +1,8 @@
 # Validation, approbations et pilotage
 
-> **Source : le code au 2026-07-29.** Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Statut : workflow d'approbation et gating relus au 2026-08-12.** Les
+> autres sections conservent les références détaillées de la photographie du
+> 2026-07-29. En cas de divergence, le code et les migrations font foi.
 
 Ce document détaille le moteur de règles, le gating d'envoi, le cycle d'approbation, le journal de décision, la vue direction, la barre de commande cockpit et les KPI analytics. Le cadre général (statuts, immutabilité, scellement) est décrit dans [cycle-de-vie.md](../metier/cycle-de-vie.md) et n'est pas répété ici.
 
@@ -37,7 +39,7 @@ Trois types à l'origine (`:5`), quatre ajoutés par `supabase/migrations/202603
 
 | `rule_type` | Métrique | Comparateur | Violée si | Source du signal |
 |---|---|---|---|---|
-| `min_margin` | `margin_bp` | `>=` | valeur `<` seuil (`:1123-1131`) | version (voir §3) |
+| `min_margin` | marge effective en points de base | `>=` | valeur `<` seuil | résolveur versionné (voir §3) |
 | `max_discount` | `discount_bp` | `<=` | valeur `>` seuil (`:1133-1141`) | version |
 | `require_approval` | `total_ht_cents` | `<=` | valeur `>` seuil (`:1143-1151`) | version |
 | `dpgf_coverage_min` | `dpgf_coverage_bp` | `>=` | valeur `<` seuil (`:1198-1215`) | `takeoff_dpgf_links` (`:1095-1118`) |
@@ -65,36 +67,56 @@ Aucun seuil n'est codé en dur : `threshold_value` est lu tel quel, normalisé (
 
 ---
 
-## 3. Point critique — `resolveVersionMarginBp` et la marge fantôme
+## 3. Marge effective gouvernée par version de moteur
 
-`rules-engine.ts:883-895` :
+`resolveEffectiveMarginBp` (`src/lib/estimates/effective-margin.ts`) fournit une
+seule métrique aux règles et aux surfaces de pilotage :
 
-```ts
-const marginBp = toFiniteNumber(version.margin_bp, NaN);
-if (Number.isFinite(marginBp) && marginBp >= 0) return marginBp;   // :885-887
-const multiplier = toFiniteNumber(version.margin_multiplier, NaN); // :889
-return Math.max(0, Math.round((1 - 1 / multiplier) * 10000));      // :894
+```text
+v1 : margin_bp stocké
+     └─ repli sur margin_multiplier historique
+
+v2 : snapshot frais
+     └─ calc_snapshot_context.effective_margin_multiplier
+        si calc_snapshot_content_revision === content_revision
+     sans snapshot frais
+     ├─ brouillon fixed : repli sur margin_multiplier configuré
+     └─ brouillon tiered : marge indéterminée
 ```
 
-**Le repli sur `margin_multiplier` est atteignable, mais uniquement quand la colonne n'est pas sélectionnée.** `estimate_versions.margin_bp` est `integer not null default 0 check (margin_bp >= 0)` (`supabase/schema.sql:368`) : dès que la colonne est chargée depuis la base, elle est finie et `>= 0`, donc `:885` rend la main et `:889-894` est du code mort.
+La conversion du coefficient en taux de marque est
+`max(0, round((1 - 1 / coefficient) × 10 000))`. Par exemple, ×1,25 donne
+2 000 bp, ×1,40 donne 2 857 bp et ×1,60 donne 3 750 bp.
 
-| Chemin | Colonnes sélectionnées | Marge effectivement comparée |
-|---|---|---|
-| Gating d'envoi (`getEstimateSendGating` `server.ts:8312`, `patchEstimateStatus` `server.ts:8387`) | `getVersionAccessOrThrow` **ne sélectionne ni `margin_bp` ni `discount_bp`** (`server.ts:4104-4106`) | `margin_bp` vaut `undefined` → repli sur `margin_multiplier` (`:889-894`) |
-| Résumé, soumission, décision d'approbation | `getVersionAccessOrThrow` de `rules-engine.ts:3771` sélectionne `margin_bp` | `margin_bp` brut |
+Pour une v2, le breakdown calcule d'abord le coefficient réellement appliqué.
+En mode `fixed`, il s'agit du coefficient configuré. En mode `tiered`, il
+s'agit du palier choisi à partir du coût calculé, y compris lorsque le barème
+par défaut est matérialisé parce que le tenant n'a aucune tranche. Le gel écrit
+ce coefficient dans `calc_snapshot_context.effective_margin_multiplier`. Cette
+valeur n'est autoritative que si
+`calc_snapshot_content_revision === content_revision` : un snapshot périmé est
+ignoré. Une version contractuelle fraîche ne dépend donc pas d'un barème
+modifié après sa revue ou son envoi.
 
-Le type autorise explicitement l'absence — `Partial<Pick<…, "margin_bp" \| "discount_bp">>` (`gating.ts:172-176`) — et les deux champs sont transmis tels quels à `evaluateRules` (`gating.ts:533-535`).
+Le moteur de règles `min_margin`, les cartes et alertes Direction et la file
+d'approbation utilisent ce résolveur commun. Le gating charge aussi
+`margin_bp` **et** `discount_bp` ; `max_discount` n'est donc plus neutralisé par
+une remise absente ramenée à zéro.
 
-**Conséquences exactes :**
+La RPC `list_approval_queue` applique le même contrat côté SQL : `margin_bp`
+historique pour v1, coefficient d'un snapshot **frais** converti en points de
+base pour v2, sinon `null`. Le tri `margin` et le repli de la file en cas
+d'échec de l'enrichissement Direction restent donc cohérents avec la marge
+effective.
 
-1. **`min_margin` rend deux verdicts différents selon la surface.** Le gating d'envoi utilise la marge dérivée du multiplicateur, c'est-à-dire la seule marge que l'utilisateur édite réellement (`EstimateSettingsPanel.tsx:380-405` ne pilote que `margin_multiplier`) ; le résumé d'approbation utilise `margin_bp`.
-2. **`margin_bp` dérive silencieusement.** Il n'est écrit qu'à la création, par l'assistant, et seulement si la marge saisie est `> 0` (`submitEstimateCreation.ts:60,74-75`, qui écrit alors `marginBp` **et** `marginMultiplier = 1 + marginBp / 10000`), ou par un `PATCH` explicite du champ (`server.ts:8172-8174`). Aucun écran ne le modifie ensuite : `grep -rn "marginBp\|margin_bp" src/components/ src/app/ | grep -v "\.test\."` ne renvoie que l'assistant de création et des affichages en lecture seule. Aucun trigger ne le resynchronise : `grep -rn "margin_bp" supabase/schema.sql supabase/migrations/` ne montre que des définitions de colonne, des listes de copie de version et des listes de colonnes surveillées par les triggers.
-3. **Une règle `min_margin` évaluée côté approbation compare donc un seuil à `0`** pour toute version créée sans marge dans l'assistant, ou dont la marge a été ajustée ensuite dans le panneau de réglages. `checkMarginRule` ramène toute valeur négative à `0` (`:1124`) : la violation est systématique dès que le seuil est `> 0`.
-4. **`max_discount` est neutralisé dans le gating.** `discount_bp` n'étant pas sélectionné, `toFiniteNumber(version.discount_bp)` retombe sur le défaut `0` (`:775-780`, appelé `:1189`) : la remise vue par le gating vaut toujours `0` et la règle ne s'y déclenche jamais.
-5. **Les surfaces de pilotage affichent `margin_bp`, donc `0` par défaut** : carte de la file d'approbation (`approvals/server.ts:174` → `ApprovalQueueCard.tsx:88`), carte de portefeuille direction (`direction/server.ts:990` → `RiskPortfolioDashboard.tsx:158`), et RPC `list_approval_queue` qui renvoie `v.margin_bp` et l'utilise comme clé du tri `margin` (`20260307160000_v3_019_approval_queue_reviewer_state.sql:155,231`).
-6. **L'alerte direction « Marge fragile » se déclenche sur `margin_bp <= 1200`** (`direction/alerts.ts:46,217`) : avec `margin_bp = 0` la condition est toujours vraie, et l'alerte ne dépend plus que de la présence d'un écart de quantité ou de prix (`alerts.ts:223-242`).
-
-`margin_bp` n'entre dans aucun calcul de totaux — la recherche ci-dessus ne le trouve dans aucune fonction de recalcul. C'est une donnée déclarative que le moteur de règles et le pilotage traitent comme si elle était la marge réelle. La seule surface qui n'y touche pas est la checklist d'édition (§4.4).
+Limites conservées : les v1 restent volontairement gouvernées par leur
+`margin_bp` historique. Un brouillon v2 `fixed` non gelé peut encore être lu à
+partir de son coefficient configuré. Un brouillon v2 `tiered` sans snapshot
+reste volontairement indéterminé : le coefficient de configuration ne prouve
+pas quel palier a été appliqué. Le prochain gel produit la source effective
+durable. Dans cet état incomplet, `min_margin` traite l'absence comme `0` pour
+bloquer de façon conservatrice ; Direction et la file exposent `null` pour ne
+pas afficher une marge inventée.
 
 ---
 
@@ -155,8 +177,8 @@ Sur la transition `draft → sent` uniquement (`server.ts:8385-8386`) : `force: 
 | Action | Contrôle applicatif | Contrôle base |
 |---|---|---|
 | Préparer une demande | `admin` ou `engineer` **et** propriétaire (ou `admin`) — `rules-engine.ts:3201-3206` | — |
-| `submit_for_review` / `request` | `assertRequesterRole` = `admin`/`engineer` (`:3808-3813`) + propriétaire (`:4334-4343`) | RLS insert : `requested_by = auth.uid()` (`20260713132620…:495-500`) |
-| `decide` / `approve` / `reject` | `assertApproverRole` = `admin`/`director` (`:3815-3820`) | RPC : `has_tenant_role(admin, director)` (`20260713132620…:288-292`) ; RLS update (`v3_015:303-330`) |
+| `submit_for_review` / `request` | `assertRequesterRole` = `admin`/`engineer` + propriétaire (ou `admin`) | RPC actor-scoped `open_estimate_review_cycle` ; les inserts directs de cycles et d'approbations sont révoqués |
+| `decide` / `approve` / `reject` | `assertApproverRole` = `admin`/`director` | RPC de décision : rôle `admin`/`director`, cycle et révision actifs ; les updates directs sont révoqués |
 | Traiter un item de correction | propriétaire du chiffrage strictement (`:3669-3671`) | RPC `record_estimate_review_correction_action` (`v3_020:754-770`) |
 | Marquer un état relecteur | `admin`/`director` (`approvals/server.ts:220-222`) | RLS (`v3_019:32-88`) |
 
@@ -164,46 +186,86 @@ Sur la transition `draft → sent` uniquement (`server.ts:8385-8386`) : `force: 
 
 ### 5.2 Cycles de revue et relecteurs
 
-Table `estimate_review_cycles` — `20260306173000_v3_016_review_cycles_and_comments.sql:28-53`. Un **index unique partiel garantit un seul cycle ouvert par version** (`:59-61`) et l'unicité de `cycle_number` par version (`:56-57`). `ensureOpenReviewCycle` incrémente `cycle_number` à partir du dernier cycle et renseigne `carried_over_from_cycle_id` (`rules-engine.ts:3966-3975`) ; en cas de course sur `23505` il relit le cycle existant (`:3985-4001`) ; un cycle ouvert dont le message ou le relecteur diffère fait échouer la soumission (`:3950-3959`). `submission_message` et `assigned_reviewer_id` sont ajoutés par `20260306223000_v3_018_submit_review_context.sql:3-5`, un message vide étant rejeté par le trigger (`:33-38`).
+Table `estimate_review_cycles` —
+`20260306173000_v3_016_review_cycles_and_comments.sql`. Un index unique
+partiel garantit un seul cycle actif par version et `cycle_number` reste unique
+par version. La soumission ne construit plus ce cycle par une suite d'écritures
+applicatives : `open_estimate_review_cycle`, définie par la migration
+`20260812032857_govern_estimate_calc_engine_v2.sql`, verrouille la version, les
+cycles et les approbations concernés, puis crée dans une seule transaction le
+cycle, ses approbations et l'événement `approval_submitted`.
+
+Un rejeu strictement identique sur la même révision renvoie le cycle existant
+avec `created: false`. Si le contenu, le demandeur, le relecteur, le message ou
+les règles ne correspondent plus, la RPC marque atomiquement l'ancien cycle et
+toutes les approbations `pending` encore actives comme `superseded`, puis ouvre
+le cycle suivant. `carried_over_from_cycle_id` conserve la filiation d'audit ;
+la file et les mutations actives excluent les lignes remplacées.
 
 `listAvailableEstimateApprovalReviewers` (`:2185-2237`) liste les membres `admin` ou `director` du tenant, via le **client service-role si disponible** (`:2189`), triés par nom. Si la liste est vide, un blocant `reviewer:none` est ajouté (`:3207-3214`) — c'est le seul signal de préparation sans `category` renseignée. Le relecteur assigné par défaut est le premier de la liste (`resolveAssignedReviewerOrThrow`, `:4252-4256`) ; un relecteur hors liste est refusé (`:4258-4263`).
 
 ### 5.3 Soumission
 
-`submitEstimateApproval` action `submit_for_review` (`:4332-4552`) :
+`submitEstimateApproval` action `submit_for_review` :
 
-1. Évalue en parallèle le résumé, la préparation et le relecteur (`:4348-4386`).
-2. Refuse si un blocant de préparation subsiste (`:4388-4391`).
-3. Si le dernier cycle est `changes_requested`, refuse tant qu'un item de correction est `pending` (`:4419-4424`) et **reprend les `rule_id` du cycle rejeté** (`:4426-4431`).
-4. Règles soumises = règles `missing`/`rejected` du résumé ∪ règles reportées, intersectées avec la liste demandée (`:4434-4440`) ; zéro règle ⇒ `badRequest` (`:4441-4443`).
-5. Ouvre le cycle puis une approbation `pending` par règle (`:4476-4491`).
-6. Journalise `approval_submitted` avec les règles, le relecteur, le message et le cycle d'origine de la resoumission (`:4503-4527`).
-7. Envoie un e-mail Resend au relecteur s'il a un `work_email` — **échec capturé et seulement loggé** (`:4528-4552`, `src/lib/email/send-approval-review-request.ts:25-52`).
+1. Fige d'abord le snapshot d'un brouillon v2 si nécessaire, puis recharge la
+   version afin que le cycle capture la révision produite par le gel.
+2. Évalue le résumé, la préparation et le relecteur ; tout blocant de
+   préparation arrête la soumission.
+3. Après `changes_requested`, refuse la resoumission tant qu'un item de
+   correction reste `pending`, puis reporte les règles du cycle rejeté.
+4. Soumet les règles `missing` ou `rejected`, complétées des règles reportées ;
+   une liste vide est refusée.
+5. Appelle `openEstimateReviewCycle`, façade service-role actor-scoped de la RPC
+   atomique `open_estimate_review_cycle`.
+6. N'envoie la notification au relecteur que si la RPC a réellement créé le
+   cycle. L'échec Resend est journalisé mais ne défait pas la transaction métier.
 
 ### 5.4 Décision
 
 `decide` (`:4616-4693`) exige un cycle ouvert (`:4624-4630`) et au moins une approbation `pending` (`:4633-4639`). Les commentaires sont normalisés contre les cibles autorisées (`normalizeDecisionComments`, `:3853-3897`) : cible inconnue ⇒ `badRequest` (`:3876-3878`) ; un `changes_requested` ou un `approved_with_reservations` **sans commentaire** est refusé (`:3887-3894`). Portées de commentaire (`estimate_review_comment_scope`) : `project`, `lot`, `line`, `approval_rule` à l'origine (`v3_016:29-38`), étendues à `exception` et `hypothesis` par `v3_020:44-69` ; les cibles sont construites depuis les lignes numérotées, les alertes de risque actives et les hypothèses actives (`buildEstimateReviewCommentTargets`, `:2496-2574`).
 
-La décision est atomique via la RPC `decide_estimate_review_cycle`. La définition en vigueur est celle de `supabase/migrations/20260713132620_harden_estimate_send_and_approval_revision.sql:251-490` — même signature que `v3_020:545`, donc elle la remplace :
+La décision est atomique via la définition de `decide_estimate_review_cycle`
+livrée par `20260812032857_govern_estimate_calc_engine_v2.sql` :
 
-- `security definer`, `search_path = ''`, exécution révoquée de `public`/`anon` (`:482-489`).
-- Vérifie le rôle `admin`/`director` (`:288-292`).
-- Verrouille le cycle (`for update`, `:305-311`) puis la version en `draft` (`:317-323`).
-- **Compare `content_revision` courant à `requested_content_revision` du cycle ; en cas d'écart, lève `ESTIMATE_REVIEW_SNAPSHOT_STALE` (`40001`, `:329-332`)**, traduit en HTTP 409 côté application (`rules-engine.ts:4094-4099`).
-- Insère les commentaires, bascule toutes les approbations `pending` de la version, et n'écrit `approved_content_revision` que pour une issue `approved` (`:369-373`).
-- Journalise `approval_decided` avec `decision`, `approvalOutcome`, `cycleId`, `scopes` et `comments`, mais **`rulesTriggered` vide** (`:455-475`, tableau vide en `:473`).
+- la RPC exige un acteur authentifié `admin` ou `director`, verrouille le devis
+  et le cycle actif, puis refuse un cycle décidé, remplacé ou lié à une
+  `content_revision` périmée ;
+- `approved_with_reservations` et `changes_requested` exigent au moins un
+  commentaire ;
+- elle insère les commentaires, décide les approbations actives, ferme le cycle
+  et journalise `approval_decided` dans une seule transaction ;
+- pour `changes_requested`, la même instruction SQL crée exactement un item de
+  correction `pending` par commentaire. La resoumission reste bloquée jusqu'au
+  traitement de tous ces items ;
+- pour `approved` et `approved_with_reservations`, chaque approbation décidée
+  capture la `content_revision` courante dans `approved_content_revision`.
 
-`decide_estimate_approval` couvre la décision règle par règle avec la même garde de fraîcheur (`:526-731`, `SNAPSHOT_STALE` en `:609`) ; c'est la seule des deux RPC qui remplit `rulesTriggered`, avec une entrée synthétique `signalKey: 'approval'`, `thresholdValue: 0` (`:709-718`).
+Les droits `INSERT` directs de `authenticated` et `anon` sont révoqués sur
+`estimate_review_comments` et `estimate_review_correction_items`. La création
+de ces lignes passe donc par la transaction de décision ; leur cohérence avec
+un cycle actif est en plus protégée par trigger.
 
-> **La version de la RPC en vigueur n'insère plus dans `estimate_review_correction_items`.** `grep -n "estimate_review_correction_items" supabase/migrations/20260713132620_harden_estimate_send_and_approval_revision.sql` ne renvoie rien, alors que la définition remplacée le faisait (`v3_020:640-660`). La checklist de correction lue par l'application (`rules-engine.ts:2657-2701`) reste donc vide : `pendingCount = 0`, `allTreated = true` (`:3228-3237`), `canResubmit` n'est plus contraint par elle (`:3313-3319`), et le verrou de resoumission de `:4419-4424` ne se déclenche jamais. Statuts de correction possibles : `pending`, `corrected`, `to_discuss` (`v3_020:21-25`), la RPC de traitement refusant tout retour à `pending` (`v3_020:710,739-744`).
+La décision règle par règle garde la même clôture sur révision fraîche, mais ne
+peut pas fermer un cycle en `changes_requested` sans le commentaire et la
+checklist obligatoires : elle lève alors
+`ESTIMATE_REVIEW_CORRECTION_COMMENTS_REQUIRED`.
 
 ### 5.5 Invalidation des approbations à l'édition
 
 `estimate_versions.content_revision` (`bigint not null default 1`, `20260713132620…:4-5`) est incrémenté par le trigger `aaa_guard_estimate_version_workflow_columns` (`:40-95`) dès qu'une des 22 colonnes contractuelles change (`:66-90`), et par `bump_estimate_content_revision_from_item` sur toute écriture de ligne (`:106-172`). Le trigger interdit toute modification directe de la colonne (`ESTIMATE_CONTENT_REVISION_IS_MANAGED`, `:58-64`) et réserve les changements de `status`/`seal_hash` au rôle `service_role` (`ESTIMATE_STATUS_REQUIRES_TRUSTED_WORKFLOW`, `:46-55`).
 
-Le cycle capture la révision à son ouverture (`capture_estimate_review_content_revision`, `:183-220`), valeur immuable ensuite (`:193-198`). Côté application, une approbation n'est « fraîche » que si `Number(approved_content_revision) === currentContentRevision` (`rules-engine.ts:1490-1493`, révision lue par la RPC `get_estimate_content_revision`, `:1350-1374`) ; une approbation obsolète repasse en `approval_status: "missing"` (`:1538-1545`).
+Le cycle capture la révision à son ouverture, valeur immuable ensuite. Côté
+application, dès qu'une approbation active est `approved`, le moteur charge la
+révision courante. Elle n'est fraîche que si
+`approved_content_revision === currentContentRevision` ; sinon son
+`approval_status` redevient `missing` sur le résumé, la préparation de
+soumission et le gating d'envoi.
 
-> Le contrôle de fraîcheur n'est déclenché que si au moins une approbation est `approved` (`:1458-1466`), et il est court-circuité par `preserveApprovedRequiresApproval: true` — valeur utilisée par `evaluateApprovalSummaryBundle` (`:2004`) et `evaluateSubmissionReadiness` (`:2043`), donc par **toutes** les lectures du résumé. Le gating d'envoi appelle `evaluateRules` sans ce drapeau (`gating.ts:527-549`) : c'est la seule surface où une approbation périmée est réellement invalidée.
+`preserveApprovedRequiresApproval: true` conserve une approbation **fraîche**
+dans la représentation détaillée du résumé ; il ne court-circuite plus le
+contrôle de révision et ne transforme jamais une approbation périmée en accord
+valide.
 
 ### 5.6 Projection `approval_status`
 
@@ -223,13 +285,23 @@ Décisions normalisées : `approved`, `approved_with_reservations`, `changes_req
 
 Export CSV — `buildEstimateApprovalDecisionJournalCsv` (`:2968-3014`) : séparateur `;`, 10 colonnes, préfixe `'` devant toute cellule commençant par `= + - @` (protection anti-injection de formule, `:2941`). La route `GET …/approval-journal?format=csv` renvoie le fichier en pièce jointe (`approval-journal/route.ts:48-57`).
 
-> La colonne `regles_declenchees` est vide pour toute décision prise via un cycle de revue : `decide_estimate_review_cycle` écrit `'rulesTriggered', '[]'::jsonb` (`20260713132620…:473`). Seule la voie règle par règle la remplit (`:709-718`).
+> La colonne `regles_declenchees` est vide pour toute décision prise via un
+> cycle de revue : la définition Lot 7 de `decide_estimate_review_cycle` écrit
+> toujours `'rulesTriggered', '[]'::jsonb`. Seule la voie règle par règle la
+> remplit avec une entrée synthétique.
 
 ---
 
 ## 7. File d'approbation
 
-RPC `list_approval_queue(p_sort_by)` — `20260307160000_v3_019_approval_queue_reviewer_state.sql:90-244`, `security definer`, refusée hors `admin`/`director` (`APPROVAL_QUEUE_ACCESS_DENIED`, `:127-135`). Elle agrège les cycles ouverts, le nombre de commentaires, l'état relecteur de l'utilisateur courant, les alertes de risque `is_active and status = 'to_process'` groupées par `cause_code`, et le dernier job takeoff `completed`/`applied` (`:137-206`). Tris : `priority` (score de risque décroissant puis ancienneté), `amount`, `margin`, `age` (`:229-235`) ; `priority` est le défaut côté application (`approvals/schemas.ts:1,21`).
+RPC `list_approval_queue(p_sort_by)`, introduite par `v3_019` puis redéfinie
+par `20260812032857_govern_estimate_calc_engine_v2.sql`, `security definer` et
+refusée hors `admin`/`director`. Elle agrège uniquement les cycles non décidés
+et non `superseded`, le nombre de commentaires, l'état relecteur courant, les
+alertes de risque actives et le dernier job takeoff. Sa colonne `margin_bp`
+expose la valeur historique pour v1 et la marge dérivée du coefficient figé
+pour v2 ; une v2 sans coefficient autoritatif renvoie `null`. Les tris restent
+`priority`, `amount`, `margin`, `age` ; `priority` est le défaut applicatif.
 
 États relecteur — `approval_queue_reviewer_states.state check in ('seen','review_laurent','blocking','acceptable')` (`v3_019:14-15`), unicité par `(tenant, cycle, reviewer)` (`:18-19`) :
 
@@ -325,14 +397,16 @@ Préférences par utilisateur et par affaire (`cockpit_command_preferences`, cl�
 
 ## 11. Règles de gouvernance invisibles — récapitulatif
 
-1. **Deux marges concurrentes** : `min_margin` compare `margin_multiplier` dans le gating et `margin_bp` dans l'approbation ; direction et file d'approbation affichent `margin_bp` (§3).
-2. **`max_discount` ne se déclenche jamais dans le gating d'envoi**, la remise y valant toujours `0` (§3, conséquence 4).
-3. **Sept drapeaux de gating sur dix-neuf ignorent la surcharge par tenant**, sans aucun signal (§4.1).
-4. **Le plafond budgétaire se configure dans un champ de notes en texte libre** (§4.2).
-5. **La lecture du résumé d'approbation écrit en base** et émet des événements (`rules-engine.ts:3646-3658`).
-6. **`preserveApprovedRequiresApproval: true` désactive l'invalidation** des approbations sur toutes les surfaces de lecture ; seul le gating d'envoi l'applique (§5.5).
-7. **La checklist de correction n'est plus alimentée** depuis la redéfinition de juillet 2026 de `decide_estimate_review_cycle` (§5.4).
-8. **`rulesTriggered` du journal de décision est vide** pour toute décision prise par cycle (§6).
-9. **Réassigner un dossier depuis la vue direction transfère la propriété** et donc les droits d'écriture (§8.3).
-10. **L'échec d'envoi de l'e-mail au relecteur est silencieux** : le cycle est ouvert, personne n'est prévenu (`rules-engine.ts:4549-4551`).
-11. **`review_laurent`** — un prénom figé dans une contrainte de base et dans les types (§7).
+1. **Sept drapeaux de gating sur dix-neuf ignorent la surcharge par tenant**,
+   sans aucun signal (§4.1).
+2. **Le plafond budgétaire se configure dans un champ de notes en texte libre**
+   (§4.2).
+3. **La lecture du résumé d'approbation écrit en base** et émet des événements.
+4. **`rulesTriggered` du journal de décision reste vide** pour une décision par
+   cycle, même si les `ruleIds`, portées et commentaires sont journalisés (§6).
+5. **Réassigner un dossier depuis la vue direction transfère la propriété** et
+   donc les droits d'écriture (§8.3).
+6. **L'échec d'envoi de l'e-mail au relecteur est silencieux** : le cycle est
+   ouvert, personne n'est prévenu.
+7. **`review_laurent`** — un prénom figé dans une contrainte de base et dans les
+   types (§7).

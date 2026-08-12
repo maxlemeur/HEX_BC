@@ -9,6 +9,7 @@ const outboxMocks = vi.hoisted(() => ({
   fail: vi.fn(),
 }));
 const serverMocks = vi.hoisted(() => ({
+  freeze: vi.fn(),
   getGating: vi.fn(),
   verifySeal: vi.fn(),
   loadSealSource: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock("@/lib/estimates/pdf-generator", () => ({
   getEstimatePdfStatus: vi.fn(),
 }));
 vi.mock("@/lib/estimates/server", () => ({
+  freezeEstimateV2SnapshotForSend: serverMocks.freeze,
   getEstimateSendGating: serverMocks.getGating,
   verifyEstimateSeal: serverMocks.verifySeal,
   loadEstimateSealSource: serverMocks.loadSealSource,
@@ -61,10 +63,14 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
 const REQUEST_ID = "44444444-4444-4444-8444-444444444444";
 const UPDATED_AT = "2026-07-13T12:00:00.000Z";
+const FROZEN_UPDATED_AT = "2026-07-13T12:00:01.000Z";
 const PDF_HASH = "b".repeat(64);
 const SEAL_HASH = "c".repeat(64);
 
-function createContext(status: string) {
+function createContext(
+  status: string,
+  versionOverrides: Record<string, unknown> = {}
+) {
   return {
     userId: USER_ID,
     tenantId: TENANT_ID,
@@ -89,6 +95,9 @@ function createContext(status: string) {
                     currency: "EUR",
                     status,
                     updated_at: UPDATED_AT,
+                    content_revision: 1,
+                    calc_engine_version: 1,
+                    ...versionOverrides,
                     estimate_projects: {
                       name: "Projet test",
                       estimate_reference: "HEX_D26001MM",
@@ -165,6 +174,11 @@ describe("sendEstimateEmail transactional workflow", () => {
     serverMocks.getGating.mockResolvedValue({
       gating: { blockingFlags: [] },
     });
+    serverMocks.freeze.mockResolvedValue({
+      id: VERSION_ID,
+      updated_at: FROZEN_UPDATED_AT,
+      content_revision: 2,
+    });
     serverMocks.verifySeal.mockResolvedValue({ valid: true });
     serverMocks.loadSealSource.mockResolvedValue({ version: {}, items: [] });
     serverMocks.buildSealPayload.mockReturnValue({});
@@ -192,7 +206,7 @@ describe("sendEstimateEmail transactional workflow", () => {
 
   it("does not reserve, generate, or send when draft gating rejects", async () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
-      createContext("draft") as never
+      createContext("draft", { calc_engine_version: 2 }) as never
     );
     serverMocks.getGating.mockRejectedValue(
       badRequest("Envoi bloque.", undefined, "ESTIMATE_GATING_BLOCKED")
@@ -232,7 +246,7 @@ describe("sendEstimateEmail transactional workflow", () => {
 
   it("freezes draft, PDF, seal, and provider payload before delivery", async () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
-      createContext("draft") as never
+      createContext("draft", { calc_engine_version: 2 }) as never
     );
 
     await expect(sendEstimateEmail(request)).resolves.toEqual({
@@ -241,8 +255,15 @@ describe("sendEstimateEmail transactional workflow", () => {
     expect(outboxMocks.reserve).toHaveBeenCalledWith(
       expect.objectContaining({
         requestId: REQUEST_ID,
-        expectedUpdatedAt: UPDATED_AT,
+        expectedUpdatedAt: FROZEN_UPDATED_AT,
       })
+    );
+    expect(serverMocks.freeze).toHaveBeenCalledWith(VERSION_ID, UPDATED_AT);
+    expect(serverMocks.freeze.mock.invocationCallOrder[0]).toBeLessThan(
+      serverMocks.getGating.mock.invocationCallOrder[0]
+    );
+    expect(serverMocks.getGating.mock.invocationCallOrder[0]).toBeLessThan(
+      outboxMocks.reserve.mock.invocationCallOrder[0]
     );
     expect(generateEstimatePdfNow).toHaveBeenCalledTimes(1);
     expect(outboxMocks.prepare).toHaveBeenCalledWith(

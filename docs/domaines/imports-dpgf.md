@@ -37,7 +37,8 @@
         confirmUnifiedImportFlow()  →  mode "mapping_only"
                          │            ou "version_created"
                          ▼
-        RPC create_estimate_version_from_import_lines
+        façade persistCanonicalEstimateV2
+        → RPC persist_estimate_creation_atomic (service-role, actor-scoped)
                          │
                          ▼
         estimate_versions + estimate_items  →  /dashboard/estimates/{versionId}/edit
@@ -58,7 +59,11 @@
 | `confirmUnifiedImportFlow` | server action | `src/app/dashboard/affaires/_actions/import-flow.ts:207-428` | Mapping + création de version |
 | `getUnifiedImportFlowTakeoffCarryOverPreview` | server action | `src/app/dashboard/affaires/_actions/import-flow.ts:165-205` | Aperçu carry-over takeoff |
 
-Aucune de ces routes n'est décrite dans le contrat OpenAPI. Preuve : `grep -o '"/api/[^"]*"' openapi.json | sort -u` ne renvoie aucun chemin `/api/imports*` ni `/api/mappings`, et `grep -c "imports" openapi.json` renvoie `0`.
+Ces routes sont désormais gouvernées par le registre OpenAPI. Le validateur
+inventorie les méthodes réellement exportées par tous les fichiers `route.ts`
+et exige une partition exacte entre opérations documentées et exclusions
+justifiées. À l'échelle de l'application, le contrat courant compte 165
+opérations documentées et 5 exclusions d'infrastructure ou de compatibilité.
 
 ## 2. Formats supportés
 
@@ -232,18 +237,33 @@ Les templates sont écrits en `upsert` sur `(tenant_id, user_id, name)` (`src/li
 `confirmUnifiedImportFlow` (`src/app/dashboard/affaires/_actions/import-flow.ts:207-428`) :
 
 1. Authentification et résolution du tenant courant (`:215-226`, `src/lib/affaires/import-flow-server.ts:49-71`).
-2. Refus si l'import est déjà lié à une autre affaire (`:241-247`) ; sinon liaison `dpgf_imports.project_id` (`:258-267`, `import-flow-server.ts:128-153`).
+2. Refus si l'import est déjà lié à une autre affaire. En mode `mapping_only`,
+   la liaison au projet reste explicite ; lorsqu'une version doit être créée,
+   la liaison est laissée à la transaction canonique afin d'éviter un projet ou
+   un import partiellement persisté.
 3. Création du mapping si un mapping non vide est fourni, sinon reprise du dernier mapping de l'import (`:270-288`).
 4. Chargement des lignes de `dpgf_rows_mapped` (`import-flow-server.ts:180-201`) et du contexte de calcul de la dernière version (`:155-178`, défauts `marginMultiplier = 1`, `taxRateBp = 2000` en `:22-23`).
 5. Garde-fou de cohérence : si la version source du carry-over takeoff a changé depuis l'aperçu, la confirmation est refusée (`:309-317`).
 6. Sans `createEstimate`, retour en mode `mapping_only` avec statistiques (`:328-343`).
-7. Sinon appel du RPC `create_estimate_version_from_import_lines` (`:106-112`), report des jobs takeoff (`:375-406`) et redirection vers `/dashboard/estimates/{versionId}/edit` (`:409`).
+7. Sinon appel de `persistCanonicalEstimateV2` avec une source `import`, report
+   des jobs takeoff après succès de la transaction, puis redirection vers
+   `/dashboard/estimates/{versionId}/edit`.
 
 Normalisation des lignes en lignes de chiffrage (`src/lib/affaires/import-flow.ts:168-300`) : titre = `designation` sinon `reference`/`hex_code` (`:199-210`) ; quantité strictement positive requise, arrondie au millième (`:212-222`) ; prix unitaire déduit de `total_ht / quantité` si absent (`:226-231`) ; taux de TVA interprété en pourcentage si `≤ 100`, plafonné à `10 000` points de base (`MAX_TAX_RATE_BP`, `:58`, `:150-161`). Motifs d'invalidité : `missing_title`, `invalid_quantity`, `invalid_unit_price`, `invalid_tax_rate`, `invalid_row_payload` (`:33-42`). Les nombres localisés FR/EN sont normalisés en `:79-144`. Les lignes valides sont triées par `rowIndex` puis identifiant avant l'appel RPC (`src/lib/affaires/import-flow-server.ts:224-232`).
 
-Le RPC `create_estimate_version_from_import_lines` (`supabase/migrations/20260307113000_ux2_009_create_estimate_version_from_import_lines_section_defaults_fix.sql:3-18`) refuse un tableau `p_lines` vide (`:38-41`) et vérifie l'appartenance au tenant plus la propriété du projet ou le rôle `admin` (`:43-54`). Ses valeurs par défaut sont posées dans la version d'origine : titre de section `'Import DPGF'` (`supabase/migrations/20260305_ux2_007_link_dpgf_to_project.sql:166`), titre de version `format('Import DPGF %s', to_char(now(), 'DD/MM/YYYY HH24:MI'))` (`:171-174`), `tax_rate_bp` `2000` et `k_fo`/`k_mo`/`h_mo_majoration` à `1` (`:342-345`).
+`persistCanonicalEstimateV2` est le contrat applicatif unique de création non
+dupliquée. Il normalise la hiérarchie et la provenance DPGF, calcule le moteur
+v2 et ses totaux, puis appelle `persist_estimate_creation_atomic` avec le tenant
+et l'identifiant de l'acteur. Cette RPC `security definer`, exécutable seulement
+par le service role, revérifie l'acteur, le tenant actif, la propriété ou le rôle
+admin, verrouille l'import, refuse tout lien concurrent, puis persiste projet,
+version, items et liaison d'import dans la même transaction.
 
-Un second RPC, `create_affaire_from_import_lines` (`supabase/migrations/20260305103000_ux2_011_quick_create_from_import.sql:3-341`), crée une affaire directement depuis un import ; il refuse un import déjà lié à un projet avec le message `DPGF import already linked to a project` (`:74-76`) et revérifie l'exclusivité de façon atomique (`:116-120`).
+Les RPC historiques `create_estimate_version_from_import_lines` et
+`create_affaire_from_import_lines` restent visibles dans l'historique des
+migrations pour la reproductibilité, mais leurs droits d'exécution sont
+révoqués par `20260812032857_govern_estimate_calc_engine_v2.sql` et elles n'ont
+plus d'appelant applicatif.
 
 Chemin autonome parallèle : `/dashboard/imports` (`src/app/dashboard/imports/page.tsx:15`) puis `/dashboard/mappings?import_id=…` (`src/app/dashboard/mappings/page.tsx:22-38`), avec le même `useImportFlow` et le même panneau de revue PDF (`src/components/imports/ImportWizard.tsx:24-70`, `src/components/imports/ImportWizardFileStageSection.tsx:236-237`).
 
@@ -295,12 +315,12 @@ niveaux invalides et niveaux 2 sans niveau 1 précédent.
 
 ### Matérialisation et provenance
 
-La migration **20260802175032_structured_dpgf_import_hierarchy.sql** conserve la
-signature du RPC existant. La racine Import DPGF reste présente ; un niveau 1
-source devient son enfant, un niveau 2 devient enfant du dernier niveau 1, et
-les lignes rejoignent la section active la plus profonde. Un élément historique
-sans **item_type** reste une ligne. Les compteurs et totaux portent uniquement
-sur les lignes.
+La normalisation structurée conserve la racine Import DPGF : un niveau 1 source
+devient son enfant, un niveau 2 devient enfant du dernier niveau 1 et les lignes
+rejoignent la section active la plus profonde. Un élément historique sans
+**item_type** reste une ligne. La façade canonique remappe les UUID de parents
+avant d'appeler la RPC atomique ; les compteurs et totaux portent uniquement sur
+les lignes.
 
 Sections et lignes enregistrent **source_provider = dpgf**, le nom du fichier,
 la page éventuelle et les identifiants import/mapping/ligne, feuille/ligne

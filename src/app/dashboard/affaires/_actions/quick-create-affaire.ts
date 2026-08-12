@@ -12,30 +12,19 @@ import {
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
   assertProjectAccessOrThrow,
-  ensureImportProjectLink,
   fetchLatestMappingId,
   fetchMappedRowsForImport,
   getCurrentMembershipOrThrow,
   getImportOrThrow,
   normalizeNullableText,
-  sortValidLinesForEstimateCreation,
-  toRpcImportLines,
+  toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
 import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
+import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { createEstimate } from "@/lib/estimates/server";
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-type RpcCreateAffaireFromImportRow = {
-  project_id: string;
-  version_id: string;
-  section_id: string;
-  inserted_count: number;
-  total_ht_cents: number;
-  total_tax_cents: number;
-  total_ttc_cents: number;
-};
 
 const affaireProjectMetadataSchema = z.object({
   projectName: z.string().trim().min(1, "Nom projet requis.").max(200),
@@ -119,10 +108,12 @@ async function createProjectWithBlankEstimate({
   projectName,
   clientName,
   reference,
+  linkedImportId,
 }: {
   projectName: string;
   clientName: string | null;
   reference: string | null;
+  linkedImportId?: string | null;
 }) {
   const created = await createEstimate({
     project: {
@@ -131,6 +122,7 @@ async function createProjectWithBlankEstimate({
       reference,
     },
     creation_mode: "blank",
+    ...(linkedImportId ? { linked_import_id: linkedImportId } : {}),
   });
 
   return {
@@ -172,12 +164,6 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
   reference: string | null;
   linkImportId?: string | null;
 }): Promise<InitializeAffaireDraftResult> {
-  const { projectId, versionId } = await createProjectWithBlankEstimate({
-    projectName: input.projectName,
-    clientName: input.clientName,
-    reference: input.reference,
-  });
-
   if (input.linkImportId) {
     const importRow = await getImportOrThrow({
       supabase: input.supabase,
@@ -187,21 +173,17 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
       isTenantAdmin: input.isTenantAdmin,
     });
 
-    if (importRow.project_id && importRow.project_id !== projectId) {
+    if (importRow.project_id) {
       throw new Error("Cet import est deja lie a une autre affaire.");
     }
-
-    if (!importRow.project_id) {
-      await ensureImportProjectLink({
-        supabase: input.supabase,
-        importId: input.linkImportId,
-        projectId,
-        tenantId: input.membership.tenant_id,
-        userId: input.userId,
-        isTenantAdmin: input.isTenantAdmin,
-      });
-    }
   }
+
+  const { projectId, versionId } = await createProjectWithBlankEstimate({
+    projectName: input.projectName,
+    clientName: input.clientName,
+    reference: input.reference,
+    linkedImportId: input.linkImportId,
+  });
 
   const manualEstimate = buildManualEstimateEntryPoint(projectId, versionId);
   revalidateQuickCreatePaths(projectId, versionId);
@@ -380,53 +362,63 @@ export async function startAffaireFromImport(
     };
   }
 
-  const { data: rpcData, error: rpcError } = await supabase.rpc(
-    "create_affaire_from_import_lines",
-    {
-      p_import_id: importId,
-      p_project_name: projectName,
-      p_project_client: clientName,
-      p_project_reference: reference,
-      p_version_title: normalizeNullableText(parsed.data.versionTitle),
-      p_section_title: normalizeNullableText(parsed.data.sectionTitle),
-      p_lines: toRpcImportLines(
-        sortValidLinesForEstimateCreation(normalizedRows.validLines)
-      ),
-    }
+  let created: Awaited<ReturnType<typeof persistCanonicalEstimateV2>>;
+  try {
+    created = await persistCanonicalEstimateV2({
+      supabase,
+      tenantId: membership.tenant_id,
+      actorUserId: userId,
+      project: {
+        kind: "new",
+        name: projectName,
+        clientName,
+        reference,
+      },
+      version: {
+        title: normalizeNullableText(parsed.data.versionTitle) ?? "Import DPGF",
+      },
+      source: {
+        kind: "import",
+        importId,
+        mappingId,
+        filename: importRow.filename,
+        sectionTitle: normalizeNullableText(parsed.data.sectionTitle),
+        items: toRpcImportItems(normalizedRows.validItems, {
+          importId,
+          mappingId,
+        }),
+      },
+    });
+  } catch (error) {
+    throw new Error("Impossible de creer l'affaire depuis l'import.", {
+      cause: error,
+    });
+  }
+
+  const stats = buildImportFlowStats(
+    normalizedRows,
+    created.insertedLineCount,
+    normalizedRows.validSections.length
   );
-
-  if (rpcError) {
-    throw new Error("Impossible de creer l'affaire depuis l'import.");
-  }
-
-  const created = Array.isArray(rpcData)
-    ? (rpcData[0] as RpcCreateAffaireFromImportRow | undefined)
-    : undefined;
-
-  if (!created?.project_id || !created.version_id) {
-    throw new Error("La creation affaire + import a retourne une reponse invalide.");
-  }
-
-  const stats = buildImportFlowStats(normalizedRows, created.inserted_count ?? 0);
-  revalidateQuickCreatePaths(created.project_id, created.version_id);
+  revalidateQuickCreatePaths(created.project.id, created.version.id);
 
   const redirectParams = new URLSearchParams({
     fromQuickCreate: "1",
-    projectId: created.project_id,
+    projectId: created.project.id,
     importId,
     insertedRows: String(stats.insertedRows),
     skippedRows: String(stats.skippedRows),
-    totalHtCents: String(created.total_ht_cents ?? 0),
-    totalTaxCents: String(created.total_tax_cents ?? 0),
-    totalTtcCents: String(created.total_ttc_cents ?? 0),
+    totalHtCents: String(created.version.total_ht_cents ?? 0),
+    totalTaxCents: String(created.version.total_tax_cents ?? 0),
+    totalTtcCents: String(created.version.total_ttc_cents ?? 0),
     mappingId: mappingId ?? "",
   });
 
   return {
     destination: "estimate_editor",
-    projectId: created.project_id,
-    versionId: created.version_id,
-    redirectUrl: `/dashboard/estimates/${created.version_id}/edit?${redirectParams.toString()}`,
+    projectId: created.project.id,
+    versionId: created.version.id,
+    redirectUrl: `/dashboard/estimates/${created.version.id}/edit?${redirectParams.toString()}`,
   };
 }
 

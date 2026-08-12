@@ -3,6 +3,7 @@ import { cache } from "react";
 
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { forbidden } from "@/lib/estimates/errors";
+import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { normalizeRiskAlertRow } from "@/lib/takeoff/risk-radar";
@@ -31,6 +32,12 @@ type VersionRow = {
   approval_status: EstimateVersionApprovalStatus;
   total_ht_cents: number;
   margin_bp: number | null;
+  margin_multiplier: number | null;
+  margin_mode: "fixed" | "tiered";
+  calc_engine_version: number;
+  content_revision: number;
+  calc_snapshot_content_revision: number | null;
+  calc_snapshot_context: Database["public"]["Tables"]["estimate_versions"]["Row"]["calc_snapshot_context"];
   discount_bp: number | null;
   updated_at: string;
   date_devis: string;
@@ -148,10 +155,7 @@ export type DirectionDashboardPageData = {
   pagination: DirectionDashboardPagination;
 };
 
-type ProjectAlertSignals = {
-  latestJobId: string | null;
-  alerts: DirectionSyntheticAlert[];
-};
+type ProjectAlertSignals = { latestJobId: string | null; marginBp: number | null; alerts: DirectionSyntheticAlert[] };
 
 type DirectionPlansMetrics = {
   coveragePercent: number | null;
@@ -487,7 +491,7 @@ const listLatestDirectionVersions = cache(async function listLatestDirectionVers
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, discount_bp, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
     )
     .eq("tenant_id", context.tenantId)
     .neq("status", "archived")
@@ -522,7 +526,7 @@ const getDirectionVersionById = cache(async function getDirectionVersionById(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, discount_bp, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
     )
     .eq("tenant_id", context.tenantId)
     .eq("id", versionId)
@@ -556,7 +560,7 @@ async function listReviewCyclesByVersionId(versionIds: string[]) {
         const { data: cycles, error: cyclesError } = await context.supabase
           .from("estimate_review_cycles" as never)
           .select("id, version_id, requested_at" as never)
-          .is("decision" as never, null)
+          .is("decision" as never, null).is("superseded_at" as never, null)
           .in("version_id" as never, batch as never);
 
         if (cyclesError) {
@@ -936,12 +940,7 @@ export const fetchDirectionProjectSignals = cache(
   ): Promise<ProjectAlertSignals> => {
     const version = await getDirectionVersionById(projectId, versionId);
 
-    if (!version) {
-      return {
-        latestJobId: null,
-        alerts: [],
-      };
-    }
+    if (!version) return { latestJobId: null, marginBp: null, alerts: [] };
 
     const ownerOptionsPromise = listDirectionOwnerOptions();
     void ownerOptionsPromise;
@@ -966,12 +965,7 @@ export const fetchDirectionProjectSignals = cache(
     });
 
     const project = resolveEmbeddedProject(version.estimate_projects);
-    if (!project) {
-      return {
-        latestJobId: null,
-        alerts: [],
-      };
-    }
+    if (!project) return { latestJobId: null, marginBp: null, alerts: [] };
 
     const latestJobId = latestJobsByVersionId.get(version.id)?.id ?? null;
     const versionAlerts = alertsByVersionId.get(version.id) ?? [];
@@ -980,14 +974,16 @@ export const fetchDirectionProjectSignals = cache(
     const actionableAlerts = filterAlertsForLatestJob(versionAlerts, latestJobId);
     const plansMetrics = plansMetricsByProjectId.get(projectId);
 
+    const marginBp = resolveEffectiveMarginBp(version);
     return {
       latestJobId,
+      marginBp,
       alerts: buildDirectionSyntheticAlerts({
         projectId,
         projectName: project.name,
         versionId,
         amountHtCents: version.total_ht_cents ?? 0,
-        marginBp: version.margin_bp,
+        marginBp,
         discountBp: version.discount_bp,
         approvalStatus: version.approval_status,
         exceptionCount:
@@ -1069,12 +1065,13 @@ export async function fetchDirectionDashboardPageData(
         (maxScore, alert) => Math.max(maxScore, alert.risk_score),
         0
       );
+      const marginBp = resolveEffectiveMarginBp(version);
       const alerts = buildDirectionSyntheticAlerts({
         projectId: version.project_id,
         projectName: project.name,
         versionId: version.id,
         amountHtCents: version.total_ht_cents ?? 0,
-        marginBp: version.margin_bp,
+        marginBp,
         discountBp: version.discount_bp,
         approvalStatus: version.approval_status,
         exceptionCount:
@@ -1097,7 +1094,7 @@ export async function fetchDirectionDashboardPageData(
         ownerUserId: project.user_id,
         ownerName: profileById.get(project.user_id) ?? null,
         amountHtCents: version.total_ht_cents ?? 0,
-        marginBp: version.margin_bp,
+        marginBp,
         riskScore,
         coveragePercent: plansMetrics?.coveragePercent ?? null,
         openHypothesesCount: plansMetrics?.openHypothesesCount ?? 0,

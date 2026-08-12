@@ -4,6 +4,7 @@ import {
   hasActiveLaborSplitPayload,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
+import { shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import {
   ESTIMATE_EXPORT_PROGRESS_COMPLETE,
   ESTIMATE_EXPORT_XLSX_CONTENT_TYPE,
@@ -293,6 +294,7 @@ function buildDpgfRows(input: {
   laborRoleNameById: Map<string, string>;
   categoryById: Map<string, string>;
   isLaborSplitEnabled: boolean;
+  preserveStoredSnapshot?: boolean;
 }) {
   const depthByItemId = resolveDepthByItemId(input.items);
 
@@ -325,7 +327,9 @@ function buildDpgfRows(input: {
       };
     }
 
-    const splitEnabled = usesLaborSplit(item, input.isLaborSplitEnabled);
+    const splitEnabled =
+      !input.preserveStoredSnapshot &&
+      usesLaborSplit(item, input.isLaborSplitEnabled);
     const splitRoleLabels = resolveLaborRoleSplitLabels(
       item,
       input.laborRoleNameById,
@@ -338,17 +342,29 @@ function buildDpgfRows(input: {
       designation: `${indentation}${item.title}`,
       quantite: toNullableNumber(item.quantity),
       unite: item.description?.trim() ?? "",
-      prixUnitaireHtEur: toEuroAmount(item.unit_price_ht_cents),
-      typeFo: item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "",
-      kFo: item.k_fo ?? 1,
-      hMo: resolveLaborHours(item, input.isLaborSplitEnabled),
-      kMo: resolveLaborCoefficient(item, input.isLaborSplitEnabled),
-      majorationMo: item.h_mo_majoration ?? 1,
-      roleMo: resolveLaborRoleLabel(
-        item,
-        input.laborRoleNameById,
-        input.isLaborSplitEnabled
+      prixUnitaireHtEur: toEuroAmount(
+        input.preserveStoredSnapshot
+          ? (item.snapshot_pu_ht_cents ?? item.pu_ht_cents)
+          : item.unit_price_ht_cents
       ),
+      typeFo: item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "",
+      kFo: input.preserveStoredSnapshot ? 1 : (item.k_fo ?? 1),
+      hMo: input.preserveStoredSnapshot
+        ? null
+        : resolveLaborHours(item, input.isLaborSplitEnabled),
+      kMo: input.preserveStoredSnapshot
+        ? null
+        : resolveLaborCoefficient(item, input.isLaborSplitEnabled),
+      majorationMo: input.preserveStoredSnapshot
+        ? null
+        : (item.h_mo_majoration ?? 1),
+      roleMo: input.preserveStoredSnapshot
+        ? ""
+        : resolveLaborRoleLabel(
+            item,
+            input.laborRoleNameById,
+            input.isLaborSplitEnabled
+          ),
       categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
       hMoAtelier: splitEnabled ? (item.h_mo_atelier ?? 0) : null,
       kMoAtelier: splitEnabled ? (item.k_mo_atelier ?? 1) : null,
@@ -461,8 +477,12 @@ async function buildDpgfExportPayload(
   versionId: string,
   isLaborSplitEnabled: boolean
 ): Promise<DpgfExportPayload> {
-  const details = await getEstimateVersionDetails(versionId);
+  const details = await getEstimateVersionDetails(versionId, {
+    includeExportCalculationContext: true,
+  });
   const items = details.items as EstimateItemRecord[];
+  const preserveStoredSnapshot =
+    shouldPreserveStoredEstimateV2Snapshot(details.version);
   const supplyTypeById = new Map(
     (details.supply_types ?? []).map((supplyType) => [supplyType.id, supplyType.name])
   );
@@ -486,7 +506,9 @@ async function buildDpgfExportPayload(
       supplyTypeById,
       laborRoleNameById,
       categoryById,
-      isLaborSplitEnabled,
+      isLaborSplitEnabled:
+        details.is_labor_split_enabled ?? isLaborSplitEnabled,
+      preserveStoredSnapshot,
     }),
   };
 }

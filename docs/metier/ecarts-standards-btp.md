@@ -1,6 +1,8 @@
 # Écarts face aux standards du chiffrage BTP
 
-> **Source : le code au 2026-07-29 (`6cacda36`).**
+> **Source historique : le code au 2026-07-29 (`6cacda36`).** Les sections 1.4,
+> 1.7, 2.5, 4 et EST-433 ont été revalidées après le Lot 7 le 2026-08-12 ;
+> les autres affirmations restent la photographie du 2026-07-29.
 > Ce document remplace l'ancien corpus d'épics et de tickets, dont les statuts déclarés étaient faux
 > dans 22 cas sur 26. Il applique un contrat différent : **toute affirmation d'existence porte une
 > référence `fichier:ligne`, et toute affirmation d'absence porte la commande qui la prouve.**
@@ -12,11 +14,12 @@
 
 ## Comment lire ce document
 
-Trois régimes distincts, à ne pas confondre :
+Quatre régimes distincts, à ne pas confondre :
 
 | Régime | Ce que ça veut dire |
 |---|---|
 | 🔴 **Défaut actif** | Le code fait quelque chose de **faux**. Ce n'est pas un manque, c'est une erreur en production. |
+| ✅ **Résolu** | Le défaut du snapshot a reçu un correctif ciblé ; la preuve actuelle est indiquée dans la section. |
 | ⬛ **Absent** | La fonctionnalité n'existe pas. Prouvé par un grep à zéro résultat, daté. |
 | ⚠️ **Présent mais contre-intuitif** | Existe, fonctionne, mais se comporte autrement qu'attendu. |
 
@@ -28,8 +31,10 @@ l'ancien backlog en Markdown n'a pas su tenir.
 
 ## 1. 🔴 Défauts actifs
 
-Huit comportements produisent des résultats incorrects aujourd'hui, classés du plus grave au moins
-grave. Le premier détruit des données.
+Huit comportements produisaient des résultats incorrects dans le snapshot du
+2026-07-29. Les sections 1.4 et 1.7 sont désormais marquées résolues ; les six
+autres n'ont pas été revalidées dans le cadre du Lot 7. Le premier constat
+historique détruisait des données.
 
 ### 1.1 Un reclassement de document supprime définitivement des fichiers de plans
 
@@ -128,43 +133,31 @@ n'existent pas sur `estimate_items` et sont perdues ; un composant `labor` est i
 Le sous-détail n'est donc **jamais opposable au maître d'œuvre**. Il n'existe que dans la
 bibliothèque, c'est-à-dire nulle part où il compte.
 
-### 1.4 La même règle de marge rend deux verdicts opposés selon le point d'entrée
+### 1.4 ✅ Une seule marge effective pour les règles et le pilotage
 
-```ts
-// src/lib/estimates/rules-engine.ts:883-895
-const marginBp = toFiniteNumber(version.margin_bp, NaN);
-if (Number.isFinite(marginBp) && marginBp >= 0) return marginBp;
-// sinon : dérivation depuis margin_multiplier
-```
+Le défaut du snapshot est corrigé par
+`src/lib/estimates/effective-margin.ts`. `resolveEffectiveMarginBp` porte le
+contrat commun de `min_margin`, des cartes et alertes Direction et de la file
+d'approbation :
 
-`margin_bp` est déclaré **optionnel** dans le type d'entrée du moteur
-(`RulesEngineVersion.margin_bp?: number | null`, `rules-engine.ts:401-408`). Ce qui est évalué dépend
-donc entièrement de ce que l'appelant a pris la peine de sélectionner — et les deux appelants ne
-sélectionnent pas la même chose.
+- une v1 conserve son `margin_bp` historique, avec le coefficient comme repli
+  si cette valeur manque ;
+- une v2 figée utilise
+  `calc_snapshot_context.effective_margin_multiplier`, coefficient réellement
+  appliqué par le breakdown, seulement si
+  `calc_snapshot_content_revision === content_revision` ;
+- un brouillon v2 `fixed` peut utiliser son coefficient configuré avant gel ;
+  un brouillon `tiered` sans snapshot reste indéterminé, car le coefficient
+  configuré ne prouve pas le palier appliqué.
 
-| Point d'entrée | `margin_bp` sélectionné ? | Valeur évaluée |
-|---|---|---|
-| **Gating d'envoi** — `getEstimateSendGating` (`server.ts:8315`) tire sa version de `getVersionAccessOrThrow` (`:4104-4106`) | **Non** (ni `margin_bp`, ni `discount_bp`) | `undefined` → `NaN` → **repli sur `margin_multiplier`** |
-| **Évaluation d'approbation** — `rules-engine.ts:3771` sélectionne explicitement `margin_bp` et `discount_bp` | **Oui** | `margin_bp` tel quel, soit **0** |
+Le gel v2 matérialise aussi le barème effectif — y compris les tranches par
+défaut lorsque la table tenant est vide — et stocke le coefficient appliqué.
+Toutes les surfaces ignorent un contexte périmé et relisent ainsi la même marge
+contractuelle sans dépendre d'un barème courant modifié ultérieurement.
 
-`margin_bp` est `integer not null default 0` (`supabase/schema.sql:368`) et n'est écrit qu'à la
-création par l'assistant (`src/components/estimates/estimate-creation-wizard/PricingStep.tsx:173`,
-défaut `"0"`) ; le panneau de réglages ne modifie que `margin_multiplier`. La colonne vaut donc 0 sur
-la quasi-totalité du parc.
-
-**Deux conséquences distinctes :**
-
-1. **`min_margin` est incohérent** : le gating juge sur la marge réelle dérivée du multiplicateur,
-   l'approbation juge sur 0 bp. Un devis peut passer le gating et être bloqué à l'approbation, ou
-   l'inverse, sans qu'aucune donnée n'ait changé.
-2. **`max_discount` ne se déclenche jamais dans le gating**, `discount_bp` n'y étant pas non plus
-   sélectionné.
-
-Les tableaux de bord direction (`src/lib/direction/server.ts:990`) et la file d'approbation
-(`src/lib/approvals/server.ts:174`) lisent `margin_bp` et affichent donc la valeur à 0.
-
-C'est le défaut qui **corrompt des décisions métier en continu**, et le plus insidieux des cinq : il
-ne produit pas une erreur franche mais deux vérités concurrentes.
+Le chemin de gating sélectionne désormais `margin_bp` et `discount_bp`.
+`max_discount` reçoit donc la remise réelle au lieu d'un zéro produit par
+l'absence de colonne.
 
 ### 1.5 Le bucket `dpgf-imports` n'accepte pas `application/pdf`
 
@@ -224,22 +217,21 @@ Conséquence : le client qui reçoit un devis par email est envoyé soit vers un
 vers une page `/dashboard/…` qui exige une authentification qu'il n'a pas. Le parcours
 d'acceptation et de signature en ligne n'est pas atteignable en production.
 
-### 1.7 La checklist de correction est structurellement vide depuis juillet 2026
+### 1.7 ✅ Checklist de correction rétablie au Lot 7
 
-`estimate_review_correction_items` est alimentée par la fonction `decide_estimate_review_cycle`,
-définie en mars 2026 (`supabase/migrations/20260307183000_v3_020_correction_checklist.sql:640`).
+Le défaut du snapshot est corrigé par
+`supabase/migrations/20260812032857_govern_estimate_calc_engine_v2.sql`.
+`decide_estimate_review_cycle` exige désormais au moins un commentaire pour
+`changes_requested` et crée, dans la transaction de décision, exactement un
+`estimate_review_correction_item` `pending` par commentaire. La resoumission
+applicative refuse ensuite le nouveau cycle tant qu'un de ces items reste
+`pending`.
 
-Cette fonction a été **redéfinie** en juillet par
-`supabase/migrations/20260713132620_harden_estimate_send_and_approval_revision.sql`. Or
-`create or replace function` remplace le corps entier, et la nouvelle version ne mentionne plus la
-table du tout.
-
-> Vérifié : `grep -c 'estimate_review_correction_items'` → **46** occurrences dans la migration de
-> mars, **0** dans celle de juillet.
-
-Conséquences : la checklist de correction ne se remplit plus, le verrou de resoumission qui en
-dépendait ne se déclenche plus, et le champ `rulesTriggered` du journal de décision est vide pour
-toute décision passant par un cycle de revue.
+La décision règle par règle ne peut pas contourner ce contrat : si son dernier
+rejet devait fermer le cycle en `changes_requested`, elle lève
+`ESTIMATE_REVIEW_CORRECTION_COMMENTS_REQUIRED` faute de charge de commentaires.
+Le champ `rulesTriggered` du journal par cycle reste vide ; ce point de
+télémétrie n'est pas corrigé par ce lot.
 
 ### 1.8 La TVA est arrondie au demi-supérieur
 
@@ -309,7 +301,7 @@ C'est le bloc le plus lourd : le produit sait chiffrer, mais s'arrête à la sig
 | **Autoliquidation sous-traitance** | ✅ **Implémentée intégralement** — voir [regles-de-calcul.md § 5.1](regles-de-calcul.md) |
 | **Taux réduits 5,5 % / 10 %** prédéfinis | Champ pourcentage libre (`src/components/estimates/EstimateSettingsPanel.tsx:677-682`) |
 | **Récapitulatif TVA par taux** au document | Un seul taux affiché |
-| **Multi-taux par ligne** | 🔴 La colonne `tax_rate_bp` existe sur `estimate_items` (`supabase/schema.sql:529`) mais est **écrasée** par le taux de version à chaque normalisation (`src/lib/estimate-calculations.ts:1772`). Honorée seulement par le moteur v2, inactif |
+| **Multi-taux par ligne** | ✅ Effectif sur les nouvelles versions v2 : `tax_rate_bp` de ligne est honoré, avec repli sur le taux de version, puis figé dans les snapshots contractuels. Les versions v1 conservent la normalisation historique au taux de version |
 | **CERFA 1301-SD** | Aucune occurrence |
 | Sous-traitant en **franchise en base** | Cas non traité |
 
@@ -363,31 +355,35 @@ pour qu'on puisse les parcourir d'un coup.
 
 ---
 
-## 4. Dette technique du moteur de calcul
+## 4. Gouvernance actuelle des moteurs de calcul
 
 | Point | Référence |
 |---|---|
-| **Deux moteurs complets** coexistent dans un fichier de 1 968 lignes | `src/lib/estimate-calculations.ts` |
-| Seul l'**éditeur** épingle encore `EDITOR_CALC_ENGINE_VERSION = 1` | `src/lib/estimates/calc-engine-version.ts:28`, consommé par `src/components/estimates/hooks/useEstimateVisibility.ts:189` et `src/hooks/useEstimateEditorState.impl.tsx:1127` |
-| `EXPORT_CALC_ENGINE_VERSION` est une **constante morte** | `calc-engine-version.ts:31` — zéro usage hors sa déclaration |
-| `invariants.matchesFooter` est **structurellement `false`** en production | `estimate-calculations.ts:1583-1585` |
-| Branche morte : `discountMode === "simple"` avec `discount_steps` non vide | `estimate-calculations.ts:485-491`, état rendu impossible par `supabase/schema.sql:7666` |
+| Les deux contrats restent présents pour la **compatibilité historique** | `resolveCalcEngineVersion` retombe sur v1 ; aucune version existante n'est migrée implicitement |
+| Toute nouvelle version applicative utilise **v2** | `NEW_ESTIMATE_CALC_ENGINE_VERSION = 2` et façade `persistCanonicalEstimateV2` |
+| L'éditeur respecte désormais `calc_engine_version` de la version | l'ancienne épingle `EDITOR_CALC_ENGINE_VERSION` a été retirée |
+| Les sorties suivent la version ou le snapshot contractuel | l'ancienne constante morte `EXPORT_CALC_ENGINE_VERSION` a été retirée |
+| `matchesFooter` est un invariant positif pour v2 | la persistance et le gel refusent une réconciliation lignes/pied invalide ; v1 conserve ses résultats historiques |
+| La marge par paliers est durable | barème effectif et `effective_margin_multiplier` appliqué sont figés dans `calc_snapshot_context` |
 
-Détail complet et précautions de bascule : [regles-de-calcul.md § 8](regles-de-calcul.md).
+La dette restante n'est donc plus une bascule inachevée, mais le coût assumé de
+maintenir le contrat v1 pour vérifier et afficher les devis historiques sans
+réécriture. Détail : [regles-de-calcul.md § 8](regles-de-calcul.md).
 
 ---
 
 ## 5. Anomalies produit constatées
 
-Trois défauts relevés lors d'une vérification visuelle du 2026-03-10, sans trace de correction
-depuis. Contrairement au reste de ce document, ils **n'ont pas été re-vérifiés au 2026-07-29** : à
-confirmer avant toute action.
+Trois défauts avaient été relevés lors d'une vérification visuelle du
+2026-03-10. EST-433 a été revalidé et corrigé au Lot 7 ; les deux autres
+**n'ont pas été re-vérifiés depuis le 2026-07-29** et restent à confirmer avant
+toute action.
 
-| Constat | Sévérité déclarée à l'époque |
+| Constat | Statut actuel |
 |---|---|
-| Disparition de « Expliquer ce prix » après duplication de version | Majeure |
-| Incohérence entre le résumé de delta global et le delta de ligne | Majeure |
-| Impact marge insuffisamment explicite dans le panneau delta | Mineure |
+| Disparition de « Expliquer ce prix » après duplication de version | ✅ Résolu au Lot 7 : provenance des lignes, liens takeoff et décisions DPGF copiés atomiquement par `duplicate_estimate_version` |
+| Incohérence entre le résumé de delta global et le delta de ligne | Non revalidé — sévérité historique majeure |
+| Impact marge insuffisamment explicite dans le panneau delta | Non revalidé — sévérité historique mineure |
 
 L'inventaire UX/UI complet, daté et **régénérable**, vit dans
 [`../audit/AUDIT-2026-07-inventaire.md`](../audit/AUDIT-2026-07-inventaire.md) — 27 bugs et

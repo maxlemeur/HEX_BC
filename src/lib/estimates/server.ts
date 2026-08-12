@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import {
   type PostgrestError,
@@ -9,6 +9,7 @@ import {
   normalizeMappedRowsForEstimateCreation,
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
+import { toRpcImportItems } from "@/lib/affaires/import-flow-server";
 import {
   computeEstimateLineValues,
   hasActiveLaborSplitPayload,
@@ -39,6 +40,10 @@ import {
   type CalculatedEstimateTotals,
 } from "@/lib/estimates/version-totals";
 import {
+  resolveCalcEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
+import {
   getTakeoffLinkedSourceVersionByJobId,
   linkTakeoffJobsFromSourceVersionToTargetVersion,
 } from "@/lib/takeoff/version-links";
@@ -56,6 +61,11 @@ import {
 } from "@/lib/auth/tenant-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  instantiateCanonicalEstimateV2FromTemplate,
+  persistCanonicalEstimateV2,
+  type PersistCanonicalEstimateV2Input,
+} from "@/lib/estimates/canonical-v2-creation";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -68,12 +78,26 @@ import {
 } from "./errors";
 import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
+import { freezeEstimateV2Snapshot } from "./v2-snapshot-server";
+import {
+  buildCanonicalEstimateSealPayload,
+  computeEstimateSealHash,
+  CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION,
+  LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION,
+  PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
+  type EstimateSealVersionFields,
+} from "./estimate-seal";
 import {
   DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN,
   ESTIMATE_ITEM_AID_REGEX_FEATURE_FLAG_KEY,
   normalizeEstimateItemAid,
   parseEstimateItemAidRegexPattern,
 } from "./schemas";
+
+export {
+  buildCanonicalEstimateSealPayload,
+  computeEstimateSealHash,
+} from "./estimate-seal";
 import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "./generated-ouvrage-provenance";
 import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
 import {
@@ -235,12 +259,18 @@ type VersionAccessRow = Pick<
   | "status"
   | "margin_mode"
   | "margin_multiplier"
+  | "margin_bp"
+  | "discount_bp"
   | "max_section_depth"
   | "tax_rate_bp"
   | "updated_at"
+  | "content_revision"
   | "total_ht_cents"
   | "total_tax_cents"
   | "total_ttc_cents"
+  | "calc_engine_version"
+  | "calc_snapshot_content_revision"
+  | "calc_snapshot_context"
 > & {
   parent_version_id?: string | null;
   variant_label?: string | null;
@@ -600,6 +630,11 @@ type EstimateTemplateItemRow = {
   line_total_ht_cents: number | null;
   line_tax_cents: number | null;
   line_total_ttc_cents: number | null;
+  snapshot_pu_ht_cents?: number | null;
+  snapshot_fo_ht_cents?: number | null;
+  snapshot_mo_ht_cents?: number | null;
+  snapshot_mo_atelier_ht_cents?: number | null;
+  snapshot_mo_chantier_ht_cents?: number | null;
 };
 
 type EstimateAssemblyRow =
@@ -617,15 +652,9 @@ type EstimateAssemblyMemberRow =
 type EstimateAssemblyMemberInsert =
   Database["public"]["Tables"]["estimate_assembly_members"]["Insert"];
 
-const DEFAULT_VALIDITE_JOURS = 30;
 const DEFAULT_MARGIN_MULTIPLIER = 1;
 const DEFAULT_TAX_RATE_BP = 2000;
 const MAX_SUPPLIER_COMPARISON_ITEMS = 200;
-const DEFAULT_ROUNDING_MODE: EstimateVersionRow["rounding_mode"] = "none";
-const DEFAULT_ROUNDING_STEP_CENTS = 1;
-const DEFAULT_MARGIN_MODE: EstimateVersionRow["margin_mode"] = "fixed";
-const DEFAULT_DISCOUNT_MODE: EstimateVersionRow["discount_mode"] = "simple";
-const DEFAULT_GLOBAL_COEFFICIENT = 1;
 const DEFAULT_CURRENCY = "EUR";
 const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
@@ -633,8 +662,6 @@ const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
 const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
 const VERSION_CONFLICT_ERROR_MESSAGE = "Version modifiee par un autre utilisateur";
-const CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION = 2;
-const LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION = 1;
 const ESTIMATE_STATUS_TRANSITIONS: Readonly<
   Record<EstimateStatus, readonly EstimateStatus[]>
 > = {
@@ -652,103 +679,6 @@ const ESTIMATE_VERSION_STATUS_EVENT_TYPES: Readonly<
   sent: "sent",
   accepted: "accepted",
   archived: "archived",
-};
-
-type EstimateSealVersionFields = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "tenant_id"
-  | "project_id"
-  | "version_number"
-  | "date_devis"
-  | "total_ht_cents"
-  | "total_tax_cents"
-  | "total_ttc_cents"
-  | "margin_multiplier"
-  | "discount_bp"
-  | "tax_rate_bp"
-  | "rounding_mode"
-  | "rounding_step_cents"
-  | "calc_engine_version"
-  | "contractor_role"
-  | "seal_hash"
->;
-
-type EstimateSealCanonicalItem = Pick<
-  EstimateItemRow,
-  | "id"
-  | "position"
-  | "item_type"
-  | "title"
-  | "quantity"
-  | "unit_price_ht_cents"
-  | "tax_rate_bp"
-  | "k_fo"
-  | "h_mo"
-  | "h_mo_majoration"
-  | "k_mo"
-  | "supply_type_id"
-  | "pu_ht_cents"
-  | "line_total_ht_cents"
-  | "line_tax_cents"
-  | "line_total_ttc_cents"
-> & {
-  // Colonnes de main-d'œuvre éclatée (atelier/chantier) : incluses dans le
-  // sceau UNIQUEMENT lorsque la ligne porte une ventilation RÉELLE, au sens de
-  // `hasActiveLaborSplitPayload` (heures > 0, rôle renseigné ou coefficient
-  // != 1).
-  //
-  // Le test `!= null` initialement retenu ne convenait pas : la migration
-  // 029_est_031_labor_split_atelier_chantier.sql déclare `k_mo_atelier` et
-  // `k_mo_chantier` en `default 1.0` ET backfille 1.0 sur TOUTES les lignes
-  // existantes (l.13-14). Aucune ligne n'a donc ces colonnes à NULL, et le
-  // spread conditionnel injectait `k_mo_*: 1` dans le payload canonique de
-  // chaque item — donc un hash différent pour l'intégralité du parc déjà
-  // scellé, sans réparation possible (`seal_hash` est immuable hors transition
-  // draft -> sent, cf. 025_est046_seal_and_events.sql:36).
-  //
-  // Avec le prédicat canonique, une ligne sans ventilation (k = 1, h = null,
-  // rôles nuls) ne produit aucune clé : le hash historique est préservé. Toute
-  // ventilation MO réelle reste, elle, couverte par l'intégrité.
-  h_mo_atelier?: number;
-  k_mo_atelier?: number;
-  labor_role_atelier_id?: string;
-  h_mo_chantier?: number;
-  k_mo_chantier?: number;
-  labor_role_chantier_id?: string;
-};
-
-type EstimateSealPayload = {
-  meta: {
-    payload_version: number;
-    version_id: string;
-    tenant_id: string;
-    project_id: string;
-  };
-  version: {
-    version_number: number;
-    date_devis: string;
-    total_ht_cents: number;
-    total_tax_cents: number;
-    total_ttc_cents: number;
-    margin_multiplier: number;
-    discount_bp: number;
-    tax_rate_bp: number;
-    rounding_mode: EstimateVersionRow["rounding_mode"];
-    rounding_step_cents: number;
-    /**
-     * T6 — moteur de calcul ayant produit les montants contractuels. Obligatoire
-     * dans les sceaux v2 ; absent des sceaux v1 émis avant son introduction.
-     */
-    calc_engine_version?: number;
-    /**
-     * EST-E27 — regime de TVA. Present dans le payload canonique UNIQUEMENT
-     * hors valeur par defaut : une cle presente sur toutes les versions
-     * changerait le hash de l'integralite du parc deja scelle.
-     */
-    contractor_role?: string;
-  };
-  items: EstimateSealCanonicalItem[];
 };
 
 type AuthenticatedContext = {
@@ -1966,130 +1896,6 @@ function assertEstimateStatusTransition(
   );
 }
 
-export function buildCanonicalEstimateSealPayload(
-  input: {
-    version: EstimateSealVersionFields;
-    items: EstimateItemRow[];
-  },
-  options?: {
-    payloadVersion?: number;
-    includeLaborSplit?: boolean;
-    includeCalcEngineVersion?: boolean;
-  }
-): EstimateSealPayload {
-  const payloadVersion =
-    options?.payloadVersion ?? CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION;
-  const includeLaborSplit = options?.includeLaborSplit ?? true;
-  const includeCalcEngineVersion = options?.includeCalcEngineVersion ?? true;
-  const canonicalItems = [...input.items]
-    .sort((left, right) => {
-      if (left.position !== right.position) {
-        return left.position - right.position;
-      }
-
-      return left.id.localeCompare(right.id);
-    })
-    .map((item): EstimateSealCanonicalItem => {
-      // Ventilation réelle uniquement : voir le commentaire de
-      // EstimateSealCanonicalItem (rétro-compatibilité des sceaux émis).
-      const laborSplit: Partial<
-        Pick<
-          EstimateSealCanonicalItem,
-          | "h_mo_atelier"
-          | "k_mo_atelier"
-          | "labor_role_atelier_id"
-          | "h_mo_chantier"
-          | "k_mo_chantier"
-          | "labor_role_chantier_id"
-        >
-      > = includeLaborSplit && hasActiveLaborSplitPayload(item)
-        ? {
-            ...(item.h_mo_atelier != null
-              ? { h_mo_atelier: item.h_mo_atelier }
-              : {}),
-            ...(item.k_mo_atelier != null
-              ? { k_mo_atelier: item.k_mo_atelier }
-              : {}),
-            ...(item.labor_role_atelier_id != null
-              ? { labor_role_atelier_id: item.labor_role_atelier_id }
-              : {}),
-            ...(item.h_mo_chantier != null
-              ? { h_mo_chantier: item.h_mo_chantier }
-              : {}),
-            ...(item.k_mo_chantier != null
-              ? { k_mo_chantier: item.k_mo_chantier }
-              : {}),
-            ...(item.labor_role_chantier_id != null
-              ? { labor_role_chantier_id: item.labor_role_chantier_id }
-              : {}),
-          }
-        : {};
-
-      return {
-        id: item.id,
-        position: item.position,
-        item_type: item.item_type,
-        title: item.title,
-        quantity: item.quantity,
-        unit_price_ht_cents: item.unit_price_ht_cents,
-        tax_rate_bp: item.tax_rate_bp,
-        k_fo: item.k_fo,
-        h_mo: item.h_mo,
-        h_mo_majoration: item.h_mo_majoration,
-        k_mo: item.k_mo,
-        ...laborSplit,
-        supply_type_id: item.supply_type_id,
-        pu_ht_cents: item.pu_ht_cents,
-        line_total_ht_cents: item.line_total_ht_cents,
-        line_tax_cents: item.line_tax_cents,
-        line_total_ttc_cents: item.line_total_ttc_cents,
-      };
-    });
-
-  return {
-    meta: {
-      payload_version: payloadVersion,
-      version_id: input.version.id,
-      tenant_id: input.version.tenant_id,
-      project_id: input.version.project_id,
-    },
-    version: {
-      version_number: input.version.version_number,
-      date_devis: input.version.date_devis,
-      total_ht_cents: input.version.total_ht_cents,
-      total_tax_cents: input.version.total_tax_cents,
-      total_ttc_cents: input.version.total_ttc_cents,
-      margin_multiplier: input.version.margin_multiplier,
-      discount_bp: input.version.discount_bp,
-      tax_rate_bp: input.version.tax_rate_bp,
-      rounding_mode: input.version.rounding_mode,
-      rounding_step_cents: input.version.rounding_step_cents,
-      ...(includeCalcEngineVersion
-        ? {
-            calc_engine_version:
-              input.version.calc_engine_version ?? 1,
-          }
-        : {}),
-      // EST-E27 : le regime de TVA est une donnee CONTRACTUELLE, il entre donc
-      // dans le sceau. Inclusion CONDITIONNELLE, uniquement hors valeur par
-      // defaut : ajouter une cle presente sur toutes les versions invaliderait
-      // le sceau de tout le parc, ce qui est exactement ce qu a fait b74a0c8.
-      ...(input.version.contractor_role &&
-      input.version.contractor_role !== "principal"
-        ? { contractor_role: input.version.contractor_role }
-        : {}),
-    },
-    items: canonicalItems,
-  };
-}
-
-export function computeEstimateSealHash(payload: EstimateSealPayload) {
-  return createHash("sha256")
-    .update(JSON.stringify(payload))
-    .digest("hex")
-    .toLowerCase();
-}
-
 export async function loadEstimateSealSource(input: {
   supabase: Supabase;
   tenantId: string;
@@ -2098,7 +1904,7 @@ export async function loadEstimateSealSource(input: {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, date_devis, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, seal_hash"
+      "id, tenant_id, project_id, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -2115,7 +1921,7 @@ export async function loadEstimateSealSource(input: {
   const { data: itemsData, error: itemsError } = await input.supabase
     .from("estimate_items")
     .select(
-      "id, position, item_type, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents"
+      "id, position, item_type, parent_id, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, labor_role_id, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, category_id, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, snapshot_pu_ht_cents, snapshot_fo_ht_cents, snapshot_mo_ht_cents, snapshot_mo_atelier_ht_cents, snapshot_mo_chantier_ht_cents"
     )
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId)
@@ -2221,6 +2027,7 @@ async function transitionEstimateVersionStatusAtomically(input: {
   if (error) {
     if (
       error.code === "40001" ||
+      error.code === "40P01" ||
       error.message.includes("ESTIMATE_VERSION_CONFLICT")
     ) {
       throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
@@ -2661,6 +2468,7 @@ function buildImportedEstimateItemInsert(input: {
     item_type: input.sourceItem.item_type,
     position: input.position,
     title: input.title ?? input.sourceItem.title,
+    aid: input.sourceItem.aid ?? null,
     description: input.sourceItem.description,
     quantity: input.sourceItem.quantity,
     unit_price_ht_cents: input.sourceItem.unit_price_ht_cents,
@@ -2684,6 +2492,7 @@ function buildImportedEstimateItemInsert(input: {
     source_job_id: input.sourceItem.source_job_id ?? null,
     source_file_name: input.sourceItem.source_file_name ?? null,
     source_page: input.sourceItem.source_page ?? null,
+    source_metadata: input.sourceItem.source_metadata ?? {},
     line_total_ht_cents: input.sourceItem.line_total_ht_cents,
     line_tax_cents: input.sourceItem.line_tax_cents,
     line_total_ttc_cents: input.sourceItem.line_total_ttc_cents,
@@ -3122,7 +2931,7 @@ async function recalculateEstimateVersionTotals(
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, contractor_role, estimate_projects!inner(user_id)"
+      "id, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -3150,6 +2959,7 @@ async function recalculateEstimateVersionTotals(
     | "global_coefficient"
     | "rounding_mode"
     | "rounding_step_cents"
+    | "calc_engine_version"
     | "contractor_role"
   > & {
     estimate_projects: { user_id: string } | { user_id: string }[] | null;
@@ -3512,10 +3322,6 @@ function computeSearchRelevance(input: {
   return score;
 }
 
-function todayDateOnly() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function normalizePositiveInteger(input: {
   value: number | undefined;
   fallback: number;
@@ -3627,17 +3433,6 @@ function throwTemplateSourceVersionNotFoundIfNeeded(
 function throwTemplateNotFoundIfNeeded(error: PostgrestError): never | void {
   if (!errorMessageContains(error, "template not found")) return;
   throw notFound("Template introuvable.", error, "ESTIMATE_TEMPLATE_NOT_FOUND");
-}
-
-function throwTemplateTargetProjectNotFoundIfNeeded(
-  error: PostgrestError
-): never | void {
-  if (!errorMessageContains(error, "target project not found")) return;
-  throw notFound(
-    "Projet cible introuvable.",
-    error,
-    "ESTIMATE_TEMPLATE_TARGET_PROJECT_NOT_FOUND"
-  );
 }
 
 function toRpcUuid(value: unknown): string | null {
@@ -3952,7 +3747,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -4936,7 +4731,7 @@ export async function listEstimateVersionVariants(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", tenantId)
@@ -5497,9 +5292,6 @@ export async function instantiateEstimateFromTemplate(
     );
   }
 
-  const rpcName = targetProjectId
-    ? "instantiate_estimate_template_into_project"
-    : "instantiate_estimate_from_template";
   const sourceVersionIdForCarryOver = targetProjectId
     ? await resolveLatestProjectVersionId({
         supabase,
@@ -5508,66 +5300,53 @@ export async function instantiateEstimateFromTemplate(
       })
     : null;
 
-  const rpcPayload = targetProjectId
-    ? {
-        p_template_id: templateId,
-        p_project_id: targetProjectId,
-        p_version_title: toNullableText(input.version_title),
-        p_date_devis: input.date_devis ?? null,
-        p_validite_jours: input.validite_jours ?? null,
-      }
-    : {
-        p_template_id: templateId,
-        p_project_name: projectName!,
-        p_version_title: toNullableText(input.version_title),
-        p_date_devis: input.date_devis ?? null,
-        p_validite_jours: input.validite_jours ?? null,
-      };
-
-  const { data, error } = await supabase.rpc(rpcName, rpcPayload);
-
-  if (error) {
-    throwTemplateNotFoundIfNeeded(error);
-    throwTemplateTargetProjectNotFoundIfNeeded(error);
+  let created: Awaited<ReturnType<typeof instantiateCanonicalEstimateV2FromTemplate>>;
+  try {
+    created = await instantiateCanonicalEstimateV2FromTemplate({
+      supabase,
+      tenantId,
+      actorUserId: userId,
+      templateId,
+      project: targetProjectId
+        ? { kind: "existing", id: targetProjectId }
+        : {
+            kind: "new",
+            name: projectName!,
+            notes: toNullableText(input.project_notes),
+          },
+      versionTitle: toNullableText(input.version_title),
+      dateDevis: input.date_devis ?? null,
+      validiteJours: input.validite_jours ?? null,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "ESTIMATE_CANONICAL_V2_TEMPLATE_NOT_FOUND"
+    ) {
+      throw notFound(
+        "Template introuvable.",
+        error,
+        "ESTIMATE_TEMPLATE_NOT_FOUND"
+      );
+    }
+    if (
+      error instanceof Error &&
+      error.message === "ESTIMATE_CANONICAL_V2_PROJECT_NOT_FOUND"
+    ) {
+      throw notFound(
+        "Projet cible introuvable.",
+        error,
+        "ESTIMATE_TEMPLATE_TARGET_PROJECT_NOT_FOUND"
+      );
+    }
     throw internalError(
       "Impossible d'instancier le template.",
       error,
       "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
     );
   }
-
-  const row = Array.isArray(data) ? data[0] : data;
-  const projectId =
-    row && typeof row === "object" && "project_id" in row
-      ? toRpcUuid((row as { project_id?: unknown }).project_id)
-      : null;
-  const versionId =
-    row && typeof row === "object" && "version_id" in row
-      ? toRpcUuid((row as { version_id?: unknown }).version_id)
-      : null;
-
-  if (!projectId || !versionId) {
-    throw internalError(
-      "Impossible d'instancier le template.",
-      { data },
-      "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
-    );
-  }
-
-  const projectNotes = toNullableText(input.project_notes);
-  if (projectNotes && !targetProjectId) {
-    const { error: projectUpdateError } = await supabase
-      .from("estimate_projects")
-      .update({
-        notes: projectNotes,
-      })
-      .eq("id", projectId)
-      .eq("tenant_id", tenantId);
-
-    if (projectUpdateError) {
-      throw mapSupabaseError(projectUpdateError, "Impossible d'instancier le template.");
-    }
-  }
+  const projectId = created.project.id;
+  const versionId = created.version.id;
 
   await tryCarryOverTakeoffJobsToNewVersion({
     supabase,
@@ -6347,6 +6126,7 @@ export async function insertAssemblyIntoVersion(input: {
     },
     rateById,
     isLaborSplitEnabled,
+    calcEngineVersion: resolveCalcEngineVersion(version),
   });
 
   for (const item of normalizedItems) {
@@ -6561,11 +6341,14 @@ export async function duplicateEstimateVersion(
   options?: { as_variant?: boolean }
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId, userId } = context;
+  const { supabase } = context;
   // Creer une version (ou une variante) est une ecriture de workflow, au meme
   // titre qu'une transition de statut : reservee aux roles ecrivains.
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  await getVersionAccessOrThrow(supabase, versionId, context);
+  const access = await getVersionAccessOrThrow(supabase, versionId, context);
+  if (access.project.is_archived) {
+    throw notFound("Version de chiffrage introuvable.");
+  }
 
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
     source_version_id: versionId,
@@ -6580,14 +6363,6 @@ export async function duplicateEstimateVersion(
   if (!duplicatedVersionId) {
     throw badRequest("Impossible de dupliquer le chiffrage.");
   }
-
-  await tryCarryOverTakeoffJobsToNewVersion({
-    supabase,
-    tenantId,
-    userId,
-    sourceVersionId: versionId,
-    targetVersionId: duplicatedVersionId,
-  });
 
   return {
     version_id: duplicatedVersionId,
@@ -6696,41 +6471,15 @@ async function duplicateSectionInternal(input: {
         throw internalError("Impossible de dupliquer la section.");
       }
 
-      return {
-        id: newItemId,
-        tenant_id: tenantId,
-        version_id: targetVersion.id,
-        parent_id: newParentId,
-        item_type: item.item_type,
+      return buildImportedEstimateItemInsert({
+        sourceItem: item,
+        itemId: newItemId,
+        tenantId,
+        targetVersionId: targetVersion.id,
+        parentId: newParentId,
         position: isRootSection ? rootPosition : item.position,
         title: isRootSection ? duplicatedRootTitle : item.title,
-        description: item.description,
-        quantity: item.quantity,
-        unit_price_ht_cents: item.unit_price_ht_cents,
-        tax_rate_bp: item.tax_rate_bp,
-        k_fo: item.k_fo,
-        h_mo: item.h_mo,
-        h_mo_majoration: item.h_mo_majoration ?? null,
-        k_mo: item.k_mo,
-        h_mo_atelier: item.h_mo_atelier ?? null,
-        k_mo_atelier: item.k_mo_atelier ?? null,
-        labor_role_atelier_id: item.labor_role_atelier_id ?? null,
-        h_mo_chantier: item.h_mo_chantier ?? null,
-        k_mo_chantier: item.k_mo_chantier ?? null,
-        labor_role_chantier_id: item.labor_role_chantier_id ?? null,
-        pu_ht_cents: item.pu_ht_cents,
-        labor_role_id: item.labor_role_id,
-        category_id: item.category_id,
-        supply_type_id: item.supply_type_id ?? null,
-        selected_supplier_price_id: item.selected_supplier_price_id ?? null,
-        source_provider: item.source_provider ?? null,
-        source_job_id: item.source_job_id ?? null,
-        source_file_name: item.source_file_name ?? null,
-        source_page: item.source_page ?? null,
-        line_total_ht_cents: item.line_total_ht_cents,
-        line_tax_cents: item.line_tax_cents,
-        line_total_ttc_cents: item.line_total_ttc_cents,
-      } satisfies EstimateItemInsert;
+      });
     }
   );
 
@@ -7098,7 +6847,9 @@ export async function promoteEstimateVariant(versionId: string) {
   };
 }
 
-export async function createEstimate(input: CreateEstimateInput) {
+export async function createEstimate(
+  input: CreateEstimateInput & { linked_import_id?: string | null }
+) {
   const context = await getAuthenticatedContext();
   const { supabase, userId, tenantId } = context;
   const targetProjectId = input.project_id ?? null;
@@ -7169,115 +6920,11 @@ export async function createEstimate(input: CreateEstimateInput) {
 
     latestProjectVersionDefaults = (latestVersionData ??
       null) as CreateEstimateLatestVersionDefaultsRow | null;
-  } else {
-    if (!input.project) {
-      throw badRequest("project ou project_id est requis.");
-    }
+  } else if (!input.project) {
+    throw badRequest("project ou project_id est requis.");
   }
 
-  const projectId = targetProjectId ?? randomUUID();
   const projectUserId = existingProject?.user_id ?? userId;
-  const normalizedCurrency = normalizeEstimateCurrencyOrThrow(
-    requestedCurrency ?? latestProjectVersionDefaults?.currency,
-    {
-      fallback: DEFAULT_CURRENCY,
-    }
-  );
-
-  const versionPayload = {
-    id: randomUUID(),
-    title: toNullableText(input.version?.title),
-    date_devis:
-      input.version?.date_devis ??
-      latestProjectVersionDefaults?.date_devis ??
-      todayDateOnly(),
-    validite_jours:
-      input.version?.validite_jours ??
-      latestProjectVersionDefaults?.validite_jours ??
-      DEFAULT_VALIDITE_JOURS,
-    margin_multiplier:
-      input.version?.margin_multiplier ??
-      latestProjectVersionDefaults?.margin_multiplier ??
-      DEFAULT_MARGIN_MULTIPLIER,
-    margin_mode:
-      input.version?.margin_mode ??
-      latestProjectVersionDefaults?.margin_mode ??
-      DEFAULT_MARGIN_MODE,
-    currency: normalizedCurrency,
-    margin_bp:
-      input.version?.margin_bp ?? latestProjectVersionDefaults?.margin_bp ?? 0,
-    discount_bp:
-      input.version?.discount_bp ?? latestProjectVersionDefaults?.discount_bp ?? 0,
-    discount_mode:
-      input.version?.discount_mode ??
-      latestProjectVersionDefaults?.discount_mode ??
-      DEFAULT_DISCOUNT_MODE,
-    discount_steps:
-      input.version?.discount_steps ??
-      latestProjectVersionDefaults?.discount_steps ??
-      [],
-    global_coefficient:
-      input.version?.global_coefficient ??
-      latestProjectVersionDefaults?.global_coefficient ??
-      DEFAULT_GLOBAL_COEFFICIENT,
-    tax_rate_bp:
-      input.version?.tax_rate_bp ??
-      latestProjectVersionDefaults?.tax_rate_bp ??
-      DEFAULT_TAX_RATE_BP,
-    rounding_mode:
-      input.version?.rounding_mode ??
-      latestProjectVersionDefaults?.rounding_mode ??
-      DEFAULT_ROUNDING_MODE,
-    rounding_step_cents:
-      input.version?.rounding_step_cents ??
-      latestProjectVersionDefaults?.rounding_step_cents ??
-      DEFAULT_ROUNDING_STEP_CENTS,
-    max_section_depth: clampMaxSectionDepth(
-      input.version?.max_section_depth ??
-        latestProjectVersionDefaults?.max_section_depth,
-      DEFAULT_MAX_SECTION_DEPTH
-    ),
-    total_ht_cents: 0,
-    total_tax_cents: 0,
-    total_ttc_cents: 0,
-  };
-
-  let estimateItems: EstimateItemInsert[] = [];
-  if (creationMode === "linked_dpgf_source") {
-    const preparedImport = await importLinkedDpgfSourceIntoVersionInternal({
-      supabase,
-      tenantId,
-      projectId,
-      versionId: versionPayload.id,
-      marginMultiplier: versionPayload.margin_multiplier,
-      defaultTaxRateBp: versionPayload.tax_rate_bp,
-      persist: false,
-    });
-    const totals = await calculateEstimateTotalsForItems({
-      supabase,
-      tenantId,
-      projectUserId,
-      version: {
-        margin_multiplier: versionPayload.margin_multiplier,
-        margin_mode: versionPayload.margin_mode,
-        tax_rate_bp: versionPayload.tax_rate_bp,
-        discount_bp: versionPayload.discount_bp,
-        discount_mode: versionPayload.discount_mode,
-        discount_steps: versionPayload.discount_steps,
-        global_coefficient: versionPayload.global_coefficient,
-        rounding_mode: versionPayload.rounding_mode,
-        rounding_step_cents: versionPayload.rounding_step_cents,
-        contractor_role: "principal",
-      },
-      lineItems: preparedImport.lineItems,
-    });
-
-    estimateItems = preparedImport.items;
-    versionPayload.total_ht_cents = totals.total_ht_cents;
-    versionPayload.total_tax_cents = totals.total_tax_cents;
-    versionPayload.total_ttc_cents = totals.total_ttc_cents;
-  }
-
   const categoriesPayload: EstimateCategoryInsert[] = DEFAULT_ESTIMATE_CATEGORIES.map(
     (category) => ({
       tenant_id: tenantId,
@@ -7322,40 +6969,94 @@ export async function createEstimate(input: CreateEstimateInput) {
     );
   }
 
-  const projectPayload = targetProjectId
-    ? null
-    : {
-        id: projectId,
-        name: input.project?.name,
-        reference: toNullableText(input.project?.reference),
-        client_name: toNullableText(input.project?.client_name),
-        notes: toNullableText(input.project?.notes),
-      };
-  const { data: persistedData, error: persistenceError } = await supabase.rpc(
-    "persist_estimate_creation_atomic",
-    {
-      p_tenant_id: tenantId,
-      p_project_id: targetProjectId,
-      p_project_payload: projectPayload,
-      p_version_payload: versionPayload,
-      p_items: estimateItems,
+  let source: PersistCanonicalEstimateV2Input["source"] = {
+    kind: "blank",
+    importId: input.linked_import_id ?? null,
+  };
+  if (creationMode === "linked_dpgf_source") {
+    const projectId = targetProjectId!;
+    const latestImport = await loadLatestLinkedDpgfImportForProject({
+      supabase,
+      tenantId,
+      projectId,
+    });
+    if (!latestImport) {
+      throw badRequest("Aucune source DPGF liee a cette affaire.");
     }
-  );
-
-  if (persistenceError || !persistedData) {
-    if (persistenceError) {
-      throw mapSupabaseError(
-        persistenceError,
-        "Impossible de créer le projet et sa version initiale."
+    const mappedRows = await loadMappedRowsForImportWithRetry({
+      supabase,
+      tenantId,
+      importId: latestImport.id,
+      maxAttempts: 10,
+      retryDelayMs: 300,
+    });
+    if (mappedRows.length === 0) {
+      throw badRequest(
+        "La source DPGF liee ne contient aucune ligne mappee exploitable."
       );
     }
-    throw badRequest("Impossible de créer le projet et sa version initiale.");
+    const normalized = normalizeMappedRowsForEstimateCreation(mappedRows, {
+      marginMultiplier:
+        input.version?.margin_multiplier ??
+        latestProjectVersionDefaults?.margin_multiplier ??
+        DEFAULT_MARGIN_MULTIPLIER,
+      defaultTaxRateBp:
+        input.version?.tax_rate_bp ??
+        latestProjectVersionDefaults?.tax_rate_bp ??
+        DEFAULT_TAX_RATE_BP,
+    });
+    if (normalized.validLines.length === 0) {
+      throw badRequest(
+        "Aucune ligne DPGF valide a importer depuis la source liee."
+      );
+    }
+    const latestMapping = await loadLatestDpgfMappingForImport({
+      supabase,
+      tenantId,
+      importId: latestImport.id,
+    });
+    source = {
+      kind: "import",
+      importId: latestImport.id,
+      mappingId: latestMapping?.id ?? null,
+      filename: latestImport.filename,
+      sectionTitle: toNullableText(latestImport.filename)
+        ? `Import DPGF - ${latestImport.filename}`
+        : "Import DPGF",
+      items: toRpcImportItems(normalized.validItems, {
+        importId: latestImport.id,
+        mappingId: latestMapping?.id ?? null,
+      }),
+    };
   }
 
-  const persisted = persistedData as unknown as {
-    project: EstimateProjectRow;
-    version: EstimateVersionRow;
-  };
+  const normalizedCurrency =
+    requestedCurrency === undefined
+      ? undefined
+      : normalizeEstimateCurrencyOrThrow(requestedCurrency, {
+          fallback: DEFAULT_CURRENCY,
+        });
+  const persisted = await persistCanonicalEstimateV2({
+    supabase,
+    tenantId,
+    actorUserId: userId,
+    project: targetProjectId
+      ? { kind: "existing", id: targetProjectId }
+      : {
+          kind: "new",
+          name: input.project!.name,
+          reference: toNullableText(input.project!.reference),
+          clientName: toNullableText(input.project!.client_name),
+          notes: toNullableText(input.project!.notes),
+        },
+    version: {
+      ...(input.version ?? {}),
+      ...(normalizedCurrency === undefined
+        ? {}
+        : { currency: normalizedCurrency }),
+    },
+    source,
+  });
 
   await tryCarryOverTakeoffJobsToNewVersion({
     supabase,
@@ -7365,10 +7066,16 @@ export async function createEstimate(input: CreateEstimateInput) {
     targetVersionId: persisted.version.id,
   });
 
-  return persisted;
+  return {
+    project: persisted.project,
+    version: persisted.version,
+  };
 }
 
-export async function getEstimateVersionDetails(versionId: string) {
+export async function getEstimateVersionDetails(
+  versionId: string,
+  options?: { includeExportCalculationContext?: boolean }
+) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
 
@@ -7399,6 +7106,14 @@ export async function getEstimateVersionDetails(versionId: string) {
     throw notFound("Version de chiffrage introuvable.");
   }
 
+  const preserveStoredSnapshot =
+    options?.includeExportCalculationContext === true &&
+    shouldPreserveStoredEstimateV2Snapshot(version);
+  const exportLaborSplitEnabled =
+    options?.includeExportCalculationContext === true && !preserveStoredSnapshot
+      ? await isFeatureEnabled(tenantId, "EST_031_LABOR_SPLIT", { supabase })
+      : null;
+
   const categoriesQuery = supabase
     .from("estimate_categories")
     .select("*")
@@ -7410,24 +7125,28 @@ export async function getEstimateVersionDetails(versionId: string) {
     .select("*")
     .eq("tenant_id", tenantId)
     .order("name", { ascending: true });
-  const laborRolesQuery = supabase
-    .from("labor_roles")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", project.user_id)
-    .order("position", { ascending: true });
+  const laborRolesQuery = preserveStoredSnapshot
+    ? Promise.resolve({ data: [], error: null })
+    : supabase
+        .from("labor_roles")
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", project.user_id)
+        .order("position", { ascending: true });
   const rulesQuery = supabase
     .from("estimate_suggestion_rules")
     .select("*")
     .eq("tenant_id", tenantId)
     .eq("user_id", project.user_id)
     .order("position", { ascending: true });
-  const marginTiersQuery = supabase
-    .from("margin_tiers")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .order("threshold_cents", { ascending: true })
-    .order("position", { ascending: true });
+  const marginTiersQuery = preserveStoredSnapshot
+    ? Promise.resolve({ data: [], error: null })
+    : supabase
+        .from("margin_tiers")
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .order("threshold_cents", { ascending: true })
+        .order("position", { ascending: true });
 
   const [
     itemsResult,
@@ -7510,6 +7229,7 @@ export async function getEstimateVersionDetails(versionId: string) {
     labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
     suggestion_rules: (rulesResult.data ?? []) as SuggestionRuleRow[],
     margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],
+    is_labor_split_enabled: exportLaborSplitEnabled,
     version_zero_summary: versionZeroSummary,
   };
 }
@@ -8168,6 +7888,41 @@ export async function getEstimateSendGating(versionId: string) {
   };
 }
 
+export async function freezeEstimateV2SnapshotForSend(
+  versionId: string,
+  concurrencyToken: string
+) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  const { version } = await getVersionAccessOrThrow(
+    supabase,
+    versionId,
+    context
+  );
+  assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
+  if (resolveCalcEngineVersion(version) !== 2) {
+    return version;
+  }
+  return freezeEstimateV2Snapshot({
+    supabase,
+    rpcClient: getServiceRoleSupabaseClient(),
+    tenantId,
+    versionId,
+    expectedUpdatedAt: version.updated_at,
+    expectedContentRevision: version.content_revision,
+    actorUserId: userId,
+    purpose: "send",
+  });
+}
+
 export async function patchEstimateStatus(
   versionId: string,
   input: PatchEstimateStatusInput,
@@ -8180,7 +7935,7 @@ export async function patchEstimateStatus(
   // propriétaire OU admin, ce qui laisserait un propriétaire rétrogradé
   // (director/viewer) sceller/accepter/archiver via le client service-role.
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const { version, project } = await getVersionAccessOrThrow(
+  let { version, project } = await getVersionAccessOrThrow(
     supabase,
     versionId,
     context
@@ -8220,15 +7975,9 @@ export async function patchEstimateStatus(
   let sealHash: string | null = null;
   let forcedByAdmin = false;
   let forcedBlockingFlags: string[] = [];
+  let transitionExpectedUpdatedAt = version.updated_at;
 
   if (version.status === "draft" && input.status === "sent") {
-    const gating = await evaluateEstimateSendGating({
-      supabase,
-      tenantId,
-      version,
-      project,
-    });
-
     if (input.force === true && !isTenantAdmin(context.tenantRole)) {
       throw forbidden(
         "Le forcage d'envoi est reserve aux administrateurs.",
@@ -8236,6 +7985,32 @@ export async function patchEstimateStatus(
         "FORCE_SEND_FORBIDDEN"
       );
     }
+
+    if (resolveCalcEngineVersion(version) === 2) {
+      const frozen = await freezeEstimateV2Snapshot({
+        supabase,
+        rpcClient: getServiceRoleSupabaseClient(),
+        tenantId,
+        versionId,
+        expectedUpdatedAt: version.updated_at,
+        expectedContentRevision: version.content_revision,
+        actorUserId: userId,
+        purpose: "send",
+      });
+      transitionExpectedUpdatedAt = frozen.updated_at;
+      ({ version, project } = await getVersionAccessOrThrow(
+        supabase,
+        versionId,
+        context
+      ));
+    }
+
+    const gating = await evaluateEstimateSendGating({
+      supabase,
+      tenantId,
+      version,
+      project,
+    });
 
     if (gating.blockingFlags.length > 0 && input.force !== true) {
       throw badRequest(
@@ -8262,7 +8037,12 @@ export async function patchEstimateStatus(
       tenantId,
       versionId,
     });
-    const sealPayload = buildCanonicalEstimateSealPayload(sealSource);
+    const sealPayload = buildCanonicalEstimateSealPayload(sealSource, {
+      payloadVersion:
+        resolveCalcEngineVersion(sealSource.version) === 2
+          ? CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION
+          : PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
+    });
     sealHash = computeEstimateSealHash(sealPayload);
   }
 
@@ -8282,7 +8062,7 @@ export async function patchEstimateStatus(
   const data = await transitionEstimateVersionStatusAtomically({
     versionId,
     tenantId,
-    expectedUpdatedAt: version.updated_at,
+    expectedUpdatedAt: transitionExpectedUpdatedAt,
     nextStatus: input.status,
     sealHash,
     actorUserId: userId,
@@ -8307,8 +8087,16 @@ export async function verifyEstimateSeal(versionId: string) {
     versionId,
   });
   const currentSealCandidate = {
-    scheme: "v2" as const,
+    scheme: "v3" as const,
     hash: computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource)),
+  };
+  const previousSealCandidate = {
+    scheme: "v2" as const,
+    hash: computeEstimateSealHash(
+      buildCanonicalEstimateSealPayload(sealSource, {
+        payloadVersion: PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
+      })
+    ),
   };
   const legacySealCandidates = [
     {
@@ -8331,12 +8119,12 @@ export async function verifyEstimateSeal(versionId: string) {
       ),
     },
   ];
-  // A version produced by engine v2 was necessarily sealed with payload v2.
-  // Legacy fallbacks exist only for the engine-v1 fleet predating the payload.
+  // Les nouveaux sceaux engine v2 couvrent le contrat complet en payload v3.
+  // Le candidat v2 conserve la compatibilite des sceaux emis avant ce contrat.
   const sealCandidates =
-    (sealSource.version.calc_engine_version ?? 1) >= 2
-      ? [currentSealCandidate]
-      : [currentSealCandidate, ...legacySealCandidates];
+    resolveCalcEngineVersion(sealSource.version) === 2
+      ? [currentSealCandidate, previousSealCandidate]
+      : [previousSealCandidate, ...legacySealCandidates];
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
   const matchedCandidate =
     storedHash === null

@@ -17,6 +17,13 @@ const permissionMigrationPath = join(
   "20260808204122_revoke_structured_dpgf_import_anon_execute.sql",
 );
 const permissionMigration = readFileSync(permissionMigrationPath, "utf8");
+const governanceMigrationPath = join(
+  process.cwd(),
+  "supabase",
+  "migrations",
+  "20260812032857_govern_estimate_calc_engine_v2.sql",
+);
+const governanceMigration = readFileSync(governanceMigrationPath, "utf8");
 
 describe("structured DPGF import migration", () => {
   it("keeps the existing RPC signature and defaults legacy entries to lines", () => {
@@ -47,12 +54,21 @@ describe("structured DPGF import migration", () => {
     expect(migration).toContain("source_page");
   });
 
-  it("keeps the RPC inaccessible to public and anonymous callers", () => {
+  it("retires the historical authenticated RPC grant behind the canonical facade", () => {
     expect(permissionMigration).toMatch(
       /revoke execute on function public\.create_estimate_version_from_import_lines\(\s*uuid,\s*uuid,\s*text,\s*text,\s*jsonb\s*\) from public, anon;/,
     );
     expect(permissionMigration).toMatch(
       /grant execute on function public\.create_estimate_version_from_import_lines\(\s*uuid,\s*uuid,\s*text,\s*text,\s*jsonb\s*\) to authenticated;/,
+    );
+    expect(governanceMigration).toMatch(
+      /revoke all on function public\.create_estimate_version_from_import_lines\(\s*uuid,\s*uuid,\s*text,\s*text,\s*jsonb\s*\) from public, anon, authenticated;/,
+    );
+    expect(governanceMigration).toMatch(
+      /revoke all on function public\.persist_estimate_creation_atomic\(\s*uuid,\s*uuid,\s*uuid,\s*jsonb,\s*jsonb,\s*jsonb,\s*uuid\s*\) from public, anon, authenticated;/,
+    );
+    expect(governanceMigration).toMatch(
+      /grant execute on function public\.persist_estimate_creation_atomic\(\s*uuid,\s*uuid,\s*uuid,\s*jsonb,\s*jsonb,\s*jsonb,\s*uuid\s*\) to service_role;/,
     );
   });
 });

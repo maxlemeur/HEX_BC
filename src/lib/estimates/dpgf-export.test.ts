@@ -410,4 +410,70 @@ describe("streamEstimateVersionDpgfXlsx", () => {
 
     expect(exported.filename).toBe("devis-Projet_Export_1-v1-dpgf.xlsx");
   });
+
+  it("exports a fresh v2 review snapshot instead of live draft inputs", async () => {
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID,
+        version_number: 3,
+        status: "draft",
+        title: "Revue v2",
+        date_devis: "2026-08-12",
+        calc_engine_version: 2,
+        content_revision: 9,
+        calc_snapshot_content_revision: 9,
+        estimate_projects: {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          user_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          name: "Projet Revue",
+          reference: "REVUE/2026",
+          client_name: "Client Revue",
+        },
+      },
+      items: [
+        {
+          id: "line-review",
+          item_type: "line",
+          parent_id: null,
+          position: 1,
+          title: "Ligne figée",
+          description: "u",
+          quantity: 2,
+          unit_price_ht_cents: 1,
+          pu_ht_cents: 7_777,
+          snapshot_pu_ht_cents: 9_500,
+          snapshot_fo_ht_cents: 12_000,
+          snapshot_mo_ht_cents: 7_000,
+          snapshot_mo_atelier_ht_cents: 3_000,
+          snapshot_mo_chantier_ht_cents: 4_000,
+          line_total_ht_cents: 19_000,
+          line_tax_cents: 3_800,
+          line_total_ttc_cents: 22_800,
+          labor_role_id: "role-live",
+          h_mo: 99,
+          k_mo: 99,
+          h_mo_majoration: 99,
+          category_id: null,
+          supply_type_id: null,
+        },
+      ],
+      supply_types: [],
+      labor_roles: [{ id: "role-live", name: "Taux vivant" }],
+      categories: [],
+    } as never);
+
+    const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+    const exported = await streamEstimateVersionDpgfXlsx(VERSION_ID, {
+      workbookWriterFactory,
+      isLaborSplitEnabled: false,
+    });
+    await new Response(exported.stream).arrayBuffer();
+
+    const lineRow = worksheets.find((sheet) => sheet.name === "Donnees")
+      ?.rows[1] as unknown[];
+    expect(lineRow[5]).toBe(95);
+    expect(lineRow[7]).toBe(1);
+    expect(lineRow[8]).toBeNull();
+    expect(lineRow[11]).toBe("");
+  });
 });

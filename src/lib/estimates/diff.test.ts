@@ -88,6 +88,13 @@ function createSection(
     source_file_name: overrides.source_file_name ?? null,
     source_page: overrides.source_page ?? null,
     source_metadata: overrides.source_metadata ?? {},
+    snapshot_pu_ht_cents: overrides.snapshot_pu_ht_cents ?? null,
+    snapshot_fo_ht_cents: overrides.snapshot_fo_ht_cents ?? null,
+    snapshot_mo_ht_cents: overrides.snapshot_mo_ht_cents ?? null,
+    snapshot_mo_atelier_ht_cents:
+      overrides.snapshot_mo_atelier_ht_cents ?? null,
+    snapshot_mo_chantier_ht_cents:
+      overrides.snapshot_mo_chantier_ht_cents ?? null,
     line_total_ht_cents: null,
     line_tax_cents: null,
     line_total_ttc_cents: null,
@@ -132,6 +139,13 @@ function createLine(
     source_file_name: overrides.source_file_name ?? null,
     source_page: overrides.source_page ?? null,
     source_metadata: overrides.source_metadata ?? {},
+    snapshot_pu_ht_cents: overrides.snapshot_pu_ht_cents ?? null,
+    snapshot_fo_ht_cents: overrides.snapshot_fo_ht_cents ?? null,
+    snapshot_mo_ht_cents: overrides.snapshot_mo_ht_cents ?? null,
+    snapshot_mo_atelier_ht_cents:
+      overrides.snapshot_mo_atelier_ht_cents ?? null,
+    snapshot_mo_chantier_ht_cents:
+      overrides.snapshot_mo_chantier_ht_cents ?? null,
     line_total_ht_cents: overrides.line_total_ht_cents ?? 100,
     line_tax_cents: overrides.line_tax_cents ?? 20,
     line_total_ttc_cents: overrides.line_total_ttc_cents ?? 120,

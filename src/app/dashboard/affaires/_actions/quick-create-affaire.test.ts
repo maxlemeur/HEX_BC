@@ -20,6 +20,10 @@ vi.mock("@/lib/estimates/server", () => ({
   createEstimate: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/canonical-v2-creation", () => ({
+  persistCanonicalEstimateV2: vi.fn(),
+}));
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -30,6 +34,7 @@ import {
   startAffaireFromImport,
 } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
 import { createEstimate } from "@/lib/estimates/server";
+import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { createMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -69,11 +74,12 @@ function createImportSelectBuilder(projectId: string | null) {
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
   builder.maybeSingle.mockResolvedValue({
-    data: {
-      id: IMPORT_ID,
-      tenant_id: TENANT_ID,
-      user_id: USER_ID,
-      project_id: projectId,
+      data: {
+        id: IMPORT_ID,
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        project_id: projectId,
+        filename: "dpgf.xlsx",
     },
     error: null,
   });
@@ -243,6 +249,18 @@ describe("quickCreateAffaire", () => {
       project: { id: CREATED_PROJECT_ID },
       version: { id: CREATED_VERSION_ID },
     } as never);
+    vi.mocked(persistCanonicalEstimateV2).mockResolvedValue({
+      project: { id: CREATED_PROJECT_ID },
+      version: {
+        id: CREATED_VERSION_ID,
+        total_ht_cents: 2000,
+        total_tax_cents: 400,
+        total_ttc_cents: 2400,
+      },
+      insertedLineCount: 1,
+      insertedSectionCount: 1,
+      rootSectionId: "sec-1",
+    } as never);
     vi.mocked(redirect).mockImplementation((url: string) => {
       throw new Error(`NEXT_REDIRECT:${url}`);
     });
@@ -330,10 +348,9 @@ describe("quickCreateAffaire", () => {
         reference: null,
       },
       creation_mode: "blank",
+      linked_import_id: IMPORT_ID,
     });
-    expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
-      project_id: CREATED_PROJECT_ID,
-    });
+    expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
@@ -395,15 +412,24 @@ describe("quickCreateAffaire", () => {
       },
       save_template: false,
     });
-    expect(supabase.rpc).toHaveBeenCalledWith("create_affaire_from_import_lines", {
-      p_import_id: IMPORT_ID,
-      p_project_name: "Affaire importee",
-      p_project_client: null,
-      p_project_reference: null,
-      p_version_title: null,
-      p_section_title: null,
-      p_lines: expect.any(Array),
-    });
+    expect(persistCanonicalEstimateV2).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        actorUserId: USER_ID,
+        project: expect.objectContaining({
+          kind: "new",
+          name: "Affaire importee",
+        }),
+        version: { title: "Import DPGF" },
+        source: expect.objectContaining({
+          kind: "import",
+          importId: IMPORT_ID,
+          filename: "dpgf.xlsx",
+          items: expect.any(Array),
+        }),
+      })
+    );
+    expect(supabase.rpc).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith(
       `/dashboard/affaires/${CREATED_PROJECT_ID}`
     );
@@ -517,10 +543,9 @@ describe("quickCreateAffaire", () => {
         reference: null,
       },
       creation_mode: "blank",
+      linked_import_id: IMPORT_ID,
     });
-    expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
-      project_id: CREATED_PROJECT_ID,
-    });
+    expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
@@ -563,9 +588,10 @@ describe("quickCreateAffaire", () => {
       },
     });
 
-    expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
-      project_id: CREATED_PROJECT_ID,
-    });
+    expect(createEstimate).toHaveBeenCalledWith(
+      expect.objectContaining({ linked_import_id: IMPORT_ID })
+    );
+    expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
   });
 
   it("creates a new manual estimate version on an existing affaire", async () => {

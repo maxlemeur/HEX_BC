@@ -441,6 +441,21 @@ describe("computeReadOnlyTotals - garde-fou calcEngineVersion (EST-E26 étape 9)
     expect(totals.globalCoefficient).toBe(1.1);
   });
 
+  it("v2 envoyé : conserve le snapshot même si le contexte live change", () => {
+    const sent = computeReadOnlyTotals({
+      ...base,
+      calcEngineVersion: 2,
+      preserveStoredSnapshot: true,
+      laborRateById: new Map([["role-live", 999_999]]),
+      isLaborSplitEnabled: true,
+      marginTiers: [{ threshold_cents: 0, multiplier: 99 }],
+    });
+
+    expect(sent.saleTotalCents).toBe(1_000);
+    expect(sent.taxCents).toBe(200);
+    expect(sent.roundedTtcCents).toBe(1_200);
+  });
+
   it("v2 envoyé : applique l'autoliquidation puis restaure la TVA au retour principal", () => {
     const subcontractorTotals = computeReadOnlyTotals({
       ...base,

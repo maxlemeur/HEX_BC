@@ -85,6 +85,14 @@ type PdfMockInput = {
   contractorRole?: "principal" | "subcontractor";
   versionStatus?: "draft" | "sending" | "sent" | "accepted" | "archived";
   contentRevision?: number;
+  calcSnapshotContentRevision?: number | null;
+  calcEngineVersion?: number;
+  itemOverrides?: Record<string, unknown>;
+  versionTotals?: {
+    total_ht_cents: number;
+    total_tax_cents: number;
+    total_ttc_cents: number;
+  };
   uploadError?: unknown;
   publishError?: unknown;
   documentState?: { value: EstimateDocumentMock | null };
@@ -131,9 +139,12 @@ function createSupabasePdfMock(input?: PdfMockInput) {
         status: input?.versionStatus ?? "draft",
         rounding_mode: "none",
         rounding_step_cents: 1,
-        total_ht_cents: 10000,
-        total_tax_cents: 2000,
-        total_ttc_cents: 12000,
+        calc_engine_version: input?.calcEngineVersion ?? 1,
+        calc_snapshot_content_revision:
+          input?.calcSnapshotContentRevision ?? null,
+        total_ht_cents: input?.versionTotals?.total_ht_cents ?? 10000,
+        total_tax_cents: input?.versionTotals?.total_tax_cents ?? 2000,
+        total_ttc_cents: input?.versionTotals?.total_ttc_cents ?? 12000,
         content_revision: input?.contentRevision ?? 1,
         estimate_projects: {
           id: PROJECT_ID,
@@ -184,6 +195,12 @@ function createSupabasePdfMock(input?: PdfMockInput) {
           line_total_ht_cents: 10000,
           line_tax_cents: 2000,
           line_total_ttc_cents: 12000,
+          snapshot_pu_ht_cents: null,
+          snapshot_fo_ht_cents: null,
+          snapshot_mo_ht_cents: null,
+          snapshot_mo_atelier_ht_cents: null,
+          snapshot_mo_chantier_ht_cents: null,
+          ...input?.itemOverrides,
         },
       ],
       error: null,
@@ -262,6 +279,27 @@ function createSupabasePdfMock(input?: PdfMockInput) {
   const createSignedUrl = vi
     .fn()
     .mockResolvedValue({ data: { signedUrl: "https://example.com/signed" }, error: null });
+  const from = vi.fn((table: string) => {
+    if (table === "tenant_memberships") {
+      return { select: vi.fn(() => tenantMembershipBuilder) };
+    }
+    if (table === "estimate_versions") {
+      return { select: vi.fn(() => versionSelectBuilder) };
+    }
+    if (table === "estimate_items") {
+      return { select: vi.fn(() => itemsBuilder) };
+    }
+    if (table === "estimate_documents") {
+      return { select: vi.fn(() => estimateDocumentsSelectBuilder) };
+    }
+    if (table === "estimate_terms_templates") {
+      return { select: vi.fn(() => termsTemplateBuilder) };
+    }
+    if (table === "profiles") {
+      return { select: vi.fn(() => profileBuilder) };
+    }
+    throw new Error(`Unexpected table: ${table}`);
+  });
 
   const supabase = {
     auth: {
@@ -270,45 +308,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
         error: null,
       }),
     },
-    from: vi.fn((table: string) => {
-      if (table === "tenant_memberships") {
-        return {
-          select: vi.fn(() => tenantMembershipBuilder),
-        };
-      }
-
-      if (table === "estimate_versions") {
-        return {
-          select: vi.fn(() => versionSelectBuilder),
-        };
-      }
-
-      if (table === "estimate_items") {
-        return {
-          select: vi.fn(() => itemsBuilder),
-        };
-      }
-
-      if (table === "estimate_documents") {
-        return {
-          select: vi.fn(() => estimateDocumentsSelectBuilder),
-        };
-      }
-
-      if (table === "estimate_terms_templates") {
-        return {
-          select: vi.fn(() => termsTemplateBuilder),
-        };
-      }
-
-      if (table === "profiles") {
-        return {
-          select: vi.fn(() => profileBuilder),
-        };
-      }
-
-      throw new Error(`Unexpected table: ${table}`);
-    }),
+    from,
     storage: {
       from: vi.fn(() => ({
         upload,
@@ -377,6 +377,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
       upload,
       createSignedUrl,
       documentState,
+      from,
     },
   };
 
@@ -971,6 +972,55 @@ describe("estimate pdf generator", () => {
       }),
     );
   });
+
+  it.each(["manual", "send"] as const)(
+    "uses the frozen v2 projection during %s generation while status is still draft",
+    async (triggeredBy) => {
+      vi.mocked(renderToBuffer).mockResolvedValue(
+        Buffer.from("v2-send-pdf") as never
+      );
+      const { authenticatedSupabase } = usePdfClients({
+        versionStatus: "draft",
+        calcEngineVersion: 2,
+        calcSnapshotContentRevision: 1,
+        versionTotals: {
+          total_ht_cents: 19_000,
+          total_tax_cents: 3_800,
+          total_ttc_cents: 22_800,
+        },
+        itemOverrides: {
+          quantity: 2,
+          pu_ht_cents: 7_777,
+          snapshot_pu_ht_cents: 9_500,
+          snapshot_fo_ht_cents: 12_000,
+          snapshot_mo_ht_cents: 7_000,
+          snapshot_mo_atelier_ht_cents: 3_000,
+          snapshot_mo_chantier_ht_cents: 4_000,
+          line_total_ht_cents: 19_000,
+          line_tax_cents: 3_800,
+          line_total_ttc_cents: 22_800,
+        },
+      });
+
+      await generateEstimatePdfNow(VERSION_ID, {
+        force: true,
+        triggeredBy,
+      });
+
+      const rendered = JSON.stringify(
+        vi.mocked(renderToBuffer).mock.calls[0]?.[0]
+      );
+      expect(rendered).toContain(
+        `"lineUnitPriceHtById":{"55555555-5555-4555-8555-555555555555":9500}`
+      );
+      const queriedTables = authenticatedSupabase.__mocks.from.mock.calls.map(
+        ([table]) => table
+      );
+      expect(queriedTables).not.toContain("labor_roles");
+      expect(queriedTables).not.toContain("margin_tiers");
+      expect(queriedTables).not.toContain("feature_flags");
+    }
+  );
 
   it("never marks a superseded publication as the current PDF", async () => {
     vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("stale-pdf") as never);

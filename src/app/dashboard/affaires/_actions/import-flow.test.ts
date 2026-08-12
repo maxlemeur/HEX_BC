@@ -12,6 +12,10 @@ vi.mock("@/lib/mappings/server", () => ({
   createMapping: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/canonical-v2-creation", () => ({
+  persistCanonicalEstimateV2: vi.fn(),
+}));
+
 import { revalidatePath } from "next/cache";
 
 import {
@@ -19,6 +23,7 @@ import {
   getUnifiedImportFlowTakeoffCarryOverPreview,
 } from "@/app/dashboard/affaires/_actions/import-flow";
 import { createMapping } from "@/lib/mappings/server";
+import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -57,11 +62,12 @@ function createImportSelectBuilder(projectId: string | null) {
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
   builder.maybeSingle.mockResolvedValue({
-    data: {
-      id: IMPORT_ID,
-      tenant_id: TENANT_ID,
-      user_id: USER_ID,
-      project_id: projectId,
+      data: {
+        id: IMPORT_ID,
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        project_id: projectId,
+        filename: "dpgf.xlsx",
     },
     error: null,
   });
@@ -214,6 +220,18 @@ describe("confirmUnifiedImportFlow", () => {
         id: "mapping-created",
       },
     } as never);
+    vi.mocked(persistCanonicalEstimateV2).mockResolvedValue({
+      project: { id: PROJECT_ID },
+      version: {
+        id: VERSION_ID,
+        total_ht_cents: 22000,
+        total_tax_cents: 4400,
+        total_ttc_cents: 26400,
+      },
+      insertedLineCount: 1,
+      insertedSectionCount: 1,
+      rootSectionId: "77777777-7777-4777-8777-777777777777",
+    } as never);
   });
 
   it("returns mapping_only when createEstimate=false and no projectId", async () => {
@@ -342,15 +360,67 @@ describe("confirmUnifiedImportFlow", () => {
       },
       takeoffCarryOver: null,
     });
-    expect(supabase.rpc).toHaveBeenCalledWith("create_estimate_version_from_import_lines", {
-      p_project_id: PROJECT_ID,
-      p_import_id: IMPORT_ID,
-      p_version_title: "Import test",
-      p_section_title: "Section import",
-      p_lines: expect.any(Array),
-    });
+    expect(persistCanonicalEstimateV2).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        actorUserId: USER_ID,
+        project: { kind: "existing", id: PROJECT_ID },
+        version: { title: "Import test" },
+        source: expect.objectContaining({
+          kind: "import",
+          importId: IMPORT_ID,
+          filename: "dpgf.xlsx",
+          sectionTitle: "Section import",
+          items: expect.any(Array),
+        }),
+      })
+    );
+    expect(supabase.rpc).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith(`/dashboard/affaires/${PROJECT_ID}`);
     expect(revalidatePath).toHaveBeenCalledWith(`/dashboard/estimates/${VERSION_ID}/edit`);
+  });
+
+  it("leaves an unlinked import untouched until canonical creation claims it atomically", async () => {
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(null),
+      projectBuilder: createProjectSelectBuilder(true),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        {
+          id: "mapped-atomic",
+          payload: {
+            row_index: 1,
+            mapped_row: {
+              designation: "Ligne atomique",
+              quantity: "1",
+              unit_price_ht: "10",
+            },
+          },
+        },
+      ]),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await confirmUnifiedImportFlow({
+      importId: IMPORT_ID,
+      projectId: PROJECT_ID,
+      createEstimate: true,
+    });
+
+    expect(persistCanonicalEstimateV2).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: { kind: "existing", id: PROJECT_ID },
+        source: expect.objectContaining({
+          kind: "import",
+          importId: IMPORT_ID,
+        }),
+      })
+    );
+    expect(
+      vi.mocked(supabase.from).mock.calls.filter(([table]) => table === "dpgf_imports")
+    ).toHaveLength(1);
   });
 
   it("sorts RPC lines by row_index before version creation", async () => {
@@ -407,9 +477,14 @@ describe("confirmUnifiedImportFlow", () => {
       createEstimate: true,
     });
 
-    const rpcCall = vi.mocked(supabase.rpc).mock.calls[0];
-    const payload = rpcCall?.[1] as { p_lines: Array<{ row_index: number }> } | undefined;
-    expect(payload?.p_lines.map((line) => line.row_index)).toEqual([1, 2]);
+    const creationCall = vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0];
+    const source = creationCall?.source;
+    expect(source?.kind).toBe("import");
+    expect(
+      source?.kind === "import"
+        ? source.items.map((line) => line.row_index)
+        : []
+    ).toEqual([1, 2]);
   });
 
   it("sends reviewed sections, source provenance, and operational lines to the RPC", async () => {
@@ -521,10 +596,11 @@ describe("confirmUnifiedImportFlow", () => {
       },
     });
 
-    const rpcCall = vi.mocked(supabase.rpc).mock.calls[0];
-    const payload = rpcCall?.[1] as {
-      p_lines: Array<Record<string, unknown>>;
-    } | undefined;
+    const creationCall = vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0];
+    const source = creationCall?.source;
+    const payload = {
+      p_lines: source?.kind === "import" ? source.items : [],
+    };
 
     expect(payload?.p_lines.map((item) => item.item_type)).toEqual([
       "section",
@@ -654,6 +730,18 @@ describe("confirmUnifiedImportFlow", () => {
     });
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(persistCanonicalEstimateV2).mockResolvedValueOnce({
+      project: { id: PROJECT_ID },
+      version: {
+        id: VERSION_ID,
+        total_ht_cents: 10000,
+        total_tax_cents: 2000,
+        total_ttc_cents: 12000,
+      },
+      insertedLineCount: 1,
+      insertedSectionCount: 1,
+      rootSectionId: "77777777-7777-4777-8777-777777777777",
+    } as never);
 
     const result = await confirmUnifiedImportFlow({
       importId: IMPORT_ID,

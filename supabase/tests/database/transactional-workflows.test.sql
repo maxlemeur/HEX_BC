@@ -678,22 +678,31 @@ select lives_ok(
   'the pre-existing UI contract can reopen an order as draft'
 );
 
+reset role;
+set local role service_role;
+
 select throws_ok(
   format(
     $sql$
       select public.persist_estimate_creation_atomic(
         %L::uuid,
+        '11111111-1111-4111-8111-111111111111',
         null,
         '{"id":"41111111-1111-4111-8111-111111111111","name":"Atomic rollback"}'::jsonb,
         '{"id":"42222222-2222-4222-8222-222222222222","title":null,"date_devis":"2026-08-12","validite_jours":30,"margin_multiplier":1,"margin_mode":"fixed","currency":"EUR","margin_bp":0,"discount_bp":0,"discount_mode":"simple","discount_steps":[],"global_coefficient":1,"tax_rate_bp":2000,"rounding_mode":"none","rounding_step_cents":1,"max_section_depth":3,"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0}'::jsonb,
-        '[{"id":"43333333-3333-4333-8333-333333333333","item_type":"line","position":1,"title":"invalid"}]'::jsonb
+        '[{"id":"43333333-3333-4333-8333-333333333333","item_type":"line","position":1,"title":"invalid","line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]'::jsonb,
+        null
       )
     $sql$,
-    public.current_tenant_id()
+    (
+      select membership.tenant_id
+      from public.tenant_memberships as membership
+      where membership.user_id = '11111111-1111-4111-8111-111111111111'
+    )
   ),
-  'P0001',
-  'Une ligne doit etre rattachee a une section.',
-  'an invalid estimate item aborts project and version creation'
+  '22023',
+  'ESTIMATE_ITEMS_HIERARCHY_INVALID',
+  'an invalid estimate hierarchy aborts project and version creation before mutation'
 );
 
 select lives_ok(
@@ -701,13 +710,19 @@ select lives_ok(
     $sql$
       select public.persist_estimate_creation_atomic(
         %L::uuid,
+        '11111111-1111-4111-8111-111111111111',
         null,
         '{"id":"61111111-1111-4111-8111-111111111111","name":"Creation DPGF atomique","reference":"DPGF-TX"}'::jsonb,
         '{"id":"62222222-2222-4222-8222-222222222222","title":"Version importee","date_devis":"2026-08-12","validite_jours":30,"margin_multiplier":1,"margin_mode":"fixed","currency":"EUR","margin_bp":0,"discount_bp":0,"discount_mode":"simple","discount_steps":[],"global_coefficient":1,"tax_rate_bp":2000,"rounding_mode":"none","rounding_step_cents":1,"max_section_depth":3,"total_ht_cents":3600,"total_tax_cents":720,"total_ttc_cents":4320}'::jsonb,
-        '[{"id":"63333333-3333-4333-8333-333333333333","parent_id":null,"item_type":"section","position":1,"title":"Import DPGF","source_provider":"dpgf","source_file_name":"source-dpgf.xlsx"},{"id":"64444444-4444-4444-8444-444444444444","parent_id":"63333333-3333-4333-8333-333333333333","item_type":"line","position":1,"title":"Ligne DPGF","quantity":2,"unit_price_ht_cents":1800,"tax_rate_bp":2000,"k_fo":1,"h_mo":0,"h_mo_majoration":1,"k_mo":1,"pu_ht_cents":1800,"source_provider":"dpgf","source_file_name":"source-dpgf.xlsx","source_page":4,"line_total_ht_cents":3600,"line_tax_cents":720,"line_total_ttc_cents":4320}]'::jsonb
+        '[{"id":"63333333-3333-4333-8333-333333333333","parent_id":null,"item_type":"section","position":1,"title":"Import DPGF","source_provider":"dpgf","source_file_name":"source-dpgf.xlsx"},{"id":"64444444-4444-4444-8444-444444444444","parent_id":"63333333-3333-4333-8333-333333333333","item_type":"line","position":1,"title":"Ligne DPGF","quantity":2,"unit_price_ht_cents":1800,"tax_rate_bp":2000,"k_fo":1,"h_mo":0,"h_mo_majoration":1,"k_mo":1,"pu_ht_cents":1800,"source_provider":"dpgf","source_file_name":"source-dpgf.xlsx","source_page":4,"line_total_ht_cents":3600,"line_tax_cents":720,"line_total_ttc_cents":4320}]'::jsonb,
+        null
       )
     $sql$,
-    public.current_tenant_id()
+    (
+      select membership.tenant_id
+      from public.tenant_memberships as membership
+      where membership.user_id = '11111111-1111-4111-8111-111111111111'
+    )
   ),
   'new project, version and linked DPGF payload persist in one transaction'
 );
@@ -743,13 +758,19 @@ select lives_ok(
     $sql$
       select public.persist_estimate_creation_atomic(
         %L::uuid,
+        '11111111-1111-4111-8111-111111111111',
         '34444444-4444-4444-8444-444444444444',
         null,
         '{"id":"65555555-5555-4555-8555-555555555555","title":"Version suivante","date_devis":"2026-08-12","validite_jours":30,"margin_multiplier":1,"margin_mode":"fixed","currency":"EUR","margin_bp":0,"discount_bp":0,"discount_mode":"simple","discount_steps":[],"global_coefficient":1,"tax_rate_bp":2000,"rounding_mode":"none","rounding_step_cents":1,"max_section_depth":3,"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0}'::jsonb,
-        '[]'::jsonb
+        '[]'::jsonb,
+        null
       )
     $sql$,
-    public.current_tenant_id()
+    (
+      select membership.tenant_id
+      from public.tenant_memberships as membership
+      where membership.user_id = '11111111-1111-4111-8111-111111111111'
+    )
   ),
   'an existing project accepts its next version atomically'
 );
@@ -770,7 +791,7 @@ select is(
 select ok(
   position(
     'for update' in lower(pg_get_functiondef(
-      'public.persist_estimate_creation_atomic(uuid,uuid,jsonb,jsonb,jsonb)'::regprocedure
+      'public.persist_estimate_creation_atomic(uuid,uuid,uuid,jsonb,jsonb,jsonb,uuid)'::regprocedure
     ))
   ) > 0,
   'estimate version allocation locks the project row before max plus one'
@@ -819,18 +840,27 @@ select throws_ok(
   'a viewer cannot delete their own draft purchase order'
 );
 
+reset role;
+set local role service_role;
+
 select throws_ok(
   format(
     $sql$
       select public.persist_estimate_creation_atomic(
         %L::uuid,
+        '22222222-2222-4222-8222-222222222222',
         null,
         '{"id":"44444444-4444-4444-8444-444444444444","name":"Viewer project"}'::jsonb,
         '{"id":"45555555-5555-4555-8555-555555555555","title":null,"date_devis":"2026-08-12","validite_jours":30,"margin_multiplier":1,"margin_mode":"fixed","currency":"EUR","margin_bp":0,"discount_bp":0,"discount_mode":"simple","discount_steps":[],"global_coefficient":1,"tax_rate_bp":2000,"rounding_mode":"none","rounding_step_cents":1,"max_section_depth":3,"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0}'::jsonb,
-        '[]'::jsonb
+        '[]'::jsonb,
+        null
       )
     $sql$,
-    public.current_tenant_id()
+    (
+      select membership.tenant_id
+      from public.tenant_memberships as membership
+      where membership.user_id = '22222222-2222-4222-8222-222222222222'
+    )
   ),
   '42501',
   'ESTIMATE_CREATION_ROLE_REQUIRED',

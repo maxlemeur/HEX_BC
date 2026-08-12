@@ -2,14 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
-import {
-  getAuthenticatedTenantContext,
-} from "@/lib/auth/tenant-context";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   buildAffaireRegisterSubmissionSignalMessage,
   fetchAffaireRegisterGateSummary,
 } from "@/lib/affaires/register-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
+import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
+import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission";
+import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
 import type { EstimateReadinessCategory } from "@/lib/estimates/readiness";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import {
@@ -25,13 +26,7 @@ import {
 import type { Database, Json } from "@/types/database";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 
-import {
-  badRequest,
-  conflict,
-  forbidden,
-  mapSupabaseError,
-  notFound,
-} from "./errors";
+import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "./errors";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
@@ -110,23 +105,11 @@ type EstimateApprovalRow = {
   status: EstimateApprovalStatus;
   decided_at: string | null;
   approved_content_revision: number | string | null;
+  review_cycle_id: string | null;
+  superseded_at: string | null;
 };
 
-type EstimateApprovalInsert = {
-  id?: string;
-  created_at?: string;
-  updated_at?: string;
-  tenant_id?: string;
-  version_id: string;
-  rule_id: string;
-  requested_by: string;
-  approved_by?: string | null;
-  status?: EstimateApprovalStatus;
-  decided_at?: string | null;
-  approved_content_revision?: number | string | null;
-};
-
-type EstimateApprovalUpdate = Partial<EstimateApprovalInsert>;
+type EstimateApprovalUpdate = Partial<EstimateApprovalRow>;
 
 type EstimateReviewCycleRow = {
   id: string;
@@ -143,26 +126,13 @@ type EstimateReviewCycleRow = {
   carried_over_from_cycle_id: string | null;
   submission_message: string | null;
   assigned_reviewer_id: string | null;
+  requested_content_revision: number | string | null;
+  superseded_at: string | null;
+  superseded_by: string | null;
+  superseded_by_cycle_id: string | null;
 };
 
-type EstimateReviewCycleInsert = {
-  id?: string;
-  created_at?: string;
-  updated_at?: string;
-  tenant_id?: string;
-  version_id: string;
-  cycle_number: number;
-  requested_by: string;
-  requested_at?: string;
-  decided_by?: string | null;
-  decision?: EstimateReviewDecision | null;
-  decided_at?: string | null;
-  carried_over_from_cycle_id?: string | null;
-  submission_message?: string | null;
-  assigned_reviewer_id?: string | null;
-};
-
-type EstimateReviewCycleUpdate = Partial<EstimateReviewCycleInsert>;
+type EstimateReviewCycleUpdate = Partial<EstimateReviewCycleRow>;
 
 type EstimateReviewCommentRow = {
   id: string;
@@ -274,14 +244,14 @@ type EstimateRulesTable = {
 
 type EstimateApprovalsTable = {
   Row: EstimateApprovalRow;
-  Insert: EstimateApprovalInsert;
+  Insert: never;
   Update: EstimateApprovalUpdate;
   Relationships: [];
 };
 
 type EstimateReviewCyclesTable = {
   Row: EstimateReviewCycleRow;
-  Insert: EstimateReviewCycleInsert;
+  Insert: never;
   Update: EstimateReviewCycleUpdate;
   Relationships: [];
 };
@@ -343,6 +313,11 @@ type VersionAccessRow = Pick<
   | "id"
   | "tenant_id"
   | "status"
+  | "updated_at"
+  | "content_revision"
+  | "calc_engine_version"
+  | "calc_snapshot_content_revision"
+  | "calc_snapshot_context"
   | "version_number"
   | "project_id"
   | "title"
@@ -413,6 +388,11 @@ export type RulesEngineVersion = Pick<
   margin_bp?: number | null;
   margin_multiplier?: number | null;
   discount_bp?: number | null;
+  calc_engine_version?: number | null;
+  content_revision?: number | string | null;
+  calc_snapshot_content_revision?: number | string | null;
+  calc_snapshot_context?: Json | null;
+  margin_mode?: "fixed" | "tiered" | null;
 };
 
 export type RulesEngineProject = Pick<EstimateProjectRow, "id" | "client_name">;
@@ -888,20 +868,6 @@ function formatChangeFieldValue(input: {
   return String(input.value);
 }
 
-function resolveVersionMarginBp(version: RulesEngineVersion) {
-  const marginBp = toFiniteNumber(version.margin_bp, NaN);
-  if (Number.isFinite(marginBp) && marginBp >= 0) {
-    return marginBp;
-  }
-
-  const multiplier = toFiniteNumber(version.margin_multiplier, NaN);
-  if (!Number.isFinite(multiplier) || multiplier <= 0) {
-    return 0;
-  }
-
-  return Math.max(0, Math.round((1 - 1 / multiplier) * 10000));
-}
-
 function toRulesSupabaseClient(
   supabase: SupabaseClient<Database> | Supabase
 ): Supabase {
@@ -1187,7 +1153,7 @@ function resolveMetricForRule(input: {
     return {
       metricKey: "margin_bp",
       check: checkMarginRule({
-        actualValue: resolveVersionMarginBp(version),
+        actualValue: resolveEffectiveMarginBp(version) ?? 0,
         threshold: thresholdValue,
       }),
       comparator: ">=",
@@ -1446,11 +1412,12 @@ export async function evaluateRules(input: {
   const { data: approvalsData, error: approvalsError } = await supabase
     .from("estimate_approvals")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision"
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at"
     )
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.version.id)
     .in("rule_id", relevantRuleIds)
+    .is("superseded_at", null)
     .order("created_at", { ascending: false });
 
   if (approvalsError) {
@@ -1464,7 +1431,6 @@ export async function evaluateRules(input: {
     approvals: (approvalsData ?? []) as EstimateApprovalRow[],
   });
   const needsApprovalFreshnessCheck =
-    input.preserveApprovedRequiresApproval !== true &&
     [...latestApprovalByRule.values()].some(
       (approval) => approval.status === "approved"
     );
@@ -1544,9 +1510,7 @@ export async function evaluateRules(input: {
       : resolveSeverityForRuleAction(rule.action);
 
     const approvalStatus: EstimateRuleViolation["approval_status"] = requiresApproval
-      ? latestApproval?.status === "approved" &&
-        input.preserveApprovedRequiresApproval !== true &&
-        !approvalIsFresh
+      ? latestApproval?.status === "approved" && !approvalIsFresh
         ? "missing"
         : (latestApproval?.status ?? "missing")
       : null;
@@ -2608,6 +2572,10 @@ async function listEstimateReviewCycles(input: {
         "decision",
         "decided_at",
         "carried_over_from_cycle_id",
+        "requested_content_revision",
+        "superseded_at",
+        "superseded_by",
+        "superseded_by_cycle_id",
         "requested_by_profile:requested_by(full_name)",
         "decided_by_profile:decided_by(full_name)",
         "assigned_reviewer_profile:assigned_reviewer_id(id, full_name, work_email)",
@@ -3187,7 +3155,10 @@ async function enrichEstimateApprovalSummary(input: {
     correctionItemsByCycleId.set(row.cycle_id, [item]);
   });
 
-  const activeCycleRow = cycleRows.find((cycle) => cycle.decision === null) ?? null;
+  const activeCycleRow =
+    cycleRows.find(
+      (cycle) => cycle.decision === null && cycle.superseded_at == null
+    ) ?? null;
   const activeCyclePendingApprovals =
     activeCycleRow !== null
       ? await listPendingApprovalsForVersion({
@@ -3251,6 +3222,7 @@ async function enrichEstimateApprovalSummary(input: {
       ? await listRuleIdsForReviewCycle({
           context: input.context,
           versionId: input.version.id,
+          cycleId: correctionSourceCycle.id,
           requestedAt: correctionSourceCycle.requestedAt,
           decidedAt: correctionSourceCycle.decidedAt,
         })
@@ -3381,7 +3353,6 @@ function toApprovalSummaryAuditMetadata(input: {
 async function logEstimateVersionEvent(input: {
   versionId: string;
   eventType:
-    | "approval_submitted"
     | "approval_rules_evaluated"
     | "approval_status_changed"
     | "approval_decided";
@@ -3527,7 +3498,13 @@ async function syncEstimateApprovalSummary(input: {
       total_ht_cents: input.version.total_ht_cents,
       margin_bp: input.version.margin_bp,
       margin_multiplier: input.version.margin_multiplier,
+      margin_mode: input.version.margin_mode,
       discount_bp: input.version.discount_bp,
+      calc_engine_version: input.version.calc_engine_version,
+      content_revision: input.version.content_revision,
+      calc_snapshot_content_revision:
+        input.version.calc_snapshot_content_revision,
+      calc_snapshot_context: input.version.calc_snapshot_context,
     },
     project: {
       id: input.project.id,
@@ -3545,7 +3522,13 @@ async function syncEstimateApprovalSummary(input: {
       total_ht_cents: input.version.total_ht_cents,
       margin_bp: input.version.margin_bp,
       margin_multiplier: input.version.margin_multiplier,
+      margin_mode: input.version.margin_mode,
       discount_bp: input.version.discount_bp,
+      calc_engine_version: input.version.calc_engine_version,
+      content_revision: input.version.content_revision,
+      calc_snapshot_content_revision:
+        input.version.calc_snapshot_content_revision,
+      calc_snapshot_context: input.version.calc_snapshot_context,
     },
     project: {
       id: input.project.id,
@@ -3738,7 +3721,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, status, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
+      "id, tenant_id, status, updated_at, content_revision, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -3873,11 +3856,12 @@ async function findOpenReviewCycle(input: {
   const { data, error } = await input.context.supabase
     .from("estimate_review_cycles")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id"
+      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id, requested_content_revision, superseded_at, superseded_by, superseded_by_cycle_id"
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
     .is("decision", null)
+    .is("superseded_at", null)
     .order("cycle_number", { ascending: false })
     .limit(1);
 
@@ -3895,7 +3879,7 @@ async function findLatestReviewCycle(input: {
   const { data, error } = await input.context.supabase
     .from("estimate_review_cycles")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id"
+      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id, requested_content_revision, superseded_at, superseded_by, superseded_by_cycle_id"
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
@@ -3909,77 +3893,6 @@ async function findLatestReviewCycle(input: {
   return ((data ?? [])[0] as EstimateReviewCycleRow | undefined) ?? null;
 }
 
-async function ensureOpenReviewCycle(input: {
-  context: AuthenticatedContext;
-  versionId: string;
-  submissionMessage?: string | null;
-  assignedReviewerId?: string | null;
-}) {
-  const normalizedSubmissionMessage = input.submissionMessage?.trim() || null;
-  const normalizedAssignedReviewerId = input.assignedReviewerId ?? null;
-  const existing = await findOpenReviewCycle(input);
-  if (existing) {
-    if (
-      (normalizedSubmissionMessage !== null &&
-        existing.submission_message !== normalizedSubmissionMessage) ||
-      (normalizedAssignedReviewerId !== null &&
-        existing.assigned_reviewer_id !== normalizedAssignedReviewerId)
-    ) {
-      throw badRequest(
-        "Un cycle de revue actif existe deja avec un contexte de soumission different."
-      );
-    }
-    return existing;
-  }
-
-  const latestCycle = await findLatestReviewCycle(input);
-  const payload: EstimateReviewCycleInsert = {
-    tenant_id: input.context.tenantId,
-    version_id: input.versionId,
-    cycle_number: (latestCycle?.cycle_number ?? 0) + 1,
-    requested_by: input.context.userId,
-    requested_at: new Date().toISOString(),
-    carried_over_from_cycle_id: latestCycle?.id ?? null,
-    submission_message: normalizedSubmissionMessage,
-    assigned_reviewer_id: normalizedAssignedReviewerId,
-  };
-
-  const { data, error } = await input.context.supabase
-    .from("estimate_review_cycles")
-    .insert(payload)
-    .select(
-      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id"
-    )
-    .single();
-
-  if (error || !data) {
-    if (error?.code === "23505") {
-      const racedCycle = await findOpenReviewCycle(input);
-      if (racedCycle) {
-        if (
-          (normalizedSubmissionMessage !== null &&
-            racedCycle.submission_message !== normalizedSubmissionMessage) ||
-          (normalizedAssignedReviewerId !== null &&
-            racedCycle.assigned_reviewer_id !== normalizedAssignedReviewerId)
-        ) {
-          throw badRequest(
-            "Un cycle de revue actif existe deja avec un contexte de soumission different."
-          );
-        }
-        return racedCycle;
-      }
-    }
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible d'ouvrir le cycle de revue.");
-    }
-
-    throw badRequest("Impossible d'ouvrir le cycle de revue.");
-  }
-
-  return data as EstimateReviewCycleRow;
-}
-
 async function listPendingApprovalsForVersion(input: {
   context: AuthenticatedContext;
   versionId: string;
@@ -3987,11 +3900,12 @@ async function listPendingApprovalsForVersion(input: {
   const { data, error } = await input.context.supabase
     .from("estimate_approvals")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at"
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
     .eq("status", "pending")
+    .is("superseded_at", null)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -4004,35 +3918,61 @@ async function listPendingApprovalsForVersion(input: {
 async function listApprovalsForReviewCycle(input: {
   context: AuthenticatedContext;
   versionId: string;
+  cycleId: string;
   requestedAt: string;
   decidedAt?: string | null;
 }) {
-  let query = input.context.supabase
+  const selection =
+    "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at";
+  const linkedResult = await input.context.supabase
     .from("estimate_approvals")
-    .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
-    )
+    .select(selection)
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
+    .eq("review_cycle_id", input.cycleId)
+    .order("created_at", { ascending: false });
+
+  if (linkedResult.error) {
+    throw mapSupabaseError(
+      linkedResult.error,
+      "Impossible de charger les approbations du cycle de revue."
+    );
+  }
+
+  if ((linkedResult.data ?? []).length > 0) {
+    return (linkedResult.data ?? []) as EstimateApprovalRow[];
+  }
+
+  // Compatibility for cycles created before review_cycle_id existed. A
+  // temporal window is used only when no governed linked row exists.
+  let legacyQuery = input.context.supabase
+    .from("estimate_approvals")
+    .select(selection)
+    .eq("tenant_id", input.context.tenantId)
+    .eq("version_id", input.versionId)
+    .is("review_cycle_id", null)
     .gte("created_at", input.requestedAt)
     .order("created_at", { ascending: false });
 
   if (input.decidedAt) {
-    query = query.lte("created_at", input.decidedAt);
+    legacyQuery = legacyQuery.lte("created_at", input.decidedAt);
   }
 
-  const { data, error } = await query;
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les approbations du cycle de revue.");
+  const legacyResult = await legacyQuery;
+  if (legacyResult.error) {
+    throw mapSupabaseError(
+      legacyResult.error,
+      "Impossible de charger les approbations historiques du cycle de revue."
+    );
   }
 
-  return (data ?? []) as EstimateApprovalRow[];
+  return (legacyResult.data ?? []) as EstimateApprovalRow[];
 }
 
 async function listRuleIdsForReviewCycle(input: {
   context: AuthenticatedContext;
   versionId: string;
+  cycleId: string;
   requestedAt: string;
   decidedAt?: string | null;
 }) {
@@ -4189,11 +4129,12 @@ async function findLatestApprovalForRule(input: {
   let query = input.context.supabase
     .from("estimate_approvals")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at"
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
     .eq("rule_id", input.ruleId)
+    .is("superseded_at", null)
     .order("created_at", { ascending: false })
     .limit(1);
 
@@ -4235,69 +4176,11 @@ async function resolveAssignedReviewerOrThrow(input: {
   return assignedReviewer;
 }
 
-async function ensurePendingApprovalForRule(input: {
-  context: AuthenticatedContext;
-  versionId: string;
-  ruleId: string;
-}) {
-  const existingPending = await findLatestApprovalForRule({
-    context: input.context,
-    versionId: input.versionId,
-    ruleId: input.ruleId,
-    status: "pending",
-  });
-
-  if (existingPending) {
-    return existingPending;
-  }
-
-  const payload: EstimateApprovalInsert = {
-    tenant_id: input.context.tenantId,
-    version_id: input.versionId,
-    rule_id: input.ruleId,
-    requested_by: input.context.userId,
-    status: "pending",
-    approved_by: null,
-    decided_at: null,
-  };
-
-  const { data, error } = await input.context.supabase
-    .from("estimate_approvals")
-    .insert(payload)
-    .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
-    )
-    .single();
-
-  if (error || !data) {
-    if (error?.code === "23505") {
-      const racedPending = await findLatestApprovalForRule({
-        context: input.context,
-        versionId: input.versionId,
-        ruleId: input.ruleId,
-        status: "pending",
-      });
-
-      if (racedPending) {
-        return racedPending;
-      }
-    }
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de creer la demande d'approbation.");
-    }
-
-    throw badRequest("Impossible de creer la demande d'approbation.");
-  }
-
-  return data as EstimateApprovalRow;
-}
-
 export async function submitEstimateApproval(
   input: SubmitEstimateApprovalInput
 ): Promise<SubmitEstimateApprovalResult> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, input.versionId);
+  let access = await getVersionAccessOrThrow(context, input.versionId);
 
   if (input.action === "submit_for_review") {
     assertRequesterRole(context);
@@ -4311,6 +4194,8 @@ export async function submitEstimateApproval(
       throw forbidden("Action reservee au proprietaire du chiffrage.");
     }
 
+    if (await freezeApprovalV2DraftIfRequired(context, access.version))
+      access = await getVersionAccessOrThrow(context, input.versionId);
     const items = await loadApprovalSummaryItems({
       context,
       versionId: input.versionId,
@@ -4325,7 +4210,13 @@ export async function submitEstimateApproval(
           total_ht_cents: access.version.total_ht_cents,
           margin_bp: access.version.margin_bp,
           margin_multiplier: access.version.margin_multiplier,
+          margin_mode: access.version.margin_mode,
           discount_bp: access.version.discount_bp,
+          calc_engine_version: access.version.calc_engine_version,
+          content_revision: access.version.content_revision,
+          calc_snapshot_content_revision:
+            access.version.calc_snapshot_content_revision,
+          calc_snapshot_context: access.version.calc_snapshot_context,
         },
         project: {
           id: access.project.id,
@@ -4342,7 +4233,13 @@ export async function submitEstimateApproval(
           total_ht_cents: access.version.total_ht_cents,
           margin_bp: access.version.margin_bp,
           margin_multiplier: access.version.margin_multiplier,
+          margin_mode: access.version.margin_mode,
           discount_bp: access.version.discount_bp,
+          calc_engine_version: access.version.calc_engine_version,
+          content_revision: access.version.content_revision,
+          calc_snapshot_content_revision:
+            access.version.calc_snapshot_content_revision,
+          calc_snapshot_context: access.version.calc_snapshot_context,
         },
         project: {
           id: access.project.id,
@@ -4396,6 +4293,7 @@ export async function submitEstimateApproval(
       carriedOverRuleIds = await listRuleIdsForReviewCycle({
         context,
         versionId: input.versionId,
+        cycleId: rejectedSourceCycle.id,
         requestedAt: rejectedSourceCycle.requested_at,
         decidedAt: rejectedSourceCycle.decided_at,
       });
@@ -4443,48 +4341,17 @@ export async function submitEstimateApproval(
       };
     });
 
-    const cycle = await ensureOpenReviewCycle({
-      context,
+    const submission = await openEstimateReviewCycle({
       versionId: input.versionId,
-      submissionMessage: input.submissionMessage?.trim() || null,
-      assignedReviewerId: assignedReviewer.userId,
-    });
-
-    let latestApproval: EstimateApprovalRow | null = null;
-    for (const reason of requestedRulePayload) {
-      latestApproval = await ensurePendingApprovalForRule({
-        context,
-        versionId: input.versionId,
-        ruleId: reason.ruleId,
-      });
-    }
-
-    if (!latestApproval) {
-      throw badRequest("Aucune approbation n'a pu etre ouverte.");
-    }
-
-    await syncEstimateApprovalSummary({
-      context,
-      version: access.version,
-      project: access.project,
-      trigger: "approval_request",
-    });
-
-    await logEstimateVersionEvent({
-      versionId: input.versionId,
-      eventType: "approval_submitted",
+      tenantId: context.tenantId,
       actorUserId: context.userId,
-      occurredAt: cycle.requested_at,
-      metadata: {
-        cycleId: cycle.id,
-        cycleNumber: cycle.cycle_number,
-        requestedRuleIds: requestedRulePayload.map((reason) => reason.ruleId),
+      assignedReviewerId: assignedReviewer.userId,
+      ruleIds: requestedRulePayload.map((reason) => reason.ruleId),
+      submissionMessage: input.submissionMessage ?? null,
+      eventMetadata: {
         requestedRuleLabels: requestedRulePayload.map((reason) => reason.label),
-        requestedApprovalCount: requestedRulePayload.length,
-        assignedReviewerUserId: assignedReviewer.userId,
         assignedReviewerName: assignedReviewer.fullName,
         assignedReviewerEmail: assignedReviewer.workEmail,
-        submissionMessage: input.submissionMessage?.trim() || null,
         resubmissionOfCycleId: rejectedSourceCycle?.id ?? null,
         resubmissionOfCycleNumber: rejectedSourceCycle?.cycle_number ?? null,
         correctionChecklistCompleted: rejectedSourceCycle ? true : null,
@@ -4494,8 +4361,9 @@ export async function submitEstimateApproval(
         },
       } satisfies Json,
     });
+    const latestApproval = submission.approvals.at(-1)!;
 
-    if (assignedReviewer.workEmail) {
+    if (submission.created && assignedReviewer.workEmail) {
       try {
         const requesterProfile = await loadProfileIdentity({
           context,
@@ -4521,13 +4389,20 @@ export async function submitEstimateApproval(
       }
     }
 
+    await syncEstimateApprovalSummary({
+      context,
+      version: access.version,
+      project: access.project,
+      trigger: "approval_request",
+    });
+
     return {
       approval: latestApproval,
       cycle: {
-        id: cycle.id,
-        cycleNumber: cycle.cycle_number,
-        requestedAt: cycle.requested_at,
-        submissionMessage: cycle.submission_message,
+        id: submission.cycle.id,
+        cycleNumber: submission.cycle.cycle_number,
+        requestedAt: submission.cycle.requested_at,
+        submissionMessage: submission.cycle.submission_message,
         assignedReviewer,
       },
       requestedApprovalCount: requestedRulePayload.length,
@@ -4561,14 +4436,28 @@ export async function submitEstimateApproval(
       throw badRequest("La regle ciblee est inactive.");
     }
 
-    await ensureOpenReviewCycle({
+    if (await freezeApprovalV2DraftIfRequired(context, access.version))
+      access = await getVersionAccessOrThrow(context, input.versionId);
+    const assignedReviewer = await resolveAssignedReviewerOrThrow({
       context,
-      versionId: input.versionId,
+      reviewerUserId: null,
     });
-    const approval = await ensurePendingApprovalForRule({
-      context,
+    const submission = await openEstimateReviewCycle({
       versionId: input.versionId,
-      ruleId,
+      tenantId: context.tenantId,
+      actorUserId: context.userId,
+      assignedReviewerId: assignedReviewer.userId,
+      ruleIds: [ruleId],
+      submissionMessage: null,
+      eventMetadata: {
+        requestedRuleLabels: [resolveApprovalSummaryLabel(rule.rule_type)],
+        assignedReviewerName: assignedReviewer.fullName,
+        assignedReviewerEmail: assignedReviewer.workEmail,
+        notificationChannels: {
+          inApp: true,
+          email: false,
+        },
+      },
     });
 
     await syncEstimateApprovalSummary({
@@ -4579,7 +4468,7 @@ export async function submitEstimateApproval(
     });
 
     return {
-      approval,
+      approval: submission.approvals[0]!,
     };
   }
 
@@ -4617,7 +4506,13 @@ export async function submitEstimateApproval(
         total_ht_cents: access.version.total_ht_cents,
         margin_bp: access.version.margin_bp,
         margin_multiplier: access.version.margin_multiplier,
+        margin_mode: access.version.margin_mode,
         discount_bp: access.version.discount_bp,
+        calc_engine_version: access.version.calc_engine_version,
+        content_revision: access.version.content_revision,
+        calc_snapshot_content_revision:
+          access.version.calc_snapshot_content_revision,
+        calc_snapshot_context: access.version.calc_snapshot_context,
       },
       project: {
         id: access.project.id,
@@ -4680,11 +4575,12 @@ export async function submitEstimateApproval(
     const { data, error } = await context.supabase
       .from("estimate_approvals")
       .select(
-        "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
+        "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at"
       )
       .eq("tenant_id", context.tenantId)
       .eq("version_id", input.versionId)
       .eq("id", approvalId)
+      .is("superseded_at", null)
       .single();
 
     if (error || !data) {

@@ -258,6 +258,14 @@ function renderEstimateEditorTable(options?: {
         marginMultiplier={1}
         discountCents={0}
         taxRateBp={2000}
+        sectionCalculation={{
+          marginMode: "fixed",
+          marginTiers: [],
+          globalCoefficient: 1,
+          discountMode: "simple",
+          discountStepsBp: [],
+          calcEngineVersion: 1,
+        }}
         laborRateById={new Map()}
         isLaborSplitEnabled={options?.isLaborSplitEnabled}
         isReadOnly={false}

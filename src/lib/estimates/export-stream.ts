@@ -3,13 +3,17 @@ import { PassThrough, Readable } from "node:stream";
 
 import {
   allocateProRata,
+  buildStoredEstimateBreakdown,
   computeEstimateBreakdown,
   computeStoredDiscountCents,
   type EstimateBreakdown,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import {
+  resolveCalcEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { internalError } from "@/lib/estimates/errors";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
@@ -148,6 +152,7 @@ function toEuroAmount(valueCents: number | null | undefined): number | null {
 function buildLineRows(input: {
   items: EstimateItemRecord[];
   breakdown: EstimateBreakdown;
+  preserveStoredSnapshot?: boolean;
 }) {
   const lines = input.items.filter((item) => item.item_type === "line");
   const lineValues = lines.map((item) => input.breakdown.lineById.get(item.id));
@@ -155,10 +160,12 @@ function buildLineRows(input: {
   // épinglé au moteur v1, ses lignes doivent se sommer au pied qui applique
   // coefficient, remise et arrondi global. Cette allocation de présentation ne
   // bascule pas le moteur du devis ; elle répartit seulement ses totaux établis.
-  const htShares = allocateProRata(
-    input.breakdown.totals.saleTotalCents,
-    lineValues.map((line) => line?.saleNetHtCents ?? 0)
-  );
+  const htShares = input.preserveStoredSnapshot
+    ? lineValues.map((line) => line?.saleNetHtCents ?? 0)
+    : allocateProRata(
+        input.breakdown.totals.saleTotalCents,
+        lineValues.map((line) => line?.saleNetHtCents ?? 0)
+      );
   // Le TTC arrondi est la grandeur contractuelle du pied. Sa TVA ajustée est
   // donc dérivée une seule fois, puis répartie. On reconstruit chaque TTC par
   // HT + TVA : aucune allocation indépendante ne peut casser l'identité
@@ -167,10 +174,12 @@ function buildLineRows(input: {
     input.breakdown.totals.adjustedTaxCents,
     0
   );
-  const taxShares = allocateProRata(
-    adjustedTaxTotalCents,
-    lineValues.map((line) => line?.taxCents ?? 0)
-  );
+  const taxShares = input.preserveStoredSnapshot
+    ? lineValues.map((line) => line?.taxCents ?? 0)
+    : allocateProRata(
+        adjustedTaxTotalCents,
+        lineValues.map((line) => line?.taxCents ?? 0)
+      );
   const lineIndexById = new Map(
     lines.map((line, index) => [line.id, index])
   );
@@ -202,7 +211,11 @@ function buildLineRows(input: {
       unite: item.description?.trim() ?? "",
       quantite: item.quantity ?? 0,
       pu_ht: toEuroAmount(
-        quantity > 0 ? bankersRound(totalHtCents / quantity) : 0
+        input.preserveStoredSnapshot
+          ? (lineValues[lineIndex ?? -1]?.puNetHtCents ?? 0)
+          : quantity > 0
+            ? bankersRound(totalHtCents / quantity)
+            : 0
       ),
       total_ht: toEuroAmount(totalHtCents),
       tva: toEuroAmount(taxCents),
@@ -378,23 +391,30 @@ async function buildEstimateExportPayload(
   isLaborSplitEnabled: boolean
 ): Promise<EstimateExportPayload> {
   const [versionDetails, listItemsResult] = await Promise.all([
-    getEstimateVersionDetails(versionId),
+    getEstimateVersionDetails(versionId, { includeExportCalculationContext: true }),
     listEstimateItems(versionId),
   ]);
 
   const items = listItemsResult.items as EstimateItemRecord[];
   const version = versionDetails.version as unknown as EstimateVersionForCalc;
+  const calcEngineVersion = resolveCalcEngineVersion(
+    versionDetails.version as { calc_engine_version?: number | null }
+  );
+  const preserveStoredSnapshot = shouldPreserveStoredEstimateV2Snapshot(
+    versionDetails.version
+  );
   const laborRateById = new Map(
     versionDetails.labor_roles.map((role) => [role.id, role.hourly_rate_cents ?? 0])
   );
   // EST-E26 (T6, étape 10) : plus de fork ; on utilise le calcul canonique
   // (applique global_coefficient et le repli discount_bp, cf. golden Surface-5).
-  const discountCents = computeStoredDiscountCents(version, items);
+  const discountCents = preserveStoredSnapshot
+    ? 0
+    : computeStoredDiscountCents(version, items);
 
-  const calcEngineVersion = resolveCalcEngineVersion(
-    versionDetails.version as { calc_engine_version?: number | null }
-  );
-  const breakdown = computeEstimateBreakdown({
+  const breakdown = preserveStoredSnapshot
+    ? buildStoredEstimateBreakdown({ items, version })
+    : computeEstimateBreakdown({
     items,
     marginMultiplier: version.margin_multiplier,
     marginMode: version.margin_mode === "tiered" ? "tiered" : "fixed",
@@ -414,11 +434,12 @@ async function buildEstimateExportPayload(
     roundingMode: versionDetails.version.rounding_mode ?? "none",
     roundingStepCents: versionDetails.version.rounding_step_cents ?? 0,
     laborRateById,
-    isLaborSplitEnabled,
+    isLaborSplitEnabled:
+      versionDetails.is_labor_split_enabled ?? isLaborSplitEnabled,
     laborRateAtelierById: laborRateById,
     laborRateChantierById: laborRateById,
     calcEngineVersion,
-  });
+      });
 
   return {
     versionId: versionDetails.version.id,
@@ -434,6 +455,7 @@ async function buildEstimateExportPayload(
     rows: buildLineRows({
       items,
       breakdown,
+      preserveStoredSnapshot,
     }),
   };
 }

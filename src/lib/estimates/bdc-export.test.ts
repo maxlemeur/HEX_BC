@@ -655,4 +655,71 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(exported.filename).toBe("devis-Projet_Alpha-v1-bdc-v1_1.xlsx");
     expect(vi.mocked(getEstimateSupplierComparisons)).not.toHaveBeenCalled();
   });
+
+  it("exports a fresh v2 review snapshot instead of live draft inputs", async () => {
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID,
+        version_number: 3,
+        status: "draft",
+        calc_engine_version: 2,
+        content_revision: 9,
+        calc_snapshot_content_revision: 9,
+        margin_multiplier: 9,
+        tax_rate_bp: 2_000,
+        estimate_projects: {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Projet Revue",
+          reference: "REVUE/2026",
+        },
+      },
+      items: [
+        {
+          id: "line-review",
+          item_type: "line",
+          parent_id: null,
+          position: 1,
+          title: "Ligne figée",
+          description: "u",
+          quantity: 2,
+          unit_price_ht_cents: 1,
+          pu_ht_cents: 7_777,
+          snapshot_pu_ht_cents: 9_500,
+          snapshot_fo_ht_cents: 12_000,
+          snapshot_mo_ht_cents: 7_000,
+          snapshot_mo_atelier_ht_cents: 3_000,
+          snapshot_mo_chantier_ht_cents: 4_000,
+          line_total_ht_cents: 19_000,
+          line_tax_cents: 3_800,
+          line_total_ttc_cents: 22_800,
+          labor_role_id: "role-live",
+          h_mo: 99,
+          k_mo: 99,
+          h_mo_majoration: 99,
+          category_id: null,
+          supply_type_id: null,
+        },
+      ],
+      supply_types: [],
+      labor_roles: [{ id: "role-live", name: "Taux vivant", hourly_rate_cents: 999_999 }],
+      categories: [],
+    } as never);
+    vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
+      comparisons: [],
+    } as never);
+
+    const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+    const exported = await streamEstimateVersionBdcV11Xlsx(VERSION_ID, {
+      workbookWriterFactory,
+      isLaborSplitEnabled: false,
+    });
+    await new Response(exported.stream).arrayBuffer();
+
+    const lineRow = worksheets.find((sheet) => sheet.name === "BDC_V1_1")
+      ?.rows[1] as unknown[];
+    expect(lineRow.slice(7, 9)).toEqual([60, 60]);
+    expect(lineRow.slice(15, 18)).toEqual([120, 70, 190]);
+    expect(lineRow[10]).toBeNull();
+    expect(lineRow[13]).toBe("");
+  });
 });

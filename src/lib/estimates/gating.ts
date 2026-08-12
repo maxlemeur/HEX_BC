@@ -171,9 +171,23 @@ export type EstimateSendGatingResult = {
 
 type EstimateGatingVersion = Pick<
   EstimateVersionRow,
-  "id" | "margin_mode" | "margin_multiplier" | "total_ht_cents" | "project_id"
+  | "id"
+  | "margin_mode"
+  | "margin_multiplier"
+  | "total_ht_cents"
+  | "project_id"
 > &
-  Partial<Pick<EstimateVersionRow, "margin_bp" | "discount_bp">>;
+  Partial<
+    Pick<
+      EstimateVersionRow,
+      | "margin_bp"
+      | "discount_bp"
+      | "calc_engine_version"
+      | "content_revision"
+      | "calc_snapshot_content_revision"
+      | "calc_snapshot_context"
+    >
+  >;
 type EstimateGatingProject = Pick<EstimateProjectRow, "id" | "client_name" | "notes">;
 
 type EvaluateEstimateSendGatingInput = {
@@ -532,7 +546,12 @@ export async function evaluateEstimateSendGating(
       project_id: version.project_id,
       margin_bp: version.margin_bp,
       margin_multiplier: version.margin_multiplier,
+      margin_mode: version.margin_mode,
       discount_bp: version.discount_bp,
+      calc_engine_version: version.calc_engine_version,
+      content_revision: version.content_revision,
+      calc_snapshot_content_revision: version.calc_snapshot_content_revision,
+      calc_snapshot_context: version.calc_snapshot_context,
       total_ht_cents: version.total_ht_cents,
     },
     project: {

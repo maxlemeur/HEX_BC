@@ -114,7 +114,6 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('estimate_projects', 'UPDATE'),
     ('estimate_projects', 'DELETE'),
     ('estimate_versions', 'SELECT'),
-    ('estimate_versions', 'INSERT'),
     ('estimate_versions', 'UPDATE'),
     ('estimate_versions', 'DELETE'),
     ('estimate_items', 'SELECT'),
@@ -232,6 +231,7 @@ cross join forbidden_authenticated_grants as expected_privilege;
 
 with forbidden_authenticated_dml(table_name, privilege_name) as (
   values
+    ('estimate_versions', 'INSERT'),
     ('audit_logs', 'UPDATE'),
     ('audit_logs', 'DELETE'),
     ('takeoff_items', 'INSERT'),

@@ -31,6 +31,7 @@ function createRulesEngineSupabaseMock(input: {
   const approvalsBuilder = {
     eq: () => approvalsBuilder,
     in: () => approvalsBuilder,
+    is: () => approvalsBuilder,
     order: () =>
       Promise.resolve({
         data: input.approvals ?? [],
@@ -165,6 +166,98 @@ describe("rules engine", () => {
       })
     );
   });
+
+  it("derives min_margin from the editable multiplier before stale margin_bp", async () => {
+    const supabase = createRulesEngineSupabaseMock({
+      rules: [
+        {
+          id: "12121212-1212-4212-8212-121212121212",
+          created_at: "2026-08-12T08:00:00.000Z",
+          updated_at: "2026-08-12T08:00:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          rule_type: "min_margin",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 1000,
+          action: "block",
+          is_active: true,
+        },
+      ],
+    });
+
+    const result = await evaluateRules({
+      supabase: supabase as never,
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      version: {
+        id: "33333333-3333-4333-8333-333333333333",
+        project_id: "44444444-4444-4444-8444-444444444444",
+        margin_bp: 0,
+        margin_multiplier: 1.25,
+        calc_engine_version: 2,
+        discount_bp: 0,
+        total_ht_cents: 100000,
+      },
+      project: {
+        id: "44444444-4444-4444-8444-444444444444",
+        client_name: "Client A",
+      },
+      items: [],
+    });
+
+    expect(result.violations).toHaveLength(0);
+  });
+
+  it.each([
+    ["higher-cost tier", 1.6, 1.4, true],
+    ["lower-cost tier", 1.4, 1.6, false],
+  ] as const)(
+    "evaluates min_margin from the frozen %s after crossing in either direction",
+    async (_label, configuredMultiplier, effectiveMultiplier, shouldViolate) => {
+      const supabase = createRulesEngineSupabaseMock({
+        rules: [
+          {
+            id: "13131313-1313-4313-8313-131313131313",
+            created_at: "2026-08-12T08:00:00.000Z",
+            updated_at: "2026-08-12T08:00:00.000Z",
+            tenant_id: "22222222-2222-4222-8222-222222222222",
+            rule_type: "min_margin",
+            scope_type: "global",
+            scope_id: null,
+            threshold_value: 3_000,
+            action: "block",
+            is_active: true,
+          },
+        ],
+      });
+
+      const result = await evaluateRules({
+        supabase: supabase as never,
+        tenantId: "22222222-2222-4222-8222-222222222222",
+        version: {
+          id: "33333333-3333-4333-8333-333333333333",
+          project_id: "44444444-4444-4444-8444-444444444444",
+          margin_bp: 0,
+          margin_multiplier: configuredMultiplier,
+          margin_mode: "tiered",
+          calc_engine_version: 2,
+          content_revision: 4,
+          calc_snapshot_content_revision: 4,
+          calc_snapshot_context: {
+            effective_margin_multiplier: effectiveMultiplier,
+          },
+          discount_bp: 0,
+          total_ht_cents: 100_000,
+        },
+        project: {
+          id: "44444444-4444-4444-8444-444444444444",
+          client_name: "Client A",
+        },
+        items: [],
+      });
+
+      expect(result.blockingViolations.length > 0).toBe(shouldViolate);
+    }
+  );
 
   it("raises a warning violation for max_discount with warn action", async () => {
     const supabase = createRulesEngineSupabaseMock({
@@ -330,9 +423,10 @@ describe("rules engine", () => {
     ]);
   });
 
-  it("keeps approved approval violations when explicitly requested for summary projection", async () => {
+  it("marks an approved approval stale in summary projection", async () => {
     const ruleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createRulesEngineSupabaseMock({
+      contentRevision: 2,
       rules: [
         {
           id: ruleId,
@@ -359,6 +453,7 @@ describe("rules engine", () => {
           approved_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
           status: "approved",
           decided_at: "2026-02-23T10:30:00.000Z",
+          approved_content_revision: 1,
         },
       ],
     });
@@ -385,7 +480,7 @@ describe("rules engine", () => {
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]).toEqual(
       expect.objectContaining({
-        approval_status: "approved",
+        approval_status: "missing",
         rule_type: "require_approval",
       })
     );
@@ -724,6 +819,7 @@ describe("rules engine", () => {
 
     const requiredSummary = await evaluateApprovalSummary({
       supabase: createRulesEngineSupabaseMock({
+        contentRevision: 1,
         rules: [baseRule],
       }) as never,
       ...baseInput,
@@ -767,6 +863,7 @@ describe("rules engine", () => {
             approved_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
             status: "approved",
             decided_at: "2026-02-23T10:30:00.000Z",
+            approved_content_revision: 1,
           },
         ],
       }) as never,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { estimateApprovalActionSchema } from "@/lib/approvals/schemas";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import {
   submitEstimateApproval,
@@ -9,82 +10,6 @@ import {
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
 });
-
-const requestApprovalSchema = z.object({
-  action: z.literal("request"),
-  rule_id: z.string().uuid("rule_id invalide."),
-});
-
-const submitForReviewSchema = z.object({
-  action: z.literal("submit_for_review"),
-  rule_ids: z.array(z.string().uuid("rule_ids invalide.")).default([]),
-  submission_message: z.string().trim().max(2000, "Le message est trop long.").optional(),
-  assigned_reviewer_user_id: z.string().uuid("assigned_reviewer_user_id invalide.").nullable().optional(),
-});
-
-const approveRejectApprovalSchema = z
-  .object({
-    action: z.enum(["approve", "reject"]),
-    rule_id: z.string().uuid("rule_id invalide.").optional(),
-    approval_id: z.string().uuid("approval_id invalide.").optional(),
-  })
-  .superRefine((payload, ctx) => {
-    if (payload.rule_id || payload.approval_id) {
-      return;
-    }
-
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "rule_id ou approval_id est requis.",
-      path: ["rule_id"],
-    });
-  });
-
-const decisionCommentSchema = z
-  .object({
-    scope_type: z.enum([
-      "project",
-      "lot",
-      "line",
-      "exception",
-      "hypothesis",
-      "approval_rule",
-    ]),
-    scope_id: z.string().uuid("scope_id invalide.").nullable().optional(),
-    comment: z.string().trim().min(1, "Le commentaire est obligatoire."),
-  })
-  .superRefine((payload, ctx) => {
-    if (payload.scope_type === "project") {
-      return;
-    }
-
-    if (payload.scope_id) {
-      return;
-    }
-
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "scope_id est requis pour ce type de cible.",
-      path: ["scope_id"],
-    });
-  });
-
-const decideApprovalSchema = z.object({
-  action: z.literal("decide"),
-  decision: z.enum([
-    "approved",
-    "approved_with_reservations",
-    "changes_requested",
-  ]),
-  comments: z.array(decisionCommentSchema).default([]),
-});
-
-const postApproveSchema = z.union([
-  requestApprovalSchema,
-  submitForReviewSchema,
-  approveRejectApprovalSchema,
-  decideApprovalSchema,
-]);
 
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
@@ -101,7 +26,7 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 
 function toSubmitInput(input: {
   versionId: string;
-  body: z.infer<typeof postApproveSchema>;
+  body: z.infer<typeof estimateApprovalActionSchema>;
 }): SubmitEstimateApprovalInput {
   if (input.body.action === "request") {
     return {
@@ -148,7 +73,7 @@ export async function POST(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = postApproveSchema.parse(await parseJsonBody(request));
+    const body = estimateApprovalActionSchema.parse(await parseJsonBody(request));
     const payload = toSubmitInput({
       versionId,
       body,

@@ -1,8 +1,8 @@
 # Cycle de vie, immutabilité et validation
 
-> **Statut : cycle d'envoi et effets externes relus au 2026-08-12.** Les autres
-> sections restent la photographie du 2026-07-29. Chaque règle est ancrée sur
-> le code ou la migration qui fait foi.
+> **Statut : cycle d'envoi, approbations, gel v2 et scellement relus au
+> 2026-08-12.** Les autres sections restent la photographie du 2026-07-29.
+> Chaque règle est ancrée sur le code ou la migration qui fait foi.
 
 ---
 
@@ -60,12 +60,18 @@ perte, donc **aucun taux de transformation mesurable**. Voir
 
 ### Couche 1 — Trigger base de données
 
-`guard_estimate_versions_readonly`, redéfini par
-`supabase/migrations/20260811231759_transactional_estimate_email_outbox.sql`,
-gèle le contenu dès que la version quitte `draft`. En `sending`, seuls la pose
-unique du `seal_hash`, puis le changement de statut, sont admis ; les autres
-colonnes restent en lecture seule. En `sent`, `accepted` ou `archived`, le sceau
-est immuable et un `UPDATE` sans transition est refusé.
+`guard_estimate_versions_readonly`, redéfini en dernier lieu par
+`supabase/migrations/20260812032857_govern_estimate_calc_engine_v2.sql`, gèle le
+contenu dès que la version quitte `draft`. Pour une version v2, la publication
+est refusée tant que la révision, le contexte, les totaux de version et les
+snapshots de toutes les lignes ne sont pas frais et réconciliés. En `sending`,
+seuls la pose unique du `seal_hash`, puis le changement de statut, sont admis ;
+en `sent`, `accepted` ou `archived`, le sceau et le snapshot sont immuables.
+
+Le trigger `guard_estimate_v2_snapshot_columns` protège aussi les lignes : les
+colonnes snapshot ne peuvent être écrites que par le contrat de gel, sont
+invalidées lorsqu'une entrée de calcul du brouillon change et ne peuvent plus
+être mutées après publication.
 
 ### Couche 2 — Garde applicatif
 
@@ -93,15 +99,24 @@ Une écriture sans bail correspondant à l'utilisateur **et** à l'UUID de la pa
 
 Dans le parcours d'email transactionnel :
 
-1. La réservation passe `draft → sending` sans sceau.
-2. Le PDF contractuel et les corps HTML/texte sont préparés, puis le hash d'un
-   **payload canonique** est calculé : items triés par `position` puis `id`,
-   payload en version 2.
-3. `prepare_estimate_email_dispatch` pose le `seal_hash` une seule fois pendant
+1. Si le brouillon utilise le moteur v2, `freeze_estimate_v2_snapshot` fige le
+   contexte, la révision, les totaux et les cinq snapshots de chaque ligne. Ce
+   gel précède le gating et exige le verrou de brouillon de l'acteur.
+2. La réservation passe `draft → sending` sans sceau et reprend le
+   `updated_at` renvoyé par le gel, ce qui ferme la fenêtre de concurrence.
+3. Le PDF contractuel et les corps HTML/texte sont préparés, puis le hash du
+   payload canonique est calculé. Une nouvelle version v2 utilise le **payload
+   v3** ; une version v1 conserve le payload v2 historique.
+4. `prepare_estimate_email_dispatch` pose le `seal_hash` une seule fois pendant
    `sending` et fige le chemin et l'empreinte SHA-256 du PDF ainsi que la charge
    utile fournisseur.
-4. `complete_estimate_email_dispatch` ne passe `sending → sent` qu'après
+5. `complete_estimate_email_dispatch` ne passe `sending → sent` qu'après
    réception de l'identifiant Resend ; le sceau doit rester identique.
+
+Le payload v3 étend le sceau à la hiérarchie, aux entrées de calcul, au contexte
+figé, à sa `content_revision`, aux totaux et aux cinq snapshots PU/FO/MO/MO
+atelier/MO chantier. Les montants contractuels ne dépendent donc plus d'un taux
+de main-d'œuvre, d'un palier ou d'un feature flag modifié après l'envoi.
 
 Le PDF n'est plus remplacé en place. Chaque nouvelle publication est un objet
 immuable `tenant/projet/version/<sha256>.pdf`, créé avec `upsert: false`. Les
@@ -115,15 +130,18 @@ objets `tenant/projet/version.pdf` restent lisibles sans être réécrits
 [`../domaines/sorties-documents.md`](../domaines/sorties-documents.md) §2.1).
 
 Sources : `src/lib/email/send-estimate.ts`,
-`src/lib/email/estimate-email-outbox.ts` et
-`supabase/migrations/20260811231759_transactional_estimate_email_outbox.sql`.
+`src/lib/email/estimate-email-outbox.ts`,
+`src/lib/estimates/estimate-seal.ts`,
+`src/lib/estimates/v2-snapshot-server.ts` et
+`supabase/migrations/20260812032857_govern_estimate_calc_engine_v2.sql`.
 
 Vérification : `verifyEstimateSeal` / route `GET /api/estimates/[versionId]/verify`.
 
-> **Précédent à connaître** : un commit a déjà **invalidé les sceaux de tout le parc** en modifiant le
-> payload canonique, avant d'être réparé. Toute évolution du payload doit être additive et
-> conditionnelle — le traitement de `contractor_role` en donne le modèle : le champ n'entre dans le
-> payload **que s'il diffère de sa valeur par défaut** (`server.ts:2066-2068`).
+> **Compatibilité obligatoire** : `verifyEstimateSeal` essaie le candidat v3
+> pour une version moteur 2, puis le candidat v2 antérieur ; pour une version
+> moteur 1, il conserve les candidats v2, v1 avec split et v1 avant split. Le
+> traitement conditionnel de `contractor_role` reste inchangé. Une évolution du
+> payload ne doit jamais réécrire les sceaux stockés ni supprimer ces candidats.
 
 ---
 
@@ -210,7 +228,8 @@ meilleur effort : leur échec est journalisé sans annuler la décision métier.
 
 ### Moteur de règles
 
-`src/lib/estimates/rules-engine.ts` (4 923 lignes)
+`src/lib/estimates/rules-engine.ts`, avec le seam de gel isolé dans
+`src/lib/estimates/approval-v2-snapshot.ts`.
 
 | Dimension | Valeurs |
 |---|---|
@@ -221,17 +240,42 @@ meilleur effort : leur échec est journalisé sans annuler la décision métier.
 **Aucun seuil n'est codé en dur** : tout provient du `threshold_value` défini par le tenant
 (`:1158-1271`).
 
-> ⚠️ Le type `min_margin` est actuellement **faussé** : le moteur lit `margin_bp`, qui vaut `0` par
-> défaut sur la quasi-totalité du parc. Voir
-> [regles-de-calcul.md § 3.3](regles-de-calcul.md).
+`min_margin` passe par `resolveEffectiveMarginBp` : v1 conserve sa donnée
+historique ; v2 utilise en priorité le coefficient réellement appliqué et figé
+dans `calc_snapshot_context`, seulement si la révision du snapshot égale la
+`content_revision` courante. Un brouillon v2 `tiered` sans snapshot frais reste
+indéterminé plutôt que d'inventer un palier ; la règle le traite à `0` pour
+bloquer conservativement, tandis que les surfaces de pilotage affichent
+`null`. Le gating sélectionne aussi `discount_bp`, donc `max_discount` évalue la
+remise stockée. Voir
+[regles-de-calcul.md § 3.3](regles-de-calcul.md).
 
 ### Invalidation automatique
 
-Une approbation n'est valide que si `approved_content_revision === currentContentRevision`
-(`:1490-1544`).
+Une approbation n'est valide que si
+`approved_content_revision === currentContentRevision`. Le contrôle est chargé
+dès qu'une approbation active est `approved` ; le mode de présentation détaillé
+du résumé ne rend pas fraîche une décision liée à une révision antérieure.
 
-> **Toute modification du devis invalide silencieusement les approbations antérieures.** Règle de
-> gouvernance forte, et invisible pour l'utilisateur.
+Pour un brouillon v2, le snapshot est figé **avant** la création du cycle et des
+approbations. Le workflow relit ensuite la version afin de capturer la révision
+produite par le gel. Le but `approval` n'exige pas qu'une page éditeur possède
+un verrou, mais refuse un verrou vivant détenu par un autre utilisateur ; une
+demande depuis le hub ne contourne donc pas une édition concurrente.
+
+La soumission franchit ensuite une seule frontière transactionnelle,
+`open_estimate_review_cycle` : la RPC verrouille la version, valide le snapshot,
+le demandeur, le validateur et les règles, puis crée le cycle, ses approbations
+et l'événement `approval_submitted`. Un rejeu strictement identique renvoie le
+cycle existant sans second événement ni seconde notification.
+
+Si le brouillon a changé depuis la précédente soumission, le nouveau gel avance
+sa révision. La resoumission marque alors l'ancien cycle et toutes ses
+approbations encore actives comme `superseded`, sans fabriquer une décision
+métier, puis ouvre le cycle lié à la nouvelle révision. La file d'approbation et
+les mutations actives ignorent les cycles remplacés. Ceux-ci restent conservés
+dans la base pour l'audit, mais l'interface d'historique ne les affiche pas
+encore explicitement.
 
 ### Journal de décision
 
@@ -239,7 +283,13 @@ Append-only, états `approved`, `approved_with_reservations`, `changes_requested
 (`approval-decision-journal.ts:9-12`).
 
 Revue multi-rôle : `estimate_review_cycles`, `estimate_review_comments`,
-`estimate_review_correction_items`. File d'approbation via la RPC `list_approval_queue`.
+`estimate_review_correction_items`. File d'approbation via la RPC
+`list_approval_queue`, limitée aux cycles non décidés et non remplacés. Une
+décision `approved_with_reservations` ou `changes_requested` exige au moins un
+commentaire. Dans le second cas, la même transaction crée exactement un item de
+correction `pending` par commentaire. Les droits d'insertion directs sont
+révoqués pour `anon` et `authenticated` sur les tables de commentaires et de
+corrections ; leur création passe par la RPC de décision gouvernée.
 
 ---
 
@@ -247,14 +297,17 @@ Revue multi-rôle : `estimate_review_cycles`, `estimate_review_comments`,
 
 | Opération | Mécanisme |
 |---|---|
-| **Duplication** | RPC `duplicate_estimate_version` — repart en `draft`, sceau non repris |
+| **Duplication** | RPC `duplicate_estimate_version` — repart en `draft`, sceau non repris, moteur de la source conservé |
 | **Variante** | `createEstimateVariant` / `promoteEstimateVariant` — chiffrage alternatif avant signature |
 | **Diff** | `src/lib/estimates/diff.ts`, route `/diff` |
 | **Changelog** | `estimate_version_changelogs`, cache par version |
 | **Événements** | `estimate_version_events`, **append-only** (trigger `guard_estimate_version_events_append_only`) |
 
-⚠️ Bug ouvert : la duplication de version fait perdre la fonction « Expliquer ce prix »
-(`docs/backlog/bugs-est-e23/EST-433.md`).
+Le défaut historique EST-433 (« Expliquer ce prix » perdu après duplication)
+est corrigé par la migration du Lot 7 : `duplicate_estimate_version` copie
+désormais les champs de provenance de ligne, les liens takeoff et les décisions
+DPGF associées dans la même transaction. L'ancien lien vers un ticket Markdown
+n'existait plus et a été retiré.
 
 ---
 
@@ -271,6 +324,9 @@ Revue multi-rôle : `estimate_review_cycles`, `estimate_review_comments`,
 | Expiration | Route `expired/` dédiée |
 
 La lecture du devis passe par un **Server Component**, pas par une route API.
+Pour une version v2 finalisée, ce composant reconstruit le document depuis les
+snapshots stockés, comme le PDF, l'impression et les exports ; il ne recharge
+pas les taux ou barèmes courants.
 
 C'est une surface à haut risque : token public, effets de bord contractuels (acceptation),
 déclenchement d'emails.

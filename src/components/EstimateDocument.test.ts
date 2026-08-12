@@ -62,6 +62,13 @@ function createEstimateItem(
     source_file_name: overrides.source_file_name ?? null,
     source_page: overrides.source_page ?? null,
     source_metadata: overrides.source_metadata ?? {},
+    snapshot_pu_ht_cents: overrides.snapshot_pu_ht_cents ?? null,
+    snapshot_fo_ht_cents: overrides.snapshot_fo_ht_cents ?? null,
+    snapshot_mo_ht_cents: overrides.snapshot_mo_ht_cents ?? null,
+    snapshot_mo_atelier_ht_cents:
+      overrides.snapshot_mo_atelier_ht_cents ?? null,
+    snapshot_mo_chantier_ht_cents:
+      overrides.snapshot_mo_chantier_ht_cents ?? null,
   };
 }
 
@@ -192,6 +199,38 @@ describe("EstimateDocument - EST-121", () => {
     const markup = renderEstimateDocument([], { discountCents: 1000 });
 
     expect(markup).not.toContain(`-${formatCurrencyForTest(1000, "EUR")}`);
+  });
+
+  it("rend le PU contractuel figé pour une version v2 finalisée", () => {
+    const markup = renderEstimateDocument(
+      [
+        createEstimateItem({
+          id: "line-snapshot-pu",
+          title: "Ligne snapshot PU",
+          quantity: 2,
+          pu_ht_cents: 7_777,
+          snapshot_pu_ht_cents: 9_500,
+          snapshot_fo_ht_cents: 12_000,
+          snapshot_mo_ht_cents: 7_000,
+          snapshot_mo_atelier_ht_cents: 3_000,
+          snapshot_mo_chantier_ht_cents: 4_000,
+          line_total_ht_cents: 19_000,
+          line_tax_cents: 3_800,
+          line_total_ttc_cents: 22_800,
+        }),
+      ],
+      {
+        calcEngineVersion: 2,
+        preserveStoredSnapshot: true,
+        totalHtCents: 19_000,
+        totalTaxCents: 3_800,
+        totalTtcCents: 22_800,
+      }
+    );
+    const row = findTableRowMarkup(markup, "Ligne snapshot PU");
+
+    expect(row).toContain(formatCurrencyForTest(9_500, "EUR"));
+    expect(row).not.toContain(formatCurrencyForTest(7_777, "EUR"));
   });
 
   it("garde un seul total principal en autoliquidation", () => {

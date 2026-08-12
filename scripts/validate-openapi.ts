@@ -6,6 +6,11 @@ import {
   serializeOpenApiDocument,
   type OpenApiDocument,
 } from "../src/lib/openapi/generate";
+import { openApiOperationsRegistry } from "../src/lib/openapi/registry";
+import { assertOpenApiRouteCoverage } from "../src/lib/openapi/route-coverage";
+import { baseAdditionalOpenApiOperationsRegistry } from "../src/lib/openapi/route-contracts";
+import { workflowAdditionalOpenApiOperationsRegistry } from "../src/lib/openapi/route-contracts-workflows";
+import { openApiRouteExclusions } from "../src/lib/openapi/route-exclusions";
 
 const OPENAPI_FILE = "openapi.json";
 const SUCCESS_MESSAGE = "OpenAPI spec valide et synchronisee.";
@@ -56,6 +61,16 @@ function main() {
   const openApiPath = path.resolve(projectRoot, OPENAPI_FILE);
   const shouldWrite = process.argv.includes("--write");
 
+  const routeCoverage = assertOpenApiRouteCoverage({
+    projectRoot,
+    documentedOperations: [
+      ...openApiOperationsRegistry,
+      ...baseAdditionalOpenApiOperationsRegistry,
+      ...workflowAdditionalOpenApiOperationsRegistry,
+    ],
+    exclusions: openApiRouteExclusions,
+  });
+
   const generatedSpec = generateOpenApiDocument();
   assertOpenApiDocument(generatedSpec);
 
@@ -63,6 +78,9 @@ function main() {
   if (shouldWrite) {
     writeFileSync(openApiPath, generatedContent, "utf8");
     console.log(`Spec OpenAPI ecrite dans ${OPENAPI_FILE}.`);
+    console.log(
+      `Couverture routes/OpenAPI: ${routeCoverage.routeFiles} routes, ${routeCoverage.routeOperations} operations (${routeCoverage.documentedOperations} documentees, ${routeCoverage.excludedOperations} exclues).`
+    );
     return;
   }
 
@@ -80,6 +98,9 @@ function main() {
   }
 
   console.log(SUCCESS_MESSAGE);
+  console.log(
+    `Couverture routes/OpenAPI: ${routeCoverage.routeFiles} routes, ${routeCoverage.routeOperations} operations (${routeCoverage.documentedOperations} documentees, ${routeCoverage.excludedOperations} exclues).`
+  );
 }
 
 try {

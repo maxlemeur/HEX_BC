@@ -32,6 +32,7 @@ import type { SendEstimateInput } from "@/lib/estimates/schemas";
 import {
   buildCanonicalEstimateSealPayload,
   computeEstimateSealHash,
+  freezeEstimateV2SnapshotForSend,
   getEstimateSendGating,
   loadEstimateSealSource,
   verifyEstimateSeal,
@@ -51,6 +52,8 @@ type EstimateVersionForEmail = Pick<
   | "currency"
   | "status"
   | "updated_at"
+  | "content_revision"
+  | "calc_engine_version"
 > & {
   estimate_projects:
     | Pick<EstimateProjectRow, "name" | "estimate_reference">
@@ -105,7 +108,7 @@ async function loadVersionForEmail(versionId: string) {
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, version_number, total_ttc_cents, currency, status, updated_at, estimate_projects(name, estimate_reference)"
+      "id, tenant_id, version_number, total_ttc_cents, currency, status, updated_at, content_revision, calc_engine_version, estimate_projects(name, estimate_reference)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -263,7 +266,9 @@ function assertDispatchMatchesSubmission(input: {
 
 export async function sendEstimateEmail(input: SendEstimateEmailInput) {
   const apiKey = getRequiredEnvVar("RESEND_API_KEY");
-  const { context, version } = await loadVersionForEmail(input.versionId);
+  const loaded = await loadVersionForEmail(input.versionId);
+  const { context } = loaded;
+  let version = loaded.version;
   const versionStatus = String(version.status);
   const portalUrl = resolvePortalUrl(input.versionId, input.requestUrl);
   const completedReplay = await findEstimateEmailDispatchByRequest({
@@ -296,8 +301,16 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
     });
   }
 
+  let verifiedSealHash: string | null = null;
   if (!dispatch) {
     if (versionStatus === "draft") {
+      if (version.calc_engine_version === 2) {
+        const frozen = await freezeEstimateV2SnapshotForSend(
+          input.versionId,
+          version.updated_at
+        );
+        version = { ...version, ...frozen };
+      }
       const { gating } = await getEstimateSendGating(input.versionId);
       if (gating.blockingFlags.length > 0) {
         throw badRequest(
@@ -315,6 +328,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
           "ESTIMATE_SEAL_INVALID"
         );
       }
+      verifiedSealHash = seal.computed_hash;
     } else if (versionStatus !== "sending") {
       throw forbidden(
         "Ce devis finalise ne peut plus etre envoye par email.",
@@ -376,9 +390,9 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
         tenantId: context.tenantId,
         versionId: input.versionId,
       });
-      const sealHash = computeEstimateSealHash(
-        buildCanonicalEstimateSealPayload(sealSource)
-      );
+      const sealHash =
+        verifiedSealHash ??
+        computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource));
       const project = resolveProject(version.estimate_projects);
       const projectName = project?.name?.trim() || DEFAULT_FALLBACK_PROJECT_NAME;
       const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";

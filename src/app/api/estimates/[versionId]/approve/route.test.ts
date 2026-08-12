@@ -169,6 +169,50 @@ describe("estimate approve route", () => {
     );
   });
 
+  it.each([
+    {
+      label: "an approval decision without a target",
+      body: { action: "approve" },
+    },
+    {
+      label: "a scoped comment without scope_id",
+      body: {
+        action: "decide",
+        decision: "changes_requested",
+        comments: [
+          {
+            scope_type: "line",
+            comment: "Preciser le quantitatif.",
+          },
+        ],
+      },
+    },
+  ])("returns 400 for $label", async ({ body }) => {
+    const request = new Request("http://localhost", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          code: "VALIDATION_ERROR",
+        }),
+      })
+    );
+    expect(vi.mocked(submitEstimateApproval)).not.toHaveBeenCalled();
+  });
+
   it("accepts a version-level review decision with scoped comments", async () => {
     vi.mocked(submitEstimateApproval).mockResolvedValue({
       approval: {

@@ -326,6 +326,12 @@ function createVersionRow(projectId: string, versionId: string, versionNumber: n
     approval_status: "not_required",
     total_ht_cents: 150_000,
     margin_bp: 1_500,
+    margin_multiplier: 1.25,
+    margin_mode: "fixed",
+    calc_engine_version: 1,
+    content_revision: 1,
+    calc_snapshot_content_revision: null,
+    calc_snapshot_context: null,
     discount_bp: 0,
     updated_at: "2026-03-07T10:00:00.000Z",
     date_devis: "2026-03-07",
@@ -584,5 +590,77 @@ describe("fetchDirectionDashboardPageData", () => {
       exceptionCount: 1,
       openHypothesesCount: 1,
     });
+  });
+
+  it("projects frozen tier margins on Direction cards", async () => {
+    const lowCost = {
+      ...createVersionRow("project-low", "version-low", 1),
+      calc_engine_version: 2,
+      margin_mode: "tiered",
+      margin_multiplier: 1.4,
+      content_revision: 2,
+      calc_snapshot_content_revision: 2,
+      calc_snapshot_context: { effective_margin_multiplier: 1.6 },
+    };
+    const highCost = {
+      ...createVersionRow("project-high", "version-high", 1),
+      calc_engine_version: 2,
+      margin_mode: "tiered",
+      margin_multiplier: 1.6,
+      content_revision: 2,
+      calc_snapshot_content_revision: 2,
+      calc_snapshot_context: { effective_margin_multiplier: 1.4 },
+    };
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: "tenant-1",
+      tenantRole: "director",
+      userId: "user-1",
+      supabase: createSupabaseMock({
+        versions: [lowCost, highCost],
+        jobs: [],
+        alerts: [],
+      }),
+    } as never);
+
+    const result = await fetchDirectionDashboardPageData({
+      page: 1,
+      ownerUserId: null,
+      lot: null,
+      horizon: "all",
+      onlyExceptions: false,
+    });
+    const margins = new Map(
+      result.cards.map((card) => [card.versionId, card.marginBp])
+    );
+
+    expect(margins.get("version-low")).toBe(3_750);
+    expect(margins.get("version-high")).toBe(2_857);
+  });
+
+  it("does not project a stale tier margin on Direction cards", async () => {
+    const stale = {
+      ...createVersionRow("project-stale", "version-stale", 1),
+      calc_engine_version: 2,
+      margin_mode: "tiered",
+      content_revision: 3,
+      calc_snapshot_content_revision: 2,
+      calc_snapshot_context: { effective_margin_multiplier: 1.6 },
+    };
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: "tenant-1",
+      tenantRole: "director",
+      userId: "user-1",
+      supabase: createSupabaseMock({ versions: [stale], jobs: [], alerts: [] }),
+    } as never);
+
+    const result = await fetchDirectionDashboardPageData({
+      page: 1,
+      ownerUserId: null,
+      lot: null,
+      horizon: "all",
+      onlyExceptions: false,
+    });
+
+    expect(result.cards[0]?.marginBp).toBeNull();
   });
 });

@@ -1,5 +1,27 @@
 # Audit complet de la documentation — 2026-07-29
 
+> **Snapshot historique.** Ce rapport décrit le dépôt tel qu'audité le
+> 2026-07-29 ; ses comptages, statuts et constats de code ne constituent plus
+> l'état courant. Il est conservé comme preuve de l'audit, sans réécriture de
+> ses conclusions historiques. Pour l'état exécutable actuel, consulter
+> [`metier/regles-de-calcul.md`](metier/regles-de-calcul.md),
+> [`metier/cycle-de-vie.md`](metier/cycle-de-vie.md) et
+> [`domaines/validation-approbations.md`](domaines/validation-approbations.md).
+>
+> **Mise à jour Lot 7 — 2026-08-12.** Les créations applicatives convergent
+> désormais vers le moteur v2 et propagent explicitement `contractor_role` ; le
+> mode sous-traitant est donc calculé et persisté en autoliquidation dès la
+> création. Le moteur v2 fige le coefficient de marge réellement appliqué, y
+> compris le palier effectif, et les règles comme les surfaces de pilotage ne le
+> relisent que si la révision du snapshot est encore fraîche. Le gating charge
+> désormais `margin_bp` et
+> `discount_bp`, ce qui réactive notamment `max_discount`. Les cycles
+> d'approbation sont ouverts et remplacés atomiquement, les accords périmés
+> redeviennent `missing`, et une
+> décision `changes_requested` crée un item de correction par commentaire dans
+> la transaction de décision. Ces correctifs ne rendent pas les autres constats
+> de ce snapshot implicitement résolus.
+
 > Périmètre : les 287 fichiers `.md` versionnés (40 851 lignes) + artefacts non suivis.
 > Méthode : 6 agents en parallèle, chaque affirmation documentaire confrontée au code réel
 > (`src/`, `supabase/migrations/`, `git log`). Aucun fichier n'a été modifié ni supprimé.
@@ -321,6 +343,13 @@ Ce qui reste vrai :
   le **multi-taux de TVA par ligne reste inopérant** : le taux de version écrase le taux de ligne
   (`estimate-calculations.ts:1772`).
 
+> **Revalidation Lot 7 — 2026-08-12.** Ce paragraphe « Ce qui reste vrai » ne
+> décrit plus le HEAD : les deux constantes ont été retirées, l'éditeur suit
+> `calc_engine_version`, les nouvelles versions applicatives sont v2 et leur
+> persistance exige `matchesFooter`. Le contrat v1 demeure seulement pour la
+> compatibilité des versions historiques ; le multi-taux par ligne est effectif
+> en v2 et figé dans les snapshots contractuels.
+
 ### 6.5 Contradictions métier entre documents
 
 | Sujet | Contradiction |
@@ -430,12 +459,15 @@ source de vérité = code + git*.
 
 ### 7.6 Corrections de code identifiées en chemin (hors périmètre doc)
 
-Ces points ne relèvent pas de la documentation mais ont été établis avec preuves pendant l'audit :
+Ces points ne relevaient pas de la documentation mais avaient été établis avec
+preuves pendant l'audit. La liste ci-dessous est conservée comme photographie ;
+le statut entre parenthèses est la revalidation du Lot 7 :
 
-1. 🔴 `margin_bp` / `margin_multiplier` — approbations et tableaux direction faussés (§6.3c).
+1. ✅ `margin_bp` / `margin_multiplier` — résolveur versionné, coefficient v2
+   effectif figé et surfaces alignées (§6.3c ; corrigé au Lot 7).
 2. 🔴 Colonne `unit` absente de `estimate_items` ; export DPGF alimenté par `description` (§6.3a).
 3. 🟠 Sous-détail détruit à la matérialisation d'un ouvrage (§6.3b).
-4. 🟠 `EXPORT_CALC_ENGINE_VERSION` : constante morte à supprimer.
+4. ✅ `EXPORT_CALC_ENGINE_VERSION` : constante morte retirée au Lot 7.
 5. 🟠 REF-007 `AffaireHub.tsx` : 2 128 lignes, +20 % depuis le constat initial.
 6. 🟡 Branche morte : `discountMode === "simple"` avec `discount_steps` non vide, état rendu impossible
    par la contrainte DB `schema.sql:7666`.

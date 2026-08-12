@@ -95,8 +95,8 @@ const EXPECTED_MATRIX: Record<
   Record<RoleKey, Record<CrudOperation, boolean>>
 > = {
   estimate_versions: {
-    admin: { select: true, insert: true, update: true, delete: true },
-    engineer: { select: true, insert: true, update: true, delete: true },
+    admin: { select: true, insert: false, update: true, delete: true },
+    engineer: { select: true, insert: false, update: true, delete: true },
     viewer: { select: false, insert: false, update: false, delete: false },
   },
   estimate_items: {

@@ -1,6 +1,8 @@
 # Chiffrage & éditeur de devis
 
-> **Source : le code au 2026-07-29.** Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Source : moteur, création et contrats relus au 2026-08-12 ; autres sections
+> issues de la photographie du 2026-07-29.** En cas de divergence, le code et
+> les migrations font foi et ce document doit être corrigé.
 
 **Hors périmètre, documents dédiés :** formules de calcul (PU, déboursé sec, marge, remise, TVA, arrondis) → [`../metier/regles-de-calcul.md`](../metier/regles-de-calcul.md) ; statuts, transitions, immutabilité, sceau → [`../metier/cycle-de-vie.md`](../metier/cycle-de-vie.md).
 
@@ -127,7 +129,7 @@ Six variables d'environnement surchargent cette configuration au build, lues en 
 
 **Déplacement** : RPC `move_estimate_item` (version courante `supabase/migrations/20260304212000_est125_hierarchy_depth_compat_fix.sql:239-…`), qui verrouille source et cible et lève `stale write detected` si l'ordre fourni ne correspond plus à la base. Les charges `reorder`/`move` exigent des identifiants uniques et non chevauchants (`src/lib/estimates/schemas.ts:557-592,620-635`).
 
-**Rôles d'écriture** : `canWriteEstimateWorkflows` = `admin` ou `engineer` (`src/lib/estimates/write-access.ts:7-9`), erreur `ESTIMATE_WRITE_ROLE_REQUIRED` (403, `:16-20`). **Moteur de calcul** : `estimate_versions.calc_engine_version` existe en base, mais l'éditeur et les exports sont **épinglés sur la version 1** par constantes dédiées (`src/lib/estimates/calc-engine-version.ts:28,31`) ; `resolveCalcEngineVersion` retombe sur `1` pour toute valeur hors `[1, 2]` (`:40-49`).
+**Rôles d'écriture** : `canWriteEstimateWorkflows` = `admin` ou `engineer` (`src/lib/estimates/write-access.ts:7-9`), erreur `ESTIMATE_WRITE_ROLE_REQUIRED` (403, `:16-20`). **Moteur de calcul** : `calc_engine_version` gouverne désormais l'éditeur et les exports. Toute nouvelle version créée par l'application reçoit le moteur 2 ; une version existante ou une valeur invalide conserve le repli historique en moteur 1. Le brouillon v2 est calculé en direct ; après approbation ou envoi, les surfaces relisent son snapshot figé (`src/lib/estimates/calc-engine-version.ts`, `src/hooks/useEstimateEditorCalculation.ts`, `src/lib/estimate-v2-snapshot.ts`).
 
 ---
 
@@ -153,7 +155,13 @@ Six variables d'environnement surchargent cette configuration au build, lues en 
 | `POST .../templates/{id}/duplicate` | clone le **template** (défaut `« <nom> (copie) »`) | 201 |
 | `POST .../templates/{id}/instantiate` | crée **projet et/ou version** depuis le template | 201 |
 
-`insert` contrôle la profondeur via `clampMaxSectionDepth(version.max_section_depth, 3)` (`server.ts:6574-6577`) et **ne relance aucune renormalisation** des prix (`:6676-6678`), contrairement à l'insertion d'assemblage. ⚠️ Dans l'assistant de création, si l'étape 3 choisit `creationMode === "template"`, seuls `projectId|projectName`, `versionTitle`, `dateDevis`, `validiteJours` et `projectNotes` sont transmis (`src/components/estimates/estimate-creation-wizard/submitEstimateCreation.ts:28-40`, `src/lib/estimates/client.ts:5367-5372`) : **marge, TVA, arrondi et devise saisis à l'étape 2 sont silencieusement abandonnés** au profit de ceux du template. L'énum du wizard (`blank | template`, `schemas.ts:1801`) est par ailleurs disjointe de celle de l'API (`blank | linked_dpgf_source`, `schemas.ts:165-168`).
+`insert` contrôle la profondeur de la version cible et reste une modification
+d'un brouillon existant. `instantiate`, à l'inverse, est une création : il passe
+par `instantiateCanonicalEstimateV2FromTemplate`, qui clone la hiérarchie dans
+l'ordre parents-avant-enfants puis délègue à `persistCanonicalEstimateV2`.
+Comme les créations vierges et DPGF, la persistance finale traverse uniquement
+la RPC actor-scoped `persist_estimate_creation_atomic`. Les paramètres de prix
+du template constituent le contexte initial de cette version v2.
 
 ---
 
@@ -185,7 +193,7 @@ Brouillon `status ∈ {pending, partially_applied, applied, discarded}` (`supaba
 
 ## 6. Versions, variantes, diff, changelog, événements
 
-**Duplication.** RPC `duplicate_estimate_version(source_version_id, as_variant)` ; la nouvelle version prend `max(version_number)+1` et le statut `draft`. La copie des items est **ordonnée par profondeur** (`order by hierarchy.depth asc, src.position asc, src.id asc`, `supabase/migrations/20260715210520_fix_duplicate_estimate_hierarchy_order.sql:217`) parce que le garde-fou de hiérarchie résout le parent dans la version cible à chaque insertion (`:1-4`).
+**Duplication.** RPC `duplicate_estimate_version(source_version_id, as_variant)` ; la nouvelle version prend `max(version_number)+1`, le statut `draft`, ne reprend pas le sceau et **conserve `calc_engine_version` de la source**. La copie des items est **ordonnée par profondeur** (`order by hierarchy.depth asc, src.position asc, src.id asc`, `supabase/migrations/20260715210520_fix_duplicate_estimate_hierarchy_order.sql:217`) parce que le garde-fou de hiérarchie résout le parent dans la version cible à chaque insertion (`:1-4`). La migration du Lot 7 durcit aussi cette RPC en `security definer` actor-aware : appartenance au tenant actif et rôle propriétaire/admin sont revérifiés avant le verrouillage et la copie.
 
 **Variantes.** `as_variant = true` renseigne `parent_version_id` et un `variant_label` alphabétique généré par `estimate_variant_label_from_index` (base 26, `supabase/migrations/20260222170000_est223_variants.sql:45-70`), avec boucle jusqu'au premier label libre. `POST /variants` crée une variante, `PATCH /variants` la **promeut** en remettant `parent_version_id` et `variant_label` à `null` (`src/lib/estimates/server.ts:7180-7220`) ; la version doit être `draft` et réellement une variante (`ESTIMATE_VARIANT_REQUIRED`, `:7188-7194`).
 
@@ -193,7 +201,14 @@ Brouillon `status ∈ {pending, partially_applied, applied, discarded}` (`supaba
 
 **Changelog.** Cache `estimate_version_changelogs`, unique `(tenant_id, previous_version_id, current_version_id)`. `getOrBuildEstimateChangelog` renvoie `hit` **uniquement si les deux `updated_at` mémorisés correspondent exactement** (`src/lib/estimates/changelog.ts:481-492`), sinon recalcule et upsert en renvoyant `stale` (ligne présente) ou `miss` (`:527-531`). **Pas de TTL** : l'invalidation est purement basée sur `updated_at`. `GET /changelog?compare=<uuid>&format=pdf` rend le changelog en PDF (`src/app/api/estimates/[versionId]/changelog/route.ts:78-92`) ; comparer une version à elle-même est rejeté (`:45-47`), comme un couple hors du même tenant/projet (`:54-60`).
 
-**Événements.** `estimate_version_events.event_type ∈ {sent, accepted, archived, rejected, seal_verified, approval_rules_evaluated, approval_status_changed, approval_decided}` (`supabase/schema.sql:5025-5037`). ⚠️ La fonction d'écriture posée par la migration d'origine n'accepte que les **5 premiers** (`supabase/migrations/20260222153000_est036_estimate_version_events_timeline.sql:75-80`). Lecture : `GET /events` (`src/app/api/estimates/[versionId]/events/route.ts:15-25`). Vérification du sceau : `GET /verify` → voir [`../metier/cycle-de-vie.md`](../metier/cycle-de-vie.md).
+**Événements.** `estimate_version_events` est append-only. La dernière migration
+autorise les événements métier historiques ainsi que
+`approval_rules_evaluated`, `approval_status_changed`, `approval_submitted` et
+`approval_decided`. `approval_submitted` est écrit dans la même transaction que
+le cycle et ses approbations, pas par un second appel applicatif. Lecture :
+`GET /events` (`src/app/api/estimates/[versionId]/events/route.ts:15-25`).
+Vérification du sceau : `GET /verify` → voir
+[`../metier/cycle-de-vie.md`](../metier/cycle-de-vie.md).
 
 ---
 
@@ -273,6 +288,13 @@ Table `estimate_explanations` (`supabase/migrations/20260307143000_est394_estima
 
 Codes HTTP normalisés `400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503` (`src/lib/estimates/errors.ts:42`), avec mapping Supabase → HTTP (`42501` → 403, `PGRST116` → 404, `23505` → 409 — `:184-226`).
 
+À l'échelle de toute l'application, `src/lib/openapi/route-coverage.ts`
+inventorie les méthodes HTTP exportées par les fichiers `route.ts`. Le contrat
+doit former une partition exacte : 165 opérations documentées et 5 exclusions
+justifiées dans `route-exclusions.ts`, soit 170 opérations gouvernées. Le
+validateur échoue sur une route nouvelle non documentée, une exclusion stale,
+une duplication ou une opération présente dans les deux ensembles.
+
 ---
 
 ## 10. Pièges à connaître
@@ -282,7 +304,9 @@ Codes HTTP normalisés `400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503` (`s
 3. **Un autosave réussi vide la pile d'undo** (`useEstimateEditorSyncController.ts:614`).
 4. **`price_outlier`/`quantity_outlier` sont déclarés dans le gating mais jamais calculés côté envoi** (`src/lib/estimates/gating.ts:499-502`).
 5. **Le compteur de référence d'affaire plafonne à 999 par tenant et par an** ; au-delà l'insertion échoue (`20260719132414…:145-148`).
-6. **La création depuis un template abandonne marge/TVA/arrondi/devise saisis à l'étape 2** (`submitEstimateCreation.ts:28-40`).
+6. **Les créations non dupliquées ont une seule frontière de persistance** :
+   `persistCanonicalEstimateV2` puis `persist_estimate_creation_atomic`. Ne pas
+   réintroduire un `insert` direct ou une RPC d'import historique.
 7. **Une regex AID invalide retombe sans bruit sur le format par défaut** (`src/lib/estimates/schemas.ts:45-51`).
 8. **Aucun plafond de taille au collage côté client** : une feuille de plusieurs milliers de lignes est entièrement prévisualisée (`clipboard.ts:50-52`, sans appelant).
 9. **La majoration MO collée est divisée par 100 si elle dépasse 10**, sans confirmation (`clipboard.ts:401-419`).

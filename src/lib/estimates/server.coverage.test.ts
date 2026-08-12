@@ -1,7 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { mockServiceRoleRpc } = vi.hoisted(() => ({
+  mockServiceRoleRpc: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(() => ({ rpc: mockServiceRoleRpc })),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
+}));
+
+vi.mock("@/lib/estimates/canonical-v2-creation", () => ({
+  instantiateCanonicalEstimateV2FromTemplate: vi.fn(),
+  persistCanonicalEstimateV2: vi.fn(),
 }));
 
 vi.mock("@/lib/feature-flags", () => ({
@@ -35,6 +48,10 @@ import {
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  instantiateCanonicalEstimateV2FromTemplate,
+  persistCanonicalEstimateV2,
+} from "@/lib/estimates/canonical-v2-creation";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -200,6 +217,24 @@ describe("estimate server coverage additions", () => {
     vi.clearAllMocks();
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+    vi.mocked(instantiateCanonicalEstimateV2FromTemplate).mockResolvedValue({
+      project: { id: PROJECT_ID },
+      version: { id: TEMPLATE_COPY_ID },
+      insertedLineCount: 1,
+      insertedSectionCount: 0,
+      rootSectionId: null,
+    } as never);
+    vi.mocked(persistCanonicalEstimateV2).mockResolvedValue({
+      project: { id: PROJECT_ID, name: "Projet test" },
+      version: {
+        id: VERSION_ID,
+        project_id: PROJECT_ID,
+        status: "draft",
+      },
+      insertedLineCount: 0,
+      insertedSectionCount: 0,
+      rootSectionId: null,
+    } as never);
   });
 
   afterEach(() => {
@@ -1414,32 +1449,11 @@ describe("estimate server coverage additions", () => {
 
   it("creates an estimate with default version values when optional fields are omitted", async () => {
     const base = createAuth("engineer");
-    const persistenceCalls: Array<Record<string, unknown>> = [];
     const categoryUpsertCalls: unknown[] = [];
     const laborRoleUpsertCalls: unknown[] = [];
-
     const supabase = {
       ...base,
-      rpc: vi.fn((name: string, payload: Record<string, unknown>) => {
-        if (name !== "persist_estimate_creation_atomic") {
-          throw new Error(`Unexpected RPC: ${name}`);
-        }
-        persistenceCalls.push(payload);
-        return {
-          data: {
-            project: {
-              id: PROJECT_ID,
-              name: "Projet test",
-            },
-            version: {
-              id: VERSION_ID,
-              project_id: PROJECT_ID,
-              status: "draft",
-            },
-          },
-          error: null,
-        };
-      }),
+      rpc: vi.fn(),
       from: vi.fn((table: string) => {
         if (table === "tenant_memberships") {
           return {
@@ -1485,37 +1499,20 @@ describe("estimate server coverage additions", () => {
 
     expect(result.project.id).toBe(PROJECT_ID);
     expect(result.version.id).toBe(VERSION_ID);
-    expect(persistenceCalls).toHaveLength(1);
-    expect(persistenceCalls[0]).toMatchObject({
-      p_tenant_id: TENANT_ID,
-      p_project_id: null,
-      p_project_payload: {
+    expect(persistCanonicalEstimateV2).toHaveBeenCalledWith({
+      supabase,
+      tenantId: TENANT_ID,
+      actorUserId: USER_ID,
+      project: {
+        kind: "new",
+        name: "Projet test",
         reference: "REF",
-        client_name: "Client",
+        clientName: "Client",
         notes: "Notes",
       },
-      p_version_payload: {
-        validite_jours: 30,
-        margin_multiplier: 1,
-        margin_mode: "fixed",
-        currency: "EUR",
-        margin_bp: 0,
-        discount_bp: 0,
-        tax_rate_bp: 2000,
-        rounding_mode: "none",
-        rounding_step_cents: 1,
-        total_ht_cents: 0,
-        total_tax_cents: 0,
-        total_ttc_cents: 0,
-      },
-      p_items: [],
+      version: {},
+      source: { kind: "blank", importId: null },
     });
-    const versionPayload = persistenceCalls[0]?.p_version_payload as
-      | Record<string, unknown>
-      | undefined;
-    expect(versionPayload?.date_devis).toBe(
-      new Date().toISOString().slice(0, 10)
-    );
     expect(categoryUpsertCalls).toHaveLength(1);
     const categoriesPayload = categoryUpsertCalls[0];
     expect(Array.isArray(categoriesPayload)).toBe(true);
@@ -2327,16 +2324,21 @@ describe("estimate server coverage additions", () => {
       validite_jours: 45,
     });
 
-    expect(rpcCalls[0]).toMatchObject({
-      fn: "instantiate_estimate_from_template",
-      payload: {
-        p_template_id: TEMPLATE_ID,
-        p_project_name: "Projet du client",
-        p_version_title: "V1",
-        p_date_devis: "2026-02-22",
-        p_validite_jours: 45,
+    expect(instantiateCanonicalEstimateV2FromTemplate).toHaveBeenCalledWith({
+      supabase,
+      tenantId: TENANT_ID,
+      actorUserId: USER_ID,
+      templateId: TEMPLATE_ID,
+      project: {
+        kind: "new",
+        name: "Projet du client",
+        notes: null,
       },
+      versionTitle: "V1",
+      dateDevis: "2026-02-22",
+      validiteJours: 45,
     });
+    expect(rpcCalls).toEqual([]);
     expect(result).toEqual({
       projectId: PROJECT_ID,
       versionId: TEMPLATE_COPY_ID,
@@ -2344,7 +2346,7 @@ describe("estimate server coverage additions", () => {
     });
   });
 
-  it("throws explicit instantiate failure when RPC response shape is invalid", async () => {
+  it("throws explicit instantiate failure when canonical persistence fails", async () => {
     const base = createAuth("engineer");
 
     const supabase = {
@@ -2364,6 +2366,9 @@ describe("estimate server coverage additions", () => {
     };
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(instantiateCanonicalEstimateV2FromTemplate).mockRejectedValue(
+      new Error("ESTIMATE_CANONICAL_V2_PERSIST_FAILED")
+    );
 
     await expect(
       instantiateEstimateFromTemplate(TEMPLATE_ID, {

@@ -15,12 +15,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 
-import {
-  type SectionTotals,
-} from "@/lib/estimate-calculations";
-import {
-  type SupportedEstimateCurrency,
-} from "@/lib/money";
+import type { SectionTotals } from "@/lib/estimate-calculations";
+import type { SupportedEstimateCurrency } from "@/lib/money";
 import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
 import {
   EstimateEditorRow,
@@ -76,6 +72,7 @@ import {
 } from "@/components/estimates/hooks/useEstimateSupplierComparison";
 import {
   useEstimateVisibility,
+  type EstimateSectionCalculation,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
   useSpreadsheetNavigation,
@@ -220,6 +217,7 @@ type EstimateEditorTableProps = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
+  sectionCalculation: EstimateSectionCalculation;
   laborRateById: Map<string, number>;
   isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
@@ -812,6 +810,7 @@ export function EstimateEditorTable({
   marginMultiplier,
   discountCents,
   taxRateBp,
+  sectionCalculation,
   laborRateById,
   isLaborSplitEnabled = false,
   isReadOnly,
@@ -918,6 +917,7 @@ export function EstimateEditorTable({
     marginMultiplier,
     discountCents,
     taxRateBp,
+    sectionCalculation,
     laborRateById,
     isLaborSplitEnabled,
   });

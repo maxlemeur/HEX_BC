@@ -25,8 +25,33 @@ const approvalRevisionMigration = readFileSync(
   ),
   "utf8"
 );
+const calcEngineGovernanceMigration = readFileSync(
+  join(
+    process.cwd(),
+    "supabase/migrations/20260812032857_govern_estimate_calc_engine_v2.sql"
+  ),
+  "utf8"
+);
 
 describe("estimate version integrity regressions", () => {
+  it("loads every governed rule input before send gating", () => {
+    const accessSource = serverSource.match(
+      /async function getVersionAccessOrThrow[\s\S]*?\n}\n\nasync function assertDraftLockOwnedByCurrentUser/
+    )?.[0];
+
+    expect(accessSource).toBeDefined();
+    for (const field of [
+      "margin_bp",
+      "margin_multiplier",
+      "margin_mode",
+      "discount_bp",
+      "calc_engine_version",
+      "calc_snapshot_context",
+    ]) {
+      expect(accessSource).toContain(field);
+    }
+  });
+
   it("loads the contractor role and delegates reverse-charge VAT during authoritative recalculation", () => {
     const recalculateSource = serverSource.match(
       /async function recalculateEstimateVersionTotals[\s\S]*?\n}\n\nfunction resolveEmbeddedOne/
@@ -187,6 +212,56 @@ describe("estimate version integrity regressions", () => {
     );
     expect(integrityMigration).toMatch(
       /insert into public\.takeoff_version_links[\s\S]*insert into public\.takeoff_dpgf_review_decisions/
+    );
+  });
+
+  it("preserves AID and structured provenance through section copy workflows", () => {
+    const copiedItemBuilder = serverSource.match(
+      /function buildImportedEstimateItemInsert[\s\S]*?\n}\n\nfunction buildImportedSubtreePayload/
+    )?.[0];
+    const duplicateSectionSource = serverSource.match(
+      /async function duplicateSectionInternal[\s\S]*?\n}\n\nexport async function duplicateSection/
+    )?.[0];
+
+    expect(copiedItemBuilder).toBeDefined();
+    expect(copiedItemBuilder).toContain("aid: input.sourceItem.aid ?? null");
+    expect(copiedItemBuilder).toContain(
+      "source_metadata: input.sourceItem.source_metadata ?? {}"
+    );
+    expect(duplicateSectionSource).toContain(
+      "return buildImportedEstimateItemInsert({"
+    );
+  });
+
+  it("invalidates draft v2 snapshots when their external calculation context changes", () => {
+    const invalidator = calcEngineGovernanceMigration.match(
+      /create or replace function public\.invalidate_estimate_v2_snapshot_context\(\)[\s\S]*?\n\$\$;/
+    )?.[0];
+    const workflowGuard = calcEngineGovernanceMigration.match(
+      /create or replace function public\.guard_estimate_version_workflow_columns\(\)[\s\S]*?\n\$\$;/
+    )?.[0];
+
+    expect(invalidator).toBeDefined();
+    expect(workflowGuard).toBeDefined();
+    expect(invalidator).toContain("version.calc_engine_version = 2");
+    expect(invalidator).toContain(
+      "version.status = 'draft'::public.estimate_status"
+    );
+    expect(invalidator).toContain(
+      "version.margin_mode = 'tiered'::public.estimate_margin_mode"
+    );
+    expect(invalidator).toContain("item.labor_role_id in");
+    expect(invalidator).toContain("EST_031_LABOR_SPLIT");
+    expect(invalidator).toContain("calc_snapshot_content_revision = null");
+    expect(invalidator).toContain("calc_snapshot_context = null");
+    for (const table of ["margin_tiers", "labor_roles", "feature_flags"]) {
+      expect(calcEngineGovernanceMigration).toContain(
+        `on public.${table}\n  for each row execute function public.invalidate_estimate_v2_snapshot_context()`
+      );
+    }
+    expect(workflowGuard).toContain("pg_trigger_depth() > 1");
+    expect(workflowGuard).toContain(
+      "miaouffrage.estimate_v2_snapshot_invalidation"
     );
   });
 });

@@ -28,13 +28,29 @@ vi.mock("./gating", () => ({
   }),
 }));
 
+vi.mock("./version-totals", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./version-totals")>();
+  return {
+    ...actual,
+    calculateEstimateTotalsForItems: vi.fn(),
+    calculateEstimateSnapshotForItems: vi.fn(),
+  };
+});
+
 import {
+  buildCanonicalEstimateSealPayload,
+  computeEstimateSealHash,
+  freezeEstimateV2SnapshotForSend,
   patchEstimateStatus,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
 import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  calculateEstimateSnapshotForItems,
+  calculateEstimateTotalsForItems,
+} from "./version-totals";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -338,16 +354,17 @@ function createSupabaseSealMock(input: {
     return builder;
   });
 
-  const estimateItemsBuilder = {
-    eq: vi.fn(),
-    order: vi.fn(),
-  };
-  estimateItemsBuilder.eq.mockReturnValue(estimateItemsBuilder);
-  estimateItemsBuilder.order
-    .mockImplementationOnce(() => estimateItemsBuilder)
-    .mockResolvedValue(input.estimateItemsResult);
-
-  const estimateItemsSelect = vi.fn(() => estimateItemsBuilder);
+  const estimateItemsSelect = vi.fn(() => {
+    const estimateItemsBuilder = {
+      eq: vi.fn(),
+      order: vi.fn(),
+    };
+    estimateItemsBuilder.eq.mockReturnValue(estimateItemsBuilder);
+    estimateItemsBuilder.order
+      .mockImplementationOnce(() => estimateItemsBuilder)
+      .mockResolvedValue(input.estimateItemsResult);
+    return estimateItemsBuilder;
+  });
 
   const draftLocksBuilder = {
     eq: vi.fn(),
@@ -435,11 +452,14 @@ function createVersionAccessRow(status: "draft" | "sent" | "accepted" | "archive
     status,
     margin_mode: "fixed",
     margin_multiplier: 1.2,
+    margin_bp: 1_667,
+    discount_bp: 250,
     tax_rate_bp: 2000,
     updated_at: UPDATED_AT,
     total_ht_cents: 10000,
     total_tax_cents: 2000,
     total_ttc_cents: 12000,
+    content_revision: 1,
     estimate_projects: {
       id: PROJECT_ID,
       tenant_id: TENANT_ID,
@@ -452,6 +472,144 @@ function createVersionAccessRow(status: "draft" | "sent" | "accepted" | "archive
     },
   };
 }
+
+describe("estimate seal payload versions", () => {
+  const item = {
+    id: "77777777-7777-4777-8777-777777777777",
+    position: 1,
+    item_type: "line",
+    parent_id: null,
+    title: "Ligne v2",
+    description: "u",
+    quantity: 2,
+    unit_price_ht_cents: 5_000,
+    tax_rate_bp: 1_000,
+    k_fo: 1,
+    h_mo: 0,
+    h_mo_majoration: 1,
+    k_mo: 1,
+    labor_role_id: "role-1",
+    category_id: "category-1",
+    supply_type_id: null,
+    pu_ht_cents: 5_000,
+    snapshot_pu_ht_cents: 4_950,
+    snapshot_fo_ht_cents: 3_000,
+    snapshot_mo_ht_cents: 6_900,
+    snapshot_mo_atelier_ht_cents: 2_900,
+    snapshot_mo_chantier_ht_cents: 4_000,
+    line_total_ht_cents: 9_900,
+    line_tax_cents: 990,
+    line_total_ttc_cents: 10_890,
+  };
+  const version = {
+    id: VERSION_ID,
+    tenant_id: TENANT_ID,
+    project_id: PROJECT_ID,
+    version_number: 2,
+    title: "Offre v2",
+    exclusions: "Hors peinture",
+    date_devis: "2026-08-12",
+    validite_jours: 45,
+    currency: "EUR",
+    total_ht_cents: 10_000,
+    total_tax_cents: 1_000,
+    total_ttc_cents: 11_000,
+    margin_multiplier: 1.35,
+    margin_mode: "tiered",
+    discount_bp: 1_000,
+    discount_mode: "cascade",
+    discount_steps: [500, 250],
+    global_coefficient: 1.1,
+    max_section_depth: 4,
+    tax_rate_bp: 2_000,
+    rounding_mode: "nearest",
+    rounding_step_cents: 5,
+    calc_engine_version: 2,
+    calc_snapshot_content_revision: 7,
+    calc_snapshot_context: {
+      labor_split_enabled: true,
+      labor_roles: [{ id: "role-1", hourly_rate_cents: 4_500 }],
+      margin_tiers: [{ threshold_cents: 0, multiplier: 1.35 }],
+    },
+    contractor_role: "subcontractor",
+    seal_hash: null,
+  };
+
+  it("uses v3 for engine 2 and seals every immutable unified-engine setting", () => {
+    const payload = buildCanonicalEstimateSealPayload({
+      version: version as never,
+      items: [item] as never,
+    });
+
+    expect(payload).toMatchObject({
+      meta: { payload_version: 3 },
+      version: {
+        validite_jours: 45,
+        title: "Offre v2",
+        exclusions: "Hors peinture",
+        currency: "EUR",
+        margin_mode: "tiered",
+        discount_mode: "cascade",
+        discount_steps: [500, 250],
+        global_coefficient: 1.1,
+        max_section_depth: 4,
+        calc_engine_version: 2,
+        calc_snapshot_content_revision: 7,
+        calc_snapshot_context: version.calc_snapshot_context,
+        contractor_role: "subcontractor",
+      },
+    });
+
+    const baseHash = computeEstimateSealHash(payload);
+    const mutations = [
+      { margin_mode: "fixed" },
+      { discount_mode: "simple" },
+      { discount_steps: [750] },
+      { global_coefficient: 1.2 },
+      { max_section_depth: 5 },
+      { currency: "USD" },
+      { validite_jours: 30 },
+      { title: "Offre v2 modifiée" },
+      { exclusions: "Hors peinture et échafaudage" },
+      { calc_snapshot_content_revision: 8 },
+      {
+        calc_snapshot_context: {
+          labor_split_enabled: false,
+          labor_roles: [],
+          margin_tiers: [],
+        },
+      },
+    ];
+    mutations.forEach((mutation) => {
+      const mutated = buildCanonicalEstimateSealPayload({
+        version: { ...version, ...mutation } as never,
+        items: [item] as never,
+      });
+      expect(computeEstimateSealHash(mutated)).not.toBe(baseHash);
+    });
+
+    const snapshotMutation = buildCanonicalEstimateSealPayload({
+      version: version as never,
+      items: [{ ...item, snapshot_pu_ht_cents: 4_949 }] as never,
+    });
+    expect(computeEstimateSealHash(snapshotMutation)).not.toBe(baseHash);
+    const hierarchyMutation = buildCanonicalEstimateSealPayload({
+      version: version as never,
+      items: [{ ...item, parent_id: "another-section" }] as never,
+    });
+    expect(computeEstimateSealHash(hierarchyMutation)).not.toBe(baseHash);
+  });
+
+  it("keeps engine 1 on payload v2 by default", () => {
+    const payload = buildCanonicalEstimateSealPayload({
+      version: { ...version, calc_engine_version: 1 } as never,
+      items: [item] as never,
+    });
+
+    expect(payload.meta.payload_version).toBe(2);
+    expect(payload.version).not.toHaveProperty("global_coefficient");
+  });
+});
 
 describe("estimate status seal flow", () => {
   beforeEach(() => {
@@ -475,6 +633,48 @@ describe("estimate status seal flow", () => {
         return { data: null, error: null };
       }
     );
+    vi.mocked(evaluateEstimateSendGating).mockReset().mockResolvedValue({
+      canSend: true,
+      blockingFlags: [],
+      warningFlags: [],
+      stalePriceDays: 90,
+      checkedAt: "2026-02-22T12:00:00.000Z",
+    });
+    vi.mocked(calculateEstimateSnapshotForItems).mockResolvedValue({
+      context: {
+        effective_margin_multiplier: 1,
+        labor_split_enabled: false,
+        labor_roles: [],
+        margin_tiers: [],
+      },
+      breakdown: {
+        totals: {
+          costSubtotalCents: 0,
+          saleSubtotalBeforeCoefficientCents: 0,
+          saleSubtotalCents: 0,
+          discountCents: 0,
+          appliedMarginMultiplier: 1,
+          globalCoefficient: 1,
+          discountMode: "simple",
+          discountStepTotals: [],
+          saleTotalCents: 0,
+          taxCents: 0,
+          ttcCents: 0,
+          roundedTtcCents: 0,
+          roundingAdjustmentCents: 0,
+          adjustedTaxCents: 0,
+        },
+        lineById: new Map(),
+        sectionById: new Map(),
+        rootLineIds: [],
+        invariants: { sumAllocatedHtCents: 0, matchesFooter: true },
+      },
+    });
+    vi.mocked(calculateEstimateTotalsForItems).mockResolvedValue({
+      total_ht_cents: 10_000,
+      total_tax_cents: 2_000,
+      total_ttc_cents: 12_000,
+    });
   });
 
   it("rejects status update when concurrency token is missing", async () => {
@@ -780,6 +980,126 @@ describe("estimate status seal flow", () => {
       force: true,
       triggeredBy: "send",
     });
+    expect(vi.mocked(evaluateEstimateSendGating)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: expect.objectContaining({
+          margin_bp: 1_667,
+          discount_bp: 250,
+        }),
+      })
+    );
+    expect(vi.mocked(calculateEstimateTotalsForItems)).not.toHaveBeenCalled();
+  });
+
+  it("blocks a v2 seal when the stored footer is stale", async () => {
+    const accessVersion = {
+      ...createVersionAccessRow("draft"),
+      calc_engine_version: 2,
+    };
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        { data: accessVersion, error: null },
+        {
+          data: {
+            id: VERSION_ID,
+            margin_multiplier: 1.2,
+            margin_mode: "fixed",
+            tax_rate_bp: 2_000,
+            discount_bp: 0,
+            discount_mode: "simple",
+            discount_steps: [],
+            global_coefficient: 1,
+            rounding_mode: "none",
+            rounding_step_cents: 1,
+            calc_engine_version: 2,
+            contractor_role: "principal",
+            estimate_projects: { user_id: USER_ID },
+          },
+          error: null,
+        },
+      ],
+      estimateItemsResult: { data: [], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(calculateEstimateSnapshotForItems).mockResolvedValueOnce({
+      context: {
+        effective_margin_multiplier: 1,
+        labor_split_enabled: false,
+        labor_roles: [],
+        margin_tiers: [],
+      },
+      breakdown: {
+        totals: {} as never,
+        lineById: new Map(),
+        sectionById: new Map(),
+        rootLineIds: [],
+        invariants: { sumAllocatedHtCents: 9_000, matchesFooter: false },
+      },
+    });
+
+    await expect(
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "ESTIMATE_TOTALS_OUT_OF_SYNC",
+    });
+
+    expect(vi.mocked(generateEstimatePdfNow)).not.toHaveBeenCalled();
+    expect(mockServiceRoleRpc).not.toHaveBeenCalledWith(
+      "transition_estimate_version_status",
+      expect.anything()
+    );
+  });
+
+  it("maps a snapshot deadlock to the public version conflict", async () => {
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        {
+          data: {
+            ...createVersionAccessRow("draft"),
+            calc_engine_version: 2,
+          },
+          error: null,
+        },
+        {
+          data: {
+            id: VERSION_ID,
+            margin_multiplier: 1.2,
+            margin_mode: "fixed",
+            tax_rate_bp: 2_000,
+            discount_bp: 0,
+            discount_mode: "simple",
+            discount_steps: [],
+            global_coefficient: 1,
+            rounding_mode: "none",
+            rounding_step_cents: 1,
+            calc_engine_version: 2,
+            contractor_role: "principal",
+            estimate_projects: { user_id: USER_ID },
+          },
+          error: null,
+        },
+      ],
+      estimateItemsResult: { data: [], error: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    mockServiceRoleRpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "40P01",
+        message: "deadlock detected",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(
+      freezeEstimateV2SnapshotForSend(VERSION_ID, UPDATED_AT)
+    ).rejects.toMatchObject({ status: 409, code: "VERSION_CONFLICT" });
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith(
+      "freeze_estimate_v2_snapshot",
+      expect.objectContaining({ p_purpose: "send" })
+    );
   });
 
   it("aborts draft -> sent transition when PDF generation fails", async () => {

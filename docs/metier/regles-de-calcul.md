@@ -1,11 +1,9 @@
 # Règles de calcul
 
-> **Statut : à jour au 2026-07-29**, établi par lecture du code, pas de la documentation antérieure.
-> Chaque règle est ancrée sur un `fichier:ligne`. En cas de divergence, **le code fait foi** — et ce
-> document doit être corrigé.
->
-> Ce document décrit **ce qui s'exécute réellement en production (moteur v1)**. Le moteur v2, écrit et
-> testé mais inactif, est décrit au § 8.
+> **Statut : contrat des moteurs v1/v2 relu au 2026-08-12**, établi par lecture
+> du code et de la migration du Lot 7. Les autres sections conservent les
+> références détaillées de la photographie du 2026-07-29. En cas de divergence,
+> **le code et les migrations font foi**.
 
 ---
 
@@ -123,23 +121,41 @@ markupRatio = (vente − coût) / vente
 coefficient 1,35, la **marge** vaut 35 % et la **marque** 25,9 %. Afficher l'une pour l'autre est
 l'erreur la plus coûteuse du métier — voir [glossaire.md](glossaire.md).
 
-### 3.3 ⚠️ `margin_bp` et `margin_multiplier` divergent
+### 3.3 Marge effective pour les règles et le pilotage
 
-```ts
-// src/lib/estimates/rules-engine.ts:883-895
-const marginBp = toFiniteNumber(version.margin_bp, NaN);
-if (Number.isFinite(marginBp) && marginBp >= 0) return marginBp;   // ← toujours vrai
-// … repli sur margin_multiplier : INATTEIGNABLE
+`resolveEffectiveMarginBp` (`src/lib/estimates/effective-margin.ts`) distingue
+les contrats historiques et v2 :
+
+- en v1, `margin_bp` stocké reste prioritaire ; `margin_multiplier` n'est qu'un
+  repli de compatibilité lorsque cette donnée historique manque ;
+- en v2, la source d'autorité est
+  `calc_snapshot_context.effective_margin_multiplier`, c'est-à-dire le
+  coefficient réellement appliqué par `computeEstimateBreakdown`, **uniquement
+  si** `calc_snapshot_content_revision === content_revision` ;
+- un brouillon v2 `fixed` non encore gelé peut utiliser son coefficient
+  configuré ; un brouillon v2 `tiered` sans snapshot reste indéterminé, car ce
+  coefficient ne permet pas de connaître le palier réellement appliqué.
+
+Ce dernier cas échoue de façon conservatrice : `min_margin` évalue l'absence à
+`0` et bloque, tandis que Direction et la file affichent `null` plutôt qu'une
+marge inventée.
+
+La conversion en points de base suit le taux de marque :
+
+```text
+effective_margin_bp = max(0, round((1 - 1 / coefficient) × 10 000))
 ```
 
-`margin_bp` est `not null default 0` (`schema.sql:368`). La valeur `0` satisfait donc toujours la
-condition, et **le repli sur `margin_multiplier` n'est jamais atteint**. Or `margin_bp` n'est écrit
-qu'à la création via l'assistant, tandis que le panneau de réglages ne modifie que
-`margin_multiplier`.
+Le gel v2 enregistre le coefficient appliqué dans le contexte de calcul, avec
+le barème effectif. Si aucune tranche tenant n'existe, les tranches par défaut
+utilisées par le moteur sont matérialisées avant le gel. La règle `min_margin`,
+les cartes et alertes Direction et la file d'approbation lisent ensuite le même
+résolveur, qui ignore tout contexte lié à une révision antérieure ; modifier le
+barème courant ne réévalue pas une version déjà figée.
 
-**Conséquence : une règle `min_margin` voit une marge de 0 bp sur la quasi-totalité du parc et se
-déclenche systématiquement.** Les tableaux de bord direction et la file d'approbation affichent la
-même valeur fausse. Défaut ouvert — voir [ecarts-standards-btp.md](ecarts-standards-btp.md).
+Le gating charge également `discount_bp` depuis la version. La règle
+`max_discount` n'est donc plus neutralisée par un champ absent interprété comme
+zéro.
 
 ---
 
@@ -162,15 +178,17 @@ Contrainte DB : en mode `simple`, `discount_steps` doit être vide (`schema.sql:
 
 | Règle | Référence |
 |---|---|
-| **Un seul taux par version.** L'UI parle de « TVA unique » | `EstimateSettingsPanel.tsx:651`, `:677-682` |
+| Le réglage principal reste un taux par version dans l'UI | `EstimateSettingsPanel.tsx:651`, `:677-682` |
 | Défaut 2000 bp (20 %), borné `0..10000` | `schema.sql:370` |
-| `tax_rate_bp` existe **par ligne** en base… | `schema.sql:529` |
-| …mais est **écrasé par le taux de version** à chaque normalisation | `estimate-calculations.ts:1772` |
-| …et n'est honoré **que par le moteur v2**, inactif | `:1491` |
+| `tax_rate_bp` existe par ligne en base | `schema.sql:529` |
+| Le moteur v1 conserve la normalisation historique au taux de version | `estimate-calculations.ts` |
+| Le moteur v2 honore le taux de ligne, avec repli sur le taux de version | `computeEstimateBreakdown`, `estimate-calculations.ts` |
 | **Aucun taux réduit BTP prédéfini** (5,5 / 10 / 20) : champ pourcentage libre | `EstimateSettingsPanel.tsx:677-682` |
 
-> Le multi-taux est donc **inopérant en production**, quoi qu'en dise la base. Un devis mixant
-> 20 % et 10 % n'est pas chiffrable correctement aujourd'hui.
+Le multi-taux est donc gouverné par la version du moteur : il reste inopérant
+pour un devis historique v1, mais il est effectif pour toute nouvelle version
+v2. Les surfaces contractuelles d'une version v2 finalisée relisent la TVA
+figée par ligne ; elles ne la recalculent pas avec un réglage courant.
 
 ### 5.1 Autoliquidation de TVA en sous-traitance — implémentée
 
@@ -263,24 +281,29 @@ sur les devis.
 
 ## 8. Les deux moteurs de calcul
 
-`estimate_versions.calc_engine_version` (`smallint not null default 1`) gouverne quel moteur
-s'applique. Type `1 | 2`, résolveur *fail-safe* `resolveCalcEngineVersion`
-(`src/lib/estimates/calc-engine-version.ts:40-48`) : toute valeur inattendue retombe sur `1`.
+`estimate_versions.calc_engine_version` gouverne le contrat de calcul. Son type
+applicatif est `1 | 2` et `resolveCalcEngineVersion` retombe volontairement sur
+`1` pour toute valeur absente ou invalide. La migration du Lot 7 conserve le
+défaut SQL historique à `1` : elle ne transforme aucune version existante.
 
-### 8.1 État réel au 2026-07-29
+### 8.1 Attribution du moteur et création canonique
 
-| Surface | Moteur |
-|---|---|
-| Fiche version `[versionId]/page.tsx:461` | lit la colonne |
-| Impression `print/page.tsx:361` | lit la colonne |
-| Portail client `portal/[token]/page.tsx:288` | lit la colonne |
-| Exports `export-stream.ts:394` | lit la colonne |
-| Contexte de calcul `calc-context.ts:269` | lit la colonne |
-| PDF `pdf-generator.tsx:1814` | lit la colonne |
-| **Éditeur** `useEstimateVisibility.ts:189`, `useEstimateEditorState.impl.tsx:1127` | **épingle `EDITOR_CALC_ENGINE_VERSION = 1`** |
-
-**Aucune version n'est en moteur 2 en production.** L'éditeur est le dernier verrou avant bascule.
-`EXPORT_CALC_ENGINE_VERSION` (`calc-engine-version.ts:31`) est devenue une **constante morte**.
+- `NEW_ESTIMATE_CALC_ENGINE_VERSION = 2` s'applique à toute **nouvelle** version
+  créée par les chemins applicatifs.
+- Les créations vierges, depuis template ou depuis import DPGF convergent dans
+  `persistCanonicalEstimateV2` (`src/lib/estimates/canonical-v2-creation.ts`).
+  Cette façade calcule d'abord un résultat v2 réconcilié, puis appelle la RPC
+  service-role actor-scoped `persist_estimate_creation_atomic` pour persister
+  projet, version, arbre, totaux et lien d'import dans une seule transaction.
+  Le régime `contractor_role` fourni à la création, ou hérité de la dernière
+  version d'une affaire existante, participe à ce calcul et à la transaction ;
+  le mode `subcontractor` impose un pied et des lignes à TVA nulle.
+- La duplication ne passe pas par cette façade :
+  `duplicate_estimate_version` conserve le moteur de la source, crée un nouveau
+  brouillon et ne copie pas le sceau.
+- Les fonctions de création SQL historiques restent dans l'historique des
+  migrations, mais leurs droits d'exécution sont révoqués par la migration du
+  Lot 7. Elles ne constituent plus un chemin applicatif autorisé.
 
 ### 8.2 Ordre canonique du moteur v2
 
@@ -298,35 +321,66 @@ s'applique. Type `1 | 2`, résolveur *fail-safe* `resolveCalcEngineVersion`
 9. arrondi TTC                        → roundingAdjustmentCents exposé
 ```
 
-`allocateProRata` (`:314-355`) garantit `Σ parts === montant` **au centime** : méthode du plus grand
-reste (Hamilton), départage déterministe par index croissant, rebasage final du résidu flottant sur
-la part de plus gros poids. Testé sur **10 000 tirages** (`estimate-calculations.test.ts:1538`).
+`allocateProRata` garantit `Σ parts === montant` **au centime** par la méthode
+du plus grand reste, avec départage déterministe. L'invariant
+`matchesFooter` exige que la somme des lignes réconciliées corresponde au pied
+v2 avant toute persistance ou tout gel.
 
-**Invariant** : `invariants.matchesFooter = (calcEngineVersion === 2 && sumAllocatedHtCents === totals.saleTotalCents)`
-(`:1583-1585`). Il est donc **structurellement `false` partout en production**.
+### 8.3 Brouillon vivant et snapshot contractuel
 
-### 8.3 Ce que fait le moteur v1
+Un brouillon v2 reste calculé en direct. Le contexte chargé par
+`resolveEstimateCalculationContext` comprend l'état du split de main-d'œuvre,
+les taux des rôles référencés et, en mode de marge par paliers, le barème
+effectif. Il n'est pas implicitement recalculé après finalisation.
 
-`computeReadOnlyTotals` dérive le pied des **colonnes figées** `total_ht_cents` / `total_tax_cents` /
-`total_ttc_cents` (`:1929-1947`), pendant que les sections sont **recalculées** et que les lignes
-lisent `line_total_ht_cents` (brut de coefficient et de remise). **Trois millésimes de données
-coexistent donc dans un même tableau** — c'est exactement la divergence que T6 (`EST-E26`) corrige.
+Avant la première demande d'approbation et avant l'envoi,
+`freeze_estimate_v2_snapshot` enregistre par comparaison-et-échange :
 
-### 8.4 ⚠️ Avant de modifier `estimate-calculations.ts`
+- `calc_snapshot_content_revision` et `calc_snapshot_context` sur la version ;
+  ce contexte contient le barème effectif et
+  `effective_margin_multiplier`, coefficient réellement choisi par le
+  breakdown. Il n'est autoritatif que tant que sa révision est égale à la
+  `content_revision` courante ;
+- `total_ht_cents`, `total_tax_cents` et `total_ttc_cents` sur la version ;
+- `line_total_ht_cents`, `line_tax_cents`, `line_total_ttc_cents` et les cinq
+  champs `snapshot_pu_ht_cents`, `snapshot_fo_ht_cents`,
+  `snapshot_mo_ht_cents`, `snapshot_mo_atelier_ht_cents`,
+  `snapshot_mo_chantier_ht_cents` sur chaque ligne.
 
-Unifier le moteur change **rétroactivement** les totaux de devis déjà envoyés, acceptés et scellés,
-c'est-à-dire des **montants contractuels** et des **sceaux d'intégrité**.
+Le gel d'approbation peut s'exécuter sans bail d'éditeur, mais refuse un bail
+actif détenu par un autre utilisateur. Le gel d'envoi exige le bail de
+brouillon de l'acteur. Après le gel d'approbation, le moteur de règles relit la
+version afin que le cycle et ses approbations capturent la nouvelle
+`content_revision`. La RPC transactionnelle `open_estimate_review_cycle` crée
+ensuite le cycle, les approbations et l'événement d'audit. Une resoumission sur
+une révision plus récente remplace atomiquement le cycle précédent et ses
+approbations encore actives ; une reprise strictement identique est idempotente.
 
-Règles de prudence :
+### 8.4 Rôles de main-d'œuvre
 
-1. Les goldens de `estimate-calculations.golden.test.ts` figent volontairement des **valeurs fausses**.
-   Toute modification d'un snapshot doit être justifiée par un commentaire pointant la divergence
-   corrigée.
-2. La bascule doit être progressive : brouillons → nouvelles versions → opt-in des `sent` non signées.
-   **Jamais** les `accepted` ni les versions scellées.
-3. Les étapes 5-6 de la phase B touchent déjà les chemins d'**écriture** serveur
-   (`recalculateEstimateVersionTotals`, `insertAssemblyIntoVersion`) et modifient donc des
-   `total_ht_cents` **stockés**, sans être conditionnées par `calcEngineVersion`. Arbitrage ouvert.
+Pour le moteur v2, chaque `labor_role_id`, `labor_role_atelier_id` et
+`labor_role_chantier_id` doit appartenir au propriétaire de l'affaire dans le
+même tenant. Ce contrôle est appliqué au calcul, à la création atomique, par le
+trigger d'item et à nouveau au gel ; une incohérence lève
+`ESTIMATE_LABOR_ROLE_OWNER_MISMATCH`. Le moteur v1 conserve son repli historique
+à un taux nul lorsqu'un rôle ne peut plus être résolu.
+
+### 8.5 Lecture des surfaces et compatibilité historique
+
+| État / surface | Source chiffrée |
+|---|---|
+| Brouillon v2 dans l'éditeur | calcul vivant avec le contexte courant |
+| Fiche, impression et éditeur en lecture seule d'une v2 finalisée | snapshot stocké |
+| PDF et portail client d'une v2 finalisée | snapshot stocké |
+| Exports CSV/XLSX/DPGF/BDC d'une v2 finalisée | snapshot stocké |
+| Version v1 historique | contrat et replis v1 conservés |
+
+`buildStoredEstimateBreakdown` reconstruit les lignes et sections v2 uniquement
+depuis les colonnes figées ; aucun taux de rôle, palier ou feature flag courant
+n'entre alors dans le montant contractuel. Le sceau v3 couvre en plus la
+hiérarchie, les entrées de calcul, le contexte, la révision et les cinq
+snapshots. La vérification continue d'essayer les payloads v2 et v1 historiques,
+donc les devis déjà scellés ne sont ni réécrits ni invalidés.
 
 ---
 
@@ -334,9 +388,11 @@ Règles de prudence :
 
 | Fichier | Rôle |
 |---|---|
-| `src/lib/estimate-calculations.golden.test.ts` | Caractérisation : fige le comportement **actuel**, y compris ses erreurs, chaque divergence annotée `fichier:ligne` |
-| `src/lib/estimate-calculations.reconciliation.test.ts` | Invariants T6, dont un test *property-based* sur 300 devis |
-| `src/lib/estimate-calculations.test.ts` | Unitaires, dont 10 000 tirages sur `allocateProRata` et 6 cas d'autoliquidation |
+| `src/lib/estimate-calculations.golden.test.ts` | Goldens distincts v1/v2 et compatibilité des résultats historiques |
+| `src/lib/estimate-calculations.reconciliation.test.ts` | Invariants de réconciliation entre lignes, sections et pied |
+| `src/lib/estimate-calculations.test.ts` | Unitaires de calcul, allocation et autoliquidation |
+| `src/lib/estimates/version-totals.test.ts` | Contexte figé et portée propriétaire stricte des rôles en v2, repli v1 |
+| `supabase/tests/database/estimate-calc-engine-governance.test.sql` | Contrats SQL de création, gel, publication, sceau et immutabilité |
 | `src/lib/money.test.ts` | Parsing et formatage par devise |
 
 ---

@@ -4,13 +4,13 @@ import { useCallback, useMemo } from "react";
 
 import {
   computeAllSectionTotals,
+  type ComputeAllSectionTotalsInput,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
 import type {
   EstimateQualityFlagKey,
   EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
-import { EDITOR_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -25,6 +25,17 @@ type BulkMoveDestination = {
   label: string;
 };
 
+export type EstimateSectionCalculation = Pick<
+  ComputeAllSectionTotalsInput,
+  | "marginMode"
+  | "marginTiers"
+  | "globalCoefficient"
+  | "discountMode"
+  | "discountStepsBp"
+  | "calcEngineVersion"
+  | "preserveStoredSnapshot"
+>;
+
 type UseEstimateVisibilityParams = {
   items: EstimateItem[];
   reorderItems?: EstimateItem[];
@@ -33,6 +44,7 @@ type UseEstimateVisibilityParams = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
+  sectionCalculation: EstimateSectionCalculation;
   laborRateById: Map<string, number>;
   isLaborSplitEnabled: boolean;
 };
@@ -73,6 +85,7 @@ export function useEstimateVisibility({
   marginMultiplier,
   discountCents,
   taxRateBp,
+  sectionCalculation,
   laborRateById,
   isLaborSplitEnabled,
 }: UseEstimateVisibilityParams) {
@@ -179,14 +192,7 @@ export function useEstimateVisibility({
       taxRateBp,
       laborRateById,
       isLaborSplitEnabled,
-      // EST-E26 étape 9 : sous-totaux éditeur toujours en moteur historique
-      // (v1) ; le passage au breakdown est la phase D (étape 15).
-      marginMode: "fixed",
-      marginTiers: [],
-      globalCoefficient: 1,
-      discountMode: "simple",
-      discountStepsBp: [],
-      calcEngineVersion: EDITOR_CALC_ENGINE_VERSION,
+      ...sectionCalculation,
       sectionIds: visibleSectionIds,
     });
   }, [
@@ -195,6 +201,7 @@ export function useEstimateVisibility({
     items,
     laborRateById,
     marginMultiplier,
+    sectionCalculation,
     taxRateBp,
     visibleSectionIds,
   ]);

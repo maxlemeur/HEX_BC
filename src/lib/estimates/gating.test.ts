@@ -359,10 +359,14 @@ describe("estimate send gating", () => {
       tenantId: TENANT_ID,
       version: {
         id: VERSION_ID,
-        margin_mode: "fixed",
-        margin_multiplier: 1,
+        margin_mode: "tiered",
+        margin_multiplier: 1.6,
         margin_bp: 900,
         discount_bp: 0,
+        calc_engine_version: 2,
+        content_revision: 3,
+        calc_snapshot_content_revision: 2,
+        calc_snapshot_context: { effective_margin_multiplier: 1.4 },
         total_ht_cents: 10000,
         project_id: "55555555-5555-4555-8555-555555555555",
       },
@@ -374,6 +378,16 @@ describe("estimate send gating", () => {
     });
 
     expect(result.canSend).toBe(false);
+    expect(evaluateRules).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: expect.objectContaining({
+          margin_mode: "tiered",
+          content_revision: 3,
+          calc_snapshot_content_revision: 2,
+          calc_snapshot_context: { effective_margin_multiplier: 1.4 },
+        }),
+      })
+    );
     expect(result.blockingFlags).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

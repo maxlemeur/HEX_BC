@@ -7,10 +7,16 @@ import {
   type OpenApiResponseDefinition,
   type OpenApiSchemaDefinition,
 } from "@/lib/openapi/registry";
+import { baseAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts";
+import type { MultiContentRequestBodyDefinition } from "@/lib/openapi/route-contracts";
+import { workflowAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts-workflows";
 
 type OpenApiMethodObject = Record<string, unknown>;
 type OpenApiPathItemObject = Partial<
-  Record<"get" | "post" | "patch" | "delete", OpenApiMethodObject>
+  Record<
+    "get" | "head" | "options" | "post" | "put" | "patch" | "delete",
+    OpenApiMethodObject
+  >
 >;
 type OpenApiPathsObject = Record<string, OpenApiPathItemObject>;
 
@@ -43,11 +49,17 @@ export type GenerateOpenApiOptions = {
 };
 
 const JSON_SCHEMA_DIALECT = "https://spec.openapis.org/oas/3.1/dialect/base";
-const METHOD_ORDER: Record<"get" | "post" | "patch" | "delete", number> = {
+const METHOD_ORDER: Record<
+  "get" | "head" | "options" | "post" | "put" | "patch" | "delete",
+  number
+> = {
   get: 0,
-  post: 1,
-  patch: 2,
-  delete: 3,
+  head: 1,
+  options: 2,
+  post: 3,
+  put: 4,
+  patch: 5,
+  delete: 6,
 };
 
 const DEFAULT_ERROR_RESPONSES: Array<{
@@ -172,6 +184,7 @@ function buildResponse(
       if (
         !entry.schema &&
         (entry.contentType === "application/pdf" ||
+          entry.contentType === "application/zip" ||
           entry.contentType ===
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
       ) {
@@ -222,14 +235,21 @@ function buildOperation(
 
   if (operation.requestBody) {
     const contentType = operation.requestBody.contentType ?? "application/json";
+    const content: Record<string, unknown> = {
+      [contentType]: {
+        schema: ensureSchemaRef(state, operation.requestBody),
+      },
+    };
+    const multiContentBody = operation.requestBody as MultiContentRequestBodyDefinition;
+    multiContentBody.additionalContents?.forEach((entry) => {
+      content[entry.contentType] = {
+        schema: ensureSchemaRef(state, entry.schema),
+      };
+    });
     operationObject.requestBody = {
       description: operation.requestBody.description,
       required: operation.requestBody.required ?? true,
-      content: {
-        [contentType]: {
-          schema: ensureSchemaRef(state, operation.requestBody),
-        },
-      },
+      content,
     };
   }
 
@@ -295,7 +315,11 @@ export function generateOpenApiDocument(
     ensureSchemaRef(state, schemaDefinition);
   });
 
-  const sortedOperations = sortOperations(openApiOperationsRegistry);
+  const sortedOperations = sortOperations([
+    ...openApiOperationsRegistry,
+    ...baseAdditionalOpenApiOperationsRegistry,
+    ...workflowAdditionalOpenApiOperationsRegistry,
+  ]);
   const paths: OpenApiPathsObject = {};
 
   sortedOperations.forEach((operation) => {

@@ -1,9 +1,24 @@
 import { bankersRound, computeTaxCents } from "@/lib/money";
+import { allocateProRata } from "@/lib/estimate-allocation";
+import {
+  aggregateEstimateV2Sections,
+  buildStoredEstimateBreakdown,
+  UNASSIGNED_SUPPLY_TYPE_KEY,
+} from "@/lib/estimate-v2-snapshot";
 import {
   resolveMarginMultiplier,
   type MarginTier,
 } from "@/lib/estimates/margin-tiers";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+
+export { allocateProRata } from "@/lib/estimate-allocation";
+export {
+  buildEstimateV2SnapshotProjection,
+  buildStoredEstimateBreakdown,
+  UNASSIGNED_SUPPLY_TYPE_KEY,
+  type EstimateV2SnapshotLine,
+  type EstimateV2SnapshotProjection,
+} from "@/lib/estimate-v2-snapshot";
 
 /* ---------- constants ---------- */
 
@@ -90,8 +105,6 @@ export type CascadeDiscountComputation = {
   subtotalAfterDiscountCents: number;
   steps: DiscountStepTotal[];
 };
-export const UNASSIGNED_SUPPLY_TYPE_KEY = "__unassigned__";
-
 /* ---------- helpers ---------- */
 
 function toSafeNumber(value: number | null | undefined, fallback: number) {
@@ -293,65 +306,6 @@ export function computeCascadeDiscountCents(
     subtotalAfterDiscountCents: runningSubtotalCents,
     steps,
   };
-}
-
-/* ---------- allocation exacte (EST-E26, T6 phase C, étape 7) ---------- */
-
-/**
- * Répartit `amount` (centimes, >= 0) sur `weights` (>= 0) en garantissant
- * `Σ parts === amount` AU CENTIME (méthode du plus grand reste / Hamilton).
- *
- * - aucune part négative, aucune part > `amount` ;
- * - le reliquat de division va aux plus grands restes fractionnaires ; à égalité,
- *   à l'index le plus petit (déterministe) ;
- * - somme des poids nulle => répartition uniforme ;
- * - garde-fou final : tout écart résiduel (arrondi flottant sur de très gros
- *   montants) est rebasé sur la part de plus gros poids (EST-E26 §2.4).
- *
- * C'est la brique qui rend l'invariant « Σ lignes === Σ sections === pied » vrai
- * au centime (§2.3), là où des `Math.round` indépendants dérivaient.
- */
-export function allocateProRata(amount: number, weights: number[]): number[] {
-  const n = weights.length;
-  if (n === 0) return [];
-
-  const safeAmount = Math.max(Math.round(toSafeNumber(amount, 0)), 0);
-  const safeWeights = weights.map((weight) => Math.max(toSafeNumber(weight, 0), 0));
-  if (safeAmount === 0) return new Array<number>(n).fill(0);
-
-  const totalWeight = safeWeights.reduce((sum, weight) => sum + weight, 0);
-  // `safeAmount * (weight / total)` reste borné par safeAmount : pas de
-  // dépassement de MAX_SAFE_INTEGER, contrairement au produit direct
-  // `safeAmount * weight` sur de gros devis.
-  const exact = safeWeights.map((weight) =>
-    totalWeight > 0 ? safeAmount * (weight / totalWeight) : safeAmount / n
-  );
-  const parts = exact.map((value) => Math.floor(value));
-
-  const order = exact
-    .map((value, index) => ({ index, frac: value - Math.floor(value) }))
-    .sort((left, right) =>
-      right.frac !== left.frac ? right.frac - left.frac : left.index - right.index
-    );
-
-  let remainder = safeAmount - parts.reduce((sum, part) => sum + part, 0);
-  for (let k = 0; k < order.length && remainder > 0; k += 1) {
-    parts[order[k].index] += 1;
-    remainder -= 1;
-  }
-
-  // Rebase du reliquat éventuel (écart d'arrondi flottant) sur la plus grosse
-  // part : garantit Σ parts === safeAmount exactement.
-  const leftover = safeAmount - parts.reduce((sum, part) => sum + part, 0);
-  if (leftover !== 0) {
-    let target = 0;
-    for (let index = 1; index < n; index += 1) {
-      if (safeWeights[index] > safeWeights[target]) target = index;
-    }
-    parts[target] = Math.max(parts[target] + leftover, 0);
-  }
-
-  return parts;
 }
 
 /* ---------- totals computation ---------- */
@@ -569,6 +523,11 @@ export type EstimateItemRecord = EstimateLineLike & {
   line_total_ht_cents: number | null;
   line_tax_cents: number | null;
   line_total_ttc_cents: number | null;
+  snapshot_pu_ht_cents?: number | null;
+  snapshot_fo_ht_cents?: number | null;
+  snapshot_mo_ht_cents?: number | null;
+  snapshot_mo_atelier_ht_cents?: number | null;
+  snapshot_mo_chantier_ht_cents?: number | null;
 };
 
 export type EstimateVersionForCalc = {
@@ -632,6 +591,8 @@ export type ComputeAllSectionTotalsInput = {
   isLaborSplitEnabled: boolean;
   laborRateAtelierById?: Map<string, number>;
   laborRateChantierById?: Map<string, number>;
+  /** Utilise exclusivement les montants ligne figes, sans tarif ni flag live. */
+  preserveStoredSnapshot?: boolean;
   sectionIds?: Iterable<string>;
 };
 
@@ -981,30 +942,33 @@ export function computeAllSectionTotals({
   isLaborSplitEnabled,
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
+  preserveStoredSnapshot = false,
   sectionIds,
 }: ComputeAllSectionTotalsInput): Map<string, SectionTotals> {
   // EST-E26 (T6, étape 9) : en version 2, les sections DÉRIVENT du moteur unifié
   // (agrégation nette réconciliée, le coefficient global entre enfin dans les
   // sections). En version 1, chemin historique strictement inchangé ci-dessous.
   if (calcEngineVersion === 2) {
-    const breakdown = computeEstimateBreakdown({
-      items,
-      marginMultiplier,
-      marginMode,
-      marginTiers,
-      globalCoefficient,
-      discountMode,
-      discountCents,
-      discountStepsBp,
-      taxRateBp,
-      roundingMode: "none",
-      roundingStepCents: 0,
-      isLaborSplitEnabled,
-      laborRateById,
-      laborRateAtelierById,
-      laborRateChantierById,
-      calcEngineVersion,
-    });
+    const breakdown = preserveStoredSnapshot
+      ? buildStoredEstimateBreakdown({ items })
+      : computeEstimateBreakdown({
+          items,
+          marginMultiplier,
+          marginMode,
+          marginTiers,
+          globalCoefficient,
+          discountMode,
+          discountCents,
+          discountStepsBp,
+          taxRateBp,
+          roundingMode: "none",
+          roundingStepCents: 0,
+          isLaborSplitEnabled,
+          laborRateById,
+          laborRateAtelierById,
+          laborRateChantierById,
+          calcEngineVersion,
+        });
     if (!sectionIds) return breakdown.sectionById;
     const filtered = new Map<string, SectionTotals>();
     for (const sectionId of sectionIds) {
@@ -1235,139 +1199,6 @@ export type EstimateComputationInput = {
   vatReverseCharge?: boolean;
 };
 
-type NetSectionAccumulator = {
-  foNetCents: number;
-  moNetCents: number;
-  moAtelierNetCents: number;
-  moChantierNetCents: number;
-  htNetCents: number;
-  taxCents: number;
-  supplyTypeFoNetCents: Map<string, number>;
-};
-
-function createNetSectionAccumulator(): NetSectionAccumulator {
-  return {
-    foNetCents: 0,
-    moNetCents: 0,
-    moAtelierNetCents: 0,
-    moChantierNetCents: 0,
-    htNetCents: 0,
-    taxCents: 0,
-    supplyTypeFoNetCents: new Map<string, number>(),
-  };
-}
-
-/**
- * Agrège les valeurs NETTES par ligne (déjà réconciliées) en sections
- * récursives, et collecte les lignes racine (hors section). Chaque section porte
- * la somme de ses lignes descendantes : Σ sections racine + Σ lignes racine ===
- * Σ lignes === pied.
- */
-function aggregateNetSections(
-  items: EstimateItemRecord[],
-  lineById: Map<string, EstimateLineBreakdown>
-): { sectionById: Map<string, SectionTotals>; rootLineIds: string[] } {
-  const sectionSet = new Set<string>();
-  const childrenByParent = new Map<string, EstimateItemRecord[]>();
-  items.forEach((item) => {
-    if (item.item_type === "section") sectionSet.add(item.id);
-    if (!item.parent_id) return;
-    const siblings = childrenByParent.get(item.parent_id) ?? [];
-    siblings.push(item);
-    childrenByParent.set(item.parent_id, siblings);
-  });
-
-  const rootLineIds = items
-    .filter(
-      (item) =>
-        item.item_type === "line" &&
-        (!item.parent_id || !sectionSet.has(item.parent_id))
-    )
-    .map((item) => item.id);
-
-  const accById = new Map<string, NetSectionAccumulator>();
-  const visited = new Set<string>();
-  const sectionIds = items
-    .filter((item) => item.item_type === "section")
-    .map((item) => item.id);
-
-  sectionIds.forEach((rootId) => {
-    if (visited.has(rootId)) return;
-    const stack: Array<{ id: string; visitedChildren: boolean }> = [
-      { id: rootId, visitedChildren: false },
-    ];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
-      if (!current.visitedChildren) {
-        if (visited.has(current.id)) continue;
-        stack.push({ id: current.id, visitedChildren: true });
-        const children = childrenByParent.get(current.id) ?? [];
-        for (let index = children.length - 1; index >= 0; index -= 1) {
-          if (children[index].item_type === "section") {
-            stack.push({ id: children[index].id, visitedChildren: false });
-          }
-        }
-        continue;
-      }
-
-      const acc = createNetSectionAccumulator();
-      (childrenByParent.get(current.id) ?? []).forEach((child) => {
-        if (child.item_type === "line") {
-          const line = lineById.get(child.id);
-          if (!line) return;
-          acc.foNetCents += line.foNetCents;
-          acc.moNetCents += line.moNetCents;
-          acc.moAtelierNetCents += line.moAtelierNetCents;
-          acc.moChantierNetCents += line.moChantierNetCents;
-          acc.htNetCents += line.saleNetHtCents;
-          acc.taxCents += line.taxCents;
-          if (line.foNetCents > 0) {
-            const key = child.supply_type_id ?? UNASSIGNED_SUPPLY_TYPE_KEY;
-            acc.supplyTypeFoNetCents.set(
-              key,
-              (acc.supplyTypeFoNetCents.get(key) ?? 0) + line.foNetCents
-            );
-          }
-          return;
-        }
-        const childAcc = accById.get(child.id);
-        if (!childAcc) return;
-        acc.foNetCents += childAcc.foNetCents;
-        acc.moNetCents += childAcc.moNetCents;
-        acc.moAtelierNetCents += childAcc.moAtelierNetCents;
-        acc.moChantierNetCents += childAcc.moChantierNetCents;
-        acc.htNetCents += childAcc.htNetCents;
-        acc.taxCents += childAcc.taxCents;
-        childAcc.supplyTypeFoNetCents.forEach((value, key) => {
-          acc.supplyTypeFoNetCents.set(
-            key,
-            (acc.supplyTypeFoNetCents.get(key) ?? 0) + value
-          );
-        });
-      });
-      accById.set(current.id, acc);
-      visited.add(current.id);
-    }
-  });
-
-  const sectionById = new Map<string, SectionTotals>();
-  sectionIds.forEach((sectionId) => {
-    const acc = accById.get(sectionId) ?? createNetSectionAccumulator();
-    sectionById.set(sectionId, {
-      foTotalCents: acc.foNetCents,
-      moTotalCents: acc.moNetCents,
-      moAtelierTotalCents: acc.moAtelierNetCents,
-      moChantierTotalCents: acc.moChantierNetCents,
-      totalHtCents: acc.htNetCents,
-      totalTtcCents: acc.htNetCents + acc.taxCents,
-      supplyTypeFoTotalsCents: Object.fromEntries(acc.supplyTypeFoNetCents),
-    });
-  });
-
-  return { sectionById, rootLineIds };
-}
-
 /**
  * Fonction d'autorité du moteur de totaux (EST-E26 §2.1). Produit un breakdown
  * complet — pied, par ligne, par section, lignes racine — où l'invariant
@@ -1529,7 +1360,10 @@ export function computeEstimateBreakdown(
   let totals: EstimateTotals;
 
   if (calcEngineVersion === 2) {
-    ({ sectionById, rootLineIds } = aggregateNetSections(items, lineById));
+    ({ sectionById, rootLineIds } = aggregateEstimateV2Sections(
+      items,
+      lineById
+    ));
     // TVA par ligne sur le net : supprime la double branche coefficient===1.
     const taxCents = taxNet.reduce((sum, value) => sum + value, 0);
     const ttcCents = footer.saleTotalCents + taxCents;
@@ -1607,49 +1441,71 @@ export function computeInitialDiscountCents(
    */
   isLaborSplitEnabled: boolean,
   laborRateAtelierById?: Map<string, number>,
-  laborRateChantierById?: Map<string, number>
+  laborRateChantierById?: Map<string, number>,
+  calculation?: {
+    calcEngineVersion: CalcEngineVersion;
+    marginTiers: MarginTier[];
+  }
 ): number {
-  const saleSubtotal = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    const hourlyRate = item.labor_role_id
-      ? laborRateById.get(item.labor_role_id) ?? 0
-      : 0;
-    // Meme cascade que `withRates` : taux dedie -> taux par defaut -> 0.
-    const hourlyRateAtelier = item.labor_role_atelier_id
-      ? (laborRateAtelierById?.get(item.labor_role_atelier_id) ??
-          laborRateById.get(item.labor_role_atelier_id) ??
-          0)
-      : 0;
-    const hourlyRateChantier = item.labor_role_chantier_id
-      ? (laborRateChantierById?.get(item.labor_role_chantier_id) ??
-          laborRateById.get(item.labor_role_chantier_id) ??
-          0)
-      : 0;
-    const lineValues = computeEstimateLineValues(
-      {
+  const lineItems = items
+    .filter((item) => item.item_type === "line")
+    .map((item) => {
+      const hourlyRate = item.labor_role_id
+        ? laborRateById.get(item.labor_role_id) ?? 0
+        : 0;
+      // Meme cascade que `withRates` : taux dedie -> taux par defaut -> 0.
+      const hourlyRateAtelier = item.labor_role_atelier_id
+        ? (laborRateAtelierById?.get(item.labor_role_atelier_id) ??
+            laborRateById.get(item.labor_role_atelier_id) ??
+            0)
+        : 0;
+      const hourlyRateChantier = item.labor_role_chantier_id
+        ? (laborRateChantierById?.get(item.labor_role_chantier_id) ??
+            laborRateById.get(item.labor_role_chantier_id) ??
+            0)
+        : 0;
+      return {
         ...item,
         labor_role_hourly_rate_cents: hourlyRate,
         labor_role_atelier_hourly_rate_cents: hourlyRateAtelier,
         labor_role_chantier_hourly_rate_cents: hourlyRateChantier,
-      },
-      {
-        marginMultiplier: version.margin_multiplier,
-        taxRateBp: version.tax_rate_bp,
-        isLaborSplitEnabled,
-      }
-    );
+      };
+    });
+
+  const saleSubtotal = lineItems.reduce((sum, item) => {
+    const lineValues = computeEstimateLineValues(item, {
+      marginMultiplier: version.margin_multiplier,
+      taxRateBp: version.tax_rate_bp,
+      isLaborSplitEnabled,
+    });
     return sum + lineValues.saleLineCents;
   }, 0);
 
   if (!saleSubtotal) return 0;
 
-  const saleSubtotalAfterCoefficientCents = clampNonNegative(
-    capCents(
-      bankersRound(
-        saleSubtotal * clampGlobalCoefficient(version.global_coefficient)
-      )
-    )
-  );
+  const saleSubtotalAfterCoefficientCents =
+    calculation?.calcEngineVersion === 2
+      ? computeEstimateTotals({
+          lineItems,
+          marginMultiplier: version.margin_multiplier,
+          marginMode: version.margin_mode ?? "fixed",
+          marginTiers: calculation.marginTiers,
+          discountCents: 0,
+          discountMode: "simple",
+          discountStepsBp: [],
+          globalCoefficient: version.global_coefficient ?? 1,
+          taxRateBp: version.tax_rate_bp,
+          roundingMode: "none",
+          roundingStepCents: 0,
+          isLaborSplitEnabled,
+        }).saleSubtotalCents
+      : clampNonNegative(
+          capCents(
+            bankersRound(
+              saleSubtotal * clampGlobalCoefficient(version.global_coefficient)
+            )
+          )
+        );
   const safeMode: DiscountMode =
     version.discount_mode === "cascade" ? "cascade" : "simple";
   const safeSteps = normalizeDiscountStepsBp(version.discount_steps);
@@ -1731,6 +1587,7 @@ export function normalizeDraftItems<
   rateAtelierById,
   rateChantierById,
   isLaborSplitEnabled,
+  calcEngineVersion = 1,
 }: {
   items: T[];
   version: EstimateVersionForCalc;
@@ -1747,6 +1604,8 @@ export function normalizeDraftItems<
   rateAtelierById?: Map<string, number>;
   rateChantierById?: Map<string, number>;
   isLaborSplitEnabled: boolean;
+  /** Version stockee : v1 impose le taux global, v2 preserve le taux de ligne. */
+  calcEngineVersion?: CalcEngineVersion;
 }): T[] {
   return items.map((item) => {
     if (item.item_type !== "line") return item;
@@ -1769,7 +1628,10 @@ export function normalizeDraftItems<
           rateById.get(item.labor_role_chantier_id) ??
           0)
       : 0;
-    const taxRate = version.tax_rate_bp ?? item.tax_rate_bp ?? 0;
+    const taxRate =
+      calcEngineVersion === 2
+        ? (item.tax_rate_bp ?? version.tax_rate_bp ?? 0)
+        : (version.tax_rate_bp ?? item.tax_rate_bp ?? 0);
     const lineValues = computeEstimateLineValues(
       {
         ...item,
@@ -1790,7 +1652,8 @@ export function normalizeDraftItems<
     );
     return {
       ...item,
-      tax_rate_bp: taxRate,
+      tax_rate_bp:
+        calcEngineVersion === 2 ? item.tax_rate_bp : taxRate,
       k_fo: kFo,
       h_mo: hMo,
       h_mo_majoration: hMoMajoration,
@@ -1816,6 +1679,7 @@ export function computeReadOnlyTotals({
   roundingMode,
   roundingStepCents,
   calcEngineVersion,
+  preserveStoredSnapshot = false,
   vatReverseCharge,
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
@@ -1835,11 +1699,17 @@ export function computeReadOnlyTotals({
   roundingMode: RoundingMode;
   roundingStepCents: number;
   calcEngineVersion: CalcEngineVersion;
+  /** Hors brouillon, les montants contractuels figes sont l'unique source. */
+  preserveStoredSnapshot?: boolean;
   /** Regime fiscal explicite du devis envoye. Ignore par le chemin v1 stocke. */
   vatReverseCharge?: boolean;
   laborRateAtelierById?: Map<string, number>;
   laborRateChantierById?: Map<string, number>;
 }): EstimateTotals {
+  if (calcEngineVersion === 2 && preserveStoredSnapshot) {
+    return buildStoredEstimateBreakdown({ items, version }).totals;
+  }
+
   // EST-E26 (T6, etape 9, dernier wrapper) : en version 2, le pied DERIVE du
   // moteur unifie et cesse donc de renvoyer les colonnes figees
   // (`total_ht_cents` / `total_tax_cents` / `total_ttc_cents`). En version 1,

@@ -1084,6 +1084,8 @@ export type Database = {
           total_tax_cents: number;
           total_ttc_cents: number;
           content_revision: number;
+          calc_snapshot_content_revision: number | null;
+          calc_snapshot_context: Json | null;
           seal_hash: string | null;
           parent_version_id: string | null;
           variant_label: string | null;
@@ -1126,6 +1128,8 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
           content_revision?: number;
+          calc_snapshot_content_revision?: number | null;
+          calc_snapshot_context?: Json | null;
           seal_hash?: string | null;
           parent_version_id?: string | null;
           variant_label?: string | null;
@@ -1168,6 +1172,8 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
           content_revision?: number;
+          calc_snapshot_content_revision?: number | null;
+          calc_snapshot_context?: Json | null;
           seal_hash?: string | null;
           parent_version_id?: string | null;
           variant_label?: string | null;
@@ -2767,6 +2773,11 @@ export type Database = {
           source_file_name: string | null;
           source_page: number | null;
           source_metadata: Json;
+          snapshot_pu_ht_cents: number | null;
+          snapshot_fo_ht_cents: number | null;
+          snapshot_mo_ht_cents: number | null;
+          snapshot_mo_atelier_ht_cents: number | null;
+          snapshot_mo_chantier_ht_cents: number | null;
           line_total_ht_cents: number | null;
           line_tax_cents: number | null;
           line_total_ttc_cents: number | null;
@@ -2806,6 +2817,11 @@ export type Database = {
           source_file_name?: string | null;
           source_page?: number | null;
           source_metadata?: Json;
+          snapshot_pu_ht_cents?: number | null;
+          snapshot_fo_ht_cents?: number | null;
+          snapshot_mo_ht_cents?: number | null;
+          snapshot_mo_atelier_ht_cents?: number | null;
+          snapshot_mo_chantier_ht_cents?: number | null;
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
@@ -2845,6 +2861,11 @@ export type Database = {
           source_file_name?: string | null;
           source_page?: number | null;
           source_metadata?: Json;
+          snapshot_pu_ht_cents?: number | null;
+          snapshot_fo_ht_cents?: number | null;
+          snapshot_mo_ht_cents?: number | null;
+          snapshot_mo_atelier_ht_cents?: number | null;
+          snapshot_mo_chantier_ht_cents?: number | null;
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
@@ -3153,10 +3174,38 @@ export type Database = {
       persist_estimate_creation_atomic: {
         Args: {
           p_tenant_id: string;
+          p_actor_user_id: string;
           p_project_id: string | null;
           p_project_payload: Json | null;
           p_version_payload: Json;
           p_items: Json;
+          p_import_id?: string | null;
+        };
+        Returns: Json;
+      };
+      freeze_estimate_v2_snapshot: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_expected_content_revision: number;
+          p_actor_user_id: string;
+          p_purpose: "send" | "approval";
+          p_calculation_context: Json;
+          p_item_snapshots: Json;
+          p_version_totals: Json;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
+      open_estimate_review_cycle: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_assigned_reviewer_id: string;
+          p_rule_ids: string[];
+          p_submission_message?: string | null;
+          p_event_metadata?: Json;
         };
         Returns: Json;
       };

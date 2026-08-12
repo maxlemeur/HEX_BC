@@ -213,6 +213,45 @@ describe("fetchApprovalQueue", () => {
     expect(rows[0]?.project_id).toBe("project-1");
   });
 
+  it("displays and sorts the effective margins returned by Direction", async () => {
+    const rows = [
+      approvalRow({
+        project_id: "project-high-cost",
+        version_id: "version-high-cost",
+        cycle_id: "cycle-high-cost",
+        margin_bp: 3_750,
+      }),
+      approvalRow({
+        project_id: "project-low-cost",
+        version_id: "version-low-cost",
+        cycle_id: "cycle-low-cost",
+        margin_bp: 2_857,
+      }),
+    ];
+    const { context } = createContext({
+      rpcResult: { data: rows, error: null },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchDirectionProjectSignals).mockImplementation(
+      async (projectId) => ({
+        latestJobId: null,
+        marginBp: projectId === "project-high-cost" ? 2_857 : 3_750,
+        alerts: [],
+      }) as never
+    );
+
+    const result = await fetchApprovalQueue({
+      sortBy: "margin",
+      sortDir: "asc",
+      onlyExceptions: false,
+    });
+
+    expect(result.map((item) => [item.versionId, item.marginBp])).toEqual([
+      ["version-high-cost", 2_857],
+      ["version-low-cost", 3_750],
+    ]);
+  });
+
   it("surfaces an RPC failure with its provider message", async () => {
     const { context } = createContext({
       rpcResult: {

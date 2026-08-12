@@ -7,6 +7,10 @@ const source = readFileSync(
   join(process.cwd(), "src/hooks/useEstimateEditorState.impl.tsx"),
   "utf8"
 );
+const calculationSource = readFileSync(
+  join(process.cwd(), "src/hooks/useEstimateEditorCalculation.ts"),
+  "utf8"
+);
 const itemsControllerSource = readFileSync(
   join(process.cwd(), "src/hooks/useEstimateEditorItemsController.ts"),
   "utf8"
@@ -18,14 +22,17 @@ const pasteControllerSource = readFileSync(
 
 describe("estimate editor VAT reverse-charge persistence", () => {
   it("uses the saved contractor regime for autosaved totals", () => {
-    expect(source).toMatch(
-      /vatReverseCharge:\s*savedSettings\.contractor_role === "subcontractor"/
+    expect(calculationSource).toMatch(
+      /vatReverseCharge:\s*input\.settings\.contractor_role === "subcontractor"/
+    );
+    expect(calculationSource).toMatch(
+      /if \(!savedSettings\) return null;[\s\S]*settings:\s*savedSettings,[\s\S]*\.totals;/
     );
   });
 
   it("passes the contractor regime to sent v2 read-only totals", () => {
-    expect(source).toMatch(
-      /const readOnlyTotalsInput = \{[\s\S]*vatReverseCharge:\s*settings\.contractor_role === "subcontractor"[\s\S]*\};[\s\S]*computeReadOnlyTotals\(readOnlyTotalsInput\)/
+    expect(calculationSource).toMatch(
+      /return computeReadOnlyTotals\(\{[\s\S]*preserveStoredSnapshot:\s*true,[\s\S]*vatReverseCharge:\s*settings\.contractor_role === "subcontractor"/
     );
   });
 

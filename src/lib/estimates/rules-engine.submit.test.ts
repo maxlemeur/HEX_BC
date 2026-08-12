@@ -18,12 +18,22 @@ vi.mock("@/lib/email/send-approval-review-request", () => ({
   sendApprovalReviewRequestNotification: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/approval-v2-snapshot", () => ({
+  freezeApprovalV2DraftIfRequired: vi.fn(),
+}));
+
+vi.mock("@/lib/estimates/review-cycle-submission", () => ({
+  openEstimateReviewCycle: vi.fn(),
+}));
+
 import {
   getEstimateApprovalSummary,
   submitEstimateApproval,
 } from "@/lib/estimates/rules-engine";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
+import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
+import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -33,6 +43,56 @@ const VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const OWNER_ID = "55555555-5555-4555-8555-555555555555";
 const REVIEWER_ID = "66666666-6666-4666-8666-666666666666";
+const CYCLE_ID = "77777777-7777-4777-8777-777777777777";
+
+function createAtomicReviewSubmission(input: {
+  versionId: string;
+  tenantId: string;
+  actorUserId: string;
+  assignedReviewerId: string;
+  ruleIds: string[];
+  submissionMessage?: string | null;
+}) {
+  const requestedAt = "2026-03-06T09:10:00.000Z";
+  return {
+    created: true,
+    cycle: {
+      id: CYCLE_ID,
+      created_at: requestedAt,
+      updated_at: requestedAt,
+      tenant_id: input.tenantId,
+      version_id: input.versionId,
+      cycle_number: 1,
+      requested_by: input.actorUserId,
+      requested_at: requestedAt,
+      submission_message: input.submissionMessage?.trim() || null,
+      assigned_reviewer_id: input.assignedReviewerId,
+      decided_by: null,
+      decision: null,
+      decided_at: null,
+      carried_over_from_cycle_id: null,
+      requested_content_revision: 1,
+      superseded_at: null,
+      superseded_by: null,
+      superseded_by_cycle_id: null,
+    },
+    approvals: input.ruleIds.map((ruleId, index) => ({
+      id: `88888888-8888-4888-8888-${String(index + 1).padStart(12, "0")}`,
+      created_at: requestedAt,
+      updated_at: requestedAt,
+      tenant_id: input.tenantId,
+      version_id: input.versionId,
+      rule_id: ruleId,
+      requested_by: input.actorUserId,
+      approved_by: null,
+      status: "pending" as const,
+      decided_at: null,
+      approved_content_revision: null,
+      review_cycle_id: CYCLE_ID,
+      superseded_at: null,
+    })),
+  };
+}
 
 function createTenantMembershipBuilder(
   rows: Array<{
@@ -126,6 +186,9 @@ function createVersionAccessBuilder(
       id: VERSION_ID,
       tenant_id: TENANT_ID,
       status: "draft",
+      updated_at: "2026-03-01T09:00:00.000Z",
+      content_revision: 1,
+      calc_engine_version: 1,
       project_id: PROJECT_ID,
       total_ht_cents: 250000,
       margin_bp: 1200,
@@ -200,6 +263,17 @@ function createSingleUpdateBuilder<T>(data: T) {
   return builder;
 }
 
+function createSingleSelectBuilder<T>(data: T) {
+  const builder = {
+    eq: vi.fn(),
+    single: vi.fn(),
+  };
+
+  builder.eq.mockReturnValue(builder);
+  builder.single.mockResolvedValue({ data, error: null });
+  return builder;
+}
+
 function createSingleInsertBuilder<T>(data: T) {
   const builder = {
     select: vi.fn(),
@@ -264,9 +338,15 @@ describe("submitEstimateApproval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createOptionalServiceRoleClient).mockReset();
+    vi.mocked(freezeApprovalV2DraftIfRequired).mockReset();
+    vi.mocked(openEstimateReviewCycle).mockReset();
     vi.mocked(fetchAffaireRegisterGateSummary).mockReset();
     vi.mocked(sendApprovalReviewRequestNotification).mockReset();
     vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null as never);
+    vi.mocked(freezeApprovalV2DraftIfRequired).mockResolvedValue(false);
+    vi.mocked(openEstimateReviewCycle).mockImplementation(async (input) =>
+      createAtomicReviewSubmission(input)
+    );
     vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
       openQuestionsCount: 0,
       criticalOpenEntries: [],
@@ -314,16 +394,182 @@ describe("submitEstimateApproval", () => {
     });
   });
 
-  it("lets engineer requesters resolve reviewers through the service-role client", async () => {
+  it("freezes a legacy v2 request after rule validation and before approval capture", async () => {
     const membershipBuilder = createMembershipBuilder("admin");
-    const versionBuilder = createVersionAccessBuilder(
-      {
-        total_ht_cents: 250000,
-      },
-      {
-        user_id: USER_ID,
+    const versionAccessBuilders = [
+      createVersionAccessBuilder(
+        {
+          calc_engine_version: 2,
+          updated_at: "2026-03-01T09:00:00.000Z",
+          content_revision: 7,
+          total_ht_cents: 50000,
+        },
+        { user_id: USER_ID }
+      ),
+      createVersionAccessBuilder(
+        {
+          calc_engine_version: 2,
+          updated_at: "2026-03-01T09:01:00.000Z",
+          content_revision: 8,
+          total_ht_cents: 250000,
+        },
+        { user_id: USER_ID }
+      ),
+    ];
+    const rule = {
+      id: "99999999-9999-4999-8999-999999999999",
+      created_at: "2026-03-01T08:00:00.000Z",
+      updated_at: "2026-03-01T08:00:00.000Z",
+      tenant_id: TENANT_ID,
+      rule_type: "require_approval",
+      scope_type: "global",
+      scope_id: null,
+      threshold_value: 100000,
+      action: "require_approval",
+      is_active: true,
+    };
+    const ruleSingleBuilder = createSingleSelectBuilder(rule);
+    const ruleSelectBuilders = [ruleSingleBuilder, createListBuilder([rule])];
+    const itemsBuilder = createListBuilder([]);
+    const reviewCycleSelectBuilders = [createListBuilder([]), createListBuilder([])];
+    const reviewCycleInsertBuilder = createSingleInsertBuilder({
+      id: "77777777-7777-4777-8777-777777777777",
+      created_at: "2026-03-01T09:02:00.000Z",
+      updated_at: "2026-03-01T09:02:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      cycle_number: 1,
+      requested_by: USER_ID,
+      requested_at: "2026-03-01T09:02:00.000Z",
+      submission_message: null,
+      assigned_reviewer_id: null,
+      decided_by: null,
+      decision: null,
+      decided_at: null,
+      carried_over_from_cycle_id: null,
+    });
+    const approvalInsertBuilder = createSingleInsertBuilder({
+      id: "88888888-8888-4888-8888-888888888888",
+      created_at: "2026-03-01T09:03:00.000Z",
+      updated_at: "2026-03-01T09:03:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      rule_id: rule.id,
+      requested_by: USER_ID,
+      approved_by: null,
+      status: "pending",
+      decided_at: null,
+    });
+    const serviceRoleUpdateBuilder = createListBuilder([]);
+    const updateApprovalSummary = vi.fn(() => serviceRoleUpdateBuilder);
+
+    vi.mocked(freezeApprovalV2DraftIfRequired).mockResolvedValueOnce(true);
+    vi.mocked(createOptionalServiceRoleClient)
+      .mockReturnValueOnce(null as never)
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({ update: updateApprovalSummary })),
+      } as never)
+      .mockReturnValue(null as never);
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return { select: vi.fn(() => membershipBuilder) };
       }
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(
+            () => versionAccessBuilders.shift() ?? createVersionAccessBuilder()
+          ),
+        };
+      }
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => ruleSelectBuilders.shift() ?? createListBuilder([rule])),
+        };
+      }
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(
+            () => reviewCycleSelectBuilders.shift() ?? createListBuilder([])
+          ),
+          insert: vi.fn(() => reviewCycleInsertBuilder),
+        };
+      }
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+          insert: vi.fn(() => approvalInsertBuilder),
+        };
+      }
+      if (table === "estimate_items") {
+        return { select: vi.fn(() => itemsBuilder) };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    });
+    mockAuthenticatedSupabase({ from });
+
+    const result = await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "request",
+      ruleId: rule.id,
+    });
+
+    expect(result.approval).toMatchObject({
+      rule_id: rule.id,
+      review_cycle_id: CYCLE_ID,
+      status: "pending",
+    });
+    const freezeOrder = vi.mocked(freezeApprovalV2DraftIfRequired).mock
+      .invocationCallOrder[0]!;
+    expect(ruleSingleBuilder.single.mock.invocationCallOrder[0]).toBeLessThan(freezeOrder);
+    expect(freezeOrder).toBeLessThan(
+      vi.mocked(openEstimateReviewCycle).mock.invocationCallOrder[0]!
     );
+    expect(openEstimateReviewCycle).toHaveBeenCalledWith({
+      versionId: VERSION_ID,
+      tenantId: TENANT_ID,
+      actorUserId: USER_ID,
+      assignedReviewerId: USER_ID,
+      ruleIds: [rule.id],
+      submissionMessage: null,
+      eventMetadata: expect.objectContaining({
+        requestedRuleLabels: ["Seuil montant HT"],
+      }),
+    });
+    expect(updateApprovalSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approval_summary: expect.objectContaining({
+          reasons: [expect.objectContaining({ actualValue: 250000 })],
+        }),
+      })
+    );
+  });
+
+  it("freezes a v2 submission before approval capture and resolves its reviewer", async () => {
+    const membershipBuilder = createMembershipBuilder("admin");
+    const versionAccessBuilders = [
+      createVersionAccessBuilder(
+        {
+          total_ht_cents: 50000,
+          calc_engine_version: 2,
+          updated_at: "2026-03-01T09:00:00.000Z",
+          content_revision: 4,
+        },
+        {
+          user_id: USER_ID,
+        }
+      ),
+      createVersionAccessBuilder(
+        {
+          total_ht_cents: 250000,
+          calc_engine_version: 2,
+          updated_at: "2026-03-01T09:01:00.000Z",
+          content_revision: 5,
+        },
+        {
+          user_id: USER_ID,
+        }
+      ),
+    ];
     const itemsBuilder = createListBuilder([]);
     const rulesBuilder = createListBuilder([
       {
@@ -436,6 +682,7 @@ describe("submitEstimateApproval", () => {
         }) as never,
       } as never)
       .mockReturnValueOnce(null as never);
+    vi.mocked(freezeApprovalV2DraftIfRequired).mockResolvedValueOnce(true);
 
     const from = vi.fn((table: string) => {
       if (table === "tenant_memberships") {
@@ -446,7 +693,7 @@ describe("submitEstimateApproval", () => {
 
       if (table === "estimate_versions") {
         return {
-          select: vi.fn(() => versionBuilder),
+          select: vi.fn(() => versionAccessBuilders.shift() ?? createVersionAccessBuilder()),
         };
       }
 
@@ -502,6 +749,20 @@ describe("submitEstimateApproval", () => {
       },
     });
     expect(result.requestedRuleIds).toEqual(["99999999-9999-4999-8999-999999999999"]);
+    expect(freezeApprovalV2DraftIfRequired).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID, userId: USER_ID }),
+      expect.objectContaining({
+        id: VERSION_ID,
+        calc_engine_version: 2,
+        content_revision: 4,
+      })
+    );
+    expect(vi.mocked(freezeApprovalV2DraftIfRequired).mock.invocationCallOrder[0]).toBeLessThan(
+      itemsBuilder.then.mock.invocationCallOrder[0]!
+    );
+    expect(vi.mocked(freezeApprovalV2DraftIfRequired).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(openEstimateReviewCycle).mock.invocationCallOrder[0]!
+    );
   });
 
   it("treats unavailable block signals as submission blockers", async () => {
@@ -572,7 +833,7 @@ describe("submitEstimateApproval", () => {
     });
   });
 
-  it("refuses to reuse an open cycle when reviewer context would be lost", async () => {
+  it("delegates replacement of a conflicting open cycle to the atomic seam", async () => {
     const membershipBuilder = createMembershipBuilder("admin");
     const versionBuilder = createVersionAccessBuilder({
       total_ht_cents: 250000,
@@ -648,25 +909,35 @@ describe("submitEstimateApproval", () => {
         };
       }
 
+      if (table === "estimate_review_comments") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     });
 
     mockAuthenticatedSupabase({ from });
 
-    await expect(
-      submitEstimateApproval({
+    const result = await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "submit_for_review",
+      ruleIds: [],
+      submissionMessage: "Verifier la couverture DPGF.",
+    });
+
+    expect(result.cycle?.id).toBe(CYCLE_ID);
+    expect(openEstimateReviewCycle).toHaveBeenCalledOnce();
+    expect(openEstimateReviewCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
         versionId: VERSION_ID,
-        action: "submit_for_review",
-        ruleIds: [],
         submissionMessage: "Verifier la couverture DPGF.",
       })
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-    });
+    );
   });
 
-  it("logs an approval_submitted event and sends the internal review email", async () => {
+  it("projects the in-review summary and sends the internal email after atomic submission", async () => {
     const membershipBuilder = createTenantMembershipBuilder([
       {
         tenant_id: TENANT_ID,
@@ -761,6 +1032,22 @@ describe("submitEstimateApproval", () => {
       decided_at: null,
     });
     const reviewCommentsBuilder = createListBuilder([]);
+    const pendingApproval = {
+      id: "88888888-8888-4888-8888-888888888888",
+      created_at: "2026-03-06T09:11:00.000Z",
+      updated_at: "2026-03-06T09:11:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      rule_id: "99999999-9999-4999-8999-999999999999",
+      requested_by: USER_ID,
+      approved_by: null,
+      status: "pending",
+      decided_at: null,
+      approved_content_revision: null,
+      review_cycle_id: CYCLE_ID,
+      superseded_at: null,
+    };
+    let approvalSelectCount = 0;
     const versionUpdateBuilder = createSingleUpdateBuilder({
       id: VERSION_ID,
       tenant_id: TENANT_ID,
@@ -779,11 +1066,16 @@ describe("submitEstimateApproval", () => {
       data: null,
       error: null,
     });
+    const projectApprovalSummary = vi.fn(() => createListBuilder([]));
 
     vi.mocked(createOptionalServiceRoleClient)
       .mockReturnValueOnce(null as never)
-      .mockReturnValueOnce(null as never)
-      .mockReturnValueOnce(null as never)
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({ update: projectApprovalSummary })),
+      } as never)
+      .mockReturnValueOnce({
+        rpc: eventRpc,
+      } as never)
       .mockReturnValueOnce({
         rpc: eventRpc,
       } as never);
@@ -816,7 +1108,9 @@ describe("submitEstimateApproval", () => {
 
       if (table === "estimate_approvals") {
         return {
-          select: vi.fn(() => createListBuilder([])),
+          select: vi.fn(() =>
+            createListBuilder(approvalSelectCount++ < 2 ? [] : [pendingApproval])
+          ),
           insert: vi.fn(() => approvalInsertBuilder),
         };
       }
@@ -862,18 +1156,32 @@ describe("submitEstimateApproval", () => {
       assignedReviewerUserId: REVIEWER_ID,
     });
 
-    expect(eventRpc).toHaveBeenCalledWith("log_estimate_version_event", {
-      p_estimate_version_id: VERSION_ID,
-      p_event_type: "approval_submitted",
-      p_created_by: USER_ID,
-      p_occurred_at: "2026-03-06T09:10:00.000Z",
-      p_metadata: expect.objectContaining({
-        cycleId: "77777777-7777-4777-8777-777777777777",
-        cycleNumber: 1,
-        assignedReviewerUserId: REVIEWER_ID,
-        requestedApprovalCount: 1,
-      }),
-    });
+    expect(eventRpc).toHaveBeenCalledTimes(2);
+    expect(eventRpc).toHaveBeenNthCalledWith(
+      1,
+      "log_estimate_version_event",
+      expect.objectContaining({ p_event_type: "approval_rules_evaluated" })
+    );
+    expect(eventRpc).toHaveBeenNthCalledWith(
+      2,
+      "log_estimate_version_event",
+      expect.objectContaining({ p_event_type: "approval_status_changed" })
+    );
+    expect(projectApprovalSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ approval_status: "in_review" })
+    );
+    expect(
+      vi.mocked(openEstimateReviewCycle).mock.invocationCallOrder[0]!
+    ).toBeLessThan(projectApprovalSummary.mock.invocationCallOrder[0]!);
+    expect(openEstimateReviewCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assignedReviewerId: REVIEWER_ID,
+        eventMetadata: expect.objectContaining({
+          requestedRuleLabels: ["Seuil montant HT"],
+          assignedReviewerName: "Camille Reviewer",
+        }),
+      })
+    );
     expect(sendApprovalReviewRequestNotification).toHaveBeenCalledWith({
       recipientEmail: "reviewer@example.com",
       reviewerName: "Camille Reviewer",
@@ -883,6 +1191,107 @@ describe("submitEstimateApproval", () => {
       submissionMessage: "Verifier la couverture CFO.",
       ruleLabels: ["Seuil montant HT"],
     });
+  });
+
+  it("does not send the review email again when the atomic seam reuses a cycle", async () => {
+    const membershipBuilder = createTenantMembershipBuilder([
+      {
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        role: "admin",
+        is_default: true,
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        tenant_id: TENANT_ID,
+        user_id: REVIEWER_ID,
+        role: "director",
+        is_default: false,
+        created_at: "2026-03-01T11:00:00.000Z",
+      },
+    ]);
+    const versionBuilder = createVersionAccessBuilder({}, { user_id: USER_ID });
+    const itemsBuilder = createListBuilder([]);
+    const rule = {
+      id: "99999999-9999-4999-8999-999999999999",
+      created_at: "2026-03-01T09:00:00.000Z",
+      updated_at: "2026-03-01T09:00:00.000Z",
+      tenant_id: TENANT_ID,
+      rule_type: "require_approval",
+      scope_type: "global",
+      scope_id: null,
+      threshold_value: 100000,
+      action: "require_approval",
+      is_active: true,
+    };
+    const rulesBuilder = createListBuilder([rule]);
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return { select: vi.fn(() => membershipBuilder) };
+      }
+      if (table === "estimate_versions") {
+        return { select: vi.fn(() => versionBuilder) };
+      }
+      if (table === "estimate_items") {
+        return { select: vi.fn(() => itemsBuilder) };
+      }
+      if (table === "estimate_rules") {
+        return { select: vi.fn(() => rulesBuilder) };
+      }
+      if (table === "estimate_approvals") {
+        return { select: vi.fn(() => createListBuilder([])) };
+      }
+      if (table === "estimate_review_cycles") {
+        return { select: vi.fn(() => createListBuilder([])) };
+      }
+      if (table === "estimate_review_comments") {
+        return { select: vi.fn(() => createListBuilder([])) };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    });
+    const reviewerMembershipBuilder = createTenantMembershipBuilder([
+      {
+        tenant_id: TENANT_ID,
+        user_id: REVIEWER_ID,
+        role: "director",
+        is_default: true,
+        created_at: "2026-03-01T11:00:00.000Z",
+      },
+    ]);
+    const reviewerProfileBuilder = createProfilesBuilder([
+      {
+        id: REVIEWER_ID,
+        full_name: "Camille Reviewer",
+        work_email: "reviewer@example.com",
+      },
+    ]);
+    vi.mocked(createOptionalServiceRoleClient).mockReturnValueOnce({
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return { select: vi.fn(() => reviewerMembershipBuilder) };
+        }
+        if (table === "profiles") {
+          return { select: vi.fn(() => reviewerProfileBuilder) };
+        }
+        throw new Error(`Unexpected service-role table: ${table}`);
+      }),
+    } as never);
+    vi.mocked(openEstimateReviewCycle).mockImplementationOnce(async (input) => ({
+      ...createAtomicReviewSubmission(input),
+      created: false,
+    }));
+    mockAuthenticatedSupabase({ from });
+
+    await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "submit_for_review",
+      ruleIds: [rule.id],
+      assignedReviewerUserId: REVIEWER_ID,
+      submissionMessage: "Verifier les hypotheses.",
+    });
+
+    expect(openEstimateReviewCycle).toHaveBeenCalledOnce();
+    expect(sendApprovalReviewRequestNotification).not.toHaveBeenCalled();
   });
 
   it("requires at least one scoped comment for approval with reservations", async () => {

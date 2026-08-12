@@ -15,7 +15,7 @@ export type TenantMembershipRow = Pick<
 >;
 export type ImportRow = Pick<
   Database["public"]["Tables"]["dpgf_imports"]["Row"],
-  "id" | "tenant_id" | "user_id" | "project_id"
+  "id" | "tenant_id" | "user_id" | "project_id" | "filename"
 >;
 export type VersionComputationContext = {
   version_id: string | null;
@@ -113,7 +113,7 @@ export async function getImportOrThrow(input: {
 }): Promise<ImportRow> {
   let query = input.supabase
     .from("dpgf_imports")
-    .select("id, tenant_id, user_id, project_id")
+    .select("id, tenant_id, user_id, project_id, filename")
     .eq("id", input.importId)
     .eq("tenant_id", input.tenantId);
 

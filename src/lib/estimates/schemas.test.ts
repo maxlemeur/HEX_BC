@@ -104,6 +104,19 @@ describe("createEstimateSchema", () => {
     expect(parsed.version?.currency).toBe("USD");
   });
 
+  it("preserves the contractor role used by the canonical calculation", () => {
+    const parsed = createEstimateSchema.parse({
+      project: {
+        name: "Projet sous-traitant",
+      },
+      version: {
+        contractor_role: "subcontractor",
+      },
+    });
+
+    expect(parsed.version?.contractor_role).toBe("subcontractor");
+  });
+
   it("rejects unsupported estimate currencies", () => {
     const parsed = createEstimateSchema.safeParse({
       project: {

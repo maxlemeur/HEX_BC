@@ -6,6 +6,7 @@ import {
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
+import { shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import {
   ESTIMATE_EXPORT_PROGRESS_COMPLETE,
   ESTIMATE_EXPORT_XLSX_CONTENT_TYPE,
@@ -398,6 +399,7 @@ function buildBdcRows(input: {
   categoryById: Map<string, string>;
   comparisonByItemId: Map<string, SupplierComparison>;
   isLaborSplitEnabled: boolean;
+  preserveStoredSnapshot?: boolean;
 }) {
   const depthByItemId = resolveDepthByItemId(input.items);
 
@@ -448,6 +450,56 @@ function buildBdcRows(input: {
     const supplier3 = resolveSupplierByRank(comparison, 2);
 
     const quantity = Math.max(toNullableNumber(item.quantity) ?? 0, 0);
+    if (input.preserveStoredSnapshot) {
+      const foTotalCents = Math.max(item.snapshot_fo_ht_cents ?? 0, 0);
+      const totalHtCents = Math.max(item.line_total_ht_cents ?? 0, 0);
+      const moTotalCents = Math.max(
+        item.snapshot_mo_ht_cents ?? totalHtCents - foTotalCents,
+        0
+      );
+      return {
+        type: "line",
+        position: item.position,
+        aid: resolveExportAid(item),
+        designation: `${indentation}${item.title}`,
+        unite: item.description?.trim() ?? "",
+        quantite: quantity,
+        typeFo: item.supply_type_id
+          ? (input.supplyTypeById.get(item.supply_type_id) ?? "")
+          : "",
+        puFoHtEur: toEuroAmount(
+          quantity > 0 ? Math.round(foTotalCents / quantity) : 0
+        ),
+        prFoHtEur: toEuroAmount(
+          quantity > 0 ? Math.round(foTotalCents / quantity) : 0
+        ),
+        kFo: 1,
+        hMo: null,
+        kMo: null,
+        tauxHoraireMoEur: null,
+        roleMo: "",
+        categorie: item.category_id
+          ? (input.categoryById.get(item.category_id) ?? "")
+          : "",
+        totalFoHtEur: toEuroAmount(foTotalCents),
+        totalMoHtEur: toEuroAmount(moTotalCents),
+        totalHtEur: toEuroAmount(totalHtCents),
+        supplier1Name: supplier1.name,
+        supplier1PriceEur: supplier1.unitPriceEur,
+        supplier1Ref: supplier1.reference,
+        supplier1Url: supplier1.url,
+        supplier2Name: supplier2.name,
+        supplier2PriceEur: supplier2.unitPriceEur,
+        supplier2Ref: supplier2.reference,
+        supplier2Url: supplier2.url,
+        supplier3Name: supplier3.name,
+        supplier3PriceEur: supplier3.unitPriceEur,
+        supplier3Ref: supplier3.reference,
+        supplier3Url: supplier3.url,
+        refInterne: item.id,
+        isSection: false,
+      };
+    }
     const unitPriceFoCents = Math.max(toNullableNumber(item.unit_price_ht_cents) ?? 0, 0);
     const kFo = Math.max(item.k_fo ?? 1, 0);
     const prFoCents = Math.round(unitPriceFoCents * kFo);
@@ -653,8 +705,12 @@ async function buildBdcExportPayload(
   versionId: string,
   isLaborSplitEnabled: boolean
 ): Promise<BdcExportPayload> {
-  const details = await getEstimateVersionDetails(versionId);
+  const details = await getEstimateVersionDetails(versionId, {
+    includeExportCalculationContext: true,
+  });
   const items = details.items as EstimateItemRecord[];
+  const preserveStoredSnapshot =
+    shouldPreserveStoredEstimateV2Snapshot(details.version);
   const lineItemIds = items
     .filter((item) => item.item_type === "line")
     .map((item) => item.id);
@@ -689,7 +745,9 @@ async function buildBdcExportPayload(
       laborRoleNameById,
       categoryById,
       comparisonByItemId,
-      isLaborSplitEnabled,
+      isLaborSplitEnabled:
+        details.is_labor_split_enabled ?? isLaborSplitEnabled,
+      preserveStoredSnapshot,
     }),
   };
 }

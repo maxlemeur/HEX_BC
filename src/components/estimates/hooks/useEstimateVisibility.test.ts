@@ -81,6 +81,14 @@ describe("useEstimateVisibility", () => {
         marginMultiplier: 1,
         discountCents: 0,
         taxRateBp: 2000,
+        sectionCalculation: {
+          marginMode: "fixed",
+          marginTiers: [],
+          globalCoefficient: 1,
+          discountMode: "simple",
+          discountStepsBp: [],
+          calcEngineVersion: 1,
+        },
         laborRateById: new Map(),
         isLaborSplitEnabled: false,
       })
@@ -117,6 +125,14 @@ describe("useEstimateVisibility", () => {
         marginMultiplier: 1,
         discountCents: 0,
         taxRateBp: 2000,
+        sectionCalculation: {
+          marginMode: "fixed",
+          marginTiers: [],
+          globalCoefficient: 1,
+          discountMode: "simple",
+          discountStepsBp: [],
+          calcEngineVersion: 1,
+        },
         laborRateById: new Map(),
         isLaborSplitEnabled: false,
       })
@@ -165,6 +181,14 @@ describe("useEstimateVisibility", () => {
         marginMultiplier: 1,
         discountCents: 0,
         taxRateBp: 2000,
+        sectionCalculation: {
+          marginMode: "fixed",
+          marginTiers: [],
+          globalCoefficient: 1,
+          discountMode: "simple",
+          discountStepsBp: [],
+          calcEngineVersion: 1,
+        },
         laborRateById: new Map(),
         isLaborSplitEnabled: false,
       })
@@ -180,5 +204,61 @@ describe("useEstimateVisibility", () => {
       "line-3",
     ]);
     expect(result.current.itemById.has("line-2")).toBe(true);
+  });
+
+  it("derives section totals from the stored calculation engine", () => {
+    const items: EstimateItem[] = [
+      createItem({
+        id: "section-1",
+        item_type: "section",
+        title: "Section",
+        position: 0,
+      }),
+      createItem({
+        id: "line-1",
+        parent_id: "section-1",
+        unit_price_ht_cents: 1_000,
+        position: 1,
+      }),
+    ];
+    const base = {
+      items,
+      qualityFilter: "all_lines" as const,
+      qualityFlagsByItemId: {},
+      marginMultiplier: 1,
+      discountCents: 0,
+      taxRateBp: 2_000,
+      laborRateById: new Map<string, number>(),
+      isLaborSplitEnabled: false,
+    };
+    const calculation = {
+      marginMode: "fixed" as const,
+      marginTiers: [],
+      globalCoefficient: 1.1,
+      discountMode: "simple" as const,
+      discountStepsBp: [],
+    };
+
+    const legacy = renderHook(() =>
+      useEstimateVisibility({
+        ...base,
+        sectionCalculation: { ...calculation, calcEngineVersion: 1 },
+      })
+    );
+    const unified = renderHook(() =>
+      useEstimateVisibility({
+        ...base,
+        sectionCalculation: { ...calculation, calcEngineVersion: 2 },
+      })
+    );
+
+    expect(legacy.result.current.getSectionTotals("section-1")).toMatchObject({
+      totalHtCents: 1_000,
+      totalTtcCents: 1_200,
+    });
+    expect(unified.result.current.getSectionTotals("section-1")).toMatchObject({
+      totalHtCents: 1_100,
+      totalTtcCents: 1_320,
+    });
   });
 });

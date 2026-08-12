@@ -158,10 +158,7 @@ export const estimateDiscountModeSchema = z.enum(["simple", "cascade"]);
  * l'autoliquidation de la TVA (art. 283, 2 nonies du CGI). Les valeurs
  * refletent la contrainte CHECK de la colonne.
  */
-export const estimateContractorRoleSchema = z.enum([
-  "principal",
-  "subcontractor",
-]);
+export const estimateContractorRoleSchema = z.enum(["principal", "subcontractor"]);
 export const createEstimateCreationModeSchema = z.enum([
   "blank",
   "linked_dpgf_source",
@@ -187,6 +184,7 @@ const createEstimateVersionSchema = z
     discount_steps: discountStepsSchema.optional(),
     global_coefficient: globalCoefficientSchema.optional(),
     tax_rate_bp: taxRateBpSchema.optional(),
+    contractor_role: estimateContractorRoleSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
     max_section_depth: sectionDepthSchema.optional().default(DEFAULT_MAX_SECTION_DEPTH),

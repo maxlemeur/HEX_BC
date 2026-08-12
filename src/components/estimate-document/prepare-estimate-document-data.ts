@@ -1,4 +1,5 @@
 import {
+  buildStoredEstimateBreakdown,
   computeEstimateBreakdown,
   type EstimateBreakdown,
   type EstimateItemRecord,
@@ -53,6 +54,7 @@ export type EstimateDocumentPreparedData = {
   numberingById: Record<string, string>;
   sectionTotalsById: Record<string, SectionTotals>;
   lineSplitsById: Record<string, EstimateDocumentLineSplit>;
+  lineUnitPriceHtById: Record<string, number>;
   layout: EstimatePdfLayoutOptions;
   taxEnabled: boolean;
   vatReverseCharge: boolean;
@@ -94,6 +96,8 @@ export function buildLegacyDocumentBreakdown({
   laborRateById,
   calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
   globalCoefficient = 1,
+  preserveStoredSnapshot = false,
+  versionTotals,
 }: {
   items: EstimateItem[];
   marginMultiplier: number;
@@ -113,7 +117,26 @@ export function buildLegacyDocumentBreakdown({
    * dans les totaux stockés mais pas redescendue dans le détail.
    */
   globalCoefficient?: number | null;
+  preserveStoredSnapshot?: boolean;
+  versionTotals?: {
+    total_ht_cents: number | null;
+    total_tax_cents: number | null;
+    total_ttc_cents: number | null;
+  };
 }): EstimateBreakdown {
+  if (calcEngineVersion === 2 && preserveStoredSnapshot) {
+    return buildStoredEstimateBreakdown({
+      items: items as EstimateItemRecord[],
+      version: {
+        margin_multiplier: marginMultiplier,
+        discount_mode: "simple",
+        global_coefficient: globalCoefficient,
+        total_ht_cents: versionTotals?.total_ht_cents,
+        total_tax_cents: versionTotals?.total_tax_cents,
+        total_ttc_cents: versionTotals?.total_ttc_cents,
+      },
+    });
+  }
   const laborRateMap = new Map(Object.entries(laborRateById));
   return computeEstimateBreakdown({
     items: items as EstimateItemRecord[],
@@ -384,6 +407,19 @@ export function prepareEstimateDocumentData({
         ];
       })
   ) as Record<string, EstimateDocumentLineSplit>;
+  const lineUnitPriceHtById = Object.fromEntries(
+    items
+      .filter((item) => item.item_type === "line")
+      .map((item) => [
+        item.id,
+        calcEngineVersion === 2
+          ? (breakdown.lineById.get(item.id)?.puNetHtCents ??
+            item.snapshot_pu_ht_cents ??
+            item.pu_ht_cents ??
+            0)
+          : (item.pu_ht_cents ?? 0),
+      ])
+  );
 
   // EST-E27 : en autoliquidation le document ne porte AUCUNE ligne de TVA, quel
   // que soit le taux de la version. La mention legale la remplace.
@@ -402,6 +438,7 @@ export function prepareEstimateDocumentData({
     numberingById,
     sectionTotalsById,
     lineSplitsById,
+    lineUnitPriceHtById,
     layout: resolvedLayout,
     taxEnabled,
     vatReverseCharge: vatReverseCharge === true,

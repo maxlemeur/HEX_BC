@@ -9,7 +9,6 @@ import {
 } from "@/lib/affaires/import-flow";
 import {
   type Supabase,
-  type RpcImportItemPayload,
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
   assertProjectAccessOrThrow,
@@ -22,6 +21,7 @@ import {
   normalizeNullableText,
   toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
+import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -66,15 +66,6 @@ export type ConfirmUnifiedImportFlowResult = {
   };
 };
 
-type RpcCreateVersionResultRow = {
-  version_id: string;
-  section_id: string;
-  inserted_count: number;
-  total_ht_cents: number;
-  total_tax_cents: number;
-  total_ttc_cents: number;
-};
-
 const structureDecisionSchema = z.union([
   z.object({
     rowIndex: z.number().int().nonnegative(),
@@ -111,34 +102,6 @@ const getUnifiedImportFlowTakeoffCarryOverPreviewSchema = z.object({
 export type GetUnifiedImportFlowTakeoffCarryOverPreviewInput = z.infer<
   typeof getUnifiedImportFlowTakeoffCarryOverPreviewSchema
 >;
-
-async function createVersionFromMappedRows(input: {
-  supabase: Supabase;
-  importId: string;
-  projectId: string;
-  versionTitle: string | null;
-  sectionTitle: string | null;
-  lines: RpcImportItemPayload[];
-}) {
-  const { data, error } = await input.supabase.rpc("create_estimate_version_from_import_lines", {
-    p_project_id: input.projectId,
-    p_import_id: input.importId,
-    p_version_title: input.versionTitle,
-    p_section_title: input.sectionTitle,
-    p_lines: input.lines,
-  });
-
-  if (error) {
-    throw new Error("Impossible de creer la version depuis l'import.");
-  }
-
-  const row = Array.isArray(data) ? (data[0] as RpcCreateVersionResultRow | undefined) : undefined;
-  if (!row?.version_id) {
-    throw new Error("La creation de version a retourne une reponse invalide.");
-  }
-
-  return row;
-}
 
 function revalidateImportFlowPaths(projectId: string | null, versionId: string | null) {
   revalidatePath("/dashboard/imports");
@@ -272,7 +235,7 @@ export async function confirmUnifiedImportFlow(
       isTenantAdmin,
     });
 
-    if (!importRow.project_id) {
+    if (!parsed.data.createEstimate && !importRow.project_id) {
       await ensureImportProjectLink({
         supabase,
         importId: importRow.id,
@@ -377,17 +340,36 @@ export async function confirmUnifiedImportFlow(
     sourceVersionId: versionContext.version_id,
   });
 
-  const createdVersion = await createVersionFromMappedRows({
-    supabase,
-    importId: parsed.data.importId,
-    projectId,
-    versionTitle: normalizeNullableText(parsed.data.versionTitle),
-    sectionTitle: normalizeNullableText(parsed.data.sectionTitle),
-    lines: toRpcImportItems(normalizedRows.validItems, {
-      importId: parsed.data.importId,
-      mappingId,
-    }),
-  });
+  let createdVersion: Awaited<ReturnType<typeof persistCanonicalEstimateV2>>;
+  try {
+    createdVersion = await persistCanonicalEstimateV2({
+      supabase,
+      tenantId: membership.tenant_id,
+      actorUserId: user.id,
+      project: {
+        kind: "existing",
+        id: projectId,
+      },
+      version: {
+        title: normalizeNullableText(parsed.data.versionTitle) ?? "Import DPGF",
+      },
+      source: {
+        kind: "import",
+        importId: parsed.data.importId,
+        mappingId,
+        filename: importRow.filename,
+        sectionTitle: normalizeNullableText(parsed.data.sectionTitle),
+        items: toRpcImportItems(normalizedRows.validItems, {
+          importId: parsed.data.importId,
+          mappingId,
+        }),
+      },
+    });
+  } catch (error) {
+    throw new Error("Impossible de creer la version depuis l'import.", {
+      cause: error,
+    });
+  }
 
   let takeoffCarryOver: TakeoffCarryOverStatus | null =
     versionContext.version_id !== null
@@ -404,7 +386,7 @@ export async function confirmUnifiedImportFlow(
         tenantId: membership.tenant_id,
         userId: user.id,
         sourceVersionId: versionContext.version_id,
-        targetVersionId: createdVersion.version_id,
+        targetVersionId: createdVersion.version.id,
       });
 
       takeoffCarryOver = createTakeoffCarryOverStatus({
@@ -419,7 +401,7 @@ export async function confirmUnifiedImportFlow(
     } catch (error) {
       console.warn("takeoff carry-over skipped for import flow", {
         sourceVersionId: versionContext.version_id,
-        targetVersionId: createdVersion.version_id,
+        targetVersionId: createdVersion.version.id,
         error,
       });
 
@@ -432,25 +414,25 @@ export async function confirmUnifiedImportFlow(
 
   const stats = buildImportFlowStats(
     normalizedRows,
-    createdVersion.inserted_count,
+    createdVersion.insertedLineCount,
     normalizedRows.validSections.length
   );
-  const redirectTo = `/dashboard/estimates/${createdVersion.version_id}/edit`;
+  const redirectTo = `/dashboard/estimates/${createdVersion.version.id}/edit`;
 
-  revalidateImportFlowPaths(projectId, createdVersion.version_id);
+  revalidateImportFlowPaths(projectId, createdVersion.version.id);
 
   return {
     mode: "version_created",
     importId: parsed.data.importId,
     projectId,
     mappingId,
-    versionId: createdVersion.version_id,
+    versionId: createdVersion.version.id,
     redirectTo,
     takeoffCarryOver,
     totals: {
-      totalHtCents: createdVersion.total_ht_cents,
-      totalTaxCents: createdVersion.total_tax_cents,
-      totalTtcCents: createdVersion.total_ttc_cents,
+      totalHtCents: createdVersion.version.total_ht_cents,
+      totalTaxCents: createdVersion.version.total_tax_cents,
+      totalTtcCents: createdVersion.version.total_ttc_cents,
     },
     stats,
   };

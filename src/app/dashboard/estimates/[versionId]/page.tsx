@@ -20,8 +20,14 @@ import {
 } from "@/components/estimates/SealIntegrityBadge";
 import { getUserContext } from "@/lib/auth/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { computeEstimateTotals } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import {
+  buildStoredEstimateBreakdown,
+  computeEstimateTotals,
+} from "@/lib/estimate-calculations";
+import {
+  resolveCalcEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -152,7 +158,7 @@ export default async function EstimateDetailPage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -181,6 +187,9 @@ export default async function EstimateDetailPage({
 
   const version = versionResult.data as EstimateVersion;
   const items = (itemsResult.data ?? []) as EstimateItem[];
+  const calcEngineVersion = resolveCalcEngineVersion(version);
+  const preserveStoredSnapshot =
+    shouldPreserveStoredEstimateV2Snapshot(version);
   const project = resolveProject(version.estimate_projects);
   const tenantRole = userContext.profile?.tenant_role ?? null;
   const canEditVersion = tenantRole === "admin" || tenantRole === "engineer";
@@ -192,11 +201,11 @@ export default async function EstimateDetailPage({
       anchorVersionId: versionId,
     }),
     listEstimateVersionVariants(versionId),
-    isFeatureEnabled(
-      version.tenant_id,
-      "EST_031_LABOR_SPLIT",
-      { supabase }
-    ),
+    preserveStoredSnapshot
+      ? Promise.resolve(true)
+      : isFeatureEnabled(version.tenant_id, "EST_031_LABOR_SPLIT", {
+          supabase,
+        }),
   ]);
   const [plansSummary, registerSummary] = await Promise.all([
     fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
@@ -205,7 +214,7 @@ export default async function EstimateDetailPage({
       versionId,
     }).catch(() => null),
   ]);
-  const laborRoleIds = Array.from(
+  const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
     new Set(
       items
         .flatMap((item) => [
@@ -255,41 +264,47 @@ export default async function EstimateDetailPage({
     version.margin_mode
   );
   const marginTiers =
-    renderMarginMode === "tiered"
+    !preserveStoredSnapshot && renderMarginMode === "tiered"
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
-  const baseTotals = computeEstimateTotals({
-    lineItems: lineItemsForTotals,
-    marginMultiplier: version.margin_multiplier,
-    marginMode: renderMarginMode,
-    marginTiers,
-    isLaborSplitEnabled,
-    discountCents: 0,
-    discountMode: version.discount_mode,
-    discountStepsBp: version.discount_steps,
-    globalCoefficient: version.global_coefficient,
-    taxRateBp: version.tax_rate_bp,
-    roundingMode: version.rounding_mode,
-    roundingStepCents: version.rounding_step_cents,
-  });
-  const fallbackDiscountCents =
-    baseTotals.saleSubtotalCents > 0
-      ? Math.round((baseTotals.saleSubtotalCents * version.discount_bp) / 10000)
-      : 0;
-  const computedTotals = computeEstimateTotals({
-    lineItems: lineItemsForTotals,
-    marginMultiplier: version.margin_multiplier,
-    marginMode: renderMarginMode,
-    marginTiers,
-    isLaborSplitEnabled,
-    discountCents: fallbackDiscountCents,
-    discountMode: version.discount_mode,
-    discountStepsBp: version.discount_steps,
-    globalCoefficient: version.global_coefficient,
-    taxRateBp: version.tax_rate_bp,
-    roundingMode: version.rounding_mode,
-    roundingStepCents: version.rounding_step_cents,
-  });
+  const computedTotals = preserveStoredSnapshot
+    ? buildStoredEstimateBreakdown({ items, version }).totals
+    : (() => {
+        const baseTotals = computeEstimateTotals({
+          lineItems: lineItemsForTotals,
+          marginMultiplier: version.margin_multiplier,
+          marginMode: renderMarginMode,
+          marginTiers,
+          isLaborSplitEnabled,
+          discountCents: 0,
+          discountMode: version.discount_mode,
+          discountStepsBp: version.discount_steps,
+          globalCoefficient: version.global_coefficient,
+          taxRateBp: version.tax_rate_bp,
+          roundingMode: version.rounding_mode,
+          roundingStepCents: version.rounding_step_cents,
+        });
+        const fallbackDiscountCents =
+          baseTotals.saleSubtotalCents > 0
+            ? Math.round(
+                (baseTotals.saleSubtotalCents * version.discount_bp) / 10000
+              )
+            : 0;
+        return computeEstimateTotals({
+          lineItems: lineItemsForTotals,
+          marginMultiplier: version.margin_multiplier,
+          marginMode: renderMarginMode,
+          marginTiers,
+          isLaborSplitEnabled,
+          discountCents: fallbackDiscountCents,
+          discountMode: version.discount_mode,
+          discountStepsBp: version.discount_steps,
+          globalCoefficient: version.global_coefficient,
+          taxRateBp: version.tax_rate_bp,
+          roundingMode: version.rounding_mode,
+          roundingStepCents: version.rounding_step_cents,
+        });
+      })();
   const discountCents = computedTotals.discountCents;
   const appliedMarginMultiplier = computedTotals.appliedMarginMultiplier;
   const totalHtCents = Number.isFinite(version.total_ht_cents ?? NaN)
@@ -459,7 +474,8 @@ export default async function EstimateDetailPage({
             />
           </div>
           <EstimateDocument
-            calcEngineVersion={resolveCalcEngineVersion(version)}
+            calcEngineVersion={calcEngineVersion}
+            preserveStoredSnapshot={preserveStoredSnapshot}
             vatReverseCharge={version.contractor_role === "subcontractor"}
             projectName={project?.name ?? "Projet"}
             projectClient={project?.client_name}

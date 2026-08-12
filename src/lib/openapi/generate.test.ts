@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GET } from "@/app/api/docs/route";
 import { GET as GET_SWAGGER_UI_ASSET } from "@/app/api/docs/swagger-ui/[asset]/route";
 import { generateOpenApiDocument } from "@/lib/openapi/generate";
+import { baseAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts";
+import { workflowAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts-workflows";
+import { openApiRouteExclusions } from "@/lib/openapi/route-exclusions";
 
 type MutableEnv = Record<string, string | undefined>;
 const mutableEnv = process.env as MutableEnv;
@@ -43,6 +46,35 @@ describe("generateOpenApiDocument", () => {
     expect(document.components.schemas).toHaveProperty("CreateEstimateRequest");
     expect(document.components.schemas).toHaveProperty("MoveEstimateItemRequest");
     expect(document.components.schemas).toHaveProperty("ApiFailureResponse");
+    expect(document.paths).toHaveProperty("/api/imports");
+    expect(document.paths).toHaveProperty("/api/portal/{token}/accept");
+    expect(document.paths).toHaveProperty("/api/purchase-orders/{id}");
+    expect(document.paths).toHaveProperty("/api/takeoff/plan-sets/{setId}");
+    expect(document.paths["/api/purchase-orders/{id}"]).toHaveProperty("put");
+    expect(
+      (
+        document.paths["/api/imports"]?.post as {
+          requestBody?: { content?: Record<string, unknown> };
+        }
+      ).requestBody?.content
+    ).toEqual(
+      expect.objectContaining({
+        "application/json": expect.any(Object),
+        "multipart/form-data": expect.any(Object),
+      })
+    );
+    const portalAcceptOperation = document.paths[
+      "/api/portal/{token}/accept"
+    ]?.post as {
+      responses?: Record<
+        string,
+        { content?: { "application/json"?: { schema?: { $ref?: string } } } }
+      >;
+    };
+    expect(
+      portalAcceptOperation.responses?.["400"]?.content?.["application/json"]
+        ?.schema?.$ref
+    ).toBe("#/components/schemas/ApiGenericErrorResponse");
 
     const createEstimateSchema = document.components.schemas[
       "CreateEstimateRequest"
@@ -105,6 +137,111 @@ describe("generateOpenApiDocument", () => {
     expect(
       JSON.stringify(document.components.schemas.ApiEstimateVersionResponse)
     ).toContain('"sending"');
+    const exportOperation = document.paths[
+      "/api/estimates/{versionId}/export"
+    ]?.get as { parameters?: Array<Record<string, unknown>> } | undefined;
+    expect(exportOperation?.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "mode",
+          in: "query",
+          schema: {
+            $ref: "#/components/schemas/ExportModeQueryParameter",
+          },
+        }),
+      ])
+    );
+    expect(document.components.schemas.ExportModeQueryParameter).toEqual({
+      type: "string",
+      enum: ["standard", "dpgf", "bdc"],
+    });
+    const estimateVersionResponseSchema = document.components.schemas[
+      "ApiEstimateVersionResponse"
+    ] as {
+      properties?: {
+        data?: {
+          properties?: {
+            version?: {
+              properties?: {
+                calc_engine_version?: unknown;
+              };
+            };
+          };
+        };
+      };
+    };
+    expect(
+      estimateVersionResponseSchema.properties?.data?.properties?.version
+        ?.properties?.calc_engine_version
+    ).toEqual({
+      anyOf: [{ type: "number", const: 1 }, { type: "number", const: 2 }],
+    });
+
+    type JsonSchema = {
+      anyOf?: JsonSchema[];
+      properties?: Record<string, JsonSchema>;
+      required?: string[];
+      items?: JsonSchema;
+      const?: unknown;
+    };
+    const approvalRequestSchema = document.components.schemas[
+      "PostEstimateApprovalRequest"
+    ] as JsonSchema;
+    const approvalActionSchemas = approvalRequestSchema.anyOf ?? [];
+
+    for (const action of ["approve", "reject"] as const) {
+      const actionSchema = approvalActionSchemas.find((schema) =>
+        schema.anyOf?.some(
+          (variant) => variant.properties?.action?.const === action
+        )
+      );
+      expect(actionSchema?.anyOf).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            required: expect.arrayContaining(["action", "rule_id"]),
+          }),
+          expect.objectContaining({
+            required: expect.arrayContaining(["action", "approval_id"]),
+          }),
+        ])
+      );
+    }
+
+    const decideSchema = approvalActionSchemas.find(
+      (schema) => schema.properties?.action?.const === "decide"
+    );
+    const commentSchemas = decideSchema?.properties?.comments?.items?.anyOf;
+    const projectCommentSchema = commentSchemas?.find(
+      (schema) => schema.properties?.scope_type?.const === "project"
+    );
+    const scopedCommentSchema = commentSchemas?.find(
+      (schema) => schema.properties?.scope_type?.const === undefined
+    );
+
+    expect(projectCommentSchema?.required).toEqual([
+      "scope_type",
+      "comment",
+    ]);
+    expect(scopedCommentSchema?.required).toEqual([
+      "scope_type",
+      "scope_id",
+      "comment",
+    ]);
+  });
+
+  it("documents application routes and keeps only infrastructure exclusions", () => {
+    expect([
+      ...baseAdditionalOpenApiOperationsRegistry,
+      ...workflowAdditionalOpenApiOperationsRegistry,
+    ]).toHaveLength(73);
+    expect(openApiRouteExclusions).toHaveLength(5);
+    expect(openApiRouteExclusions.map((entry) => entry.path)).toEqual([
+      "/api/docs",
+      "/api/docs/swagger-ui/{asset}",
+      "/api/internal/takeoff/process-job",
+      "/api/internal/workflows/recover",
+      "/api/takeoff/metrics/stats",
+    ]);
   });
 });
 

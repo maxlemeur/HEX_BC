@@ -7,10 +7,8 @@ import {
   toErrorResponse,
 } from "@/lib/estimates/errors";
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
-import { ESTIMATE_LABOR_SPLIT_FLAG_KEY } from "@/lib/estimates/calc-context";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
-import { isFeatureEnabled } from "@/lib/feature-flags";
 import type { Database } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -76,13 +74,8 @@ export async function GET(
     const versionId = await getVersionId(params);
     parseFormat(request);
     const mode = parseMode(request);
-    const access = await assertExportAccess();
-    const isLaborSplitEnabled = await isFeatureEnabled(
-      access.tenantId,
-      ESTIMATE_LABOR_SPLIT_FLAG_KEY,
-      { supabase: access.supabase }
-    );
-    const exportOptions = { isLaborSplitEnabled };
+    await assertExportAccess();
+    const exportOptions = {};
 
     const exported =
       mode === "dpgf"

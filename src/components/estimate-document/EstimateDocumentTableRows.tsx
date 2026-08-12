@@ -16,6 +16,7 @@ type EstimateDocumentTableRowsProps = {
   numberingById: Record<string, string>;
   sectionTotalsById: Record<string, SectionTotals>;
   lineSplitsById: Record<string, EstimateDocumentLineSplit>;
+  lineUnitPriceHtById: Record<string, number>;
   currency: SupportedEstimateCurrency;
   layout: EstimatePdfLayoutOptions;
 };
@@ -34,6 +35,7 @@ type EstimateDocumentLineRowProps = {
   depth: number;
   currency: SupportedEstimateCurrency;
   split: EstimateDocumentLineSplit;
+  unitPriceHtCents: number;
   layout: EstimatePdfLayoutOptions;
 };
 
@@ -126,6 +128,7 @@ function EstimateDocumentLineRow({
   depth,
   currency,
   split,
+  unitPriceHtCents,
   layout,
 }: EstimateDocumentLineRowProps) {
   const resolvedCurrency = currency;
@@ -154,7 +157,7 @@ function EstimateDocumentLineRow({
       </td>
       {layout.priceMode === "unit_and_total" ? (
         <td className={`w-24 px-2 text-right sm:px-3 print:px-2 ${cellPadding}`}>
-          {formatCurrency(item.pu_ht_cents ?? 0, resolvedCurrency)}
+          {formatCurrency(unitPriceHtCents, resolvedCurrency)}
         </td>
       ) : null}
       {layout.priceMode === "fo_mo_and_total" ? (
@@ -179,6 +182,7 @@ export function EstimateDocumentTableRows({
   numberingById,
   sectionTotalsById,
   lineSplitsById,
+  lineUnitPriceHtById,
   currency,
   layout,
 }: EstimateDocumentTableRowsProps) {
@@ -206,6 +210,9 @@ export function EstimateDocumentTableRows({
               moTotalCents: 0,
               totalHtCents: item.line_total_ht_cents ?? 0,
             }}
+            unitPriceHtCents={
+              lineUnitPriceHtById[item.id] ?? item.pu_ht_cents ?? 0
+            }
             layout={layout}
           />
         )

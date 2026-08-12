@@ -42,15 +42,15 @@ import {
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
+import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
-export type OpenApiHttpMethod = "get" | "post" | "patch" | "delete";
+export type OpenApiHttpMethod = "get" | "head" | "options" | "post" | "put" | "patch" | "delete";
 export type OpenApiSchemaIO = "input" | "output";
 export type OpenApiContentType =
   | "application/json"
   | "multipart/form-data"
-  | "text/csv"
-  | "application/pdf"
+  | "text/csv" | "application/pdf" | "application/zip"
   | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export type OpenApiSchemaDefinition = {
@@ -248,7 +248,6 @@ const suggestPricesQuerySchema = z
   .min(2, "Le paramètre q doit contenir au moins 2 caractères.");
 const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
 const pdfFormatQuerySchema = z.enum(["json"]);
-const exportFormatQuerySchema = z.enum(["xlsx"]);
 const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
 const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(100);
 const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
@@ -434,6 +433,7 @@ const estimateVersionSchema = z
     tax_rate_bp: z.number().int().optional(),
     rounding_mode: z.string().optional(),
     rounding_step_cents: z.number().int().optional(),
+    calc_engine_version: z.union([z.literal(1), z.literal(2)]),
     total_ht_cents: z.number().int().nullable().optional(),
     total_tax_cents: z.number().int().nullable().optional(),
     total_ttc_cents: z.number().int().nullable().optional(),
@@ -3035,13 +3035,6 @@ const pdfFormatQueryParameter = queryParameter({
   required: false,
 });
 
-const exportFormatQueryParameter = queryParameter({
-  name: "format",
-  description: "Format d'export (xlsx uniquement en v1).",
-  schemaName: "ExportFormatQueryParameter",
-  schema: exportFormatQuerySchema,
-  required: false,
-});
 const anomalyHistoryViewQueryParameter = queryParameter({
   name: "view",
   description:
@@ -4426,7 +4419,11 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     description:
       "Genere un fichier XLSX en streaming pour telechargement direct.",
     tags: ["Estimate Output"],
-    parameters: [versionIdPathParameter, exportFormatQueryParameter],
+    parameters: [
+      versionIdPathParameter,
+      estimateExportFormatQueryParameter,
+      estimateExportModeQueryParameter,
+    ],
     responses: {
       "200": {
         description: "Flux binaire XLSX retourne.",
