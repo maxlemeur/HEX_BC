@@ -74,7 +74,7 @@ import {
   normalizeEstimateItemAid,
   parseEstimateItemAidRegexPattern,
 } from "./schemas";
-import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "./generated-ouvrages";
+import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "./generated-ouvrage-provenance";
 import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
 import {
   enrichEstimateItemsWithVersionZeroProvenance,

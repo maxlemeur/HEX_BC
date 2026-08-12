@@ -4,16 +4,11 @@
   "excludedModulePaths": [
     "src/types/database.ts"
   ],
-  "allowedCycles": [
-    [
-      "src/lib/estimates/generated-ouvrages.ts",
-      "src/lib/estimates/server.ts"
-    ]
-  ],
+  "allowedCycles": [],
   "hotspotNonEmptyLineBudgets": {
     "src/app/dashboard/orders/page.tsx": 1397,
     "src/app/page.tsx": 1492,
-    "src/components/affaires/AffaireFlowHierarchyPanel.tsx": 2704,
+    "src/components/affaires/AffaireFlowHierarchyPanel.tsx": 1577,
     "src/components/affaires/AffaireHub.tsx": 1990,
     "src/components/affaires/AffairePilotagePanel.logic.ts": 1227,
     "src/components/estimates/AssemblyEditorDialog.tsx": 1156,
@@ -33,7 +28,7 @@
     "src/lib/estimate-calculations.ts": 1822,
     "src/lib/estimates/client.ts": 5074,
     "src/lib/estimates/explanations.ts": 1697,
-    "src/lib/estimates/generated-ouvrages.ts": 4073,
+    "src/lib/estimates/generated-ouvrages.ts": 3822,
     "src/lib/estimates/pdf-generator.tsx": 2092,
     "src/lib/estimates/rules-engine.ts": 4381,
     "src/lib/estimates/schemas.ts": 1643,
@@ -45,7 +40,7 @@
     "src/lib/openapi/registry.ts": 4928,
     "src/lib/takeoff/gemini-client.ts": 1124,
     "src/lib/takeoff/plans.ts": 1264,
-    "src/lib/takeoff/processor.ts": 4131,
+    "src/lib/takeoff/processor.ts": 3711,
     "src/lib/takeoff/server.ts": 8217,
     "src/lib/takeoff/types.ts": 1077
   },

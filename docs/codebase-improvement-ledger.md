@@ -23,7 +23,7 @@ partie de ce chantier sans autorisation distincte.
 | 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | Terminé | `fix(auth): unify active tenant boundaries` |
 | 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | Terminé | `ci: enforce production quality gates` |
 | 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | Terminé | `fix(workflows): make external effects recoverable` |
-| 6 | P1 | Décomposer les hotspots par strangler | 5/4/3 | 27 | À faire | — |
+| 6 | P1 | Décomposer les hotspots par strangler | 5/4/3 | 27 | Terminé | `refactor(architecture): deepen workflow modules` |
 | 7 | P2 | Terminer le moteur de calcul v2 et gouverner les contrats | 4/4/4 | 16 | À faire | — |
 
 Le score reprend la formule de priorisation de l'audit :
@@ -402,12 +402,54 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 6 — Décomposition des hotspots par strangler
 
-- [ ] Poser des tests comportementaux sur les hotspots ciblés avant extraction.
-- [ ] Extraire des cas d'usage derrière des façades compatibles, sans migration big-bang.
-- [ ] Casser le cycle runtime Estimates ↔ ouvrages générés.
-- [ ] Réduire le rôle d'orchestrateur des grands hooks et composants choisis.
-- [ ] Mesurer taille, complexité, fan-out et couverture avant/après.
-- [ ] Valider, documenter et committer le lot.
+- [x] Poser des tests comportementaux sur les hotspots ciblés avant extraction.
+- [x] Extraire des cas d'usage derrière des façades compatibles, sans migration big-bang.
+- [x] Casser le cycle runtime Estimates ↔ ouvrages générés.
+- [x] Réduire le rôle d'orchestrateur des grands hooks et composants choisis.
+- [x] Mesurer taille, complexité, fan-out et couverture avant/après.
+- [x] Valider, documenter et committer le lot.
+
+### Décisions et mesures
+
+- Le skill `improve-codebase-architecture` et ses dépendances de méthode sont
+  verrouillés dans `skills-lock.json`. L'audit a retenu trois seams au test de
+  suppression positif : leur retrait remettrait bien la complexité dans les
+  orchestrateurs, elle ne disparaîtrait pas derrière un simple adaptateur.
+- La provenance des ouvrages générés passe par l'interface unique
+  `enrichEstimateItemsWithGeneratedOuvrageProvenance`. `server.ts` ne dépend plus
+  du générateur de commandes métier : le cycle runtime Estimates ↔ ouvrages
+  générés passe de 1 à 0 et son ancienne allowlist est supprimée.
+- Le chargement des sources Takeoff est isolé derrière `loadTakeoffSource` :
+  métadonnées, téléchargements Storage, budgets fichiers/octets/pages, validation
+  et fusion PDF, puis provenance par page. Baux, états, provider et persistance
+  restent dans le processeur.
+- `buildAffaireFlowPanelModel` concentre la matrice pure de décision du parcours
+  affaire. Le composant conserve rendu, drag/drop, navigation, reclassification
+  et effets ; aucune nouvelle couche réseau ou abstraction métier n'est ajoutée.
+- Lignes non vides des orchestrateurs : ouvrages générés 4 073 → 3 822,
+  processeur Takeoff 4 106 → 3 711, panneau Affaire 2 704 → 1 577. Les nouveaux
+  modules profonds comptent respectivement 372, 420 et 908 lignes, tous sous le
+  plafond de 1 000.
+- Sites de décision dans les orchestrateurs : 460 → 397, 381 → 333 et 556 → 271.
+  La complexité combinée n'est pas présentée comme supprimée : elle vaut 479,
+  381 et 565 après extraction. Le gain recherché et obtenu est la localité, une
+  interface plus petite et un rôle d'orchestration plus net. Le fan-out runtime
+  des orchestrateurs vaut respectivement 5 → 5, 16 → 16 et 10 → 9.
+
+### Validation
+
+- Régressions ciblées : 115/115 tests Node et 41/41 tests modèle/UI verts ; les
+  tests DOM, interactions et accessibilité existants sont conservés.
+- Vitest complet : projet Node 331 fichiers réussis, 1 ignoré, 2 391 tests
+  réussis, 2 ignorés ; projet jsdom 199 fichiers et 1 307 tests réussis.
+- ESLint global, typecheck, OpenAPI et `git diff --check` : succès. Architecture :
+  836 modules, zéro cycle runtime autorisé ou détecté, avec plafonds abaissés aux
+  nouvelles tailles.
+- Build Webpack Next.js 16.3 : compilation en 10,8 s, TypeScript en 8,1 s et
+  42/42 pages générées.
+- Aucun push, déploiement, migration distante, fournisseur ou autre effet externe
+  n'a été exécuté. Le gros hook éditeur reste volontairement hors de ce strangler :
+  son interface actuelle serait trop large et superficielle pour une extraction sûre.
 
 ## Lot 7 — Moteur de calcul v2 et contrats
 

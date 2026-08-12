@@ -18,7 +18,6 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 import {
-  enrichEstimateItemsWithGeneratedOuvrageProvenance,
   generateOuvragesFromText,
   insertGeneratedOuvrages,
   rejectGeneratedOuvrageDraft,
@@ -43,7 +42,6 @@ const ITEM_ID = "99999999-9999-4999-8999-999999999999";
 const FALLBACK_SECTION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SUBDETAIL_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ASSEMBLY_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const SNAPSHOT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 function createQueryBuilder<T>(result: { data: T; error: unknown }) {
   const builder = {
@@ -365,83 +363,12 @@ function createSubdetailItemSourceRows() {
   ];
 }
 
-function createSnapshotRow() {
-  return {
-    id: SNAPSHOT_ID,
-    created_at: "2026-03-07T09:05:00.000Z",
-    updated_at: "2026-03-07T09:05:00.000Z",
-    tenant_id: TENANT_ID,
-    project_id: PROJECT_ID,
-    target_version_id: VERSION_ID,
-    draft_id: DRAFT_ID,
-    parent_work_id: CANDIDATE_ID,
-    assembly_id: ASSEMBLY_ID,
-    estimate_item_id: ITEM_ID,
-    applied_by: USER_ID,
-    summary: createSubdetailDraftRow().summary,
-    components: [
-      {
-        designation: "Pose de faux plafond",
-        costType: "material",
-        quantity: 1,
-        unit: "m2",
-        unitCostHtCents: 3000,
-        dsCents: 3150,
-        sourceLabel: "Texte libre saisi",
-        facts: ["Ouvrage parent: Pose de faux plafond"],
-      },
-    ],
-    metadata: {
-      estimate_item_mapping: {
-        source: "generated_ouvrage_subdetail_review",
-        mode: "legacy_labor_allocated",
-        unitPriceHtCents: 39,
-        hMo: 54,
-        kFo: 3150 / (120 * 39),
-        kMo: 1500 / (54 * 1500),
-        laborRoleId: createLaborRoleRow().id,
-        laborRoleName: createLaborRoleRow().name,
-        laborRoleHourlyRateCents: createLaborRoleRow().hourly_rate_cents,
-        totalDsCents: 4650,
-        nonLaborDsCents: 3150,
-        laborDsCents: 1500,
-        costBreakdown: [
-          {
-            costType: "material",
-            componentCount: 1,
-            quantity: 1,
-            dsCents: 3150,
-          },
-          {
-            costType: "labor",
-            componentCount: 1,
-            quantity: 1,
-            dsCents: 1500,
-          },
-        ],
-        laborTrace: [
-          {
-            componentId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-            designation: "Main d'oeuvre - Pose de faux plafond",
-            unit: "h",
-            quantity: 1,
-            derivedHours: 54,
-            hoursSource: "yield",
-            dsCents: 1500,
-          },
-        ],
-      },
-    },
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(createServiceRoleClient).mockReturnValue({
     rpc: vi.fn().mockResolvedValue({ error: null }),
   } as never);
 });
-
 describe("generateOuvragesFromText", () => {
   it("persists a reviewable fallback draft with source fragments and candidate provenance", async () => {
     const supabase = createSupabaseStub({
@@ -1530,154 +1457,5 @@ describe("rejectGeneratedOuvrageDraft", () => {
         entry.table === "estimate_generated_ouvrage_candidates" && entry.operation === "update"
     );
     expect(candidateUpdateHistory).toHaveLength(0);
-  });
-});
-
-describe("enrichEstimateItemsWithGeneratedOuvrageProvenance", () => {
-  it("adds generated ouvrage source metadata with applied values and fragments", async () => {
-    const supabase = createSupabaseStub({
-      estimate_generated_ouvrage_applications: {
-        select: [
-          createQueryBuilder({
-            data: [
-              {
-                id: APPLICATION_ID,
-                created_at: "2026-03-07T09:05:00.000Z",
-                updated_at: "2026-03-07T09:05:00.000Z",
-                tenant_id: TENANT_ID,
-                draft_id: DRAFT_ID,
-                candidate_id: CANDIDATE_ID,
-                target_version_id: VERSION_ID,
-                estimate_item_id: ITEM_ID,
-                applied_by: USER_ID,
-                applied_payload: {
-                  designation: "Pose de faux plafond",
-                  unit: "m2",
-                  quantity: 120,
-                },
-              },
-            ],
-            error: null,
-          }),
-        ],
-      },
-      estimate_generated_ouvrage_candidates: {
-        select: [createQueryBuilder({ data: [createCandidateRow("inserted")], error: null })],
-      },
-      estimate_generated_ouvrage_drafts: {
-        select: [
-          createQueryBuilder({
-            data: [
-              {
-                id: DRAFT_ID,
-                created_at: "2026-03-07T09:01:00.000Z",
-                generation_metadata: {
-                  prompt_version: "est381-generated-ouvrages-v1",
-                  used_fallback: true,
-                },
-              },
-            ],
-            error: null,
-          }),
-        ],
-      },
-      estimate_generated_ouvrage_candidate_sources: {
-        select: [
-          createQueryBuilder({
-            data: [
-              {
-                id: "link-1",
-                created_at: "2026-03-07T09:02:00.000Z",
-                tenant_id: TENANT_ID,
-                draft_id: DRAFT_ID,
-                candidate_id: CANDIDATE_ID,
-                source_fragment_id: FRAGMENT_ID,
-                source_rank: 0,
-                rationale: null,
-                metadata: {},
-              },
-            ],
-            error: null,
-          }),
-        ],
-      },
-      estimate_generated_ouvrage_source_fragments: {
-        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
-      },
-      estimate_generated_ouvrage_work_snapshots: {
-        select: [createQueryBuilder({ data: [createSnapshotRow()], error: null })],
-      },
-    });
-
-    const result = await enrichEstimateItemsWithGeneratedOuvrageProvenance({
-      supabase: supabase as never,
-      tenantId: TENANT_ID,
-      items: [
-        {
-          id: ITEM_ID,
-          created_at: "2026-03-07T09:00:00.000Z",
-          updated_at: "2026-03-07T09:00:00.000Z",
-          tenant_id: TENANT_ID,
-          version_id: VERSION_ID,
-          parent_id: null,
-          item_type: "line",
-          position: 1,
-          title: "Pose de faux plafond",
-          description: null,
-          quantity: 120,
-          unit_price_ht_cents: 0,
-          tax_rate_bp: 2000,
-          k_fo: null,
-          h_mo: null,
-          h_mo_majoration: 1,
-          k_mo: null,
-          h_mo_atelier: null,
-          k_mo_atelier: null,
-          labor_role_atelier_id: null,
-          h_mo_chantier: null,
-          k_mo_chantier: null,
-          labor_role_chantier_id: null,
-          pu_ht_cents: 0,
-          labor_role_id: null,
-          category_id: null,
-          supply_type_id: null,
-          selected_supplier_price_id: null,
-          line_total_ht_cents: 0,
-          line_tax_cents: 0,
-          line_total_ttc_cents: 0,
-          source_provider: "manual",
-          source_job_id: null,
-          source_file_name: null,
-          source_page: null,
-          source_metadata: null,
-          source_extracted_at: null,
-        },
-      ],
-    });
-
-    expect(result[0]?.source_provider).toBe("generated_ouvrage");
-    expect(result[0]?.source_metadata).toMatchObject({
-      kind: "generated_ouvrage",
-      candidate_id: CANDIDATE_ID,
-      applied_values: {
-        designation: "Pose de faux plafond",
-        unit: "m2",
-        quantity: 120,
-      },
-      estimate_item_mapping: {
-        mode: "legacy_labor_allocated",
-        hMo: 54,
-        laborRoleId: createLaborRoleRow().id,
-      },
-      sources: [
-        {
-          source_fragment_id: FRAGMENT_ID,
-          type: "text",
-        },
-      ],
-      snapshot_id: SNAPSHOT_ID,
-      assembly_id: ASSEMBLY_ID,
-      facts: ["Ouvrage parent: Pose de faux plafond"],
-    });
   });
 });

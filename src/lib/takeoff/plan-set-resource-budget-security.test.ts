@@ -90,9 +90,9 @@ describe("plan-set aggregate resource budget", () => {
   });
 
   it("checks current metadata before job creation or Storage download", async () => {
-    const [serverSource, processorSource] = await Promise.all([
+    const [serverSource, sourceLoaderSource] = await Promise.all([
       readProjectFile("src/lib/takeoff/server.ts"),
-      readProjectFile("src/lib/takeoff/processor.ts"),
+      readProjectFile("src/lib/takeoff/source-loader.ts"),
     ]);
 
     const serverFunction = serverSource.indexOf(
@@ -110,58 +110,59 @@ describe("plan-set aggregate resource budget", () => {
     expect(serverBudget).toBeGreaterThan(serverFunction);
     expect(jobInsert).toBeGreaterThan(serverBudget);
 
-    const processorFunction = processorSource.indexOf(
-      "async function downloadTakeoffSourceFile"
+    const sourceLoaderFunction = sourceLoaderSource.indexOf(
+      "export async function loadTakeoffSource"
     );
-    const metadataBudget = processorSource.indexOf(
+    const metadataBudget = sourceLoaderSource.indexOf(
       "const metadataBudget = inspectPlanSetResourceBudget",
-      processorFunction
+      sourceLoaderFunction
     );
-    const firstDownload = processorSource.indexOf(
+    const firstDownload = sourceLoaderSource.indexOf(
       ".download(sourcePath)",
       metadataBudget
     );
-    expect(processorFunction).toBeGreaterThanOrEqual(0);
-    expect(metadataBudget).toBeGreaterThan(processorFunction);
+    expect(sourceLoaderFunction).toBeGreaterThanOrEqual(0);
+    expect(metadataBudget).toBeGreaterThan(sourceLoaderFunction);
     expect(firstDownload).toBeGreaterThan(metadataBudget);
   });
 
   it("checks actual aggregate pages before allocating the merged PDF", async () => {
-    const processorSource = await readProjectFile(
-      "src/lib/takeoff/processor.ts"
+    const sourceLoaderSource = await readProjectFile(
+      "src/lib/takeoff/source-loader.ts"
     );
-    const processorFunction = processorSource.indexOf(
-      "async function downloadTakeoffSourceFile"
+    const sourceLoaderFunction = sourceLoaderSource.indexOf(
+      "export async function loadTakeoffSource"
     );
-    const actualPageCount = processorSource.indexOf(
+    const actualPageCount = sourceLoaderSource.indexOf(
       "actualBudgetEntry.page_count = sourcePdf.getPageCount()",
-      processorFunction
+      sourceLoaderFunction
     );
-    const blobSizeCheck = processorSource.indexOf(
+    const blobSizeCheck = sourceLoaderSource.indexOf(
       "file_size_bytes: data.size",
-      processorFunction
+      sourceLoaderFunction
     );
-    const byteLengthCheck = processorSource.indexOf(
+    const byteLengthCheck = sourceLoaderSource.indexOf(
       "actualBudgetEntry.file_size_bytes = sourceBytes.byteLength",
-      processorFunction
+      sourceLoaderFunction
     );
-    const mergedPdfAllocation = processorSource.indexOf(
+    const mergedPdfAllocation = sourceLoaderSource.indexOf(
       "const mergedPdf = await PDFDocument.create()",
-      processorFunction
+      sourceLoaderFunction
     );
 
-    expect(blobSizeCheck).toBeGreaterThan(processorFunction);
+    expect(blobSizeCheck).toBeGreaterThan(sourceLoaderFunction);
     expect(byteLengthCheck).toBeGreaterThan(blobSizeCheck);
-    expect(actualPageCount).toBeGreaterThan(processorFunction);
+    expect(actualPageCount).toBeGreaterThan(sourceLoaderFunction);
     expect(mergedPdfAllocation).toBeGreaterThan(actualPageCount);
   });
 
   it("persists per-source page counts instead of the merged total", async () => {
-    const processorSource = await readProjectFile(
-      "src/lib/takeoff/processor.ts"
-    );
+    const [sourceLoaderSource, processorSource] = await Promise.all([
+      readProjectFile("src/lib/takeoff/source-loader.ts"),
+      readProjectFile("src/lib/takeoff/processor.ts"),
+    ]);
 
-    expect(processorSource).toContain(
+    expect(sourceLoaderSource).toContain(
       "sourcePlanFilePageCounts: validatedSources.map"
     );
     expect(processorSource).toContain(
