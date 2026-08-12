@@ -1,6 +1,7 @@
 # Métré (takeoff) & plans
 
-> **Source : le code au 2026-07-29.** Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Source : le code au 2026-07-29, avec les baux et la reprise relus au
+> 2026-08-12.** En cas de divergence, le code et les migrations font foi.
 
 Périmètre : `src/lib/takeoff/**`, `src/components/takeoff/**`, `src/app/api/{takeoff,internal/takeoff}/**`, `src/app/dashboard/{takeoff,affaires/[projectId]/{plans,takeoff},estimates/[versionId]/{plans,takeoff},admin/takeoff}/**`, `supabase/functions/process_takeoff_job/`, migrations `*tkf*`, `*plan_sets*`, `*takeoff*`. L'application d'un métré au devis est décrite dans [../metier/cycle-de-vie.md](../metier/cycle-de-vie.md) § « Application d'un métré au devis » ; seuls les compléments propres au module figurent ici (§11).
 
@@ -58,17 +59,50 @@ Le niveau B exige au moins un tableau exploitable (`prompts.ts:128-130` ; schém
 
 **Chaîne d'appel.** Création du job puis `triggerTakeoffJobProcessing` (`src/app/api/takeoff/jobs/route.ts:40` ; `_actions/takeoff.ts:66`) → appel de l'edge function `…/functions/v1/process_takeoff_job` avec `Authorization: Bearer <service role>` et `apikey`, délai `1 500` ms (`edge-trigger.ts:17`, `:35`, `:65-77`) → l'edge function vérifie que les deux en-têtes valent la clé service-role (`supabase/functions/process_takeoff_job/security.ts:7-10`) puis relaie vers `TAKEOFF_WORKER_URL` avec seulement `x-takeoff-worker-secret` et `x-correlation-id` (`…/index.ts:254-263`), délai relais `240 000` ms (`:57`), auto-invocation `7 500` ms (`:58`) ; `TAKEOFF_WORKER_URL`/`TAKEOFF_WORKER_SECRET` proviennent de l'environnement ou du RPC `get_takeoff_secret` (`:122-163`) → `POST /api/internal/takeoff/process-job` compare `x-takeoff-worker-secret` à `TAKEOFF_WORKER_SECRET` (`route.ts:18`, `:31-35`, repli littéral `"test-worker-secret"` si `NODE_ENV === "test"` `:23-24`) et appelle `processTakeoffJobAttempt` (`:83`). Le worker charge localement le client service-role via la factory canonique `src/lib/supabase/service-role.ts`; aucune clé service-role n'est transportée par le relais HTTP. La route répond `202` en cas de réenfilement ou d'`in_progress`, sinon `200` (`:89-90`) → réenfilement par auto-invocation de l'edge function après `next_run_in_seconds` (`index.ts:373-390`).
 
+Le déclenchement de requête n'est plus la seule chance d'exécution. Les tables
+métier restent les files de référence et
+`GET /api/internal/workflows/recover`, protégé par `CRON_SECRET`, liste les jobs
+`pending`, les retries `failed` échus et les réconciliations batch dues, puis
+relance le même relais (`src/lib/workflows/durable-recovery.ts`,
+`supabase/migrations/20260811231238_durable_workflow_recovery.sql`).
+`vercel.json` demande une exécution `*/5 * * * *` ; cette cadence requiert un
+plan Vercel Pro ou Enterprise et **aucun déploiement effectif n'est attesté dans
+le checkout**.
+
 Aucune configuration de segment Next n'existe sur cette surface : `grep -rn "maxDuration\|export const runtime\|export const dynamic\|preferredRegion" src/app/api/takeoff src/app/api/internal/takeoff` renvoie 0 ligne.
 
 **Sync vs batch.** `processing_strategy ∈ {sync, batch}` (`types.ts:35` ; enum SQL `…est421….sql:3`). Le drapeau `TAKEOFF_GEMINI_BATCH_MODE` n'est consulté que pour le niveau A (`feature-flags.ts:302-306`) et la stratégie est ramenée à `sync` pour tout autre niveau (`provider-batch.ts:73-78`). En `sync`, appel `POST …/models/{model}:generateContent` (`gemini-client.ts:538`) sur `https://generativelanguage.googleapis.com/v1beta` (`:13`), délai par défaut `60 000` ms (`:8`), 3 tentatives et repli exponentiel de base `250` ms (`:9-10`, `:251-253`). En `batch`, soumission `…:batchGenerateContent` (`:617`), le processeur renvoie `submitted_to_provider` et planifie la réconciliation (`processor.ts:4052-4110`) ; les états bruts sont convertis par `GEMINI_BATCH_STATE_MAP` (`provider-batch.ts:49-58`) et persistés par le RPC `persist_takeoff_provider_batch_snapshot` (`provider-batch.ts:189-206` ; `supabase/migrations/20260309121500_est421_takeoff_provider_batch_snapshot_rpc.sql:1-19`). La table d'historique `takeoff_job_provider_events` n'a que des politiques `select` et `insert` (`…est421_takeoff_provider_batch_persistence.sql:83-113`).
 
-**Réconciliation.** Bail TTL `90` s (`constants.ts:37`), repli `[10, 20, 40, 60]` s (`:38`), `24` tentatives (`:39`), RPC `acquire_takeoff_batch_reconcile_lease` (`…est424….sql:18-30`, prédicat `:60-78`). Le dépassement du compteur sur un lot non terminal clôt le job en échec avec `AI_TIMEOUT` (`async-worker.ts:621-644`).
+**Baux et fencing fournisseur.** Un traitement synchrone prend un bail UUID de
+**30 minutes** ; une réconciliation batch prend un bail de **5 minutes**. Les
+appels Gemini (génération, soumission batch et polling) renouvellent le bail
+avant et après l'effet. Une perte de bail après l'appel prime sur son résultat :
+un worker obsolète ne peut donc pas persister un succès ou un échec après qu'un
+autre l'a repris (`src/lib/takeoff/job-lifecycle.ts`,
+`src/lib/takeoff/processor.ts`, constantes dans
+`src/lib/takeoff/constants.ts`). La base exige en outre un tenant actif pour
+acquérir ou renouveler ces baux.
+
+**Réconciliation.** Repli `[10, 20, 40, 60]` s, `24` tentatives et RPC
+`acquire_takeoff_batch_reconcile_lease`. Le dépassement du compteur sur un lot
+non terminal clôt le job en échec avec `AI_TIMEOUT`. Le snapshot fournisseur
+est persisté par une RPC protégée par le token de bail, pas par un `UPDATE` libre.
 
 **Découpage PDF (niveau C).** `buildPdfChunks` renvoie un chunk unique tant que `pageCount ≤ thresholdPages` (`chunking.ts:108-116`) ; au-delà, le pas vaut `chunkSizePages − overlapPages` (`:118`), l'`overlap` étant ramené à `min(overlap, chunkSize − 1)` (`feature-flags.ts:126`). La fusion déduplique sur `designation::unit::source_page` (`chunking.ts:73-78`), garde l'item le plus confiant, concatène les evidences par `" | "` (`:196-212`) et moyenne la confiance globale (`:216-222`). Au-delà de `maxPdfPages` : erreur 413 `TAKEOFF_FILE_TOO_LARGE` (`processor.ts:2701-2714`). Les budgets jetons et coût sont évalués après chaque chunk et lèvent `TAKEOFF_LEVEL_C_BUDGET_EXCEEDED` (`processor.ts:2802-2860`) ; chaque chunk écrit une ligne `takeoff_run_metrics` avec `timed_out` et `budget_exceeded` (`processor.ts:2817-2818` ; table `…tkf022….sql:3-33`).
 
 Un PDF est jugé inexploitable si, en C, aucun item n'est produit, ou si, en B, tableaux ou items sont vides → `TAKEOFF_PDF_NOT_INTERPRETABLE` (`processor.ts:3151-3170` ; messages `pdf-validation.ts:164-170`).
 
 **Reprises automatiques.** `TAKEOFF_RETRY_MAX = 3` (`async-worker.ts:20` ; `types.ts:879`), repli `[5, 15, 45]` s (`async-worker.ts:21`). Quatre codes seulement sont relançables par défaut : `AI_RATE_LIMIT`, `AI_TIMEOUT`, `AI_PROVIDER`, `TAKEOFF_LEVEL_C_TIMEOUT` (`errors.ts:412-419`).
+
+Un job synchrone resté `processing` après expiration du bail est terminalisé en
+`failed` avec `TAKEOFF_WORKER_OUTCOME_UNKNOWN` : son effet fournisseur pourrait
+avoir eu lieu, donc le système ne le rejoue pas aveuglément. À l'inverse, un
+batch garde son identifiant fournisseur et revient dans la file de
+réconciliation. Le nettoyage des jobs synchrones stales s'exécute aussi pour
+un tenant suspendu, mais la liste de dispatch et tout renouvellement de bail
+exigent un tenant actif. Un appel déjà en vol ne peut pas être préempté ; son
+renouvellement post-appel échoue et empêche la persistance par le worker devenu
+obsolète.
 
 ---
 
@@ -288,8 +322,16 @@ Audit : 16 actions `takeoff.*` (`src/lib/takeoff/audit.ts:13-32`), contrainte `a
 2. **L'application est irréversible et à un coup** : le job passe à `applied` (`…tkf013….sql:570-576`) et ses items deviennent immuables (`…20260713132407….sql:51-52`).
 3. **`replace` sans section cible efface toute la version** (`…tkf013….sql:169-173`) ; la migration nommée `…protect_takeoff_replace_with_recovery.sql` est vide (`wc -c` = 0).
 4. **Deux vocabulaires de statut** cohabitent, bruts (`types.ts:25-33`) et visibles (`visible-status.ts:7-14`), avec des littéraux homonymes, plus l'orthographe divergente `canceled` / `cancelled`.
-5. **Les jobs batch restent `processing`** en attente du fournisseur ; l'état `orphan_to_reconcile` (`operator-state.ts:83-139`) et le bail de 90 s (`constants.ts:37`) matérialisent la reprise.
+5. **Les jobs batch restent `processing`** en attente du fournisseur ; l'état
+   `orphan_to_reconcile` et le bail de réconciliation de 5 minutes matérialisent
+   la reprise. Pour les jobs sync, une expiration après appel fournisseur mène
+   au statut terminal `TAKEOFF_WORKER_OUTCOME_UNKNOWN`, à rapprocher avant tout
+   rejeu.
 6. **Les budgets du niveau C interrompent le traitement en cours de découpage** (`processor.ts:2802-2860`) ; les chunks déjà consommés sont facturés et tracés dans `takeoff_run_metrics`.
 7. **Les règles de mapping échappent au drapeau du module** (`server.ts:8707-8708`).
 8. Les pages du tableau de bord répondent `notFound()` quand le module est inactif, les pages d'administration `redirect()`.
 9. `TAKEOFF_FLOW_KINDS` déclare `adjacent` (`flow-hierarchy.ts:3`) mais `resolvePlanSetFlowDescriptor` ne renvoie que `legacy` ou `principal` (`:13-35`) ; `adjacent` n'arrive que par la propriété passée en `src/app/dashboard/affaires/[projectId]/takeoff/page.tsx:125`.
+10. **La reprise durable n'est qu'une capacité tant qu'elle n'est pas
+    exploitée** : `CRON_SECRET`, le plan Vercel compatible et le déploiement de
+    la cadence `*/5` ne sont pas vérifiables depuis le dépôt. Aucun appel Gemini
+    réel n'a été déclenché pour valider ce lot documentaire.

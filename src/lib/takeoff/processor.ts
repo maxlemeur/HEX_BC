@@ -5,6 +5,7 @@ import { z } from "zod";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
+import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
 import {
   buildPdfChunks,
   createPdfChunkBytes,
@@ -31,6 +32,13 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
+import {
+  TAKEOFF_JOB_PROCESSING_SELECT,
+  parseTakeoffJobRow,
+  runWithTakeoffLeaseRenewal,
+  type TakeoffJobProcessingRow,
+  type TakeoffLeaseRenewal,
+} from "@/lib/takeoff/job-lifecycle";
 import {
   buildTakeoffPdfNotInterpretableMessage,
   inspectTakeoffPdfBytes,
@@ -63,16 +71,13 @@ import {
   TakeoffWarningSchema,
 } from "@/lib/takeoff/schemas";
 import {
-  normalizeGeminiProviderBatchState,
-  normalizeTakeoffProcessingStrategy,
-  persistTakeoffProviderBatchSnapshot,
+  persistGeminiBatchLifecycleEvent,
   resolveExecutableTakeoffProcessingStrategy,
   resolveTakeoffProcessingStrategy,
 } from "@/lib/takeoff/provider-batch";
 import type {
   TakeoffExchange,
   TakeoffProcessingStrategy,
-  TakeoffProviderBatchState,
   TakeoffWarning,
 } from "@/lib/takeoff/types";
 import { toUnitToken } from "@/lib/takeoff/units";
@@ -93,72 +98,8 @@ const TAKEOFF_LEVEL_B = "B";
 const TAKEOFF_LEVEL_C = "C";
 const DEFAULT_GEMINI_TIMEOUT_MS = 60_000;
 const MAX_GEMINI_TIMEOUT_MS = 180_000;
+const TAKEOFF_PROCESSING_LEASE_TTL_MS = TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000;
 const ATOMIC_PERSISTENCE_ROLLBACK_MARKER = "atomic_persistence_rollback_applied";
-
-const TAKEOFF_JOB_PROCESSING_SELECT = [
-  "id",
-  "tenant_id",
-  "estimate_version_id",
-  "level",
-  "status",
-  "source_file_name",
-  "source_file_path",
-  "source_file_type",
-  "plan_set_id",
-  "prompt_version",
-  "schema_version",
-  "model",
-  "thinking_level",
-  "processing_strategy",
-  "provider_batch_id",
-  "provider_batch_state",
-  "provider_batch_updated_at",
-  "provider_reconcile_due_at",
-  "provider_reconcile_attempt_count",
-  "provider_reconcile_lease_token",
-  "provider_reconcile_lease_expires_at",
-  "retry_count",
-  "created_by",
-].join(", ");
-
-const takeoffJobProcessingSchema = z.object({
-  id: z.string().uuid(),
-  tenant_id: z.string().uuid(),
-  estimate_version_id: z.string().uuid(),
-  level: z.string(),
-  status: z.string(),
-  source_file_name: z.string().nullable(),
-  source_file_path: z.string().nullable(),
-  source_file_type: z.string().nullable(),
-  plan_set_id: z.string().uuid().nullable().optional(),
-  prompt_version: z.string().nullable(),
-  schema_version: z.string().nullable(),
-  model: z.string().nullable().optional(),
-  thinking_level: z.string().nullable().optional(),
-  processing_strategy: z.string().nullable().optional(),
-  provider_batch_id: z.string().nullable().optional(),
-  provider_batch_state: z.string().nullable().optional(),
-  provider_batch_updated_at: z.string().nullable().optional(),
-  provider_reconcile_due_at: z.string().nullable().optional(),
-  provider_reconcile_attempt_count: z.number().int().nonnegative().nullable().optional(),
-  provider_reconcile_lease_token: z.string().uuid().nullable().optional(),
-  provider_reconcile_lease_expires_at: z.string().nullable().optional(),
-  retry_count: z.number().int().nonnegative().nullable().optional(),
-  created_by: z.string().uuid().nullable().optional(),
-});
-
-type TakeoffJobProcessingRow = z.infer<typeof takeoffJobProcessingSchema> & {
-  retry_count: number;
-  created_by: string | null;
-  processing_strategy: TakeoffProcessingStrategy | null;
-  provider_batch_id: string | null;
-  provider_batch_state: TakeoffProviderBatchState | null;
-  provider_batch_updated_at: string | null;
-  provider_reconcile_due_at: string | null;
-  provider_reconcile_attempt_count: number;
-  provider_reconcile_lease_token: string | null;
-  provider_reconcile_lease_expires_at: string | null;
-};
 
 const takeoffResultIdSchema = z.object({
   id: z.string().uuid(),
@@ -243,6 +184,8 @@ export type ProcessLevelAOptions = {
   callGemini?: CallGeminiStructuredFn;
   submitGeminiBatch?: SubmitGeminiBatchStructuredFn;
   pollGeminiBatchOnce?: PollGeminiBatchStructuredOnceFn;
+  assertTenantActive?: (tenantId: string) => Promise<void>;
+  renewLease?: TakeoffLeaseRenewal;
 };
 
 type ProcessLevelCompletedResult = {
@@ -744,31 +687,6 @@ function normalizeGeminiThinkingLevel(
   return value === "low" || value === "medium" || value === "high" ? value : fallback;
 }
 
-function parseTakeoffJobRow(data: unknown): TakeoffJobProcessingRow {
-  const parsed = takeoffJobProcessingSchema.parse(data);
-
-  return {
-    ...parsed,
-    processing_strategy: normalizeTakeoffProcessingStrategy(
-      parsed.processing_strategy
-    ),
-    provider_batch_id: parsed.provider_batch_id ?? null,
-    provider_batch_state:
-      parsed.provider_batch_state === null ||
-      parsed.provider_batch_state === undefined
-        ? null
-        : normalizeGeminiProviderBatchState(parsed.provider_batch_state),
-    provider_batch_updated_at: parsed.provider_batch_updated_at ?? null,
-    provider_reconcile_due_at: parsed.provider_reconcile_due_at ?? null,
-    provider_reconcile_attempt_count: parsed.provider_reconcile_attempt_count ?? 0,
-    provider_reconcile_lease_token: parsed.provider_reconcile_lease_token ?? null,
-    provider_reconcile_lease_expires_at:
-      parsed.provider_reconcile_lease_expires_at ?? null,
-    retry_count: parsed.retry_count ?? 0,
-    created_by: parsed.created_by ?? null,
-  };
-}
-
 async function fetchCurrentTakeoffJobStatus(input: {
   supabase: Supabase;
   job: Pick<TakeoffJobProcessingRow, "id" | "tenant_id">;
@@ -881,48 +799,6 @@ async function resolveContext(
   };
 }
 
-async function persistGeminiBatchLifecycleEvent(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  event: GeminiBatchLifecycleEvent;
-}): Promise<TakeoffJobProcessingRow> {
-  const providerBatchState = normalizeGeminiProviderBatchState(
-    input.event.providerBatchStateRaw
-  );
-  const snapshot = await persistTakeoffProviderBatchSnapshot({
-    supabase: input.supabase,
-    jobId: input.job.id,
-    tenantId: input.job.tenant_id,
-    estimateVersionId: input.job.estimate_version_id,
-    provider: "gemini",
-    currentSnapshot: {
-      processing_strategy: input.job.processing_strategy,
-      provider_batch_id: input.job.provider_batch_id,
-      provider_batch_state: input.job.provider_batch_state,
-      provider_batch_updated_at: input.job.provider_batch_updated_at,
-      provider_state_raw: null,
-    },
-    processingStrategy: "batch",
-    providerBatchId: input.event.providerBatchId,
-    providerBatchState,
-    providerStateRaw: input.event.providerBatchStateRaw,
-    observedAtIso: input.event.observedAt,
-    message: input.event.message,
-    metadata: {
-      provider: input.event.provider,
-      is_terminal: input.event.isTerminal,
-    },
-  });
-
-  return {
-    ...input.job,
-    processing_strategy: snapshot.processing_strategy,
-    provider_batch_id: snapshot.provider_batch_id,
-    provider_batch_state: snapshot.provider_batch_state,
-    provider_batch_updated_at: snapshot.provider_batch_updated_at,
-  };
-}
-
 async function getTakeoffJobForProcessing(input: {
   supabase: Supabase;
   jobId: string;
@@ -978,6 +854,10 @@ async function markJobAsProcessing(input: {
 }): Promise<TakeoffJobProcessingRow> {
   const retryCount =
     input.job.status === "failed" ? input.job.retry_count + 1 : input.job.retry_count;
+  const processingLeaseToken = crypto.randomUUID();
+  const processingLeaseExpiresAt = new Date(
+    Date.parse(input.startedAtIso) + TAKEOFF_PROCESSING_LEASE_TTL_MS
+  ).toISOString();
 
   let query = input.supabase
     .from("takeoff_jobs" as never)
@@ -996,6 +876,8 @@ async function markJobAsProcessing(input: {
       provider_reconcile_attempt_count: 0,
       provider_reconcile_lease_token: null,
       provider_reconcile_lease_expires_at: null,
+      processing_lease_token: processingLeaseToken,
+      processing_lease_expires_at: processingLeaseExpiresAt,
       model: input.model,
       thinking_level: input.thinkingLevel,
       prompt_version: input.promptVersion,
@@ -1074,6 +956,8 @@ async function updateJobAsCompleted(input: {
       provider_reconcile_attempt_count: 0,
       provider_reconcile_lease_token: null,
       provider_reconcile_lease_expires_at: null,
+      processing_lease_token: null,
+      processing_lease_expires_at: null,
     } as never)
     .eq("id" as never, input.job.id as never)
     .eq("status" as never, "processing" as never)
@@ -1081,6 +965,20 @@ async function updateJobAsCompleted(input: {
 
   if (input.tenantId) {
     query = query.eq("tenant_id" as never, input.tenantId as never);
+  }
+
+  if (input.job.processing_lease_token) {
+    query = query.eq(
+      "processing_lease_token" as never,
+      input.job.processing_lease_token as never
+    );
+  }
+
+  if (input.job.provider_reconcile_lease_token) {
+    query = query.eq(
+      "provider_reconcile_lease_token" as never,
+      input.job.provider_reconcile_lease_token as never
+    );
   }
 
   const { data, error } = await query.maybeSingle();
@@ -1144,6 +1042,8 @@ async function updateJobAsFailed(input: {
       provider_reconcile_attempt_count: 0,
       provider_reconcile_lease_token: null,
       provider_reconcile_lease_expires_at: null,
+      processing_lease_token: null,
+      processing_lease_expires_at: null,
     } as never)
     .eq("id" as never, input.job.id as never)
     .eq("status" as never, "processing" as never);
@@ -1152,7 +1052,21 @@ async function updateJobAsFailed(input: {
     query = query.eq("tenant_id" as never, input.tenantId as never);
   }
 
-  const { error } = await query;
+  if (input.job.processing_lease_token) {
+    query = query.eq(
+      "processing_lease_token" as never,
+      input.job.processing_lease_token as never
+    );
+  }
+
+  if (input.job.provider_reconcile_lease_token) {
+    query = query.eq(
+      "provider_reconcile_lease_token" as never,
+      input.job.provider_reconcile_lease_token as never
+    );
+  }
+
+  const { data, error } = await query.select("id" as never).maybeSingle();
 
   if (error) {
     console.error("Impossible de marquer le job takeoff en echec.", {
@@ -1161,6 +1075,7 @@ async function updateJobAsFailed(input: {
       error,
     });
   }
+  if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible pour clore le job.", retryable: false, jobId: input.job.id });
 }
 
 async function scheduleBatchReconcile(input: {
@@ -1177,6 +1092,8 @@ async function scheduleBatchReconcile(input: {
       provider_reconcile_attempt_count: input.attemptCount ?? 0,
       provider_reconcile_lease_token: null,
       provider_reconcile_lease_expires_at: null,
+      processing_lease_token: null,
+      processing_lease_expires_at: null,
     } as never)
     .eq("id" as never, input.job.id as never)
     .eq("status" as never, "processing" as never)
@@ -1184,6 +1101,13 @@ async function scheduleBatchReconcile(input: {
 
   if (input.tenantId) {
     query = query.eq("tenant_id" as never, input.tenantId as never);
+  }
+
+  if (input.job.processing_lease_token) {
+    query = query.eq(
+      "processing_lease_token" as never,
+      input.job.processing_lease_token as never
+    );
   }
 
   const { data, error } = await query.maybeSingle();
@@ -3758,8 +3682,9 @@ async function processTakeoffLevel(
   }
 
   const context = await resolveContext(options);
-  const callGemini = options.callGemini ?? callGeminiStructured;
-  const submitGeminiBatch = options.submitGeminiBatch ?? submitGeminiBatchStructured;
+  const baseCallGemini = options.callGemini ?? callGeminiStructured;
+  const baseSubmitGeminiBatch =
+    options.submitGeminiBatch ?? submitGeminiBatchStructured;
   const now = options.now ?? (() => new Date());
   let levelConfig = getTakeoffLevelConfig(level);
   const escalationConfig = getTakeoffEscalationModelConfig(level);
@@ -3774,6 +3699,40 @@ async function processTakeoffLevel(
   let levelCChunkMetrics: LevelCChunkMetric[] = [];
   let levelCRunMetricsPersisted = false;
   let levelCSourceFileName: string | null = null;
+
+  const assertProviderTenantActive = async () => {
+    if (!job) {
+      throw new TakeoffError({
+        code: TakeoffErrorCode.INTERNAL_ERROR,
+        message: "Le job takeoff n'est pas charge avant l'appel fournisseur.",
+        retryable: true,
+        jobId: normalizedJobId,
+        level,
+      });
+    }
+
+    await options.assertTenantActive?.(job.tenant_id);
+  };
+
+  const renewProcessingLease = async () => {
+    if (!options.renewLease) return;
+    if (!job?.processing_lease_token) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible.", retryable: false, jobId: normalizedJobId, level });
+    await options.renewLease({ jobId: job.id, tenantId: job.tenant_id, leaseToken: job.processing_lease_token });
+  };
+
+  const callGemini: CallGeminiStructuredFn = async <T>(
+    providerOptions: CallGeminiStructuredOptions<T>
+  ) => {
+    await assertProviderTenantActive();
+    return runWithTakeoffLeaseRenewal(renewProcessingLease, () => baseCallGemini<T>(providerOptions));
+  };
+
+  const submitGeminiBatch = async <T>(
+    providerOptions: Omit<CallGeminiStructuredOptions<T>, "deliveryMode">
+  ) => {
+    await assertProviderTenantActive();
+    return runWithTakeoffLeaseRenewal(renewProcessingLease, () => baseSubmitGeminiBatch<T>(providerOptions));
+  };
 
   try {
     job = await getTakeoffJobForProcessing({
@@ -3852,10 +3811,12 @@ async function processTakeoffLevel(
             if (!job) {
               return;
             }
+            await renewProcessingLease();
             job = await persistGeminiBatchLifecycleEvent({
               supabase: context.supabase,
               job,
               event,
+              nowIso: now().toISOString(),
             });
           }
         : undefined;
@@ -3884,6 +3845,7 @@ async function processTakeoffLevel(
         providerMeta: levelCResult.providerMeta,
       });
 
+      await renewProcessingLease();
       const persisted = await persistTakeoffResultAndItems({
         supabase: context.supabase,
         job,
@@ -3903,6 +3865,7 @@ async function processTakeoffLevel(
         level,
       });
 
+      await renewProcessingLease();
       await persistLevelCRunMetrics({
         supabase: context.supabase,
         job,
@@ -3987,6 +3950,7 @@ async function processTakeoffLevel(
         providerMeta: levelBResult.providerMeta,
       });
 
+      await renewProcessingLease();
       const persisted = await persistTakeoffResultAndItems({
         supabase: context.supabase,
         job,
@@ -4176,6 +4140,7 @@ async function processTakeoffLevel(
       };
     }
 
+    await renewProcessingLease();
     return await finalizeCompletedLevelAJob({
       supabase: context.supabase,
       tenantId: context.tenantId,
@@ -4199,13 +4164,14 @@ async function processTakeoffLevel(
       level,
     });
 
-    if (enteredProcessing && job && !isCanceledDuringProcessingConflict(mappedError)) {
+    if (enteredProcessing && job && !isCanceledDuringProcessingConflict(mappedError) && mappedError.code !== TakeoffErrorCode.CONFLICT) {
       const completedAt = now();
       const durationMs = Math.max(0, completedAt.getTime() - processingStartedAt.getTime());
 
       const skipFailureSnapshotPersist =
         level === TAKEOFF_LEVEL_A && hasAtomicPersistenceRollbackError(mappedError);
 
+      await renewProcessingLease();
       const failureSnapshotClearedResults = skipFailureSnapshotPersist
         ? false
         : await persistFailureSnapshotIfNeeded({
@@ -4345,18 +4311,28 @@ export async function reconcileTakeoffBatchJob(
   }
 
   const actorUserId = context.userId ?? job.created_by;
+  const providerBatchId = job.provider_batch_id;
+  if (!providerBatchId) throw new TakeoffError({ code: TakeoffErrorCode.BAD_REQUEST, message: "Le batch provider est manquant.", retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_A });
+  const renewBatchLease = async () => {
+    if (!options.renewLease) return;
+    if (!job.provider_reconcile_lease_token) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease de reconciliation n'est plus disponible.", retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_A });
+    await options.renewLease({ jobId: job.id, tenantId: job.tenant_id, leaseToken: job.provider_reconcile_lease_token });
+  };
 
   try {
-    const pollResult = await pollGeminiBatchOnce<TakeoffExchange>({
+    await options.assertTenantActive?.(job.tenant_id);
+    const pollResult = await runWithTakeoffLeaseRenewal(renewBatchLease, () => pollGeminiBatchOnce<TakeoffExchange>({
       prompt: "takeoff batch reconcile",
       schema: TakeoffExchangeSchema,
-      providerBatchId: job.provider_batch_id,
+      providerBatchId,
       timeoutMs: resolveGeminiTimeoutMs(),
       onBatchLifecycleEvent: async (event: GeminiBatchLifecycleEvent) => {
+        await renewBatchLease();
         job = await persistGeminiBatchLifecycleEvent({
           supabase: context.supabase,
           job,
           event,
+          nowIso: now().toISOString(),
         });
       },
       context: {
@@ -4366,7 +4342,7 @@ export async function reconcileTakeoffBatchJob(
         promptVersion,
         model,
       },
-    });
+    }));
 
     if (pollResult.status === "pending") {
       return {
@@ -4443,6 +4419,7 @@ export async function reconcileTakeoffBatchJob(
       },
     };
 
+    await renewBatchLease();
     return await finalizeCompletedLevelAJob({
       supabase: context.supabase,
       tenantId: context.tenantId,
@@ -4462,6 +4439,8 @@ export async function reconcileTakeoffBatchJob(
     if (mappedError.retryable) {
       throw mappedError;
     }
+
+    if (mappedError.code === TakeoffErrorCode.CONFLICT) throw mappedError;
 
     const completedAt = now();
     await updateJobAsFailed({

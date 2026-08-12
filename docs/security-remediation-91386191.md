@@ -269,6 +269,44 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   l'environnement staging et le caractère required des checks dépendent de la
   configuration GitHub distante.
 
+### Lot 5 — Workflows et effets externes récupérables — 2026-08-12
+
+- Ce lot renforce, sans les requalifier ni modifier les artefacts canoniques du
+  scan, les fermetures déjà portées par `CAND-R005-004`, `CAND-R007-001-C01/C02/C03`,
+  `CAND-R021-001-C01/C02` et les constats procurement `CAND-R028-*`. Les sept
+  migrations ajoutées portent l'inventaire canonique à 202 fichiers.
+- L'email initial est désormais piloté par une outbox transactionnelle réservée au
+  service-role : état métier `sending`, `Idempotency-Key` UUID obligatoire, payload
+  et PDF figés, bail de dispatch et résultat fournisseur persisté sous verrou. Un
+  rejet certain échoue de façon terminale ; un résultat ambigu ou âgé de plus de
+  23 h reste `unknown` et ne peut être présenté comme livré.
+- Les publications PDF sont fenced par token, acteur, révision, statut et dispatch.
+  Les nouvelles clés Storage sont content-addressées et immuables ; les rôles API
+  n'ont aucun DML documentaire ni écriture Storage. La compatibilité historique est
+  limitée à un seul fichier `.pdf` déjà référencé sous le couple tenant/projet,
+  qu'il porte l'UUID de version ou un ancien nom commercial, et interdit toute
+  mutation de son chemin ou de son empreinte.
+- Les jobs takeoff/intake utilisent des baux renouvelables et des transitions CAS.
+  Chaque claim ou reprise revalide `tenants.is_active` avant un appel fournisseur ;
+  les tentatives épuisées sont terminalisées. La route de reprise interne exige
+  `CRON_SECRET` et le drain procurement revalide le namespace Storage strict avant
+  toute suppression service-role.
+- La réécriture et la suppression des commandes, ainsi que la persistance du devis,
+  passent par des RPC atomiques. Les fichiers procurement sont capturés dans une
+  outbox de cleanup durable ; les quatre suppressions applicatives compensatoires
+  visées par le lot ont disparu.
+- Preuve locale : manifeste/validation/garde Git 202/202, reset Supabase frais,
+  inventaire, pgTAP, matrice RLS 2/2 et cleanup verts. Architecture 833 modules avec
+  un cycle autorisé, OpenAPI/typecheck/lint verts, Node 2 386 tests actifs et jsdom
+  1 304 tests actifs verts, couverture critique 12/12, audit à zéro finding,
+  868 signatures et 309 attestations. Le smoke Webpack Next.js 16.3 a généré 42/42
+  pages et passé les probes HTTP/asset.
+- Limites : aucun système distant, envoi réel ni déploiement n'a été exercé ; le cron
+  cinq minutes nécessite Vercel Pro/Enterprise et une configuration `CRON_SECRET`.
+  Les emails d'acceptation/approbation restent best-effort, la réconciliation des
+  dispatchs `unknown`, le vrai test procurement Vn/Vn+1 à deux sessions et le cleanup
+  des objets PDF orphelins restent hors de ce lot.
+
 ## Bilan terminal
 
 - `fixed` : 95.

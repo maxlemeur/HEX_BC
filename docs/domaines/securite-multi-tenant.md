@@ -129,11 +129,15 @@ Fonctions trigger `guard_* / enforce_* / validate_* / prevent_* / assign_*` (lis
 | `guard_profile_role_update()` | `profiles` | Refuse tout changement de `profiles.role` dès que `auth.uid()` est non nul (`42501 / PROFILE_ROLE_IMMUTABLE`) | `021_…_v2.sql:14-35` |
 | `assign_tenant_id()` | 9 tables enfants | Recalcule `tenant_id` depuis la ligne parente, sinon `current_tenant_id()` | `20260222020000_est181_assign_tenant_id_audit_logs_guard.sql:4-81` |
 | `assign_portal_tokens_tenant_id()` | `portal_tokens` | `security definer` ; interdit de changer `version_id`/`tenant_id` en UPDATE, force `tenant_id` depuis la version, échoue en `23503` si la version manque | `20260713135408_harden_portal_pdf_capabilities.sql:3-43` |
-| `enforce_estimate_document_canonical_path()` | `estimate_documents` | Impose `file_path = tenant/projet/version.pdf` et `tenant_id` du parent | `20260713135408_…sql:177-222` |
+| `enforce_estimate_document_canonical_path()` | `estimate_documents` | Force le tenant du parent et impose `tenant/projet/version/<sha256>.pdf` à toute nouvelle publication `ready` ; une ligne historique inchangée peut conserver un unique fichier `.pdf` sous `tenant/projet`, nommé par l'UUID de version ou par l'ancien nom commercial | `20260812011616_estimate_pdf_publication_fencing.sql` |
 | `enforce_takeoff_item_mutation_before_apply()` | `takeoff_items` | Verrou consultatif par job, `job_id` immuable, gel des items après `status='applied'` | `20260713132407_…sql:20-71` |
 | `enforce_takeoff_apply_security()` | `takeoff_jobs` | Sur passage à `applied` : verrou brouillon actif de l'appelant + seuil de confiance, sinon override admin consommé une seule fois via `takeoff_apply_override_consumptions` | `20260713132407_…sql:365-371`, table `:3-17` |
 | `enforce_plan_set_resource_budget()` | `plan_files` | Verrou par plan set ; fichier ∈ ]0, 52 428 800] octets ; ≤ 20 fichiers ; ≤ 104 857 600 octets cumulés | `20260713150322_enforce_plan_set_resource_budgets.sql:22-62` |
-| `guard_estimate_versions_readonly()` | `estimate_versions` | Gèle 26 colonnes (dont `seal_hash`, `calc_engine_version`, `contractor_role`) hors statut `draft` | `20260727020000_estimate_version_integrity.sql:8-53` |
+| `guard_estimate_versions_readonly()` | `estimate_versions` | Gèle le contenu hors `draft` ; en `sending`, n'autorise que la pose unique du sceau puis une transition de statut | `20260811231759_transactional_estimate_email_outbox.sql` |
+| `guard_estimate_email_dispatch_mutation()` | `estimate_emails` | Enveloppe initiale immuable, transitions d'outbox bornées, identité fournisseur stable | `20260811231759_transactional_estimate_email_outbox.sql` |
+| `guard_estimate_email_pdf_publication()` | `estimate_emails` | Refuse `preparing → queued` si chemin, hash, révision ou publication PDF ne correspondent pas ; pendant `sending`, exige le même dispatch email | `20260812011616_estimate_pdf_publication_fencing.sql` |
+| `guard_estimate_email_dispatch_events_append_only()` | `estimate_email_dispatch_events` | Journal de dispatch append-only ; les suppressions ne sont permises qu'en cascade avec le parent | `20260811231759_transactional_estimate_email_outbox.sql` |
+| `guard_purchase_order_devis_storage_path()` | `purchase_order_devis` | Rend tenant, commande et chemin immuables ; exige `purchase-orders/<purchase_order_id>/<filename>` sans sous-dossier ni traversée | `20260812000456_transactional_procurement_reset_cleanup.sql` |
 | `guard_estimate_review_cycles_insert/update()` | cycles de revue | Passées en `security definer` pour contourner le RLS `tenant_memberships` lors de la validation du relecteur | `20260306235500_v3_019_review_cycle_guard_security_definer.sql:3-4` |
 | `prevent_affaire_intake_event_mutation()` / `prevent_affaire_register_event_mutation()` | journaux d'affaire | Événements append-only (policies + `revoke update, delete` + trigger) | `20260713134332_…sql` (assertions : `src/lib/ingestion-security-regressions.test.ts:30-44`) |
 
@@ -156,15 +160,46 @@ Appels recensés (`grep -rn "createServiceRoleClient\|createOptionalServiceRoleC
 | `src/app/api/portal/[token]/reject/route.ts:39` | **Aucun utilisateur** : autorisation par token |
 | `src/lib/memberships/server.ts:190` (`listCandidates`) | Précédé de `getAuthenticatedContext` + `assertTenantAdmin` (`:248-250`) |
 | `src/lib/memberships/server.ts:294` (`createMembership`) | Précédé de `assertTenantAdmin` (`:277`) |
-| `src/lib/estimates/pdf-generator.tsx:964`, `:1619` | Repli `?? input.supabase` : stockage uniquement |
+| `src/lib/estimates/pdf-generator.tsx`, `src/lib/estimates/pdf-publication.ts` | Lecture/signature avec repli utilisateur ; début, publication et échec des métadonnées par RPC service-role protégées par token |
 | `src/lib/estimates/rules-engine.ts:2188`, `:2833`, `:3384`, `:3571` | Repli `?? input.context.supabase` selon les cas |
 | `src/lib/affaires/intake-server.ts:2501`, `src/lib/affaires/register-server.ts:961`, `src/lib/estimates/generated-ouvrages.ts:1630`, `src/lib/takeoff/plans.ts:1065` | Appels RPC / stockage dans des fonctions déjà contextualisées |
+| `src/lib/email/estimate-email-outbox.ts` | Mutations d'outbox et appel Resend après authentification applicative ; les RPC revérifient acteur, rôle et tenant actif |
+| `src/lib/workflows/durable-recovery.ts`, `src/lib/procurement/storage-cleanup-outbox.ts` | Route cron interne protégée par `CRON_SECRET` ; dispatch durable et suppression d'objets déjà inscrits dans l'outbox |
 
 L'usage service-role dans `listCandidates` est délibéré et testé : le RLS `profiles` ayant été resserré, l'annuaire de recherche passe par un client privilégié borné à l'admin du tenant — `src/lib/auth-tenant-rls-security-regressions.test.ts:89-99`.
 
-Deux RPC exigent explicitement le rôle Postgres `service_role` et sont révoquées de `public, anon, authenticated` : `claim_portal_estimate_decision` (`20260713135408_…sql:62-66`, `:172-175`) et `update_affaire_register_entry_with_event` (assertions : `src/lib/ingestion-security-regressions.test.ts:46-55`).
+Parmi les RPC explicitement réservées au rôle Postgres `service_role` et
+révoquées de `public, anon, authenticated` figurent
+`claim_portal_estimate_decision`,
+`update_affaire_register_entry_with_event`, ainsi que
+`begin_estimate_pdf_generation`, `publish_estimate_pdf_generation` et
+`fail_estimate_pdf_generation`.
 
 Le worker takeoff construit son client privilégié localement via la factory canonique `src/lib/supabase/service-role.ts`. Le relais Edge → Next ne transporte que `x-takeoff-worker-secret` et `x-correlation-id` ; aucune clé service-role ne traverse cette frontière HTTP.
+
+Les nouveaux workflows privilégiés ne prennent pas le service-role pour une
+autorisation métier implicite :
+
+- les RPC d'email initial exigent `current_user = 'service_role'`, puis
+  revérifient l'acteur applicatif, son rôle `admin|engineer`, la version et le
+  tenant actif ; les rôles `authenticated` n'ont plus de privilège d'écriture
+  direct sur `estimate_emails` ;
+- les RPC de PDF revérifient le même acteur, puis protègent la publication par
+  token, révision, statut et dispatch. `authenticated` n'a plus aucun DML sur
+  `estimate_documents`, ni aucune mutation Storage dans le bucket documentaire ;
+- les claims et renouvellements intake/takeoff joignent `tenants.is_active` et
+  sont protégés par un token de bail ; une suspension empêche le prochain appel
+  fournisseur ou sa persistance par un worker obsolète ;
+- le nettoyage Storage procurement exige le service-role seulement pour
+  retirer l'objet puis acquitter une entrée d'outbox. Celle-ci conserve le
+  `purchase_order_id` et le worker revalide son namespace avant la suppression.
+  La suppression métier qui alimente cette outbox conserve ses gardes
+  admin/tenant côté RPC.
+
+Sources : `supabase/migrations/20260811231238_durable_workflow_recovery.sql`,
+`20260811231759_transactional_estimate_email_outbox.sql`,
+`20260812000456_transactional_procurement_reset_cleanup.sql` et
+`20260812011616_estimate_pdf_publication_fencing.sql`.
 
 ---
 
@@ -183,11 +218,23 @@ Sept buckets, tous `public = false` :
 
 Conventions de chemin appliquées par les policies :
 
-- `estimate-documents` : `tenant/projet/version.pdf`, avec `storage.filename = version.id || '.pdf'` et exigence propriétaire-ou-admin — `20260718155244_…sql:33-58`.
+- `estimate-documents` : toute nouvelle publication suit
+  `tenant/projet/version/<sha256>.pdf`. `authenticated` peut lire seulement un
+  objet référencé par une ligne `ready` et n'a aucune policy
+  `INSERT`/`UPDATE`/`DELETE` ; l'upload est réservé au service-role. Le chemin
+  historique reste lisible seulement s'il est déjà référencé comme unique fichier
+  `.pdf` sous `tenant/projet`, nommé par l'UUID de version ou par l'ancien nom
+  commercial. Son chemin et son empreinte sont alors immuables —
+  `20260812011616_estimate_pdf_publication_fencing.sql`.
 - `plan-files` : exactement 3 segments, premier segment `= current_tenant_id()`, jointure sur `plan_sets`+`plan_files` et `pf.file_path = objects.name` — `20260224203000_…sql:356-382`.
 - `affaire-intake` : exactement 4 segments `tenant/projet/upload/document`, `d.storage_path = objects.name`, `upload_status = 'uploaded'` — `20260306210000_…sql:434-453`.
 - `takeoff-files` : premier segment `= current_tenant_id()`, deuxième segment validé comme UUID par regex, jointure `tj.source_file_path = objects.name` — `20260713132407_…sql:376-409`.
-- `devis` : 2 segments `purchase-orders/<id>`, statut `<> 'canceled'`, propriétaire du bon de commande ou admin du tenant — `20260708120000_harden_devis_storage_policies.sql:13-105`. Cette migration supprime d'abord les quatre policies « Authenticated users can … devis » qui n'exigeaient que `bucket_id = 'devis'` (`:4-7`, définies en `003_create_devis_storage.sql:13-35`).
+- `devis` : exactement `purchase-orders/<purchase_order_id>/<filename>` côté
+  métadonnée, chemin immuable et recoupé avec le tenant parent ; les policies
+  exigent une commande `<> 'canceled'`, sa propriété ou le rôle admin. Le drain
+  service-role répète la validation du namespace avant suppression —
+  `20260708120000_harden_devis_storage_policies.sql:13-105`,
+  `20260812000456_transactional_procurement_reset_cleanup.sql`.
 - `dpgf-imports` : premier segment `= auth.uid()::text` **et** `has_tenant_role(current_tenant_id(), admin|engineer)` — `20260713134332_…sql:248-259`.
 
 TTL des URL signées, valeurs exactes :
@@ -310,18 +357,19 @@ branche, qui ne sont pas prouvables depuis le checkout local.
 
 ## 11. Variables d'environnement sensibles
 
-`.env.example` déclare 10 variables sans valeur. Aucune valeur n'est reproduite ici.
+`.env.example` déclare 11 variables sans valeur. Aucune valeur n'est reproduite ici.
 
 | Variable | Exposition | Usage |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | navigateur | `src/lib/supabase/client.ts`, `src/lib/supabase/server.ts`, `src/proxy.ts` |
 | `E2E_ALLOWED_SUPABASE_HOST` | CI E2E | nom d'hôte exact autorisé pour la cible Supabase distante de staging |
-| `SUPABASE_SERVICE_ROLE_KEY` | serveur | construction des clients centralisée dans `src/lib/supabase/service-role.ts`; `src/lib/takeoff/edge-trigger.ts` l'utilise uniquement pour appeler l'Edge Function, sans la relayer au worker Next.js |
+| `SUPABASE_SERVICE_ROLE_KEY` | serveur | construction des clients centralisée dans `src/lib/supabase/service-role.ts`; publication PDF et outbox échouent fermées sans ce rôle ; `src/lib/takeoff/edge-trigger.ts` l'utilise uniquement pour appeler l'Edge Function, sans la relayer au worker Next.js |
 | `TAKEOFF_WORKER_SECRET` | serveur | `src/app/api/internal/takeoff/process-job/route.ts:18` |
 | `TAKEOFF_WORKER_URL` | serveur | déclaré en `.env.example:10` |
+| `CRON_SECRET` | serveur | bearer exigé par `GET /api/internal/workflows/recover`; protège la reprise takeoff/intake et le drain Storage procurement |
 | `GEMINI_API_KEY` | serveur | `src/lib/takeoff/gemini-client.ts:974`, `:1037`, `:1115` |
-| `RESEND_API_KEY`, `EMAIL_FROM` | serveur | `src/lib/email/send-estimate.ts:74-80`, `src/app/api/portal/[token]/accept/route.ts:209-210` |
-| `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL` | navigateur | `src/lib/email/send-estimate.ts:59` |
+| `RESEND_API_KEY`, `EMAIL_FROM` | serveur | `src/lib/email/send-estimate.ts`, `src/app/api/portal/[token]/accept/route.ts` |
+| `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL` | navigateur | `src/lib/email/send-estimate.ts` |
 | `ENABLE_OPENAPI_DOCS` | serveur | `src/app/api/docs/route.ts:18` |
 | `TAKEOFF_MODULE_FORCE_ENABLED`, `TAKEOFF_MODULE_ENABLED_BY_DEFAULT` | serveur | `src/lib/takeoff/feature-flags.ts:146-155` — absentes de `.env.example` |
 
@@ -337,19 +385,53 @@ branche, qui ne sont pas prouvables depuis le checkout local.
 
 **Worker takeoff.** L'authentification est une comparaison de chaînes non constante en temps : `providedSecret !== expectedSecret` (`src/app/api/internal/takeoff/process-job/route.ts:34`) ; `grep -rn "timingSafeEqual" src/ | wc -l` renvoie `0`. En `NODE_ENV === "test"`, un secret de repli codé en dur est utilisé si la variable est absente (`:23-25`).
 
-**Storage.** Les policies dépendent de conventions de chemin (`storage.foldername`) recoupées par des jointures sur la ligne métier. Le bucket `devis` a vécu une phase où toute personne authentifiée pouvait lire, écrire et supprimer l'ensemble du bucket (`003_create_devis_storage.sql:13-35`), remplacée par `20260708120000_harden_devis_storage_policies.sql:4-105`.
+**Storage.** Les policies dépendent de conventions de chemin
+(`storage.foldername`) recoupées par des jointures sur la ligne métier. Pour les
+PDF de devis, la nouvelle clé contient le SHA-256, l'upload est immuable
+(`upsert: false`) et les écritures Storage comme la publication des métadonnées
+contractuelles sont réservées au service-role. Une tentative supplantée après
+l'upload peut toutefois laisser un objet orphelin, sans nettoyage différé dans
+ce lot. Le bucket `devis` a vécu
+une phase où toute personne authentifiée pouvait lire, écrire et supprimer
+l'ensemble du bucket (`003_create_devis_storage.sql:13-35`), remplacée par
+`20260708120000_harden_devis_storage_policies.sql:4-105`.
 
-**Effets de bord email.** `sendEstimateEmail` envoie vers `input.payload.to` et `cc` fournis par l'appelant (`src/lib/email/send-estimate.ts:188-189`), après `assertCanWriteEstimateWorkflows` (`:125`) : un `admin` ou `engineer` du tenant choisit librement les destinataires, avec le PDF en pièce jointe. L'email de confirmation d'acceptation part vers `portalToken.email` stocké en base (`src/app/api/portal/[token]/accept/route.ts:244`) et son échec n'interrompt pas l'acceptation (`:193-196`, `:274-279`).
+**Effets de bord email.** Un `admin` ou `engineer` du tenant choisit toujours les
+destinataires `to`/`cc`, mais l'envoi initial passe désormais par une outbox
+transactionnelle. Un `Idempotency-Key` UUID est obligatoire ; l'enveloppe, le
+corps rendu, le chemin et le SHA-256 du PDF sont figés avant l'appel Resend ; un
+bail de 120 secondes et une clé fournisseur stable empêchent deux workers
+actifs d'envoyer des charges différentes. La finalisation enregistre
+l'identifiant fournisseur et le statut `sent` sous verrou. Une réponse ambiguë
+ou une reprise au-delà de 23 heures passe le dispatch à `unknown` et interdit le
+rejeu automatique (`src/lib/email/send-estimate.ts`,
+`src/lib/email/estimate-email-outbox.ts`, migration
+`20260811231759_transactional_estimate_email_outbox.sql`).
+
+Un rejet certain place au contraire la ligne en `failed` et libère
+`sending → draft`. Si la charge était déjà figée, la clé de requête reste
+consommée : le même dispatch ne peut pas être régénéré et une nouvelle tentative
+doit porter une nouvelle `Idempotency-Key`.
+
+Cette frontière ne couvre pas encore toutes les notifications : la
+confirmation d'acceptation et la demande de revue d'approbation restent en
+meilleur effort. Leur échec est journalisé sans annuler la décision métier.
+Aucun consommateur cron autonome ne reprend encore les dispatchs email
+`queued` ; une nouvelle soumission identique est nécessaire. Le statut
+`unknown` exige un rapprochement fournisseur.
 
 **Protections partielles à connaître.**
 
 - La résolution applicative converge vers `src/lib/auth/tenant-context.ts` et
-  filtre `tenants!inner(is_active)` ; la base applique le même invariant aux
-  memberships et au portail. Les workers service-role déjà en file exigent
-  encore une décision métier séparée sur leur comportement lors d'une
-  suspension de tenant.
+  filtre `tenants!inner(is_active)`. Les workers intake/takeoff et l'outbox
+  email appliquent maintenant le même invariant avant leurs effets externes :
+  la file conserve le travail, mais un tenant suspendu n'est pas dispatché et
+  ne peut renouveler son bail.
 - `is_admin_user()` accorde un accès transverse à tous les tenants actifs dès que le JWT porte le claim (`021_…_v2.sql:9-11`).
-- Les régressions qui comparent du texte SQL ne prouvent pas l'état d'une base
-  distante ; la matrice locale prouve un reset frais, pas l'alignement d'un
-  projet Supabase partagé.
+- Les régressions qui comparent du texte SQL et l'exécution sur une base locale
+  ne prouvent pas l'état d'un projet Supabase partagé.
+- La cadence `*/5` de `vercel.json` exige un plan Vercel Pro ou Enterprise,
+  `CRON_SECRET` et un déploiement effectif. Ces trois conditions distantes ne
+  sont pas prouvées par le checkout ; aucune migration Supabase distante ni
+  aucun effet externe réel n'a été exécuté pour cette mise à jour documentaire.
 - Aucun en-tête de sécurité HTTP applicatif (`next.config.ts` ne définit pas `headers()`).

@@ -133,6 +133,31 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('estimate_suggestion_rules', 'INSERT'),
     ('estimate_suggestion_rules', 'UPDATE'),
     ('estimate_suggestion_rules', 'DELETE'),
+    ('suppliers', 'SELECT'),
+    ('suppliers', 'INSERT'),
+    ('suppliers', 'UPDATE'),
+    ('suppliers', 'DELETE'),
+    ('delivery_sites', 'SELECT'),
+    ('delivery_sites', 'INSERT'),
+    ('delivery_sites', 'UPDATE'),
+    ('delivery_sites', 'DELETE'),
+    ('products', 'SELECT'),
+    ('products', 'INSERT'),
+    ('products', 'UPDATE'),
+    ('products', 'DELETE'),
+    ('purchase_orders', 'SELECT'),
+    ('purchase_orders', 'INSERT'),
+    ('purchase_orders', 'UPDATE'),
+    ('purchase_orders', 'DELETE'),
+    ('purchase_order_items', 'SELECT'),
+    ('purchase_order_items', 'INSERT'),
+    ('purchase_order_items', 'UPDATE'),
+    ('purchase_order_items', 'DELETE'),
+    ('purchase_order_devis', 'SELECT'),
+    ('purchase_order_devis', 'INSERT'),
+    ('purchase_order_devis', 'UPDATE'),
+    ('purchase_order_devis', 'DELETE'),
+    ('procurement_storage_cleanup_outbox', 'SELECT'),
     ('audit_logs', 'SELECT'),
     ('audit_logs', 'INSERT'),
     ('plan_sets', 'SELECT'),
@@ -173,6 +198,13 @@ with authenticated_data_api_tables(table_name) as (
     ('estimate_categories'),
     ('labor_roles'),
     ('estimate_suggestion_rules'),
+    ('suppliers'),
+    ('delivery_sites'),
+    ('products'),
+    ('purchase_orders'),
+    ('purchase_order_items'),
+    ('purchase_order_devis'),
+    ('procurement_storage_cleanup_outbox'),
     ('audit_logs'),
     ('plan_sets'),
     ('plan_files'),
@@ -206,7 +238,10 @@ with forbidden_authenticated_dml(table_name, privilege_name) as (
     ('takeoff_items', 'DELETE'),
     ('takeoff_results', 'INSERT'),
     ('takeoff_results', 'UPDATE'),
-    ('takeoff_results', 'DELETE')
+    ('takeoff_results', 'DELETE'),
+    ('procurement_storage_cleanup_outbox', 'INSERT'),
+    ('procurement_storage_cleanup_outbox', 'UPDATE'),
+    ('procurement_storage_cleanup_outbox', 'DELETE')
 )
 select ok(
   not has_table_privilege(
@@ -239,6 +274,10 @@ with expected_restrictive_policies(table_name, policy_name, command_name) as (
     ('estimate_suggestion_rules', 'Operators can insert estimate rows', 'INSERT'),
     ('estimate_suggestion_rules', 'Operators can update estimate rows', 'UPDATE'),
     ('estimate_suggestion_rules', 'Operators can delete estimate rows', 'DELETE'),
+    ('purchase_orders', 'Draft purchase orders can be deleted', 'DELETE'),
+    ('purchase_order_items', 'Draft purchase orders accept inserted items', 'INSERT'),
+    ('purchase_order_items', 'Draft purchase orders accept updated items', 'UPDATE'),
+    ('purchase_order_items', 'Draft purchase orders accept deleted items', 'DELETE'),
     ('plan_sets', 'Operators can insert plan sets', 'INSERT'),
     ('plan_sets', 'Operators can update plan sets', 'UPDATE'),
     ('plan_sets', 'Operators can delete plan sets', 'DELETE'),
@@ -268,6 +307,158 @@ select ok(
   )
 )
 from expected_restrictive_policies as expected;
+
+select ok(
+  exists (
+    select 1
+    from pg_policies as policy
+    where policy.schemaname = 'public'
+      and policy.tablename = 'procurement_storage_cleanup_outbox'
+      and policy.policyname = 'Tenant admins can view procurement storage cleanup'
+      and upper(policy.cmd) = 'SELECT'
+      and 'authenticated' = any(policy.roles)
+      and position('has_tenant_role' in coalesce(policy.qual, '')) > 0
+  ),
+  'only tenant admins receive authenticated cleanup outbox visibility'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_indexes as index_definition
+    where index_definition.schemaname = 'public'
+      and index_definition.tablename = 'procurement_storage_cleanup_outbox'
+      and index_definition.indexname =
+        'procurement_storage_cleanup_outbox_active_path_key'
+      and position(
+        'where ((completed_at is null) and (abandoned_at is null))'
+        in lower(index_definition.indexdef)
+      ) > 0
+  ),
+  'cleanup outbox keeps one active row per tenant and Storage path'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
+    where procedure.oid =
+      'public.delete_purchase_order_draft_atomic(uuid)'::regprocedure
+      and procedure.prosecdef
+      and position('for update' in lower(procedure.prosrc)) > 0
+      and position(
+        'insert into public.procurement_storage_cleanup_outbox'
+        in lower(procedure.prosrc)
+      ) > 0
+      and position(
+        'insert into public.procurement_storage_cleanup_outbox'
+        in lower(procedure.prosrc)
+      ) < position(
+        'delete from public.purchase_orders'
+        in lower(procedure.prosrc)
+      )
+      and exists (
+        select 1
+        from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
+        where setting like 'search_path=%'
+      )
+  )
+  and has_function_privilege(
+    'authenticated',
+    'public.delete_purchase_order_draft_atomic(uuid)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.delete_purchase_order_draft_atomic(uuid)'::regprocedure,
+    'EXECUTE'
+  ),
+  'ordinary draft deletion locks, captures Storage cleanup, then deletes'
+);
+
+select ok(
+  to_regprocedure('public.delete_tenant_purchase_orders_for_reset(uuid)') is null
+  and exists (
+    select 1
+    from pg_proc as procedure
+    where procedure.oid =
+      'public.reset_tenant_procurement_data(uuid)'::regprocedure
+      and procedure.prosecdef
+      and exists (
+        select 1
+        from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
+        where setting like 'search_path=%'
+      )
+  )
+  and has_function_privilege(
+    'authenticated',
+    'public.reset_tenant_procurement_data(uuid)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.reset_tenant_procurement_data(uuid)'::regprocedure,
+    'EXECUTE'
+  ),
+  'one authenticated guarded RPC owns the complete procurement reset'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
+    where procedure.oid =
+      'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure
+      and not procedure.prosecdef
+      and position('for update skip locked' in lower(procedure.prosrc)) > 0
+      and exists (
+        select 1
+        from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
+        where setting like 'search_path=%'
+      )
+  )
+  and has_function_privilege(
+    'service_role',
+    'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure,
+    'EXECUTE'
+  ),
+  'cleanup claims are fenced, skip locked and service-role only'
+);
+
+with cleanup_mutation_functions(signature) as (
+  values
+    ('public.complete_procurement_storage_cleanup(uuid,uuid)'),
+    ('public.fail_procurement_storage_cleanup(uuid,uuid,text,integer)')
+)
+select ok(
+  has_function_privilege(
+    'service_role',
+    signature::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    signature::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    signature::regprocedure,
+    'EXECUTE'
+  ),
+  format('%s remains service-role only', signature)
+)
+from cleanup_mutation_functions;
 
 select ok(
   exists (

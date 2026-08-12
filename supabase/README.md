@@ -13,9 +13,9 @@
 > la base. C'est de plus un **snapshot partiel et périmé** : il déclare 40 tables là où les
 > migrations en créent environ 99.
 >
-> **La source de vérité du schéma, c'est `supabase/migrations/`** (195 fichiers, de
+> **La source de vérité du schéma, c'est `supabase/migrations/`** (202 fichiers, de
 > `001_add_job_title_to_profiles.sql` à
-> `20260811212848_enforce_active_tenant_boundaries.sql`).
+> `20260812012308_add_affaires_sending_counter.sql`).
 
 Sur une base **neuve**, appliquez les migrations dans l'ordre :
 

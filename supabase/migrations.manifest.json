@@ -195,6 +195,13 @@
     "20260808204122_revoke_structured_dpgf_import_anon_execute.sql": "bf912c2b42c1c6e78de627692c234fa2add595d31dde4ffeee7ac40854f0d88d",
     "20260811184019_restore_service_role_table_privileges.sql": "f4d8d75d051ddc12495817a48653fab3e50bc97f2e6e23f49cc01f458ad525ec",
     "20260811185118_restore_authenticated_estimate_privileges.sql": "34bc97c009b68bbf3e06a50e82fd95bd00b91eec7700f72cbaa8a5b78692e0b4",
-    "20260811212848_enforce_active_tenant_boundaries.sql": "7a4ee0b0c279fbc18f61fce150d4833994d0f9c86a72563ed2769eccd174bb99"
+    "20260811212848_enforce_active_tenant_boundaries.sql": "7a4ee0b0c279fbc18f61fce150d4833994d0f9c86a72563ed2769eccd174bb99",
+    "20260811231238_durable_workflow_recovery.sql": "bc7f18fda09ef85cfeee86c07942c3f2ad02d9332e6ffe4f8079fe5c65e67fc3",
+    "20260811231754_estimate_email_sending_status.sql": "d54b1e4792cf7946143b78b49ee35c6b8204ca0c401feab7d2dcae0ff146cd08",
+    "20260811231759_transactional_estimate_email_outbox.sql": "6fb7d57509338b7d99be903285979252cc493aa655f8fd772766e41a5bf19d8a",
+    "20260811231935_transactional_purchase_order_and_estimate_creation.sql": "064766d8efb3b349fb3761687825f6e2142adbc578a2e07753dd542dbe99fc6a",
+    "20260812000456_transactional_procurement_reset_cleanup.sql": "548934547b868dd346df6b8b93b2e3b63970059b9f4975aef8b6b3d642f19883",
+    "20260812011616_estimate_pdf_publication_fencing.sql": "c24c94e9d962f05afb6e5fa77f9f96554d9c2dda4d96fa2ff860ed1770cbbc5e",
+    "20260812012308_add_affaires_sending_counter.sql": "643bf925a6d9a35f26995550fadef57e6db65dd8df5f5f79a92d6c2e9851fd19"
   }
 }

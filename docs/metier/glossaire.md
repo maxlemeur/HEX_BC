@@ -1,7 +1,8 @@
 # Glossaire du chiffrage BTP
 
 > Vocabulaire métier, et pour chaque terme : **ce que le produit en fait aujourd'hui**.
-> Statut au 2026-07-29. Les termes marqués 🚫 n'ont **aucune** implémentation.
+> Statut général au 2026-07-29 ; cycle d'envoi et reprise relus au 2026-08-12.
+> Les termes marqués 🚫 n'ont **aucune** implémentation.
 
 ---
 
@@ -74,6 +75,14 @@ Liste de prix unitaires sans quantités, pour les marchés à bons de commande.
 BPU + quantités estimatives.
 → Reconnu comme genre de pièce à l'intake (`document_kind` inclut `bpu_dqe`), sans traitement propre.
 
+**PDF contractuel de devis**
+Snapshot rendu du devis dont le chemin, l'empreinte, la mise en page et les CGV
+sont conservés pour l'envoi et le portail.
+→ Toute nouvelle publication est un objet immuable content-addressé
+`tenant/projet/version/<sha256>.pdf`. Seule une RPC service-role protégée par
+token, révision, statut et dispatch peut le rendre `ready` ; les anciens chemins
+`tenant/projet/version.pdf` restent lisibles.
+
 **CCTP** — *Cahier des Clauses Techniques Particulières*
 Descriptif technique des ouvrages, qui fait foi contractuellement.
 → Reconnu à l'intake (`document_kind = 'cctp'`), non exploité au chiffrage.
@@ -144,6 +153,14 @@ Traçabilité d'une quantité jusqu'à sa source (document, page, zone).
 `estimate_items` ; `confidence`, `evidence`, `is_verified` côté takeoff. Les *bounding boxes* ne sont
 jamais écrites, seulement lues opportunément.
 
+**Bail de traitement**
+Réservation temporaire d'un travail de fond par un worker, matérialisée par un
+token UUID et une échéance.
+→ Intake et takeoff l'utilisent pour reprendre un lot après crash sans laisser
+un ancien worker persister un résultat après sa reprise. Les appels fournisseur
+renouvellent le bail avant et après l'effet ; un tenant suspendu ne peut pas le
+renouveler.
+
 ---
 
 ## Exécution et facturation
@@ -209,8 +226,20 @@ transformation mesurable**.
 
 **Version de devis**
 État figé d'un chiffrage. Une affaire en porte plusieurs.
-→ `estimate_versions`, statuts `draft → sent → accepted | archived`. Voir
+→ `estimate_versions`, parcours nominal
+`draft → sending → sent → accepted → archived`, avec `sent → archived` aussi
+autorisé. `sending` est un état transactionnel interne de préparation et peut
+revenir à `draft` seulement après un échec certain sans effet fournisseur. Voir
 [cycle-de-vie.md](cycle-de-vie.md).
+
+**Outbox d'envoi**
+Journal persistant qui sépare la décision métier d'envoyer de l'appel au
+fournisseur email.
+→ L'email initial du devis possède une enveloppe immuable, une clé
+d'idempotence, un bail et un journal d'événements append-only. Une issue
+incertaine passe à `unknown` et interdit le rejeu automatique ; les
+notifications d'acceptation et d'approbation ne sont pas encore couvertes par
+cette outbox.
 
 **Variante**
 Chiffrage alternatif proposé en parallèle de l'offre de base.

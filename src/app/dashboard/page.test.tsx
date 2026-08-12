@@ -72,6 +72,7 @@ const data: AffaireDashboardOverviewResult = {
     filteredCount: 18,
     statusCounts: {
       draft: 7,
+      sending: 0,
       sent: 4,
       accepted: 5,
       archived: 2,

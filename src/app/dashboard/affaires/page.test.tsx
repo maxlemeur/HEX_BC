@@ -28,6 +28,7 @@ const data: AffairePageDataResult = {
     filteredCount: 0,
     statusCounts: {
       draft: 0,
+      sending: 0,
       sent: 0,
       accepted: 0,
       archived: 0,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -35,6 +35,69 @@ function parseCcEmails(raw: string): string[] {
     .filter(Boolean);
 }
 
+function fallbackFingerprintHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+async function getSubmissionStorageKey(versionId: string, fingerprint: string) {
+  let fingerprintHash = fallbackFingerprintHash(fingerprint);
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(fingerprint)
+    );
+    fingerprintHash = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("");
+  }
+  return `estimate-email:${versionId}:${fingerprintHash}`;
+}
+
+function readPendingIdempotencyKey(storageKey: string) {
+  try {
+    return globalThis.sessionStorage?.getItem(storageKey) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function persistPendingIdempotencyKey(storageKey: string, value: string) {
+  try {
+    globalThis.sessionStorage?.setItem(storageKey, value);
+  } catch {
+    // sessionStorage can be unavailable in hardened browser contexts.
+  }
+}
+
+function clearPendingIdempotencyKey(storageKey: string) {
+  try {
+    globalThis.sessionStorage?.removeItem(storageKey);
+  } catch {
+    // A deterministic failure can still be retried with a fresh request key.
+  }
+}
+
+function clearConfirmedIdempotencyKeys(versionId: string) {
+  try {
+    const storage = globalThis.sessionStorage;
+    if (!storage) return;
+    const prefix = `estimate-email:${versionId}:`;
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(prefix)) keysToRemove.push(key);
+    }
+    keysToRemove.forEach((key) => storage.removeItem(key));
+  } catch {
+    // A confirmed send must not fail because browser storage is unavailable.
+  }
+}
+
 export function SendEstimateModal({
   open,
   onClose,
@@ -51,14 +114,20 @@ export function SendEstimateModal({
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const submittedFingerprintRef = useRef<string | null>(null);
+
+  const closeModal = useCallback(() => {
+    onClose();
+  }, [onClose]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen && !isSubmitting) {
-        onClose();
+        closeModal();
       }
     },
-    [isSubmitting, onClose]
+    [closeModal, isSubmitting]
   );
 
   const handleSubmit = useCallback(
@@ -97,9 +166,32 @@ export function SendEstimateModal({
 
       setIsSubmitting(true);
       try {
+        const submittedFingerprint = JSON.stringify({
+          to: toTrimmed,
+          cc: ccEmails,
+          subject: subjectTrimmed,
+          message: messageTrimmed,
+        });
+        const storageKey = await getSubmissionStorageKey(
+          versionId,
+          submittedFingerprint
+        );
+        const idempotencyKey =
+          submittedFingerprintRef.current === submittedFingerprint
+            ? (idempotencyKeyRef.current ??
+              readPendingIdempotencyKey(storageKey) ??
+              globalThis.crypto.randomUUID())
+            : (readPendingIdempotencyKey(storageKey) ??
+              globalThis.crypto.randomUUID());
+        idempotencyKeyRef.current = idempotencyKey;
+        submittedFingerprintRef.current = submittedFingerprint;
+        persistPendingIdempotencyKey(storageKey, idempotencyKey);
         const res = await fetch(`/api/estimates/${versionId}/send`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
           body: JSON.stringify({
             to: toTrimmed,
             cc: ccEmails.length > 0 ? ccEmails : undefined,
@@ -110,6 +202,22 @@ export function SendEstimateModal({
 
         if (!res.ok) {
           const data = await res.json().catch(() => null);
+          const errorCode =
+            data &&
+            typeof data === "object" &&
+            "error" in data &&
+            typeof (data as Record<string, unknown>).error === "object"
+              ? (data as { error?: { code?: unknown } }).error?.code
+              : null;
+          if (
+            errorCode === "ESTIMATE_EMAIL_PROVIDER_REJECTED" ||
+            errorCode === "ESTIMATE_EMAIL_PDF_UNAVAILABLE" ||
+            errorCode === "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST"
+          ) {
+            clearPendingIdempotencyKey(storageKey);
+            idempotencyKeyRef.current = null;
+            submittedFingerprintRef.current = null;
+          }
           const errorMessage =
             data &&
             typeof data === "object" &&
@@ -128,10 +236,13 @@ export function SendEstimateModal({
 
         toast.success({
           title: "Devis envoye",
-          description: `Email envoye a ${toTrimmed}`,
+          description: "L'envoi du devis est confirme.",
         });
+        clearConfirmedIdempotencyKeys(versionId);
+        idempotencyKeyRef.current = null;
+        submittedFingerprintRef.current = null;
         onSent?.();
-        onClose();
+        closeModal();
       } catch (err) {
         setFormError(
           err instanceof Error ? err.message : "Erreur inconnue lors de l'envoi."
@@ -140,7 +251,16 @@ export function SendEstimateModal({
         setIsSubmitting(false);
       }
     },
-    [to, ccRaw, subject, message, versionId, toast, onSent, onClose]
+    [
+      to,
+      ccRaw,
+      subject,
+      message,
+      versionId,
+      toast,
+      onSent,
+      closeModal,
+    ]
   );
 
   return (
@@ -208,7 +328,7 @@ export function SendEstimateModal({
             <Button
               type="button"
               variant="secondary"
-              onClick={onClose}
+              onClick={closeModal}
               disabled={isSubmitting}
             >
               Annuler

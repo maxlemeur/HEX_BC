@@ -9,8 +9,12 @@ import {
 } from "@/lib/affaires/server";
 import { getUserContext } from "@/lib/auth/server";
 
-const STATUS_LABELS: Record<"draft" | "sent" | "accepted" | "archived", string> = {
+const STATUS_LABELS: Record<
+  "draft" | "sending" | "sent" | "accepted" | "archived",
+  string
+> = {
   draft: "Brouillon",
+  sending: "Envoi en cours",
   sent: "Envoyée",
   accepted: "Acceptée",
   archived: "Archivée",

@@ -9,7 +9,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/components/estimates/SendEstimateModal", () => ({
-  SendEstimateModal: () => null,
+  SendEstimateModal: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">Modal envoi</div> : null,
 }));
 
 import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActions";
@@ -23,6 +24,27 @@ afterEach(() => {
 });
 
 describe("EstimateStatusActions", () => {
+  it("propose de reprendre un statut sending sans transition manuelle", async () => {
+    render(
+      <EstimateStatusActions
+        versionId="v1"
+        currentStatus="sending"
+        updatedAt={UPDATED_AT}
+      />
+    );
+
+    const resumeButton = screen.getByRole("button", {
+      name: /Reprendre l.envoi/i,
+    });
+    expect(
+      screen.queryByRole("button", { name: /Marquer|Archiver/i })
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(resumeButton);
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("Modal envoi");
+  });
+
   it("utilise le vrai updated_at en If-Match et ne force pas le gating", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true, data: {} }), {

@@ -23,7 +23,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 vi.mock("@/lib/supabase/service-role", () => ({
-  createOptionalServiceRoleClient: vi.fn(() => null),
+  createServiceRoleClient: vi.fn(),
 }));
 
 import { renderToBuffer } from "@react-pdf/renderer";
@@ -33,14 +33,16 @@ import {
   getEstimatePdfLayoutConfiguration,
   getEstimatePdfStatus,
   markEstimatePdfFailed,
+  markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
+const GENERATION_TOKEN = "77777777-7777-4777-8777-777777777777";
 const MISSING_TERMS_SCHEMA_ERROR = {
   code: "PGRST205",
   message:
@@ -48,25 +50,22 @@ const MISSING_TERMS_SCHEMA_ERROR = {
   details: null,
   hint: null,
 };
-const MISSING_PDF_METADATA_COLUMN_ERROR = {
-  code: "PGRST204",
-  message:
-    "Could not find the 'layout_options' column of 'estimate_documents' in the schema cache",
-  details: null,
-  hint: null,
+
+type EstimateDocumentMock = {
+  status: "processing" | "ready" | "failed";
+  file_path?: string | null;
+  sha256_hash?: string | null;
+  file_size_bytes?: number | null;
+  generated_at?: string | null;
+  last_error?: string | null;
+  layout_options?: Record<string, unknown>;
+  terms_snapshot?: Record<string, unknown> | null;
+  published_content_revision?: number | null;
+  published_purpose?: "legacy" | "manual" | "email" | "workflow" | null;
 };
 
-function createSupabasePdfMock(input?: {
-  existingDocument?: {
-    status: "processing" | "ready" | "failed";
-    file_path?: string | null;
-    sha256_hash?: string | null;
-    file_size_bytes?: number | null;
-    generated_at?: string | null;
-    last_error?: string | null;
-    layout_options?: Record<string, unknown>;
-    terms_snapshot?: Record<string, unknown> | null;
-  } | null;
+type PdfMockInput = {
+  existingDocument?: EstimateDocumentMock | null;
   termsTemplate?: {
     id: string;
     tenant_id: string;
@@ -77,7 +76,6 @@ function createSupabasePdfMock(input?: {
     legal_reviewed_at: string;
   } | null;
   termsTemplateError?: unknown;
-  documentUpsertErrors?: unknown[];
   profile?: {
     full_name: string;
     job_title: string | null;
@@ -85,8 +83,16 @@ function createSupabasePdfMock(input?: {
     work_email: string | null;
   };
   contractorRole?: "principal" | "subcontractor";
+  versionStatus?: "draft" | "sending" | "sent" | "accepted" | "archived";
+  contentRevision?: number;
   uploadError?: unknown;
-}) {
+  publishError?: unknown;
+  documentState?: { value: EstimateDocumentMock | null };
+};
+
+function createSupabasePdfMock(input?: PdfMockInput) {
+  const documentState =
+    input?.documentState ?? { value: input?.existingDocument ?? null };
   const tenantMembershipBuilder = {
     eq: vi.fn(),
     order: vi.fn(),
@@ -122,11 +128,13 @@ function createSupabasePdfMock(input?: {
         discount_bp: 0,
         tax_rate_bp: 2000,
         contractor_role: input?.contractorRole ?? "principal",
+        status: input?.versionStatus ?? "draft",
         rounding_mode: "none",
         rounding_step_cents: 1,
         total_ht_cents: 10000,
         total_tax_cents: 2000,
         total_ttc_cents: 12000,
+        content_revision: input?.contentRevision ?? 1,
         estimate_projects: {
           id: PROJECT_ID,
           tenant_id: TENANT_ID,
@@ -183,33 +191,44 @@ function createSupabasePdfMock(input?: {
   };
   itemsBuilder.eq.mockReturnValue(itemsBuilder);
 
-  const documentUpsertErrors = [...(input?.documentUpsertErrors ?? [])];
-  const estimateDocumentsUpsert = vi.fn().mockImplementation(async () => ({
-    error: documentUpsertErrors.shift() ?? null,
-  }));
   const estimateDocumentsSelectBuilder = {
     eq: vi.fn(),
-    maybeSingle: vi.fn().mockResolvedValue({
-      data:
-        input?.existingDocument == null
-          ? null
-          : {
+    maybeSingle: vi.fn(async () => {
+      const existingDocument = documentState.value;
+      return {
+        data:
+          existingDocument == null
+            ? null
+            : {
               id: "66666666-6666-4666-8666-666666666666",
               created_at: "2026-02-21T00:00:00.000Z",
               updated_at: "2026-02-21T00:00:00.000Z",
               tenant_id: TENANT_ID,
               version_id: VERSION_ID,
-              file_path: input.existingDocument?.file_path ?? null,
-              sha256_hash: input.existingDocument?.sha256_hash ?? null,
-              file_size_bytes: input.existingDocument?.file_size_bytes ?? null,
+              file_path: existingDocument.file_path ?? null,
+              sha256_hash: existingDocument.sha256_hash ?? null,
+              file_size_bytes: existingDocument.file_size_bytes ?? null,
               generated_by: USER_ID,
-              generated_at: input.existingDocument?.generated_at ?? null,
-              status: input.existingDocument?.status ?? "processing",
-              last_error: input.existingDocument?.last_error ?? null,
-              layout_options: input.existingDocument?.layout_options ?? {},
-              terms_snapshot: input.existingDocument?.terms_snapshot ?? null,
+              generated_at: existingDocument.generated_at ?? null,
+              status: existingDocument.status,
+              last_error: existingDocument.last_error ?? null,
+              layout_options: existingDocument.layout_options ?? {},
+              terms_snapshot: existingDocument.terms_snapshot ?? null,
+              published_content_revision:
+                existingDocument.published_content_revision !== undefined
+                  ? existingDocument.published_content_revision
+                  : existingDocument.status === "ready"
+                    ? 1
+                    : null,
+              published_purpose:
+                existingDocument.published_purpose !== undefined
+                  ? existingDocument.published_purpose
+                  : existingDocument.status === "ready"
+                    ? "legacy"
+                    : null,
             },
-      error: null,
+        error: null,
+      };
     }),
   };
   estimateDocumentsSelectBuilder.eq.mockReturnValue(estimateDocumentsSelectBuilder);
@@ -273,7 +292,6 @@ function createSupabasePdfMock(input?: {
       if (table === "estimate_documents") {
         return {
           select: vi.fn(() => estimateDocumentsSelectBuilder),
-          upsert: estimateDocumentsUpsert,
         };
       }
 
@@ -297,39 +315,121 @@ function createSupabasePdfMock(input?: {
         createSignedUrl,
       })),
     },
+    rpc: vi.fn(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "begin_estimate_pdf_generation") {
+        documentState.value = {
+          ...(documentState.value ?? {}),
+          status: "processing",
+          last_error: null,
+        };
+        return {
+          data: {
+            generation_token: GENERATION_TOKEN,
+            generation_purpose: args.p_purpose,
+            generation_dispatch_id: args.p_dispatch_id,
+            generation_content_revision: input?.contentRevision ?? 1,
+          },
+          error: null,
+        };
+      }
+
+      if (functionName === "publish_estimate_pdf_generation") {
+        if (!input?.publishError) {
+          documentState.value = {
+            ...(documentState.value ?? {}),
+            status: "ready",
+            file_path: String(args.p_file_path),
+            sha256_hash: String(args.p_sha256_hash),
+            file_size_bytes: Number(args.p_file_size_bytes),
+            generated_at: String(args.p_generated_at),
+            last_error: null,
+            published_content_revision: input?.contentRevision ?? 1,
+            published_purpose: "manual",
+          };
+        }
+        return {
+          data: input?.publishError
+            ? null
+            : {
+                status: "ready",
+                file_path: args.p_file_path,
+                sha256_hash: args.p_sha256_hash,
+              },
+          error: input?.publishError ?? null,
+        };
+      }
+
+      if (functionName === "fail_estimate_pdf_generation") {
+        documentState.value = {
+          ...(documentState.value ?? {}),
+          status: "failed",
+          last_error: String(args.p_error_message),
+        };
+        return {
+          data: { status: "failed", last_error: args.p_error_message },
+          error: null,
+        };
+      }
+
+      throw new Error(`Unexpected RPC: ${functionName}`);
+    }),
     __mocks: {
-      estimateDocumentsUpsert,
       upload,
       createSignedUrl,
+      documentState,
     },
   };
 
   return supabase;
 }
 
+function usePdfClients(input?: PdfMockInput) {
+  const documentState = { value: input?.existingDocument ?? null };
+  const authenticatedSupabase = createSupabasePdfMock({
+    ...input,
+    documentState,
+  });
+  const serviceRoleSupabase = createSupabasePdfMock({
+    contentRevision: input?.contentRevision,
+    uploadError: input?.uploadError,
+    publishError: input?.publishError,
+    documentState,
+  });
+  vi.mocked(createSupabaseServerClient).mockResolvedValue(
+    authenticatedSupabase as never,
+  );
+  vi.mocked(createServiceRoleClient).mockReturnValue(
+    serviceRoleSupabase as never,
+  );
+  return { authenticatedSupabase, serviceRoleSupabase };
+}
+
 describe("estimate pdf generator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null);
+    vi.mocked(createServiceRoleClient).mockImplementation(() => {
+      throw new Error(
+        "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.",
+      );
+    });
   });
 
   it("generates PDF, uploads it, stores hash and returns signed url", async () => {
     const buffer = Buffer.from("pdf-binary");
     vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
 
-    const supabase = createSupabasePdfMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients();
 
     const result = await generateEstimatePdfNow(VERSION_ID, {
       force: true,
       triggeredBy: "manual",
     });
 
-    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`;
     const expectedHash = createHash("sha256")
       .update(buffer)
       .digest("hex")
       .toLowerCase();
+    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}/${expectedHash}.pdf`;
 
     const renderedDocument = vi.mocked(renderToBuffer).mock.calls[0]?.[0];
     const renderedDocumentJson = JSON.stringify(renderedDocument);
@@ -338,36 +438,37 @@ describe("estimate pdf generator", () => {
     );
     expect(renderedDocumentJson).toContain("HEX_D26001MM");
 
-    expect(supabase.__mocks.upload).toHaveBeenCalledWith(
+    expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalledWith(
       expectedPath,
       buffer,
       expect.objectContaining({
         contentType: "application/pdf",
-        upsert: true,
+        upsert: false,
       })
     );
 
-    expect(supabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
+    expect(authenticatedSupabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
       expectedPath,
       3600
     );
 
-    const upsertPayloads = vi
-      .mocked(supabase.__mocks.estimateDocumentsUpsert)
-      .mock.calls.map((call) => call[0]);
-
-    expect(upsertPayloads).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: "processing",
-        }),
-        expect.objectContaining({
-          status: "ready",
-          file_path: expectedPath,
-          sha256_hash: expectedHash,
-          file_size_bytes: buffer.byteLength,
-        }),
-      ])
+    expect(serviceRoleSupabase.rpc).toHaveBeenNthCalledWith(
+      1,
+      "begin_estimate_pdf_generation",
+      expect.objectContaining({
+        p_version_id: VERSION_ID,
+        p_purpose: "manual",
+      }),
+    );
+    expect(serviceRoleSupabase.rpc).toHaveBeenNthCalledWith(
+      2,
+      "publish_estimate_pdf_generation",
+      expect.objectContaining({
+        p_generation_token: GENERATION_TOKEN,
+        p_file_path: expectedPath,
+        p_sha256_hash: expectedHash,
+        p_file_size_bytes: buffer.byteLength,
+      }),
     );
 
     expect(result).toEqual(
@@ -385,10 +486,9 @@ describe("estimate pdf generator", () => {
     vi.mocked(renderToBuffer).mockResolvedValue(
       Buffer.from("pdf-binary") as never
     );
-    const supabase = createSupabasePdfMock({
+    usePdfClients({
       contractorRole: "subcontractor",
     });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await generateEstimatePdfNow(VERSION_ID, {
       force: true,
@@ -408,7 +508,7 @@ describe("estimate pdf generator", () => {
 
   it("normalizes an email-only issuer and uses the service limits title", async () => {
     vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
-    const supabase = createSupabasePdfMock({
+    usePdfClients({
       profile: {
         full_name: "maxime.michel@hydroexpress.fr",
         job_title: "Charge d'affaires",
@@ -416,7 +516,6 @@ describe("estimate pdf generator", () => {
         work_email: "maxime.michel@hydroexpress.fr",
       },
     });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await generateEstimatePdfNow(VERSION_ID, {
       force: true,
@@ -460,88 +559,6 @@ describe("estimate pdf generator", () => {
     });
   });
 
-  it("generates without CGV against the legacy PDF document schema", async () => {
-    const buffer = Buffer.from("pdf-binary");
-    vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
-    const supabase = createSupabasePdfMock({
-      termsTemplateError: MISSING_TERMS_SCHEMA_ERROR,
-      documentUpsertErrors: [
-        null,
-        MISSING_PDF_METADATA_COLUMN_ERROR,
-        null,
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await generateEstimatePdfNow(VERSION_ID, {
-      force: true,
-      layout: {
-        preset: "client_detailed",
-        detailLevel: "lines",
-        priceMode: "unit_and_total",
-        density: "standard",
-        showNumbering: true,
-        showSectionSubtotals: true,
-        conditionsPlacement: "auto",
-        includeTerms: false,
-      },
-    });
-
-    const readyPayloads = vi
-      .mocked(supabase.__mocks.estimateDocumentsUpsert)
-      .mock.calls.map((call) => call[0])
-      .filter((payload) => payload.status === "ready");
-
-    expect(readyPayloads).toHaveLength(2);
-    expect(readyPayloads[0]).toHaveProperty("layout_options");
-    expect(readyPayloads[1]).not.toHaveProperty("layout_options");
-    expect(readyPayloads[1]).not.toHaveProperty("terms_snapshot");
-    expect(result.status).toBe("ready");
-  });
-
-  it("does not discard a selected CGV snapshot on a legacy schema", async () => {
-    const buffer = Buffer.from("pdf-binary");
-    vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
-    const supabase = createSupabasePdfMock({
-      termsTemplate: {
-        id: "88888888-8888-4888-8888-888888888888",
-        tenant_id: TENANT_ID,
-        title: "Conditions generales de vente",
-        body: "Texte juridiquement valide.",
-        version: 3,
-        policy: "optional",
-        legal_reviewed_at: "2026-07-01T00:00:00.000Z",
-      },
-      documentUpsertErrors: [null, MISSING_PDF_METADATA_COLUMN_ERROR, null],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      generateEstimatePdfNow(VERSION_ID, {
-        force: true,
-        layout: {
-          preset: "client_detailed",
-          detailLevel: "lines",
-          priceMode: "unit_and_total",
-          density: "standard",
-          showNumbering: true,
-          showSectionSubtotals: true,
-          conditionsPlacement: "auto",
-          includeTerms: true,
-        },
-      })
-    ).rejects.toMatchObject({
-      message: "Impossible de mettre a jour le statut du document PDF.",
-    });
-
-    const readyPayloads = vi
-      .mocked(supabase.__mocks.estimateDocumentsUpsert)
-      .mock.calls.map((call) => call[0])
-      .filter((payload) => payload.status === "ready");
-    expect(readyPayloads).toHaveLength(1);
-    expect(readyPayloads[0]).toHaveProperty("terms_snapshot");
-  });
-
   it("keeps unexpected CGV loading errors visible", async () => {
     const supabase = createSupabasePdfMock({
       termsTemplateError: {
@@ -559,14 +576,11 @@ describe("estimate pdf generator", () => {
     });
   });
 
-  it("prefers the service-role storage client when available", async () => {
+  it("uses service-role for mutations and the authenticated client for signing", async () => {
     const buffer = Buffer.from("pdf-binary");
     vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
 
-    const supabase = createSupabasePdfMock();
-    const serviceRoleSupabase = createSupabasePdfMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(createOptionalServiceRoleClient).mockReturnValue(serviceRoleSupabase as never);
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients();
 
     await generateEstimatePdfNow(VERSION_ID, {
       force: true,
@@ -574,9 +588,33 @@ describe("estimate pdf generator", () => {
     });
 
     expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalled();
-    expect(serviceRoleSupabase.__mocks.createSignedUrl).toHaveBeenCalled();
-    expect(supabase.__mocks.upload).not.toHaveBeenCalled();
-    expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
+    expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+      "publish_estimate_pdf_generation",
+      expect.any(Object),
+    );
+    expect(serviceRoleSupabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
+    expect(authenticatedSupabase.__mocks.upload).not.toHaveBeenCalled();
+    expect(authenticatedSupabase.__mocks.createSignedUrl).toHaveBeenCalled();
+  });
+
+  it("fails explicitly before mutation when service-role config is absent", async () => {
+    const authenticatedSupabase = createSupabasePdfMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      authenticatedSupabase as never,
+    );
+
+    await expect(
+      generateEstimatePdfNow(VERSION_ID, {
+        force: true,
+        triggeredBy: "manual",
+      }),
+    ).rejects.toThrow(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.",
+    );
+
+    expect(authenticatedSupabase.rpc).not.toHaveBeenCalled();
+    expect(authenticatedSupabase.__mocks.upload).not.toHaveBeenCalled();
+    expect(renderToBuffer).not.toHaveBeenCalled();
   });
 
   it("conserve le snapshot CGV initial lors d'une regeneration sans annexe", async () => {
@@ -590,10 +628,10 @@ describe("estimate pdf generator", () => {
       legalReviewedAt: "2026-01-15T00:00:00.000Z",
       capturedAt: "2026-02-01T00:00:00.000Z",
     };
-    const supabase = createSupabasePdfMock({
+    const { serviceRoleSupabase } = usePdfClients({
       existingDocument: {
         status: "ready",
-        file_path: `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`,
+        file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
         generated_at: "2026-02-21T00:00:00.000Z",
         terms_snapshot: storedSnapshot,
       },
@@ -607,7 +645,6 @@ describe("estimate pdf generator", () => {
         legal_reviewed_at: "2026-07-01T00:00:00.000Z",
       },
     });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await generateEstimatePdfNow(VERSION_ID, {
       force: true,
@@ -623,39 +660,165 @@ describe("estimate pdf generator", () => {
       },
     });
 
-    const readyPayload = vi
-      .mocked(supabase.__mocks.estimateDocumentsUpsert)
-      .mock.calls.map((call) => call[0])
-      .find((payload) => payload.status === "ready");
-    expect(readyPayload).toMatchObject({ terms_snapshot: storedSnapshot });
+    expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+      "publish_estimate_pdf_generation",
+      expect.objectContaining({ p_terms_snapshot: storedSnapshot }),
+    );
     expect(JSON.stringify(vi.mocked(renderToBuffer).mock.calls[0]?.[0])).not.toContain(
       storedSnapshot.body
     );
   });
 
   it("returns existing ready PDF when force is false", async () => {
-    const supabase = createSupabasePdfMock({
+    const authenticatedSupabase = createSupabasePdfMock({
       existingDocument: {
         status: "ready",
-        file_path: `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`,
+        file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
         sha256_hash: "a".repeat(64),
         file_size_bytes: 42,
         generated_at: "2026-02-21T00:00:00.000Z",
       },
     });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      authenticatedSupabase as never,
+    );
 
     const result = await generateEstimatePdfNow(VERSION_ID);
 
-    expect(supabase.__mocks.upload).not.toHaveBeenCalled();
+    expect(authenticatedSupabase.__mocks.upload).not.toHaveBeenCalled();
+    expect(createServiceRoleClient).not.toHaveBeenCalled();
     expect(result.status).toBe("ready");
     expect(result.download_url).toBe("https://example.com/signed");
+  });
+
+  it("keeps a historical commercial-name PDF readable after finalization", async () => {
+    const legacyCommercialPath = `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM_V1.pdf`;
+    const authenticatedSupabase = createSupabasePdfMock({
+      versionStatus: "sent",
+      existingDocument: {
+        status: "ready",
+        file_path: legacyCommercialPath,
+        sha256_hash: "a".repeat(64),
+        file_size_bytes: 42,
+        generated_at: "2026-02-21T00:00:00.000Z",
+        published_content_revision: 1,
+        published_purpose: "legacy",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      authenticatedSupabase as never,
+    );
+
+    await expect(getEstimatePdfStatus(VERSION_ID)).resolves.toMatchObject({
+      status: "ready",
+      file_path: legacyCommercialPath,
+    });
+    expect(authenticatedSupabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
+      legacyCommercialPath,
+      3600,
+    );
+  });
+
+  it("keeps a failed regeneration failed when an older publication remains", async () => {
+    const previousPath = `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`;
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({
+      existingDocument: {
+        status: "ready",
+        file_path: previousPath,
+        sha256_hash: "a".repeat(64),
+        file_size_bytes: 42,
+        generated_at: "2026-02-21T00:00:00.000Z",
+        published_content_revision: 1,
+        published_purpose: "legacy",
+      },
+    });
+
+    const claim = await markEstimatePdfProcessing(VERSION_ID);
+    await markEstimatePdfFailed(VERSION_ID, "rendu interrompu", claim);
+    const status = await getEstimatePdfStatus(VERSION_ID);
+
+    expect(status).toEqual({
+      status: "failed",
+      last_error: "rendu interrompu",
+    });
+    expect(serviceRoleSupabase.__mocks.documentState.value).toMatchObject({
+      status: "failed",
+      file_path: previousPath,
+      published_content_revision: 1,
+    });
+    expect(authenticatedSupabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "a stale content revision",
+      contentRevision: 2,
+      publishedContentRevision: 1,
+      lastError: null,
+      expectedError:
+        "Le document PDF ne correspond plus a la revision courante du devis.",
+    },
+    {
+      label: "an unfinished failed attempt",
+      contentRevision: 1,
+      publishedContentRevision: 1,
+      lastError: "generation echouee",
+      expectedError: "generation echouee",
+    },
+  ])("does not expose ready metadata with $label", async (testCase) => {
+    const supabase = createSupabasePdfMock({
+      contentRevision: testCase.contentRevision,
+      existingDocument: {
+        status: "ready",
+        file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+        sha256_hash: "a".repeat(64),
+        file_size_bytes: 42,
+        generated_at: "2026-02-21T00:00:00.000Z",
+        published_content_revision: testCase.publishedContentRevision,
+        last_error: testCase.lastError,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getEstimatePdfStatus(VERSION_ID)).resolves.toEqual({
+      status: "failed",
+      last_error: testCase.expectedError,
+    });
+    expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("regenerates instead of returning a stale cached publication", async () => {
+    const buffer = Buffer.from("revision-2-pdf");
+    vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({
+      contentRevision: 2,
+      existingDocument: {
+        status: "ready",
+        file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+        sha256_hash: "a".repeat(64),
+        file_size_bytes: 42,
+        generated_at: "2026-02-21T00:00:00.000Z",
+        published_content_revision: 1,
+      },
+    });
+
+    const result = await generateEstimatePdfNow(VERSION_ID);
+
+    expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalledOnce();
+    expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+      "begin_estimate_pdf_generation",
+      expect.any(Object),
+    );
+    expect(authenticatedSupabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
+      result.file_path,
+      3600,
+    );
   });
 
   it("does not sign a forged cached path and regenerates the canonical PDF", async () => {
     const buffer = Buffer.from("pdf-binary");
     vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
-    const supabase = createSupabasePdfMock({
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({
       existingDocument: {
         status: "ready",
         file_path: "foreign-tenant/foreign-project/private.pdf",
@@ -664,21 +827,24 @@ describe("estimate pdf generator", () => {
         generated_at: "2026-02-21T00:00:00.000Z",
       },
     });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const result = await generateEstimatePdfNow(VERSION_ID);
-    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`;
+    const expectedHash = createHash("sha256")
+      .update(buffer)
+      .digest("hex")
+      .toLowerCase();
+    const expectedPath = `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}/${expectedHash}.pdf`;
 
-    expect(supabase.__mocks.upload).toHaveBeenCalledWith(
+    expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalledWith(
       expectedPath,
       buffer,
       expect.any(Object)
     );
-    expect(supabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
+    expect(authenticatedSupabase.__mocks.createSignedUrl).toHaveBeenCalledWith(
       expectedPath,
       3600
     );
-    expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalledWith(
+    expect(authenticatedSupabase.__mocks.createSignedUrl).not.toHaveBeenCalledWith(
       "foreign-tenant/foreign-project/private.pdf",
       expect.any(Number)
     );
@@ -701,6 +867,39 @@ describe("estimate pdf generator", () => {
       last_error: "boom",
     });
   });
+
+  it.each(["sent", "accepted", "archived"] as const)(
+    "refuses to replace a contractual PDF for a %s estimate",
+    async (versionStatus) => {
+      const supabase = createSupabasePdfMock({
+        versionStatus,
+        existingDocument: {
+          status: "ready",
+          file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+          sha256_hash: "a".repeat(64),
+          file_size_bytes: 42,
+          generated_at: "2026-02-21T00:00:00.000Z",
+        },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      await expect(
+        generateEstimatePdfNow(VERSION_ID, {
+          force: true,
+          triggeredBy: "manual",
+        })
+      ).rejects.toMatchObject({
+        status: 403,
+        code: "ESTIMATE_PDF_CONTRACT_IMMUTABLE",
+      });
+      await expect(markEstimatePdfProcessing(VERSION_ID)).rejects.toMatchObject({
+        status: 403,
+        code: "ESTIMATE_PDF_CONTRACT_IMMUTABLE",
+      });
+      expect(supabase.__mocks.upload).not.toHaveBeenCalled();
+      expect(supabase.rpc).not.toHaveBeenCalled();
+    }
+  );
 
   it("returns missing status when no document exists", async () => {
     const supabase = createSupabasePdfMock({
@@ -750,18 +949,88 @@ describe("estimate pdf generator", () => {
     expect(supabase.__mocks.createSignedUrl).not.toHaveBeenCalled();
   });
 
+  it("publishes an email PDF only against its reserved dispatch", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("email-pdf") as never);
+    const { serviceRoleSupabase } = usePdfClients({
+      versionStatus: "sending",
+    });
+    const dispatchId = "99999999-9999-4999-8999-999999999999";
+
+    await generateEstimatePdfNow(VERSION_ID, {
+      force: true,
+      triggeredBy: "send",
+      dispatchId,
+    });
+
+    expect(serviceRoleSupabase.rpc).toHaveBeenNthCalledWith(
+      1,
+      "begin_estimate_pdf_generation",
+      expect.objectContaining({
+        p_purpose: "email",
+        p_dispatch_id: dispatchId,
+      }),
+    );
+  });
+
+  it("never marks a superseded publication as the current PDF", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("stale-pdf") as never);
+    const { serviceRoleSupabase } = usePdfClients({
+      publishError: {
+        code: "40001",
+        message: "ESTIMATE_PDF_GENERATION_SUPERSEDED",
+      },
+    });
+
+    await expect(
+      generateEstimatePdfNow(VERSION_ID, {
+        force: true,
+        triggeredBy: "manual",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "ESTIMATE_PDF_GENERATION_SUPERSEDED",
+    });
+
+    expect(serviceRoleSupabase.rpc).toHaveBeenLastCalledWith(
+      "fail_estimate_pdf_generation",
+      expect.objectContaining({ p_generation_token: GENERATION_TOKEN }),
+    );
+  });
+
+  it("treats an existing immutable hash object as an idempotent upload", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("same-pdf") as never);
+    const { serviceRoleSupabase } = usePdfClients({
+      uploadError: {
+        statusCode: "400",
+        error: "Asset Already Exists",
+        message: "The resource already exists",
+      },
+    });
+
+    await expect(
+      generateEstimatePdfNow(VERSION_ID, {
+        force: true,
+        triggeredBy: "manual",
+      }),
+    ).resolves.toMatchObject({ status: "ready" });
+
+    expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+      "publish_estimate_pdf_generation",
+      expect.any(Object),
+    );
+  });
+
   it("marks document as failed when upload fails", async () => {
     const buffer = Buffer.from("pdf-binary");
     vi.mocked(renderToBuffer).mockResolvedValue(buffer as never);
 
-    const supabase = createSupabasePdfMock({
+    const { serviceRoleSupabase } = usePdfClients({
       uploadError: {
         statusCode: "404",
         error: "Bucket not found",
         message: "Bucket not found",
       },
     });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
       generateEstimatePdfNow(VERSION_ID, {
@@ -775,38 +1044,29 @@ describe("estimate pdf generator", () => {
       },
     });
 
-    const upsertPayloads = vi
-      .mocked(supabase.__mocks.estimateDocumentsUpsert)
-      .mock.calls.map((call) => call[0]);
-
-    expect(upsertPayloads).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: "processing",
-        }),
-        expect.objectContaining({
-          status: "failed",
-          last_error: "Le stockage PDF n'est pas configure pour cet environnement.",
-          file_path: `${TENANT_ID}/${PROJECT_ID}/HEX_D26001MM.pdf`,
-        }),
-      ])
+    expect(serviceRoleSupabase.rpc).toHaveBeenLastCalledWith(
+      "fail_estimate_pdf_generation",
+      expect.objectContaining({
+        p_generation_token: GENERATION_TOKEN,
+        p_error_message:
+          "Le stockage PDF n'est pas configure pour cet environnement.",
+      }),
     );
   });
 
   it("marks generation failure in estimate_documents", async () => {
-    const supabase = createSupabasePdfMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const { serviceRoleSupabase } = usePdfClients();
 
-    await markEstimatePdfFailed(VERSION_ID, "erreur test");
+    await markEstimatePdfFailed(VERSION_ID, "erreur test", {
+      token: GENERATION_TOKEN,
+      purpose: "manual",
+      dispatchId: null,
+      contentRevision: 1,
+    });
 
-    expect(supabase.__mocks.estimateDocumentsUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "failed",
-        last_error: "erreur test",
-      }),
-      expect.objectContaining({
-        onConflict: "tenant_id,version_id",
-      })
+    expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+      "fail_estimate_pdf_generation",
+      expect.objectContaining({ p_error_message: "erreur test" }),
     );
   });
 });

@@ -49,7 +49,8 @@ pour l'ordre complet.
 - `src/lib/` — logique métier. Principaux : `estimates/`, `takeoff/`, `affaires/`, `catalogue/`,
   `imports/`, `mappings/`, `approvals/`, `direction/`, `cockpit/`
 - `src/lib/openapi/` — génération OpenAPI depuis les schémas Zod ; `openapi.json` est versionné
-- `supabase/migrations/` — **195 migrations, source de vérité du schéma**
+- `supabase/migrations/` — **202 migrations, source de vérité du schéma** ; dernière :
+  `20260812012308_add_affaires_sending_counter.sql`
 - `supabase/functions/` — Edge Functions Deno
 
 **Authentification** : `src/proxy.ts` rafraîchit la session Supabase (cookies et redirections de session,

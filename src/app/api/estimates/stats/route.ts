@@ -89,6 +89,7 @@ export async function GET() {
     const versions = (data ?? []) as unknown as EstimateStatsVersionRow[];
     const byStatus: Record<EstimateStatus, number> = {
       draft: 0,
+      sending: 0,
       sent: 0,
       accepted: 0,
       archived: 0,
@@ -108,7 +109,7 @@ export async function GET() {
         acceptedRevenueCents += totalHtCents;
       } else if (version.status === "sent") {
         sentRevenueCents += totalHtCents;
-      } else if (version.status === "draft") {
+      } else if (version.status === "draft" || version.status === "sending") {
         draftRevenueCents += totalHtCents;
       }
     });

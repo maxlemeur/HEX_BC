@@ -46,10 +46,12 @@ describe("SendEstimateModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.fetch = vi.fn();
+    globalThis.sessionStorage.clear();
   });
 
   afterEach(() => {
     cleanup();
+    globalThis.sessionStorage.clear();
     vi.restoreAllMocks();
   });
 
@@ -125,6 +127,10 @@ describe("SendEstimateModal", () => {
 
   it("calls fetch with correct payload on valid submit", async () => {
     const user = userEvent.setup();
+    globalThis.sessionStorage.setItem(
+      "estimate-email:version-123:stale-fingerprint",
+      "99999999-9999-4999-8999-999999999999"
+    );
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ email_id: "e1", portal_token: "t1" }),
@@ -142,7 +148,10 @@ describe("SendEstimateModal", () => {
         "/api/estimates/version-123/send",
         expect.objectContaining({
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: expect.objectContaining({
+            "Content-Type": "application/json",
+            "Idempotency-Key": expect.any(String),
+          }),
         })
       );
     });
@@ -156,12 +165,16 @@ describe("SendEstimateModal", () => {
 
     await waitFor(() => {
       expect(mockToast.success).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Devis envoye" })
+        {
+          title: "Devis envoye",
+          description: "L'envoi du devis est confirme.",
+        }
       );
     });
 
     expect(props.onSent).toHaveBeenCalled();
     expect(props.onClose).toHaveBeenCalled();
+    expect(globalThis.sessionStorage.length).toBe(0);
   });
 
   it("shows error on failed API response", async () => {
@@ -208,5 +221,170 @@ describe("SendEstimateModal", () => {
       (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body
     );
     expect(callBody.cc).toEqual(["cc1@test.com", "cc2@test.com"]);
+  });
+
+  it("reuses the same idempotency key when the same submission is retried", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: "Temporary provider failure" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ message_id: "email-1" }),
+      });
+
+    renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await screen.findByText("Temporary provider failure");
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    const firstHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .headers as Record<string, string>;
+    const secondHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      .headers as Record<string, string>;
+    expect(secondHeaders["Idempotency-Key"]).toBe(firstHeaders["Idempotency-Key"]);
+  });
+
+  it("rotates the idempotency key after the attempted payload is edited", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: "Temporary provider failure" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ message_id: "email-2" }),
+      });
+
+    renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await screen.findByText("Temporary provider failure");
+
+    const subjectInput = screen.getByLabelText(/Objet/);
+    await user.type(subjectInput, " modifie");
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    const firstHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .headers as Record<string, string>;
+    const secondHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      .headers as Record<string, string>;
+    expect(secondHeaders["Idempotency-Key"]).not.toBe(
+      firstHeaders["Idempotency-Key"]
+    );
+  });
+
+  it("rotates the idempotency key after a deterministic provider rejection", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "ESTIMATE_EMAIL_PROVIDER_REJECTED",
+              message: "Recipient rejected",
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ message_id: "email-corrected" }),
+      });
+
+    renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await screen.findByText("Recipient rejected");
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    const firstHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .headers as Record<string, string>;
+    const secondHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      .headers as Record<string, string>;
+    expect(secondHeaders["Idempotency-Key"]).not.toBe(
+      firstHeaders["Idempotency-Key"]
+    );
+  });
+
+  it("rotates a persisted key when the frozen failed dispatch requires a new request", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: "Network response lost" }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST",
+              message: "A new request is required",
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ message_id: "email-fresh" }),
+      });
+
+    const firstRender = renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await screen.findByText("Network response lost");
+    await user.click(screen.getByRole("button", { name: /Annuler/ }));
+    firstRender.unmount();
+
+    renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await screen.findByText("A new request is required");
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+    const firstHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .headers as Record<string, string>;
+    const secondHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      .headers as Record<string, string>;
+    const thirdHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[2][1]
+      .headers as Record<string, string>;
+    expect(secondHeaders["Idempotency-Key"]).toBe(firstHeaders["Idempotency-Key"]);
+    expect(thirdHeaders["Idempotency-Key"]).not.toBe(
+      firstHeaders["Idempotency-Key"]
+    );
+  });
+
+  it("recovers an unconfirmed idempotency key after closing and reopening", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: "Network response lost" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ message_id: "email-1" }),
+      });
+
+    const firstRender = renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await screen.findByText("Network response lost");
+    await user.click(screen.getByRole("button", { name: /Annuler/ }));
+    expect(globalThis.sessionStorage.length).toBe(1);
+    firstRender.unmount();
+
+    renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    const firstHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .headers as Record<string, string>;
+    const secondHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      .headers as Record<string, string>;
+    expect(secondHeaders["Idempotency-Key"]).toBe(firstHeaders["Idempotency-Key"]);
+    await waitFor(() => expect(globalThis.sessionStorage.length).toBe(0));
   });
 });

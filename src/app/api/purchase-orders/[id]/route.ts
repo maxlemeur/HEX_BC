@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { isValidDateOnly } from "@/lib/date-only";
-import { computeTotalsFromInputs } from "@/lib/order-calculations";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
+import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-cleanup-outbox";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -26,17 +26,6 @@ type UpdatePurchaseOrderPayload = {
   expectedDeliveryDate?: string | null;
   notes?: string | null;
   items?: LinePayload[];
-};
-
-type ExistingPurchaseOrderItemTrace = {
-  product_id: string | null;
-  reference: string | null;
-  designation: string;
-  quantity: number;
-  unit_price_ht_cents: number;
-  tax_rate_bp: number;
-  source_estimate_item_id: string | null;
-  source_selected_supplier_price_id: string | null;
 };
 
 type CleanedLineItem = {
@@ -69,106 +58,6 @@ function parseExpectedDeliveryDate(value: unknown) {
   }
 
   return trimmed;
-}
-
-function buildTraceabilitySignature(item: {
-  productId: string | null;
-  reference: string | null;
-  designation: string;
-  quantity: number;
-  unitPriceCents: number;
-  taxRateBp: number;
-}) {
-  return JSON.stringify([
-    item.productId,
-    item.reference,
-    item.designation,
-    Math.round(item.quantity),
-    Math.round(item.unitPriceCents),
-    Math.round(item.taxRateBp),
-  ]);
-}
-
-function buildExistingItemTraceabilityIndex(items: ExistingPurchaseOrderItemTrace[]) {
-  const index = new Map<string, ExistingPurchaseOrderItemTrace[]>();
-
-  for (const item of items) {
-    const signature = buildTraceabilitySignature({
-      productId: item.product_id,
-      reference: toNullableString(item.reference),
-      designation: item.designation,
-      quantity: item.quantity,
-      unitPriceCents: item.unit_price_ht_cents,
-      taxRateBp: item.tax_rate_bp,
-    });
-
-    const bucket = index.get(signature);
-    if (bucket) {
-      bucket.push(item);
-    } else {
-      index.set(signature, [item]);
-    }
-  }
-
-  return index;
-}
-
-function takeMatchingTraceability(
-  index: Map<string, ExistingPurchaseOrderItemTrace[]>,
-  item: CleanedLineItem
-) {
-  const signature = buildTraceabilitySignature(item);
-  const bucket = index.get(signature);
-  const match = bucket?.shift() ?? null;
-
-  if (bucket && bucket.length === 0) {
-    index.delete(signature);
-  }
-
-  return match;
-}
-
-function normalizeExistingItemTraceabilityRows(
-  rows: unknown[] | null | undefined
-): ExistingPurchaseOrderItemTrace[] {
-  if (!Array.isArray(rows)) {
-    return [];
-  }
-
-  return rows.flatMap((row) => {
-    if (!row || typeof row !== "object") {
-      return [];
-    }
-
-    const record = row as Record<string, unknown>;
-    if (typeof record.designation !== "string") {
-      return [];
-    }
-
-    return [
-      {
-        product_id: typeof record.product_id === "string" ? record.product_id : null,
-        reference: toNullableString(record.reference),
-        designation: record.designation,
-        quantity: Number(record.quantity),
-        unit_price_ht_cents: Number(record.unit_price_ht_cents),
-        tax_rate_bp: Number(record.tax_rate_bp),
-        source_estimate_item_id:
-          typeof record.source_estimate_item_id === "string"
-            ? record.source_estimate_item_id
-            : null,
-        source_selected_supplier_price_id:
-          typeof record.source_selected_supplier_price_id === "string"
-            ? record.source_selected_supplier_price_id
-            : null,
-      },
-    ].filter(
-      (item) =>
-        Number.isFinite(item.quantity) &&
-        Number.isFinite(item.unit_price_ht_cents) &&
-        Number.isFinite(item.tax_rate_bp)
-    );
-  });
 }
 
 export async function PUT(
@@ -251,19 +140,15 @@ export async function PUT(
     headerUpdate.notes = toNullableString(parsedPayload.notes);
   }
 
-  // Update header if there are changes
-  if (Object.keys(headerUpdate).length > 0) {
-    const { error: updateError } = await supabase
-      .from("purchase_orders")
-      .update(headerUpdate)
-      .eq("id", id);
+  let itemsToReplace: Array<{
+    product_id: string | null;
+    reference: string | null;
+    designation: string;
+    quantity: number;
+    unit_price_ht_cents: number;
+    tax_rate_bp: number;
+  }> | null = null;
 
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 400 });
-    }
-  }
-
-  // If items are provided, replace all existing items
   if (parsedPayload.items !== undefined) {
     const items = Array.isArray(parsedPayload.items) ? parsedPayload.items : [];
     const cleanedItems: CleanedLineItem[] = items
@@ -294,34 +179,6 @@ export async function PUT(
       );
     }
 
-    const { data: existingItems, error: existingItemsError } = await supabase
-      .from("purchase_order_items")
-      .select(
-        [
-          "product_id",
-          "reference",
-          "designation",
-          "quantity",
-          "unit_price_ht_cents",
-          "tax_rate_bp",
-          "source_estimate_item_id",
-          "source_selected_supplier_price_id",
-        ].join(", ")
-      )
-      .eq("purchase_order_id", id);
-
-    if (existingItemsError) {
-      return NextResponse.json({ error: existingItemsError.message }, { status: 400 });
-    }
-
-    const traceabilityIndex = buildExistingItemTraceabilityIndex(
-      normalizeExistingItemTraceabilityRows(existingItems)
-    );
-
-    // Rejeter les quantités non entières AVANT toute suppression : sinon le
-    // delete ci-dessous vide le bon de commande puis l'insert échoue (une
-    // quantité arrondie à 0 viole CHECK quantity > 0), laissant le BC sans
-    // aucune ligne.
     if (cleanedItems.some((item) => !Number.isInteger(item.quantity))) {
       return NextResponse.json(
         {
@@ -332,68 +189,34 @@ export async function PUT(
       );
     }
 
-    // Delete existing items
-    const { error: deleteError } = await supabase
-      .from("purchase_order_items")
-      .delete()
-      .eq("purchase_order_id", id);
-
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 400 });
-    }
-
-    // Calculate totals
-    const lineInputs = cleanedItems.map((item) => ({
-      quantity: item.quantity,
-      unitPriceHtCents: Math.round(item.unitPriceCents),
-      taxRateBp: Math.round(item.taxRateBp),
-    }));
-
-    const { lineTotals, orderTotals } = computeTotalsFromInputs(lineInputs);
-
-    // Insert new items
-    const itemsToInsert = cleanedItems.map((item, index) => {
-      const totals = lineTotals[index];
-      const traceability = takeMatchingTraceability(traceabilityIndex, item);
-      return {
-        purchase_order_id: id,
-        position: index + 1,
+    itemsToReplace = cleanedItems.map((item) => ({
         product_id: item.productId,
         reference: item.reference,
         designation: item.designation,
         unit_price_ht_cents: Math.round(item.unitPriceCents),
         tax_rate_bp: Math.round(item.taxRateBp),
         quantity: item.quantity,
-        line_total_ht_cents: totals.lineTotalHtCents,
-        line_tax_cents: totals.lineTaxCents,
-        line_total_ttc_cents: totals.lineTotalTtcCents,
-        source_estimate_item_id: traceability?.source_estimate_item_id ?? null,
-        source_selected_supplier_price_id:
-          traceability?.source_selected_supplier_price_id ?? null,
-      };
-    });
+    }));
+  }
 
-    const { error: insertError } = await supabase
-      .from("purchase_order_items")
-      .insert(itemsToInsert);
+  const { error: replaceError } = await supabase.rpc(
+    "replace_purchase_order_draft",
+    {
+      p_order_id: id,
+      p_header_patch: headerUpdate,
+      p_items: itemsToReplace,
+    }
+  );
 
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 400 });
+  if (replaceError) {
+    if (replaceError.message.includes("PURCHASE_ORDER_DRAFT_NOT_EDITABLE")) {
+      return NextResponse.json(
+        { error: "Seuls les bons de commande en brouillon peuvent etre modifies." },
+        { status: 403 }
+      );
     }
 
-    // Update order totals
-    const { error: totalsError } = await supabase
-      .from("purchase_orders")
-      .update({
-        total_ht_cents: orderTotals.totalHtCents,
-        total_tax_cents: orderTotals.totalTaxCents,
-        total_ttc_cents: orderTotals.totalTtcCents,
-      })
-      .eq("id", id);
-
-    if (totalsError) {
-      return NextResponse.json({ error: totalsError.message }, { status: 400 });
-    }
+    return NextResponse.json({ error: replaceError.message }, { status: 400 });
   }
 
   return NextResponse.json({ success: true, id });
@@ -443,14 +266,33 @@ export async function DELETE(
     );
   }
 
-  // Delete the order (items are deleted via cascade)
-  const { error: deleteError } = await supabase
-    .from("purchase_orders")
-    .delete()
-    .eq("id", id);
+  const { error: deleteError } = await supabase.rpc(
+    "delete_purchase_order_draft_atomic",
+    { p_order_id: id }
+  );
 
   if (deleteError) {
+    if (deleteError.message.includes("PURCHASE_ORDER_DRAFT_NOT_DELETABLE")) {
+      return NextResponse.json(
+        { error: "Seuls les bons de commande en brouillon peuvent etre supprimes." },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json({ error: deleteError.message }, { status: 400 });
+  }
+
+  try {
+    await drainProcurementStorageCleanupOutbox({
+      tenantId: existingOrder.tenant_id,
+      limit: 25,
+    });
+  } catch (error) {
+    console.error("Purchase order Storage cleanup drain failed", {
+      orderId: id,
+      tenantId: existingOrder.tenant_id,
+      error,
+    });
   }
 
   return NextResponse.json({ success: true });

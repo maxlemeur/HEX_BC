@@ -143,6 +143,7 @@ const initialData: AffairePageDataResult = {
     filteredCount: 1,
     statusCounts: {
       draft: 1,
+      sending: 0,
       sent: 0,
       accepted: 0,
       archived: 0,

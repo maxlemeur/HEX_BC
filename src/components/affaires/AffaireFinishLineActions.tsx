@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { exportEstimate } from "@/lib/estimates/client";
+import type { EstimateStatus } from "@/lib/estimates/status";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/Badge";
@@ -23,7 +24,7 @@ type AffaireFinishLineActionsProps = {
   currentVersion:
     | {
         id: string;
-        status: string;
+        status: EstimateStatus;
         versionNumber: number;
       }
     | null;
@@ -42,7 +43,9 @@ function canSendEstimateByEmail(
 ) {
   return (
     currentVersion !== null &&
-    (currentVersion.status === "draft" || currentVersion.status === "sent")
+    (currentVersion.status === "draft" ||
+      currentVersion.status === "sending" ||
+      currentVersion.status === "sent")
   );
 }
 
@@ -56,6 +59,8 @@ function formatVersionStatus(status: string) {
   switch (status) {
     case "draft":
       return "Brouillon";
+    case "sending":
+      return "Envoi en cours";
     case "sent":
       return "Envoyee";
     case "accepted":
@@ -71,6 +76,14 @@ function getSendActionState(
   currentVersion: AffaireFinishLineActionsProps["currentVersion"],
   finishLineSummary: AffaireFinishLineActionsProps["finishLineSummary"]
 ) {
+  if (currentVersion?.status === "sending") {
+    return {
+      status: "warning" as const,
+      note: "Un envoi est deja reserve. Reprenez-le avec les memes donnees pour terminer la livraison sans creer de doublon.",
+      disabled: false,
+    };
+  }
+
   if (currentVersion && !canSendEstimateByEmail(currentVersion)) {
     return {
       status: "unavailable" as const,
@@ -360,7 +373,9 @@ export function AffaireFinishLineActions({
                   onClick={() => setSendModalOpen(true)}
                   disabled={sendActionState.disabled}
                 >
-                  Preparer l&apos;envoi
+                  {currentVersion.status === "sending"
+                    ? "Reprendre l'envoi"
+                    : "Preparer l'envoi"}
                 </button>
               </div>
             </article>

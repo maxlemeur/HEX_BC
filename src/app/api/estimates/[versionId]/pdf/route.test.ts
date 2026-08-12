@@ -22,13 +22,23 @@ import {
   markEstimatePdfFailed,
   markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
+import { forbidden } from "@/lib/estimates/errors";
 import { after } from "next/server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const PUBLICATION_CLAIM = {
+  token: "22222222-2222-4222-8222-222222222222",
+  purpose: "manual" as const,
+  dispatchId: null,
+  contentRevision: 1,
+};
 
 describe("estimate pdf route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(markEstimatePdfProcessing).mockResolvedValue(
+      PUBLICATION_CLAIM as never,
+    );
   });
 
   it("POST returns 202 processing when generation is started", async () => {
@@ -78,7 +88,11 @@ describe("estimate pdf route", () => {
 
     await (scheduled as () => Promise<void>)();
 
-    expect(vi.mocked(markEstimatePdfFailed)).toHaveBeenCalledWith(VERSION_ID, "boom");
+    expect(vi.mocked(markEstimatePdfFailed)).toHaveBeenCalledWith(
+      VERSION_ID,
+      "boom",
+      PUBLICATION_CLAIM,
+    );
   });
 
   it("POST transmet les options de mise en page au generateur", async () => {
@@ -110,8 +124,40 @@ describe("estimate pdf route", () => {
       force: true,
       triggeredBy: "manual",
       layout,
+      publicationClaim: PUBLICATION_CLAIM,
     });
   });
+
+  it.each(["sent", "accepted", "archived"])(
+    "POST force refuse de remplacer le PDF contractuel d'un devis %s",
+    async (status) => {
+      vi.mocked(getEstimatePdfStatus).mockResolvedValue({
+        status: "ready",
+        download_url: "https://example.com/download",
+        file_path: "tenant/estimate/version.pdf",
+      } as never);
+      vi.mocked(markEstimatePdfProcessing).mockRejectedValueOnce(
+        forbidden(
+          "Le PDF contractuel d'un devis transmis ne peut plus etre remplace.",
+          { status },
+          "ESTIMATE_PDF_CONTRACT_IMMUTABLE"
+        )
+      );
+
+      const response = await POST(
+        new Request(
+          `http://localhost/api/estimates/${VERSION_ID}/pdf?force=1`,
+          { method: "POST" }
+        ),
+        { params: Promise.resolve({ versionId: VERSION_ID }) }
+      );
+
+      expect(response.status).toBe(403);
+      expect(vi.mocked(after)).not.toHaveBeenCalled();
+      expect(vi.mocked(generateEstimatePdfNow)).not.toHaveBeenCalled();
+      expect(vi.mocked(markEstimatePdfFailed)).not.toHaveBeenCalled();
+    }
+  );
 
   it("POST refuse un corps JSON invalide", async () => {
     const response = await POST(

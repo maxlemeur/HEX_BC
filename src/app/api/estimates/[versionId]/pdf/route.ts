@@ -144,7 +144,7 @@ export async function POST(
       }
     }
 
-    await markEstimatePdfProcessing(versionId);
+    const publicationClaim = await markEstimatePdfProcessing(versionId);
 
     after(async () => {
       try {
@@ -152,10 +152,15 @@ export async function POST(
           force,
           triggeredBy: "manual",
           layout: body.layout,
+          publicationClaim,
         });
       } catch (error) {
         try {
-          await markEstimatePdfFailed(versionId, toSafeErrorMessage(error));
+          await markEstimatePdfFailed(
+            versionId,
+            toSafeErrorMessage(error),
+            publicationClaim,
+          );
         } catch {
           // Best effort update: avoid failing the response lifecycle.
         }

@@ -16,6 +16,9 @@ const batchConflictSql = read(
 const procurementSql = read(
   "supabase/migrations/20260713140454_harden_estimate_procurement_write_roles.sql"
 );
+const emailOutboxSql = read(
+  "supabase/migrations/20260811231759_transactional_estimate_email_outbox.sql"
+);
 const emailSource = read("src/lib/email/send-estimate.ts");
 const gatingSource = read("src/lib/estimates/gating.ts");
 const csvSource = read("src/app/api/admin/anomaly-history/route.ts");
@@ -101,12 +104,33 @@ describe("estimate workflow direct-write security", () => {
     );
   });
 
-  it("forces email through transition/seal checks before regenerating and sending", () => {
-    expect(emailSource).toMatch(
-      /if \(version\.status === "draft"\)[\s\S]*patchEstimateStatus\([\s\S]*else if \(version\.status === "sent"\)[\s\S]*verifyEstimateSeal/
+  it("forces email through the transactional outbox and immutable PDF boundary", () => {
+    const activeDispatchIndex = emailSource.indexOf(
+      "findActiveEstimateEmailDispatch({"
     );
-    expect(emailSource).toMatch(
-      /generateEstimatePdfNow\(input\.versionId, \{[\s\S]*force: true/
+    const reserveIndex = emailSource.indexOf("reserveEstimateEmailDispatch({");
+    const preparePdfIndex = emailSource.indexOf("preparePdfForDispatch({");
+
+    expect(activeDispatchIndex).toBeGreaterThan(-1);
+    expect(reserveIndex).toBeGreaterThan(activeDispatchIndex);
+    expect(preparePdfIndex).toBeGreaterThan(reserveIndex);
+    expect(emailSource).toContain("getEstimateSendGating(input.versionId)");
+    expect(emailSource).toContain("verifyEstimateSeal(input.versionId)");
+    expect(emailSource).toContain(
+      'if (!["draft", "sending"].includes(input.versionStatus))'
+    );
+    expect(emailSource).toContain("getEstimatePdfStatus(input.versionId)");
+    expect(emailSource).toContain("generateEstimatePdfNow(input.versionId, {");
+    expect(emailSource).not.toContain("patchEstimateStatus(");
+
+    expect(emailOutboxSql).toMatch(
+      /create or replace function public\.reserve_estimate_email_dispatch\([\s\S]*set status = 'sending'::public\.estimate_status/
+    );
+    expect(emailOutboxSql).toMatch(
+      /create or replace function public\.complete_estimate_email_dispatch\([\s\S]*set status = 'sent'::public\.estimate_status/
+    );
+    expect(emailOutboxSql).toMatch(
+      /revoke execute on function public\.complete_estimate_email_dispatch\([\s\S]*from public, anon, authenticated;[\s\S]*grant execute on function public\.complete_estimate_email_dispatch\([\s\S]*to service_role;/
     );
   });
 

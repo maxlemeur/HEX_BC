@@ -49,7 +49,13 @@ const DATE_RANGE_OPTIONS = [
 
 type DateRange = (typeof DATE_RANGE_OPTIONS)[number]["value"];
 
-const ALL_STATUSES: EstimateStatus[] = ["draft", "sent", "accepted", "archived"];
+const ALL_STATUSES: EstimateStatus[] = [
+  "draft",
+  "sending",
+  "sent",
+  "accepted",
+  "archived",
+];
 const SORT_OPTIONS: SortOption[] = [
   { key: "updatedAt", label: "Date MAJ", defaultDirection: "desc" },
   { key: "totalHtCents", label: "Montant HT", defaultDirection: "desc" },
@@ -60,6 +66,8 @@ function statusLabel(status: EstimateStatus) {
   switch (status) {
     case "draft":
       return "Brouillon";
+    case "sending":
+      return "Envoi en cours";
     case "sent":
       return "Envoyé";
     case "accepted":
@@ -75,6 +83,8 @@ function statusClass(status: EstimateStatus) {
   switch (status) {
     case "draft":
       return "status-badge status-draft";
+    case "sending":
+      return "status-badge status-sent";
     case "sent":
       return "status-badge status-sent";
     case "accepted":
@@ -120,7 +130,13 @@ function getExpirationDate(estimate: EstimateListItem): Date | null {
 type ExpirationState = "expired" | "expiring_soon" | null;
 
 function getExpirationState(estimate: EstimateListItem, now: Date): ExpirationState {
-  if (estimate.status === "draft" || estimate.status === "archived") return null;
+  if (
+    estimate.status === "draft" ||
+    estimate.status === "sending" ||
+    estimate.status === "archived"
+  ) {
+    return null;
+  }
   const expDate = getExpirationDate(estimate);
   if (!expDate) return null;
   if (expDate.getTime() < now.getTime()) return "expired";
@@ -247,7 +263,13 @@ export default function EstimatesPage() {
 
   // Status counts from raw data (unfiltered)
   const statusCounts = useMemo(() => {
-    const counts: Record<EstimateStatus, number> = { draft: 0, sent: 0, accepted: 0, archived: 0 };
+    const counts: Record<EstimateStatus, number> = {
+      draft: 0,
+      sending: 0,
+      sent: 0,
+      accepted: 0,
+      archived: 0,
+    };
     for (const e of rawEstimates) {
       if (counts[e.status] !== undefined) {
         counts[e.status]++;

@@ -687,6 +687,16 @@ describe("estimate client list parsing", () => {
                 updated_at: "2026-02-24T09:00:00.000Z",
                 total_ht_cents: 32000,
               },
+              {
+                project_id: "77777777-7777-4777-8777-777777777777",
+                project_name: "Projet C",
+                version_id: "88888888-8888-4888-8888-888888888888",
+                version_number: 3,
+                status: "sending",
+                title: "V3",
+                updated_at: "2026-02-24T08:00:00.000Z",
+                total_ht_cents: 64000,
+              },
             ],
           },
         }),
@@ -702,9 +712,10 @@ describe("estimate client list parsing", () => {
 
     const items = await fetchEstimateList();
 
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(3);
     expect(items[0]?.currency).toBe("USD");
     expect(items[1]?.currency).toBe("EUR");
+    expect(items[2]?.status).toBe("sending");
   });
 });
 

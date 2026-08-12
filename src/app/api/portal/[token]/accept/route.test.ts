@@ -15,6 +15,7 @@ const mockRpc = vi.fn();
 const mockEmailInsert = vi.fn();
 const mockVersionDataSingle = vi.fn();
 const mockDocumentMaybeSingle = vi.fn();
+const mockResendSend = vi.fn();
 
 function buildMockFrom() {
   return (table: string) => {
@@ -96,11 +97,11 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 vi.mock("resend", () => ({
-  Resend: vi.fn().mockImplementation(() => ({
-    emails: {
-      send: vi.fn().mockResolvedValue({ data: { id: "email-1" }, error: null }),
-    },
-  })),
+  Resend: class MockResend {
+    emails = {
+      send: mockResendSend,
+    };
+  },
 }));
 
 import { POST } from "./route";
@@ -146,6 +147,7 @@ describe("POST /api/portal/[token]/accept", () => {
     mockRpc.mockResolvedValue({ error: null });
     mockStorageUpload.mockResolvedValue({ error: null });
     mockEmailInsert.mockResolvedValue({ error: null });
+    mockResendSend.mockResolvedValue({ data: { id: "email-1" }, error: null });
     mockVersionDataSingle.mockResolvedValue({ data: null, error: null });
     mockDocumentMaybeSingle.mockResolvedValue({
       data: {
@@ -497,5 +499,69 @@ describe("POST /api/portal/[token]/accept", () => {
       })
     );
     expect(mockRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("timestamps a successful legacy acceptance confirmation", async () => {
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.EMAIL_FROM = "noreply@example.com";
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockVersionDataSingle.mockResolvedValueOnce({
+      data: {
+        version_number: 1,
+        total_ttc_cents: 12_000,
+        currency: "EUR",
+        estimate_projects: { name: "Projet test" },
+      },
+      error: null,
+    });
+
+    const response = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+    const payload = await response.json();
+
+    expect(mockEmailInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "acceptance_confirmation",
+        status: "sent",
+        sent_at: payload.accepted_at,
+      })
+    );
+  });
+
+  it("does not claim a sent timestamp for a failed legacy confirmation", async () => {
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.EMAIL_FROM = "noreply@example.com";
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockVersionDataSingle.mockResolvedValueOnce({
+      data: {
+        version_number: 1,
+        total_ttc_cents: 12_000,
+        currency: "EUR",
+        estimate_projects: { name: "Projet test" },
+      },
+      error: null,
+    });
+    mockResendSend.mockResolvedValueOnce({
+      data: null,
+      error: { name: "validation_error", message: "invalid", statusCode: 422 },
+    });
+
+    await POST(makeRequest({ accepted_terms: true }), makeParams());
+
+    expect(mockEmailInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "acceptance_confirmation",
+        status: "failed",
+        sent_at: null,
+      })
+    );
   });
 });

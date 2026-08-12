@@ -328,7 +328,7 @@ function createTakeoffProcessorSupabaseMock(
 ): {
   supabase: {
     from: (table: string) => unknown;
-    rpc: (fn: string, args: Record<string, unknown>) => Promise<QueryResponse<null>>;
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<QueryResponse<unknown>>;
     storage: {
       from: (
         bucket: string
@@ -1123,8 +1123,8 @@ function createTakeoffProcessorSupabaseMock(
       }),
     },
     rpc: vi.fn(
-      async (fn: string, args: Record<string, unknown>): Promise<QueryResponse<null>> => {
-        if (fn !== "persist_takeoff_provider_batch_snapshot") {
+      async (fn: string, args: Record<string, unknown>): Promise<QueryResponse<unknown>> => {
+        if (fn !== "persist_takeoff_provider_batch_snapshot" && fn !== "persist_takeoff_provider_batch_snapshot_fenced") {
           throw new Error(`Unexpected rpc: ${fn}`);
         }
 
@@ -1199,7 +1199,7 @@ function createTakeoffProcessorSupabaseMock(
           });
         }
 
-        return { data: null, error: null };
+        return { data: fn.endsWith("_fenced") ? true : null, error: null };
       }
     ),
     from: vi.fn((table: string) => {
@@ -1307,6 +1307,8 @@ describe("processLevelA", () => {
 
   it("completes pending jobs and persists result, items, and metrics", async () => {
     const mock = createTakeoffProcessorSupabaseMock();
+    const assertTenantActive = vi.fn().mockResolvedValue(undefined);
+    const renewLease = vi.fn().mockResolvedValue(undefined);
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(
         buildTakeoffExchange([
@@ -1343,6 +1345,8 @@ describe("processLevelA", () => {
       userId: USER_ID,
       now: () => FIXED_NOW,
       callGemini,
+      assertTenantActive,
+      renewLease,
     });
 
     expect(result).toMatchObject({
@@ -1371,6 +1375,13 @@ describe("processLevelA", () => {
     expect(mock.state.job.cost_cents).toBe(87);
     expect(mock.state.job.duration_ms).toBe(2_500);
     expect(mock.state.job.error_message).toBeNull();
+    expect(assertTenantActive).toHaveBeenCalledWith(TENANT_ID);
+    expect(assertTenantActive.mock.invocationCallOrder[0]).toBeLessThan(
+      callGemini.mock.invocationCallOrder[0]
+    );
+    expect(renewLease).toHaveBeenCalledTimes(3);
+    expect(renewLease.mock.invocationCallOrder[0]).toBeLessThan(callGemini.mock.invocationCallOrder[0]);
+    expect(renewLease.mock.invocationCallOrder[1]).toBeGreaterThan(callGemini.mock.invocationCallOrder[0]);
 
     expect(mock.state.takeoffResults).toHaveLength(1);
     expect(mock.state.takeoffResults[0]).toMatchObject({
@@ -1398,6 +1409,23 @@ describe("processLevelA", () => {
       warnings_total: 0,
       duration_ms: 2_500,
     });
+  });
+
+  it("does not call Gemini or persist when the synchronous lease is lost", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
+    const callGemini = vi.fn();
+
+    await expect(processLevelA(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+      renewLease: vi.fn().mockRejectedValue(new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "lease lost", retryable: false })),
+    })).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
+
+    expect(callGemini).not.toHaveBeenCalled();
+    expect(mock.state.takeoffResults).toHaveLength(0);
+    expect(mock.state.job.status).toBe("processing");
   });
 
   it("marks the job as failed when source parsing fails", async () => {
@@ -1755,6 +1783,9 @@ describe("processLevelA", () => {
       submitGeminiBatch,
     });
     expect(submission.status).toBe("submitted_to_provider");
+    mock.state.job.provider_reconcile_lease_token = "99999999-9999-4999-8999-999999999999";
+    mock.state.job.provider_reconcile_lease_expires_at = "2026-02-25T10:05:00.000Z";
+    const renewBatchLease = vi.fn().mockResolvedValue(undefined);
 
     const waiting = await reconcileTakeoffBatchJob(JOB_ID, {
       supabase: mock.supabase as never,
@@ -1780,6 +1811,7 @@ describe("processLevelA", () => {
           providerBatchStateRaw: "JOB_STATE_RUNNING",
         };
       }),
+      renewLease: renewBatchLease,
     });
     expect(waiting.status).toBe("awaiting_provider_result");
 
@@ -1819,8 +1851,10 @@ describe("processLevelA", () => {
           status: "succeeded" as const,
         };
       }),
+      renewLease: renewBatchLease,
     });
     expect(completed.status).toBe("completed");
+    expect(renewBatchLease).toHaveBeenCalledTimes(7);
 
     expect(mock.state.job.provider_batch_id).toBe("batches/test-1");
     expect(mock.state.job.provider_batch_state).toBe("succeeded");

@@ -60,7 +60,7 @@ export type AffairePilotageWorkspace = Pick<
 export type AffairePilotageCurrentVersion =
   | {
       id: string;
-      status: string;
+      status: import("@/lib/estimates/status").EstimateStatus;
       versionNumber: number;
     }
   | null;

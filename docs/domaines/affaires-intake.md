@@ -1,6 +1,7 @@
 # Affaires & Intake
 
-> **Source : le code au 2026-07-29.** Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Source : le code au 2026-07-29, avec le cycle de reprise relu au
+> 2026-08-12.** En cas de divergence, le code et les migrations font foi.
 
 Les règles de calcul et le cycle de vie des versions ne sont pas repris ici : voir `../metier/regles-de-calcul.md` et `../metier/cycle-de-vie.md`.
 
@@ -73,7 +74,7 @@ La liste passe par la RPC `list_affaires_page`, réécrite neuf fois. La signatu
 
 Côté application, `list_affaires_page` est appelée avec `p_limit = query.size + 1` pour détecter `hasNextPage` (`src/lib/affaires/server.ts:1601`, appel l.1603-1618, détection l.1625-1626). `get_affaires_counters` est appelée en `src/lib/affaires/server.ts:1852-1858`.
 
-Paramètres normalisés (`src/lib/affaires/schemas.ts`) : tailles de page `[20, 50, 100]` (l.5) défaut 20 (l.34) ; tris `["updatedAt", "name", "totalHtCents"]` (l.8-12) défaut `updatedAt` (l.35) ; directions `["asc","desc"]` (l.14) défaut `desc` (l.36) ; filtre manager `["all","follow_up","reservations","revalidation"]` (l.16-21) défaut `all` (l.37) ; statuts `["draft","sent","accepted","archived"]` (l.25-30) ; recherche trim max 120 (l.80-87) ; curseur max 512 (l.89-96). **Un `sort`, `dir` ou `manager` invalide est remplacé par le défaut sans aucun signal** via `.catch()` Zod (l.98-106).
+Paramètres normalisés (`src/lib/affaires/schemas.ts`) : tailles de page `[20, 50, 100]` (l.5) défaut 20 (l.34) ; tris `["updatedAt", "name", "totalHtCents"]` (l.8-12) défaut `updatedAt` (l.35) ; directions `["asc","desc"]` (l.14) défaut `desc` (l.36) ; filtre manager `["all","follow_up","reservations","revalidation"]` (l.16-21) défaut `all` (l.37) ; statuts `["draft","sent","accepted","archived"]` (l.25-30) ; recherche trim max 120 (l.80-87) ; curseur max 512 (l.89-96). Le statut transactionnel `sending` n'est pas un filtre public ; il est compté séparément dans les statistiques. **Un `sort`, `dir` ou `manager` invalide est remplacé par le défaut sans aucun signal** via `.catch()` Zod (l.98-106).
 
 File manager (`src/lib/affaires/server.ts:1642-1645`) : `MANAGER_QUEUE_BATCH_SIZE = 10`, `MANAGER_QUEUE_LIST_PAGE_SIZE = 100`, `MANAGER_QUEUE_MAX_PROJECTS = 200`, `MANAGER_QUEUE_TIME_BUDGET_MS = 6_500`. Les dépassements lèvent `MANAGER_QUEUE_PORTFOLIO_LIMIT_EXCEEDED` / `MANAGER_QUEUE_TIME_BUDGET_EXCEEDED` (l.1647-1661). Appelée depuis l'action `fetchAffaireManagerQueueSummaryAction` (`src/app/dashboard/affaires/_actions/manager-queue.ts:6-10`), la deadline vaut `Number.POSITIVE_INFINITY` (`server.ts:1956`) : seule la borne de 200 projets s'applique alors.
 
@@ -87,7 +88,19 @@ Côté client (`src/components/affaires/AffairesPageClient.tsx`) : debounce rech
 
 Deux chemins, tous deux réservés aux rôles **`engineer` et `admin`** (`src/app/dashboard/affaires/_actions/quick-create-affaire.ts:99-103`, appelé l.154) : un `director` est refusé en création comme en édition de métadonnées (`src/app/dashboard/affaires/_actions/project.ts:44`).
 
-**Sans import** — `initializeAffaireDraft` (`quick-create-affaire.ts:217`) → `createEstimate` (`src/lib/estimates/server.ts:7223`) : INSERT `estimate_projects` (`server.ts:7300-7312`) puis `estimate_versions` avec `version_number = 1` (l.7339-7341), `status "draft"`, `validite_jours 30`, `margin_multiplier 1`, `margin_mode "fixed"`, `currency "EUR"`, `global_coefficient 1`, **`tax_rate_bp 2000`**, `rounding_mode "none"`, `rounding_step_cents 1` (`src/lib/estimates/server.ts:610-619`), `max_section_depth 3` (`src/lib/estimates/hierarchy.ts:5`) ; puis upsert de 3 catégories et 9 rôles MO à 0 centime (`server.ts:1809-1825`). `createEstimate` comporte des compensations : suppression du projet ou de la version si une étape ultérieure échoue (`server.ts:7406-7408`, `7436-7444`, `7465-7473`).
+**Sans import** — `initializeAffaireDraft` → `createEstimate`
+(`src/lib/estimates/server.ts`). Les catégories et rôles MO par défaut sont
+préparés par des upserts idempotents, puis la RPC
+`persist_estimate_creation_atomic` persiste dans **une transaction Postgres** le
+projet éventuel, la version `draft`, ses lignes importées et ses totaux. La RPC
+verrouille aussi le projet existant avant de calculer le prochain numéro de
+version ; les anciens DELETE compensatoires projet/version ont disparu
+(`supabase/migrations/20260811231935_transactional_purchase_order_and_estimate_creation.sql`).
+Cette sérialisation de la création `Vn+1` est couverte par le SQL et les tests
+de transaction, mais n'a pas été exercée avec deux sessions PostgreSQL réelles
+dans ce lot.
+La reprise de jobs takeoff vers la nouvelle version reste un effet aval séparé,
+après la transaction principale.
 
 **Depuis un import DPGF** — `startAffaireFromImport` (`quick-create-affaire.ts:291`) : refus si l'import est déjà lié (l.333), création éventuelle du mapping (l.340-345), normalisation des lignes, puis RPC `create_affaire_from_import_lines` (l.383-396). Cette RPC est en plpgsql donc **atomique** ; elle pose `'Import DPGF'` comme titre de version (`20260305103000_ux2_011_quick_create_from_import.sql:79-82`) et `'Import DPGF DD/MM/YYYY HH24:MI'` comme titre de section (l.84-90), avec `tax_rate_bp 2000` en dur pour la version (l.124-177) et pour chaque ligne (l.244-308). Si **aucune ligne valide** n'est produite, on retombe silencieusement sur une affaire vide simplement liée à l'import (`quick-create-affaire.ts:367-381`).
 
@@ -132,7 +145,40 @@ Heuristiques, appliquées **uniquement sur le nom de fichier normalisé** (`inta
 
 **Pièces manquantes** — dérivées des seules pièces `uploaded` + `classified` (`intake.ts:653-659`) : `missing_dpgf` **critical** (l.663-668), `missing_plans` **critical** (l.671-677), `missing_cctp` warning (l.679-685), `missing_bpu_dqe` warning (l.687-693). Le snapshot de readiness distingue les manques « provisoires » (susceptibles d'être levés par une revue de classement) des manques confirmés, via un appariement mémoïsé sur bitmask (`intake.ts:730-836`, snapshot l.838-904).
 
-**Idempotence et reprise.** `processAffaireIntakeUpload` sort tôt si `upload.status !== "queued"` (`intake-server.ts:2531-2533`). `attempt_count` est incrémenté mais **`next_retry_at` est systématiquement remis à `null`** (l.2544) et aucun planificateur ne le lit : un upload bloqué en `processing` n'est jamais repris. **Aucun hash ni déduplication de contenu** (vérifié : `file_hash: null` est écrit en dur, `intake-plan-sync.ts:326`) — deux dépôts du même fichier créent deux documents. **Aucune URL signée** dans le périmètre intake : les accès storage passent par `.download()` direct (`intake-server.ts:2650`, `intake-plan-sync.ts:281`). **Aucun TTL ni purge** des documents intake.
+**Idempotence, bail et reprise.** `processAffaireIntakeUpload` commence désormais
+par `claim_affaire_intake_upload`. La fonction verrouille la ligne, exige un
+tenant actif, revendique un upload `queued` arrivé à échéance ou un upload
+`processing` dont le bail est périmé, puis incrémente `attempt_count`. Le bail
+porte un UUID et dure **10 minutes** ; il est renouvelé avant et après les appels
+Gemini de classification et de brief, et avant les écritures d'état sensibles.
+Si un autre worker a repris le lot entre-temps, le worker obsolète perd son bail
+et ne peut persister ni succès, ni échec, ni brief de repli issu d'un appel
+fournisseur ambigu (`src/lib/workflows/affaire-intake-lifecycle.ts`,
+`src/lib/affaires/intake-server.ts`).
+
+Une erreur remet le lot en `queued` selon la table de repli
+`[30 s, 120 s, 300 s]`, dans une limite de **3 tentatives**. Avec ce plafond,
+seuls 30 s puis 120 s sont effectivement planifiés avant la troisième tentative
+terminale ; la valeur 300 s reste aujourd'hui inatteignable. À épuisement,
+l'upload passe en `failed` et tout document enfant encore `processing` est lui
+aussi terminalisé en `failed`. La route de reprise durable liste les uploads
+échus et les lots stales ; elle plafonne à deux traitements intake coûteux par exécution
+(`src/lib/workflows/durable-recovery.ts`,
+`supabase/migrations/20260811231238_durable_workflow_recovery.sql`).
+
+Le déclenchement `after()` de la requête de dépôt reste une optimisation de
+latence. `vercel.json` déclare en complément
+`GET /api/internal/workflows/recover` toutes les cinq minutes, protégé par
+`CRON_SECRET`. Cette cadence exige un plan Vercel Pro ou Enterprise et **son
+déploiement n'est pas prouvé par le checkout**. Un tenant suspendu n'est plus
+dispatché et ne peut renouveler un bail. Un appel déjà en vol ne peut pas être
+annulé, mais le renouvellement post-appel empêche le worker d'en persister le
+résultat.
+
+La reprise ne déduplique pas les entrées : **aucun hash de contenu** n'est
+calculé (`file_hash` reste nul), donc deux dépôts du même fichier créent deux
+documents. Les accès Storage passent par `.download()` direct, sans URL signée,
+et aucun TTL ni purge des documents intake n'est implémenté.
 
 ---
 
@@ -142,7 +188,7 @@ Un brief par affaire (contrainte `unique (project_id)`, `…est372…:25`). Mod�
 
 Bornes du schéma structuré (`intake-server.ts:326-344`) : `scope ≤ 12`, `lots ≤ 20`, `receivedPieces ≤ 20`, `assumptions ≤ 12`, `vigilancePoints ≤ 12`, `missingElements ≤ 12`, chaque entrée `text` de 1 à 320 caractères avec au plus 6 `sourceDocumentIds`.
 
-Un brief de repli **déterministe** est toujours construit (`intake-server.ts:1248-1406`, seuil interne 0.65 l.1272). Si l'appel Gemini échoue, l'erreur est loguée et le repli est publié comme un brief normal (l.1923-1929). Les `receivedPieces` du repli sont **toujours** conservées, même quand l'IA en propose (l.1551).
+Un brief de repli **déterministe** est toujours construit (`intake-server.ts:1248-1406`, seuil interne 0.65 l.1272). Si l'appel Gemini échoue, l'erreur est loguée et le repli est publié comme un brief normal, **seulement si le worker détient encore son bail après l'appel**. Une perte de bail prime sur l'échec Gemini afin qu'un worker obsolète ne publie pas le repli. Les `receivedPieces` du repli sont **toujours** conservées, même quand l'IA en propose.
 
 Blocs sources autorisés dans `affaire_brief_source_links` : `summary`, `project_object`, `scope`, `lots`, `received_pieces`, `assumptions`, `vigilance_points`, `missing_elements` (`…est372…:60-72`).
 
@@ -245,7 +291,11 @@ Couverture end-to-end du domaine : `e2e/estimates/affaire-pilotage-panel.spec.ts
 4. **Les hypothèses IA obsolètes ne sont jamais désactivées** (`register-server.ts:1364`), contrairement aux pièces manquantes.
 5. **Réactiver une entrée de registre efface son historique de workflow** en métadonnée (`register-server.ts:583-592`).
 6. **La suppression d'affaire est un DELETE dur en cascade**, sans filtre `tenant_id` sur le `.delete()` (`src/app/api/affaires/[projectId]/route.ts:54-57`).
-7. **Un upload intake bloqué en `processing` n'est jamais repris** : `next_retry_at` est toujours remis à `null` et aucun planificateur ne le lit (`intake-server.ts:2544`).
+7. **La reprise intake dépend de l'exploitation du cron durable** : les lots
+   `queued`/stales sont revendiquables avec bail et repli, mais la cadence
+   `*/5` exige Vercel Pro/Enterprise, `CRON_SECRET` et un déploiement effectif.
+   Aucun de ces états distants n'est attesté par le dépôt local et aucun appel
+   Gemini réel n'a été déclenché pour valider ce lot.
 8. **`doc`/`docx` sont acceptés mais jamais analysés par l'IA** (`intake.ts:439-449`), donc classés au seul jugé du nom de fichier.
 9. **Un paramètre de tri invalide est silencieusement remplacé** par le défaut, côté Zod (`schemas.ts:98-106`) comme côté SQL (`20260713205956…:56-64`).
 10. **La readiness du hub disparaît silencieusement** si l'intake ou le registre échoue (`src/lib/affaires/server.ts:978, 985, 1028`).

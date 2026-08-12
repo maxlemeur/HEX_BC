@@ -264,6 +264,7 @@ export async function POST(
             type: "acceptance_confirmation",
             status: emailStatus,
             provider_id: emailResult?.id ?? null,
+            sent_at: emailStatus === "sent" ? acceptedAt : null,
           });
 
           if (emailSendError) {

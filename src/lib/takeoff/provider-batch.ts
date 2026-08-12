@@ -2,6 +2,7 @@ import type { PostgrestError } from "@supabase/supabase-js";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
+import type { GeminiBatchLifecycleEvent } from "@/lib/takeoff/gemini-client";
 import {
   TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS,
 } from "@/lib/takeoff/constants";
@@ -36,6 +37,9 @@ type PersistTakeoffProviderBatchSnapshotInput = {
   observedAtIso: string;
   message?: string | null;
   metadata?: Record<string, unknown>;
+  processingLeaseToken?: string | null;
+  providerReconcileLeaseToken?: string | null;
+  nowIso?: string;
 };
 
 type PersistTakeoffProviderBatchSnapshotResult = {
@@ -186,8 +190,13 @@ export async function persistTakeoffProviderBatchSnapshot(
     return nextSnapshot;
   }
 
-  const { error } = await input.supabase.rpc(
-    "persist_takeoff_provider_batch_snapshot" as never,
+  const fenced = Boolean(
+    input.processingLeaseToken || input.providerReconcileLeaseToken
+  );
+  const { data, error } = await input.supabase.rpc(
+    (fenced
+      ? "persist_takeoff_provider_batch_snapshot_fenced"
+      : "persist_takeoff_provider_batch_snapshot") as never,
     {
       p_job_id: input.jobId,
       p_tenant_id: input.tenantId,
@@ -202,6 +211,14 @@ export async function persistTakeoffProviderBatchSnapshot(
       p_metadata: input.metadata ?? {},
       p_should_update_snapshot: snapshotChanged,
       p_should_insert_event: shouldInsertEvent,
+      ...(fenced
+        ? {
+            p_processing_lease_token: input.processingLeaseToken ?? null,
+            p_provider_reconcile_lease_token:
+              input.providerReconcileLeaseToken ?? null,
+            p_now: input.nowIso ?? input.observedAtIso,
+          }
+        : {}),
     } as never
   );
 
@@ -219,5 +236,65 @@ export async function persistTakeoffProviderBatchSnapshot(
     );
   }
 
+  if (fenced && data !== true) {
+    throw toTakeoffError(
+      new Error("Le lease takeoff n'est plus disponible."),
+      {
+        fallbackCode: TakeoffErrorCode.CONFLICT,
+        fallbackMessage: "Le lease takeoff n'est plus disponible.",
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
   return nextSnapshot;
+}
+
+export async function persistGeminiBatchLifecycleEvent<
+  TJob extends ProviderBatchSnapshot & {
+    id: string;
+    tenant_id: string;
+    estimate_version_id: string;
+    processing_lease_token: string | null;
+    provider_reconcile_lease_token: string | null;
+  },
+>(input: {
+  supabase: Supabase;
+  job: TJob;
+  event: GeminiBatchLifecycleEvent;
+  nowIso: string;
+}): Promise<TJob> {
+  const providerBatchState = normalizeGeminiProviderBatchState(
+    input.event.providerBatchStateRaw
+  );
+  const snapshot = await persistTakeoffProviderBatchSnapshot({
+    supabase: input.supabase,
+    jobId: input.job.id,
+    tenantId: input.job.tenant_id,
+    estimateVersionId: input.job.estimate_version_id,
+    provider: "gemini",
+    currentSnapshot: input.job,
+    processingStrategy: "batch",
+    providerBatchId: input.event.providerBatchId,
+    providerBatchState,
+    providerStateRaw: input.event.providerBatchStateRaw,
+    observedAtIso: input.event.observedAt,
+    message: input.event.message,
+    metadata: {
+      provider: input.event.provider,
+      is_terminal: input.event.isTerminal,
+    },
+    processingLeaseToken: input.job.processing_lease_token,
+    providerReconcileLeaseToken: input.job.provider_reconcile_lease_token,
+    nowIso: input.nowIso,
+  });
+
+  return {
+    ...input.job,
+    processing_strategy: snapshot.processing_strategy,
+    provider_batch_id: snapshot.provider_batch_id,
+    provider_batch_state: snapshot.provider_batch_state,
+    provider_batch_updated_at: snapshot.provider_batch_updated_at,
+  };
 }

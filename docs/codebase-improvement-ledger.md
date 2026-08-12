@@ -22,7 +22,7 @@ partie de ce chantier sans autorisation distincte.
 | 2 | P0 | Rendre migrations et RLS réellement reproductibles | 5/5/3 | 30 | Terminé | `fix(db): make local migrations and RLS reproducible` |
 | 3 | P1 | Unifier la frontière auth/tenant/service-role | 5/5/2 | 40 | Terminé | `fix(auth): unify active tenant boundaries` |
 | 4 | P1 | Fiabiliser les garde-fous CI et locaux | 4/4/1 | 40 | Terminé | `ci: enforce production quality gates` |
-| 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | À faire | — |
+| 5 | P1 | Transactionnaliser les workflows et effets externes | 5/5/4 | 20 | Terminé | `fix(workflows): make external effects recoverable` |
 | 6 | P1 | Décomposer les hotspots par strangler | 5/4/3 | 27 | À faire | — |
 | 7 | P2 | Terminer le moteur de calcul v2 et gouverner les contrats | 4/4/4 | 16 | À faire | — |
 
@@ -331,14 +331,74 @@ Le score reprend la formule de priorisation de l'audit :
 
 ## Lot 5 — Workflows et effets externes transactionnels
 
-- [ ] Remplacer ou transactionnaliser les quatre DELETE directs de rollback de création et couvrir leurs échecs intermédiaires.
-- [ ] Transactionnaliser d'abord la réécriture des bons de commande.
-- [ ] Introduire une outbox idempotente pour les envois et dispatchs externes retenus.
-- [ ] Distinguer état métier, livraison en attente, succès et échec réconciliable.
-- [ ] Ajouter retry, reprise des états bloqués et tests d'échec intermédiaire.
-- [ ] Définir puis tester le cycle de vie des jobs takeoff/intake déjà en file
+- [x] Remplacer ou transactionnaliser les quatre DELETE directs de rollback de création et couvrir leurs échecs intermédiaires.
+- [x] Transactionnaliser d'abord la réécriture des bons de commande.
+- [x] Introduire une outbox idempotente pour les envois et dispatchs externes retenus.
+- [x] Distinguer état métier, livraison en attente, succès et échec réconciliable.
+- [x] Ajouter retry, reprise des états bloqués et tests d'échec intermédiaire.
+- [x] Définir puis tester le cycle de vie des jobs takeoff/intake déjà en file
   lorsqu'un tenant est suspendu, sans appel fournisseur sur un tenant inactif.
-- [ ] Valider, documenter et committer le lot.
+- [x] Valider et documenter le lot.
+- [x] Committer le lot.
+
+### Décisions et périmètre
+
+- Sept migrations append-only introduisent les baux de reprise takeoff/intake,
+  l'état `sending`, l'outbox d'email initial, les écritures atomiques devis/commandes,
+  le cleanup Storage procurement, le fencing de publication PDF et le compteur
+  `sending` des affaires. Les claims, renouvellements et finalisations contrôlent
+  le tenant actif et utilisent des tokens de bail ou de publication comparés sous
+  verrou ; la reprise interne est exposée derrière `CRON_SECRET`.
+- L'envoi initial d'un devis est préparé dans une transaction : enveloppe, contenu,
+  PDF et clé fournisseur sont figés avant Resend. Un `Idempotency-Key` UUID stable
+  permet le replay du même dispatch ; un rejet fournisseur certain rend le dispatch
+  terminal et impose une nouvelle clé, tandis qu'une issue ambiguë devient
+  réconciliable sans annoncer à tort un succès.
+- Toute nouvelle publication PDF utilise la clé immuable
+  `tenant/projet/version/<sha256>.pdf`, avec upload `upsert: false` puis publication
+  conditionnée par le token, la révision, le statut et le dispatch. La lecture
+  historique reste bornée à un unique nom de fichier PDF déjà référencé, UUID ou
+  nom commercial historique, qui ne peut changer ni de chemin ni d'empreinte.
+- La réécriture et la suppression d'une commande sont atomiques en base. Les chemins
+  Storage à supprimer sont capturés dans une outbox durable, puis revalidés dans le
+  namespace strict `purchase-orders/<purchase_order_id>/<filename>` avant l'appel
+  privilégié. La création d'un devis et le remplacement des lignes de commande ne
+  reposent plus sur des `DELETE` applicatifs compensatoires.
+
+### Validation
+
+- Manifeste migrations, validation et garde Git : 202/202 fichiers cohérents.
+  `npm run db:ci:local` est vert sur un reset frais : inventaire exact, pgTAP,
+  matrice RLS 2/2 et cleanup complet de la pile éphémère.
+- Architecture : 833 modules analysés et un seul cycle runtime autorisé. OpenAPI
+  synchronisé, typecheck et lint globaux verts.
+- Projet Vitest Node, après un premier crash transitoire d'un worker sans assertion
+  métier en échec : relance verte, 330 fichiers réussis, 1 ignoré ; 2 386 tests
+  réussis, 2 ignorés. Projet jsdom : 198 fichiers et 1 304 tests réussis.
+- Couverture critique : 12/12 tests ; 95,91 % statements, 95,45 % branches,
+  100 % fonctions et 97,91 % lignes. Audit : zéro finding bloquant ; 868 paquets
+  signés et 309 attestations vérifiées.
+- `npm run verify:production` : OpenAPI synchronisé, Next.js 16.3 compilé par
+  Webpack en 11,9 s, TypeScript en 3,3 s et 42/42 pages générées. Le serveur
+  `127.0.0.1:60003` était prêt en 105 ms ; les probes HTTP et asset sont vertes,
+  avec le verdict final `Production Webpack build and HTTP smoke passed.`
+
+### Limites explicites
+
+- Aucun Supabase distant, email réel, fournisseur, push ou déploiement n'a été
+  exercé. Le cron toutes les cinq minutes exige Vercel Pro ou Enterprise ; le plan,
+  `CRON_SECRET` et le déploiement ne sont pas vérifiés.
+- Seul l'email initial passe par l'outbox ; les notifications d'acceptation et
+  d'approbation restent best-effort. L'idempotence fournisseur est bornée à 23 h ;
+  au-delà, ou si le résultat demeure ambigu, le dispatch reste `unknown` sans
+  interface de réconciliation dédiée dans ce lot.
+- La concurrence procurement est couverte par verrouillage structurel, pas par un
+  vrai test Vn/Vn+1 à deux sessions. Les upserts de catégories et rôles de main-d'œuvre
+  précèdent encore la transaction, mais sont idempotents ; la validation directe des
+  totaux/FK par RPC est différée au lot 7.
+- La réouverture des commandes est préservée. La création multi-fournisseur reste
+  séquentielle avec compensation. Une publication PDF supplantée après upload peut
+  laisser un objet content-addressé orphelin ; son cleanup différé reste à traiter.
 
 ## Lot 6 — Décomposition des hotspots par strangler
 

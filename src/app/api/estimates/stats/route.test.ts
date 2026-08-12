@@ -21,7 +21,7 @@ type MembershipRow = {
 
 type VersionRow = {
   id: string;
-  status: "draft" | "sent" | "accepted" | "archived";
+  status: "draft" | "sending" | "sent" | "accepted" | "archived";
   created_at: string;
   updated_at: string;
   total_ht_cents: number;
@@ -112,6 +112,13 @@ describe("estimate stats route", () => {
         total_ht_cents: 300000,
       },
       {
+        id: "v-sending",
+        status: "sending",
+        created_at: monthDate(-1, 5),
+        updated_at: monthDate(-1, 5),
+        total_ht_cents: 200000,
+      },
+      {
         id: "v-accepted",
         status: "accepted",
         created_at: monthDate(-2, 9),
@@ -148,9 +155,10 @@ describe("estimate stats route", () => {
         ok: true,
         data: expect.objectContaining({
           kpis: expect.objectContaining({
-            totalEstimates: 4,
+            totalEstimates: 5,
             byStatus: {
               draft: 1,
+              sending: 1,
               sent: 1,
               accepted: 1,
               archived: 1,
@@ -163,7 +171,7 @@ describe("estimate stats route", () => {
             revenues: {
               acceptedCents: 450000,
               sentCents: 300000,
-              draftCents: 120000,
+              draftCents: 320000,
             },
           }),
           trend: expect.any(Array),
@@ -181,7 +189,7 @@ describe("estimate stats route", () => {
       0
     );
 
-    expect(createdTrendTotal).toBe(4);
+    expect(createdTrendTotal).toBe(5);
     expect(acceptedTrendTotal).toBe(1);
     expect(versionsQuery.eq).toHaveBeenCalledWith("tenant_id", "tenant-1");
   });

@@ -22,6 +22,10 @@ import type {
   EstimatePdfLayoutConfiguration,
   EstimatePdfLayoutOptions,
 } from "@/lib/estimates/pdf-layout";
+import {
+  isEstimateStatus,
+  type EstimateStatus as CanonicalEstimateStatus,
+} from "@/lib/estimates/status";
 
 type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -50,7 +54,7 @@ type MarginTier = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 
-export type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+export type EstimateStatus = CanonicalEstimateStatus;
 export type EstimateVersionEventType =
   | "sent"
   | "accepted"
@@ -62,12 +66,6 @@ export type EstimateVersionEventType =
   | "approval_status_changed"
   | "approval_decided";
 
-const ESTIMATE_STATUS_VALUES: EstimateStatus[] = [
-  "draft",
-  "sent",
-  "accepted",
-  "archived",
-];
 const ESTIMATE_CURRENCY_VALUES = ["EUR", "USD", "GBP"] as const;
 const ESTIMATE_VERSION_API_PATH_PATTERN =
   /^\/api\/estimates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?]|$)/i;
@@ -1111,10 +1109,6 @@ function normalizeOutlierDismissedByItemId(
   });
 
   return parsedMap;
-}
-
-function isEstimateStatus(value: string): value is EstimateStatus {
-  return ESTIMATE_STATUS_VALUES.includes(value as EstimateStatus);
 }
 
 function normalizeEstimateCurrency(value: unknown): string | null {

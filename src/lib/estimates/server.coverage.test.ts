@@ -1414,55 +1414,36 @@ describe("estimate server coverage additions", () => {
 
   it("creates an estimate with default version values when optional fields are omitted", async () => {
     const base = createAuth("engineer");
-    const insertedProjectPayloads: Array<Record<string, unknown>> = [];
-    const insertedVersionPayloads: Array<Record<string, unknown>> = [];
+    const persistenceCalls: Array<Record<string, unknown>> = [];
     const categoryUpsertCalls: unknown[] = [];
     const laborRoleUpsertCalls: unknown[] = [];
 
     const supabase = {
       ...base,
+      rpc: vi.fn((name: string, payload: Record<string, unknown>) => {
+        if (name !== "persist_estimate_creation_atomic") {
+          throw new Error(`Unexpected RPC: ${name}`);
+        }
+        persistenceCalls.push(payload);
+        return {
+          data: {
+            project: {
+              id: PROJECT_ID,
+              name: "Projet test",
+            },
+            version: {
+              id: VERSION_ID,
+              project_id: PROJECT_ID,
+              status: "draft",
+            },
+          },
+          error: null,
+        };
+      }),
       from: vi.fn((table: string) => {
         if (table === "tenant_memberships") {
           return {
             select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_projects") {
-          return {
-            insert: vi.fn((payload: Record<string, unknown>) => {
-              insertedProjectPayloads.push(payload);
-              return {
-                select: vi.fn(() => ({
-                  single: vi.fn(() => ({
-                    data: {
-                      id: PROJECT_ID,
-                      name: "Projet test",
-                    },
-                    error: null,
-                  })),
-                })),
-              };
-            }),
-            delete: vi.fn(() => chainResult({ data: null, error: null })),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            insert: vi.fn((payload: Record<string, unknown>) => {
-              insertedVersionPayloads.push(payload);
-              return {
-                select: vi.fn(() => ({
-                  single: vi.fn(() => ({
-                    data: {
-                      id: VERSION_ID,
-                      project_id: PROJECT_ID,
-                      status: "draft",
-                    },
-                    error: null,
-                  })),
-                })),
-              };
-            }),
           };
         }
         if (table === "estimate_categories") {
@@ -1504,32 +1485,35 @@ describe("estimate server coverage additions", () => {
 
     expect(result.project.id).toBe(PROJECT_ID);
     expect(result.version.id).toBe(VERSION_ID);
-    expect(insertedProjectPayloads[0]).toMatchObject({
-      tenant_id: TENANT_ID,
-      user_id: USER_ID,
-      reference: "REF",
-      client_name: "Client",
-      notes: "Notes",
+    expect(persistenceCalls).toHaveLength(1);
+    expect(persistenceCalls[0]).toMatchObject({
+      p_tenant_id: TENANT_ID,
+      p_project_id: null,
+      p_project_payload: {
+        reference: "REF",
+        client_name: "Client",
+        notes: "Notes",
+      },
+      p_version_payload: {
+        validite_jours: 30,
+        margin_multiplier: 1,
+        margin_mode: "fixed",
+        currency: "EUR",
+        margin_bp: 0,
+        discount_bp: 0,
+        tax_rate_bp: 2000,
+        rounding_mode: "none",
+        rounding_step_cents: 1,
+        total_ht_cents: 0,
+        total_tax_cents: 0,
+        total_ttc_cents: 0,
+      },
+      p_items: [],
     });
-    expect(insertedVersionPayloads[0]).toMatchObject({
-      tenant_id: TENANT_ID,
-      project_id: PROJECT_ID,
-      version_number: 1,
-      status: "draft",
-      validite_jours: 30,
-      margin_multiplier: 1,
-      margin_mode: "fixed",
-      currency: "EUR",
-      margin_bp: 0,
-      discount_bp: 0,
-      tax_rate_bp: 2000,
-      rounding_mode: "none",
-      rounding_step_cents: 1,
-      total_ht_cents: 0,
-      total_tax_cents: 0,
-      total_ttc_cents: 0,
-    });
-    expect(insertedVersionPayloads[0]?.date_devis).toBe(
+    const versionPayload = persistenceCalls[0]?.p_version_payload as
+      | Record<string, unknown>
+      | undefined;
+    expect(versionPayload?.date_devis).toBe(
       new Date().toISOString().slice(0, 10)
     );
     expect(categoryUpsertCalls).toHaveLength(1);

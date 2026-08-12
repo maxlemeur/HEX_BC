@@ -1,6 +1,7 @@
 import { cache } from "react";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { normalizeAffaireCounters } from "@/lib/affaires/status-counts";
 import {
   computeEstimateBreakdown,
   computeStoredDiscountCents,
@@ -546,6 +547,7 @@ function buildManagerQueueCounts(
 function buildStatusCounts(items: AffaireListItem[]): Record<AffaireStatus, number> {
   const counts: Record<AffaireStatus, number> = {
     draft: 0,
+    sending: 0,
     sent: 0,
     accepted: 0,
     archived: 0,
@@ -1907,21 +1909,13 @@ async function fetchAffaireCountersWithContext(
     total_count: 0,
     filtered_count: 0,
     draft_count: 0,
+    sending_count: 0,
     sent_count: 0,
     accepted_count: 0,
     archived_count: 0,
   };
 
-  return {
-    totalCount: toSafeInteger(row.total_count),
-    filteredCount: toSafeInteger(row.filtered_count),
-    statusCounts: {
-      draft: toSafeInteger(row.draft_count),
-      sent: toSafeInteger(row.sent_count),
-      accepted: toSafeInteger(row.accepted_count),
-      archived: toSafeInteger(row.archived_count),
-    },
-  };
+  return normalizeAffaireCounters(row);
 }
 
 async function fetchAffaireManagerFilteredPageDataWithContext(

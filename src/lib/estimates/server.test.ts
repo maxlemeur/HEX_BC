@@ -363,43 +363,29 @@ function createCreateEstimateSupabaseMock() {
     error: null,
   });
 
-  const estimateProjectInsertSingle = vi.fn().mockResolvedValue({
+  const persistEstimateCreation = vi.fn().mockResolvedValue({
     data: {
-      id: PROJECT_ID,
-      tenant_id: TENANT_ID,
-      user_id: USER_ID,
-      name: "Projet test",
-      reference: null,
-      client_name: null,
-      notes: null,
-      is_archived: false,
+      project: {
+        id: PROJECT_ID,
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        name: "Projet test",
+        reference: null,
+        client_name: null,
+        notes: null,
+        is_archived: false,
+      },
+      version: {
+        id: VERSION_ID,
+        tenant_id: TENANT_ID,
+        project_id: PROJECT_ID,
+        version_number: 1,
+        status: "draft",
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
     },
     error: null,
   });
-
-  const estimateProjectInsert = vi.fn(() => ({
-    select: vi.fn(() => ({
-      single: estimateProjectInsertSingle,
-    })),
-  }));
-
-  const estimateVersionInsertSingle = vi.fn().mockResolvedValue({
-    data: {
-      id: VERSION_ID,
-      tenant_id: TENANT_ID,
-      project_id: PROJECT_ID,
-      version_number: 1,
-      status: "draft",
-      updated_at: NEXT_VERSION_UPDATED_AT,
-    },
-    error: null,
-  });
-
-  const estimateVersionInsert = vi.fn(() => ({
-    select: vi.fn(() => ({
-      single: estimateVersionInsertSingle,
-    })),
-  }));
 
   const estimateCategoriesUpsert = vi.fn().mockResolvedValue({
     error: null,
@@ -419,27 +405,11 @@ function createCreateEstimateSupabaseMock() {
         error: null,
       }),
     },
+    rpc: persistEstimateCreation,
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
           select: vi.fn(() => tenantMembershipBuilder),
-        };
-      }
-
-      if (table === "estimate_projects") {
-        return {
-          insert: estimateProjectInsert,
-          delete: vi.fn(() => ({
-            eq: vi.fn().mockResolvedValue({
-              error: null,
-            }),
-          })),
-        };
-      }
-
-      if (table === "estimate_versions") {
-        return {
-          insert: estimateVersionInsert,
         };
       }
 
@@ -458,8 +428,7 @@ function createCreateEstimateSupabaseMock() {
       throw new Error(`Unexpected table: ${table}`);
     }),
     __mocks: {
-      estimateProjectInsert,
-      estimateVersionInsert,
+      persistEstimateCreation,
       estimateCategoriesUpsert,
       estimateLaborRolesUpsert,
     },
@@ -540,29 +509,26 @@ function createCreateEstimateIntoExistingProjectSupabaseMock() {
     error: null,
   });
 
-  const estimateVersionInsertSingle = vi.fn().mockResolvedValue({
+  const persistEstimateCreation = vi.fn().mockResolvedValue({
     data: {
-      id: VERSION_ID,
-      tenant_id: TENANT_ID,
-      project_id: PROJECT_ID,
-      version_number: 4,
-      status: "draft",
-      updated_at: NEXT_VERSION_UPDATED_AT,
+      project: {
+        id: PROJECT_ID,
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        name: "Projet existant",
+        is_archived: false,
+      },
+      version: {
+        id: VERSION_ID,
+        tenant_id: TENANT_ID,
+        project_id: PROJECT_ID,
+        version_number: 4,
+        status: "draft",
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
     },
     error: null,
   });
-
-  const estimateVersionInsert = vi.fn(() => ({
-    select: vi.fn(() => ({
-      single: estimateVersionInsertSingle,
-    })),
-  }));
-
-  const estimateVersionDelete = vi.fn(() => ({
-    eq: vi.fn(() => ({
-      eq: vi.fn().mockResolvedValue({ error: null }),
-    })),
-  }));
 
   const estimateCategoriesUpsert = vi.fn().mockResolvedValue({
     error: null,
@@ -582,6 +548,7 @@ function createCreateEstimateIntoExistingProjectSupabaseMock() {
         error: null,
       }),
     },
+    rpc: persistEstimateCreation,
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
@@ -598,8 +565,6 @@ function createCreateEstimateIntoExistingProjectSupabaseMock() {
       if (table === "estimate_versions") {
         return {
           select: vi.fn(() => latestVersionBuilder),
-          insert: estimateVersionInsert,
-          delete: estimateVersionDelete,
         };
       }
 
@@ -618,12 +583,109 @@ function createCreateEstimateIntoExistingProjectSupabaseMock() {
       throw new Error(`Unexpected table: ${table}`);
     }),
     __mocks: {
-      estimateVersionInsert,
+      persistEstimateCreation,
       estimateCategoriesUpsert,
       estimateLaborRolesUpsert,
       estimateProjectSelectBuilder,
     },
   };
+
+  return supabase;
+}
+
+function createLinkedDpgfEstimateIntoExistingProjectSupabaseMock() {
+  const supabase = createCreateEstimateIntoExistingProjectSupabaseMock();
+  const baseFrom = supabase.from;
+
+  const dpgfImportBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+  dpgfImportBuilder.eq.mockReturnValue(dpgfImportBuilder);
+  dpgfImportBuilder.order.mockReturnValue(dpgfImportBuilder);
+  dpgfImportBuilder.limit.mockReturnValue(dpgfImportBuilder);
+  dpgfImportBuilder.maybeSingle.mockResolvedValue({
+    data: {
+      id: "abababab-abab-4bab-8bab-abababababab",
+      filename: "source-linked.xlsx",
+      source_format: "xlsx",
+      status: "mapped",
+      created_at: "2026-02-20T09:00:00.000Z",
+      parse_mode: "structured",
+      row_count: 1,
+    },
+    error: null,
+  });
+
+  const mappedRowsResult = {
+    data: [
+      {
+        id: "bcbcbcbc-bcbc-4bcb-8bcb-bcbcbcbcbcbc",
+        payload: {
+          row_index: 7,
+          mapped_row: {
+            designation: "Cable cuivre lie",
+            quantity: "2",
+            unit_price_ht: "10,50",
+          },
+        },
+        created_at: "2026-02-20T09:01:00.000Z",
+      },
+    ],
+    error: null,
+  };
+  const dpgfRowsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    then: vi.fn((resolve: (value: typeof mappedRowsResult) => unknown) =>
+      resolve(mappedRowsResult)
+    ),
+  };
+  dpgfRowsBuilder.eq.mockReturnValue(dpgfRowsBuilder);
+  dpgfRowsBuilder.order.mockReturnValue(dpgfRowsBuilder);
+
+  const emptyItemsResult = { data: [], error: null };
+  const estimateItemsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+    is: vi.fn(),
+    then: vi.fn((resolve: (value: typeof emptyItemsResult) => unknown) =>
+      resolve(emptyItemsResult)
+    ),
+  };
+  estimateItemsBuilder.eq.mockReturnValue(estimateItemsBuilder);
+  estimateItemsBuilder.order.mockReturnValue(estimateItemsBuilder);
+  estimateItemsBuilder.limit.mockReturnValue(estimateItemsBuilder);
+  estimateItemsBuilder.is.mockReturnValue(estimateItemsBuilder);
+
+  const featureFlagBuilder = {
+    eq: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+  featureFlagBuilder.eq.mockReturnValue(featureFlagBuilder);
+  featureFlagBuilder.maybeSingle.mockResolvedValue({
+    data: { enabled: false },
+    error: null,
+  });
+
+  supabase.from = vi.fn((table: string) => {
+    if (table === "dpgf_imports") {
+      return { select: vi.fn(() => dpgfImportBuilder) };
+    }
+    if (table === "dpgf_rows_mapped") {
+      return { select: vi.fn(() => dpgfRowsBuilder) };
+    }
+    if (table === "estimate_items") {
+      return { select: vi.fn(() => estimateItemsBuilder) };
+    }
+    if (table === "feature_flags") {
+      return { select: vi.fn(() => featureFlagBuilder) };
+    }
+    return baseFrom(table);
+  }) as typeof supabase.from;
 
   return supabase;
 }
@@ -1567,11 +1629,14 @@ describe("createEstimate payload", () => {
       },
     });
 
-    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+    expect(supabase.__mocks.persistEstimateCreation).toHaveBeenCalledWith(
+      "persist_estimate_creation_atomic",
       expect.objectContaining({
-        discount_mode: "cascade",
-        discount_steps: [250, 100],
-        global_coefficient: 1.2,
+        p_version_payload: expect.objectContaining({
+          discount_mode: "cascade",
+          discount_steps: [250, 100],
+          global_coefficient: 1.2,
+        }),
       })
     );
   });
@@ -1586,11 +1651,14 @@ describe("createEstimate payload", () => {
       },
     });
 
-    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+    expect(supabase.__mocks.persistEstimateCreation).toHaveBeenCalledWith(
+      "persist_estimate_creation_atomic",
       expect.objectContaining({
-        discount_mode: "simple",
-        discount_steps: [],
-        global_coefficient: 1,
+        p_version_payload: expect.objectContaining({
+          discount_mode: "simple",
+          discount_steps: [],
+          global_coefficient: 1,
+        }),
       })
     );
   });
@@ -1608,9 +1676,12 @@ describe("createEstimate payload", () => {
       } as unknown as NonNullable<Parameters<typeof createEstimate>[0]["version"]>,
     });
 
-    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+    expect(supabase.__mocks.persistEstimateCreation).toHaveBeenCalledWith(
+      "persist_estimate_creation_atomic",
       expect.objectContaining({
-        currency: "GBP",
+        p_version_payload: expect.objectContaining({
+          currency: "GBP",
+        }),
       })
     );
   });
@@ -1634,8 +1705,7 @@ describe("createEstimate payload", () => {
       message: "Devise invalide. Valeurs autorisees: EUR, USD, GBP.",
     });
 
-    expect(supabase.__mocks.estimateProjectInsert).not.toHaveBeenCalled();
-    expect(supabase.__mocks.estimateVersionInsert).not.toHaveBeenCalled();
+    expect(supabase.__mocks.persistEstimateCreation).not.toHaveBeenCalled();
   });
 
   it("rejects linked_dpgf_source creation mode when project_id is missing", async () => {
@@ -1655,8 +1725,7 @@ describe("createEstimate payload", () => {
       message: "creation_mode=linked_dpgf_source requiert project_id.",
     });
 
-    expect(supabase.__mocks.estimateProjectInsert).not.toHaveBeenCalled();
-    expect(supabase.__mocks.estimateVersionInsert).not.toHaveBeenCalled();
+    expect(supabase.__mocks.persistEstimateCreation).not.toHaveBeenCalled();
   });
 
   it("creates a new version on an existing project when project_id is provided", async () => {
@@ -1681,29 +1750,88 @@ describe("createEstimate payload", () => {
       },
     });
 
-    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+    expect(supabase.__mocks.persistEstimateCreation).toHaveBeenCalledWith(
+      "persist_estimate_creation_atomic",
       expect.objectContaining({
-        project_id: PROJECT_ID,
-        version_number: 4,
-        title: "V4",
-        validite_jours: 45,
-        margin_multiplier: 1.12,
-        margin_mode: "fixed",
-        currency: "EUR",
-        margin_bp: 50,
-        discount_bp: 75,
-        discount_mode: "cascade",
-        discount_steps: [200, 100],
-        global_coefficient: 1.05,
-        tax_rate_bp: 2000,
-        rounding_mode: "nearest",
-        rounding_step_cents: 100,
-        max_section_depth: 3,
+        p_project_id: PROJECT_ID,
+        p_project_payload: null,
+        p_version_payload: expect.objectContaining({
+          title: "V4",
+          validite_jours: 45,
+          margin_multiplier: 1.12,
+          margin_mode: "fixed",
+          currency: "EUR",
+          margin_bp: 50,
+          discount_bp: 75,
+          discount_mode: "cascade",
+          discount_steps: [200, 100],
+          global_coefficient: 1.05,
+          tax_rate_bp: 2000,
+          rounding_mode: "nearest",
+          rounding_step_cents: 100,
+          max_section_depth: 3,
+        }),
       })
     );
     expect(supabase.__mocks.estimateProjectSelectBuilder.eq).toHaveBeenCalledWith(
       "id",
       PROJECT_ID
+    );
+  });
+
+  it("atomically persists a linked DPGF source into an existing project", async () => {
+    const supabase = createLinkedDpgfEstimateIntoExistingProjectSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createEstimate({
+        project_id: PROJECT_ID,
+        creation_mode: "linked_dpgf_source",
+      })
+    ).resolves.toMatchObject({
+      project: { id: PROJECT_ID },
+      version: { project_id: PROJECT_ID },
+    });
+
+    expect(supabase.__mocks.persistEstimateCreation).toHaveBeenCalledWith(
+      "persist_estimate_creation_atomic",
+      expect.objectContaining({
+        p_project_id: PROJECT_ID,
+        p_project_payload: null,
+        p_items: expect.arrayContaining([
+          expect.objectContaining({
+            item_type: "section",
+            source_provider: "dpgf",
+            source_file_name: "source-linked.xlsx",
+          }),
+          expect.objectContaining({
+            item_type: "line",
+            title: "Cable cuivre lie",
+            source_provider: "dpgf",
+            source_page: 7,
+          }),
+        ]),
+      })
+    );
+
+    const persistenceCalls = supabase.__mocks.persistEstimateCreation.mock
+      .calls as unknown as Array<
+      [
+        string,
+        {
+          p_version_payload: {
+            total_ht_cents: number;
+            total_tax_cents: number;
+            total_ttc_cents: number;
+          };
+        },
+      ]
+    >;
+    const totals = persistenceCalls[0]?.[1].p_version_payload;
+    expect(totals?.total_ht_cents).toBeGreaterThan(0);
+    expect(totals?.total_tax_cents).toBeGreaterThan(0);
+    expect(totals?.total_ttc_cents).toBeGreaterThan(
+      totals?.total_ht_cents ?? 0
     );
   });
 });

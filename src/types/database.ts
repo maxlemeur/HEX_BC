@@ -432,6 +432,60 @@ export type Database = {
         };
         Relationships: [];
       };
+      procurement_storage_cleanup_outbox: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          purchase_order_id: string;
+          bucket_id: "devis";
+          storage_path: string;
+          attempts: number;
+          max_attempts: number;
+          last_attempt_at: string | null;
+          next_attempt_at: string;
+          lease_token: string | null;
+          lease_expires_at: string | null;
+          last_error: string | null;
+          completed_at: string | null;
+          abandoned_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id: string;
+          purchase_order_id: string;
+          bucket_id?: "devis";
+          storage_path: string;
+          attempts?: number;
+          max_attempts?: number;
+          last_attempt_at?: string | null;
+          next_attempt_at?: string;
+          lease_token?: string | null;
+          lease_expires_at?: string | null;
+          last_error?: string | null;
+          completed_at?: string | null;
+          abandoned_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          purchase_order_id?: string;
+          bucket_id?: "devis";
+          storage_path?: string;
+          attempts?: number;
+          max_attempts?: number;
+          last_attempt_at?: string | null;
+          next_attempt_at?: string;
+          lease_token?: string | null;
+          lease_expires_at?: string | null;
+          last_error?: string | null;
+          completed_at?: string | null;
+          abandoned_at?: string | null;
+        };
+        Relationships: [];
+      };
       supplier_catalog_items: {
         Row: {
           id: string;
@@ -1001,7 +1055,7 @@ export type Database = {
           tenant_id: string;
           project_id: string;
           version_number: number;
-          status: "draft" | "sent" | "accepted" | "archived";
+          status: "draft" | "sending" | "sent" | "accepted" | "archived";
           approval_status:
             | "not_required"
             | "required"
@@ -1029,6 +1083,7 @@ export type Database = {
           total_ht_cents: number;
           total_tax_cents: number;
           total_ttc_cents: number;
+          content_revision: number;
           seal_hash: string | null;
           parent_version_id: string | null;
           variant_label: string | null;
@@ -1042,7 +1097,7 @@ export type Database = {
           tenant_id?: string;
           project_id: string;
           version_number: number;
-          status?: "draft" | "sent" | "accepted" | "archived";
+          status?: "draft" | "sending" | "sent" | "accepted" | "archived";
           approval_status?:
             | "not_required"
             | "required"
@@ -1070,6 +1125,7 @@ export type Database = {
           total_ht_cents?: number;
           total_tax_cents?: number;
           total_ttc_cents?: number;
+          content_revision?: number;
           seal_hash?: string | null;
           parent_version_id?: string | null;
           variant_label?: string | null;
@@ -1083,7 +1139,7 @@ export type Database = {
           tenant_id?: string;
           project_id?: string;
           version_number?: number;
-          status?: "draft" | "sent" | "accepted" | "archived";
+          status?: "draft" | "sending" | "sent" | "accepted" | "archived";
           approval_status?:
             | "not_required"
             | "required"
@@ -1111,6 +1167,7 @@ export type Database = {
           total_ht_cents?: number;
           total_tax_cents?: number;
           total_ttc_cents?: number;
+          content_revision?: number;
           seal_hash?: string | null;
           parent_version_id?: string | null;
           variant_label?: string | null;
@@ -1468,6 +1525,15 @@ export type Database = {
           terms_snapshot: Json | null;
           status: "processing" | "ready" | "failed";
           last_error: string | null;
+          generation_token: string | null;
+          generation_purpose: "manual" | "email" | "workflow" | null;
+          generation_dispatch_id: string | null;
+          generation_content_revision: number | null;
+          generation_started_at: string | null;
+          published_generation_token: string | null;
+          published_purpose: "legacy" | "manual" | "email" | "workflow" | null;
+          published_dispatch_id: string | null;
+          published_content_revision: number | null;
         };
         Insert: {
           id?: string;
@@ -1484,6 +1550,15 @@ export type Database = {
           terms_snapshot?: Json | null;
           status: "processing" | "ready" | "failed";
           last_error?: string | null;
+          generation_token?: string | null;
+          generation_purpose?: "manual" | "email" | "workflow" | null;
+          generation_dispatch_id?: string | null;
+          generation_content_revision?: number | null;
+          generation_started_at?: string | null;
+          published_generation_token?: string | null;
+          published_purpose?: "legacy" | "manual" | "email" | "workflow" | null;
+          published_dispatch_id?: string | null;
+          published_content_revision?: number | null;
         };
         Update: {
           id?: string;
@@ -1500,6 +1575,15 @@ export type Database = {
           terms_snapshot?: Json | null;
           status?: "processing" | "ready" | "failed";
           last_error?: string | null;
+          generation_token?: string | null;
+          generation_purpose?: "manual" | "email" | "workflow" | null;
+          generation_dispatch_id?: string | null;
+          generation_content_revision?: number | null;
+          generation_started_at?: string | null;
+          published_generation_token?: string | null;
+          published_purpose?: "legacy" | "manual" | "email" | "workflow" | null;
+          published_dispatch_id?: string | null;
+          published_content_revision?: number | null;
         };
         Relationships: [
           {
@@ -1585,10 +1669,73 @@ export type Database = {
           },
         ];
       };
+      estimate_email_dispatch_events: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          version_id: string;
+          dispatch_id: string;
+          event_type: string;
+          metadata: Json;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id: string;
+          version_id: string;
+          dispatch_id: string;
+          event_type: string;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id?: string;
+          dispatch_id?: string;
+          event_type?: string;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "estimate_email_dispatch_events_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_email_dispatch_events_dispatch_id_fkey";
+            columns: ["dispatch_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_emails";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_email_dispatch_events_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_email_dispatch_events_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       estimate_emails: {
         Row: {
           id: string;
           created_at: string;
+          updated_at: string;
           tenant_id: string;
           version_id: string;
           recipient: string;
@@ -1599,10 +1746,31 @@ export type Database = {
           status: string;
           provider_id: string | null;
           sent_at: string | null;
+          request_id: string | null;
+          payload_hash: string | null;
+          provider_payload_hash: string | null;
+          idempotency_key: string | null;
+          created_by: string | null;
+          version_content_revision: number | null;
+          from_address: string | null;
+          html_body: string | null;
+          text_body: string | null;
+          document_path: string | null;
+          document_sha256: string | null;
+          attachment_filename: string | null;
+          attempt_count: number;
+          first_attempt_at: string | null;
+          last_attempt_at: string | null;
+          next_attempt_at: string | null;
+          lease_token: string | null;
+          lease_expires_at: string | null;
+          last_error_code: string | null;
+          last_error_message: string | null;
         };
         Insert: {
           id?: string;
           created_at?: string;
+          updated_at?: string;
           tenant_id?: string;
           version_id: string;
           recipient: string;
@@ -1613,10 +1781,31 @@ export type Database = {
           status?: string;
           provider_id?: string | null;
           sent_at?: string | null;
+          request_id?: string | null;
+          payload_hash?: string | null;
+          provider_payload_hash?: string | null;
+          idempotency_key?: string | null;
+          created_by?: string | null;
+          version_content_revision?: number | null;
+          from_address?: string | null;
+          html_body?: string | null;
+          text_body?: string | null;
+          document_path?: string | null;
+          document_sha256?: string | null;
+          attachment_filename?: string | null;
+          attempt_count?: number;
+          first_attempt_at?: string | null;
+          last_attempt_at?: string | null;
+          next_attempt_at?: string | null;
+          lease_token?: string | null;
+          lease_expires_at?: string | null;
+          last_error_code?: string | null;
+          last_error_message?: string | null;
         };
         Update: {
           id?: string;
           created_at?: string;
+          updated_at?: string;
           tenant_id?: string;
           version_id?: string;
           recipient?: string;
@@ -1627,8 +1816,35 @@ export type Database = {
           status?: string;
           provider_id?: string | null;
           sent_at?: string | null;
+          request_id?: string | null;
+          payload_hash?: string | null;
+          provider_payload_hash?: string | null;
+          idempotency_key?: string | null;
+          created_by?: string | null;
+          version_content_revision?: number | null;
+          from_address?: string | null;
+          html_body?: string | null;
+          text_body?: string | null;
+          document_path?: string | null;
+          document_sha256?: string | null;
+          attachment_filename?: string | null;
+          attempt_count?: number;
+          first_attempt_at?: string | null;
+          last_attempt_at?: string | null;
+          next_attempt_at?: string | null;
+          lease_token?: string | null;
+          lease_expires_at?: string | null;
+          last_error_code?: string | null;
+          last_error_message?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "estimate_emails_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "estimate_emails_tenant_id_fkey";
             columns: ["tenant_id"];
@@ -2830,6 +3046,43 @@ export type Database = {
           message: string | null;
         }[];
       };
+      claim_procurement_storage_cleanup: {
+        Args: {
+          p_tenant_id?: string | null;
+          p_limit?: number;
+          p_lease_seconds?: number;
+        };
+        Returns: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          purchase_order_id: string;
+          bucket_id: "devis";
+          storage_path: string;
+          attempts: number;
+          max_attempts: number;
+          last_attempt_at: string | null;
+          next_attempt_at: string;
+          lease_token: string | null;
+          lease_expires_at: string | null;
+          last_error: string | null;
+          completed_at: string | null;
+          abandoned_at: string | null;
+        }[];
+      };
+      complete_procurement_storage_cleanup: {
+        Args: {
+          p_cleanup_id: string;
+          p_lease_token: string;
+        };
+        Returns: boolean;
+      };
+      delete_purchase_order_draft_atomic: {
+        Args: {
+          p_order_id: string;
+        };
+        Returns: Json;
+      };
       catalogue_normalize_search: {
         Args: { value: string };
         Returns: string;
@@ -2896,6 +3149,39 @@ export type Database = {
           label: string;
           reference: string | null;
         }[];
+      };
+      persist_estimate_creation_atomic: {
+        Args: {
+          p_tenant_id: string;
+          p_project_id: string | null;
+          p_project_payload: Json | null;
+          p_version_payload: Json;
+          p_items: Json;
+        };
+        Returns: Json;
+      };
+      fail_procurement_storage_cleanup: {
+        Args: {
+          p_cleanup_id: string;
+          p_lease_token: string;
+          p_error: string;
+          p_base_delay_seconds?: number;
+        };
+        Returns: boolean;
+      };
+      replace_purchase_order_draft: {
+        Args: {
+          p_order_id: string;
+          p_header_patch: Json;
+          p_items: Json | null;
+        };
+        Returns: string;
+      };
+      reset_tenant_procurement_data: {
+        Args: {
+          p_tenant_id: string;
+        };
+        Returns: Json;
       };
       supplier_prices_page: {
         Args: {
@@ -3032,6 +3318,7 @@ export type Database = {
           p_search?: string | null;
           p_statuses?: (
             | "draft"
+            | "sending"
             | "sent"
             | "accepted"
             | "archived"
@@ -3042,6 +3329,7 @@ export type Database = {
           total_count: number;
           filtered_count: number;
           draft_count: number;
+          sending_count: number;
           sent_count: number;
           accepted_count: number;
           archived_count: number;
@@ -3071,6 +3359,145 @@ export type Database = {
       current_tenant_id: {
         Args: Record<PropertyKey, never>;
         Returns: string | null;
+      };
+      begin_estimate_pdf_generation: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_purpose: string;
+          p_dispatch_id?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["estimate_documents"]["Row"];
+      };
+      publish_estimate_pdf_generation: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_generation_token: string;
+          p_file_path: string;
+          p_sha256_hash: string;
+          p_file_size_bytes: number;
+          p_generated_at: string;
+          p_layout_options: Json;
+          p_terms_snapshot: Json | null;
+        };
+        Returns: Database["public"]["Tables"]["estimate_documents"]["Row"];
+      };
+      fail_estimate_pdf_generation: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_generation_token: string;
+          p_error_message: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_documents"]["Row"];
+      };
+      assert_estimate_email_dispatch_actor: {
+        Args: {
+          p_tenant_id: string;
+          p_version_id: string;
+          p_actor_user_id: string;
+          p_admin_only?: boolean;
+        };
+        Returns: undefined;
+      };
+      reserve_estimate_email_dispatch: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_actor_user_id: string;
+          p_request_id: string;
+          p_payload_hash: string;
+          p_recipient: string;
+          p_cc: string[] | null;
+          p_subject: string;
+          p_body: string;
+          p_from_address: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      prepare_estimate_email_dispatch: {
+        Args: {
+          p_dispatch_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_seal_hash: string;
+          p_provider_payload_hash: string;
+          p_html_body: string;
+          p_text_body: string;
+          p_document_path: string;
+          p_document_sha256: string;
+          p_attachment_filename: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      claim_estimate_email_dispatch: {
+        Args: {
+          p_dispatch_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_lease_token: string;
+          p_lease_seconds?: number;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      complete_estimate_email_dispatch: {
+        Args: {
+          p_dispatch_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_lease_token: string;
+          p_provider_id: string;
+          p_sent_at?: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      fail_estimate_email_dispatch: {
+        Args: {
+          p_dispatch_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_lease_token: string | null;
+          p_error_code: string;
+          p_error_message: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      defer_estimate_email_dispatch: {
+        Args: {
+          p_dispatch_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_lease_token: string;
+          p_error_code: string;
+          p_error_message: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      mark_estimate_email_dispatch_unknown: {
+        Args: {
+          p_dispatch_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_lease_token: string;
+          p_error_code: string;
+          p_error_message: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      reconcile_estimate_email_dispatch: {
+        Args: {
+          p_dispatch_id: string;
+          p_resolution: string;
+          p_actor_user_id: string;
+          p_provider_id?: string | null;
+          p_note?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
       };
       create_affaire_from_import_lines: {
         Args: {
@@ -3307,7 +3734,13 @@ export type Database = {
           has_current_version: boolean;
           current_version_id: string | null;
           current_version_number: number | null;
-          current_status: "draft" | "sent" | "accepted" | "archived" | null;
+          current_status:
+            | "draft"
+            | "sending"
+            | "sent"
+            | "accepted"
+            | "archived"
+            | null;
           current_total_ht_cents: number | null;
           current_updated_at: string;
           accepted_version_id: string | null;
@@ -3377,7 +3810,7 @@ export type Database = {
     Enums: {
       purchase_order_status: "draft" | "sent" | "confirmed" | "received" | "canceled";
       employee_role: "buyer" | "site_manager" | "admin";
-      estimate_status: "draft" | "sent" | "accepted" | "archived";
+      estimate_status: "draft" | "sending" | "sent" | "accepted" | "archived";
       estimate_item_type: "section" | "line";
       estimate_margin_mode: "fixed" | "tiered";
       estimate_discount_mode: "simple" | "cascade";

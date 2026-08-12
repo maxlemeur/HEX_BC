@@ -2,6 +2,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { getUserContext } from "@/lib/auth/server";
+import {
+  drainProcurementStorageCleanupOutbox,
+  type ProcurementStorageCleanupDrainResult,
+} from "@/lib/procurement/storage-cleanup-outbox";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +22,14 @@ type ProcurementCounts = {
   orderDocuments: number;
   suppliers: number;
   supplierPrices: number;
+};
+
+type ProcurementResetResult = {
+  orders_deleted: number;
+  supplier_prices_deleted: number;
+  supplier_catalog_items_deleted: number;
+  suppliers_deleted: number;
+  storage_cleanup_queued: number;
 };
 
 async function requireAdminTenant() {
@@ -131,21 +143,42 @@ function buildQuery(params: Record<string, string | number>) {
   return searchParams.toString();
 }
 
-async function deleteTenantRows(
-  table: "purchase_orders" | "suppliers" | "supplier_pricebook",
-  tenantId: string
-) {
+function parseProcurementResetResult(value: unknown): ProcurementResetResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("La base n'a pas renvoye le bilan du nettoyage achats.");
+  }
+
+  const record = value as Record<string, unknown>;
+  const readCount = (key: keyof ProcurementResetResult) => {
+    const count = record[key];
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      throw new Error("Le bilan du nettoyage achats est invalide.");
+    }
+    return count;
+  };
+
+  return {
+    orders_deleted: readCount("orders_deleted"),
+    supplier_prices_deleted: readCount("supplier_prices_deleted"),
+    supplier_catalog_items_deleted: readCount(
+      "supplier_catalog_items_deleted"
+    ),
+    suppliers_deleted: readCount("suppliers_deleted"),
+    storage_cleanup_queued: readCount("storage_cleanup_queued"),
+  };
+}
+
+async function resetTenantProcurementData(tenantId: string) {
   const supabase = await createSupabaseServerClient();
-  const { count, error } = await supabase
-    .from(table)
-    .delete({ count: "exact" })
-    .eq("tenant_id", tenantId);
+  const { data, error } = await supabase.rpc("reset_tenant_procurement_data", {
+    p_tenant_id: tenantId,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return count ?? 0;
+  return parseProcurementResetResult(data);
 }
 
 async function resetProcurementData(formData: FormData) {
@@ -166,12 +199,26 @@ async function resetProcurementData(formData: FormData) {
   try {
     const before = await loadProcurementCounts(tenantId);
 
-    const deletedOrders = await deleteTenantRows("purchase_orders", tenantId);
-    const deletedSupplierPrices = await deleteTenantRows(
-      "supplier_pricebook",
-      tenantId
-    );
-    const deletedSuppliers = await deleteTenantRows("suppliers", tenantId);
+    const resetResult = await resetTenantProcurementData(tenantId);
+    let cleanupResult: ProcurementStorageCleanupDrainResult;
+    try {
+      cleanupResult = await drainProcurementStorageCleanupOutbox({
+        tenantId,
+        limit: Math.max(25, Math.min(resetResult.storage_cleanup_queued, 100)),
+      });
+    } catch (cleanupError) {
+      cleanupResult = {
+        claimed: 0,
+        removed: 0,
+        failed: resetResult.storage_cleanup_queued,
+        skipped: false,
+        errors: [
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : "Le drain Storage n'a pas pu demarrer.",
+        ],
+      };
+    }
 
     revalidatePath("/dashboard/orders");
     revalidatePath("/dashboard/suppliers");
@@ -180,11 +227,18 @@ async function resetProcurementData(formData: FormData) {
     redirect(
       `/dashboard/admin/procurement-reset?${buildQuery({
         done: 1,
-        orders: deletedOrders,
-        suppliers: deletedSuppliers,
-        prices: deletedSupplierPrices,
+        orders: resetResult.orders_deleted,
+        suppliers: resetResult.suppliers_deleted,
+        prices: resetResult.supplier_prices_deleted,
         itemCount: before.orderItems,
         documentCount: before.orderDocuments,
+        storageRemoved: cleanupResult.removed,
+        storagePending: Math.max(
+          resetResult.storage_cleanup_queued - cleanupResult.removed,
+          0
+        ),
+        storageFailed: cleanupResult.failed,
+        storageSkipped: cleanupResult.skipped ? 1 : 0,
       })}`
     );
   } catch (error) {
@@ -216,6 +270,9 @@ export default async function ProcurementResetPage({
   const preview = await loadPreviewRows(tenantId);
   const done = firstParam(params, "done") === "1";
   const error = firstParam(params, "error");
+  const storagePending = Number(firstParam(params, "storagePending") ?? "0");
+  const storageFailed = Number(firstParam(params, "storageFailed") ?? "0");
+  const storageSkipped = firstParam(params, "storageSkipped") === "1";
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -238,6 +295,13 @@ export default async function ProcurementResetPage({
           {" "}
           {firstParam(params, "suppliers") ?? "0"} fournisseur(s) et{" "}
           {firstParam(params, "prices") ?? "0"} prix fournisseur(s) supprimes.
+        </div>
+      ) : null}
+
+      {done && (storagePending > 0 || storageFailed > 0 || storageSkipped) ? (
+        <div className="alert alert-warning">
+          Le nettoyage base est termine. {storagePending} objet(s) Storage
+          restent dans la file durable et seront repris automatiquement.
         </div>
       ) : null}
 

@@ -191,6 +191,35 @@ describe("AffaireFinishLineActions", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps a queued sending dispatch resumable after reload", async () => {
+    const user = userEvent.setup();
+    renderActions({
+      currentVersion: {
+        id: "version-1",
+        status: "sending",
+        versionNumber: 1,
+      },
+      finishLineSummary: null,
+    });
+
+    expect(screen.getByText(/Version 1 · Envoi en cours/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/Un envoi est deja reserve/i).length
+    ).toBeGreaterThan(0);
+
+    const resumeButton = within(
+      getLatestByTestId("affaire-finish-line-email")
+    ).getByRole("button", { name: /Reprendre l'envoi/i });
+    expect(resumeButton).not.toBeDisabled();
+
+    await user.click(resumeButton);
+
+    expect(
+      screen.getAllByRole("heading", { name: /Envoyer le devis par email/i })
+        .length
+    ).toBeGreaterThan(0);
+  });
+
   it("keeps email preparation disabled on finalized versions", () => {
     renderActions({
       currentVersion: {

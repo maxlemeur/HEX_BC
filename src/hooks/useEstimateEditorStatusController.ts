@@ -114,6 +114,7 @@ const STATUS_TRANSITIONS: Readonly<
   Record<EstimateStatus, readonly EstimateStatus[]>
 > = {
   draft: ["sent"],
+  sending: [],
   sent: ["accepted", "archived"],
   accepted: ["archived"],
   archived: [],

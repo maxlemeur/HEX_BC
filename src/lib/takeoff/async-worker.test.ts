@@ -50,6 +50,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
       jobId: string;
       tenantId: string;
       dueAtIso: string;
+      leaseToken: string;
     }>,
     unsupportedCalls: [] as Array<{
       jobId: string;
@@ -60,6 +61,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
 
   const repository = {
     getJobById: vi.fn(async () => ({ ...state.job })),
+    isTenantActive: vi.fn(async () => true),
     markUnsupportedLevelAsFailed: vi.fn(
       async (input: { jobId: string; tenantId: string; nowIso: string }) => {
         state.unsupportedCalls.push(input);
@@ -104,13 +106,14 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
       }
     ),
     acquireBatchReconcileLease: vi.fn(
-      async (): Promise<{ claimed: boolean; attemptCount: number | null }> => ({
-        claimed: false,
-        attemptCount: null,
-      })
+      async (input: { jobId: string; tenantId: string; nowIso: string; leaseToken: string; leaseExpiresAtIso: string }): Promise<{ claimed: boolean; attemptCount: number | null }> => {
+        void input;
+        return { claimed: false, attemptCount: null };
+      }
     ),
+    renewLease: vi.fn(async () => undefined),
     scheduleReconcile: vi.fn(
-      async (input: { jobId: string; tenantId: string; dueAtIso: string }) => {
+      async (input: { jobId: string; tenantId: string; dueAtIso: string; leaseToken: string }) => {
         state.reconcileCalls.push(input);
         state.job = {
           ...state.job,
@@ -121,7 +124,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
       }
     ),
     markBatchReconcileTimeoutAsFailed: vi.fn(
-      async (input: { jobId: string; tenantId: string; nowIso: string }) => {
+      async (input: { jobId: string; tenantId: string; nowIso: string; leaseToken: string }) => {
         state.job = {
           ...state.job,
           status: "failed",
@@ -144,6 +147,43 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
 }
 
 describe("processTakeoffJobAttempt", () => {
+  it("does not invoke a processor for a suspended tenant", async () => {
+    const { repository } = createWorkerRepository({
+      id: JOB_ID,
+      tenant_id: TENANT_ID,
+      level: "A",
+      status: "pending",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
+      retry_count: 0,
+      error_code: null,
+      error_message: null,
+      created_by: null,
+      next_retry_at: null,
+      last_error_at: null,
+    });
+    repository.isTenantActive.mockResolvedValue(false);
+    const processLevelAFn = vi.fn();
+
+    const outcome = await processTakeoffJobAttempt(JOB_ID, {
+      correlationId: CORRELATION_ID,
+      trigger: "create",
+      repository,
+      processLevelAFn: processLevelAFn as never,
+      now: () => FIXED_NOW,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(outcome.status).toBe("noop_terminal");
+    expect(outcome.error_code).toBe(TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE);
+    expect(processLevelAFn).not.toHaveBeenCalled();
+  });
+
   it("returns completed outcome when level A succeeds", async () => {
     const { state, repository } = createWorkerRepository({
       id: JOB_ID,
@@ -196,7 +236,11 @@ describe("processTakeoffJobAttempt", () => {
 
     expect(outcome.status).toBe("completed");
     expect(outcome.should_requeue).toBe(false);
-    expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
+    expect(processLevelAFn).toHaveBeenCalledWith(
+      JOB_ID,
+      expect.objectContaining({ assertTenantActive: expect.any(Function) })
+    );
+    expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
     expect(repository.scheduleRetry).not.toHaveBeenCalled();
   });
 
@@ -541,7 +585,50 @@ describe("processTakeoffJobAttempt", () => {
     expect(outcome.status).toBe("completed");
     expect(reconcileTakeoffBatchJobFn).toHaveBeenCalledTimes(1);
     expect(repository.markBatchReconcileTimeoutAsFailed).not.toHaveBeenCalled();
-    expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
+    expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
+  });
+
+  it("renews the five-minute batch lease and fences reconcile scheduling with its token", async () => {
+    const { repository } = createWorkerRepository({
+      id: JOB_ID,
+      tenant_id: TENANT_ID,
+      level: "A",
+      status: "processing",
+      processing_strategy: "batch",
+      provider_batch_id: "batches/test-pending",
+      provider_batch_state: "running",
+      provider_reconcile_due_at: FIXED_NOW.toISOString(),
+      provider_reconcile_attempt_count: 1,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
+      retry_count: 0,
+      error_code: null,
+      error_message: null,
+      created_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      next_retry_at: null,
+      last_error_at: null,
+    });
+    repository.acquireBatchReconcileLease.mockResolvedValueOnce({ claimed: true, attemptCount: 2 });
+    const reconcile = vi.fn(async (_jobId: string, options: { renewLease?: (input: { jobId: string; tenantId: string; leaseToken: string }) => Promise<void> }) => {
+      const token = repository.acquireBatchReconcileLease.mock.calls[0]![0].leaseToken;
+      await options.renewLease?.({ jobId: JOB_ID, tenantId: TENANT_ID, leaseToken: token });
+      return { jobId: JOB_ID, status: "awaiting_provider_result" as const, providerBatchId: "batches/test-pending", providerBatchStateRaw: "JOB_STATE_RUNNING", durationMs: 10 };
+    });
+
+    const outcome = await processTakeoffJobAttempt(JOB_ID, {
+      correlationId: CORRELATION_ID,
+      trigger: "reconcile",
+      repository,
+      reconcileTakeoffBatchJobFn: reconcile as never,
+      now: () => FIXED_NOW,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    const claim = repository.acquireBatchReconcileLease.mock.calls[0]![0];
+    expect(claim.leaseExpiresAtIso).toBe("2026-02-25T11:05:00.000Z");
+    expect(repository.renewLease).toHaveBeenCalledWith(expect.objectContaining({ kind: "reconcile", leaseToken: claim.leaseToken, leaseExpiresAtIso: "2026-02-25T11:05:00.000Z" }));
+    expect(repository.scheduleReconcile).toHaveBeenCalledWith(expect.objectContaining({ leaseToken: claim.leaseToken }));
+    expect(outcome.status).toBe("awaiting_provider_result");
   });
 
   it("marks unsupported levels as terminal failures", async () => {

@@ -3791,6 +3791,15 @@
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID obligatoire identifiant une tentative logique d'envoi. Reutiliser la meme valeur apres une erreur reseau.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateEmailIdempotencyKeyHeaderParameter"
+            }
           }
         ],
         "requestBody": {
@@ -10063,6 +10072,8 @@
               "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
               "TAKEOFF_JOB_NOT_FOUND",
               "TAKEOFF_TENANT_UNAUTHORIZED",
+              "TAKEOFF_TENANT_INACTIVE",
+              "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
               "IDEMPOTENCY_KEY_INVALID",
               "IDEMPOTENCY_KEY_REUSED",
               "AI_RATE_LIMIT",
@@ -10134,6 +10145,8 @@
                   "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
                   "TAKEOFF_JOB_NOT_FOUND",
                   "TAKEOFF_TENANT_UNAUTHORIZED",
+                  "TAKEOFF_TENANT_INACTIVE",
+                  "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
                   "IDEMPOTENCY_KEY_INVALID",
                   "IDEMPOTENCY_KEY_REUSED",
                   "AI_RATE_LIMIT",
@@ -11498,6 +11511,7 @@
                       "type": "string",
                       "enum": [
                         "draft",
+                        "sending",
                         "sent",
                         "accepted",
                         "archived"
@@ -11877,6 +11891,7 @@
                     "type": "string",
                     "enum": [
                       "draft",
+                      "sending",
                       "sent",
                       "accepted",
                       "archived"
@@ -12229,6 +12244,7 @@
                     "type": "string",
                     "enum": [
                       "draft",
+                      "sending",
                       "sent",
                       "accepted",
                       "archived"
@@ -13236,6 +13252,7 @@
                     "type": "string",
                     "enum": [
                       "draft",
+                      "sending",
                       "sent",
                       "accepted",
                       "archived"
@@ -18518,6 +18535,11 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "EstimateEmailIdempotencyKeyHeaderParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "SendEstimateRequest": {
         "type": "object",

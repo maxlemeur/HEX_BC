@@ -4,8 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
-
-type EstimateStatus = "draft" | "sent" | "accepted" | "archived";
+import type { EstimateStatus } from "@/lib/estimates/status";
 
 type EstimateStatusActionsProps = {
   versionId: string;
@@ -21,6 +20,7 @@ const STATUS_TRANSITIONS: Record<
   { label: string; nextStatus: EstimateStatus }[]
 > = {
   draft: [{ label: "Marquer envoyé", nextStatus: "sent" }],
+  sending: [],
   sent: [
     { label: "Marquer accepté", nextStatus: "accepted" },
     { label: "Archiver", nextStatus: "archived" },
@@ -109,7 +109,10 @@ export function EstimateStatusActions({
   );
 
   const transitions = STATUS_TRANSITIONS[currentStatus];
-  const showEmailButton = currentStatus === "draft" || currentStatus === "sent";
+  const showEmailButton =
+    currentStatus === "draft" ||
+    currentStatus === "sending" ||
+    currentStatus === "sent";
 
   if (transitions.length === 0 && !showEmailButton) return null;
 
@@ -130,7 +133,9 @@ export function EstimateStatusActions({
             {SEND_ICON}
             {currentStatus === "draft"
               ? "Envoyer par email"
-              : "Renvoyer par email"}
+              : currentStatus === "sending"
+                ? "Reprendre l’envoi"
+                : "Renvoyer par email"}
           </button>
         )}
         {transitions.map((transition) => (

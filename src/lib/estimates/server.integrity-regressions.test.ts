@@ -7,6 +7,10 @@ const serverSource = readFileSync(
   join(process.cwd(), "src/lib/estimates/server.ts"),
   "utf8"
 );
+const versionTotalsSource = readFileSync(
+  join(process.cwd(), "src/lib/estimates/version-totals.ts"),
+  "utf8"
+);
 const integrityMigration = readFileSync(
   join(
     process.cwd(),
@@ -23,7 +27,7 @@ const approvalRevisionMigration = readFileSync(
 );
 
 describe("estimate version integrity regressions", () => {
-  it("loads the contractor role and applies reverse-charge VAT during authoritative recalculation", () => {
+  it("loads the contractor role and delegates reverse-charge VAT during authoritative recalculation", () => {
     const recalculateSource = serverSource.match(
       /async function recalculateEstimateVersionTotals[\s\S]*?\n}\n\nfunction resolveEmbeddedOne/
     )?.[0];
@@ -32,8 +36,11 @@ describe("estimate version integrity regressions", () => {
     expect(recalculateSource).toMatch(
       /\.select\(\s*"[^"]*contractor_role[^"]*estimate_projects!inner\(user_id\)"/
     );
-    expect(recalculateSource).toMatch(
-      /vatReverseCharge:\s*effectiveVersionRecord\.contractor_role === "subcontractor"/
+    expect(recalculateSource).toContain(
+      "version: effectiveVersionRecord"
+    );
+    expect(versionTotalsSource).toMatch(
+      /vatReverseCharge:\s*input\.version\.contractor_role === "subcontractor"/
     );
   });
 

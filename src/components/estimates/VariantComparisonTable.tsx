@@ -10,7 +10,7 @@ type EstimateVariantComparisonItem = {
   id: string;
   project_id: string;
   version_number: number;
-  status: "draft" | "sent" | "accepted" | "archived";
+  status: "draft" | "sending" | "sent" | "accepted" | "archived";
   title: string | null;
   total_ht_cents: number;
   total_tax_cents: number;
@@ -31,6 +31,8 @@ function statusLabel(status: EstimateVariantComparisonItem["status"]) {
   switch (status) {
     case "draft":
       return "Brouillon";
+    case "sending":
+      return "Envoi en cours";
     case "sent":
       return "Envoye";
     case "accepted":
@@ -46,6 +48,8 @@ function statusClass(status: EstimateVariantComparisonItem["status"]) {
   switch (status) {
     case "draft":
       return "status-badge status-draft";
+    case "sending":
+      return "status-badge status-sent";
     case "sent":
       return "status-badge status-sent";
     case "accepted":

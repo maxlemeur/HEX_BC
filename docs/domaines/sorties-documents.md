@@ -1,6 +1,8 @@
 # Sorties : documents, PDF, exports, portail, commandes
 
-> **Source : le code au 2026-07-29.** Chaque affirmation porte une référence `fichier:ligne`. En cas de divergence, le code fait foi et ce document doit être corrigé.
+> **Source : le code relu au 2026-08-12 pour le PDF, l'email et les transactions
+> documentaires.** Les autres sections restent la photographie du 2026-07-29.
+> En cas de divergence, le code et les migrations font foi.
 
 Ce document décrit ce que le logiciel **produit** : le PDF de devis, sa copie stockée, les classeurs d'export, les emails, la page portail lue par le client, et les bons de commande fournisseurs. Les règles de calcul des montants ne sont pas répétées ici : voir [`../metier/regles-de-calcul.md`](../metier/regles-de-calcul.md) et [`../metier/cycle-de-vie.md`](../metier/cycle-de-vie.md).
 
@@ -68,21 +70,76 @@ La règle de calcul associée est décrite dans [`../metier/regles-de-calcul.md`
 | Taille max bucket | `20971520` octets (20 Mo) | `supabase/migrations/20260718155244_restore_estimate_documents_storage.sql:14` |
 | Types MIME autorisés | `['application/pdf']` | `supabase/migrations/20260718155244_restore_estimate_documents_storage.sql:15` |
 | TTL des URL signées | `60 * 60` s (1 h) | `src/lib/estimates/pdf-generator.tsx:201` |
-| Content-Type à l'upload | `application/pdf`, `upsert: true` | `src/lib/estimates/pdf-generator.tsx:1857-1860` |
+| Content-Type à l'upload | `application/pdf`, `upsert: false` | `src/lib/estimates/pdf-generator.tsx` |
 | Empreinte | SHA-256 hexadécimal minuscule du buffer | `src/lib/estimates/pdf-generator.tsx:1871-1874` |
 | Longueur max de `last_error` | 2000 caractères | `src/lib/estimates/pdf-generator.tsx:1601`, `1921` |
 
-La table `estimate_documents` porte `file_path`, `sha256_hash`, `file_size_bytes`, `generated_by`, `generated_at`, `layout_options`, `terms_snapshot`, `status` ∈ `processing | ready | failed`, `last_error` (`src/types/database.ts:1455-1471`). L'upsert se fait sur la clé `tenant_id,version_id` (`src/lib/estimates/pdf-generator.tsx:991`). `layout_options` et `terms_snapshot` sont contraints à être des objets JSON (`supabase/migrations/20260718190000_estimate_pdf_layout_and_terms.sql:69-80`).
+La table `estimate_documents` porte `file_path`, `sha256_hash`,
+`file_size_bytes`, `generated_by`, `generated_at`, `layout_options`,
+`terms_snapshot`, `status` ∈ `processing | ready | failed`, `last_error`, ainsi
+que le token, le but, le dispatch et la révision de la tentative courante et de
+la dernière publication. Il reste une seule ligne par `(tenant_id, version_id)`
+(`src/types/database.ts`,
+`supabase/migrations/20260812011616_estimate_pdf_publication_fencing.sql`).
+`layout_options` et `terms_snapshot` sont contraints à être des objets JSON.
 
-Les écritures Storage utilisent le client service-role quand il est configuré, sinon le client utilisateur (`src/lib/estimates/pdf-generator.tsx:1619`, `964`, `src/lib/supabase/service-role.ts:14-20`).
+Les mutations de métadonnées passent par les RPC
+`begin_estimate_pdf_generation`, `publish_estimate_pdf_generation` et
+`fail_estimate_pdf_generation`, réservées au rôle Postgres `service_role`. Le
+repli applicatif sur le client utilisateur échoue donc fermé si la clé
+service-role manque : il ne peut jamais publier une ligne `ready`.
 
-### 2.1 Deux définitions concurrentes du chemin canonique
+### 2.1 Chemin content-addressé et publication protégée
 
-- **Applicatif** : `toFilePath` produit `<tenant_id>/<project_id>/<buildEstimatePdfFilename(...)>` (`src/lib/estimates/pdf-generator.tsx:1040-1054`). Le nom de fichier vaut la référence devis assainie (`<reference>` en V1, `<reference>_V<n>` au-delà), à défaut l'identifiant de version, à défaut `devis`, suffixé `.pdf` (`src/lib/estimates/reference.ts:3-42`).
-- **Base de données** : le trigger `enforce_estimate_document_canonical_path` **réécrit** `file_path` en `<tenant_id>/<project_id>/<version_id>.pdf` à chaque insert et update (`supabase/migrations/20260713135408_harden_portal_pdf_capabilities.sql:177-213`), et force `tenant_id` depuis la version parente.
-- **RLS Storage** : les quatre politiques du bucket exigent `storage.filename(name) = v.id || '.pdf'` et une arborescence `<tenant_id>/<project_id>/` (`supabase/migrations/20260718155244_restore_estimate_documents_storage.sql:33-150`).
+Toute nouvelle publication utilise exactement :
 
-`getEstimatePdfStatus` recalcule le chemin attendu avec la fonction applicative et renvoie `status: "failed"` / « Chemin du document PDF non conforme. » si la ligne stockée diffère (`src/lib/estimates/pdf-generator.tsx:2038-2050`). Les deux définitions ne coïncident que lorsque `estimate_reference` est vide, cas où le repli `versionId` produit exactement `<version_id>.pdf` (`src/lib/estimates/reference.ts:37-41`). Le comportement observé en base réelle n'est pas vérifié ici : aucune exécution de migration n'a été faite pour rédiger ce document.
+```text
+<tenant_id>/<project_id>/<version_id>/<sha256>.pdf
+```
+
+Le SHA-256 du contenu fait donc partie de la clé Storage. Le nom commercial
+construit par `buildEstimatePdfFilename` reste seulement le nom de
+téléchargement ou de pièce jointe ; il n'est plus une clé Storage
+(`src/lib/estimates/pdf-publication.ts`,
+`src/lib/estimates/reference.ts`).
+
+La compatibilité de lecture conserve, pour une ligne `ready` déjà publiée, un
+unique fichier `.pdf` directement sous `<tenant_id>/<project_id>/`. Son nom peut
+être l'UUID de version historique ou l'ancien nom commercial strict ; aucun
+sous-dossier ni second segment de fichier n'est admis. Une mise à jour qui ne
+change ni son chemin ni son empreinte peut le conserver ; la publication suivante
+adopte obligatoirement le chemin content-addressé. Le contrôle applicatif
+`isCanonicalEstimatePdfPath` accepte uniquement la forme content-addressée et
+cette forme historique bornée.
+
+La publication suit quatre barrières :
+
+1. La RPC de début verrouille la version et attribue un token UUID avec son but
+   (`manual`, `email` ou `workflow`), l'acteur, la révision et, pour l'email, le
+   dispatch. `manual|workflow` exigent un devis `draft` ; `email` exige le même
+   dispatch `preparing` et une version `sending`.
+2. Le serveur rend le PDF et calcule son SHA-256 ; le client Storage service-role
+   crée l'objet avec `upsert: false`. Une réponse Storage
+   `already exists`/`duplicate` est traitée comme une clé immuable déjà présente
+   dans cet espace privilégié ; aucun contenu existant n'est écrasé.
+3. La RPC de publication revérifie sous verrou le token, l'acteur, la révision,
+   le statut, le dispatch et le chemin dérivé du hash avant de publier les
+   métadonnées `ready`. Une tentative supplantée ne peut donc pas republier son
+   résultat.
+4. La RPC d'échec est elle aussi protégée par token. Elle restaure la dernière
+   publication prête si elle existe, sinon marque la tentative `failed`, sans
+   écraser une tentative plus récente.
+
+Les utilisateurs authentifiés n'ont plus d'`INSERT`, `UPDATE` ou `DELETE`
+direct sur `estimate_documents`. Dans Storage, ils peuvent lire seulement un
+objet référencé par une ligne `ready` de leur périmètre ; aucune policy
+authentifiée n'autorise `INSERT`, `UPDATE` ou `DELETE`. La création de l'objet
+comme la publication des métadonnées restent donc dans la frontière service-role
+(`supabase/migrations/20260812011616_estimate_pdf_publication_fencing.sql`).
+
+Limite volontaire : si une tentative est supplantée entre l'upload et la
+publication, l'objet content-addressé non référencé peut rester dans le bucket.
+Le nettoyage différé de ces orphelins n'est pas inclus dans ce lot.
 
 ### 2.2 Classification des échecs Storage
 
@@ -94,7 +151,7 @@ Les écritures Storage utilisent le client service-role quand il est configuré,
 
 | Route | Méthode | Comportement | Référence |
 | --- | --- | --- | --- |
-| `/api/estimates/[versionId]/pdf` | POST | Déclenche la génération en tâche `after()` ; répond `200` si déjà `ready`, `202` si `processing` ou si le travail vient d'être lancé. `?force=1` ignore le cache. Corps optionnel `{ layout }` validé par zod. | `src/app/api/estimates/[versionId]/pdf/route.ts:120-177`, `27-40`, `71-79` |
+| `/api/estimates/[versionId]/pdf` | POST | Déclenche une génération manuelle protégée par token en tâche `after()` ; répond `200` si déjà `ready`, `202` si `processing` ou si le travail vient d'être lancé. `?force=1` ignore le cache mais pas l'immutabilité : la mutation manuelle reste réservée à `draft`. Corps optionnel `{ layout }` validé par zod. | `src/app/api/estimates/[versionId]/pdf/route.ts`, `src/lib/estimates/pdf-mutation-policy.ts` |
 | `/api/estimates/[versionId]/pdf` | GET | Redirection `307` vers l'URL signée si `ready`. `?format=json` renvoie `200` / `202` / `500 PDF_GENERATION_FAILED` / `404 PDF_NOT_READY`. | `src/app/api/estimates/[versionId]/pdf/route.ts:179-235` |
 | `/api/estimates/[versionId]/pdf/layout` | GET | Structure du devis (nombre de lignes, chapitres par niveau, présence de conditions, configuration CGV). | `src/app/api/estimates/[versionId]/pdf/layout/route.ts:12-21`, `src/lib/estimates/pdf-generator.tsx:1937-1960` |
 | `/api/estimates/[versionId]/export` | GET | Streaming XLSX. `?format` n'accepte que `xlsx`, `?mode` accepte `standard`, `dpgf`, `bdc`. Réservé aux rôles `admin` et `engineer`. | `src/app/api/estimates/[versionId]/export/route.ts:41-61`, `30-32`, `91-92` |
@@ -155,22 +212,86 @@ Sur les lignes de chapitre, la cellule est vide (`src/lib/estimates/dpgf-export.
 
 ## 5. Envoi par email
 
-Le fournisseur est Resend, instancié à chaque envoi (`src/lib/email/send-estimate.ts:1`, `185`). Les gabarits sont des composants React (`src/lib/email/templates/estimate.tsx:26`, `acceptance-confirmation.tsx:24`, `approval-review-request.tsx`).
+Le fournisseur est Resend. Les gabarits restent des composants React, mais
+l'email **initial** du devis passe désormais par une outbox transactionnelle
+(`src/lib/email/send-estimate.ts`,
+`src/lib/email/estimate-email-outbox.ts`, migration
+`20260811231759_transactional_estimate_email_outbox.sql`).
 
-Séquence de `sendEstimateEmail` (`src/lib/email/send-estimate.ts:147-218`) :
+La route `POST /api/estimates/[versionId]/send` exige un en-tête
+`Idempotency-Key` au format UUID. La modale conserve la clé non confirmée dans
+`sessionStorage`, sous une empreinte de la version et de l'enveloppe, puis ne
+l'efface qu'après un succès (`src/components/estimates/SendEstimateModal.tsx`).
+Une recharge ou une nouvelle clé peut reprendre le dispatch actif seulement si
+les destinataires, le sujet, le message et l'acteur sont identiques ; une
+enveloppe différente renvoie un conflit.
 
-1. Chargement de la version, contrôle d'authentification, contrôle d'appartenance au tenant puis `assertCanWriteEstimateWorkflows` (`src/lib/email/send-estimate.ts:82-128`).
-2. Si le statut est `draft`, il bascule en `sent` par `patchEstimateStatus` avec contrôle optimiste sur `updated_at` (`src/lib/email/send-estimate.ts:150-155`). Si le statut est `sent`, le scellement est revérifié et un scellement invalide lève `ESTIMATE_SEAL_INVALID` (`src/lib/email/send-estimate.ts:156-164`). Tout autre statut renvoie `ESTIMATE_EMAIL_STATUS_FORBIDDEN` (`src/lib/email/send-estimate.ts:165-171`).
-3. Le PDF est **régénéré systématiquement** avec `force: true` et `triggeredBy: "send"` (`src/lib/email/send-estimate.ts:173-176`), puis retéléchargé depuis le bucket pour servir de pièce jointe (`src/lib/email/send-estimate.ts:130-145`, `199-208`).
-4. Une erreur Resend lève `internalError` : aucune reprise automatique n'est implémentée (`src/lib/email/send-estimate.ts:211-213`).
+Séquence de `sendEstimateEmail` :
 
-Charge utile validée par zod : `to` (email obligatoire), `cc` (tableau d'emails, optionnel), `subject` (1 à 500 caractères), `message` (1 à 5000 caractères) (`src/lib/estimates/schemas.ts:340-345`). Aucune limite de taille de pièce jointe n'est appliquée côté application ; le buffer PDF est joint tel quel (`src/lib/email/send-estimate.ts:199-208`).
+1. Authentification, résolution d'un tenant actif et contrôle du rôle
+   `admin|engineer`. Sur un brouillon, le gating et le verrou de brouillon sont
+   vérifiés ; sur un devis déjà `sent`, le sceau est revérifié.
+2. `reserve_estimate_email_dispatch` verrouille la version et crée l'enveloppe
+   `initial` en `preparing`. Un brouillon passe alors à l'état transactionnel
+   `sending`.
+3. Pour un brouillon, le PDF contractuel est généré sous une claim liée au
+   dispatch et à sa révision ; seul ce token peut publier le document. Pour un
+   renvoi d'un devis `sent`, le document contractuel déjà prêt est réutilisé :
+   il n'est pas régénéré. Le corps HTML, le corps texte, le chemin et le
+   SHA-256 du PDF, le nom de pièce jointe, le sceau et le hash de la charge
+   Resend sont figés par `prepare_estimate_email_dispatch`. Un trigger refuse le
+   passage à `queued` si le document prêt ne correspond pas à la même
+   publication/révision ; le dispatch ne peut donc pas figer le PDF d'un worker
+   obsolète.
+4. `claim_estimate_email_dispatch` prend un bail de 120 secondes et passe la
+   ligne à `processing`. Resend reçoit une clé stable
+   `estimate-email/<dispatch-id>` avec exactement la charge figée.
+5. Après réception d'un identifiant Resend,
+   `complete_estimate_email_dispatch` enregistre le résultat et passe
+   atomiquement le dispatch et, si nécessaire, la version à `sent`.
 
-Le lien d'appel à l'action de l'email est résolu par `resolvePortalUrl` (`src/lib/email/send-estimate.ts:58-72`) : avec `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL`, il pointe sur `<base>/estimates/<versionId>` ; sans elle, sur `/dashboard/estimates/<versionId>/print` relatif à l'URL de la requête. Ni l'une ni l'autre forme n'est une URL `/portal/<token>` : une recherche du littéral `/portal/` dans `src/` (`grep -rn "/portal/" src/`) ne remonte qu'une redirection interne vers la page d'expiration (`src/app/portal/[token]/page.tsx:74`).
+Les statuts de dispatch sont `preparing`, `queued`, `processing`, `sent`,
+`failed`, `unknown`, `delivered`, `bounced`. Les événements associés vivent
+dans `estimate_email_dispatch_events`, append-only. Les utilisateurs
+authentifiés peuvent lire leur périmètre par RLS mais ne peuvent plus écrire
+directement ces deux tables ; les mutations passent par les RPC service-role
+qui revérifient l'acteur et le tenant.
 
-L'email de confirmation d'acceptation est envoyé depuis la route d'acceptation, en meilleur effort : il n'est tenté que si `RESEND_API_KEY` et `EMAIL_FROM` sont tous deux définis, et toute erreur est journalisée sans faire échouer l'acceptation (`src/app/api/portal/[token]/accept/route.ts:207-279`). Son sujet est `Confirmation - Devis <projet> accepte` (`src/app/api/portal/[token]/accept/route.ts:240`). Chaque tentative produit une ligne dans `estimate_emails` avec `type: "acceptance_confirmation"` et `status` `sent` ou `failed` (`src/app/api/portal/[token]/accept/route.ts:256-264`). La table contraint `type` à `initial | reminder_1 | reminder_2 | reminder_3 | acceptance_confirmation` et `status` à `sent | failed | delivered | bounced` (`supabase/migrations/20260305150000_create_labor_roles.sql:194-199`).
+Les erreurs Resend explicitement transitoires sont retentées après 1 puis
+2 secondes dans la requête courante. Si elles persistent, le dispatch redevient
+`queued` avec `next_attempt_at`. Il n'existe toutefois **aucun consommateur cron
+email autonome** : la même demande doit être resoumise pour reprendre la ligne.
 
-L'email interne de demande de validation a pour sujet `Validation requise - <projet> V<n>` et lève une erreur si Resend échoue (`src/lib/email/send-approval-review-request.ts:29-48`).
+Un rejet **certain** place le dispatch en `failed` et libère une version
+`sending` vers `draft`, sceau provisoire effacé, puisqu'aucun effet fournisseur
+n'a abouti. Si la charge fournisseur avait déjà été figée, cette ligne échouée
+reste immuable et la même `Idempotency-Key` ne peut pas la remettre en
+`preparing` : une nouvelle tentative exige une nouvelle clé de requête et crée
+donc un nouveau dispatch avec sa propre clé fournisseur. Seul un échec survenu
+avant le gel de la charge peut reprendre la même demande, après revalidation du
+verrou et de la révision.
+
+Une réponse d'idempotence ambiguë, une incohérence du PDF après une première
+tentative ou le dépassement de la coupure de sécurité de **23 heures** place la
+ligne en `unknown`. Aucun rejeu automatique n'est alors permis ; un
+rapprochement avec Resend est requis. La fenêtre réduit les doublons, sans
+promettre une livraison exactement une fois au-delà de la garantie fournisseur.
+
+Charge utile validée par zod : `to` (email obligatoire), `cc` (tableau
+d'emails, optionnel), `subject` (1 à 500 caractères), `message` (1 à
+5000 caractères). Aucune limite applicative dédiée ne borne encore la taille de
+la pièce jointe.
+
+Le lien d'appel à l'action reste résolu par `resolvePortalUrl` : avec
+`NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL`, il pointe sur
+`<base>/estimates/<versionId>` ; sans elle, sur
+`/dashboard/estimates/<versionId>/print` relatif à la requête. Ce n'est pas un
+lien public `/portal/<token>`.
+
+La confirmation d'acceptation et la demande interne de revue d'approbation ne
+sont **pas** dans cette outbox. Elles restent en meilleur effort : leur échec
+est journalisé sans faire échouer l'acceptation ou la soumission de revue. Aucun
+email réel n'a été envoyé pour valider cette évolution.
 
 ---
 
@@ -235,9 +356,22 @@ La référence est `C-AAMM-XXX`, séquence sur 3 chiffres issue de `order_number
 
 Les totaux : `lineTotalHtCents = quantity × unitPriceHtCents`, `lineTaxCents = round(lineTotalHtCents × taxRateBp / 10000)`, `lineTotalTtcCents = HT + TVA`, puis somme simple par commande (`src/lib/order-calculations.ts:23-46`). `recalculateOrderTotals` relit les lignes en base et réécrit les trois totaux de l'en-tête (`src/lib/order-calculations.ts:54-89`).
 
+La modification d'un brouillon passe par `replace_purchase_order_draft` : la
+RPC verrouille le bon, vérifie qu'il est encore `draft`, applique le patch
+d'en-tête, remplace éventuellement toutes les lignes et recalcule les trois
+totaux dans **une seule transaction**. Un échec ne laisse donc plus un en-tête
+mis à jour avec des lignes anciennes, ou inversement
+(`src/app/api/purchase-orders/[id]/route.ts`,
+`supabase/migrations/20260811231935_transactional_purchase_order_and_estimate_creation.sql`).
+
 ### 7.2 Brouillons dérivés d'un chiffrage
 
 `createEstimatePurchaseOrderDrafts` regroupe les lignes par fournisseur et crée une commande `draft` par groupe (`src/lib/estimates/purchase-order-drafts.ts:512-701`). Traçabilité conservée : `purchase_orders.source_estimate_version_id`, `purchase_order_items.source_estimate_item_id` et `source_selected_supplier_price_id` (`…:611`, `652-653`). Garde-fous : un item ne peut apparaître qu'une fois par requête (`…:537-544`), une ligne déjà rattachée à un brouillon déclenche `ORDER_DRAFT_ALREADY_EXISTS` (`…:549-562`), une préparation périmée déclenche `ORDER_DRAFT_PREPARATION_STALE` (`…:522-535`), et un échec partiel provoque un rollback des commandes créées, dont l'échec remonte en `ORDER_DRAFT_ROLLBACK_FAILED` (`…:673-691`). Les motifs de blocage possibles sont `selection_missing`, `stale`, `ambiguous`, `no_price`, `missing_quantity`, `non_integer_quantity`, `missing_unit_price` (`…:35-42`). La devise est figée à `EUR` (`…:610`).
+
+La transaction de remplacement décrite au §7.1 protège **un** brouillon déjà
+créé. Elle ne rend pas la création multi-fournisseur ci-dessus atomique dans son
+ensemble : plusieurs commandes sont encore créées séquentiellement, avec une
+compensation si un groupe ultérieur échoue.
 
 ### 7.3 Devis fournisseurs joints
 
@@ -254,9 +388,49 @@ Un type MIME `message/*` est réécrit en `application/octet-stream` à l'upload
 
 Les politiques Storage durcies exigent une arborescence exactement à deux niveaux commençant par `purchase-orders/`, un bon de commande non annulé, l'appartenance au tenant et la propriété ou le rôle `admin` (`supabase/migrations/20260708120000_harden_devis_storage_policies.sql:15-36`). Le chemin `signatures/<id>.png` écrit par le portail (§6.5) ne satisfait pas ces politiques ; il n'aboutit que parce que le client service-role contourne la RLS.
 
+Le trigger `guard_purchase_order_devis_storage_path` verrouille aussi le lien
+métadonnée/objet : `tenant_id`, `purchase_order_id` et `storage_path` deviennent
+immuables, et le chemin doit être strictement
+`purchase-orders/<purchase_order_id>/<filename>`, avec un nom non vide, sans
+sous-dossier ni segment `.`/`..`. Il vérifie que la commande parente appartient
+au même tenant
+(`supabase/migrations/20260812000456_transactional_procurement_reset_cleanup.sql`).
+
 Le réordonnancement des pièces jointes est atomique via la fonction `reorder_purchase_order_devis` (`supabase/migrations/016_atomic_reorder_purchase_order_devis_s5.sql:1-3`), exposée par un `PATCH` qui refuse les identifiants dupliqués, les commandes introuvables, les rôles non autorisés et les commandes annulées (`src/app/api/purchase-orders/[id]/devis/reorder/route.ts:35-75`).
 
-### 7.4 Archive ZIP
+### 7.4 Suppression et nettoyage Storage
+
+La suppression ordinaire d'un bon n'accepte que le statut `draft` et les rôles
+`admin|engineer` selon les règles de propriété. La RPC
+`delete_purchase_order_draft_atomic` verrouille la commande, copie d'abord tous
+les chemins de pièces jointes dans
+`procurement_storage_cleanup_outbox` avec le `purchase_order_id`, puis supprime
+la commande et ses enfants dans la même transaction. Il n'existe donc plus de
+fenêtre où la métadonnée disparaît sans laisser la liste des objets Storage à retirer
+(`supabase/migrations/20260812000456_transactional_procurement_reset_cleanup.sql`).
+
+La réinitialisation admin `reset_tenant_procurement_data` applique la même
+frontière à l'échelle du tenant : chemins Storage mis en outbox, puis suppression
+atomique des commandes, prix fournisseur, articles de catalogue fournisseur et
+fournisseurs. Elle exige le rôle tenant `admin` et la confirmation UI
+`SUPPRIMER` (`src/app/dashboard/admin/procurement-reset/page.tsx`).
+
+Le drain Storage est séparé, car Postgres ne peut pas participer à la
+transaction du bucket. Un worker service-role revendique jusqu'à 100 entrées
+avec un bail (120 secondes par défaut), revalide le bucket `devis` et le
+namespace exact `purchase-orders/<purchase_order_id>/<filename>`, appelle une
+suppression Storage idempotente, puis acquitte la ligne. Un échec est replanifié avec repli
+exponentiel jusqu'à 10 tentatives ; l'épuisement conserve une ligne
+`abandoned_at` au lieu de perdre la preuve. L'outbox est append-only et le cron
+durable `GET /api/internal/workflows/recover` la draine aussi.
+
+La suppression métier reste valide même si le drain immédiat échoue : l'UI
+affiche alors le nombre d'objets en attente. Le cron `*/5`, sa configuration
+`CRON_SECRET`, le plan Vercel Pro/Enterprise requis, son déploiement effectif et
+une suppression Storage distante réelle n'ont pas été vérifiés par cette
+documentation.
+
+### 7.5 Archive ZIP
 
 `GET /api/purchase-orders/[id]/zip` produit une archive `archiver` en niveau de compression 9 (`src/app/api/purchase-orders/[id]/zip/route.ts:309`) contenant :
 
@@ -265,7 +439,7 @@ Le réordonnancement des pièces jointes est atomique via la fonction `reorder_p
 
 Le nom de l'archive est `bon_de_commande_<référence ou numéro>.zip` (`…:336-343`). Aucune borne de taille ni de nombre de pièces n'est appliquée. La réponse est un flux ; `finalize()` est appelé après la conversion en `ReadableStream` (`…:345-347`).
 
-### 7.5 Impression écran
+### 7.6 Impression écran
 
 `PurchaseOrderDocument` est un rendu HTML imprimable, distinct de la chaîne `@react-pdf/renderer` : tableau Designation / Qte / P.U. HT / Total HT (`src/components/PurchaseOrderDocument.tsx:441-446`) et cartouche Total HT / TVA / Total TTC (`…:560-585`). La page d'impression déclenche l'impression sur `?print=1` ou `?print=true` (`src/app/dashboard/orders/[id]/print/page.tsx:99-101`).
 
@@ -284,19 +458,24 @@ Le nom de l'archive est `bon_de_commande_<référence ou numéro>.zip` (`…:336
 | Variable | Usage | Comportement si absente | Référence |
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Client Supabase et service-role | `createServiceRoleClient` lève une erreur | `src/lib/supabase/service-role.ts:8-10`, `30-37` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Portail, Storage PDF | `createOptionalServiceRoleClient` renvoie `null` et le code retombe sur le client utilisateur | `src/lib/supabase/service-role.ts:14-20`, `src/lib/estimates/pdf-generator.tsx:964`, `1619` |
-| `RESEND_API_KEY` | Envoi email | `internalError("Configuration email manquante: RESEND_API_KEY.")` ; côté portail, l'email de confirmation est simplement omis | `src/lib/email/send-estimate.ts:74-80`, `src/app/api/portal/[token]/accept/route.ts:209-212` |
-| `EMAIL_FROM` | Expéditeur | idem | `src/lib/email/send-estimate.ts:74-80`, `src/app/api/portal/[token]/accept/route.ts:210-212` |
-| `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL` | Base du lien email | Repli sur `/dashboard/estimates/<versionId>/print` relatif à la requête | `src/lib/email/send-estimate.ts:58-72` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Portail, publication PDF, outbox et workers internes | Sans elle, la lecture utilisateur peut subsister mais les RPC de publication PDF refusent le client authentifié : aucune nouvelle ligne `ready` n'est publiable | `src/lib/supabase/service-role.ts`, `src/lib/estimates/pdf-publication.ts` |
+| `RESEND_API_KEY` | Envoi email | L'envoi initial échoue avant réservation si absente ; côté portail, la confirmation est simplement omise | `src/lib/email/send-estimate.ts`, `src/app/api/portal/[token]/accept/route.ts` |
+| `EMAIL_FROM` | Expéditeur | L'envoi initial échoue si absente ; côté portail, la confirmation est simplement omise | `src/lib/email/send-estimate.ts`, `src/app/api/portal/[token]/accept/route.ts` |
+| `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL` | Base du lien email | Repli sur `/dashboard/estimates/<versionId>/print` relatif à la requête | `src/lib/email/send-estimate.ts` |
+| `CRON_SECRET` | Reprise takeoff/intake et drain Storage procurement | La route interne renvoie `503` si absent et `401` si le bearer ne correspond pas | `src/app/api/internal/workflows/recover/route.ts` |
 | `NODE_ENV` | Autorise les CGV brouillon | Hors `development`, un snapshot `isDraft` est ignoré | `src/lib/estimates/pdf-terms.ts:122-127` |
 
-Ces cinq premières variables figurent dans `.env.example:1-6`.
+Ces variables figurent sans valeur dans `.env.example`.
 
 ---
 
 ## 10. Écarts et zones non vérifiées
 
-1. **Chemin PDF** : la fonction applicative (`src/lib/estimates/pdf-generator.tsx:1040-1054`) et le trigger SQL (`supabase/migrations/20260713135408_harden_portal_pdf_capabilities.sql:202-208`) ne produisent le même chemin que si `estimate_reference` est vide ; le contrôle de conformité de `getEstimatePdfStatus` (`…:2038-2050`) s'appuie sur la forme applicative. Le comportement effectif sur une base migrée n'est pas vérifié.
+1. **Objets PDF orphelins** : le chemin content-addressé et `upsert: false`
+   empêchent l'écrasement, mais un candidat supplanté après upload peut rester
+   sans métadonnée publiée. Aucun nettoyeur différé ne le retire encore (§2.1).
+   La migration n'a pas été appliquée à un Supabase distant et aucun upload
+   Storage réel n'a été exécuté pour cette validation.
 2. **Émission des liens portail** : aucun code applicatif ne crée de `portal_tokens` (preuve au §6.1), et aucun lien `/portal/<token>` n'est construit dans les emails (§5).
 3. **« Unite »** : la valeur exportée est `description`, faute de colonne dédiée (§4.1).
 4. **Signature portail** : elle est déposée dans le bucket `devis` sur un chemin que la RLS de ce bucket n'autorise pas, uniquement viable par contournement service-role (§7.3).

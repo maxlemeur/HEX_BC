@@ -15,6 +15,7 @@ import {
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callGeminiStructured, type GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
 
 import {
   AFFAIRE_INTAKE_BUCKET,
@@ -981,6 +982,7 @@ async function classifyAffaireIntakeDocument(input: {
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  beforeProviderCall?: () => Promise<void>;
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
@@ -1013,6 +1015,8 @@ async function classifyAffaireIntakeDocument(input: {
       source: "heuristic",
     };
   }
+
+  await input.beforeProviderCall?.();
 
   try {
     const geminiResult = await callGeminiStructured({
@@ -1894,6 +1898,7 @@ async function generateAffaireBriefDraft(input: {
   uploadId: string;
   documents: AffaireBriefGenerationDocument[];
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
+  renewLease?: () => Promise<void>;
 }): Promise<AffaireIntakeBriefDraft> {
   const fallback = buildFallbackAffaireBrief({
     project: input.project,
@@ -1905,27 +1910,24 @@ async function generateAffaireBriefDraft(input: {
   let generated: AffaireBriefGeneration | null = null;
 
   try {
-    const result = await callGeminiStructured({
-      prompt: buildBriefGenerationPrompt({
-        project: input.project,
-        documents: input.documents,
-        missingPieces: input.missingPieces,
+    const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
+      renewLease: input.renewLease ?? (async () => undefined),
+      effect: () => callGeminiStructured({
+        prompt: buildBriefGenerationPrompt({
+          project: input.project,
+          documents: input.documents,
+          missingPieces: input.missingPieces,
+        }),
+        schema: affaireBriefGenerationSchema,
+        thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
+        context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
       }),
-      schema: affaireBriefGenerationSchema,
-      thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
-      context: {
-        model: AFFAIRE_BRIEF_MODEL,
-        promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION,
-      },
     });
 
     generated = result.data;
   } catch (error) {
-    console.error("Affaire brief AI generation failed", {
-      projectId: input.project.id,
-      uploadId: input.uploadId,
-      error,
-    });
+    if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
+    console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error: error.cause });
   }
 
   const generation = mergeGeneratedAffaireBriefWithFallback({
@@ -2083,6 +2085,7 @@ async function refreshAffaireBriefFromDocuments(input: {
   uploadId: string;
   documents: AffaireIntakeDocumentRow[];
   actorUserId?: string | null;
+  renewLease?: () => Promise<void>;
 }) {
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded"
@@ -2135,6 +2138,7 @@ async function refreshAffaireBriefFromDocuments(input: {
       extracted_metadata: document.extracted_metadata,
     })),
     missingPieces,
+    renewLease: input.renewLease,
   });
 
   return persistAffaireBriefDraft({
@@ -2201,27 +2205,10 @@ async function updateUploadStatusFromStoredDocuments(input: {
     .filter((row): row is NonNullable<typeof row> => row !== null);
 
   const status = deriveAffaireIntakeUploadStatusFromDocuments(normalizedDocuments);
-  const nowIso = new Date().toISOString();
 
-  const { error: updateError } = await resolveSupabaseQuery<{
-    error: unknown;
-  }>(
-    getAffaireIntakeUpdateTable(input.supabase, "affaire_intake_uploads")
-      .update({
-        status,
-        completed_at:
-          status === "ready" || status === "partial_failure" || status === "failed"
-            ? nowIso
-            : null,
-        next_retry_at: null,
-      } as never)
-      .eq("id", input.uploadId)
-  );
-
-  if (updateError) {
+  if (status === "processing") {
     throw internalError(
-      "Impossible de mettre a jour le statut de l'upload intake.",
-      updateError
+      "Le traitement intake ne peut pas etre finalise avec des documents en attente."
     );
   }
 
@@ -2497,63 +2484,24 @@ export const __securityTesting__ = {
   SPREADSHEET_MAX_ARCHIVE_ENTRIES,
 };
 
-async function getUploadForProcessing(uploadId: string) {
-  const supabase = createServiceRoleClient();
-  const { data, error } = await resolveSupabaseQuery<{
-    data: unknown;
-    error: unknown;
-  }>(
-    supabase
-      .from("affaire_intake_uploads" as never)
-      .select(UPLOAD_SELECT as never)
-      .eq("id", uploadId)
-      .maybeSingle()
-  );
-
-  if (error) {
-    throw internalError("Impossible de charger l'upload intake.", error);
-  }
-
-  const upload = normalizeUploadRow(data);
-  if (!upload) {
-    throw notFound("Upload intake introuvable.");
-  }
-
-  return {
-    supabase,
-    upload,
+async function processClaimedAffaireIntakeUpload(input: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  lifecycleClient: durableIntake.DurableWorkflowRpcClient;
+  claim: durableIntake.AffaireIntakeClaim;
+}) {
+  const { supabase, lifecycleClient, claim } = input;
+  const upload = {
+    id: claim.uploadId,
+    tenant_id: claim.tenantId,
+    project_id: claim.projectId,
   };
-}
-
-export async function processAffaireIntakeUpload(uploadId: string) {
-  const { supabase, upload } = await getUploadForProcessing(uploadId);
-
-  if (upload.status !== "queued") {
-    return upload.status;
-  }
-
   const nowIso = new Date().toISOString();
-  const { error: processingError } = await resolveSupabaseQuery<{
-    error: unknown;
-  }>(
-    supabase
-      .from("affaire_intake_uploads" as never)
-      .update({
-        status: "processing",
-        attempt_count: upload.attempt_count + 1,
-        next_retry_at: null,
-        last_error: null,
-        completed_at: null,
-      } as never)
-      .eq("id", upload.id)
-  );
-
-  if (processingError) {
-    throw internalError(
-      "Impossible de marquer l'upload intake comme en cours de traitement.",
-      processingError
-    );
-  }
+  const renewLease = () =>
+    durableIntake.renewAffaireIntakeUploadLease({
+      client: lifecycleClient,
+      claim,
+      now: new Date(),
+    });
 
   const { data: docsData, error: docsError } = await resolveSupabaseQuery<{
     data: unknown[];
@@ -2596,6 +2544,7 @@ export async function processAffaireIntakeUpload(uploadId: string) {
       continue;
     }
 
+    await renewLease();
     const { error: markProcessingError } = await resolveSupabaseQuery<{
       error: unknown;
     }>(
@@ -2616,6 +2565,7 @@ export async function processAffaireIntakeUpload(uploadId: string) {
     }
 
     if (!document.storage_path) {
+      await renewLease();
       const { error: markFailedError } = await resolveSupabaseQuery<{
         error: unknown;
       }>(
@@ -2663,7 +2613,9 @@ export async function processAffaireIntakeUpload(uploadId: string) {
         fileName: document.file_name,
         mimeType,
         bytes,
+        beforeProviderCall: renewLease,
       });
+      await renewLease();
       const classificationStatus = deriveAffaireIntakeClassificationStatus({
         documentKind: classification.result.documentKind,
         confidence: classification.result.confidence,
@@ -2703,6 +2655,11 @@ export async function processAffaireIntakeUpload(uploadId: string) {
         },
       });
     } catch (error) {
+      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) {
+        throw error;
+      }
+      await renewLease();
+
       console.error("Affaire intake document processing failed", {
         uploadId: upload.id,
         documentId: document.id,
@@ -2738,6 +2695,7 @@ export async function processAffaireIntakeUpload(uploadId: string) {
     }
   }
 
+  await renewLease();
   await syncAffaireIntakeDocumentPriorities({
     supabase,
     projectId: upload.project_id,
@@ -2784,7 +2742,9 @@ export async function processAffaireIntakeUpload(uploadId: string) {
         project,
         uploadId: upload.id,
         documents: refreshedDocuments,
+        renewLease,
       }).catch((error) => {
+        if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw error;
         console.error("Affaire brief refresh failed after intake processing", {
           uploadId: upload.id,
           projectId: upload.project_id,
@@ -2801,6 +2761,13 @@ export async function processAffaireIntakeUpload(uploadId: string) {
     });
   }
 
+  await durableIntake.finishAffaireIntakeUploadAttempt({
+    client: lifecycleClient,
+    claim,
+    status,
+    now: new Date(),
+  });
+
   await insertAffaireIntakeEvent({
     supabase,
     uploadId: upload.id,
@@ -2811,6 +2778,32 @@ export async function processAffaireIntakeUpload(uploadId: string) {
   });
 
   return status;
+}
+
+export async function processAffaireIntakeUpload(uploadId: string) {
+  const supabase = createServiceRoleClient();
+  const lifecycleClient = supabase as unknown as durableIntake.DurableWorkflowRpcClient;
+  const claimResult = await durableIntake.claimAffaireIntakeUpload({ client: lifecycleClient, uploadId, now: new Date() });
+
+  if (!claimResult.claimed) {
+    if (claimResult.reason === "not_found") {
+      throw notFound("Upload intake introuvable.");
+    }
+    return claimResult.status ?? "failed";
+  }
+
+  const claim = claimResult.claim;
+  try {
+    return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim });
+  } catch (error) {
+    await durableIntake.releaseAffaireIntakeUploadAfterError({
+      client: lifecycleClient,
+      claim,
+      now: new Date(),
+      error,
+    });
+    throw error;
+  }
 }
 
 export async function fetchAffaireIntakeWorkspace(

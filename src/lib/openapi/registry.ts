@@ -41,6 +41,7 @@ import {
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
+import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 export type OpenApiHttpMethod = "get" | "post" | "patch" | "delete";
@@ -388,7 +389,6 @@ const insertAssemblyIntoVersionBodySchema = z.object({
   after_item_id: z.union([uuidSchema, z.null()]).optional(),
 });
 
-const estimateStatusSchema = z.enum(["draft", "sent", "accepted", "archived"]);
 const estimateItemTypeSchema = z.enum(["section", "line"]);
 const suggestionFeedbackSchema = z.enum(["accept", "reject"]);
 const supplierAlternativeKindSchema = z.enum([
@@ -4236,7 +4236,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     description:
       "Envoie le devis par email (avec piece jointe PDF et message personnalise).",
     tags: ["Estimate Versions"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, estimateEmailIdempotencyKeyHeaderParameter],
     requestBody: sendEstimateBody,
     responses: {
       "200": jsonResponse(

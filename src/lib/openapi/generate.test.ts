@@ -87,6 +87,24 @@ describe("generateOpenApiDocument", () => {
       | undefined;
     expect(patchOperation).toBeDefined();
     expect(patchOperation?.responses).toHaveProperty("400");
+
+    const sendOperation = document.paths[
+      "/api/estimates/{versionId}/send"
+    ]?.post as
+      | { parameters?: Array<Record<string, unknown>> }
+      | undefined;
+    expect(sendOperation?.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Idempotency-Key",
+          in: "header",
+          required: true,
+        }),
+      ])
+    );
+    expect(
+      JSON.stringify(document.components.schemas.ApiEstimateVersionResponse)
+    ).toContain('"sending"');
   });
 });
 

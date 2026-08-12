@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { mockDrainProcurementStorageCleanupOutbox } = vi.hoisted(() => ({
+  mockDrainProcurementStorageCleanupOutbox: vi.fn(),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { PUT } from "@/app/api/purchase-orders/[id]/route";
+vi.mock("@/lib/procurement/storage-cleanup-outbox", () => ({
+  drainProcurementStorageCleanupOutbox:
+    mockDrainProcurementStorageCleanupOutbox,
+}));
+
+import { DELETE, PUT } from "@/app/api/purchase-orders/[id]/route";
 import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -13,20 +22,7 @@ const ORDER_ID = "44444444-4444-4444-8444-444444444444";
 const TENANT_ID = "55555555-5555-4555-8555-555555555555";
 
 function createPutSupabaseMock() {
-  const headerUpdates: Record<string, unknown>[] = [];
-  const insertedItems: Record<string, unknown>[] = [];
-  const existingItems = [
-    {
-      product_id: "prod-1",
-      reference: "REF-001",
-      designation: 'Coffret "A"',
-      quantity: 2,
-      unit_price_ht_cents: 1250,
-      tax_rate_bp: 2000,
-      source_estimate_item_id: "estimate-item-1",
-      source_selected_supplier_price_id: "supplier-price-1",
-    },
-  ];
+  const rpc = vi.fn().mockResolvedValue({ data: ORDER_ID, error: null });
 
   const selectSingle = vi.fn().mockResolvedValue({
     data: {
@@ -53,30 +49,6 @@ function createPutSupabaseMock() {
     eq: selectEq,
   }));
 
-  const updateEq = vi.fn().mockResolvedValue({ error: null });
-  const purchaseOrdersUpdate = vi.fn((payload: Record<string, unknown>) => {
-    headerUpdates.push(payload);
-    return {
-      eq: updateEq,
-    };
-  });
-
-  const purchaseOrderItemsSelectEq = vi.fn().mockResolvedValue({
-    data: existingItems,
-    error: null,
-  });
-  const purchaseOrderItemsSelect = vi.fn(() => ({
-    eq: purchaseOrderItemsSelectEq,
-  }));
-  const purchaseOrderItemsDeleteEq = vi.fn().mockResolvedValue({ error: null });
-  const purchaseOrderItemsDelete = vi.fn(() => ({
-    eq: purchaseOrderItemsDeleteEq,
-  }));
-  const purchaseOrderItemsInsert = vi.fn((payload: Record<string, unknown>[]) => {
-    insertedItems.push(...payload);
-    return Promise.resolve({ error: null });
-  });
-
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -88,6 +60,7 @@ function createPutSupabaseMock() {
         error: null,
       }),
     },
+    rpc,
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
@@ -107,14 +80,6 @@ function createPutSupabaseMock() {
       if (table === "purchase_orders") {
         return {
           select: purchaseOrdersSelect,
-          update: purchaseOrdersUpdate,
-        };
-      }
-      if (table === "purchase_order_items") {
-        return {
-          select: purchaseOrderItemsSelect,
-          delete: purchaseOrderItemsDelete,
-          insert: purchaseOrderItemsInsert,
         };
       }
 
@@ -124,15 +89,21 @@ function createPutSupabaseMock() {
 
   return {
     supabase,
-    headerUpdates,
+    rpc,
     selectEq,
-    insertedItems,
   };
 }
 
 describe("purchase orders [id] route regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDrainProcurementStorageCleanupOutbox.mockResolvedValue({
+      claimed: 0,
+      removed: 0,
+      failed: 0,
+      skipped: false,
+      errors: [],
+    });
   });
 
   it("shared lookup uses id filter only (no owner-only user_id filter)", async () => {
@@ -177,7 +148,7 @@ describe("purchase orders [id] route regressions", () => {
   });
 
   it("preserves the TBD sentinel when updating draft orders", async () => {
-    const { supabase, headerUpdates } = createPutSupabaseMock();
+    const { supabase, rpc } = createPutSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const request = new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
@@ -192,12 +163,15 @@ describe("purchase orders [id] route regressions", () => {
 
     const response = await PUT(request, { params: Promise.resolve({ id: ORDER_ID }) });
     expect(response.status).toBe(200);
-    expect(headerUpdates).toHaveLength(1);
-    expect(headerUpdates[0]?.["expected_delivery_date"]).toBe("TBD");
+    expect(rpc).toHaveBeenCalledWith("replace_purchase_order_draft", {
+      p_order_id: ORDER_ID,
+      p_header_patch: { expected_delivery_date: "TBD" },
+      p_items: null,
+    });
   });
 
-  it("preserves source traceability when an unchanged draft line is re-saved", async () => {
-    const { supabase, insertedItems } = createPutSupabaseMock();
+  it("delegates one normalized line replacement to the atomic RPC", async () => {
+    const { supabase, rpc } = createPutSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const request = new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
@@ -222,44 +196,25 @@ describe("purchase orders [id] route regressions", () => {
     const response = await PUT(request, { params: Promise.resolve({ id: ORDER_ID }) });
 
     expect(response.status).toBe(200);
-    expect(insertedItems).toHaveLength(1);
-    expect(insertedItems[0]?.["source_estimate_item_id"]).toBe("estimate-item-1");
-    expect(insertedItems[0]?.["source_selected_supplier_price_id"]).toBe("supplier-price-1");
-  });
-
-  it("clears source traceability when product identity changes", async () => {
-    const { supabase, insertedItems } = createPutSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const request = new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        items: [
-          {
-            productId: "prod-2",
-            reference: "REF-001",
-            designation: 'Coffret "A"',
-            quantity: 2,
-            unitPriceCents: 1250,
-            taxRateBp: 2000,
-          },
-        ],
-      }),
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("replace_purchase_order_draft", {
+      p_order_id: ORDER_ID,
+      p_header_patch: {},
+      p_items: [
+        {
+          product_id: "prod-1",
+          reference: "REF-001",
+          designation: 'Coffret "A"',
+          quantity: 2,
+          unit_price_ht_cents: 1250,
+          tax_rate_bp: 2000,
+        },
+      ],
     });
-
-    const response = await PUT(request, { params: Promise.resolve({ id: ORDER_ID }) });
-
-    expect(response.status).toBe(200);
-    expect(insertedItems).toHaveLength(1);
-    expect(insertedItems[0]?.["source_estimate_item_id"]).toBeNull();
-    expect(insertedItems[0]?.["source_selected_supplier_price_id"]).toBeNull();
   });
 
-  it("clears source traceability when supplier reference changes", async () => {
-    const { supabase, insertedItems } = createPutSupabaseMock();
+  it("rejects non-integer quantities before calling the RPC", async () => {
+    const { supabase, rpc } = createPutSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const request = new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
@@ -271,9 +226,9 @@ describe("purchase orders [id] route regressions", () => {
         items: [
           {
             productId: "prod-1",
-            reference: "REF-002",
+            reference: "REF-001",
             designation: 'Coffret "A"',
-            quantity: 2,
+            quantity: 0.5,
             unitPriceCents: 1250,
             taxRateBp: 2000,
           },
@@ -283,9 +238,83 @@ describe("purchase orders [id] route regressions", () => {
 
     const response = await PUT(request, { params: Promise.resolve({ id: ORDER_ID }) });
 
+    expect(response.status).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("maps a draft race rejected by PostgreSQL to the existing 403 contract", async () => {
+    const { supabase, rpc } = createPutSupabaseMock();
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42501",
+        message: "PURCHASE_ORDER_DRAFT_NOT_EDITABLE",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const request = new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        notes: "mise à jour concurrente",
+      }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: ORDER_ID }) });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Seuls les bons de commande en brouillon peuvent etre modifies.",
+    });
+  });
+
+  it("returns 403 when the atomic draft delete loses the status race", async () => {
+    const { supabase, rpc } = createPutSupabaseMock();
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42501",
+        message: "PURCHASE_ORDER_DRAFT_NOT_DELETABLE",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await DELETE(
+      new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ id: ORDER_ID }) }
+    );
+
+    expect(response.status).toBe(403);
+    expect(rpc).toHaveBeenCalledWith("delete_purchase_order_draft_atomic", {
+      p_order_id: ORDER_ID,
+    });
+    expect(mockDrainProcurementStorageCleanupOutbox).not.toHaveBeenCalled();
+  });
+
+  it("deletes through the atomic RPC then drains durable Storage cleanup", async () => {
+    const { supabase, rpc } = createPutSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await DELETE(
+      new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ id: ORDER_ID }) }
+    );
+
     expect(response.status).toBe(200);
-    expect(insertedItems).toHaveLength(1);
-    expect(insertedItems[0]?.["source_estimate_item_id"]).toBeNull();
-    expect(insertedItems[0]?.["source_selected_supplier_price_id"]).toBeNull();
+    await expect(response.json()).resolves.toEqual({ success: true });
+    expect(rpc).toHaveBeenCalledWith("delete_purchase_order_draft_atomic", {
+      p_order_id: ORDER_ID,
+    });
+    expect(mockDrainProcurementStorageCleanupOutbox).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      limit: 25,
+    });
   });
 });

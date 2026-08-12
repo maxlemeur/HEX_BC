@@ -1,3 +1,9 @@
 {
-  "buildCommand": "npm run build -- --webpack"
+  "buildCommand": "npm run build -- --webpack",
+  "crons": [
+    {
+      "path": "/api/internal/workflows/recover",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

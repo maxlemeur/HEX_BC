@@ -72,6 +72,7 @@ type StatusBadgeStyle = { bg: string; color: string; label: string };
 
 const STATUS_BADGE_STYLES: Record<string, StatusBadgeStyle> = {
   draft: { bg: "var(--slate-100)", color: "var(--slate-700)", label: "Brouillon" },
+  sending: { bg: "var(--warning)", color: "#fff", label: "Envoi en cours" },
   sent: { bg: "var(--info)", color: "#fff", label: "Envoyé" },
   accepted: { bg: "#059669", color: "#fff", label: "Accepté" },
   archived: { bg: "var(--slate-500)", color: "#fff", label: "Archivé" },
@@ -397,7 +398,7 @@ export default async function EstimateDetailPage({
                     {canEditVersion ? (
                       <EstimateStatusActions
                         versionId={versionId}
-                        currentStatus={version.status as "draft" | "sent" | "accepted" | "archived"}
+                        currentStatus={version.status}
                         updatedAt={version.updated_at}
                         projectName={project?.name ?? undefined}
                       />

@@ -11,10 +11,9 @@ import {
 } from "@/lib/affaires/import-flow";
 import {
   computeEstimateLineValues,
-  computeEstimateTotals,
   hasActiveLaborSplitPayload,
-  computeInitialDiscountCents,
   normalizeDraftItems,
+  type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
 import {
   DEFAULT_MAX_SECTION_DEPTH,
@@ -35,7 +34,10 @@ import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
-import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
+import {
+  calculateEstimateTotalsForItems,
+  type CalculatedEstimateTotals,
+} from "@/lib/estimates/version-totals";
 import {
   getTakeoffLinkedSourceVersionByJobId,
   linkTakeoffJobsFromSourceVersionToTargetVersion,
@@ -120,7 +122,6 @@ type Supabase = SupabaseClient<Database>;
 
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
-type EstimateVersionInsert = Database["public"]["Tables"]["estimate_versions"]["Insert"];
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"];
 type DpgfImportRow = Database["public"]["Tables"]["dpgf_imports"]["Row"];
@@ -515,6 +516,12 @@ export type ImportLinkedDpgfSourceResult = {
   };
 };
 
+type PreparedLinkedDpgfSource = {
+  sourceImportId: string;
+  items: EstimateItemInsert[];
+  lineItems: Array<EstimateItemInsert & EstimateItemRecord>;
+};
+
 type EstimateVersionDetailsRow = EstimateVersionRow & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
@@ -632,6 +639,7 @@ const ESTIMATE_STATUS_TRANSITIONS: Readonly<
   Record<EstimateStatus, readonly EstimateStatus[]>
 > = {
   draft: ["sent"],
+  sending: [],
   sent: ["accepted", "archived"],
   accepted: ["archived"],
   archived: [],
@@ -640,6 +648,7 @@ const ESTIMATE_VERSION_STATUS_EVENT_TYPES: Readonly<
   Record<EstimateStatus, EstimateVersionStatusEventType | null>
 > = {
   draft: null,
+  sending: null,
   sent: "sent",
   accepted: "accepted",
   archived: "archived",
@@ -760,12 +769,6 @@ type EstimateTotals = {
   total_ht_cents: number | null;
   total_tax_cents: number | null;
   total_ttc_cents: number | null;
-};
-
-type CalculatedEstimateTotals = {
-  total_ht_cents: number;
-  total_tax_cents: number;
-  total_ttc_cents: number;
 };
 
 type EstimateTotalsInvariantRule =
@@ -1963,7 +1966,7 @@ function assertEstimateStatusTransition(
   );
 }
 
-function buildCanonicalEstimateSealPayload(
+export function buildCanonicalEstimateSealPayload(
   input: {
     version: EstimateSealVersionFields;
     items: EstimateItemRow[];
@@ -2080,14 +2083,14 @@ function buildCanonicalEstimateSealPayload(
   };
 }
 
-function computeEstimateSealHash(payload: EstimateSealPayload) {
+export function computeEstimateSealHash(payload: EstimateSealPayload) {
   return createHash("sha256")
     .update(JSON.stringify(payload))
     .digest("hex")
     .toLowerCase();
 }
 
-async function loadEstimateSealSource(input: {
+export async function loadEstimateSealSource(input: {
   supabase: Supabase;
   tenantId: string;
   versionId: string;
@@ -2913,7 +2916,7 @@ async function resolveLinkedDpgfImportSectionTitle(input: {
   });
 }
 
-async function importLinkedDpgfSourceIntoVersionInternal(input: {
+type ImportLinkedDpgfSourceInternalInput = {
   supabase: Supabase;
   tenantId: string;
   projectId: string;
@@ -2921,7 +2924,18 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
   marginMultiplier: number;
   defaultTaxRateBp: number;
   sectionTitle?: string | null;
-}): Promise<ImportLinkedDpgfSourceResult> {
+  persist?: boolean;
+};
+
+async function importLinkedDpgfSourceIntoVersionInternal(
+  input: ImportLinkedDpgfSourceInternalInput & { persist: false }
+): Promise<PreparedLinkedDpgfSource>;
+async function importLinkedDpgfSourceIntoVersionInternal(
+  input: ImportLinkedDpgfSourceInternalInput
+): Promise<ImportLinkedDpgfSourceResult>;
+async function importLinkedDpgfSourceIntoVersionInternal(
+  input: ImportLinkedDpgfSourceInternalInput
+): Promise<ImportLinkedDpgfSourceResult | PreparedLinkedDpgfSource> {
   const latestImport = await loadLatestLinkedDpgfImportForProject({
     supabase: input.supabase,
     tenantId: input.tenantId,
@@ -3027,8 +3041,16 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
       line_total_ht_cents: line.lineTotalHtCents,
       line_tax_cents: line.lineTaxCents,
       line_total_ttc_cents: line.lineTotalTtcCents,
-    } satisfies EstimateItemInsert;
+    } satisfies EstimateItemInsert & EstimateItemRecord;
   });
+
+  if (input.persist === false) {
+    return {
+      sourceImportId: latestImport.id,
+      items: [sectionItemPayload, ...lineItemsPayload],
+      lineItems: lineItemsPayload,
+    };
+  }
 
   const { error: insertError } = await input.supabase
     .from("estimate_items")
@@ -3059,19 +3081,6 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
     totals: recalculateResult.totals,
     version: recalculateResult.version,
   };
-}
-
-function toArrayNumberOrNull(value: unknown): Array<number | null> | null {
-  if (!Array.isArray(value)) return null;
-  return value.map((entry) => {
-    if (typeof entry === "number" && Number.isFinite(entry)) {
-      return entry;
-    }
-    if (entry === null) {
-      return null;
-    }
-    return null;
-  });
 }
 
 type EstimateRecalculationVersionOverrides = Partial<
@@ -3169,126 +3178,13 @@ async function recalculateEstimateVersionTotals(
     );
   }
 
-  const lineItems = (lineItemsData ?? []) as EstimateItemRow[];
-  const laborRoleIds = new Set<string>();
-  lineItems.forEach((item) => {
-    if (item.labor_role_id) laborRoleIds.add(item.labor_role_id);
-    if (item.labor_role_atelier_id) laborRoleIds.add(item.labor_role_atelier_id);
-    if (item.labor_role_chantier_id) laborRoleIds.add(item.labor_role_chantier_id);
+  const totals = await calculateEstimateTotalsForItems({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    projectUserId: project.user_id,
+    version: effectiveVersionRecord,
+    lineItems: (lineItemsData ?? []) as EstimateItemRow[],
   });
-
-  const laborRatesById = new Map<string, number>();
-  const uniqueRoleIds = Array.from(laborRoleIds);
-  if (uniqueRoleIds.length > 0) {
-    const { data: laborRolesData, error: laborRolesError } = await input.supabase
-      .from("labor_roles")
-      .select("id, hourly_rate_cents")
-      .eq("tenant_id", input.tenantId)
-      .eq("user_id", project.user_id)
-      .in("id", uniqueRoleIds);
-
-    if (laborRolesError) {
-      throw mapSupabaseError(
-        laborRolesError,
-        "Impossible de recalculer les totaux de la version cible."
-      );
-    }
-
-    (laborRolesData ?? []).forEach((role) => {
-      laborRatesById.set(role.id, role.hourly_rate_cents);
-    });
-  }
-
-  const marginTiers =
-    effectiveVersionRecord.margin_mode === "tiered"
-      ? await loadMarginTiersForTotals({
-          supabase: input.supabase,
-          tenantId: input.tenantId,
-        })
-      : [];
-
-  // EST-E26 (T6, étape 5) : le recalcul autoritaire lit le flag tenant réel.
-  // Plus d'auto-détection par ligne côté moteur.
-  const isLaborSplitEnabled = await isFeatureEnabled(
-    input.tenantId,
-    "EST_031_LABOR_SPLIT",
-    { supabase: input.supabase }
-  );
-
-  const discountSteps = toArrayNumberOrNull(
-    effectiveVersionRecord.discount_steps
-  );
-  const discountCents = computeInitialDiscountCents(
-    {
-      margin_multiplier: effectiveVersionRecord.margin_multiplier ?? 1,
-      margin_mode: effectiveVersionRecord.margin_mode ?? "fixed",
-      tax_rate_bp:
-        effectiveVersionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-      discount_bp: effectiveVersionRecord.discount_bp ?? 0,
-      discount_mode: effectiveVersionRecord.discount_mode ?? "simple",
-      discount_steps: discountSteps,
-      global_coefficient: effectiveVersionRecord.global_coefficient ?? 1,
-    },
-    lineItems,
-    laborRatesById,
-    // Meme flag que computeEstimateTotals ci-dessous : sans quoi l'assiette de
-    // la remise et le sous-total dont on la soustrait ne parlent pas de la meme
-    // chose, et le total faux est persiste.
-    isLaborSplitEnabled
-  );
-
-  const totalsResult = computeEstimateTotals({
-    lineItems: lineItems.map((item) => ({
-      quantity: item.quantity ?? 0,
-      unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
-      tax_rate_bp:
-        item.tax_rate_bp ??
-        (effectiveVersionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP),
-      k_fo: item.k_fo ?? 1,
-      h_mo: item.h_mo ?? 0,
-      h_mo_majoration: item.h_mo_majoration ?? 1,
-      k_mo: item.k_mo ?? 1,
-      h_mo_atelier: item.h_mo_atelier ?? null,
-      k_mo_atelier: item.k_mo_atelier ?? null,
-      labor_role_atelier_id: item.labor_role_atelier_id ?? null,
-      h_mo_chantier: item.h_mo_chantier ?? null,
-      k_mo_chantier: item.k_mo_chantier ?? null,
-      labor_role_chantier_id: item.labor_role_chantier_id ?? null,
-      pu_ht_cents: item.pu_ht_cents ?? 0,
-      labor_role_hourly_rate_cents: item.labor_role_id
-        ? (laborRatesById.get(item.labor_role_id) ?? 0)
-        : 0,
-      labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
-        ? (laborRatesById.get(item.labor_role_atelier_id) ?? 0)
-        : 0,
-      labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
-        ? (laborRatesById.get(item.labor_role_chantier_id) ?? 0)
-        : 0,
-    })),
-    marginMultiplier: effectiveVersionRecord.margin_multiplier ?? 1,
-    marginMode: effectiveVersionRecord.margin_mode ?? "fixed",
-    marginTiers,
-    isLaborSplitEnabled,
-    discountCents,
-    discountMode: effectiveVersionRecord.discount_mode ?? "simple",
-    discountStepsBp: discountSteps,
-    globalCoefficient: effectiveVersionRecord.global_coefficient ?? 1,
-    taxRateBp:
-      effectiveVersionRecord.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-    roundingMode:
-      effectiveVersionRecord.rounding_mode ?? DEFAULT_ROUNDING_MODE,
-    roundingStepCents:
-      effectiveVersionRecord.rounding_step_cents ??
-      DEFAULT_ROUNDING_STEP_CENTS,
-    vatReverseCharge:
-      effectiveVersionRecord.contractor_role === "subcontractor",
-  });
-
-  const totals = {
-    total_ht_cents: totalsResult.saleTotalCents,
-    total_tax_cents: totalsResult.adjustedTaxCents,
-    total_ttc_cents: totalsResult.roundedTtcCents,
-  };
 
   if (input.persist === false) {
     return { totals };
@@ -7221,12 +7117,11 @@ export async function createEstimate(input: CreateEstimateInput) {
     });
   }
 
-  let project: EstimateProjectRow | null = null;
-  let createdProjectId: string | null = null;
+  let existingProject: EstimateProjectRow | null = null;
   let latestProjectVersionDefaults: CreateEstimateLatestVersionDefaultsRow | null = null;
 
   if (targetProjectId) {
-    const { data: existingProject, error: existingProjectError } = await supabase
+    const { data: projectData, error: existingProjectError } = await supabase
       .from("estimate_projects")
       .select("*")
       .eq("id", targetProjectId)
@@ -7241,17 +7136,17 @@ export async function createEstimate(input: CreateEstimateInput) {
     }
 
     if (
-      !existingProject ||
-      existingProject.is_archived ||
+      !projectData ||
+      projectData.is_archived ||
       !canAccessOwnerResource({
         context,
-        resourceUserId: existingProject.user_id,
+        resourceUserId: projectData.user_id,
       })
     ) {
       throw notFound("Projet de chiffrage introuvable.");
     }
 
-    project = existingProject as EstimateProjectRow;
+    existingProject = projectData as EstimateProjectRow;
 
     const { data: latestVersionData, error: latestVersionError } = await supabase
       .from("estimate_versions")
@@ -7259,7 +7154,7 @@ export async function createEstimate(input: CreateEstimateInput) {
         "id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth"
       )
       .eq("tenant_id", tenantId)
-      .eq("project_id", project.id)
+      .eq("project_id", existingProject.id)
       .order("version_number", { ascending: false })
       .order("updated_at", { ascending: false })
       .limit(1)
@@ -7278,36 +7173,10 @@ export async function createEstimate(input: CreateEstimateInput) {
     if (!input.project) {
       throw badRequest("project ou project_id est requis.");
     }
-
-    const { data: createdProject, error: projectError } = await supabase
-      .from("estimate_projects")
-      .insert({
-        tenant_id: tenantId,
-        user_id: userId,
-        name: input.project.name,
-        reference: toNullableText(input.project.reference),
-        client_name: toNullableText(input.project.client_name),
-        notes: toNullableText(input.project.notes),
-        is_archived: false,
-      })
-      .select("*")
-      .single();
-
-    if (projectError || !createdProject) {
-      if (projectError) {
-        throw mapSupabaseError(projectError, "Impossible de créer le projet de chiffrage.");
-      }
-      throw badRequest("Impossible de créer le projet de chiffrage.");
-    }
-
-    project = createdProject as EstimateProjectRow;
-    createdProjectId = createdProject.id;
   }
 
-  if (!project) {
-    throw badRequest("Projet de chiffrage introuvable.");
-  }
-
+  const projectId = targetProjectId ?? randomUUID();
+  const projectUserId = existingProject?.user_id ?? userId;
   const normalizedCurrency = normalizeEstimateCurrencyOrThrow(
     requestedCurrency ?? latestProjectVersionDefaults?.currency,
     {
@@ -7315,13 +7184,8 @@ export async function createEstimate(input: CreateEstimateInput) {
     }
   );
 
-  const versionPayload: EstimateVersionInsert = {
-    tenant_id: tenantId,
-    project_id: project.id,
-    version_number: targetProjectId
-      ? (latestProjectVersionDefaults?.version_number ?? 0) + 1
-      : 1,
-    status: "draft",
+  const versionPayload = {
+    id: randomUUID(),
     title: toNullableText(input.version?.title),
     date_devis:
       input.version?.date_devis ??
@@ -7378,24 +7242,41 @@ export async function createEstimate(input: CreateEstimateInput) {
     total_ttc_cents: 0,
   };
 
-  const { data: insertedVersion, error: versionError } = await supabase
-    .from("estimate_versions")
-    .insert(versionPayload)
-    .select("*")
-    .single();
+  let estimateItems: EstimateItemInsert[] = [];
+  if (creationMode === "linked_dpgf_source") {
+    const preparedImport = await importLinkedDpgfSourceIntoVersionInternal({
+      supabase,
+      tenantId,
+      projectId,
+      versionId: versionPayload.id,
+      marginMultiplier: versionPayload.margin_multiplier,
+      defaultTaxRateBp: versionPayload.tax_rate_bp,
+      persist: false,
+    });
+    const totals = await calculateEstimateTotalsForItems({
+      supabase,
+      tenantId,
+      projectUserId,
+      version: {
+        margin_multiplier: versionPayload.margin_multiplier,
+        margin_mode: versionPayload.margin_mode,
+        tax_rate_bp: versionPayload.tax_rate_bp,
+        discount_bp: versionPayload.discount_bp,
+        discount_mode: versionPayload.discount_mode,
+        discount_steps: versionPayload.discount_steps,
+        global_coefficient: versionPayload.global_coefficient,
+        rounding_mode: versionPayload.rounding_mode,
+        rounding_step_cents: versionPayload.rounding_step_cents,
+        contractor_role: "principal",
+      },
+      lineItems: preparedImport.lineItems,
+    });
 
-  if (versionError || !insertedVersion) {
-    if (createdProjectId) {
-      await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
-    }
-
-    if (versionError) {
-      throw mapSupabaseError(versionError, "Impossible de créer la version initiale.");
-    }
-
-    throw badRequest("Impossible de créer la version initiale.");
+    estimateItems = preparedImport.items;
+    versionPayload.total_ht_cents = totals.total_ht_cents;
+    versionPayload.total_tax_cents = totals.total_tax_cents;
+    versionPayload.total_ttc_cents = totals.total_ttc_cents;
   }
-  let version = insertedVersion as EstimateVersionRow;
 
   const categoriesPayload: EstimateCategoryInsert[] = DEFAULT_ESTIMATE_CATEGORIES.map(
     (category) => ({
@@ -7415,21 +7296,12 @@ export async function createEstimate(input: CreateEstimateInput) {
     });
 
   if (categoriesError) {
-    if (createdProjectId) {
-      await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
-    } else {
-      await supabase
-        .from("estimate_versions")
-        .delete()
-        .eq("id", version.id)
-        .eq("tenant_id", tenantId);
-    }
     throw mapSupabaseError(categoriesError, "Impossible de preparer les categories par defaut.");
   }
 
   const laborRolesPayload: LaborRoleInsert[] = DEFAULT_LABOR_ROLES.map((role) => ({
     tenant_id: tenantId,
-    user_id: project.user_id,
+    user_id: projectUserId,
     name: role.name,
     hourly_rate_cents: role.hourly_rate_cents,
     is_active: true,
@@ -7444,72 +7316,56 @@ export async function createEstimate(input: CreateEstimateInput) {
     });
 
   if (laborRolesError) {
-    if (createdProjectId) {
-      await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
-    } else {
-      await supabase
-        .from("estimate_versions")
-        .delete()
-        .eq("id", version.id)
-        .eq("tenant_id", tenantId);
-    }
     throw mapSupabaseError(
       laborRolesError,
       "Impossible de preparer les roles MO par defaut."
     );
   }
 
-  if (creationMode === "linked_dpgf_source") {
-    try {
-      const importResult = await importLinkedDpgfSourceIntoVersionInternal({
-        supabase,
-        tenantId,
-        projectId: project.id,
-        versionId: version.id,
-        marginMultiplier:
-          typeof version.margin_multiplier === "number"
-            ? version.margin_multiplier
-            : versionPayload.margin_multiplier ?? DEFAULT_MARGIN_MULTIPLIER,
-        defaultTaxRateBp:
-          typeof version.tax_rate_bp === "number"
-            ? version.tax_rate_bp
-            : versionPayload.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-      });
-
-      version = {
-        ...version,
-        total_ht_cents: importResult.totals.total_ht_cents,
-        total_tax_cents: importResult.totals.total_tax_cents,
-        total_ttc_cents: importResult.totals.total_ttc_cents,
-        updated_at: importResult.version.updated_at,
+  const projectPayload = targetProjectId
+    ? null
+    : {
+        id: projectId,
+        name: input.project?.name,
+        reference: toNullableText(input.project?.reference),
+        client_name: toNullableText(input.project?.client_name),
+        notes: toNullableText(input.project?.notes),
       };
-    } catch (error) {
-      if (createdProjectId) {
-        await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
-      } else {
-        await supabase
-          .from("estimate_versions")
-          .delete()
-          .eq("id", version.id)
-          .eq("tenant_id", tenantId);
-      }
-
-      throw error;
+  const { data: persistedData, error: persistenceError } = await supabase.rpc(
+    "persist_estimate_creation_atomic",
+    {
+      p_tenant_id: tenantId,
+      p_project_id: targetProjectId,
+      p_project_payload: projectPayload,
+      p_version_payload: versionPayload,
+      p_items: estimateItems,
     }
+  );
+
+  if (persistenceError || !persistedData) {
+    if (persistenceError) {
+      throw mapSupabaseError(
+        persistenceError,
+        "Impossible de créer le projet et sa version initiale."
+      );
+    }
+    throw badRequest("Impossible de créer le projet et sa version initiale.");
   }
+
+  const persisted = persistedData as unknown as {
+    project: EstimateProjectRow;
+    version: EstimateVersionRow;
+  };
 
   await tryCarryOverTakeoffJobsToNewVersion({
     supabase,
     tenantId,
     userId,
     sourceVersionId: latestProjectVersionDefaults?.id ?? null,
-    targetVersionId: version.id,
+    targetVersionId: persisted.version.id,
   });
 
-  return {
-    project,
-    version,
-  };
+  return persisted;
 }
 
 export async function getEstimateVersionDetails(versionId: string) {

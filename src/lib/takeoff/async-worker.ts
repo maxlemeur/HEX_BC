@@ -2,8 +2,13 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
   TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS,
+  TAKEOFF_PROCESSING_LEASE_TTL_SECONDS,
 } from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import {
+  normalizeTakeoffWorkerJobRow,
+  type TakeoffWorkerJobRow,
+} from "@/lib/takeoff/job-lifecycle";
 import {
   processLevelA,
   processLevelB,
@@ -15,6 +20,10 @@ import type {
   TakeoffJobAttemptOutcome,
   TakeoffJobAttemptTrigger,
 } from "@/lib/takeoff/types";
+import {
+  isWorkflowTenantActive,
+  type WorkflowTenantClient,
+} from "@/lib/workflows/active-tenant";
 
 const TAKEOFF_RETRY_MAX = 3;
 const TAKEOFF_RETRY_BACKOFF_SECONDS = [5, 15, 45] as const;
@@ -32,6 +41,8 @@ type SupabaseSelectBuilderLike = {
 
 type SupabaseUpdateBuilderLike = PromiseLike<SupabaseMutationResult> & {
   eq: (column: string, value: unknown) => SupabaseUpdateBuilderLike;
+  select: (columns: string) => SupabaseUpdateBuilderLike;
+  maybeSingle: () => Promise<SupabaseMutationResult>;
 };
 
 type SupabaseClientLike = {
@@ -42,28 +53,9 @@ type SupabaseClientLike = {
   rpc?: (fn: string, args: Record<string, unknown>) => Promise<SupabaseMutationResult>;
 };
 
-type WorkerJobRow = {
-  id: string;
-  tenant_id: string;
-  level: string;
-  status: string;
-  processing_strategy: string | null;
-  provider_batch_id: string | null;
-  provider_batch_state: string | null;
-  provider_reconcile_due_at: string | null;
-  provider_reconcile_attempt_count: number | null;
-  provider_reconcile_lease_token: string | null;
-  provider_reconcile_lease_expires_at: string | null;
-  retry_count: number | null;
-  error_code: string | null;
-  error_message: string | null;
-  created_by: string | null;
-  next_retry_at: string | null;
-  last_error_at: string | null;
-};
-
 type TakeoffWorkerRepository = {
-  getJobById: (jobId: string) => Promise<WorkerJobRow | null>;
+  getJobById: (jobId: string) => Promise<TakeoffWorkerJobRow | null>;
+  isTenantActive: (tenantId: string) => Promise<boolean>;
   markUnsupportedLevelAsFailed: (input: {
     jobId: string;
     tenantId: string;
@@ -90,15 +82,25 @@ type TakeoffWorkerRepository = {
     claimed: boolean;
     attemptCount: number | null;
   }>;
+  renewLease: (input: {
+    kind: "processing" | "reconcile";
+    jobId: string;
+    tenantId: string;
+    leaseToken: string;
+    nowIso: string;
+    leaseExpiresAtIso: string;
+  }) => Promise<void>;
   scheduleReconcile: (input: {
     jobId: string;
     tenantId: string;
     dueAtIso: string;
+    leaseToken: string;
   }) => Promise<void>;
   markBatchReconcileTimeoutAsFailed: (input: {
     jobId: string;
     tenantId: string;
     nowIso: string;
+    leaseToken: string;
   }) => Promise<void>;
 };
 
@@ -133,7 +135,7 @@ function isUuidLike(value: string) {
   );
 }
 
-function isBatchReconcileCandidate(job: WorkerJobRow) {
+function isBatchReconcileCandidate(job: TakeoffWorkerJobRow) {
   return (
     job.status === "processing" &&
     job.processing_strategy === "batch" &&
@@ -142,56 +144,10 @@ function isBatchReconcileCandidate(job: WorkerJobRow) {
   );
 }
 
-function hasTerminalProviderBatchState(job: WorkerJobRow) {
+function hasTerminalProviderBatchState(job: TakeoffWorkerJobRow) {
   return ["succeeded", "failed", "cancelled", "expired"].includes(
     job.provider_batch_state ?? ""
   );
-}
-
-function normalizeJobRow(row: unknown): WorkerJobRow | null {
-  if (!row || typeof row !== "object" || Array.isArray(row)) {
-    return null;
-  }
-
-  const record = row as Record<string, unknown>;
-  if (typeof record.id !== "string" || typeof record.tenant_id !== "string") {
-    return null;
-  }
-
-  return {
-    id: record.id,
-    tenant_id: record.tenant_id,
-    level: typeof record.level === "string" ? record.level : "",
-    status: typeof record.status === "string" ? record.status : "",
-    processing_strategy:
-      typeof record.processing_strategy === "string" ? record.processing_strategy : null,
-    provider_batch_id:
-      typeof record.provider_batch_id === "string" ? record.provider_batch_id : null,
-    provider_batch_state:
-      typeof record.provider_batch_state === "string" ? record.provider_batch_state : null,
-    provider_reconcile_due_at:
-      typeof record.provider_reconcile_due_at === "string"
-        ? record.provider_reconcile_due_at
-        : null,
-    provider_reconcile_attempt_count:
-      typeof record.provider_reconcile_attempt_count === "number"
-        ? record.provider_reconcile_attempt_count
-        : null,
-    provider_reconcile_lease_token:
-      typeof record.provider_reconcile_lease_token === "string"
-        ? record.provider_reconcile_lease_token
-        : null,
-    provider_reconcile_lease_expires_at:
-      typeof record.provider_reconcile_lease_expires_at === "string"
-        ? record.provider_reconcile_lease_expires_at
-        : null,
-    retry_count: typeof record.retry_count === "number" ? record.retry_count : null,
-    error_code: typeof record.error_code === "string" ? record.error_code : null,
-    error_message: typeof record.error_message === "string" ? record.error_message : null,
-    created_by: typeof record.created_by === "string" ? record.created_by : null,
-    next_retry_at: typeof record.next_retry_at === "string" ? record.next_retry_at : null,
-    last_error_at: typeof record.last_error_at === "string" ? record.last_error_at : null,
-  };
 }
 
 function createSupabaseTakeoffWorkerRepository(
@@ -234,7 +190,14 @@ function createSupabaseTakeoffWorkerRepository(
         });
       }
 
-      return normalizeJobRow(data);
+      return normalizeTakeoffWorkerJobRow(data);
+    },
+
+    async isTenantActive(tenantId) {
+      return isWorkflowTenantActive(
+        supabase as unknown as WorkflowTenantClient,
+        tenantId
+      );
     },
 
     async markUnsupportedLevelAsFailed(input) {
@@ -344,8 +307,26 @@ function createSupabaseTakeoffWorkerRepository(
       };
     },
 
+    async renewLease(input) {
+      const { data, error } = await (supabase as unknown as {
+        rpc: (fn: string, args: Record<string, unknown>) => Promise<SupabaseMutationResult>;
+      }).rpc(
+        input.kind === "processing"
+          ? "renew_takeoff_processing_lease"
+          : "renew_takeoff_batch_reconcile_lease",
+        {
+          p_job_id: input.jobId,
+          p_tenant_id: input.tenantId,
+          p_lease_token: input.leaseToken,
+          p_now: input.nowIso,
+          p_lease_expires_at: input.leaseExpiresAtIso,
+        }
+      );
+      if (error || data !== true) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible.", retryable: false, jobId: input.jobId });
+    },
+
     async scheduleReconcile(input) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("takeoff_jobs")
         .update({
           provider_reconcile_due_at: input.dueAtIso,
@@ -354,7 +335,10 @@ function createSupabaseTakeoffWorkerRepository(
         })
         .eq("id", input.jobId)
         .eq("tenant_id", input.tenantId)
-        .eq("status", "processing");
+        .eq("status", "processing")
+        .eq("provider_reconcile_lease_token", input.leaseToken)
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         throw toTakeoffError(error, {
@@ -364,10 +348,11 @@ function createSupabaseTakeoffWorkerRepository(
           jobId: input.jobId,
         });
       }
+      if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease de reconciliation n'est plus disponible.", retryable: false, jobId: input.jobId });
     },
 
     async markBatchReconcileTimeoutAsFailed(input) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("takeoff_jobs")
         .update({
           status: "failed",
@@ -382,7 +367,10 @@ function createSupabaseTakeoffWorkerRepository(
         })
         .eq("id", input.jobId)
         .eq("tenant_id", input.tenantId)
-        .eq("status", "processing");
+        .eq("status", "processing")
+        .eq("provider_reconcile_lease_token", input.leaseToken)
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         throw toTakeoffError(error, {
@@ -392,6 +380,7 @@ function createSupabaseTakeoffWorkerRepository(
           jobId: input.jobId,
         });
       }
+      if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease de reconciliation n'est plus disponible.", retryable: false, jobId: input.jobId });
     },
   };
 }
@@ -489,6 +478,38 @@ export async function processTakeoffJobAttempt(
       correlationId: options.correlationId,
     });
   }
+
+  if (!(await repository.isTenantActive(job.tenant_id))) {
+    return buildOutcome({
+      jobId: job.id,
+      tenantId: job.tenant_id,
+      level: job.level,
+      status: "noop_terminal",
+      trigger: options.trigger,
+      retryCount,
+      retryable: false,
+      shouldRequeue: false,
+      durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+      errorCode: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
+      errorMessage: "Le tenant est suspendu; le worker n'a execute aucun effet externe.",
+      correlationId: options.correlationId,
+    });
+  }
+
+  const assertTenantActive = async (tenantId: string) => {
+    if (!(await repository.isTenantActive(tenantId))) {
+      throw new TakeoffError({
+        code: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
+        message: "Le tenant a ete suspendu avant l'appel fournisseur.",
+        retryable: true,
+        jobId: job.id,
+        level:
+          job.level === "A" || job.level === "B" || job.level === "C"
+            ? job.level
+            : undefined,
+      });
+    }
+  };
 
   if (job.status === "failed") {
     const nextRetryAtMs = job.next_retry_at
@@ -591,6 +612,7 @@ export async function processTakeoffJobAttempt(
         jobId: job.id,
         tenantId: job.tenant_id,
         nowIso,
+        leaseToken,
       });
 
       return buildOutcome({
@@ -616,6 +638,11 @@ export async function processTakeoffJobAttempt(
         userId: job.created_by ?? undefined,
         supabase: serviceRoleClient as never,
         now,
+        assertTenantActive,
+        renewLease: ({ jobId: claimedJobId, tenantId, leaseToken: token }) => {
+          const leaseNow = now();
+          return repository.renewLease({ kind: "reconcile", jobId: claimedJobId, tenantId, leaseToken: token, nowIso: leaseNow.toISOString(), leaseExpiresAtIso: new Date(leaseNow.getTime() + TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS * 1000).toISOString() });
+        },
       });
 
       if (reconcileResult.status === "awaiting_provider_result") {
@@ -628,6 +655,7 @@ export async function processTakeoffJobAttempt(
           jobId: job.id,
           tenantId: job.tenant_id,
           dueAtIso: nextRunAtIso,
+          leaseToken,
         });
 
         return buildOutcome({
@@ -648,11 +676,6 @@ export async function processTakeoffJobAttempt(
           correlationId: options.correlationId,
         });
       }
-
-      await repository.clearRetrySchedule({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-      });
 
       const refreshed = await repository.getJobById(job.id);
       const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? retryCount);
@@ -691,6 +714,7 @@ export async function processTakeoffJobAttempt(
           jobId: current.id,
           tenantId: current.tenant_id,
           dueAtIso: nextRunAtIso,
+          leaseToken,
         });
 
         logger.warn("Takeoff async worker scheduled reconcile retry", {
@@ -840,15 +864,15 @@ export async function processTakeoffJobAttempt(
       userId: job.created_by ?? undefined,
       supabase: serviceRoleClient as never,
       now,
+      assertTenantActive,
+      renewLease: ({ jobId: claimedJobId, tenantId, leaseToken }) => {
+        const leaseNow = now();
+        return repository.renewLease({ kind: "processing", jobId: claimedJobId, tenantId, leaseToken, nowIso: leaseNow.toISOString(), leaseExpiresAtIso: new Date(leaseNow.getTime() + TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000).toISOString() });
+      },
     });
 
     if (result.status === "submitted_to_provider") {
       const nextRunAtIso = now().toISOString();
-
-      await repository.clearRetrySchedule({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-      });
 
       return buildOutcome({
         jobId: job.id,
@@ -868,11 +892,6 @@ export async function processTakeoffJobAttempt(
         correlationId: options.correlationId,
       });
     }
-
-    await repository.clearRetrySchedule({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-    });
 
     const refreshed = await repository.getJobById(job.id);
     const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? retryCount);

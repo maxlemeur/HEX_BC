@@ -8,6 +8,7 @@ const STATUS_BADGE_VARIANT: Record<
   "neutral" | "info" | "success"
 > = {
   draft: "neutral",
+  sending: "info",
   sent: "info",
   accepted: "success",
   archived: "neutral",
@@ -15,6 +16,7 @@ const STATUS_BADGE_VARIANT: Record<
 
 const STATUS_LABEL: Record<AffaireStatus, string> = {
   draft: "Brouillon",
+  sending: "Envoi en cours",
   sent: "Envoyé",
   accepted: "Accepté",
   archived: "Archivé",

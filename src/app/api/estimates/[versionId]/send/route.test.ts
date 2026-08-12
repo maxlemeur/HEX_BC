@@ -9,6 +9,7 @@ import { internalError } from "@/lib/estimates/errors";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const IDEMPOTENCY_KEY = "44444444-4444-4444-8444-444444444444";
 
 describe("estimate send route", () => {
   beforeEach(() => {
@@ -75,6 +76,58 @@ describe("estimate send route", () => {
     expect(vi.mocked(sendEstimateEmail)).not.toHaveBeenCalled();
   });
 
+  it("rejects a malformed idempotency key before dispatch", async () => {
+    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/send`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "not-a-uuid",
+      },
+      body: JSON.stringify({
+        to: "client@example.com",
+        subject: "Devis",
+        message: "Bonjour",
+      }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(vi.mocked(sendEstimateEmail)).not.toHaveBeenCalled();
+  });
+
+  it("requires an idempotency key before dispatch", async () => {
+    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/send`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        to: "client@example.com",
+        subject: "Devis",
+        message: "Bonjour",
+      }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          code: "IDEMPOTENCY_KEY_REQUIRED",
+        }),
+      })
+    );
+    expect(vi.mocked(sendEstimateEmail)).not.toHaveBeenCalled();
+  });
+
   it("sends estimate email and returns success payload", async () => {
     vi.mocked(sendEstimateEmail).mockResolvedValue({
       message_id: "email_123",
@@ -84,6 +137,7 @@ describe("estimate send route", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        "idempotency-key": IDEMPOTENCY_KEY,
       },
       body: JSON.stringify({
         to: " client@example.com ",
@@ -114,6 +168,7 @@ describe("estimate send route", () => {
         message: "Bonjour",
       },
       requestUrl: request.url,
+      idempotencyKey: IDEMPOTENCY_KEY,
     });
   });
 
@@ -126,6 +181,7 @@ describe("estimate send route", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        "idempotency-key": IDEMPOTENCY_KEY,
       },
       body: JSON.stringify({
         to: "client@example.com",

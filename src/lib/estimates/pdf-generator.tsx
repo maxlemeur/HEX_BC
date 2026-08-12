@@ -35,8 +35,18 @@ import {
   DEFAULT_ESTIMATE_PDF_LAYOUT,
   normalizeEstimatePdfLayoutOptions,
   type EstimatePdfLayoutConfiguration,
-  type EstimatePdfLayoutOptions,
 } from "@/lib/estimates/pdf-layout";
+import { assertEstimatePdfMutationAllowed, type EstimatePdfLayoutOptions, type PdfGenerateOptions } from "@/lib/estimates/pdf-mutation-policy";
+import {
+  beginEstimatePdfGeneration,
+  buildContentAddressedEstimatePdfPath,
+  failEstimatePdfGeneration,
+  isCanonicalEstimatePdfPath,
+  isImmutableStorageObjectAlreadyPresent,
+  publishEstimatePdfGeneration,
+  type EstimatePdfGenerationClaim,
+  type EstimatePdfGenerationPurpose,
+} from "@/lib/estimates/pdf-publication";
 import {
   canUseEstimateTermsSnapshot,
   createDevelopmentEstimateTermsTemplate,
@@ -49,10 +59,7 @@ import {
   type EstimateTermsSnapshot,
   type EstimateTermsTemplate,
 } from "@/lib/estimates/pdf-terms";
-import {
-  buildEstimatePdfFilename,
-  formatEstimateReference,
-} from "@/lib/estimates/reference";
+import { formatEstimateReference } from "@/lib/estimates/reference";
 import {
   formatCurrency,
   formatEUR,
@@ -63,8 +70,8 @@ import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
-import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
-import type { Database } from "@/types/database";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import type { Database, Json } from "@/types/database";
 
 import { internalError, mapSupabaseError, notFound } from "./errors";
 import type {
@@ -130,6 +137,7 @@ type VersionWithProject = Pick<
   | "total_tax_cents"
   | "total_ttc_cents"
   | "currency"
+  | "content_revision"
   | "status"
 > & {
   estimate_projects: EmbeddedProject | EmbeddedProject[] | null;
@@ -144,12 +152,6 @@ type AuthenticatedContext = {
 type VersionAccess = {
   version: VersionWithProject;
   project: EmbeddedProject;
-};
-
-type PdfGenerateOptions = {
-  force?: boolean;
-  triggeredBy?: "manual" | "send";
-  layout?: EstimatePdfLayoutOptions;
 };
 
 type PdfReadyPayload = {
@@ -729,7 +731,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
+      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -858,21 +860,6 @@ function isMissingEstimateTermsSchema(error: SupabaseErrorLike) {
   );
 }
 
-function isMissingEstimatePdfMetadataColumns(error: SupabaseErrorLike) {
-  const code = error.code?.toUpperCase() ?? "";
-  const message = normalizedSupabaseError(error);
-  const mentionsNewColumn =
-    message.includes("layout_options") || message.includes("terms_snapshot");
-
-  return (
-    message.includes("estimate_documents") &&
-    mentionsNewColumn &&
-    (code === "42703" ||
-      code === "PGRST204" ||
-      message.includes("schema cache"))
-  );
-}
-
 async function loadPdfIssuer(input: {
   supabase: Supabase;
   userId: string;
@@ -915,8 +902,7 @@ async function createSignedUrlOrThrow(input: {
   supabase: Supabase;
   filePath: string;
 }) {
-  const storageClient = createOptionalServiceRoleClient() ?? input.supabase;
-  const { data, error } = await storageClient.storage
+  const { data, error } = await input.supabase.storage
     .from(ESTIMATE_DOCUMENTS_BUCKET)
     .createSignedUrl(input.filePath, SIGNED_URL_TTL_SECONDS);
 
@@ -933,43 +919,6 @@ async function createSignedUrlOrThrow(input: {
   }
 
   return data.signedUrl;
-}
-
-async function upsertDocumentRow(input: {
-  supabase: Supabase;
-  payload: Database["public"]["Tables"]["estimate_documents"]["Insert"];
-  allowLegacyPdfMetadataFallback?: boolean;
-}) {
-  const { error } = await input.supabase
-    .from("estimate_documents")
-    .upsert(input.payload, { onConflict: "tenant_id,version_id" });
-
-  if (!error) return;
-
-  if (
-    input.allowLegacyPdfMetadataFallback &&
-    isMissingEstimatePdfMetadataColumns(error)
-  ) {
-    const legacyPayload = { ...input.payload };
-    delete legacyPayload.layout_options;
-    delete legacyPayload.terms_snapshot;
-
-    const { error: legacyError } = await input.supabase
-      .from("estimate_documents")
-      .upsert(legacyPayload, { onConflict: "tenant_id,version_id" });
-
-    if (!legacyError) return;
-
-    throw mapSupabaseError(
-      legacyError,
-      "Impossible de mettre a jour le statut du document PDF.",
-    );
-  }
-
-  throw mapSupabaseError(
-    error,
-    "Impossible de mettre a jour le statut du document PDF.",
-  );
 }
 
 async function getDocumentRow(input: {
@@ -991,20 +940,11 @@ async function getDocumentRow(input: {
   return (data ?? null) as EstimateDocumentRow | null;
 }
 
-function toFilePath(input: {
-  tenantId: string;
-  estimateId: string;
-  versionId: string;
-  estimateReference: string | null;
-  versionNumber: number;
-}) {
-  const filename = buildEstimatePdfFilename({
-    baseReference: input.estimateReference,
-    versionNumber: input.versionNumber,
-    fallback: input.versionId,
-  });
-
-  return `${input.tenantId}/${input.estimateId}/${filename}`;
+function resolveGenerationPurpose(
+  options: PdfGenerateOptions,
+): EstimatePdfGenerationPurpose {
+  if (options.triggeredBy !== "send") return "manual";
+  return options.dispatchId ? "email" : "workflow";
 }
 
 function PdfPageChrome() {
@@ -1513,55 +1453,37 @@ export function buildEstimatePdfDocument(input: {
 
 export async function markEstimatePdfProcessing(
   versionId: string,
-): Promise<void> {
+): Promise<EstimatePdfGenerationClaim> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, versionId);
+  assertEstimatePdfMutationAllowed(access.version.status, "manual");
+  const publicationClient = createServiceRoleClient();
 
-  await upsertDocumentRow({
-    supabase: context.supabase,
-    payload: {
-      tenant_id: context.tenantId,
-      version_id: versionId,
-      status: "processing",
-      last_error: null,
-      generated_by: context.userId,
-      file_path: toFilePath({
-        tenantId: context.tenantId,
-        estimateId: access.project.id,
-        versionId,
-        estimateReference: access.project.estimate_reference,
-        versionNumber: access.version.version_number,
-      }),
-      sha256_hash: null,
-      file_size_bytes: null,
-      generated_at: null,
-    },
+  return beginEstimatePdfGeneration({
+    client: publicationClient,
+    versionId,
+    tenantId: context.tenantId,
+    actorUserId: context.userId,
+    purpose: "manual",
   });
 }
 
 export async function markEstimatePdfFailed(
   versionId: string,
   message: string,
+  claim: EstimatePdfGenerationClaim,
 ): Promise<void> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, versionId);
+  await getVersionAccessOrThrow(context, versionId);
+  const publicationClient = createServiceRoleClient();
 
-  await upsertDocumentRow({
-    supabase: context.supabase,
-    payload: {
-      tenant_id: context.tenantId,
-      version_id: versionId,
-      status: "failed",
-      last_error: message.slice(0, 2000),
-      generated_by: context.userId,
-      file_path: toFilePath({
-        tenantId: context.tenantId,
-        estimateId: access.project.id,
-        versionId,
-        estimateReference: access.project.estimate_reference,
-        versionNumber: access.version.version_number,
-      }),
-    },
+  await failEstimatePdfGeneration({
+    client: publicationClient,
+    versionId,
+    tenantId: context.tenantId,
+    actorUserId: context.userId,
+    claim,
+    message,
   });
 }
 
@@ -1570,7 +1492,6 @@ export async function generateEstimatePdfNow(
   options: PdfGenerateOptions = {},
 ): Promise<PdfReadyPayload> {
   const context = await getAuthenticatedContext();
-  const storageClient = createOptionalServiceRoleClient() ?? context.supabase;
   const access = await getVersionAccessOrThrow(context, versionId);
 
   const existing = await getDocumentRow({
@@ -1578,18 +1499,19 @@ export async function generateEstimatePdfNow(
     tenantId: context.tenantId,
     versionId,
   });
-  const filePath = toFilePath({
-    tenantId: context.tenantId,
-    estimateId: access.project.id,
-    versionId,
-    estimateReference: access.project.estimate_reference,
-    versionNumber: access.version.version_number,
-  });
-
   if (
     !options.force &&
     existing?.status === "ready" &&
-    existing.file_path === filePath &&
+    existing.last_error === null &&
+    existing.published_content_revision === access.version.content_revision &&
+    existing.file_path &&
+    isCanonicalEstimatePdfPath({
+      filePath: existing.file_path,
+      tenantId: context.tenantId,
+      projectId: access.project.id,
+      versionId,
+      sha256Hash: existing.sha256_hash,
+    }) &&
     existing.generated_at
   ) {
     const downloadUrl = await createSignedUrlOrThrow({
@@ -1607,20 +1529,26 @@ export async function generateEstimatePdfNow(
     };
   }
 
-  await upsertDocumentRow({
-    supabase: context.supabase,
-    payload: {
-      tenant_id: context.tenantId,
-      version_id: versionId,
-      status: "processing",
-      last_error: null,
-      generated_by: context.userId,
-      file_path: filePath,
-      sha256_hash: null,
-      file_size_bytes: null,
-      generated_at: null,
-    },
-  });
+  if (!options.publicationClaim) {
+    assertEstimatePdfMutationAllowed(access.version.status, options.triggeredBy);
+  }
+
+  // Mutations are deliberately service-role-only in SQL and Storage. Failing
+  // here when server configuration is absent prevents an impossible fallback
+  // to the authenticated client from being mistaken for a supported path.
+  const publicationClient = createServiceRoleClient();
+  const storageClient = publicationClient;
+
+  const claim =
+    options.publicationClaim ??
+    (await beginEstimatePdfGeneration({
+      client: publicationClient,
+      versionId,
+      tenantId: context.tenantId,
+      actorUserId: context.userId,
+      purpose: resolveGenerationPurpose(options),
+      dispatchId: options.dispatchId,
+    }));
 
   try {
     const [items, termsTemplate, issuer, logoDataUri] = await Promise.all([
@@ -1806,14 +1734,28 @@ export async function generateEstimatePdfNow(
       throw internalError("Impossible de generer le binaire PDF.", error);
     }
 
+    const sha256Hash = createHash("sha256")
+      .update(pdfBuffer)
+      .digest("hex")
+      .toLowerCase();
+    const filePath = buildContentAddressedEstimatePdfPath({
+      tenantId: context.tenantId,
+      projectId: access.project.id,
+      versionId,
+      sha256Hash,
+    });
+
     const { error: uploadError } = await storageClient.storage
       .from(ESTIMATE_DOCUMENTS_BUCKET)
       .upload(filePath, pdfBuffer, {
         contentType: "application/pdf",
-        upsert: true,
+        upsert: false,
       });
 
-    if (uploadError) {
+    if (
+      uploadError &&
+      !isImmutableStorageObjectAlreadyPresent(uploadError)
+    ) {
       const failure = classifyEstimatePdfStorageFailure(uploadError, "upload");
       throw internalError(
         failure.message,
@@ -1822,28 +1764,20 @@ export async function generateEstimatePdfNow(
       );
     }
 
-    const sha256Hash = createHash("sha256")
-      .update(pdfBuffer)
-      .digest("hex")
-      .toLowerCase();
     const generatedAt = new Date().toISOString();
 
-    await upsertDocumentRow({
-      supabase: context.supabase,
-      allowLegacyPdfMetadataFallback: !effectiveLayout.includeTerms,
-      payload: {
-        tenant_id: context.tenantId,
-        version_id: versionId,
-        status: "ready",
-        last_error: null,
-        file_path: filePath,
-        sha256_hash: sha256Hash,
-        file_size_bytes: pdfBuffer.byteLength,
-        generated_by: context.userId,
-        generated_at: generatedAt,
-        layout_options: effectiveLayout,
-        terms_snapshot: termsSnapshot,
-      },
+    await publishEstimatePdfGeneration({
+      client: publicationClient,
+      versionId,
+      tenantId: context.tenantId,
+      actorUserId: context.userId,
+      claim,
+      filePath,
+      sha256Hash,
+      fileSizeBytes: pdfBuffer.byteLength,
+      generatedAt,
+      layoutOptions: effectiveLayout as unknown as Json,
+      termsSnapshot: termsSnapshot as unknown as Json | null,
     });
 
     const downloadUrl = await createSignedUrlOrThrow({
@@ -1866,19 +1800,13 @@ export async function generateEstimatePdfNow(
           ? error.message.trim()
           : "Echec generation PDF";
 
-      await upsertDocumentRow({
-        supabase: context.supabase,
-        payload: {
-          tenant_id: context.tenantId,
-          version_id: versionId,
-          status: "failed",
-          last_error: message.slice(0, 2000),
-          file_path: filePath,
-          generated_by: context.userId,
-          sha256_hash: null,
-          file_size_bytes: null,
-          generated_at: null,
-        },
+      await failEstimatePdfGeneration({
+        client: publicationClient,
+        versionId,
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        claim,
+        message,
       });
     } catch {
       // Best effort status update when generation fails.
@@ -1982,6 +1910,18 @@ export async function getEstimatePdfStatus(
     };
   }
 
+  if (
+    row.last_error !== null ||
+    row.published_content_revision !== access.version.content_revision
+  ) {
+    return {
+      status: "failed",
+      last_error:
+        row.last_error ??
+        "Le document PDF ne correspond plus a la revision courante du devis.",
+    };
+  }
+
   if (!row.file_path) {
     return {
       status: "failed",
@@ -1989,14 +1929,15 @@ export async function getEstimatePdfStatus(
     };
   }
 
-  const expectedFilePath = toFilePath({
-    tenantId: context.tenantId,
-    estimateId: access.project.id,
-    versionId,
-    estimateReference: access.project.estimate_reference,
-    versionNumber: access.version.version_number,
-  });
-  if (row.file_path !== expectedFilePath) {
+  if (
+    !isCanonicalEstimatePdfPath({
+      filePath: row.file_path,
+      tenantId: context.tenantId,
+      projectId: access.project.id,
+      versionId,
+      sha256Hash: row.sha256_hash,
+    })
+  ) {
     return {
       status: "failed",
       last_error: "Chemin du document PDF non conforme.",
@@ -2005,13 +1946,13 @@ export async function getEstimatePdfStatus(
 
   const downloadUrl = await createSignedUrlOrThrow({
     supabase: context.supabase,
-    filePath: expectedFilePath,
+    filePath: row.file_path,
   });
 
   return {
     status: "ready",
     download_url: downloadUrl,
-    file_path: expectedFilePath,
+    file_path: row.file_path,
     sha256_hash: row.sha256_hash ?? undefined,
     generated_at: row.generated_at ?? undefined,
     file_size_bytes:
