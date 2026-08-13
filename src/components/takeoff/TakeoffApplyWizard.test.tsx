@@ -87,7 +87,7 @@ function makeItem(
     quantity: 1,
     unit: "u",
     confidence: 0.9,
-    evidence: null,
+    evidence: "Repère A3 sur le plan",
     source_file_name: "plan.pdf",
     source_page: 1,
     metadata: {},
@@ -287,7 +287,7 @@ describe("TakeoffApplyWizard", () => {
     await waitFor(() => {
       expect(screen.getByText("Confirmation finale")).toBeInTheDocument();
     });
-    expect(screen.getByText("Version cible: V1 (brouillon)")).toBeInTheDocument();
+    expect(screen.getByText("Version cible : V1 (brouillon)")).toBeInTheDocument();
     expect(screen.queryByText(VERSION_ID)).not.toBeInTheDocument();
   });
 
@@ -439,7 +439,7 @@ describe("TakeoffApplyWizard", () => {
 
     await advanceToStep4();
 
-    const excludedCard = screen.getByText("laisses hors apply").closest("div");
+    const excludedCard = screen.getByText("laissés hors application").closest("div");
     expect(excludedCard).not.toBeNull();
     expect(within(excludedCard as HTMLElement).getByText("3")).toBeInTheDocument();
   });
@@ -470,11 +470,11 @@ describe("TakeoffApplyWizard", () => {
       items: TakeoffJobItem[];
       jobLevel?: string;
       isAdmin?: boolean;
-      onVerifyItems?: (ids: string[]) => Promise<void>;
+      onReturnToReview?: () => void;
+      reviewHref?: string;
       onConfirm?: (payload: unknown) => Promise<void>;
     }) {
       const onConfirm = options.onConfirm ?? vi.fn().mockResolvedValue(undefined);
-      const onVerifyItems = options.onVerifyItems ?? vi.fn().mockResolvedValue(undefined);
 
       return render(
         <TakeoffApplyWizard
@@ -490,7 +490,8 @@ describe("TakeoffApplyWizard", () => {
           items={options.items}
           jobLevel={options.jobLevel ?? "C"}
           isAdmin={options.isAdmin ?? false}
-          onVerifyItems={onVerifyItems}
+          onReturnToReview={options.onReturnToReview}
+          reviewHref={options.reviewHref}
         />
       );
     }
@@ -505,8 +506,8 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       // Guard panel banner should be visible
-      expect(screen.getByText(/Verification requise/)).toBeInTheDocument();
-      expect(screen.getByText(/2 item\(s\) ont une confiance faible/)).toBeInTheDocument();
+      expect(screen.getByText(/Preuves à compléter/)).toBeInTheDocument();
+      expect(screen.getByText(/2 items sont bloqués/)).toBeInTheDocument();
 
       // Blocked items should appear in the table
       expect(screen.getByText("Cloison BA13 ep.72")).toBeInTheDocument();
@@ -519,9 +520,8 @@ describe("TakeoffApplyWizard", () => {
       expect(confirmButton).toBeDisabled();
     });
 
-    it("batch 'Tout verifier' calls onVerifyItems with all blocked item IDs", async () => {
-      const onVerifyItems = vi.fn().mockResolvedValue(undefined);
-      renderWizardWithGuard({ items: BLOCKED_ITEMS, onVerifyItems });
+    it("does not expose bulk or per-item verification shortcuts", async () => {
+      renderWizardWithGuard({ items: BLOCKED_ITEMS, reviewHref: "/review" });
 
       await waitFor(() => {
         expect(fetchEstimateItemsForVersion).toHaveBeenCalled();
@@ -529,18 +529,16 @@ describe("TakeoffApplyWizard", () => {
 
       await advanceToStep4();
 
-      const batchButton = screen.getByRole("button", { name: /Tout verifier/i });
-      expect(batchButton).toBeInTheDocument();
-      fireEvent.click(batchButton);
-
-      await waitFor(() => {
-        expect(onVerifyItems).toHaveBeenCalledWith(["blocked-1", "blocked-2"]);
-      });
+      expect(screen.queryByRole("button", { name: /Tout vérifier/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Vérifier$/i })).toBeNull();
+      expect(
+        screen.getByRole("link", { name: /Ouvrir la revue des preuves/i })
+      ).toHaveAttribute("href", "/review");
     });
 
-    it("per-item 'Verifier' calls onVerifyItems with a single item ID", async () => {
-      const onVerifyItems = vi.fn().mockResolvedValue(undefined);
-      renderWizardWithGuard({ items: BLOCKED_ITEMS, onVerifyItems });
+    it("returns to the evidence review through the provided action", async () => {
+      const onReturnToReview = vi.fn();
+      renderWizardWithGuard({ items: BLOCKED_ITEMS, onReturnToReview });
 
       await waitFor(() => {
         expect(fetchEstimateItemsForVersion).toHaveBeenCalled();
@@ -548,16 +546,8 @@ describe("TakeoffApplyWizard", () => {
 
       await advanceToStep4();
 
-      // Find all per-item verify buttons
-      const verifyButtons = screen.getAllByRole("button", { name: "Verifier" });
-      expect(verifyButtons.length).toBe(2);
-
-      // Click the first one (Cloison BA13)
-      fireEvent.click(verifyButtons[0]);
-
-      await waitFor(() => {
-        expect(onVerifyItems).toHaveBeenCalledWith(["blocked-1"]);
-      });
+      fireEvent.click(screen.getByRole("button", { name: /Retour à la revue/i }));
+      expect(onReturnToReview).toHaveBeenCalledTimes(1);
     });
 
     it("confirm button enables when all blocked items become verified", async () => {
@@ -571,7 +561,7 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       // Guard panel should NOT be visible
-      expect(screen.queryByText(/Verification requise/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Preuves à compléter/)).not.toBeInTheDocument();
 
       // Confirm button should be enabled
       const confirmButton = screen.getByRole("button", { name: "Confirmer l'application" });
@@ -591,10 +581,10 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       // No guard panel
-      expect(screen.queryByText(/Verification requise/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Preuves à compléter/)).not.toBeInTheDocument();
 
       // Recap should be shown directly
-      expect(screen.getByText("Recapitulatif")).toBeInTheDocument();
+      expect(screen.getByText("Récapitulatif")).toBeInTheDocument();
 
       // Confirm should be enabled
       const confirmButton = screen.getByRole("button", { name: "Confirmer l'application" });
@@ -615,7 +605,7 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       // Override section should NOT be visible
-      expect(screen.queryByText(/Override administrateur/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Dérogation administrateur/)).not.toBeInTheDocument();
 
       unmount();
       vi.clearAllMocks();
@@ -643,7 +633,7 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       // Override section SHOULD be visible
-      expect(screen.getByText(/Override administrateur/)).toBeInTheDocument();
+      expect(screen.getByText(/Dérogation administrateur/)).toBeInTheDocument();
     });
 
     it("admin override requires justification text (min 10 chars)", async () => {
@@ -659,9 +649,11 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       const overrideButton = screen.getByRole("button", {
-        name: /Appliquer malgre les items non verifies/,
+        name: /Appliquer avec dérogation/,
       });
-      const justificationInput = screen.getByPlaceholderText(/Justification/);
+      const justificationInput = screen.getByRole("textbox", {
+        name: /Justification de la dérogation/,
+      });
 
       // Button disabled with empty justification
       expect(overrideButton).toBeDisabled();
@@ -691,13 +683,15 @@ describe("TakeoffApplyWizard", () => {
 
       await advanceToStep4();
 
-      const justificationInput = screen.getByPlaceholderText(/Justification/);
+      const justificationInput = screen.getByRole("textbox", {
+        name: /Justification de la dérogation/,
+      });
       fireEvent.change(justificationInput, {
         target: { value: "Projet urgent valide par la direction" },
       });
 
       const overrideButton = screen.getByRole("button", {
-        name: /Appliquer malgre les items non verifies/,
+        name: /Appliquer avec dérogation/,
       });
       fireEvent.click(overrideButton);
 
@@ -721,18 +715,18 @@ describe("TakeoffApplyWizard", () => {
       await advanceToStep4();
 
       // No blocking guard panel (medium items are above threshold)
-      expect(screen.queryByText(/Verification requise/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Preuves à compléter/)).not.toBeInTheDocument();
 
       // Medium warning should be visible
-      expect(screen.getByText(/Items confiance moyenne/)).toBeInTheDocument();
-      expect(screen.getByText(/2 item\(s\) ont une confiance moyenne/)).toBeInTheDocument();
+      expect(screen.getByText(/Confiance moyenne \(non bloquante\)/)).toBeInTheDocument();
+      expect(screen.getByText(/2 items ont un score/)).toBeInTheDocument();
 
       // Confirm should be enabled (medium is not blocking)
       const confirmButton = screen.getByRole("button", { name: "Confirmer l'application" });
       expect(confirmButton).toBeEnabled();
     });
 
-    it("shows progress bar with correct verified/total counts", async () => {
+    it("keeps the impact summary visible while guard items are blocked", async () => {
       const mixedItems = [
         makeItem("verified-1", "Item OK", { confidence: 0.1, is_verified: true }),
         makeItem("blocked-1", "Item blocked", { confidence: 0.2, is_verified: false }),
@@ -747,8 +741,10 @@ describe("TakeoffApplyWizard", () => {
 
       await advanceToStep4();
 
-      // Progress should show 2/3 verified (2 verified out of 3 included)
-      expect(screen.getByText("2/3 verifies")).toBeInTheDocument();
+      expect(screen.getByText("Impact avant dérogation")).toBeInTheDocument();
+      expect(screen.getByText("Items retenus")).toBeInTheDocument();
+      expect(screen.getByText("Récapitulatif")).toBeInTheDocument();
+      expect(screen.queryByText(/vérifiés/)).toBeNull();
     });
   });
 });

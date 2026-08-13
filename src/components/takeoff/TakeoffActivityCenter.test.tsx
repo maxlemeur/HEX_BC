@@ -28,8 +28,18 @@ vi.mock("@/lib/takeoff/client", () => ({
 }));
 
 vi.mock("@/components/affaires/LaunchMetreDialog", () => ({
-  LaunchMetreDialog: ({ open }: { open: boolean }) =>
-    open ? <div role="dialog">Lancement du premier métré</div> : null,
+  LaunchMetreDialog: ({
+    open,
+    initialPlanSetId,
+  }: {
+    open: boolean;
+    initialPlanSetId?: string | null;
+  }) =>
+    open ? (
+      <div role="dialog">
+        Lancement du premier métré · {initialPlanSetId ?? "défaut"}
+      </div>
+    ) : null,
 }));
 
 vi.mock("./TakeoffExceptionsTab", () => ({
@@ -90,6 +100,7 @@ function renderCenter(input?: {
   response?: TakeoffActivityCenterResponse;
   withPlanSet?: boolean;
   planFileCount?: number;
+  secondaryPlanFileCount?: number;
 }) {
   useSWRMock.mockReturnValue({
     data: input?.response ?? EMPTY_RESPONSE,
@@ -103,11 +114,26 @@ function renderCenter(input?: {
     <TakeoffActivityCenter
       projectId="project-1"
       versions={[{ id: "version-1", version_number: 1 }]}
-      planSets={
-        withPlanSet
-          ? [{ id: "plan-set-1", name: "Plans architecte", metadata: {} }]
-          : []
-      }
+      planSets={withPlanSet
+        ? [
+            {
+              id: "plan-set-1",
+              name: "Plans architecte",
+              metadata: {},
+              fileCount: input?.planFileCount ?? 2,
+            },
+            ...(input?.secondaryPlanFileCount === undefined
+              ? []
+              : [
+                  {
+                    id: "plan-set-2",
+                    name: "Plans plomberie",
+                    metadata: {},
+                    fileCount: input.secondaryPlanFileCount,
+                  },
+                ]),
+          ]
+        : []}
       launchContext={
         withPlanSet
           ? {
@@ -169,6 +195,16 @@ describe("TakeoffActivityCenter", () => {
     );
   });
 
+  it("opens a deep-linked plan set directly from the plans page", () => {
+    searchParams = new URLSearchParams(
+      "launch=1&launchPlanSet=plan-set-1",
+    );
+
+    renderCenter({ withPlanSet: true });
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-1");
+  });
+
   it("routes an empty plan set back to plan preparation", () => {
     renderCenter({ withPlanSet: true, planFileCount: 0 });
 
@@ -178,6 +214,22 @@ describe("TakeoffActivityCenter", () => {
     expect(
       screen.getByRole("link", { name: "Ajouter des plans" })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/plans");
+  });
+
+  it("offers launch when the default set is empty but another set is ready", () => {
+    renderCenter({
+      withPlanSet: true,
+      planFileCount: 0,
+      secondaryPlanFileCount: 3,
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Prêt pour votre premier métré" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Plans plomberie/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Lancer le premier métré" })
+    ).toBeInTheDocument();
   });
 
   it("keeps a filtered empty state distinct and lets the user reset it", async () => {

@@ -20,6 +20,8 @@ import type { PlanFileListItem, PlanSetListItem } from "@/lib/takeoff/types";
 type PlanSetCardProps = {
   planSet: PlanSetListItem;
   versionId?: string | null;
+  launchHref?: string | null;
+  launchLabel?: string;
   deletePlanSetHandler?: (setId: string) => Promise<unknown>;
   onDeleted: () => void;
   onFilesChanged: () => void;
@@ -97,12 +99,20 @@ function formatRelativeTime(isoDate: string) {
 export function PlanSetCard({
   planSet,
   versionId,
+  launchHref,
+  launchLabel,
   deletePlanSetHandler,
   onDeleted,
   onFilesChanged,
   onUpdated,
 }: PlanSetCardProps) {
   const flowDescriptor = resolvePlanSetFlowDescriptor(planSet);
+  const resolvedLaunchHref =
+    launchHref ??
+    (versionId
+      ? `/dashboard/estimates/${versionId}/takeoff/new?plan_set_id=${planSet.id}`
+      : null);
+  const resolvedLaunchLabel = launchLabel ?? "Lancer l'extraction";
   const regionId = useId();
   const [expanded, setExpanded] = useState(false);
   const [deleteSetModalOpen, setDeleteSetModalOpen] = useState(false);
@@ -276,9 +286,11 @@ export function PlanSetCard({
               {planSet.file_count}{" "}
               {planSet.file_count === 1 ? "plan" : "plans"}
             </span>
-            <span className="hidden sm:inline">
-              {formatFileSize(planSet.total_size_bytes)}
-            </span>
+            {planSet.total_size_bytes > 0 ? (
+              <span className="hidden sm:inline">
+                {formatFileSize(planSet.total_size_bytes)}
+              </span>
+            ) : null}
             <span className="hidden md:inline" title={formatRelativeTime(planSet.created_at)}>
               {formatAbsoluteDate(planSet.created_at)}
             </span>
@@ -460,13 +472,13 @@ export function PlanSetCard({
             )}
 
             {/* Extraction link */}
-            {files && files.length > 0 && versionId && (
+            {files && files.length > 0 && resolvedLaunchHref && (
               <div className="mt-4 flex justify-end">
                 <Link
-                  href={`/dashboard/estimates/${versionId}/takeoff/new?plan_set_id=${planSet.id}`}
+                  href={resolvedLaunchHref}
                   className="btn btn-primary btn-sm"
                 >
-                  Lancer l&apos;extraction
+                  {resolvedLaunchLabel}
                 </Link>
               </div>
             )}

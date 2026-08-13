@@ -53,6 +53,7 @@ type Props = {
     id: string;
     name: string;
     metadata?: Record<string, unknown> | null;
+    fileCount?: number;
   }>;
   launchContext?: LaunchContext | null;
   ribbonHeader?: ReactNode;
@@ -90,9 +91,12 @@ export default function TakeoffActivityCenter({
   const selectedStatus = searchParams.get("status") ?? "all";
   const selectedLevel = searchParams.get("level") ?? "all";
   const selectedPeriod = searchParams.get("period") ?? "all";
+  const requestedPlanSetId = searchParams.get("launchPlanSet");
 
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
-  const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(false);
+  const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
+    searchParams.get("launch") === "1",
+  );
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const rawOffset = Number(searchParams.get("offset") ?? "0");
   const pageOffset =
@@ -206,6 +210,9 @@ export default function TakeoffActivityCenter({
   );
   const shouldShowFilters =
     activeTab === "jobs" && (hasActiveJobFilters || hasVisibleAnalyses);
+  const firstUsablePlanSet = planSets.find(
+    (planSet) => (planSet.fileCount ?? 0) > 0,
+  );
 
   const resetJobFilters = useCallback(() => {
     setFiltersExpanded(false);
@@ -219,6 +226,16 @@ export default function TakeoffActivityCenter({
       offset: null,
     });
   }, [updateParams]);
+
+  const handleLaunchDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setIsLaunchDialogOpen(open);
+      if (!open && searchParams.get("launch") === "1") {
+        updateParams({ launch: null, launchPlanSet: null });
+      }
+    },
+    [searchParams, updateParams],
+  );
 
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -484,6 +501,13 @@ export default function TakeoffActivityCenter({
               <p className="mt-2 text-sm text-[var(--slate-600)]">
                 {errorMessage}
               </p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mt-4"
+                onClick={() => void mutate()}
+              >
+                Réessayer
+              </button>
             </section>
           ) : data ? (
             <TakeoffJobsTable
@@ -498,38 +522,29 @@ export default function TakeoffActivityCenter({
                       actionLabel: "Réinitialiser les filtres",
                       onAction: resetJobFilters,
                     }
-                  : launchContext?.plansContext?.defaultPlanSetId &&
-                      (launchContext.plansContext.defaultPlanSetFileCount ?? 0) > 0
+                  : launchContext && firstUsablePlanSet
                     ? {
                         title: "Prêt pour votre premier métré",
                         description:
-                          "Votre jeu de plans est prêt. Lancez l’analyse pour obtenir vos premières quantités.",
+                          `Le jeu « ${firstUsablePlanSet.name} » est prêt. Lancez l’analyse pour obtenir vos premières quantités.`,
                         actionLabel: "Lancer le premier métré",
                         onAction: () => setIsLaunchDialogOpen(true),
                       }
-                    : launchContext?.plansContext?.defaultPlanSetId
+                    : planSets.length > 0
                       ? {
                           title: "Ajoutez un PDF pour lancer le métré",
                           description:
-                            "Le jeu de plans existe, mais il ne contient encore aucun fichier à analyser.",
+                            "Les jeux de plans existent, mais ils ne contiennent encore aucun fichier à analyser.",
                           actionLabel: "Ajouter des plans",
                           actionHref: `/dashboard/affaires/${projectId}/plans`,
                         }
-                    : planSets.length > 0
-                      ? {
-                          title: "Vos plans sont prêts",
-                          description:
-                            "Ouvrez l’affaire pour vérifier la version cible et lancer votre premier métré.",
-                          actionLabel: "Lancer le premier métré",
-                          actionHref: `/dashboard/affaires/${projectId}#plans`,
-                        }
-                      : {
-                          title: "Ajoutez vos plans pour commencer",
-                          description:
-                            "Créez un jeu de plans, ajoutez vos fichiers PDF, puis lancez votre premier métré.",
-                          actionLabel: "Ajouter un jeu de plans",
-                          actionHref: `/dashboard/affaires/${projectId}/plans`,
-                        }
+                    : {
+                        title: "Ajoutez vos plans pour commencer",
+                        description:
+                          "Créez un jeu de plans, ajoutez vos fichiers PDF, puis lancez votre premier métré.",
+                        actionLabel: "Ajouter un jeu de plans",
+                        actionHref: `/dashboard/affaires/${projectId}/plans`,
+                      }
               }
               onPageChange={(offset) =>
                 updateParams({ offset: offset > 0 ? String(offset) : null })
@@ -558,7 +573,7 @@ export default function TakeoffActivityCenter({
       {launchContext ? (
         <LaunchMetreDialog
           open={isLaunchDialogOpen}
-          onOpenChange={setIsLaunchDialogOpen}
+          onOpenChange={handleLaunchDialogOpenChange}
           onLaunched={() => {
             void mutate();
           }}
@@ -566,6 +581,16 @@ export default function TakeoffActivityCenter({
           currentVersion={launchContext.currentVersion}
           plansContext={launchContext.plansContext}
           availableVersions={launchContext.availableVersions}
+          availablePlanSets={planSets.map((planSet) => ({
+            id: planSet.id,
+            name: planSet.name,
+            fileCount: planSet.fileCount ?? 0,
+            source:
+              typeof planSet.metadata?.source === "string"
+                ? planSet.metadata.source
+                : null,
+          }))}
+          initialPlanSetId={requestedPlanSetId}
         />
       ) : null}
     </div>

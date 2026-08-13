@@ -160,7 +160,7 @@ export function TokenBreakdownBar({
         viewBox={`0 0 ${barWidth} ${barHeight}`}
         className="w-full"
         role="img"
-        aria-label="Repartition des tokens"
+        aria-label="Répartition des tokens"
       >
         <rect
           x={0}

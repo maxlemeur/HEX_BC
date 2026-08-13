@@ -1,0 +1,48 @@
+{
+  "fixture": "fake-plan-lot-archi.pdf",
+  "source_pdf_sha256": "498666bdca1d6431ba45a9d79f8efa95ece969daf85a9737db514ea42786a49a",
+  "page_count": 2,
+  "truth_page": 2,
+  "plan_only_benchmark": {
+    "source_page": 1,
+    "observable_item_ids": ["01", "02", "03", "04", "05", "06", "07", "08"],
+    "not_directly_observable_item_ids": ["09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24"],
+    "policy": "Évaluer uniquement les quantités explicitement libellées sur la page plan. Toute quantité supplémentaire est un faux positif tant que sa preuve ne figure pas sur cette page.",
+    "expected_items": [
+      { "id": "01", "designation": "Sejour / Salon - surface", "quantity": 22.5, "unit": "m2" },
+      { "id": "02", "designation": "Cuisine - surface", "quantity": 15.8, "unit": "m2" },
+      { "id": "03", "designation": "Chambre 1 - surface", "quantity": 10.5, "unit": "m2" },
+      { "id": "04", "designation": "Chambre 2 - surface", "quantity": 9, "unit": "m2" },
+      { "id": "05", "designation": "SDB - surface", "quantity": 6, "unit": "m2" },
+      { "id": "06", "designation": "WC - surface", "quantity": 3, "unit": "m2" },
+      { "id": "07", "designation": "Degagement - surface", "quantity": 9.8, "unit": "m2" },
+      { "id": "08", "designation": "Terrasse - surface", "quantity": 6, "unit": "m2" }
+    ]
+  },
+  "items": [
+    { "id": "01", "designation": "Sejour / Salon - surface plancher", "quantity": 22.5, "unit": "m2" },
+    { "id": "02", "designation": "Cuisine - surface plancher", "quantity": 15.75, "unit": "m2" },
+    { "id": "03", "designation": "Chambre 1 - surface plancher", "quantity": 10.5, "unit": "m2" },
+    { "id": "04", "designation": "Chambre 2 - surface plancher", "quantity": 9, "unit": "m2" },
+    { "id": "05", "designation": "SDB - surface plancher (faience)", "quantity": 6, "unit": "m2" },
+    { "id": "06", "designation": "WC - surface plancher (faience)", "quantity": 3, "unit": "m2" },
+    { "id": "07", "designation": "Degagement - surface plancher", "quantity": 9.75, "unit": "m2" },
+    { "id": "08", "designation": "Terrasse - surface exterieure", "quantity": 6, "unit": "m2" },
+    { "id": "09", "designation": "Cloisons interieures BA13 (h=2.50m)", "quantity": 42, "unit": "ml" },
+    { "id": "10", "designation": "Doublage peripherique (h=2.50m)", "quantity": 35, "unit": "ml" },
+    { "id": "11", "designation": "Portes interieures (73cm + 83cm)", "quantity": 5, "unit": "u" },
+    { "id": "12", "designation": "Porte d'entree blindee", "quantity": 1, "unit": "u" },
+    { "id": "13", "designation": "Fenetres double vitrage (1.40x1.20)", "quantity": 2, "unit": "u" },
+    { "id": "14", "designation": "Fenetres double vitrage (1.20x1.20)", "quantity": 1, "unit": "u" },
+    { "id": "15", "designation": "Fenetres double vitrage (1.00x0.60)", "quantity": 1, "unit": "u" },
+    { "id": "16", "designation": "Baie vitree coulissante (2.00x2.20)", "quantity": 1, "unit": "u" },
+    { "id": "17", "designation": "Peinture murs et plafonds (2 couches)", "quantity": 185, "unit": "m2" },
+    { "id": "18", "designation": "Carrelage sol sejour + degagement", "quantity": 32.25, "unit": "m2" },
+    { "id": "19", "designation": "Carrelage sol cuisine + SDB + WC", "quantity": 24.75, "unit": "m2" },
+    { "id": "20", "designation": "Parquet stratifie chambres", "quantity": 19.5, "unit": "m2" },
+    { "id": "21", "designation": "Plinthes (h=8cm)", "quantity": 52, "unit": "ml" },
+    { "id": "22", "designation": "Faux plafond BA13 sur ossature", "quantity": 76.5, "unit": "m2" },
+    { "id": "23", "designation": "Seuil de porte (pierre naturelle)", "quantity": 5, "unit": "u" },
+    { "id": "24", "designation": "Garde-corps terrasse (alu laque)", "quantity": 4, "unit": "ml" }
+  ]
+}

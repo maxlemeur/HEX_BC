@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Modal } from "@/components/ui/Modal";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
@@ -53,8 +53,8 @@ type TakeoffApplyWizardProps = {
   jobLevel?: string | null;
   confidenceThreshold?: number;
   isAdmin?: boolean;
-  onVerifyItems?: (itemIds: string[]) => Promise<void>;
   onReturnToReview?: () => void;
+  reviewHref?: string;
   presetStrategy?: TakeoffApplyStrategy;
 };
 
@@ -74,8 +74,8 @@ export function TakeoffApplyWizard({
   jobLevel,
   confidenceThreshold,
   isAdmin = false,
-  onVerifyItems,
   onReturnToReview,
+  reviewHref,
   presetStrategy,
 }: TakeoffApplyWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
@@ -88,7 +88,6 @@ export function TakeoffApplyWizard({
     useState<Record<string, TakeoffMappingOverride>>({});
   const overridesRef = useRef<Record<string, TakeoffMappingOverride>>({});
   const [guardResult, setGuardResult] = useState<ApplyGuardResult | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [overrideJustification, setOverrideJustification] = useState("");
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -219,6 +218,13 @@ export function TakeoffApplyWizard({
     hasPreviewReady &&
     step === 4 &&
     !guardBlocking;
+  const canAdminOverride =
+    isAdmin &&
+    guardBlocking &&
+    includedCount > 0 &&
+    !isSubmitting &&
+    hasPreviewReady &&
+    step === 4;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSubmitting && !nextOpen) return;
@@ -237,7 +243,14 @@ export function TakeoffApplyWizard({
   };
 
   const handleOverrideConfirm = async () => {
-    if (!isAdmin || overrideJustification.trim().length < 10) return;
+    const justification = overrideJustification.trim();
+    if (
+      !canAdminOverride ||
+      justification.length < 10 ||
+      justification.length > 500
+    ) {
+      return;
+    }
 
     await onConfirm({
       targetSectionId,
@@ -245,32 +258,9 @@ export function TakeoffApplyWizard({
       strategy,
       overrides: serializedOverrides,
       override: true,
-      overrideJustification: overrideJustification.trim(),
+      overrideJustification: justification,
     });
   };
-
-  const handleVerifyAll = useCallback(async () => {
-    if (!onVerifyItems || !guardResult) return;
-    setIsVerifying(true);
-    try {
-      await onVerifyItems(guardResult.blocked_items.map((item) => item.item_id));
-    } finally {
-      setIsVerifying(false);
-    }
-  }, [guardResult, onVerifyItems]);
-
-  const handleVerifyItem = useCallback(
-    async (itemId: string) => {
-      if (!onVerifyItems) return;
-      setIsVerifying(true);
-      try {
-        await onVerifyItems([itemId]);
-      } finally {
-        setIsVerifying(false);
-      }
-    },
-    [onVerifyItems]
-  );
 
   const handleOverrideActionChange = (
     item: TakeoffPreviewConversionResponse["items"][number],
@@ -407,13 +397,11 @@ export function TakeoffApplyWizard({
               <TakeoffApplyWizardConfirmationStep
                 guardBlocking={guardBlocking}
                 guardResult={guardResult}
-                externalItems={externalItems}
                 isAdmin={isAdmin}
-                isVerifying={isVerifying}
+                canOverride={canAdminOverride}
                 overrideJustification={overrideJustification}
-                onVerifyAll={() => void handleVerifyAll()}
-                onVerifyItem={(itemId) => void handleVerifyItem(itemId)}
                 onReturnToReview={onReturnToReview}
+                reviewHref={reviewHref}
                 onOverrideJustificationChange={setOverrideJustification}
                 onOverrideConfirm={() => void handleOverrideConfirm()}
                 isLevelC={isLevelC}

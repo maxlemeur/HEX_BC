@@ -17,8 +17,19 @@ vi.mock(
 );
 
 vi.mock("@/components/takeoff/PlanSetCard", () => ({
-  PlanSetCard: ({ planSet }: { planSet: { name: string } }) => (
-    <article>{planSet.name}</article>
+  PlanSetCard: ({
+    planSet,
+    launchHref,
+    launchLabel,
+  }: {
+    planSet: { name: string };
+    launchHref?: string;
+    launchLabel?: string;
+  }) => (
+    <article>
+      {planSet.name}
+      {launchHref ? <a href={launchHref}>{launchLabel}</a> : null}
+    </article>
   ),
 }));
 
@@ -131,6 +142,34 @@ describe("ProjectPlanCenter", () => {
       })
     ).not.toBeInTheDocument();
     expect(screen.getByText("Plans architecte")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Analyser ce jeu" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1/takeoff?launch=1&launchPlanSet=plan-set-1",
+    );
+  });
+
+  it("does not render an empty total-size placeholder", () => {
+    mockPlanSetsState({
+      data: [
+        {
+          ...PLAN_SET,
+          file_count: 0,
+          total_size_bytes: 0,
+        },
+      ],
+    });
+
+    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
+
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.tagName === "SPAN" &&
+          element.textContent?.replace(/\s+/g, " ").trim() ===
+            "0 fichiers au total",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("-", { exact: true })).not.toBeInTheDocument();
   });
 
   it("renders the accented retry action in the error state", () => {

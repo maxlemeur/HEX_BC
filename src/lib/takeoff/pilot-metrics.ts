@@ -1,5 +1,8 @@
 import type { TakeoffMetricsStatsPayload } from "@/lib/takeoff/types";
 
+export const TAKEOFF_HIGH_SCORE_THRESHOLD = 0.8;
+export const TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE = 5;
+
 export type TakeoffPilotWeeklySnapshot = {
   key: string;
   label: string;
@@ -16,6 +19,8 @@ export type TakeoffPilotGoNoGoCriterionKey =
   | "avg_cost"
   | "avg_duration"
   | "correction_rate"
+  | "applied_high_score_correction_rate"
+  | "level_c_proof_coverage"
   | "satisfaction";
 
 export type TakeoffPilotGoNoGoCriterion = {

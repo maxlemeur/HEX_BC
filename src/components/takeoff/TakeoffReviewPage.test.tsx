@@ -525,6 +525,36 @@ describe("TakeoffReviewPage", () => {
     });
   });
 
+  it("describes a missing Level C page as incomplete proof, not low confidence", async () => {
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse(
+        [makeItem({ confidence: 0.95, evidence: "repère A3", source_page: null })],
+        { level: "C" }
+      )
+    );
+    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
+      makeDpgfComparisonResponse({
+        to_confirm: 0,
+        significant_gaps: 0,
+        forced_manual: 0,
+        lines_without_proof: 0,
+        unused_takeoff_items: 0,
+      })
+    );
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/complétez les preuves localisées ou la validation humaine/i)
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/faible confiance doivent/i)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /appliquer au chiffrage/i })
+    ).toBeDisabled();
+  });
+
   it("sync action in tables view navigates to items and shows toast", async () => {
     mockSearchParams = new URLSearchParams("view=tables");
     vi.mocked(fetchTakeoffJob).mockResolvedValue(
@@ -590,6 +620,50 @@ describe("TakeoffReviewPage", () => {
     await waitFor(
       () => {
         expect(patchTakeoffItems).toHaveBeenCalled();
+      },
+      { timeout: 2000 }
+    );
+  });
+
+  it("invalidates human verification when reviewed content changes", async () => {
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse([makeItem({ is_verified: true })])
+    );
+    vi.mocked(patchTakeoffItems).mockResolvedValue({
+      results: [
+        {
+          item_id: ITEM_ID_1,
+          success: true,
+          item: makeItem({ designation: "Updated", is_verified: false }),
+        },
+      ],
+      succeeded: 1,
+      failed: 0,
+    });
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    const designationInput = (await screen.findByLabelText(
+      "Désignation"
+    )) as HTMLInputElement;
+    fireEvent.change(designationInput, { target: { value: "Updated" } });
+    fireEvent.blur(designationInput);
+
+    await waitFor(
+      () => {
+        expect(patchTakeoffItems).toHaveBeenCalledWith(
+          JOB_ID,
+          expect.objectContaining({
+            items: [
+              expect.objectContaining({
+                fields: expect.objectContaining({
+                  designation: "Updated",
+                  is_verified: false,
+                }),
+              }),
+            ],
+          })
+        );
       },
       { timeout: 2000 }
     );

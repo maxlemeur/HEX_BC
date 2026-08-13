@@ -133,6 +133,7 @@ export default async function AffaireTakeoffPage({ params }: Props) {
           id: ps.id,
           name: ps.name,
           metadata: ps.metadata,
+          fileCount: ps.file_count,
         }))}
       />
     </div>

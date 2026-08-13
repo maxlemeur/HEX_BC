@@ -500,10 +500,47 @@ select ok(
   exists (
     select 1
     from pg_proc as procedure
+    join pg_namespace as namespace
+      on namespace.oid = procedure.pronamespace
+    where namespace.nspname = 'public'
+      and procedure.proname = 'enforce_authenticated_takeoff_item_fields'
+      and position(
+        'TAKEOFF_ITEM_VERIFICATION_PROOF_REQUIRED'
+        in procedure.prosrc
+      ) > 0
+      and position('nullif(btrim(new.evidence), '''') is null' in procedure.prosrc) > 0
+      and position('new.source_page is null' in procedure.prosrc) > 0
+  ),
+  'Level C item verification requires localized proof in the database guard'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
+    join pg_namespace as namespace
+      on namespace.oid = procedure.pronamespace
+    where namespace.nspname = 'public'
+      and procedure.proname = 'enforce_takeoff_apply_security'
+      and position('nullif(btrim(ti.evidence), '''') is null' in procedure.prosrc) > 0
+      and position('ti.source_page is null' in procedure.prosrc) > 0
+      and position('ti.source_page < 1' in procedure.prosrc) > 0
+  ),
+  'Level C apply guard rejects included items without localized proof'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
     where procedure.oid = 'public.apply_takeoff_job_guarded(uuid,text,uuid)'::regprocedure
       and procedure.prosecdef = false
       and position(
         'set_config(''app.takeoff_apply_job'', ''on'', true)'
+        in procedure.prosrc
+      ) > 0
+      and position(
+        'TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED'
         in procedure.prosrc
       ) > 0
       and exists (
@@ -513,6 +550,82 @@ select ok(
       )
   ),
   'guarded takeoff apply RPC is invoker-safe and sets its local boundary marker'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc as procedure
+    where procedure.oid =
+      'public.apply_takeoff_job_guarded(uuid,text,uuid,text)'::regprocedure
+      and procedure.prosecdef = true
+      and position('authorization_token_hash' in procedure.prosrc) > 0
+      and position('permit.user_id = caller_id' in procedure.prosrc) > 0
+      and position('permit.consumed_at is null' in procedure.prosrc) > 0
+      and position(
+        'permit.expires_at > statement_timestamp()'
+        in procedure.prosrc
+      ) > 0
+      and position('for update' in lower(procedure.prosrc)) > 0
+      and position('authorization_token_hash = null' in procedure.prosrc) > 0
+      and position('consumed_at = statement_timestamp()' in procedure.prosrc) > 0
+      and exists (
+        select 1
+        from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
+        where setting = 'search_path=pg_catalog'
+      )
+  ),
+  'DPGF apply authorization is caller-bound, expiring and consumed atomically'
+);
+
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'public.apply_takeoff_job_guarded(uuid,text,uuid,text)'::regprocedure,
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.apply_takeoff_job_guarded(uuid,text,uuid,text)'::regprocedure,
+    'EXECUTE'
+  ),
+  'token-bound DPGF apply RPC is exposed only to authenticated callers'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_class as relation
+    where relation.oid = 'public.takeoff_apply_authorizations'::regclass
+      and relation.relrowsecurity
+      and relation.relforcerowsecurity
+  )
+  and has_table_privilege(
+    'service_role',
+    'public.takeoff_apply_authorizations',
+    'SELECT,INSERT,UPDATE,DELETE'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.takeoff_apply_authorizations',
+    'SELECT'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.takeoff_apply_authorizations',
+    'INSERT'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.takeoff_apply_authorizations',
+    'UPDATE'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.takeoff_apply_authorizations',
+    'DELETE'
+  ),
+  'DPGF apply authorizations remain service-role only behind forced RLS'
 );
 
 select ok(

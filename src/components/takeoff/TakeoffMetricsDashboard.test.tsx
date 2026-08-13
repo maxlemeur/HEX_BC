@@ -36,7 +36,7 @@ const DASHBOARD_PAYLOAD: TakeoffMetricsPilotStatsPayload = {
       quickValidationRate: 44.4,
     },
     eventCounts: [
-      { type: "quantity_changed", label: "Quantites corrigees", count: 2 },
+      { type: "quantity_changed", label: "Quantités corrigées", count: 2 },
     ],
     byLevel: [
       {
@@ -49,6 +49,17 @@ const DASHBOARD_PAYLOAD: TakeoffMetricsPilotStatsPayload = {
       },
     ],
   },
+  calibration: {
+    status: "sufficient",
+    minimumSampleSize: 20,
+    appliedScoredItems: 40,
+    appliedHighScoreItems: 25,
+    appliedHighScoreMateriallyCorrectedItems: 1,
+    appliedHighScoreMaterialCorrectionRate: 4,
+    levelCIncludedItems: 20,
+    levelCLocalizedProofItems: 19,
+    levelCLocalizedProofCoverage: 95,
+  },
   pilot: {
     tenantId: "tenant-1",
     killSwitchFlagKey: "TAKEOFF_MODULE_ENABLED",
@@ -56,7 +67,7 @@ const DASHBOARD_PAYLOAD: TakeoffMetricsPilotStatsPayload = {
     killSwitchLabel: "Pilote actif",
     satisfactionLabel: "66,7 %",
     satisfactionDefinition:
-      "Proxy calcule sur les jobs exploitables valides rapidement ou sans retouche explicite.",
+      "Proxy calculé sur les dossiers exploitables validés rapidement ou sans retouche explicite.",
     weeklySnapshots: [
       {
         key: "2026-03-03",
@@ -71,14 +82,22 @@ const DASHBOARD_PAYLOAD: TakeoffMetricsPilotStatsPayload = {
     ],
     goNoGo: {
       status: "watch",
-      label: "A surveiller",
-      summary: "Un critere pilote reste fragile. Continuez le tenant pilote avant decision finale.",
+      label: "À surveiller",
+      summary: "Un critère pilote reste fragile. Poursuivez le pilote client avant la décision finale.",
       criteria: [
         {
           key: "volume",
           label: "Volume observe",
-          targetLabel: ">= 8 dossiers",
+          targetLabel: "≥ 8 dossiers",
           actualLabel: "12 dossiers",
+          passed: true,
+          status: "pass",
+        },
+        {
+          key: "applied_high_score_correction_rate",
+          label: "Corrections malgré un score élevé",
+          targetLabel: "≤ 5 % sur ≥ 20 lignes appliquées",
+          actualLabel: "4 % (1/25)",
           passed: true,
           status: "pass",
         },
@@ -141,12 +160,26 @@ describe("TakeoffMetricsDashboard", () => {
 
     render(<TakeoffMetricsDashboard tenantId="tenant-1" />);
 
-    expect(screen.getByText("Pilote tenant")).toBeInTheDocument();
+    expect(screen.getByText("Pilote client")).toBeInTheDocument();
     expect(screen.getByText("Pilote actif")).toBeInTheDocument();
-    expect(screen.getByText("Decision go/no-go")).toBeInTheDocument();
-    expect(screen.getByText("A surveiller")).toBeInTheDocument();
+    expect(screen.getByText("Décision go/no-go")).toBeInTheDocument();
+    expect(screen.getByText("À surveiller")).toBeInTheDocument();
     expect(screen.getByText("Suivi hebdo pilote")).toBeInTheDocument();
     expect(screen.getAllByText("03 mars").length).toBeGreaterThan(0);
     expect(screen.getByText("TAKEOFF_MODULE_ENABLED")).toBeInTheDocument();
+    expect(screen.getByText("Score automatique moyen")).toBeInTheDocument();
+    expect(
+      screen.getByText("Signal automatique, pas une preuve de justesse")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Lignes à score élevé corrigées")).toBeInTheDocument();
+    expect(screen.getByText("4 %")).toHaveClass("text-[var(--warning)]");
+    expect(
+      screen.getByText("1/25 lignes appliquées avec score ≥ 80% corrigées")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Preuves niveau C")).toBeInTheDocument();
+    expect(screen.getByText("19/20 lignes avec preuve et page")).toBeInTheDocument();
+    expect(screen.getByText("Fiabilité technique")).toBeInTheDocument();
+    expect(screen.getByText("Score extraction")).toBeInTheDocument();
+    expect(screen.getByText("81%")).toHaveClass("text-[var(--slate-700)]");
   });
 });

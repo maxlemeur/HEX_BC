@@ -100,9 +100,27 @@ function createSupabaseMock() {
   });
 
   const itemsBuilder = createAwaitableBuilder({
-    data: [{ job_id: "job-c-1" }, { job_id: "job-c-1" }],
+    data: [
+      {
+        id: "item-c-1",
+        job_id: "job-c-1",
+        confidence: 0.9,
+        evidence: "Repère C-12",
+        source_page: 2,
+        is_excluded: false,
+      },
+      {
+        id: "item-c-2",
+        job_id: "job-c-1",
+        confidence: 0.4,
+        evidence: null,
+        source_page: null,
+        is_excluded: false,
+      },
+    ],
     error: null,
   });
+  const itemsSelect = vi.fn(() => itemsBuilder);
 
   const auditLogsBuilder = createAwaitableBuilder({
     data: [
@@ -165,7 +183,7 @@ function createSupabaseMock() {
 
       if (table === "takeoff_items") {
         return {
-          select: vi.fn(() => itemsBuilder),
+          select: itemsSelect,
         };
       }
 
@@ -185,6 +203,7 @@ function createSupabaseMock() {
       jobsBuilder,
       runMetricsBuilder,
       auditLogsBuilder,
+      itemsSelect,
     },
   };
 }
@@ -216,6 +235,10 @@ describe("GET /api/takeoff/metrics/stats", () => {
         corrections: {
           kpis: { quicklyValidatedJobs: number };
         };
+        calibration: {
+          status: string;
+          appliedHighScoreItems: number;
+        };
         pilot: {
           killSwitchEnabled: boolean;
           weeklySnapshots: Array<{ totalJobs: number }>;
@@ -230,6 +253,10 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(body.data.period).toBe("7d");
     expect(body.data.kpis.totalJobs).toBe(1);
     expect(body.data.corrections.kpis.quicklyValidatedJobs).toBe(0);
+    expect(body.data.calibration).toMatchObject({
+      status: "no_data",
+      appliedHighScoreItems: 0,
+    });
     expect(body.data.pilot.killSwitchEnabled).toBe(true);
     expect(body.data.pilot.weeklySnapshots[0]?.totalJobs).toBe(1);
     expect(body.data.pilot.goNoGo.status).toBe("inconclusive");
@@ -238,6 +265,9 @@ describe("GET /api/takeoff/metrics/stats", () => {
     ]);
     expect(builders.jobsBuilder.eq).toHaveBeenCalledWith("level", "C");
     expect(builders.runMetricsBuilder.eq).toHaveBeenCalledWith("level", "C");
+    expect(builders.itemsSelect).toHaveBeenCalledWith(
+      "id, job_id, confidence, evidence, source_page, is_excluded"
+    );
     expect(builders.auditLogsBuilder.in).toHaveBeenNthCalledWith(1, "record_id", [
       "job-c-1",
     ]);
@@ -283,6 +313,6 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.data.pilot.killSwitchEnabled).toBe(false);
-    expect(body.data.pilot.killSwitchLabel).toBe("Pilote coupe");
+    expect(body.data.pilot.killSwitchLabel).toBe("Pilote coupé");
   });
 });

@@ -111,10 +111,14 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
             <strong className="text-[var(--slate-800)]">{totalFiles}</strong>{" "}
             {totalFiles === 1 ? "fichier" : "fichiers"} au total
           </span>
-          <span>
-            <strong className="text-[var(--slate-800)]">{formatFileSize(totalSizeBytes)}</strong>{" "}
-            au total
-          </span>
+          {totalSizeBytes > 0 ? (
+            <span>
+              <strong className="text-[var(--slate-800)]">
+                {formatFileSize(totalSizeBytes)}
+              </strong>{" "}
+              au total
+            </span>
+          ) : null}
         </div>
       )}
 
@@ -206,6 +210,8 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
               key={set.id}
               planSet={set}
               versionId={null}
+              launchHref={`/dashboard/affaires/${projectId}/takeoff?launch=1&launchPlanSet=${encodeURIComponent(set.id)}`}
+              launchLabel="Analyser ce jeu"
               deletePlanSetHandler={deletePlanSetAction}
               onDeleted={handleSetDeleted}
               onFilesChanged={handleFilesChanged}

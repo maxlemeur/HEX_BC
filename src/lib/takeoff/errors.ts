@@ -402,7 +402,7 @@ function getDefaultMessage(code: TakeoffErrorCode) {
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED) {
-    return "Des items a faible confiance n'ont pas ete verifies. Verifiez-les ou utilisez un override admin.";
+    return "Certains contrôles du métré restent à traiter. Vérifiez les preuves, les lignes à faible confiance et les écarts DPGF avant application.";
   }
 
   if (code === TakeoffErrorCode.INTERNAL_ERROR) {

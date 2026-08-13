@@ -344,4 +344,34 @@ describe("PlanSetCard", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("links a project plan set directly to the canonical launch flow", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchPlanFiles).mockResolvedValue([makePlanFile()]);
+
+    render(
+      <SWRConfig value={{ dedupingInterval: 0, provider: () => new Map() }}>
+        <PlanSetCard
+          planSet={makePlanSet({ estimate_version_id: null })}
+          versionId={null}
+          launchHref={`/dashboard/affaires/${PROJECT_ID}/takeoff?launch=1&launchPlanSet=${SET_ID}`}
+          launchLabel="Analyser ce jeu"
+          onDeleted={vi.fn()}
+          onFilesChanged={vi.fn()}
+          onUpdated={vi.fn()}
+        />
+      </SWRConfig>,
+    );
+
+    await user.click(getToggleButton());
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: "Analyser ce jeu" }),
+      ).toHaveAttribute(
+        "href",
+        `/dashboard/affaires/${PROJECT_ID}/takeoff?launch=1&launchPlanSet=${SET_ID}`,
+      );
+    });
+  });
 });

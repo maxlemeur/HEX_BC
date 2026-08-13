@@ -1,0 +1,259 @@
+{
+  "observed_at": "2026-08-13T04:10:51.503Z",
+  "persistence": "none",
+  "source": {
+    "file": "tmp/pdfs/fake-plan-lot-archi-plan-only.pdf",
+    "sha256": "60071fbc5507f031f4b972e501ebf9766ec9882d72cdb470b0eb8ef05e0c3e3d",
+    "page_count": 1,
+    "source_pdf_sha256": "498666bdca1d6431ba45a9d79f8efa95ece969daf85a9737db514ea42786a49a",
+    "policy": {
+      "source_page": 1,
+      "observable_item_ids": [
+        "01",
+        "02",
+        "03",
+        "04",
+        "05",
+        "06",
+        "07",
+        "08"
+      ],
+      "not_directly_observable_item_ids": [
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24"
+      ],
+      "policy": "Évaluer uniquement les quantités explicitement libellées sur la page plan. Toute quantité supplémentaire est un faux positif tant que sa preuve ne figure pas sur cette page."
+    }
+  },
+  "provider": {
+    "model": "gemini-3.1-pro-preview",
+    "prompt_version": "takeoff-c-v1",
+    "thinking_level": "high",
+    "token_usage": {
+      "inputTokens": 1130,
+      "reasoningTokens": 1603,
+      "outputTokens": 1152,
+      "totalTokens": 3885
+    },
+    "token_count": 3885,
+    "cost_cents": 2,
+    "duration_ms": 17914,
+    "events": [
+      {
+        "job_id": "local-plan-only-benchmark",
+        "tenant_id": "local-no-persistence",
+        "level": "C",
+        "delivery_mode": "sync",
+        "duration_ms": 17914,
+        "input_token_count": 1130,
+        "reasoning_token_count": 1603,
+        "output_token_count": 1152,
+        "token_count": 3885,
+        "cost_cents": 2,
+        "status": "success",
+        "attempt": 1,
+        "model": "gemini-3.1-pro-preview",
+        "prompt_version": "takeoff-c-v1"
+      }
+    ]
+  },
+  "exchange": {
+    "items": [
+      {
+        "designation": "Surface SEJOUR / SALON",
+        "quantity": 22.5,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'SEJOUR / SALON 22.5 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface CUISINE",
+        "quantity": 15.8,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'CUISINE 15.8 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface CHAMBRE 1",
+        "quantity": 10.5,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'CHAMBRE 1 10.5 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface CHAMBRE 2",
+        "quantity": 9,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'CHAMBRE 2 9.0 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface SDB (Salle de bain)",
+        "quantity": 6,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'SDB 6.0 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface WC",
+        "quantity": 3,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'WC 3.0 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface DEGAGEMENT",
+        "quantity": 9.8,
+        "unit": "m2",
+        "category": "Revêtement de sol / Surface de plancher",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'DEGAGEMENT 9.8 m2' visible au centre de la pièce sur le plan"
+      },
+      {
+        "designation": "Surface TERRASSE",
+        "quantity": 6,
+        "unit": "m2",
+        "category": "Revêtement extérieur / Surface extérieure",
+        "source_page": 1,
+        "source_file": "fake-plan-lot-archi-plan-only.pdf",
+        "confidence": 0.99,
+        "evidence": "Mention 'TERRASSE 6.0 m2' visible sur l'extérieur gauche du plan"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "MISSING_MATERIAL_SPECIFICATION",
+        "message": "Les matériaux spécifiques de revêtement de sol et murs ne sont pas précisés sur ce plan. Seules les surfaces par pièce ont été extraites.",
+        "severity": "info"
+      }
+    ],
+    "metadata": {
+      "level": "C",
+      "prompt_version": "takeoff-c-v1",
+      "file_type": "application/pdf",
+      "schema_version": "v1"
+    },
+    "confidence": 0.98
+  },
+  "report": {
+    "passed": true,
+    "failedChecks": [],
+    "expectedCount": 8,
+    "candidateCount": 8,
+    "matchedCount": 8,
+    "falsePositiveCount": 0,
+    "missingCount": 0,
+    "quantityMatchCount": 8,
+    "localizedProofCount": 8,
+    "highConfidenceCount": 8,
+    "highConfidenceErrorCount": 0,
+    "precision": 1,
+    "recall": 1,
+    "quantityAccuracy": 1,
+    "localizedProofCoverage": 1,
+    "highConfidenceErrorRate": 0,
+    "matches": [
+      {
+        "expectedIndex": 0,
+        "candidateIndex": 0,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 1,
+        "candidateIndex": 1,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 2,
+        "candidateIndex": 2,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 3,
+        "candidateIndex": 3,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 4,
+        "candidateIndex": 4,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 5,
+        "candidateIndex": 5,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 6,
+        "candidateIndex": 6,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      },
+      {
+        "expectedIndex": 7,
+        "candidateIndex": 7,
+        "designationSimilarity": 1,
+        "quantityMatches": true
+      }
+    ],
+    "unmatchedExpectedIndexes": [],
+    "unmatchedCandidateIndexes": [],
+    "thresholds": {
+      "minDesignationSimilarity": 0.8,
+      "minPrecision": 0.95,
+      "minRecall": 0.95,
+      "minQuantityAccuracy": 0.98,
+      "minLocalizedProofCoverage": 1,
+      "maxHighConfidenceErrorRate": 0,
+      "highConfidenceThreshold": 0.8,
+      "quantityRelativeTolerance": 0.005,
+      "quantityAbsoluteTolerance": 0.01
+    }
+  },
+  "evaluation": {
+    "benchmark_version": "plan-visible-v1",
+    "source_page": 1,
+    "policy": "Évaluer uniquement les quantités explicitement libellées sur la page plan. Toute quantité supplémentaire est un faux positif tant que sa preuve ne figure pas sur cette page.",
+    "rescored_at": "2026-08-13T04:12:51.700Z"
+  }
+}

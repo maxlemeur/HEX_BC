@@ -719,7 +719,32 @@ export default function TakeoffReviewPage({
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== itemId) return item;
-          return { ...item, [field]: value, _dirty: true, _error: null };
+          const invalidatesVerification =
+            item.is_verified &&
+            [
+              "designation",
+              "quantity",
+              "unit",
+              "source_page",
+              "is_excluded",
+              "exclusion_reason",
+              "evidence",
+            ].includes(field) &&
+            item[field as keyof ReviewItem] !== value;
+
+          return {
+            ...item,
+            [field]: value,
+            ...(invalidatesVerification
+              ? {
+                  is_verified: false,
+                  verified_at: null,
+                  verified_by: null,
+                }
+              : {}),
+            _dirty: true,
+            _error: null,
+          };
         })
       );
     },
@@ -778,6 +803,7 @@ export default function TakeoffReviewPage({
       fields.designation = item.designation;
       fields.quantity = item.quantity;
       fields.unit = item.unit;
+      fields.source_page = item.source_page;
       fields.is_excluded = item.is_excluded;
       if (item.is_excluded) {
         fields.exclusion_reason = item.exclusion_reason;
@@ -975,6 +1001,13 @@ export default function TakeoffReviewPage({
     [updateItemField]
   );
 
+  const handleUpdateSourcePage = useCallback(
+    (itemId: string, sourcePage: number | null) => {
+      updateItemField(itemId, "source_page", sourcePage);
+    },
+    [updateItemField]
+  );
+
   const handleMarkVerified = useCallback(
     (itemId: string) => {
       updateItemField(itemId, "is_verified", true);
@@ -1152,7 +1185,7 @@ export default function TakeoffReviewPage({
     }
 
     if (hasGuardBlocks) {
-      return `${guardResult?.blocked_items.length ?? 0} item(s) a faible confiance doivent etre verifies avant l'apply.`;
+      return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} item(s) reste incomplet : complétez les preuves localisées ou la validation humaine avant l'application.`;
     }
 
     return "L'apply contrôlé est prêt. Choisissez une stratégie et vérifiez l'impact avant confirmation.";
@@ -1229,57 +1262,6 @@ export default function TakeoffReviewPage({
       }
     },
     [jobId, isAffaireContext, router, toast, versionId]
-  );
-
-  // ---- Batch verify handler for guard panel
-  const handleWizardVerifyItems = useCallback(
-    async (itemIds: string[]) => {
-      const entries: TakeoffItemPatchEntry[] = itemIds.reduce<TakeoffItemPatchEntry[]>(
-        (acc, id) => {
-          const item = items.find((i) => i.id === id);
-          if (!item) return acc;
-          acc.push({
-            item_id: id,
-            updated_at: item.updated_at,
-            fields: { is_verified: true },
-          });
-          return acc;
-        },
-        []
-      );
-
-      if (entries.length === 0) return;
-
-      const responses: TakeoffItemBatchPatchResponse[] = [];
-      for (
-        let index = 0;
-        index < entries.length;
-        index += TAKEOFF_ITEM_PATCH_BATCH_MAX
-      ) {
-        const chunk = entries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
-        const response = await patchTakeoffItems(jobId, { items: chunk });
-        responses.push(response);
-      }
-
-      const resultByItemId = new Map<
-        string,
-        TakeoffItemBatchPatchResponse["results"][number]
-      >();
-      for (const response of responses) {
-        for (const result of response.results) {
-          resultByItemId.set(result.item_id, result);
-        }
-      }
-
-      setItems((prev) =>
-        prev.map((item) => {
-          const result = resultByItemId.get(item.id);
-          if (!result || !result.success || !result.item) return item;
-          return { ...result.item, _dirty: false, _saving: false, _error: null };
-        })
-      );
-    },
-    [jobId, items]
   );
 
   // ---- Loading state
@@ -1469,6 +1451,7 @@ export default function TakeoffReviewPage({
           dpgfError={dpgfCompareError}
           hasDirtyOrSaving={hasDirtyOrSaving}
           hasSaveErrors={hasSaveErrors}
+          requiresLocalizedProof={jobLevel === "C"}
           onOpenEvidencePanel={handleOpenEvidencePanel}
           onVerifyItem={handleMarkVerified}
           onExcludeItem={(itemId) => handleExcludeItems([itemId])}
@@ -1535,7 +1518,7 @@ export default function TakeoffReviewPage({
           onClick={handleOpenApplyWizard}
           title={
             hasGuardBlocks
-              ? "Vérifiez les items à faible confiance avant d'appliquer"
+              ? "Complétez les preuves localisées ou la validation humaine avant d'appliquer"
               : !canOpenApplyWizard
                 ? "Resolves les problemes avant d'appliquer"
                 : "Appliquer les items au chiffrage"
@@ -1573,7 +1556,6 @@ export default function TakeoffReviewPage({
         jobLevel={jobLevel}
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
-        onVerifyItems={handleWizardVerifyItems}
         onReturnToReview={() => setApplyWizardOpen(false)}
       />
 
@@ -1591,7 +1573,9 @@ export default function TakeoffReviewPage({
             onClose={handleCloseEvidencePanel}
             onNavigate={handleEvidenceNavigate}
             onUpdateEvidence={handleUpdateEvidence}
+            onUpdateSourcePage={handleUpdateSourcePage}
             onMarkVerified={handleMarkVerified}
+            requiresLocalizedProof={jobLevel === "C"}
           />
         );
       })()}

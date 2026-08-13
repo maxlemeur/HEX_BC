@@ -118,7 +118,7 @@ export async function GET(request: Request) {
           .not("confidence" as never, "is" as never, null as never),
         supabase
           .from("takeoff_items" as never)
-          .select("job_id")
+          .select("id, job_id, confidence, evidence, source_page, is_excluded")
           .eq("tenant_id" as never, tenantId as never)
           .gte("created_at" as never, cutoff as never),
       ]);

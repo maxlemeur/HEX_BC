@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  getTakeoffVerificationReadiness,
   MEDIUM_CONFIDENCE_CEILING,
 } from "@/lib/takeoff/guards";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
@@ -18,7 +19,7 @@ function makeItem(
     quantity: 1,
     unit: "u",
     confidence: 0.9,
-    evidence: null,
+    evidence: "Repère A3 sur le plan",
     source_file_name: "plan-a.pdf",
     source_page: 1,
     metadata: {},
@@ -60,6 +61,7 @@ describe("checkApplyGuard", () => {
     expect(result.blocked_items.map((i) => i.item_id)).toEqual(["a", "b"]);
     expect(result.blocked_items[0].confidence).toBe(0.23);
     expect(result.blocked_items[0].designation).toBe("Cloison BA13");
+    expect(result.blocked_items[0].reasons).toEqual(["low_confidence"]);
   });
 
   it("ignores excluded items", () => {
@@ -226,5 +228,57 @@ describe("checkApplyGuard", () => {
       "medium-1",
       "medium-2",
     ]);
+  });
+
+  it("blocks an included item when its textual proof is missing", () => {
+    const result = checkApplyGuard([
+      makeItem("missing-evidence", "Item sans preuve", {
+        confidence: 0.95,
+        evidence: "   ",
+        is_verified: true,
+      }),
+    ]);
+
+    expect(result.passed).toBe(false);
+    expect(result.blocked_items[0]).toEqual(
+      expect.objectContaining({
+        item_id: "missing-evidence",
+        reasons: ["missing_evidence"],
+      })
+    );
+  });
+
+  it("blocks an included item when its source page is missing", () => {
+    const result = checkApplyGuard([
+      makeItem("missing-page", "Item sans page", {
+        confidence: 0.95,
+        source_page: null,
+      }),
+    ]);
+
+    expect(result.passed).toBe(false);
+    expect(result.blocked_items[0].reasons).toEqual(["missing_source_page"]);
+  });
+});
+
+describe("getTakeoffVerificationReadiness", () => {
+  it("explains both missing proof fields", () => {
+    const result = getTakeoffVerificationReadiness({
+      evidence: null,
+      source_page: null,
+    });
+
+    expect(result.canVerify).toBe(false);
+    expect(result.issues).toEqual(["missing_evidence", "missing_source_page"]);
+    expect(result.message).toContain("Ajoutez une preuve");
+  });
+
+  it("allows verification only with a non-empty proof and a positive page", () => {
+    expect(
+      getTakeoffVerificationReadiness({
+        evidence: "Repère A3",
+        source_page: 2,
+      })
+    ).toEqual({ canVerify: true, issues: [], message: null });
   });
 });

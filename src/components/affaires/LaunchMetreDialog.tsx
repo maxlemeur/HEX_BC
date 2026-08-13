@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 
 import {
   launchTakeoffFromPlanSet,
@@ -16,9 +17,20 @@ import {
   isTakeoffLevelCompatible,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
-import type { TakeoffLevel } from "@/lib/takeoff/client";
+import {
+  fetchPlanSetsForProject,
+  type PlanSetListItem,
+  type TakeoffLevel,
+} from "@/lib/takeoff/client";
 
 type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
+
+export type LaunchMetrePlanSetOption = {
+  id: string;
+  name: string;
+  fileCount: number;
+  source?: string | null;
+};
 
 function isPlanSetTakeoffLevel(level: TakeoffLevel | null | undefined): level is PlanSetTakeoffLevel {
   return level === "B" || level === "C";
@@ -48,6 +60,20 @@ function getCompatibleAnalysisLevels(
   return ANALYSIS_LEVELS.filter(({ level }) => compatibleLevels.has(level));
 }
 
+function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOption {
+  const source =
+    typeof planSet.metadata?.source === "string"
+      ? planSet.metadata.source
+      : null;
+
+  return {
+    id: planSet.id,
+    name: planSet.name.trim() || "Jeu de plans",
+    fileCount: Math.max(0, planSet.file_count),
+    source,
+  };
+}
+
 type LaunchMetreDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,6 +99,8 @@ type LaunchMetreDialogProps = {
     id: string;
     versionNumber: number;
   }>;
+  availablePlanSets?: LaunchMetrePlanSetOption[];
+  initialPlanSetId?: string | null;
 };
 
 type LaunchVersionOption = {
@@ -166,6 +194,8 @@ function LaunchMetreDialogContent({
   currentVersion,
   plansContext,
   availableVersions = [],
+  availablePlanSets,
+  initialPlanSetId = null,
 }: LaunchMetreDialogProps) {
   const toast = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -173,9 +203,66 @@ function LaunchMetreDialogContent({
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
+    initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
+  );
+  const shouldFetchPlanSets = availablePlanSets === undefined;
+  const {
+    data: fetchedPlanSets,
+    error: planSetsLoadError,
+    isLoading: isLoadingPlanSets,
+    mutate: reloadPlanSets,
+  } = useSWR<PlanSetListItem[]>(
+    shouldFetchPlanSets ? ["launch-metre-plan-sets", projectId] : null,
+    () => fetchPlanSetsForProject(projectId),
+    {
+      revalidateOnFocus: false,
+    },
+  );
+  const fallbackPlanSet = useMemo<LaunchMetrePlanSetOption | null>(
+    () =>
+      plansContext?.defaultPlanSetId
+        ? {
+            id: plansContext.defaultPlanSetId,
+            name: plansContext.defaultPlanSetName ?? "Plans de l'affaire",
+            fileCount: plansContext.defaultPlanSetFileCount ?? 0,
+            source: plansContext.defaultPlanSetSource ?? null,
+          }
+        : null,
+    [plansContext],
+  );
+  const planSetOptions = useMemo(() => {
+    const byId = new Map<string, LaunchMetrePlanSetOption>();
+    const candidates =
+      availablePlanSets ?? fetchedPlanSets?.map(toLaunchPlanSetOption) ?? [];
+
+    for (const option of candidates) {
+      byId.set(option.id, {
+        ...option,
+        name: option.name.trim() || "Jeu de plans",
+        fileCount: Math.max(0, option.fileCount),
+      });
+    }
+
+    if (fallbackPlanSet && !byId.has(fallbackPlanSet.id)) {
+      byId.set(fallbackPlanSet.id, fallbackPlanSet);
+    }
+
+    return [...byId.values()];
+  }, [availablePlanSets, fallbackPlanSet, fetchedPlanSets]);
+  const selectedPlanSet = useMemo(
+    () =>
+      planSetOptions.find((option) => option.id === selectedPlanSetId) ??
+      null,
+    [planSetOptions, selectedPlanSetId],
+  );
+  const selectedPlanSetRecommendation =
+    selectedPlanSet?.id === plansContext?.defaultPlanSetId
+      ? plansContext?.launchRecommendation ?? null
+      : null;
   const compatibleAnalysisLevels = useMemo(
-    () => getCompatibleAnalysisLevels(plansContext?.launchRecommendation),
-    [plansContext?.launchRecommendation],
+    () => getCompatibleAnalysisLevels(selectedPlanSetRecommendation),
+    [selectedPlanSetRecommendation],
   );
   const versionOptions = useMemo(
     () =>
@@ -186,11 +273,11 @@ function LaunchMetreDialogContent({
     [availableVersions, currentVersion],
   );
   const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel>(
-    isPlanSetTakeoffLevel(plansContext?.launchRecommendation?.recommendedLevel) &&
+    isPlanSetTakeoffLevel(selectedPlanSetRecommendation?.recommendedLevel) &&
       compatibleAnalysisLevels.some(
-        ({ level }) => level === plansContext.launchRecommendation?.recommendedLevel,
+        ({ level }) => level === selectedPlanSetRecommendation?.recommendedLevel,
       )
-      ? plansContext.launchRecommendation.recommendedLevel
+      ? selectedPlanSetRecommendation.recommendedLevel
       : compatibleAnalysisLevels[0]?.level ?? "B",
   );
 
@@ -205,7 +292,8 @@ function LaunchMetreDialogContent({
     selectedVersionOption?.mode ??
     (currentVersion ? "create_draft_from_source" : "missing");
   const hasTargetVersion = selectedVersionOption !== null;
-  const hasPlanFiles = (plansContext?.defaultPlanSetFileCount ?? 0) > 0;
+  const hasPlanFiles = (selectedPlanSet?.fileCount ?? 0) > 0;
+  const hasUsablePlanSet = planSetOptions.some((option) => option.fileCount > 0);
   const versionLabel = selectedVersionOption
     ? selectedVersionOption.mode === "existing_draft"
       ? `V${selectedVersionOption.versionNumber} (brouillon)`
@@ -214,14 +302,34 @@ function LaunchMetreDialogContent({
   const selectionWarning = useMemo(
     () =>
       getTakeoffSelectionWarning({
-        recommendation: plansContext?.launchRecommendation ?? null,
+        recommendation: selectedPlanSetRecommendation ?? null,
         selectedLevel,
       }),
-    [plansContext?.launchRecommendation, selectedLevel],
+    [selectedLevel, selectedPlanSetRecommendation],
   );
 
   useEffect(() => {
-    const recommendedLevel = plansContext?.launchRecommendation?.recommendedLevel;
+    setSelectedPlanSetId((currentId) => {
+      const byId = new Map(planSetOptions.map((option) => [option.id, option]));
+      const isUsable = (id: string | null | undefined) =>
+        Boolean(id && (byId.get(id)?.fileCount ?? 0) > 0);
+
+      if (isUsable(initialPlanSetId)) return initialPlanSetId;
+      if (isUsable(currentId)) return currentId;
+      if (isUsable(plansContext?.defaultPlanSetId)) {
+        return plansContext?.defaultPlanSetId ?? null;
+      }
+
+      const firstUsable = planSetOptions.find((option) => option.fileCount > 0);
+      if (firstUsable) return firstUsable.id;
+      if (initialPlanSetId && byId.has(initialPlanSetId)) return initialPlanSetId;
+      if (currentId && byId.has(currentId)) return currentId;
+      return planSetOptions[0]?.id ?? null;
+    });
+  }, [initialPlanSetId, planSetOptions, plansContext?.defaultPlanSetId]);
+
+  useEffect(() => {
+    const recommendedLevel = selectedPlanSetRecommendation?.recommendedLevel;
     if (
       isPlanSetTakeoffLevel(recommendedLevel) &&
       compatibleAnalysisLevels.some(({ level }) => level === recommendedLevel)
@@ -231,7 +339,7 @@ function LaunchMetreDialogContent({
     }
 
     setSelectedLevel(compatibleAnalysisLevels[0]?.level ?? "B");
-  }, [compatibleAnalysisLevels, plansContext?.launchRecommendation?.recommendedLevel]);
+  }, [compatibleAnalysisLevels, selectedPlanSetRecommendation?.recommendedLevel]);
 
   useEffect(() => {
     setSelectedVersionId(versionOptions[0]?.id ?? null);
@@ -248,13 +356,13 @@ function LaunchMetreDialogContent({
   );
 
   const handleLaunch = useCallback(async () => {
-    if (!plansContext?.defaultPlanSetId || !hasPlanFiles) {
+    if (!selectedPlanSet || !hasPlanFiles) {
       return;
     }
 
     if (
-      plansContext.launchRecommendation &&
-      !isTakeoffLevelCompatible(plansContext.launchRecommendation, selectedLevel)
+      selectedPlanSetRecommendation &&
+      !isTakeoffLevelCompatible(selectedPlanSetRecommendation, selectedLevel)
     ) {
       return;
     }
@@ -274,7 +382,7 @@ function LaunchMetreDialogContent({
       if (selectedOption.mode === "existing_draft") {
         const result = await launchTakeoffFromPlanSet({
           projectId,
-          planSetId: plansContext.defaultPlanSetId,
+          planSetId: selectedPlanSet.id,
           versionId: selectedOption.id,
           level: selectedLevel,
         });
@@ -282,7 +390,7 @@ function LaunchMetreDialogContent({
       } else {
         const result = await launchTakeoffFromSourceVersionPlanSet({
           projectId,
-          planSetId: plansContext.defaultPlanSetId,
+          planSetId: selectedPlanSet.id,
           sourceVersionId: selectedOption.id,
           level: selectedLevel,
         });
@@ -296,7 +404,7 @@ function LaunchMetreDialogContent({
 
       toast.success({
         title: "Analyse lancée",
-        description: `${resolvedVersionLabel} — ${plansContext.defaultPlanSetFileCount ?? 0} fichier(s) concerné(s). Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
+        description: `${resolvedVersionLabel} — ${selectedPlanSet.fileCount} fichier${selectedPlanSet.fileCount > 1 ? "s" : ""} concerné${selectedPlanSet.fileCount > 1 ? "s" : ""}. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
         durationMs: 6000,
       });
       setLaunchSuccessVersionLabel(resolvedVersionLabel);
@@ -310,11 +418,12 @@ function LaunchMetreDialogContent({
       setIsSubmitting(false);
     }
   }, [
-    plansContext,
     hasPlanFiles,
     onLaunched,
     projectId,
     selectedLevel,
+    selectedPlanSet,
+    selectedPlanSetRecommendation,
     selectedVersionOption,
     toast,
     versionLabel,
@@ -353,8 +462,8 @@ function LaunchMetreDialogContent({
               </p>
               <p className="text-xs text-[var(--slate-500)]">
                 {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
-                {plansContext?.defaultPlanSetFileCount ?? 0} fichier
-                {(plansContext?.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}.
+                {selectedPlanSet?.fileCount ?? 0} fichier
+                {(selectedPlanSet?.fileCount ?? 0) > 1 ? "s" : ""}.
               </p>
               <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-center sm:gap-3">
                 <button
@@ -362,7 +471,7 @@ function LaunchMetreDialogContent({
                   className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
                   onClick={() => onOpenChange(false)}
                 >
-                  Rester sur le hub
+                  Fermer
                 </button>
                 <Link
                   href={`/dashboard/affaires/${projectId}/takeoff`}
@@ -375,26 +484,84 @@ function LaunchMetreDialogContent({
             </div>
           ) : (
             <div className="space-y-4">
-              {plansContext?.defaultPlanSetId && hasPlanFiles ? (
+              {isLoadingPlanSets && !hasUsablePlanSet ? (
+                <div className="py-6 text-center" role="status">
+                  <p className="text-sm text-[var(--slate-600)]">
+                    Chargement des jeux de plans…
+                  </p>
+                </div>
+              ) : selectedPlanSet && hasPlanFiles ? (
                 <>
                   <div>
-                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-                      Jeu de plans retenu
-                    </p>
+                    {planSetOptions.length > 1 ? (
+                      <>
+                        <label
+                          className="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]"
+                          htmlFor="launch-metre-plan-set"
+                        >
+                          Jeu de plans à analyser
+                        </label>
+                        <select
+                          id="launch-metre-plan-set"
+                          name="launch-metre-plan-set"
+                          className="form-select mb-2 w-full"
+                          value={selectedPlanSet.id}
+                          onChange={(event) => {
+                            setSelectedPlanSetId(event.target.value);
+                            setErrorMessage(null);
+                          }}
+                          disabled={isSubmitting}
+                          autoComplete="off"
+                        >
+                          {planSetOptions.map((option) => (
+                            <option
+                              key={option.id}
+                              value={option.id}
+                              disabled={option.fileCount === 0}
+                            >
+                              {option.name} — {option.fileCount > 0
+                                ? `${option.fileCount} fichier${option.fileCount > 1 ? "s" : ""}`
+                                : "vide"}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    ) : (
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                        Jeu de plans à analyser
+                      </p>
+                    )}
                     <div className="flex items-center gap-2">
                       <Badge variant="info" size="sm">
-                        {plansContext.defaultPlanSetName ?? "Plans de l'affaire"}
+                        {selectedPlanSet.name}
                       </Badge>
                       <span className="text-xs text-[var(--slate-500)]">
-                        {plansContext.defaultPlanSetFileCount ?? 0} fichier
-                        {(plansContext.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}
+                        {selectedPlanSet.fileCount} fichier
+                        {selectedPlanSet.fileCount > 1 ? "s" : ""}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-[var(--slate-500)]">
-                      {isIntakeSyncedPlanSet(plansContext.defaultPlanSetSource)
+                      {isIntakeSyncedPlanSet(selectedPlanSet.source)
                         ? "Plans synchronisés depuis le dossier de l'affaire. Seuls les plans confirmés sont repris ici."
                         : "Vérifiez que ce jeu contient bien les plans à analyser."}
                     </p>
+                    {planSetsLoadError ? (
+                      <div
+                        className="mt-3 rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-xs text-[var(--slate-700)]"
+                        role="status"
+                      >
+                        <p>
+                          La liste complète des jeux n’a pas pu être actualisée.
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-1 font-semibold underline"
+                          onClick={() => void reloadPlanSets()}
+                        >
+                          Réessayer
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className={!hasTargetVersion ? "opacity-50" : ""}>
@@ -408,10 +575,12 @@ function LaunchMetreDialogContent({
                         </label>
                         <select
                           id="launch-metre-target-version"
+                          name="launch-metre-target-version"
                           className="form-select"
                           value={selectedVersionOption.id}
                           onChange={(event) => setSelectedVersionId(event.target.value)}
                           disabled={isSubmitting || !hasTargetVersion}
+                          autoComplete="off"
                         >
                           {versionOptions.map((option) => (
                             <option key={option.id} value={option.id}>
@@ -469,14 +638,14 @@ function LaunchMetreDialogContent({
                         </label>
                       ))}
                     </div>
-                    {plansContext.launchRecommendation ? (
+                    {selectedPlanSetRecommendation ? (
                       <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2">
                         <p className="text-xs text-[var(--slate-700)]">
                           Niveau recommandé :{" "}
-                          {plansContext.launchRecommendation.recommendedLevel ? (
+                          {selectedPlanSetRecommendation.recommendedLevel ? (
                             <span className="font-semibold text-[var(--brand-blue)]">
                               {TAKEOFF_LEVEL_BUSINESS_LABELS[
-                                plansContext.launchRecommendation.recommendedLevel
+                                selectedPlanSetRecommendation.recommendedLevel
                               ]}
                             </span>
                           ) : (
@@ -541,12 +710,23 @@ function LaunchMetreDialogContent({
                   <p className="text-sm text-[var(--slate-600)]">
                     Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.
                   </p>
-                  <Link
-                    href={`/dashboard/affaires/${projectId}/plans`}
-                    className="btn btn-secondary btn-sm mt-4 inline-flex"
-                  >
-                    Voir les plans
-                  </Link>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    {planSetsLoadError ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => void reloadPlanSets()}
+                      >
+                        Réessayer
+                      </button>
+                    ) : null}
+                    <Link
+                      href={`/dashboard/affaires/${projectId}/plans`}
+                      className="btn btn-secondary btn-sm inline-flex"
+                    >
+                      Voir les plans
+                    </Link>
+                  </div>
                 </div>
               )}
 

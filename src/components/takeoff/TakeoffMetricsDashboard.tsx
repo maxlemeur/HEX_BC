@@ -38,7 +38,11 @@ import type {
   TakeoffLevel,
   TakeoffMetricsPeriod,
 } from "@/lib/takeoff/types";
-import type { TakeoffMetricsPilotStatsPayload } from "@/lib/takeoff/pilot-metrics";
+import {
+  TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE,
+  TAKEOFF_HIGH_SCORE_THRESHOLD,
+  type TakeoffMetricsPilotStatsPayload,
+} from "@/lib/takeoff/pilot-metrics";
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -95,7 +99,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto min-w-0 max-w-6xl space-y-6">
       <section className="dashboard-card p-6 animate-slide-in stagger-1">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -103,7 +107,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
               Métriques takeoff
             </h1>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Observabilite des extractions, des couts, des corrections humaines et du pilote tenant.
+              Observabilité des extractions, des coûts, des corrections humaines et du pilote client.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -117,14 +121,14 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.3fr] animate-slide-in stagger-2">
-        <div className="dashboard-card p-5">
+        <div className="dashboard-card min-w-0 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-[var(--slate-700)]">
-                Pilote tenant
+                Pilote client
               </h2>
               <p className="mt-1 text-sm text-[var(--slate-500)]">
-                Kill switch et definition partageable des signaux pilote.
+                État du pilote et définition partagée des signaux de décision.
               </p>
             </div>
             <PilotStatusBadge killSwitchEnabled={data.pilot.killSwitchEnabled} />
@@ -133,7 +137,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           <dl className="mt-4 space-y-3 text-sm">
             <div>
               <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-                Flag kill switch
+                Interrupteur de sécurité
               </dt>
               <dd className="mt-1 font-mono text-[var(--slate-700)]">
                 {data.pilot.killSwitchFlagKey}
@@ -141,7 +145,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
             </div>
             <div>
               <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-                Satisfaction
+                Proxy de satisfaction
               </dt>
               <dd className="mt-1 text-[var(--slate-700)]">
                 {data.pilot.satisfactionLabel}
@@ -163,7 +167,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           hint={`${data.kpis.completedJobs} complètes, ${data.kpis.failedJobs} échouées`}
         />
         <MetricCard
-          label="Taux de succes"
+          label="Taux de succès"
           value={`${formatPercent(data.kpis.successRate)} %`}
           hint={`${data.kpis.completedJobs} / ${data.kpis.completedJobs + data.kpis.failedJobs + data.kpis.canceledJobs} terminaux`}
           variant={
@@ -175,75 +179,111 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           }
         />
         <MetricCard
-          label="Duree moyenne"
+          label="Durée moyenne"
           value={formatDurationMs(data.kpis.avgDurationMs)}
           hint="Extractions complètes uniquement"
         />
         <MetricCard
-          label="Cout total"
+          label="Coût total"
           value={formatCostCents(data.kpis.totalCostCents)}
           hint={`Moy. ${formatCostCents(data.kpis.avgCostCentsPerJob)} / extraction`}
         />
         <MetricCard
-          label="Confiance moy."
+          label="Score automatique moyen"
           value={formatConfidence(data.kpis.avgConfidence)}
-          hint="Moyenne sur les resultats"
-          variant={
-            data.kpis.avgConfidence >= 0.8
-              ? "success"
-              : data.kpis.avgConfidence >= 0.6
-                ? "warning"
-                : data.kpis.avgConfidence > 0
-                  ? "danger"
-                  : "default"
-          }
+          hint="Signal automatique, pas une preuve de justesse"
         />
         <MetricCard
-          label="Items / extraction"
+          label="Lignes / extraction"
           value={formatDecimal(data.kpis.avgItemsPerJob)}
-          hint="Moyenne sur la periode"
+          hint="Moyenne sur la période"
         />
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 animate-slide-in stagger-2">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6 animate-slide-in stagger-2">
         <MetricCard
-          label="Sorties corrigees"
+          label="Dossiers corrigés"
           value={formatNumber(data.corrections.kpis.correctedJobs)}
-          hint={`${formatPercent(data.corrections.kpis.correctionRate)} % des jobs exploitables`}
+          hint={`${formatPercent(data.corrections.kpis.correctionRate)} % des dossiers exploitables`}
           variant={data.corrections.kpis.correctedJobs > 0 ? "warning" : "default"}
         />
         <MetricCard
           label="Validation rapide"
           value={formatNumber(data.corrections.kpis.quicklyValidatedJobs)}
-          hint={`${formatPercent(data.corrections.kpis.quickValidationRate)} % valides apres revue`}
+          hint={`${formatPercent(data.corrections.kpis.quickValidationRate)} % validés après revue`}
           variant={data.corrections.kpis.quicklyValidatedJobs > 0 ? "success" : "default"}
         />
         <MetricCard
           label="Sans retouche"
           value={formatNumber(data.corrections.kpis.untouchedSuccessfulJobs)}
-          hint="Jobs completes/appliques sans action explicite"
+          hint="Dossiers terminés/appliqués sans action explicite"
         />
         <MetricCard
-          label="Evenements correction"
+          label="Événements de correction"
           value={formatNumber(data.corrections.kpis.totalEvents)}
-          hint="Historique consolide des corrections humaines"
+          hint="Historique consolidé des corrections humaines"
+        />
+        <MetricCard
+          label="Lignes à score élevé corrigées"
+          value={
+            data.calibration.appliedHighScoreItems > 0
+              ? `${formatPercent(data.calibration.appliedHighScoreMaterialCorrectionRate)} %`
+              : "-"
+          }
+          hint={
+            data.calibration.status === "no_data"
+              ? `Aucune ligne appliquée avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)}`
+              : data.calibration.status === "insufficient"
+                ? `${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} corrigées · seulement ${data.calibration.appliedHighScoreItems}/${data.calibration.minimumSampleSize} lignes appliquées`
+                : `${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} lignes appliquées avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)} corrigées`
+          }
+          variant={
+            data.calibration.status !== "sufficient"
+              ? "warning"
+              : data.calibration.appliedHighScoreMaterialCorrectionRate === 0
+                ? "success"
+                : data.calibration.appliedHighScoreMaterialCorrectionRate <=
+                    TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE
+                  ? "warning"
+                  : "danger"
+          }
+        />
+        <MetricCard
+          label="Preuves niveau C"
+          value={
+            data.calibration.levelCIncludedItems > 0
+              ? `${formatPercent(data.calibration.levelCLocalizedProofCoverage)} %`
+              : "-"
+          }
+          hint={
+            data.calibration.levelCIncludedItems > 0
+              ? `${data.calibration.levelCLocalizedProofItems}/${data.calibration.levelCIncludedItems} lignes avec preuve et page`
+              : "Aucune ligne niveau C exploitable"
+          }
+          variant={
+            data.calibration.levelCIncludedItems === 0
+              ? "default"
+              : data.calibration.levelCLocalizedProofCoverage === 100
+                ? "success"
+                : "danger"
+          }
         />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1.25fr] animate-slide-in stagger-3">
-        <div className="dashboard-card overflow-hidden">
+        <div className="dashboard-card min-w-0 overflow-hidden">
           <div className="border-b border-[var(--slate-200)] px-4 py-3">
             <h2 className="text-sm font-semibold text-[var(--slate-700)]">
-              Corrections capturees
+              Corrections enregistrées
             </h2>
           </div>
           <CorrectionEventsTable events={data.corrections.eventCounts} />
         </div>
 
-        <div className="dashboard-card overflow-hidden">
+        <div className="dashboard-card min-w-0 overflow-hidden">
           <div className="border-b border-[var(--slate-200)] px-4 py-3">
             <h2 className="text-sm font-semibold text-[var(--slate-700)]">
-              Lecture metier par niveau
+              Lecture métier par niveau
             </h2>
           </div>
           <CorrectionByLevelTable rows={data.corrections.byLevel} />
@@ -256,7 +296,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
             Suivi hebdo pilote
           </h2>
           <p className="mt-1 text-xs text-[var(--slate-500)]">
-            Volume, cout moyen, temps moyen, taux de correction et satisfaction par semaine.
+            Volume, coût moyen, temps moyen, taux de correction et satisfaction par semaine.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -265,24 +305,24 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.6fr_1fr] animate-slide-in stagger-3">
-        <div className="dashboard-card p-5">
+        <div className="dashboard-card min-w-0 p-5">
           <div className="mb-3 flex items-center gap-4 text-xs font-semibold text-[var(--slate-600)]">
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[var(--brand-blue)]" />
-              Crees
+              Créés
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[var(--danger)]" />
-              Echoues
+              Échoués
             </span>
           </div>
           <JobTrendChart trend={data.trend} />
         </div>
 
-        <div className="dashboard-card overflow-hidden">
+        <div className="dashboard-card min-w-0 overflow-hidden">
           <div className="border-b border-[var(--slate-200)] px-4 py-3">
             <h2 className="text-sm font-semibold text-[var(--slate-700)]">
-              Cout par niveau
+              Coût par niveau
             </h2>
           </div>
           <CostByLevelTable data={data.costByLevel} />
@@ -292,14 +332,14 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       <section className="grid gap-6 xl:grid-cols-2 animate-fade-in stagger-3">
         <div className="dashboard-card p-5">
           <h2 className="mb-4 text-sm font-semibold text-[var(--slate-700)]">
-            Repartition tokens
+            Répartition des tokens
           </h2>
           <TokenBreakdownBar data={data.tokenBreakdown} />
         </div>
 
         <div className="dashboard-card p-5">
           <h2 className="mb-4 text-sm font-semibold text-[var(--slate-700)]">
-            Fiabilite
+            Fiabilité technique
           </h2>
           <ReliabilityCards data={data.reliability} />
         </div>

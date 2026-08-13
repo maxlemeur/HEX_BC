@@ -39,6 +39,14 @@ const defaultProps = {
       versionNumber: 2,
     },
   ],
+  availablePlanSets: [
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Plans import",
+      source: "affaire-intake",
+      fileCount: 5,
+    },
+  ],
   plansContext: {
     defaultPlanSetId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     defaultPlanSetName: "Plans import",
@@ -172,6 +180,53 @@ describe("LaunchMetreDialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("prefers an exploitable plan set when the default set is empty", async () => {
+    const user = userEvent.setup();
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-usable" });
+
+    render(
+      <LaunchMetreDialog
+        {...defaultProps}
+        plansContext={{
+          ...defaultProps.plansContext,
+          defaultPlanSetFileCount: 0,
+        }}
+        availablePlanSets={[
+          {
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            name: "Jeu vide récent",
+            fileCount: 0,
+          },
+          {
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            name: "Plans plomberie",
+            fileCount: 3,
+          },
+        ]}
+      />
+    );
+
+    const planSetSelect = screen.getByRole("combobox", {
+      name: "Jeu de plans à analyser",
+    });
+    await waitFor(() => {
+      expect(planSetSelect).toHaveValue(
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
+
+    await waitFor(() => {
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          planSetId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          versionId: "33333333-3333-4333-8333-333333333333",
+        }),
+      );
+    });
+  });
+
   it("shows an actionable guardrail when no version exists yet", () => {
     render(
       <LaunchMetreDialog
@@ -201,6 +256,13 @@ describe("LaunchMetreDialog", () => {
           ...defaultProps.plansContext,
           defaultPlanSetFileCount: 0,
         }}
+        availablePlanSets={[
+          {
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            name: "Plans import",
+            fileCount: 0,
+          },
+        ]}
       />
     );
 

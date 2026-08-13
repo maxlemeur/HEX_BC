@@ -281,6 +281,7 @@ export type TakeoffItemPatchField = {
   designation?: string;
   quantity?: number;
   unit?: string;
+  source_page?: number | null;
   is_excluded?: boolean;
   exclusion_reason?: string | null;
   is_verified?: boolean;
@@ -1111,11 +1112,29 @@ export type TakeoffCorrectionMetrics = {
   byLevel: TakeoffCorrectionMetricsByLevel[];
 };
 
+export type TakeoffAppliedScoreCalibrationStatus =
+  | "no_data"
+  | "insufficient"
+  | "sufficient";
+
+export type TakeoffAppliedScoreCalibration = {
+  status: TakeoffAppliedScoreCalibrationStatus;
+  minimumSampleSize: number;
+  appliedScoredItems: number;
+  appliedHighScoreItems: number;
+  appliedHighScoreMateriallyCorrectedItems: number;
+  appliedHighScoreMaterialCorrectionRate: number;
+  levelCIncludedItems: number;
+  levelCLocalizedProofItems: number;
+  levelCLocalizedProofCoverage: number;
+};
+
 export type TakeoffMetricsStatsPayload = {
   generatedAt: string;
   period: TakeoffMetricsPeriod;
   kpis: TakeoffMetricsKpis;
   corrections: TakeoffCorrectionMetrics;
+  calibration: TakeoffAppliedScoreCalibration;
   trend: TakeoffMetricsTrendPoint[];
   costByLevel: TakeoffMetricsCostByLevel[];
   tokenBreakdown: TakeoffMetricsTokenBreakdown;

@@ -614,22 +614,88 @@ export const takeoffPreviewConversionResponseSchema = z
   })
   .strict();
 
+const GEMINI_RESPONSE_SCHEMA_KEYS = new Set([
+  "type",
+  "format",
+  "title",
+  "description",
+  "nullable",
+  "enum",
+  "maxItems",
+  "minItems",
+  "properties",
+  "required",
+  "minProperties",
+  "maxProperties",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "example",
+  "anyOf",
+  "propertyOrdering",
+  "default",
+  "items",
+  "minimum",
+  "maximum",
+]);
+
+function isSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function sanitizeGeminiJsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeGeminiJsonSchema(item));
   }
 
-  if (!value || typeof value !== "object") {
+  if (!isSchemaRecord(value)) {
     return value;
   }
 
   const result: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key === "$schema" || key === "additionalProperties") {
+    if (!GEMINI_RESPONSE_SCHEMA_KEYS.has(key)) {
+      continue;
+    }
+
+    if (key === "properties" && isSchemaRecord(item)) {
+      result.properties = Object.fromEntries(
+        Object.entries(item).map(([propertyName, propertySchema]) => [
+          propertyName,
+          sanitizeGeminiJsonSchema(propertySchema),
+        ])
+      );
+      continue;
+    }
+
+    if (key === "default" || key === "example") {
+      result[key] = item;
       continue;
     }
 
     result[key] = sanitizeGeminiJsonSchema(item);
+  }
+
+  if (typeof value.exclusiveMinimum === "number") {
+    const compatibleMinimum =
+      value.type === "integer"
+        ? Math.floor(value.exclusiveMinimum) + 1
+        : value.exclusiveMinimum;
+    result.minimum =
+      typeof result.minimum === "number"
+        ? Math.max(result.minimum, compatibleMinimum)
+        : compatibleMinimum;
+  }
+
+  if (typeof value.exclusiveMaximum === "number") {
+    const compatibleMaximum =
+      value.type === "integer"
+        ? Math.ceil(value.exclusiveMaximum) - 1
+        : value.exclusiveMaximum;
+    result.maximum =
+      typeof result.maximum === "number"
+        ? Math.min(result.maximum, compatibleMaximum)
+        : compatibleMaximum;
   }
 
   return result;

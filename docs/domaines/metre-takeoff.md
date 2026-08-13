@@ -1,7 +1,8 @@
 # Métré (takeoff) & plans
 
-> **Source : le code au 2026-07-29, avec les baux et la reprise relus au
-> 2026-08-12.** En cas de divergence, le code et les migrations font foi.
+> **Source : le code au 2026-08-13, avec les baux, la reprise, les preuves
+> localisées et la calibration relus.** En cas de divergence, le code et les
+> migrations font foi.
 
 Périmètre : `src/lib/takeoff/**`, `src/components/takeoff/**`, `src/app/api/{takeoff,internal/takeoff}/**`, `src/app/dashboard/{takeoff,affaires/[projectId]/{plans,takeoff},estimates/[versionId]/{plans,takeoff},admin/takeoff}/**`, `supabase/functions/process_takeoff_job/`, migrations `*tkf*`, `*plan_sets*`, `*takeoff*`. L'application d'un métré au devis est décrite dans [../metier/cycle-de-vie.md](../metier/cycle-de-vie.md) § « Application d'un métré au devis » ; seuls les compléments propres au module figurent ici (§11).
 
@@ -48,6 +49,8 @@ Variables d'environnement de repli : `TAKEOFF_LEVEL_C_TIMEOUT_MS` (`feature-flag
 | C | « Détaillé » (`:47`) | `pdf` seul (`server.ts:174-175`) | `gemini-3.1-pro-preview` (`prompts.ts:36`) | `high` (`:37`) | `takeoff-c-v1` (`:11`) |
 
 Le niveau B exige au moins un tableau exploitable (`prompts.ts:128-130` ; schéma `schemas.ts:113-119`) ; le niveau C exige `confidence` global plus `confidence`, `source_page` et `evidence` par item (`prompts.ts:144-149`). Le schéma d'échange est `.strict()` (`schemas.ts:99-104`) : `quantity > 0` (`:18-19`), `confidence ∈ [0,1]` (`:35-38`), `designation ≤ 500` caractères (`:75`), `evidence ≤ 2000` (`:81`). Un lancement depuis un jeu de plans n'accepte que `B` ou `C` (`src/app/dashboard/affaires/_actions/takeoff.ts:16`, `:27`), `B` par défaut (`server.ts:176`, `:8272`).
+
+Avant l'appel Gemini, `zodToGeminiJsonSchema` filtre récursivement le schéma vers les champs acceptés par `responseSchema`. `exclusiveMinimum` / `exclusiveMaximum`, absents de ce contrat fournisseur, deviennent des bornes inclusives compatibles ; la validation Zod de la réponse conserve ensuite la sémantique stricte, notamment `quantity > 0` (`schemas.ts`, `schemas.test.ts`).
 
 **Escalade.** Quand `TAKEOFF_AI_ESCALATION_ENABLED` vaut vrai, le modèle primaire devient `gemini-3.1-flash-lite-preview` en A et `gemini-3-flash-preview` en B, C inchangé (`prompts.ts:41-54` ; sélection `processor.ts:3808-3810`) ; la matrice de repli est `A → gemini-3-flash-preview`, `B → gemini-3.1-pro-preview`, `C → null` (`prompts.ts:56-71`). L'escalade de niveau B se déclenche si la confiance passe sous `minConfidence`, si le nombre de tableaux est nul, si aucun item n'est retenu, ou si un warning de sévérité `error` existe (`processor.ts:3106-3128`), sous plafond `TAKEOFF_AI_ESCALATION_MAX_COST_CENTS` (`processor.ts:2990-3085`).
 
@@ -210,7 +213,7 @@ Liens manuels : `PATCH /api/takeoff/jobs/{jobId}/dpgf-link`, maximum `50` items 
 
 Décisions : `keep_dpgf`, `keep_takeoff`, `manual_fix`, `out_of_scope` (`types.ts:451-455` ; contrainte SQL `…20260306153000….sql:153-154`), `reason` limitée à `2000` caractères (`server.ts:968-975`), action d'audit `takeoff.dpgf.review_decision` (`server.ts:6227`). Elles sont recopiées sur la version dupliquée avec `carried_over_from_version_id` (`…20260306153000….sql:766-805`) et rejouées par `review_reference` (`dpgf-compare.ts:196-212`, `:798-800`).
 
-Blocage de l'application : `to_confirm > 0` ou `significant_gaps > 0` ou `lines_without_proof > 0` ou `forced_manual > 0` ou (`total_lines > 0` et `unused_takeoff_items > 0`) (`dpgf-compare.ts:27-41`).
+Blocage de l'application : `to_confirm > 0` ou `significant_gaps > 0` ou `lines_without_proof > 0` ou `forced_manual > 0` ou (`total_lines > 0` et `unused_takeoff_items > 0`) (`dpgf-compare.ts:27-41`). Ce prédicat est appliqué dans la revue puis recalculé par `applyTakeoffJob` après les transformations préparatoires et juste avant l'appel RPC ; l'autorisation correspond donc aux items réellement appliqués.
 
 ---
 
@@ -227,7 +230,7 @@ Table `estimate_line_evidences` : `evidence_type ∈ {dpgf, takeoff, plan_zone, 
 | Anomalie de revue | `< 0,5` | `TakeoffReviewTable.tsx:75-90` |
 | Hypothèse ouverte | `< 0,8` | `ValidationReviewPanel.tsx:119-125` |
 
-Un item de confiance `null` est traité comme faible et bloque (`guards.ts:66-67`).
+Un item de confiance `null` est traité comme faible et bloque. Pour un job de niveau C, le score n'est jamais présenté comme une preuve de fiabilité : chaque item inclus doit conserver une preuve textuelle non vide et une `source_page ≥ 1`. Une faible confiance exige en plus une validation humaine. L'écran de synthèse sépare donc score automatique, couverture des preuves, validations humaines et items à traiter (`ConfidenceHeader.tsx`, `guards.ts`).
 
 ---
 
@@ -250,7 +253,10 @@ Table `takeoff_price_suggestions` : `status ∈ {pending, applied, kept_current,
 Le détail (stratégies `append`/`replace`/`merge`, portées `section`/`version`, verrou de brouillon, forçage admin, `partial_apply`) est dans [../metier/cycle-de-vie.md](../metier/cycle-de-vie.md) § 9. Compléments propres au module :
 
 - Le RPC `apply_takeoff_job(p_job_id, p_strategy, p_target_section_id)` exige le statut `completed` du job et `draft` de la version (`…tkf013_takeoff_apply_rpc.sql:68-70`, `:83-85`) et termine en passant le job à `applied` (`:570-576`).
-- La garde de confiance est doublée en base : `enforce_takeoff_apply_security` rejoue le calcul, exige un verrou `draft_locks` non expiré et ne s'applique qu'au niveau `C` (`…20260713132407….sql:219-263`). Le forçage admin exige une entrée d'audit `takeoff.apply.override` de moins de `15` minutes couvrant exactement les items bloqués, avec une justification de `10` à `500` caractères, consommée une seule fois via `takeoff_apply_override_consumptions` (`:279-356`).
+- La garde de confiance est doublée en base : `enforce_takeoff_apply_security` rejoue le calcul, exige un verrou `draft_locks` non expiré et ne s'applique qu'au niveau `C`. Depuis `20260813030000_require_localized_takeoff_proofs.sql`, une preuve vide, une page absente ou une page `< 1` bloque aussi l'application, même si la confiance est élevée ou l'item était déjà marqué comme validé. Le même prédicat couvre le comptage des blocages et l'autorisation de dérogation.
+- La validation humaine est elle-même protégée en base par `enforce_authenticated_takeoff_item_fields` : un opérateur authentifié ne peut pas passer `is_verified = true` sur un item de niveau C sans preuve localisée (`TAKEOFF_ITEM_VERIFICATION_PROOF_REQUIRED`). Le serveur applique le même contrôle avant la mise à jour et l'interface permet de corriger ensemble le texte de preuve et la page source ; toute modification d'un contenu déjà validé retire la validation jusqu'à un nouveau contrôle. L'assistant final ne propose aucun raccourci « tout vérifier ».
+- Pour une version contenant des lignes DPGF, le RPC à trois arguments refuse l'application directe (`TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED`). Après un rapprochement sans exception bloquante, le serveur crée une autorisation liée au tenant, au job, à la version et à l'utilisateur, valable cinq minutes, stockée sous forme de hash et consommée atomiquement par le RPC à quatre arguments. La table `takeoff_apply_authorizations` est en RLS forcée et reste inaccessible aux rôles `anon` et `authenticated`.
+- Le forçage admin exige une entrée d'audit `takeoff.apply.override` de moins de `15` minutes couvrant exactement les items bloqués, avec une justification de `10` à `500` caractères, consommée une seule fois via `takeoff_apply_override_consumptions`. Dans l'interface, la dérogation reste inactive tant que l'aperçu d'impact n'est pas à jour et cet impact reste visible malgré les blocages.
 - Après application, toute mutation d'item du job est refusée : `TAKEOFF_ITEM_APPLIED_JOB_IMMUTABLE` (`:51-52`).
 - `replace` sans section cible supprime **toutes** les lignes de la version (`…tkf013….sql:169-173`). Le fichier `supabase/migrations/20260718014058_protect_takeoff_replace_with_recovery.sql` est vide : `wc -c` renvoie `0`.
 - L'aperçu d'impact apparie en `merge` par clé exacte `designation` + `unit`, sans score (`apply-impact.ts:106-112`) ; les lignes créées portent `unit_price_ht_cents = 0` et `source_provider = 'takeoff'` (`…tkf013….sql:247`, `:254`). Traçabilité sur `estimate_items` : `source_provider`, `source_job_id`, `source_file_name`, `source_page` (`…tkf014_estimate_items_source_tracking.sql:3-7`).
@@ -269,7 +275,9 @@ Cycle de vie : le `GET /risk-radar` recalcule et persiste la projection (`server
 
 ## 13. Métriques et supervision
 
-`/api/takeoff/metrics/stats` agrège `takeoff_jobs`, `takeoff_run_metrics`, `takeoff_results`, `takeoff_items` et `audit_logs` sur `7d`, `30d`, `90d` (`types.ts:1005-1006` ; `stats.ts:30-34`). Cibles pilote codées en dur : coût moyen `≤ 1 000` centimes, durée moyenne `≤ 600 000` ms, taux de correction `≤ 40 %`, satisfaction `≥ 60 %` (`stats.ts:39-42`) ; volume minimal `3` (7 j), `8` (30 j), `20` sinon (`:109-113`) ; verdict `go` | `watch` | `no_go` | `inconclusive` (`:829-867`). L'état de `TAKEOFF_MODULE_ENABLED` est renvoyé comme donnée `killSwitchEnabled`, pas comme blocage (`src/app/api/takeoff/metrics/stats/route.ts:107`, `:201`) ; `/api/takeoff/stats` est un réexport du même gestionnaire (`src/app/api/takeoff/stats/route.ts:1`). Le tableau de bord rafraîchit toutes les `120 000` ms (`TakeoffMetricsDashboard.tsx:86`), avec des seuils d'affichage `≥ 90 / ≥ 70` pour le taux de succès (`:169-175`) et `≥ 0,8 / ≥ 0,6` pour la confiance (`:191-199`).
+`/api/takeoff/metrics/stats` agrège `takeoff_jobs`, `takeoff_run_metrics`, `takeoff_results`, `takeoff_items` et `audit_logs` sur `7d`, `30d`, `90d` (`types.ts`, `stats.ts`). Cibles pilote : coût moyen `≤ 1 000` centimes, durée moyenne `≤ 600 000` ms, taux de correction dossier `≤ 40 %`, satisfaction proxy `≥ 60 %`, et volume minimal `3` (7 j), `8` (30 j), `20` sinon. Deux critères protègent désormais directement la confiance : au moins `20` lignes réellement appliquées avec score automatique `≥ 0,8` avant de conclure, puis `≤ 5 %` de corrections matérielles parmi ces lignes ; si des items de niveau C existent, leur couverture de preuves localisées doit être `100 %` (`pilot-metrics.ts`, `stats.ts`). Tant que l'échantillon de calibration est insuffisant, le verdict est `inconclusive`, jamais `go`.
+
+L'état de `TAKEOFF_MODULE_ENABLED` est renvoyé comme donnée `killSwitchEnabled`, pas comme blocage (`src/app/api/takeoff/metrics/stats/route.ts`) ; `/api/takeoff/stats` est un réexport du même gestionnaire (`src/app/api/takeoff/stats/route.ts`). Le tableau de bord rafraîchit toutes les `120 000` ms. Le score automatique moyen y reste neutre : la fiabilité terrain est rendue séparément par les corrections de lignes appliquées et la couverture de preuves niveau C (`TakeoffMetricsDashboard.tsx`, `TakeoffMetricsDashboardCards.tsx`, `TakeoffMetricsDashboardTables.tsx`).
 
 `/api/takeoff/health` renvoie `{tenant_id, enabled: true}` quand le module est actif, et le 403 `TAKEOFF_MODULE_DISABLED` sinon (`src/app/api/takeoff/health/route.ts:43-51`).
 
@@ -333,5 +341,6 @@ Audit : 16 actions `takeoff.*` (`src/lib/takeoff/audit.ts:13-32`), contrainte `a
 9. `TAKEOFF_FLOW_KINDS` déclare `adjacent` (`flow-hierarchy.ts:3`) mais `resolvePlanSetFlowDescriptor` ne renvoie que `legacy` ou `principal` (`:13-35`) ; `adjacent` n'arrive que par la propriété passée en `src/app/dashboard/affaires/[projectId]/takeoff/page.tsx:125`.
 10. **La reprise durable n'est qu'une capacité tant qu'elle n'est pas
     exploitée** : `CRON_SECRET`, le plan Vercel compatible et le déploiement de
-    la cadence `*/5` ne sont pas vérifiables depuis le dépôt. Aucun appel Gemini
-    réel n'a été déclenché pour valider ce lot documentaire.
+    la cadence `*/5` ne sont pas vérifiables depuis le dépôt. Deux appels Gemini
+    locaux sans persistance ont validé le cas synthétique plan seul ; ils ne
+    prouvent ni la reprise en production ni la généralisation à des plans clients.

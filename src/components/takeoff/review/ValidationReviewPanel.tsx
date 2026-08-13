@@ -10,6 +10,7 @@ import {
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
 
 type ValidationReviewPanelProps = {
@@ -19,6 +20,7 @@ type ValidationReviewPanelProps = {
   dpgfError?: string | null;
   hasDirtyOrSaving?: boolean;
   hasSaveErrors?: boolean;
+  requiresLocalizedProof?: boolean;
   canOpenApplyWizard?: boolean;
   applyReadinessMessage?: string | null;
   onOpenEvidencePanel?: (itemId: string) => void;
@@ -85,7 +87,10 @@ type FlaggedItem = {
   priorityScore: number;
 };
 
-function hasMissingSourceContext(item: ReviewItem) {
+function hasMissingSourceContext(item: ReviewItem, requiresLocalizedProof: boolean) {
+  if (requiresLocalizedProof) {
+    return typeof item.source_page !== "number" || item.source_page < 1;
+  }
   return !item.source_file_name && item.source_page === null;
 }
 
@@ -100,19 +105,24 @@ function computePriorityScore(input: { issues: string[]; item: ReviewItem }) {
   return topIssueRank * 1_000 + confidenceScore;
 }
 
-function flagItems(items: ReviewItem[]): FlaggedItem[] {
+function flagItems(
+  items: ReviewItem[],
+  requiresLocalizedProof: boolean
+): FlaggedItem[] {
   const result: FlaggedItem[] = [];
 
   for (const item of items) {
     if (item.is_excluded) continue;
 
-    const issues: string[] = [...detectAnomalies(item)];
+    const issues: string[] = detectAnomalies(item).filter(
+      (issue) => issue !== "low_confidence" || !item.is_verified
+    );
 
     if (!item.is_verified) {
       issues.push("unverified");
     }
 
-    if (hasMissingSourceContext(item)) {
+    if (hasMissingSourceContext(item, requiresLocalizedProof)) {
       issues.push("missing_source_context");
     }
 
@@ -178,6 +188,7 @@ function buildStatusMessage(input: {
     flaggedCount: number;
   };
   dpgfSummary: TakeoffDpgfComparisonSummary | null;
+  canOpenApplyWizard: boolean;
 }) {
   if (input.hasDirtyOrSaving) {
     return "Sauvegarde en cours. Attendez la confirmation avant de passer a l'apply.";
@@ -196,6 +207,9 @@ function buildStatusMessage(input: {
   }
 
   if (input.summary.flaggedCount > 0) {
+    if (input.canOpenApplyWizard) {
+      return "Le métré peut être appliqué. Des contrôles humains restent recommandés mais ne bloquent pas cette étape.";
+    }
     return "Les exceptions principales sont levees. Finalisez les validations humaines restantes.";
   }
 
@@ -209,6 +223,7 @@ export function ValidationReviewPanel({
   dpgfError = null,
   hasDirtyOrSaving = false,
   hasSaveErrors = false,
+  requiresLocalizedProof = false,
   canOpenApplyWizard = false,
   applyReadinessMessage = null,
   onOpenEvidencePanel,
@@ -225,13 +240,13 @@ export function ValidationReviewPanel({
   const excludedItems = useMemo(() => items.filter((item) => item.is_excluded), [items]);
   const flaggedItems = useMemo(
     () =>
-      [...flagItems(items)].sort((left, right) => {
+      [...flagItems(items, requiresLocalizedProof)].sort((left, right) => {
         if (left.priorityScore !== right.priorityScore) {
           return left.priorityScore - right.priorityScore;
         }
         return left.item.designation.localeCompare(right.item.designation, "fr");
       }),
-    [items]
+    [items, requiresLocalizedProof]
   );
   const filteredItems = useMemo(
     () => flaggedItems.filter((flagged) => matchesFilter(flagged, filter)),
@@ -241,10 +256,13 @@ export function ValidationReviewPanel({
   const summary = useMemo(() => {
     const total = includedItems.length;
     const lowConfidence = includedItems.filter(
-      (item) => item.confidence !== null && item.confidence < 0.5
+      (item) =>
+        !item.is_verified && item.confidence !== null && item.confidence < 0.5
     ).length;
     const missingEvidence = includedItems.filter((item) => !item.evidence).length;
-    const missingSourceContext = includedItems.filter(hasMissingSourceContext).length;
+    const missingSourceContext = includedItems.filter((item) =>
+      hasMissingSourceContext(item, requiresLocalizedProof)
+    ).length;
     const withAnomalies = includedItems.filter((item) =>
       detectAnomalies(item).some(
         (issue) => issue === "zero_quantity" || issue === "empty_designation"
@@ -255,7 +273,13 @@ export function ValidationReviewPanel({
     const coveragePct =
       total > 0
         ? Math.round(
-            (includedItems.filter((item) => !!item.evidence).length / total) * 100
+            (includedItems.filter((item) =>
+              requiresLocalizedProof
+                ? getTakeoffVerificationReadiness(item).canVerify
+                : Boolean(item.evidence?.trim())
+            ).length /
+              total) *
+              100
           )
         : 0;
     const openHypotheses = includedItems.filter(
@@ -282,7 +306,7 @@ export function ValidationReviewPanel({
       cleanCount: total - flaggedItems.length,
       priorityCount,
     };
-  }, [flaggedItems, includedItems]);
+  }, [flaggedItems, includedItems, requiresLocalizedProof]);
 
   const statusMessage = useMemo(
     () =>
@@ -291,8 +315,9 @@ export function ValidationReviewPanel({
         hasSaveErrors,
         summary,
         dpgfSummary,
+        canOpenApplyWizard,
       }),
-    [dpgfSummary, hasDirtyOrSaving, hasSaveErrors, summary]
+    [canOpenApplyWizard, dpgfSummary, hasDirtyOrSaving, hasSaveErrors, summary]
   );
 
   if (items.length === 0) {
@@ -369,7 +394,7 @@ export function ValidationReviewPanel({
             hint="fichier ou page non consultable"
           />
           <PriorityCard
-            label="Confiance faible"
+            label="Faible à vérifier"
             value={summary.lowConfidence}
             tone={summary.lowConfidence > 0 ? "error" : "success"}
             hint="validation humaine requise"
@@ -465,7 +490,7 @@ export function ValidationReviewPanel({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7">
           <SummaryCard label="Items inclus" value={summary.total} variant="neutral" />
           <SummaryCard
-            label="Couverture preuve"
+            label={requiresLocalizedProof ? "Preuves localisées" : "Couverture preuve"}
             value={`${summary.coveragePct} %`}
             variant={
               summary.coveragePct >= 80
@@ -510,6 +535,10 @@ export function ValidationReviewPanel({
           <p className="mt-3 text-sm font-medium text-[var(--success)]" role="status">
             Tous les items sont conformes. La revue peut passer a l&apos;etape suivante.
           </p>
+        ) : canOpenApplyWizard && summary.priorityCount === 0 ? (
+          <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
+            {summary.flaggedCount} contrôle{summary.flaggedCount > 1 ? "s" : ""} humain{summary.flaggedCount > 1 ? "s" : ""} reste{summary.flaggedCount > 1 ? "nt" : ""} recommandé{summary.flaggedCount > 1 ? "s" : ""}. L&apos;application n&apos;est pas bloquée.
+          </p>
         ) : (
           <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
             {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} necessite{summary.flaggedCount > 1 ? "nt" : ""} une verification,
@@ -550,6 +579,7 @@ export function ValidationReviewPanel({
               onVerifyItem={onVerifyItem}
               onExcludeItem={onExcludeItem}
               onIncludeItem={onIncludeItem}
+              requiresLocalizedProof={requiresLocalizedProof}
             />
           ))}
         </div>
@@ -585,6 +615,7 @@ export function ValidationReviewPanel({
                 onVerifyItem={onVerifyItem}
                 onExcludeItem={onExcludeItem}
                 onIncludeItem={onIncludeItem}
+                requiresLocalizedProof={requiresLocalizedProof}
               />
             ))}
           </div>
@@ -688,6 +719,7 @@ function ValidationItemRow({
   onVerifyItem,
   onExcludeItem,
   onIncludeItem,
+  requiresLocalizedProof,
 }: {
   item: ReviewItem;
   issues: string[];
@@ -695,8 +727,21 @@ function ValidationItemRow({
   onVerifyItem?: (itemId: string) => void;
   onExcludeItem?: (itemId: string) => void;
   onIncludeItem?: (itemId: string) => void;
+  requiresLocalizedProof: boolean;
 }) {
   const hasProof = Boolean(item.evidence || item.source_file_name || item.source_page !== null);
+  const verificationReadiness = getTakeoffVerificationReadiness(item);
+  const mustOpenProofBeforeVerification =
+    requiresLocalizedProof && !item.is_verified;
+  const proofActionLabel = mustOpenProofBeforeVerification
+    ? verificationReadiness.canVerify
+      ? "Contrôler et valider"
+      : item.evidence?.trim()
+        ? "Localiser la source"
+        : "Compléter la preuve"
+    : hasProof
+      ? "Ouvrir les preuves"
+      : "Ajouter une preuve";
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-white px-4 py-4">
@@ -779,9 +824,9 @@ function ValidationItemRow({
           onClick={() => onOpenEvidencePanel?.(item.id)}
           disabled={!onOpenEvidencePanel}
         >
-          {hasProof ? "Ouvrir les preuves" : "Ajouter une preuve"}
+          {proofActionLabel}
         </Button>
-        {!item.is_verified && onVerifyItem ? (
+        {!item.is_verified && onVerifyItem && !requiresLocalizedProof ? (
           <Button variant="ghost" size="sm" onClick={() => onVerifyItem(item.id)}>
             Valider cet item
           </Button>

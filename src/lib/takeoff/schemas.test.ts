@@ -9,6 +9,67 @@ import {
   zodToGeminiJsonSchema,
 } from "@/lib/takeoff/schemas";
 
+const GEMINI_RESPONSE_SCHEMA_KEYS = new Set([
+  "type",
+  "format",
+  "title",
+  "description",
+  "nullable",
+  "enum",
+  "maxItems",
+  "minItems",
+  "properties",
+  "required",
+  "minProperties",
+  "maxProperties",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "example",
+  "anyOf",
+  "propertyOrdering",
+  "default",
+  "items",
+  "minimum",
+  "maximum",
+]);
+
+function collectUnsupportedGeminiSchemaKeys(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectUnsupportedGeminiSchemaKeys(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const result: string[] = [];
+  for (const [key, item] of Object.entries(value)) {
+    if (!GEMINI_RESPONSE_SCHEMA_KEYS.has(key)) {
+      result.push(key);
+      continue;
+    }
+
+    if (
+      (key === "default" || key === "example") ||
+      (key === "properties" && item && typeof item === "object" && !Array.isArray(item))
+    ) {
+      if (key === "properties") {
+        result.push(
+          ...Object.values(item as Record<string, unknown>).flatMap((propertySchema) =>
+            collectUnsupportedGeminiSchemaKeys(propertySchema)
+          )
+        );
+      }
+      continue;
+    }
+
+    result.push(...collectUnsupportedGeminiSchemaKeys(item));
+  }
+
+  return result;
+}
+
 function createBasePayload(level: "A" | "B" | "C") {
   return {
     items: [
@@ -298,6 +359,28 @@ describe("zodToGeminiJsonSchema", () => {
     expect(
       JSON.stringify(jsonSchema).includes("\"additionalProperties\"")
     ).toBe(false);
+    expect(collectUnsupportedGeminiSchemaKeys(jsonSchema)).toEqual([]);
+  });
+
+  it("converts strict numeric bounds to Gemini-compatible inclusive bounds", () => {
+    const jsonSchema = zodToGeminiJsonSchema(
+      z.object({
+        quantity: z.number().gt(0),
+        floor: z.number().int().gt(2),
+        ratio: z.number().lt(1),
+      })
+    );
+    const properties = jsonSchema.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+
+    expect(properties.quantity).toMatchObject({ type: "number", minimum: 0 });
+    expect(properties.floor).toMatchObject({ type: "integer", minimum: 3 });
+    expect(properties.ratio).toMatchObject({ type: "number", maximum: 1 });
+    expect(JSON.stringify(jsonSchema)).not.toContain("exclusiveMinimum");
+    expect(JSON.stringify(jsonSchema)).not.toContain("exclusiveMaximum");
+    expect(collectUnsupportedGeminiSchemaKeys(jsonSchema)).toEqual([]);
   });
 
   it("preserves representable nullable-string constraints from transformed fields", () => {

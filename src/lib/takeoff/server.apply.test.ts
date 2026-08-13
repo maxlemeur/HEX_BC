@@ -161,7 +161,7 @@ function baseTakeoffItem(overrides: Partial<StoredTakeoffItem> = {}): StoredTake
     quantity: 12,
     unit: "ml",
     confidence: 0.9,
-    evidence: null,
+    evidence: "Repère A3 sur le plan",
     source_file_name: "niveau-a.csv",
     source_page: 1,
     metadata: {},
@@ -246,6 +246,19 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
               }),
             };
 
+            return builder;
+          }),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => {
+            const builder = {
+              eq: vi.fn(() => builder),
+              limit: vi.fn(() => builder),
+              maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+            };
             return builder;
           }),
         };
@@ -546,6 +559,42 @@ describe("applyTakeoffJob", () => {
       "takeoff.apply.started",
       "takeoff.apply.failed",
     ]);
+  });
+
+  it("turns an expired DPGF authorization into an actionable retry", async () => {
+    const supabase = createSupabaseMock({
+      rpcError: {
+        code: "42501",
+        message: "TAKEOFF_DPGF_APPLY_AUTHORIZATION_INVALID",
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "TAKEOFF_APPLY_GUARD_FAILED",
+      retryable: true,
+      details: {
+        guard: "dpgf_authorization",
+      },
+    });
   });
 
   it("rolls back takeoff item pre-apply patches when apply RPC fails", async () => {
@@ -1057,5 +1106,83 @@ describe("applyTakeoffJob", () => {
     });
 
     expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("blocks a high-confidence level C item when its localized proof is missing", async () => {
+    const supabase = createSupabaseMock({
+      jobLevel: "C",
+      takeoffItems: [
+        baseTakeoffItem({
+          confidence: 0.95,
+          evidence: null,
+          source_page: null,
+          is_verified: true,
+        }),
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "TAKEOFF_APPLY_GUARD_FAILED",
+      details: {
+        blocked_items: [
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_1,
+            reasons: ["missing_evidence", "missing_source_page"],
+          }),
+        ],
+      },
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("allows a verified low-confidence level C item with a localized proof", async () => {
+    const supabase = createSupabaseMock({
+      jobLevel: "C",
+      takeoffItems: [
+        baseTakeoffItem({
+          confidence: 0.2,
+          evidence: "Repère A3 sur le plan",
+          source_page: 3,
+          is_verified: true,
+        }),
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
+    });
+
+    expect(response.job.status).toBe("applied");
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "apply_takeoff_job_guarded",
+      expect.objectContaining({ p_job_id: JOB_ID })
+    );
   });
 });

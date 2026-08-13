@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
 
 vi.mock("@/lib/takeoff/client", () => ({
+  deletePlanFile: vi.fn(),
   isTakeoffApiError: (e: unknown) =>
     e instanceof Error && "status" in e,
   registerPlanFile: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock("@/lib/takeoff/client", () => ({
 }));
 
 import {
+  deletePlanFile,
   registerPlanFile,
   uploadFileToSignedUrl,
 } from "@/lib/takeoff/client";
@@ -40,7 +42,7 @@ function renderZone(onUploadsComplete = vi.fn()) {
 /** Simulate a drop on the drop zone (bypasses the accept attribute on the file input). */
 function dropFiles(files: File[]) {
   const zone = screen.getByRole("button", {
-    name: /Zone de depot PDF/i,
+    name: /Zone de dépôt PDF/i,
   });
   const dataTransfer = {
     files,
@@ -145,8 +147,68 @@ describe("PlanFileUploadZone", () => {
     dropFiles([await makePdfFile()]);
 
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/Echec de l'upload/i);
+      const errorElements = screen.getAllByText(/Server error/i);
       expect(errorElements.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("cleans up a registered file after a binary upload failure and allows retry", async () => {
+    const user = userEvent.setup();
+    const onComplete = vi.fn();
+    const createResponse = {
+      plan_file: {
+        id: "file-to-clean",
+        created_at: "2026-02-25T10:00:00.000Z",
+        updated_at: "2026-02-25T10:00:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: SET_ID,
+        file_path: "path/to/retry.pdf",
+        file_name: "retry.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1024,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+      signed_upload: {
+        url: "https://storage.example.com/upload",
+        method: "PUT" as const,
+        path: "path/to/retry.pdf",
+        token: "tok123",
+        expires_in_seconds: 7200,
+      },
+    };
+    vi.mocked(registerPlanFile).mockResolvedValue(createResponse);
+    vi.mocked(uploadFileToSignedUrl)
+      .mockRejectedValueOnce(new Error("Connexion interrompue."))
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(deletePlanFile).mockResolvedValue({
+      deleted: true,
+      plan_set_id: SET_ID,
+      file_id: "file-to-clean",
+    });
+
+    renderZone(onComplete);
+    dropFiles([await makePdfFile("retry.pdf")]);
+
+    await waitFor(() => {
+      expect(deletePlanFile).toHaveBeenCalledWith(SET_ID, "file-to-clean");
+    });
+
+    const retryButton = await screen.findByRole("button", {
+      name: "Réessayer",
+    });
+    await waitFor(() => expect(retryButton).toBeEnabled());
+    await user.click(retryButton);
+
+    await waitFor(() => {
+      expect(registerPlanFile).toHaveBeenCalledTimes(2);
+      expect(uploadFileToSignedUrl).toHaveBeenCalledTimes(2);
+      expect(onComplete).toHaveBeenLastCalledWith({
+        uploadedCount: 1,
+        uploadedSizeBytes: expect.any(Number),
+      });
     });
   });
 

@@ -30,7 +30,10 @@ import {
   toTakeoffError,
 } from "@/lib/takeoff/errors";
 import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
-import { checkApplyGuard } from "@/lib/takeoff/guards";
+import {
+  checkApplyGuard,
+  getTakeoffVerificationReadiness,
+} from "@/lib/takeoff/guards";
 import {
   TakeoffMappingRuleSchema,
   takeoffApplyRequestSchema,
@@ -69,6 +72,7 @@ import {
   TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
   buildTakeoffDpgfReviewReference,
   buildTakeoffDpgfComparison,
+  hasBlockingTakeoffDpgfExceptions,
 } from "@/lib/takeoff/dpgf-compare";
 import {
   listSupplierPriceEvidenceRows,
@@ -1622,6 +1626,7 @@ type ApplyTakeoffRpcArgs = {
   job_id: string;
   strategy: TakeoffApplyStrategy;
   target_section_id: string | null;
+  dpgf_authorization_token?: string | null;
 };
 
 function isApplyTakeoffRpcSignatureMismatch(
@@ -1639,6 +1644,18 @@ async function invokeApplyTakeoffRpc(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   args: ApplyTakeoffRpcArgs;
 }) {
+  if (input.args.dpgf_authorization_token) {
+    return input.supabase.rpc(
+      "apply_takeoff_job_guarded" as never,
+      {
+        p_job_id: input.args.job_id,
+        p_strategy: input.args.strategy,
+        p_target_section_id: input.args.target_section_id,
+        p_dpgf_authorization_token: input.args.dpgf_authorization_token,
+      } as never
+    );
+  }
+
   const guardedAttempt = await input.supabase.rpc(
     "apply_takeoff_job_guarded" as never,
     {
@@ -1676,6 +1693,74 @@ async function invokeApplyTakeoffRpc(input: {
   return input.supabase.rpc("apply_takeoff_job" as never, input.args as never);
 }
 
+async function issueTakeoffDpgfApplyAuthorization(input: {
+  tenantId: string;
+  userId: string;
+  jobId: string;
+  estimateVersionId: string;
+  summary: TakeoffDpgfComparisonSummary;
+}) {
+  const authorizationToken = randomUUID();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const serviceRoleClient = createServiceRoleClient();
+  const { error } = await serviceRoleClient
+    .from("takeoff_apply_authorizations" as never)
+    .insert({
+      tenant_id: input.tenantId,
+      user_id: input.userId,
+      job_id: input.jobId,
+      estimate_version_id: input.estimateVersionId,
+      authorization_token_hash: toHexSha256(authorizationToken),
+      review_summary: input.summary,
+      expires_at: expiresAt,
+    } as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        error,
+        "Impossible de sécuriser l’autorisation d’application après la revue DPGF."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
+  return authorizationToken;
+}
+
+async function revokeTakeoffDpgfApplyAuthorization(input: {
+  authorizationToken: string;
+  jobId: string;
+}) {
+  try {
+    const serviceRoleClient = createServiceRoleClient();
+    const { error } = await serviceRoleClient
+      .from("takeoff_apply_authorizations" as never)
+      .delete()
+      .eq("job_id" as never, input.jobId as never)
+      .eq(
+        "authorization_token_hash" as never,
+        toHexSha256(input.authorizationToken) as never
+      );
+
+    if (error) {
+      console.error("Takeoff DPGF apply authorization cleanup failed", {
+        jobId: input.jobId,
+        code: error.code ?? null,
+      });
+    }
+  } catch (error) {
+    console.error("Takeoff DPGF apply authorization cleanup failed", {
+      jobId: input.jobId,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+  }
+}
+
 function mapApplyTakeoffRpcError(
   error: ApplyTakeoffRpcError,
   input: { jobId: string }
@@ -1696,6 +1781,24 @@ function mapApplyTakeoffRpcError(
       hint: error.hint ?? null,
     },
   };
+
+  if (
+    normalized.includes("takeoff_dpgf_apply_authorization_required") ||
+    normalized.includes("takeoff_dpgf_apply_authorization_invalid")
+  ) {
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+      message:
+        "La validation DPGF a expiré ou n’est plus valable. Relancez l’application pour recalculer les contrôles.",
+      details: {
+        ...details,
+        guard: "dpgf_authorization",
+      },
+      retryable: true,
+      jobId: input.jobId,
+    });
+  }
 
   if (
     error.code === "PGRST116" ||
@@ -3312,6 +3415,37 @@ async function listTakeoffDpgfEstimateItems(input: {
   }
 
   return (data ?? []).map((row) => normalizeTakeoffDpgfEstimateItemRow(row));
+}
+
+async function hasTakeoffDpgfTargetLines(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items" as never)
+    .select("id" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("item_type" as never, "line" as never)
+    .eq("source_provider" as never, "dpgf" as never)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        error,
+        "Impossible de vérifier la présence de lignes DPGF avant application."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return data !== null;
 }
 
 async function listTakeoffDpgfManualLinks(input: {
@@ -7589,6 +7723,12 @@ export async function applyTakeoffJob(
       });
     }
 
+    const hasDpgfTargetLines = await hasTakeoffDpgfTargetLines({
+      supabase,
+      tenantId,
+      versionId: jobRow.estimate_version_id,
+    });
+
     const mappingPreview = await buildTakeoffMappingPreviewForJob({
       supabase,
       tenantId,
@@ -7604,7 +7744,9 @@ export async function applyTakeoffJob(
       );
       const { data: guardItems, error: guardItemsError } = await supabase
         .from("takeoff_items" as never)
-        .select("id, designation, confidence, is_verified, is_excluded" as never)
+        .select(
+          "id, designation, confidence, evidence, source_page, is_verified, is_excluded" as never
+        )
         .eq("tenant_id" as never, tenantId as never)
         .eq("job_id" as never, normalizedJobId as never);
 
@@ -7620,6 +7762,8 @@ export async function applyTakeoffJob(
           id: string;
           designation: string;
           confidence: number | null;
+          evidence: string | null;
+          source_page: number | null;
           is_verified: boolean;
           is_excluded: boolean;
         }>,
@@ -7699,6 +7843,7 @@ export async function applyTakeoffJob(
       previewItems: mappingPreview.items,
       patches: preApplyItemPatches,
     });
+    let dpgfAuthorizationToken: string | null = null;
     let rpcData: unknown;
 
     try {
@@ -7709,12 +7854,44 @@ export async function applyTakeoffJob(
         patches: preApplyItemPatches,
       });
 
+      if (hasDpgfTargetLines) {
+        const dpgfComparison = await fetchDpgfTakeoffComparison(normalizedJobId, {
+          version_id: jobRow.estimate_version_id,
+          page_size: 1,
+          view: "all",
+        });
+
+        if (hasBlockingTakeoffDpgfExceptions(dpgfComparison.summary)) {
+          throw new TakeoffError({
+            code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+            status: 422,
+            message:
+              "Le rapprochement DPGF contient encore des écarts ou des preuves à traiter. Revenez à la revue avant d’appliquer le métré.",
+            details: {
+              guard: "dpgf_comparison",
+              dpgf_summary: dpgfComparison.summary,
+            },
+            retryable: false,
+            jobId: normalizedJobId,
+          });
+        }
+
+        dpgfAuthorizationToken = await issueTakeoffDpgfApplyAuthorization({
+          tenantId,
+          userId,
+          jobId: normalizedJobId,
+          estimateVersionId: jobRow.estimate_version_id,
+          summary: dpgfComparison.summary,
+        });
+      }
+
       const rpcAttempt = await invokeApplyTakeoffRpc({
         supabase,
         args: {
           job_id: normalizedJobId,
           strategy: payload.strategy,
           target_section_id: payload.target_section_id ?? null,
+          dpgf_authorization_token: dpgfAuthorizationToken,
         },
       });
 
@@ -7732,6 +7909,12 @@ export async function applyTakeoffJob(
         jobId: normalizedJobId,
         patches: preApplyItemRollbackPatches,
       });
+      if (dpgfAuthorizationToken) {
+        await revokeTakeoffDpgfApplyAuthorization({
+          authorizationToken: dpgfAuthorizationToken,
+          jobId: normalizedJobId,
+        });
+      }
       throw error;
     }
 
@@ -7875,7 +8058,6 @@ export async function applyTakeoffJob(
     const mappedError = toTakeoffError(error, {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
       fallbackMessage: "Impossible d'appliquer le job takeoff.",
-      retryable: false,
       jobId: normalizedJobId,
     });
 
@@ -8446,6 +8628,7 @@ const takeoffItemPatchFieldSchema = z
     designation: z.string().trim().min(1, "designation ne peut pas etre vide.").max(500).optional(),
     quantity: z.number().finite().positive("quantity doit etre > 0.").optional(),
     unit: z.string().trim().min(1, "unit ne peut pas etre vide.").max(64).optional(),
+    source_page: z.number().int().positive("source_page doit etre > 0.").nullable().optional(),
     is_excluded: z.boolean().optional(),
     exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
     is_verified: z.boolean().optional(),
@@ -8563,6 +8746,30 @@ export async function batchUpdateTakeoffItems(
         continue;
       }
 
+      if (jobRow.level === "C" && entry.fields.is_verified === true) {
+        const verificationReadiness = getTakeoffVerificationReadiness({
+          evidence:
+            entry.fields.evidence !== undefined
+              ? entry.fields.evidence
+              : typedItem.evidence,
+          source_page:
+            entry.fields.source_page !== undefined
+              ? entry.fields.source_page
+              : typedItem.source_page,
+        });
+
+        if (!verificationReadiness.canVerify) {
+          results.push({
+            item_id: entry.item_id,
+            success: false,
+            error:
+              verificationReadiness.message ??
+              "Une preuve localisée est requise avant validation.",
+          });
+          continue;
+        }
+      }
+
       // Build update payload
       const updatePayload: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
@@ -8599,6 +8806,15 @@ export async function batchUpdateTakeoffItems(
           next: entry.fields.unit,
         });
         updatePayload.unit = entry.fields.unit;
+      }
+
+      if (entry.fields.source_page !== undefined) {
+        auditFields.push({
+          field: "source_page",
+          previous: typedItem.source_page,
+          next: entry.fields.source_page,
+        });
+        updatePayload.source_page = entry.fields.source_page;
       }
 
       if (entry.fields.is_excluded !== undefined) {
@@ -8650,6 +8866,7 @@ export async function batchUpdateTakeoffItems(
           "designation",
           "quantity",
           "unit",
+          "source_page",
           "is_excluded",
           "exclusion_reason",
           "evidence",

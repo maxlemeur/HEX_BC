@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import {
+  deletePlanFile,
   isTakeoffApiError,
   registerPlanFile,
   uploadFileToSignedUrl,
@@ -113,6 +114,8 @@ export function PlanFileUploadZone({
       const completedUploads: File[] = [];
 
       async function uploadOne(entry: UploadFileEntry) {
+        let registeredFileId: string | null = null;
+
         // Step 1: register metadata
         updateEntry(entry.id, { status: "registering", progress: 0 });
         try {
@@ -121,6 +124,7 @@ export function PlanFileUploadZone({
             file_type: entry.normalizedMimeType || "application/pdf",
             file_size_bytes: entry.file.size,
           });
+          registeredFileId = response.plan_file.id;
 
           // Step 2: upload binary to signed URL
           updateEntry(entry.id, { status: "uploading" });
@@ -132,13 +136,27 @@ export function PlanFileUploadZone({
 
           updateEntry(entry.id, { status: "done", progress: 100 });
           completedUploads.push(entry.file);
-          setAnnouncement(`"${entry.file.name}" uploade.`);
+          setAnnouncement(`"${entry.file.name}" envoyé.`);
         } catch (err) {
-          const msg = isTakeoffApiError(err)
+          let cleanupFailed = false;
+          if (registeredFileId) {
+            try {
+              await deletePlanFile(setId, registeredFileId);
+            } catch {
+              cleanupFailed = true;
+            }
+          }
+
+          const baseMessage = isTakeoffApiError(err)
             ? err.message
-            : "Echec de l'upload.";
+            : err instanceof Error
+              ? err.message
+              : "Échec de l’envoi.";
+          const msg = cleanupFailed
+            ? `${baseMessage} Le fichier incomplet n’a pas pu être nettoyé : actualisez le jeu puis supprimez-le avant de réessayer.`
+            : baseMessage;
           updateEntry(entry.id, { status: "error", error: msg });
-          setAnnouncement(`Erreur upload "${entry.file.name}": ${msg}`);
+          setAnnouncement(`Erreur d’envoi pour "${entry.file.name}" : ${msg}`);
         }
       }
 
@@ -199,12 +217,28 @@ export function PlanFileUploadZone({
       const valid = newEntries.filter((e) => e.status === "pending");
       if (valid.length > 0) {
         setAnnouncement(
-          `${valid.length} ${valid.length === 1 ? "fichier ajoute" : "fichiers ajoutes"}.`
+          `${valid.length} ${valid.length === 1 ? "fichier ajouté" : "fichiers ajoutés"}.`
         );
         processQueue(valid);
       }
     },
     [processQueue]
+  );
+
+  const handleRetry = useCallback(
+    (entry: UploadFileEntry) => {
+      if (uploadingRef.current || !entry.normalizedMimeType) return;
+
+      const retryEntry: UploadFileEntry = {
+        ...entry,
+        status: "pending",
+        progress: 0,
+        error: null,
+      };
+      updateEntry(entry.id, retryEntry);
+      void processQueue([retryEntry]);
+    },
+    [processQueue, updateEntry],
   );
 
   const hasActiveUploads = entries.some(
@@ -222,8 +256,10 @@ export function PlanFileUploadZone({
         id={inputId}
         ref={inputRef}
         type="file"
+        name="plan-files"
         className="sr-only"
         accept={PLAN_PDF_ACCEPT}
+        autoComplete="off"
         multiple
         onChange={(e) => {
           if (e.target.files) {
@@ -243,7 +279,7 @@ export function PlanFileUploadZone({
         }`}
         role="button"
         tabIndex={hasActiveUploads ? -1 : 0}
-        aria-label="Zone de depot PDF. Glissez des fichiers ou appuyez pour selectionner."
+        aria-label="Zone de dépôt PDF. Glissez des fichiers ou appuyez pour sélectionner."
         aria-disabled={hasActiveUploads}
         onClick={() => !hasActiveUploads && inputRef.current?.click()}
         onKeyDown={(e) => {
@@ -279,7 +315,7 @@ export function PlanFileUploadZone({
       >
         <p className="text-sm font-medium text-[var(--slate-700)]">
           {dragActive
-            ? "Deposez les fichiers ici"
+            ? "Déposez les fichiers ici"
             : "Glissez des PDF ici ou cliquez pour parcourir"}
         </p>
         <p className="mt-1 text-xs text-[var(--slate-500)]">
@@ -301,7 +337,7 @@ export function PlanFileUploadZone({
 
               {entry.status === "registering" && (
                 <span className="shrink-0 text-xs text-[var(--slate-500)]">
-                  Enregistrement...
+                  Enregistrement…
                 </span>
               )}
 
@@ -316,7 +352,7 @@ export function PlanFileUploadZone({
                     aria-label={`Upload ${entry.file.name} ${entry.progress}%`}
                   >
                     <div
-                      className="h-full rounded-full bg-[var(--brand-blue)] transition-all duration-200"
+                      className="h-full rounded-full bg-[var(--brand-blue)] transition-[width] duration-200"
                       style={{ width: `${entry.progress}%` }}
                     />
                   </div>
@@ -340,14 +376,26 @@ export function PlanFileUploadZone({
               )}
 
               {entry.status === "error" && (
-                <span className="shrink-0 text-xs font-medium text-danger">
-                  {entry.error}
-                </span>
+                <div className="flex min-w-0 shrink items-center gap-2">
+                  <span className="min-w-0 break-words text-xs font-medium text-danger">
+                    {entry.error}
+                  </span>
+                  {entry.normalizedMimeType ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs font-semibold underline"
+                      onClick={() => handleRetry(entry)}
+                      disabled={hasActiveUploads}
+                    >
+                      Réessayer
+                    </button>
+                  ) : null}
+                </div>
               )}
 
               {entry.status === "pending" && (
                 <span className="shrink-0 text-xs text-[var(--slate-400)]">
-                  En attente...
+                  En attente…
                 </span>
               )}
             </div>

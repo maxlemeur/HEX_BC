@@ -51,6 +51,7 @@ describe("EvidencePanel", () => {
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     onUpdateEvidence: vi.fn(),
+    onUpdateSourcePage: vi.fn(),
     onMarkVerified: vi.fn(),
   };
 
@@ -68,7 +69,7 @@ describe("EvidencePanel", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(dialog.getAttribute("aria-label")).toBe(
-      "Evidence item: Tube PVC 100mm"
+      "Preuve de l’item : Tube PVC 100mm"
     );
   });
 
@@ -109,31 +110,31 @@ describe("EvidencePanel", () => {
       <EvidencePanel item={makeItem({ confidence: 0.92 })} {...defaultProps} />
     );
     expect(screen.getByText("92%")).toBeDefined();
-    expect(screen.getByText("Fiable")).toBeDefined();
+    expect(screen.getByText("Élevée")).toBeDefined();
   });
 
-  it("displays 'À vérifier' for medium confidence", () => {
+  it("displays 'Moyenne' for medium confidence", () => {
     render(
       <EvidencePanel item={makeItem({ confidence: 0.65 })} {...defaultProps} />
     );
     expect(screen.getByText("65%")).toBeDefined();
-    expect(screen.getByText("À vérifier")).toBeDefined();
+    expect(screen.getByText("Moyenne")).toBeDefined();
   });
 
-  it("displays 'Problematique' for low confidence", () => {
+  it("displays 'Faible' for low confidence", () => {
     render(
       <EvidencePanel item={makeItem({ confidence: 0.3 })} {...defaultProps} />
     );
     expect(screen.getByText("30%")).toBeDefined();
-    expect(screen.getByText("Problematique")).toBeDefined();
+    expect(screen.getByText("Faible")).toBeDefined();
   });
 
-  it("displays 'Non evaluee' for null confidence", () => {
+  it("displays 'Non évaluée' for null confidence", () => {
     render(
       <EvidencePanel item={makeItem({ confidence: null })} {...defaultProps} />
     );
     expect(screen.getByText("-")).toBeDefined();
-    expect(screen.getByText("Non evaluee")).toBeDefined();
+    expect(screen.getByText("Non évaluée")).toBeDefined();
   });
 
   it("displays source file and page", () => {
@@ -156,7 +157,7 @@ describe("EvidencePanel", () => {
       />
     );
 
-    const link = screen.getByRole("link", { name: /ouvrir document signe/i });
+    const link = screen.getByRole("link", { name: /ouvrir le document source/i });
     expect(link.getAttribute("href")).toBe(
       "https://files.example.com/plan.pdf?token=abc#page=3"
     );
@@ -178,7 +179,7 @@ describe("EvidencePanel", () => {
     );
 
     expect(
-      screen.getByRole("link", { name: /ouvrir document signe/i })
+      screen.getByRole("link", { name: /ouvrir le document source/i })
     ).toBeDefined();
   });
 
@@ -196,7 +197,7 @@ describe("EvidencePanel", () => {
     );
 
     expect(
-      screen.queryByRole("link", { name: /ouvrir document signe/i })
+      screen.queryByRole("link", { name: /ouvrir le document source/i })
     ).toBeNull();
   });
 
@@ -207,12 +208,12 @@ describe("EvidencePanel", () => {
     ).toBeDefined();
   });
 
-  it("shows 'Aucune evidence' when evidence is null", () => {
+  it("shows 'Aucune preuve' when evidence is null", () => {
     render(
       <EvidencePanel item={makeItem({ evidence: null })} {...defaultProps} />
     );
     expect(
-      screen.getByText("Aucune evidence disponible.")
+      screen.getByText("Aucune preuve disponible.")
     ).toBeDefined();
   });
 
@@ -223,15 +224,15 @@ describe("EvidencePanel", () => {
         {...defaultProps}
       />
     );
-    expect(screen.getByText("Anomalies detectees")).toBeDefined();
+    expect(screen.getByText("Anomalies détectées")).toBeDefined();
   });
 
   it("does not show anomalies box for healthy item", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
-    expect(screen.queryByText("Anomalies detectees")).toBeNull();
+    expect(screen.queryByText("Anomalies détectées")).toBeNull();
   });
 
-  it("shows 'Marquer verifie' button when not verified", () => {
+  it("shows the validation action when not verified", () => {
     render(
       <EvidencePanel
         item={makeItem({ is_verified: false })}
@@ -239,20 +240,20 @@ describe("EvidencePanel", () => {
       />
     );
     expect(
-      screen.getByRole("button", { name: /marquer verifie/i })
+      screen.getByRole("button", { name: /valider cet item/i })
     ).toBeDefined();
   });
 
-  it("shows 'Verifie' badge when verified", () => {
+  it("shows 'Validé' badge when verified", () => {
     render(
       <EvidencePanel
         item={makeItem({ is_verified: true })}
         {...defaultProps}
       />
     );
-    expect(screen.getByText("Verifie")).toBeDefined();
+    expect(screen.getByText("Validé")).toBeDefined();
     expect(
-      screen.queryByRole("button", { name: /marquer verifie/i })
+      screen.queryByRole("button", { name: /valider cet item/i })
     ).toBeNull();
   });
 
@@ -264,14 +265,14 @@ describe("EvidencePanel", () => {
       />
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /marquer verifie/i })
+      screen.getByRole("button", { name: /valider cet item/i })
     );
     expect(defaultProps.onMarkVerified).toHaveBeenCalledWith(ITEM_ID);
   });
 
   it("calls onClose when close button clicked", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
-    fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
+    fireEvent.click(screen.getByRole("button", { name: /Fermer/ }));
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
@@ -287,10 +288,10 @@ describe("EvidencePanel", () => {
   it("calls onNavigate prev/next via nav buttons", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Item precedent" }));
+    fireEvent.click(screen.getByRole("button", { name: /Item précédent/ }));
     expect(defaultProps.onNavigate).toHaveBeenCalledWith("prev");
 
-    fireEvent.click(screen.getByRole("button", { name: "Item suivant" }));
+    fireEvent.click(screen.getByRole("button", { name: /Item suivant/ }));
     expect(defaultProps.onNavigate).toHaveBeenCalledWith("next");
   });
 
@@ -303,7 +304,7 @@ describe("EvidencePanel", () => {
         totalItems={5}
       />
     );
-    const prevBtn = screen.getByRole("button", { name: "Item precedent" });
+    const prevBtn = screen.getByRole("button", { name: /Item précédent/ });
     expect(prevBtn.getAttribute("disabled")).not.toBeNull();
   });
 
@@ -316,7 +317,7 @@ describe("EvidencePanel", () => {
         totalItems={5}
       />
     );
-    const nextBtn = screen.getByRole("button", { name: "Item suivant" });
+    const nextBtn = screen.getByRole("button", { name: /Item suivant/ });
     expect(nextBtn.getAttribute("disabled")).not.toBeNull();
   });
 
@@ -344,9 +345,7 @@ describe("EvidencePanel", () => {
     fireEvent.click(screen.getByText("Modifier"));
 
     // Textarea should appear
-    expect(
-      screen.getByPlaceholderText("Saisir l'evidence extraite...")
-    ).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "Preuve" })).toBeDefined();
     // Save/Cancel buttons
     expect(
       screen.getByRole("button", { name: /sauvegarder/i })
@@ -356,13 +355,46 @@ describe("EvidencePanel", () => {
     ).toBeDefined();
   });
 
+  it("does not steal focus when the reviewer starts entering the source page", () => {
+    let scheduledFocus: FrameRequestCallback | null = null;
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        scheduledFocus = callback;
+        return 1;
+      });
+
+    try {
+      render(
+        <EvidencePanel
+          item={makeItem({ source_page: null })}
+          {...defaultProps}
+          requiresLocalizedProof
+        />
+      );
+
+      const editButton = screen.getByRole("button", {
+        name: /modifier la preuve et la page/i,
+      });
+      editButton.focus();
+      fireEvent.click(editButton);
+
+      const pageInput = screen.getByRole("spinbutton", { name: /page source/i });
+      pageInput.focus();
+      expect(scheduledFocus).not.toBeNull();
+      (scheduledFocus as FrameRequestCallback | null)?.(0);
+
+      expect(pageInput).toHaveFocus();
+    } finally {
+      requestAnimationFrameSpy.mockRestore();
+    }
+  });
+
   it("saves evidence on 'Sauvegarder' click", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
 
     fireEvent.click(screen.getByText("Modifier"));
-    const textarea = screen.getByPlaceholderText(
-      "Saisir l'evidence extraite..."
-    );
+    const textarea = screen.getByRole("textbox", { name: "Preuve" });
     fireEvent.change(textarea, { target: { value: "Nouvelle evidence" } });
     fireEvent.click(
       screen.getByRole("button", { name: /sauvegarder/i })
@@ -378,9 +410,7 @@ describe("EvidencePanel", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
 
     fireEvent.click(screen.getByText("Modifier"));
-    const textarea = screen.getByPlaceholderText(
-      "Saisir l'evidence extraite..."
-    );
+    const textarea = screen.getByRole("textbox", { name: "Preuve" });
     fireEvent.change(textarea, { target: { value: "   " } });
     fireEvent.click(
       screen.getByRole("button", { name: /sauvegarder/i })
@@ -393,9 +423,7 @@ describe("EvidencePanel", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
 
     fireEvent.click(screen.getByText("Modifier"));
-    const textarea = screen.getByPlaceholderText(
-      "Saisir l'evidence extraite..."
-    );
+    const textarea = screen.getByRole("textbox", { name: "Preuve" });
     fireEvent.change(textarea, { target: { value: "Changed" } });
     fireEvent.click(
       screen.getByRole("button", { name: /annuler/i })
@@ -426,5 +454,108 @@ describe("EvidencePanel", () => {
     fireEvent.click(screen.getByText("Modifier"));
     // The existing evidence length is shown
     expect(screen.getByText(/\/2000/)).toBeDefined();
+  });
+
+  it("blocks Level C validation when the textual proof is missing", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({ evidence: null })}
+        {...defaultProps}
+        requiresLocalizedProof
+      />
+    );
+
+    expect(screen.getByText(/Validation impossible/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /valider cet item/i })).toBeDisabled();
+  });
+
+  it("blocks Level C validation when the source page is missing", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({ source_page: null })}
+        {...defaultProps}
+        requiresLocalizedProof
+      />
+    );
+
+    expect(screen.getByText(/La page source est absente/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /valider cet item/i })).toBeDisabled();
+  });
+
+  it("lets the reviewer add the missing Level C source page", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({ source_page: null })}
+        {...defaultProps}
+        requiresLocalizedProof
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /modifier la preuve et la page/i })
+    );
+    fireEvent.change(screen.getByRole("spinbutton", { name: /page source/i }), {
+      target: { value: "7" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /sauvegarder/i }));
+
+    expect(defaultProps.onUpdateSourcePage).toHaveBeenCalledWith(ITEM_ID, 7);
+  });
+
+  it("keeps the Level C proof editor open when the source page is invalid", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({ source_page: null })}
+        {...defaultProps}
+        requiresLocalizedProof
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /modifier la preuve et la page/i })
+    );
+    fireEvent.change(screen.getByRole("spinbutton", { name: /page source/i }), {
+      target: { value: "0" },
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/supérieur à 0/i);
+    expect(screen.getByRole("button", { name: /sauvegarder/i })).toBeDisabled();
+    expect(defaultProps.onUpdateSourcePage).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Preuve" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: /page source/i }), {
+      target: { value: "7" },
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: /sauvegarder/i })).not.toBeDisabled();
+  });
+
+  it("allows Level C validation only when proof and source page are present", () => {
+    render(
+      <EvidencePanel
+        item={makeItem()}
+        {...defaultProps}
+        requiresLocalizedProof
+      />
+    );
+
+    const button = screen.getByRole("button", { name: /valider cet item/i });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(defaultProps.onMarkVerified).toHaveBeenCalledWith(ITEM_ID);
+  });
+
+  it("does not present a stored Level C verification as valid when proof is gone", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({ evidence: null, is_verified: true })}
+        {...defaultProps}
+        requiresLocalizedProof
+      />
+    );
+
+    expect(screen.getByText("Validation incomplète")).toBeInTheDocument();
+    expect(screen.getByText(/Validation à reprendre/)).toBeInTheDocument();
   });
 });

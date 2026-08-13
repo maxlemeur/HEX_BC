@@ -203,6 +203,7 @@
     "20260812000456_transactional_procurement_reset_cleanup.sql": "548934547b868dd346df6b8b93b2e3b63970059b9f4975aef8b6b3d642f19883",
     "20260812011616_estimate_pdf_publication_fencing.sql": "c24c94e9d962f05afb6e5fa77f9f96554d9c2dda4d96fa2ff860ed1770cbbc5e",
     "20260812012308_add_affaires_sending_counter.sql": "643bf925a6d9a35f26995550fadef57e6db65dd8df5f5f79a92d6c2e9851fd19",
-    "20260812032857_govern_estimate_calc_engine_v2.sql": "0b916a6e996581927adb5b1b58ae4aaa69de660db64a284dc74e1ba2640a7c8d"
+    "20260812032857_govern_estimate_calc_engine_v2.sql": "0b916a6e996581927adb5b1b58ae4aaa69de660db64a284dc74e1ba2640a7c8d",
+    "20260813030000_require_localized_takeoff_proofs.sql": "67402ceeed536bb07c1d362a74fb044a140ee1d1ce149e5c3868e9e69e5297d3"
   }
 }

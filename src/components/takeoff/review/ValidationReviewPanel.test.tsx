@@ -180,4 +180,107 @@ describe("ValidationReviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reintegrer" }));
     expect(includeItem).toHaveBeenCalledWith("excluded-1");
   });
+
+  it("forces Level C verification through the localized proof review", () => {
+    const openEvidencePanel = vi.fn();
+    const verifyItem = vi.fn();
+
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({
+            id: "level-c-missing-page",
+            confidence: 0.42,
+            source_page: null,
+            is_verified: false,
+          }),
+        ]}
+        requiresLocalizedProof
+        onOpenEvidencePanel={openEvidencePanel}
+        onVerifyItem={verifyItem}
+      />
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Valider cet item" })
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Localiser la source" }));
+    expect(openEvidencePanel).toHaveBeenCalledWith("level-c-missing-page");
+    expect(verifyItem).not.toHaveBeenCalled();
+    expect(screen.getByText("Preuves localisées")).toBeInTheDocument();
+    expect(screen.getByText("0 %")).toBeInTheDocument();
+    expect(screen.getByText("Source ou page manquante")).toBeInTheDocument();
+  });
+
+  it("asks for proof control before validating a proof-ready Level C item", () => {
+    const openEvidencePanel = vi.fn();
+
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({
+            id: "level-c-ready",
+            confidence: 0.42,
+            is_verified: false,
+          }),
+        ]}
+        requiresLocalizedProof
+        onOpenEvidencePanel={openEvidencePanel}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Contrôler et valider" }));
+    expect(openEvidencePanel).toHaveBeenCalledWith("level-c-ready");
+  });
+
+  it("closes a low-confidence exception once its localized proof is verified", () => {
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({
+            id: "level-c-verified-low",
+            confidence: 0.35,
+            is_verified: true,
+          }),
+        ]}
+        requiresLocalizedProof
+        canOpenApplyWizard
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "Tous les items sont conformes. La revue peut passer a l'etape suivante."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Faible à vérifier")).toBeInTheDocument();
+    expect(screen.queryByText("Confiance faible", { selector: "span" })).toBeNull();
+  });
+
+  it("labels optional human control as recommended when apply is already safe", () => {
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({
+            id: "level-c-optional-control",
+            confidence: 0.92,
+            is_verified: false,
+          }),
+        ]}
+        requiresLocalizedProof
+        canOpenApplyWizard
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "Le métré peut être appliqué. Des contrôles humains restent recommandés mais ne bloquent pas cette étape."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "1 contrôle humain reste recommandé. L'application n'est pas bloquée."
+      )
+    ).toBeInTheDocument();
+  });
 });

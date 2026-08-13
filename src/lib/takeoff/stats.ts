@@ -7,6 +7,7 @@ import {
   type TakeoffCorrectionMetricsEventCount,
   type TakeoffCorrectionMetricsEventType,
   type TakeoffCorrectionMetricsKpis,
+  type TakeoffAppliedScoreCalibration,
   type TakeoffLevel,
   type TakeoffMetricsCostByLevel,
   type TakeoffMetricsErrorEntry,
@@ -17,14 +18,16 @@ import {
   type TakeoffMetricsTokenBreakdown,
   type TakeoffMetricsTrendPoint,
 } from "@/lib/takeoff/types";
-import type {
-  TakeoffMetricsPilotStatsPayload,
-  TakeoffPilotGoNoGo,
-  TakeoffPilotGoNoGoCriterion,
-  TakeoffPilotGoNoGoCriterionKey,
-  TakeoffPilotGoNoGoStatus,
-  TakeoffPilotMetrics,
-  TakeoffPilotWeeklySnapshot,
+import {
+  TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE,
+  TAKEOFF_HIGH_SCORE_THRESHOLD,
+  type TakeoffMetricsPilotStatsPayload,
+  type TakeoffPilotGoNoGo,
+  type TakeoffPilotGoNoGoCriterion,
+  type TakeoffPilotGoNoGoCriterionKey,
+  type TakeoffPilotGoNoGoStatus,
+  type TakeoffPilotMetrics,
+  type TakeoffPilotWeeklySnapshot,
 } from "@/lib/takeoff/pilot-metrics";
 
 const PERIOD_TO_DAYS: Record<TakeoffMetricsPeriod, number> = {
@@ -34,12 +37,13 @@ const PERIOD_TO_DAYS: Record<TakeoffMetricsPeriod, number> = {
 };
 
 const PILOT_SATISFACTION_DEFINITION =
-  "Proxy calcule sur les jobs exploitables valides rapidement ou sans retouche explicite.";
+  "Proxy calculé sur les dossiers exploitables validés rapidement ou sans retouche explicite.";
 
 const PILOT_GO_NO_GO_MAX_AVG_COST_CENTS = 1_000;
 const PILOT_GO_NO_GO_MAX_AVG_DURATION_MS = 600_000;
 const PILOT_GO_NO_GO_MAX_CORRECTION_RATE = 40;
 const PILOT_GO_NO_GO_MIN_SATISFACTION_RATE = 60;
+const TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE = 20;
 
 function getTrendWindowStart(
   period: TakeoffMetricsPeriod,
@@ -114,12 +118,12 @@ function getPilotMinVolumeJobs(period: TakeoffMetricsPeriod): number {
 
 const CORRECTION_EVENT_LABELS: Record<TakeoffCorrectionMetricsEventType, string> = {
   item_excluded: "Items exclus",
-  designation_changed: "Designations corrigees",
-  quantity_changed: "Quantites corrigees",
-  unit_changed: "Unites corrigees",
-  manual_verification: "Verifications manuelles",
-  dpgf_keep_dpgf: "DPGF conserve",
-  dpgf_keep_takeoff: "Takeoff valide",
+  designation_changed: "Désignations corrigées",
+  quantity_changed: "Quantités corrigées",
+  unit_changed: "Unités corrigées",
+  manual_verification: "Vérifications manuelles",
+  dpgf_keep_dpgf: "DPGF conservé",
+  dpgf_keep_takeoff: "Métré validé",
   dpgf_manual_fix: "Corrections DPGF manuelles",
   dpgf_out_of_scope: "Lignes hors scope",
 };
@@ -238,6 +242,24 @@ function mapReviewDecisionToCorrectionEventType(
   }
 }
 
+function readAuditItemId(auditLog: TakeoffMetricsAuditLogRow): string | null {
+  const metadata = readNestedRecord(auditLog.after_data, "metadata");
+  return readNestedString(metadata, "item_id");
+}
+
+function isMaterialItemCorrection(auditLog: TakeoffMetricsAuditLogRow) {
+  if (auditLog.action === "takeoff.item.excluded") return true;
+  if (auditLog.action !== "takeoff.item.modified") return false;
+  const metadata = readNestedRecord(auditLog.after_data, "metadata");
+  const field = readNestedString(metadata, "field");
+  return (
+    field === "designation" ||
+    field === "quantity" ||
+    field === "unit" ||
+    field === "is_excluded"
+  );
+}
+
 export type TakeoffMetricsJobRow = {
   id: string;
   status: string;
@@ -265,7 +287,12 @@ export type TakeoffMetricsResultRow = {
 };
 
 export type TakeoffMetricsItemRow = {
+  id?: string;
   job_id: string;
+  confidence?: number | null;
+  evidence?: string | null;
+  source_page?: number | null;
+  is_excluded?: boolean;
 };
 
 export type TakeoffMetricsAuditLogRow = {
@@ -567,8 +594,12 @@ export function buildTakeoffMetricsStatsPayload(
       .filter((job) => job.status === "completed" || job.status === "applied")
       .map((job) => job.id)
   );
+  const appliedJobIds = new Set(
+    jobs.filter((job) => job.status === "applied").map((job) => job.id)
+  );
   const eventCountsMap = new Map<TakeoffCorrectionMetricsEventType, number>();
   const jobEventTypes = new Map<string, Set<TakeoffCorrectionMetricsEventType>>();
+  const materiallyCorrectedItemIds = new Set<string>();
 
   const registerCorrectionEvent = (
     jobId: string,
@@ -581,6 +612,14 @@ export function buildTakeoffMetricsStatsPayload(
   };
 
   for (const auditLog of auditLogs) {
+    const itemId = readAuditItemId(auditLog);
+    if (
+      appliedJobIds.has(auditLog.record_id) &&
+      itemId &&
+      isMaterialItemCorrection(auditLog)
+    ) {
+      materiallyCorrectedItemIds.add(itemId);
+    }
     const eventType = mapAuditLogToCorrectionEventType(auditLog);
     if (!eventType) {
       continue;
@@ -683,6 +722,65 @@ export function buildTakeoffMetricsStatsPayload(
     byLevel: correctionsByLevel,
   };
 
+  const successfulItems = items.filter((item) =>
+    successfulJobIds.has(item.job_id)
+  );
+  const appliedItems = items.filter((item) => appliedJobIds.has(item.job_id));
+  const appliedScoredItems = appliedItems.filter(
+    (item) => typeof item.confidence === "number"
+  );
+  const appliedHighScoreItems = appliedScoredItems.filter(
+    (item) =>
+      (item.confidence ?? 0) >= TAKEOFF_HIGH_SCORE_THRESHOLD
+  );
+  const appliedHighScoreMateriallyCorrectedItems =
+    appliedHighScoreItems.filter(
+      (item) => item.id && materiallyCorrectedItemIds.has(item.id)
+    );
+  const levelCIncludedItems = successfulItems.filter(
+    (item) => jobById.get(item.job_id)?.level === "C" && !item.is_excluded
+  );
+  const levelCLocalizedProofItems = levelCIncludedItems.filter(
+    (item) =>
+      Boolean(item.evidence?.trim()) &&
+      typeof item.source_page === "number" &&
+      item.source_page >= 1
+  );
+  const calibration: TakeoffAppliedScoreCalibration = {
+    status:
+      appliedHighScoreItems.length === 0
+        ? "no_data"
+        : appliedHighScoreItems.length < TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE
+          ? "insufficient"
+          : "sufficient",
+    minimumSampleSize: TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE,
+    appliedScoredItems: appliedScoredItems.length,
+    appliedHighScoreItems: appliedHighScoreItems.length,
+    appliedHighScoreMateriallyCorrectedItems:
+      appliedHighScoreMateriallyCorrectedItems.length,
+    appliedHighScoreMaterialCorrectionRate:
+      appliedHighScoreItems.length > 0
+        ? Number(
+            (
+              (appliedHighScoreMateriallyCorrectedItems.length /
+                appliedHighScoreItems.length) *
+              100
+            ).toFixed(1)
+          )
+        : 0,
+    levelCIncludedItems: levelCIncludedItems.length,
+    levelCLocalizedProofItems: levelCLocalizedProofItems.length,
+    levelCLocalizedProofCoverage:
+      levelCIncludedItems.length > 0
+        ? Number(
+            (
+              (levelCLocalizedProofItems.length / levelCIncludedItems.length) *
+              100
+            ).toFixed(1)
+          )
+        : 0,
+  };
+
   const weeklyPilotBuckets = buildWeeklyPilotBuckets(period, days, now);
   const weeklyPilotBucketMap = new Map(
     weeklyPilotBuckets.map((bucket) => [bucket.key, bucket] as const)
@@ -775,15 +873,15 @@ export function buildTakeoffMetricsStatsPayload(
   const goNoGoCriteria: TakeoffPilotGoNoGoCriterion[] = [
     buildGoNoGoCriterion({
       key: "volume",
-      label: "Volume observe",
-      targetLabel: `>= ${formatPilotCount(pilotMinVolumeJobs)} dossiers`,
+      label: "Volume observé",
+      targetLabel: `≥ ${formatPilotCount(pilotMinVolumeJobs)} dossiers`,
       actualLabel: `${formatPilotCount(totalJobs)} dossiers`,
       passed: totalJobs >= pilotMinVolumeJobs,
     }),
     buildGoNoGoCriterion({
       key: "avg_cost",
-      label: "Cout moyen",
-      targetLabel: `<= ${formatPilotCost(PILOT_GO_NO_GO_MAX_AVG_COST_CENTS)}`,
+      label: "Coût moyen",
+      targetLabel: `≤ ${formatPilotCost(PILOT_GO_NO_GO_MAX_AVG_COST_CENTS)}`,
       actualLabel: hasMeasuredPilotCost ? formatPilotCost(avgMeasuredCostCentsPerJob) : "-",
       passed:
         hasMeasuredPilotCost &&
@@ -793,7 +891,7 @@ export function buildTakeoffMetricsStatsPayload(
     buildGoNoGoCriterion({
       key: "avg_duration",
       label: "Temps moyen",
-      targetLabel: `<= ${formatPilotDuration(PILOT_GO_NO_GO_MAX_AVG_DURATION_MS)}`,
+      targetLabel: `≤ ${formatPilotDuration(PILOT_GO_NO_GO_MAX_AVG_DURATION_MS)}`,
       actualLabel: hasMeasuredPilotDuration ? formatPilotDuration(avgDurationMs) : "-",
       passed:
         hasMeasuredPilotDuration && avgDurationMs <= PILOT_GO_NO_GO_MAX_AVG_DURATION_MS,
@@ -802,7 +900,7 @@ export function buildTakeoffMetricsStatsPayload(
     buildGoNoGoCriterion({
       key: "correction_rate",
       label: "Taux de correction",
-      targetLabel: `<= ${formatPilotPercent(PILOT_GO_NO_GO_MAX_CORRECTION_RATE)}`,
+      targetLabel: `≤ ${formatPilotPercent(PILOT_GO_NO_GO_MAX_CORRECTION_RATE)}`,
       actualLabel: hasSuccessfulJobs ? formatPilotPercent(correctionKpis.correctionRate) : "-",
       passed:
         hasSuccessfulJobs &&
@@ -810,9 +908,35 @@ export function buildTakeoffMetricsStatsPayload(
       status: hasSuccessfulJobs ? undefined : "inconclusive",
     }),
     buildGoNoGoCriterion({
+      key: "applied_high_score_correction_rate",
+      label: "Corrections malgré un score élevé",
+      targetLabel: `≤ ${formatPilotPercent(TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE)} sur ≥ ${formatPilotCount(TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE)} lignes appliquées`,
+      actualLabel:
+        calibration.status === "sufficient"
+          ? `${formatPilotPercent(calibration.appliedHighScoreMaterialCorrectionRate)} (${formatPilotCount(calibration.appliedHighScoreMateriallyCorrectedItems)}/${formatPilotCount(calibration.appliedHighScoreItems)})`
+          : `${formatPilotCount(calibration.appliedHighScoreItems)}/${formatPilotCount(TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE)} lignes appliquées`,
+      passed:
+        calibration.status === "sufficient" &&
+        calibration.appliedHighScoreMaterialCorrectionRate <=
+          TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE,
+      status:
+        calibration.status === "sufficient" ? undefined : "inconclusive",
+    }),
+    ...(calibration.levelCIncludedItems > 0
+      ? [
+          buildGoNoGoCriterion({
+            key: "level_c_proof_coverage",
+            label: "Preuves localisées niveau C",
+            targetLabel: "100 %",
+            actualLabel: `${formatPilotPercent(calibration.levelCLocalizedProofCoverage)} (${formatPilotCount(calibration.levelCLocalizedProofItems)}/${formatPilotCount(calibration.levelCIncludedItems)})`,
+            passed: calibration.levelCLocalizedProofCoverage === 100,
+          }),
+        ]
+      : []),
+    buildGoNoGoCriterion({
       key: "satisfaction",
       label: "Satisfaction",
-      targetLabel: `>= ${formatPilotPercent(PILOT_GO_NO_GO_MIN_SATISFACTION_RATE)}`,
+      targetLabel: `≥ ${formatPilotPercent(PILOT_GO_NO_GO_MIN_SATISFACTION_RATE)}`,
       actualLabel: hasSuccessfulJobs ? formatPilotPercent(satisfactionRate) : "-",
       passed:
         hasSuccessfulJobs && satisfactionRate >= PILOT_GO_NO_GO_MIN_SATISFACTION_RATE,
@@ -829,26 +953,26 @@ export function buildTakeoffMetricsStatsPayload(
   let goNoGoStatus: TakeoffPilotGoNoGoStatus = "go";
   let goNoGoLabel = "GO";
   let goNoGoSummary =
-    "Les indicateurs restent compatibles avec une poursuite du pilote sur ce tenant.";
+    "Les indicateurs restent compatibles avec une poursuite du pilote pour ce client.";
 
   if (totalJobs === 0) {
     goNoGoStatus = "inconclusive";
     goNoGoLabel = "Inconclusif";
     goNoGoSummary =
-      "Aucun dossier mesure sur la periode. Le pilote n'est pas encore concluant.";
+      "Aucun dossier mesuré sur la période. Le pilote n’est pas encore concluant.";
   } else if (!hasSuccessfulJobs) {
     goNoGoStatus = "inconclusive";
     goNoGoLabel = "Inconclusif";
     goNoGoSummary =
-      "Aucun dossier exploitable n'a encore abouti. Le pilote reste trop immature pour conclure.";
+      "Aucun dossier exploitable n’a encore abouti. Le pilote reste trop immature pour conclure.";
   } else if (hasInconclusiveCriteria) {
     goNoGoStatus = "inconclusive";
     goNoGoLabel = "Inconclusif";
     goNoGoSummary =
-      "Certaines mesures pilote manquent encore. Completez les dossiers mesures avant decision.";
+      "Certaines mesures pilote manquent encore. Complétez les dossiers mesurés avant de décider.";
   } else if (totalJobs < pilotMinVolumeJobs) {
     goNoGoStatus = "watch";
-    goNoGoLabel = "A surveiller";
+    goNoGoLabel = "À surveiller";
     goNoGoSummary =
       "Le volume terrain reste insuffisant pour conclure un go/no-go robuste.";
   } else if (failedCriteriaCount === 0) {
@@ -856,14 +980,14 @@ export function buildTakeoffMetricsStatsPayload(
     goNoGoLabel = "GO";
   } else if (failedCriteriaCount === 1) {
     goNoGoStatus = "watch";
-    goNoGoLabel = "A surveiller";
+    goNoGoLabel = "À surveiller";
     goNoGoSummary =
-      "Un critere pilote reste fragile. Continuez le tenant pilote avant decision finale.";
+      "Un critère pilote reste fragile. Poursuivez le pilote client avant la décision finale.";
   } else {
     goNoGoStatus = "no_go";
     goNoGoLabel = "NO-GO";
     goNoGoSummary =
-      "Plusieurs criteres pilote sont hors cible. La generalisation doit rester bloquee.";
+      "Plusieurs critères pilote sont hors cible. La généralisation doit rester bloquée.";
   }
 
   const goNoGo: TakeoffPilotGoNoGo = {
@@ -877,7 +1001,7 @@ export function buildTakeoffMetricsStatsPayload(
     tenantId: input.tenantId,
     killSwitchFlagKey: "TAKEOFF_MODULE_ENABLED",
     killSwitchEnabled: input.killSwitchEnabled,
-    killSwitchLabel: input.killSwitchEnabled ? "Pilote actif" : "Pilote coupe",
+    killSwitchLabel: input.killSwitchEnabled ? "Pilote actif" : "Pilote coupé",
     satisfactionLabel: formatPilotPercent(satisfactionRate),
     satisfactionDefinition: PILOT_SATISFACTION_DEFINITION,
     weeklySnapshots,
@@ -1072,6 +1196,7 @@ export function buildTakeoffMetricsStatsPayload(
     period,
     kpis,
     corrections,
+    calibration,
     pilot,
     trend: trendBuckets,
     costByLevel,

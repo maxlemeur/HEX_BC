@@ -110,15 +110,29 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         { job_id: "job-outside-scope", confidence: 0.1 },
       ],
       items: [
-        { job_id: "job-a-1" },
-        { job_id: "job-a-1" },
-        { job_id: "job-c-1" },
-        { job_id: "job-c-1" },
-        { job_id: "job-c-1" },
-        { job_id: "job-c-1" },
-        { job_id: "job-c-2" },
-        { job_id: "job-c-2" },
-        { job_id: "job-outside-scope" },
+        { id: "item-a-high", job_id: "job-a-1", confidence: 0.9 },
+        { id: "item-a-low", job_id: "job-a-1", confidence: 0.4 },
+        { id: "item-c-failed-1", job_id: "job-c-1", confidence: 0.9 },
+        { id: "item-c-failed-2", job_id: "job-c-1", confidence: 0.9 },
+        { id: "item-c-failed-3", job_id: "job-c-1", confidence: 0.9 },
+        { id: "item-c-failed-4", job_id: "job-c-1", confidence: 0.9 },
+        {
+          id: "item-c-high",
+          job_id: "job-c-2",
+          confidence: 0.92,
+          evidence: "Repère C-12",
+          source_page: 2,
+          is_excluded: false,
+        },
+        {
+          id: "item-c-low",
+          job_id: "job-c-2",
+          confidence: 0.3,
+          evidence: null,
+          source_page: null,
+          is_excluded: false,
+        },
+        { id: "item-outside", job_id: "job-outside-scope", confidence: 0.99 },
       ],
       auditLogs: [
         {
@@ -127,6 +141,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
           created_at: "2026-02-28T11:00:00.000Z",
           after_data: {
             metadata: {
+              item_id: "item-a-high",
               field: "quantity",
               next_value: 14,
             },
@@ -138,6 +153,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
           created_at: "2026-02-26T11:00:00.000Z",
           after_data: {
             metadata: {
+              item_id: "item-c-high",
               field: "is_verified",
               next_value: true,
             },
@@ -159,6 +175,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
           created_at: "2026-02-26T11:00:00.000Z",
           after_data: {
             metadata: {
+              item_id: "item-outside",
               field: "designation",
               next_value: "ignore",
             },
@@ -240,17 +257,17 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       eventCounts: [
         {
           type: "quantity_changed",
-          label: "Quantites corrigees",
+          label: "Quantités corrigées",
           count: 1,
         },
         {
           type: "manual_verification",
-          label: "Verifications manuelles",
+          label: "Vérifications manuelles",
           count: 1,
         },
         {
           type: "dpgf_keep_takeoff",
-          label: "Takeoff valide",
+          label: "Métré validé",
           count: 1,
         },
       ],
@@ -273,6 +290,17 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         },
       ],
     });
+    expect(payload.calibration).toEqual({
+      status: "insufficient",
+      minimumSampleSize: 20,
+      appliedScoredItems: 2,
+      appliedHighScoreItems: 1,
+      appliedHighScoreMateriallyCorrectedItems: 0,
+      appliedHighScoreMaterialCorrectionRate: 0,
+      levelCIncludedItems: 2,
+      levelCLocalizedProofItems: 1,
+      levelCLocalizedProofCoverage: 50,
+    });
     expect(payload.trend).toHaveLength(7);
     expect(payload.pilot).toMatchObject({
       tenantId: "tenant-pilot",
@@ -280,9 +308,23 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       killSwitchLabel: "Pilote actif",
       satisfactionLabel: "50 %",
       goNoGo: {
-        status: "no_go",
+        status: "inconclusive",
       },
     });
+    expect(payload.pilot.goNoGo.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "applied_high_score_correction_rate",
+          status: "inconclusive",
+          passed: false,
+        }),
+        expect.objectContaining({
+          key: "level_c_proof_coverage",
+          status: "fail",
+          passed: false,
+        }),
+      ])
+    );
     expect(payload.pilot.weeklySnapshots[0]).toMatchObject({
       totalJobs: 3,
       correctionRate: 50,
@@ -472,7 +514,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
     expect(payload.corrections.eventCounts).toEqual([
       {
         type: "dpgf_keep_takeoff",
-        label: "Takeoff valide",
+        label: "Métré validé",
         count: 1,
       },
       {
@@ -491,7 +533,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         quickValidationRate: 0,
       },
     ]);
-    expect(payload.pilot.killSwitchLabel).toBe("Pilote coupe");
+    expect(payload.pilot.killSwitchLabel).toBe("Pilote coupé");
   });
 
   it("returns a GO decision when pilot thresholds are met with enough volume", () => {
@@ -502,7 +544,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       now: new Date("2026-03-10T12:00:00.000Z"),
       jobs: Array.from({ length: 8 }, (_, index) => ({
         id: `job-go-${index}`,
-        status: "completed",
+        status: "applied",
         level: "B",
         model: "gemini-3-flash-preview",
         duration_ms: 120_000,
@@ -513,7 +555,11 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       })),
       runMetrics: [],
       results: [],
-      items: [],
+      items: Array.from({ length: 20 }, (_, index) => ({
+        id: `item-go-${index}`,
+        job_id: `job-go-${index % 8}`,
+        confidence: 0.9,
+      })),
       auditLogs: [],
     });
 
@@ -521,6 +567,63 @@ describe("buildTakeoffMetricsStatsPayload", () => {
     expect(payload.pilot.goNoGo.label).toBe("GO");
     expect(payload.pilot.goNoGo.criteria.every((criterion) => criterion.passed)).toBe(
       true
+    );
+  });
+
+  it("does not issue a GO when applied high-score lines exceed the correction target", () => {
+    const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
+      period: "30d",
+      now: new Date("2026-03-10T12:00:00.000Z"),
+      jobs: Array.from({ length: 8 }, (_, index) => ({
+        id: `job-calibration-${index}`,
+        status: "applied",
+        level: "B",
+        model: "gemini-3-flash-preview",
+        duration_ms: 120_000,
+        cost_cents: 200,
+        retry_count: 0,
+        error_code: null,
+        created_at: `2026-03-${String(index + 1).padStart(2, "0")}T10:00:00.000Z`,
+      })),
+      runMetrics: [],
+      results: [],
+      items: Array.from({ length: 20 }, (_, index) => ({
+        id: `item-calibration-${index}`,
+        job_id: `job-calibration-${index % 8}`,
+        confidence: 0.9,
+      })),
+      auditLogs: [0, 1].map((index) => ({
+        record_id: `job-calibration-${index}`,
+        action: "takeoff.item.modified",
+        created_at: `2026-03-0${index + 1}T11:00:00.000Z`,
+        after_data: {
+          metadata: {
+            item_id: `item-calibration-${index}`,
+            field: "quantity",
+            next_value: 12,
+          },
+        },
+      })),
+    });
+
+    expect(payload.calibration).toMatchObject({
+      status: "sufficient",
+      appliedHighScoreItems: 20,
+      appliedHighScoreMateriallyCorrectedItems: 2,
+      appliedHighScoreMaterialCorrectionRate: 10,
+    });
+    expect(payload.pilot.goNoGo.status).toBe("watch");
+    expect(payload.pilot.goNoGo.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "applied_high_score_correction_rate",
+          actualLabel: "10 % (2/20)",
+          status: "fail",
+          passed: false,
+        }),
+      ])
     );
   });
 
@@ -582,7 +685,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       jobs: [
         {
           id: "job-expensive-1",
-          status: "completed",
+          status: "applied",
           level: "B",
           model: "gemini-3-flash-preview",
           duration_ms: 120_000,
@@ -593,7 +696,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         },
         {
           id: "job-expensive-2",
-          status: "completed",
+          status: "applied",
           level: "B",
           model: "gemini-3-flash-preview",
           duration_ms: 120_000,
@@ -616,7 +719,11 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       ],
       runMetrics: [],
       results: [],
-      items: [],
+      items: Array.from({ length: 20 }, (_, index) => ({
+        id: `item-expensive-${index}`,
+        job_id: `job-expensive-${index % 2 + 1}`,
+        confidence: 0.9,
+      })),
       auditLogs: [],
     });
 

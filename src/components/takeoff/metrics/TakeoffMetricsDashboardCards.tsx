@@ -1,7 +1,10 @@
 "use client";
 
 import type { TakeoffMetricsReliability } from "@/lib/takeoff/types";
-import type { TakeoffPilotGoNoGo } from "@/lib/takeoff/pilot-metrics";
+import type {
+  TakeoffPilotGoNoGo,
+  TakeoffPilotGoNoGoCriterion,
+} from "@/lib/takeoff/pilot-metrics";
 
 import { formatPercent } from "./takeoff-metrics-formatters";
 
@@ -46,15 +49,15 @@ export function ReliabilityCards({ data }: { data: TakeoffMetricsReliability }) 
         variant={data.timedOutCount > 0 ? "danger" : "default"}
       />
       <MetricCard
-        label="Budget depasse"
+        label="Budget dépassé"
         value={String(data.budgetExceededCount)}
         hint={`sur ${data.totalRunMetrics} runs`}
         variant={data.budgetExceededCount > 0 ? "warning" : "default"}
       />
       <MetricCard
-        label="Retry reussi"
+        label="Relances réussies"
         value={data.retriedJobs > 0 ? `${formatPercent(data.retrySuccessRate)} %` : "-"}
-        hint={`${data.retriedThenCompleted}/${data.retriedJobs} retries`}
+        hint={`${data.retriedThenCompleted}/${data.retriedJobs} relances`}
         variant={
           data.retrySuccessRate >= 50
             ? "success"
@@ -80,7 +83,31 @@ export function PilotStatusBadge({
           : "bg-[var(--danger)]/12 text-[var(--danger)]"
       }`}
     >
-      {killSwitchEnabled ? "Pilote actif" : "Pilote coupe"}
+      {killSwitchEnabled ? "Pilote actif" : "Pilote coupé"}
+    </span>
+  );
+}
+
+function PilotCriterionStatusBadge({
+  status,
+}: {
+  status: TakeoffPilotGoNoGoCriterion["status"];
+}) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+        status === "pass"
+          ? "bg-[var(--success)]/12 text-[var(--success)]"
+          : status === "inconclusive"
+            ? "bg-[var(--warning)]/12 text-[var(--warning)]"
+            : "bg-[var(--danger)]/12 text-[var(--danger)]"
+      }`}
+    >
+      {status === "pass"
+        ? "OK"
+        : status === "inconclusive"
+          ? "Inconclusif"
+          : "Hors cible"}
     </span>
   );
 }
@@ -104,23 +131,56 @@ export function PilotDecisionCard({
         : "text-[var(--danger)]";
 
   return (
-    <div className={`rounded-xl border p-4 ${variantClass}`}>
+    <div className={`min-w-0 rounded-xl border p-4 ${variantClass}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-            Decision go/no-go
+            Décision go/no-go
           </p>
           <p className={`mt-2 text-2xl font-black ${labelClass}`}>{data.label}</p>
           <p className="mt-2 text-sm text-[var(--slate-600)]">{data.summary}</p>
         </div>
       </div>
-      <div className="mt-4 overflow-x-auto">
+      <ul className="mt-4 space-y-2 sm:hidden">
+        {data.criteria.map((criterion) => (
+          <li
+            key={criterion.key}
+            className="rounded-lg border border-white/70 bg-white/60 p-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-medium text-[var(--slate-800)]">
+                {criterion.label}
+              </p>
+              <PilotCriterionStatusBadge status={criterion.status} />
+            </div>
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <dt className="font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                  Cible
+                </dt>
+                <dd className="mt-1 text-[var(--slate-700)]">
+                  {criterion.targetLabel}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                  Observé
+                </dt>
+                <dd className="mt-1 text-[var(--slate-700)]">
+                  {criterion.actualLabel}
+                </dd>
+              </div>
+            </dl>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[560px] text-sm">
           <thead className="bg-white/60 text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
             <tr>
-              <th className="px-3 py-2">Critere</th>
+              <th className="px-3 py-2">Critère</th>
               <th className="px-3 py-2">Cible</th>
-              <th className="px-3 py-2">Observe</th>
+              <th className="px-3 py-2">Observé</th>
               <th className="px-3 py-2">Statut</th>
             </tr>
           </thead>
@@ -137,21 +197,7 @@ export function PilotDecisionCard({
                   {criterion.actualLabel}
                 </td>
                 <td className="px-3 py-2">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      criterion.status === "pass"
-                        ? "bg-[var(--success)]/12 text-[var(--success)]"
-                        : criterion.status === "inconclusive"
-                          ? "bg-[var(--warning)]/12 text-[var(--warning)]"
-                          : "bg-[var(--danger)]/12 text-[var(--danger)]"
-                    }`}
-                  >
-                    {criterion.status === "pass"
-                      ? "OK"
-                      : criterion.status === "inconclusive"
-                        ? "Inconclusif"
-                        : "Hors cible"}
-                  </span>
+                  <PilotCriterionStatusBadge status={criterion.status} />
                 </td>
               </tr>
             ))}

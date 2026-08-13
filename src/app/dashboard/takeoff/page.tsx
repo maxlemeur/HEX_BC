@@ -1,13 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { fetchAffaireList } from "@/lib/affaires/server";
 import { getUserContext } from "@/lib/auth/server";
-import { listLatestEstimates } from "@/lib/estimates/server";
-import {
-  formatCurrency,
-  normalizeEstimateCurrency,
-  type SupportedEstimateCurrency,
-} from "@/lib/money";
 import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
@@ -18,7 +13,11 @@ const STATUS_LABEL: Record<string, string> = {
   accepted: "Accepté",
   archived: "Archivé",
 };
-const DEFAULT_CURRENCY: SupportedEstimateCurrency = "EUR";
+const TAKEOFF_PAGE_SIZE = 20;
+
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -33,12 +32,8 @@ function formatUpdatedAt(value: string) {
   });
 }
 
-function resolveCurrency(currency: string | null | undefined): SupportedEstimateCurrency {
-  return normalizeEstimateCurrency(currency) ?? DEFAULT_CURRENCY;
-}
-
-export default async function TakeoffPage() {
-  const { tenantId } = await getUserContext();
+export default async function TakeoffPage({ searchParams }: Props) {
+  const [{ tenantId }, search] = await Promise.all([getUserContext(), searchParams]);
 
   if (!tenantId) {
     notFound();
@@ -48,7 +43,15 @@ export default async function TakeoffPage() {
   if (!enabled) {
     notFound();
   }
-  const { items } = await listLatestEstimates();
+
+  const cursor = typeof search.cursor === "string" ? search.cursor : null;
+  const result = await fetchAffaireList({
+    size: TAKEOFF_PAGE_SIZE,
+    cursor,
+    sort: "updatedAt",
+    dir: "desc",
+  });
+  const items = result.items;
 
   return (
     <div className="animate-fade-in">
@@ -61,10 +64,18 @@ export default async function TakeoffPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard/affaires" className="btn btn-secondary btn-sm">
+          <Link
+            href="/dashboard/affaires"
+            prefetch={false}
+            className="btn btn-secondary btn-sm"
+          >
             Retour aux affaires
           </Link>
-          <Link href="/dashboard/affaires/new" className="btn btn-primary btn-sm">
+          <Link
+            href="/dashboard/affaires/new"
+            prefetch={false}
+            className="btn btn-primary btn-sm"
+          >
             Nouvelle affaire
           </Link>
         </div>
@@ -83,51 +94,55 @@ export default async function TakeoffPage() {
       ) : (
         <div className="dashboard-card mt-6 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm">
+            <table className="w-full min-w-[600px] text-sm">
               <thead>
                 <tr className="border-b border-[var(--slate-200)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
                   <th scope="col" className="px-4 py-3 font-semibold">Projet</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Version</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Statut</th>
                   <th scope="col" className="px-4 py-3 font-semibold">MAJ</th>
-                  <th scope="col" className="px-4 py-3 font-semibold">Total HT</th>
                   <th scope="col" className="px-4 py-3 font-semibold text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => {
-                  const statusLabel = STATUS_LABEL[item.status] ?? item.status;
+                  const statusLabel = item.currentStatus
+                    ? (STATUS_LABEL[item.currentStatus] ?? item.currentStatus)
+                    : "Sans version";
+                  const targetHref = item.currentVersionId
+                    ? `/dashboard/estimates/${item.currentVersionId}/takeoff`
+                    : `/dashboard/affaires/${item.projectId}`;
 
                   return (
                     <tr
-                      key={item.version_id}
+                      key={item.projectId}
                       className="border-b border-[var(--slate-100)] align-top"
                     >
                       <td className="px-4 py-4">
-                        <p className="font-semibold text-[var(--slate-800)]">{item.project_name}</p>
+                        <p className="font-semibold text-[var(--slate-800)]">{item.projectName}</p>
                         <p className="text-xs text-[var(--slate-500)]">
-                          {item.project_reference ?? "Sans référence"}
-                          {item.project_client_name
-                            ? ` - ${item.project_client_name}`
+                          {item.projectReference ?? "Sans référence"}
+                          {item.projectClient
+                            ? ` - ${item.projectClient}`
                             : ""}
                         </p>
                       </td>
                       <td className="px-4 py-4 text-[var(--slate-700)]">
-                        V{item.version_number}
+                        {item.currentVersionNumber === null
+                          ? "—"
+                          : `V${item.currentVersionNumber}`}
                       </td>
                       <td className="px-4 py-4 text-[var(--slate-700)]">{statusLabel}</td>
                       <td className="px-4 py-4 text-[var(--slate-700)]">
-                        {formatUpdatedAt(item.updated_at)}
-                      </td>
-                      <td className="px-4 py-4 text-[var(--slate-700)]">
-                        {formatCurrency(item.total_ht_cents, resolveCurrency(item.currency))}
+                        {formatUpdatedAt(item.currentUpdatedAt)}
                       </td>
                       <td className="px-4 py-4 text-right">
                         <Link
-                          href={`/dashboard/estimates/${item.version_id}/takeoff`}
+                          href={targetHref}
+                          prefetch={false}
                           className="btn btn-secondary btn-sm"
                         >
-                          Ouvrir les métrés
+                          {item.currentVersionId ? "Ouvrir les métrés" : "Ouvrir l’affaire"}
                         </Link>
                       </td>
                     </tr>
@@ -136,6 +151,17 @@ export default async function TakeoffPage() {
               </tbody>
             </table>
           </div>
+          {result.hasNextPage && result.nextCursor ? (
+            <div className="flex justify-end border-t border-[var(--slate-100)] px-4 py-3">
+              <Link
+                href={`/dashboard/takeoff?cursor=${encodeURIComponent(result.nextCursor)}`}
+                prefetch={false}
+                className="btn btn-secondary btn-sm"
+              >
+                Affaires suivantes
+              </Link>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

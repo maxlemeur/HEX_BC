@@ -19,7 +19,6 @@ import {
   applyTakeoffJob,
   cancelTakeoffJob,
   isTakeoffApiError,
-  patchTakeoffItems,
   reconcileTakeoffJob,
   resubmitTakeoffJob,
 } from "@/lib/takeoff/client";
@@ -28,7 +27,6 @@ import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import { useTakeoffJobPolling } from "@/lib/takeoff/use-takeoff-job-polling";
 import {
   TAKEOFF_JOB_MAX_RETRY_COUNT,
-  type TakeoffItemPatchEntry,
   type TakeoffJobSummary,
 } from "@/lib/takeoff/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -78,8 +76,6 @@ const STRATEGY_LABEL_MAP: Record<TakeoffApplyStrategy, string> = {
   replace: "Replace",
   merge: "Merge",
 };
-const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
-
 function getStatusCss(status: string) {
   return STATUS_CSS_MAP[status] ?? "status-draft";
 }
@@ -557,49 +553,6 @@ export default function TakeoffJobMonitor({
     [jobId, refetch, versionId]
   );
 
-  const handleWizardVerifyItems = useCallback(
-    async (itemIds: string[]) => {
-      const currentItems = data?.items.data ?? [];
-      if (currentItems.length === 0 || itemIds.length === 0) return;
-
-      const itemsById = new Map(currentItems.map((item) => [item.id, item]));
-      const entries: TakeoffItemPatchEntry[] = itemIds.reduce<TakeoffItemPatchEntry[]>(
-        (acc, itemId) => {
-          const item = itemsById.get(itemId);
-          if (!item) return acc;
-          acc.push({
-            item_id: itemId,
-            updated_at: item.updated_at,
-            fields: { is_verified: true },
-          });
-          return acc;
-        },
-        []
-      );
-
-      if (entries.length === 0) return;
-
-      setApplyError(null);
-      try {
-        for (
-          let index = 0;
-          index < entries.length;
-          index += TAKEOFF_ITEM_PATCH_BATCH_MAX
-        ) {
-          const chunk = entries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
-          await patchTakeoffItems(jobId, { items: chunk });
-        }
-
-        refetch();
-      } catch (err) {
-        setApplyError(
-          resolveErrorMessage(err, "Impossible de verifier les items bloques.")
-        );
-      }
-    },
-    [data?.items.data, jobId, refetch]
-  );
-
   // Fatal error (no data ever loaded)
   if (!data && error && !isPolling) {
     return (
@@ -817,7 +770,7 @@ export default function TakeoffJobMonitor({
         jobLevel={data?.job.level ?? null}
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
-        onVerifyItems={handleWizardVerifyItems}
+        reviewHref={`/dashboard/estimates/${versionId}/takeoff/${jobId}/review`}
       />
     </div>
   );

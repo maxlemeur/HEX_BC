@@ -38,6 +38,7 @@
     "audit:dependencies": "node --import tsx scripts/check-dependency-audit.ts",
     "audit:signatures": "npm audit signatures",
     "check:architecture": "node --import tsx scripts/check-architecture-budgets.ts",
+    "benchmark:takeoff:provider": "node --env-file-if-exists=.env.local --import tsx scripts/run-takeoff-provider-benchmark.ts",
     "lint": "eslint . --max-warnings=0",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",
