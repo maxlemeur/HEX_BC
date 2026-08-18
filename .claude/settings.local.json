@@ -45,8 +45,7 @@
     "deny": [
       "Bash(sudo:*)",
       "Bash(rm:*)",
-      "Bash(rm -rf:*)",
-      "Bash(git push:*)"
+      "Bash(rm -rf:*)"
     ]
   }
 }
