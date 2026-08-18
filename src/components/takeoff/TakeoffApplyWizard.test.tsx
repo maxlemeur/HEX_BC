@@ -327,6 +327,44 @@ describe("TakeoffApplyWizard", () => {
     expect(screen.getAllByText("Hors mapping").length).toBeGreaterThan(0);
   });
 
+  it("limits replacement to an explicit section and never offers the root", async () => {
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        includedCount={1}
+        excludedCount={0}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchEstimateItemsForVersion).toHaveBeenCalledWith(VERSION_ID);
+    });
+
+    expect(
+      screen.getByText(/La racine du devis n'est jamais proposée comme cible/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /Racine du devis/i })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    expect(
+      screen.getByRole("radio", {
+        name: /Remplacer uniquement la section choisie/i,
+      })
+    ).toBeEnabled();
+    expect(
+      screen.getByText(/La racine du devis reste protégée/i)
+    ).toBeInTheDocument();
+  });
+
   it("uses the refreshed override count without double-counting manual changes", async () => {
     vi.mocked(previewTakeoffConversion)
       .mockResolvedValueOnce(PREVIEW_RESPONSE)

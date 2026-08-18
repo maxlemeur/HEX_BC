@@ -1,7 +1,15 @@
-import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
+import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
+import type { EstimateItem } from "@/components/estimates/components/estimate-editor-row/shared";
 import {
   createSpreadsheetNavigationModel,
   isSpreadsheetCellEditable,
@@ -44,6 +52,43 @@ function NavigationHarness({
         })
       );
     })
+  );
+}
+
+function LineNatureNavigationHarness() {
+  const cell = { rowId: "line-1", columnKey: "title" };
+  const navigation = useSpreadsheetNavigation({
+    rows: [{ rowId: cell.rowId, columnKeys: [cell.columnKey] }],
+  });
+  const cellProps = navigation.getCellProps(cell);
+  const editorProps = navigation.getEditorProps<HTMLInputElement>(cell);
+  const item = {
+    id: cell.rowId,
+    title: "Tuyau DN 100 acier",
+    line_nature: "supply_only",
+  } as EstimateItem;
+
+  return createElement(
+    "div",
+    {
+      ...cellProps,
+      "data-testid": "line-title-cell",
+    },
+    createElement("input", {
+      "data-testid": "line-title-editor",
+      value: item.title,
+      readOnly: true,
+      ref: editorProps.ref,
+      tabIndex: editorProps.tabIndex,
+      onFocus: editorProps.onFocus,
+      onBlur: editorProps.onBlur,
+      onKeyDown: editorProps.onKeyDown,
+    }),
+    createElement(EstimateLineNatureSelect, {
+      item,
+      isReadOnly: false,
+      onPatchItem: () => undefined,
+    }),
   );
 }
 
@@ -166,6 +211,27 @@ describe("useSpreadsheetNavigation helpers", () => {
     await waitFor(() => {
       expect(outsideEditor).toHaveFocus();
     });
+  });
+
+  it("keeps F2 bound to the free-text designation after using line nature", async () => {
+    render(createElement(LineNatureNavigationHarness));
+
+    const titleCell = screen.getByTestId("line-title-cell");
+    const titleEditor = screen.getByTestId("line-title-editor");
+    const natureSelect = screen.getByRole("combobox", {
+      name: "Fournitures — nature de ligne pour Tuyau DN 100 acier",
+    });
+
+    titleCell.focus();
+    expect(titleCell).toHaveFocus();
+    natureSelect.focus();
+    expect(natureSelect).toHaveFocus();
+
+    titleCell.focus();
+    fireEvent.keyDown(titleCell, { key: "F2" });
+
+    expect(titleEditor).toHaveFocus();
+    expect(natureSelect).not.toHaveFocus();
   });
 
   it("starts editing on single click for editable cell container", () => {

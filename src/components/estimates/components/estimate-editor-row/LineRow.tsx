@@ -43,6 +43,7 @@ import {
 import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
+import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
 import {
   type CataloguePriceSuggestion,
   type ColumnVisibilitySet,
@@ -556,6 +557,7 @@ export function LineRow({
               ) : null}
             </div>
             <div className="estimate-line-designation__support">
+              <EstimateLineNatureSelect item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
               <EstimateLineTruthBadges item={item} />
               <TakeoffSourceBadge
                 versionId={versionId}
@@ -692,7 +694,7 @@ export function LineRow({
         type="text"
         inputMode="decimal"
         placeholder="Obligatoire"
-        ariaLabel={`Quantite pour ${item.title || "sans titre"}`}
+        ariaLabel={`Quantité pour ${item.title || "sans titre"}`}
         formatDisplayValue={(value) =>
           formatNumberDisplay(parseNumberInput(String(value ?? "0")), {
             minDecimals: 0,
@@ -737,7 +739,7 @@ export function LineRow({
             unitEditorProps.onBlur(event);
             onUnitCommit(item.id);
           }}
-          placeholder="Obligatoire"
+          placeholder="Obligatoire" aria-label={`Unité pour ${item.title || "sans titre"}`}
           disabled={isReadOnly}
         />
       </div>
@@ -759,7 +761,7 @@ export function LineRow({
         type="text"
         inputMode="decimal"
         placeholder="Obligatoire"
-        ariaLabel={`Prix unitaire pour ${item.title || "sans titre"}`}
+        ariaLabel={`Prix d’achat unitaire HT pour ${item.title || "sans titre"}`}
         formatDisplayValue={(value) =>
           formatNumberDisplay(parseNumberInput(String(value ?? "0")), {
             minDecimals: 2,
@@ -983,9 +985,7 @@ export function LineRow({
             maxDecimals: 2,
           })}
           placeholder="0.00"
-          readOnly
-          tabIndex={-1}
-          aria-readonly
+          readOnly tabIndex={-1} aria-readonly aria-label={`Prix de vente unitaire HT pour ${item.title || "sans titre"}`}
         />
       </div>
       <div

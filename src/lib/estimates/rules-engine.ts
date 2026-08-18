@@ -1118,7 +1118,7 @@ export function checkApprovalRule(input: RuleCheckInput): RuleCheckResult {
   const actualValue = Math.max(0, toFiniteNumber(input.actualValue));
   const threshold = Math.max(0, toFiniteNumber(input.threshold));
   return {
-    violated: actualValue > threshold,
+    violated: actualValue >= threshold,
     actualValue,
     threshold,
   };

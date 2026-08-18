@@ -179,6 +179,39 @@ describe("TakeoffUploadForm", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it("reports a durable queue honestly when the immediate worker trigger failed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createTakeoffJob).mockResolvedValue({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      status: "pending",
+      level: "A",
+      source_file_name: "niveau-a.csv",
+      estimate_version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      created_at: "2026-02-24T12:00:00.000Z",
+      dispatch: {
+        status: "queued_for_recovery",
+        correlation_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        persisted: true,
+      },
+    });
+
+    render(
+      <TakeoffUploadForm
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        onSuccess={vi.fn()}
+      />
+    );
+    await user.upload(screen.getByLabelText("Fichier source"), makeCsvFile());
+    await user.click(
+      screen.getByRole("button", { name: /lancer l'extraction/i })
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Extraction en attente" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/sera relancé automatiquement/i)).toBeInTheDocument();
+  });
+
   it("reports submitting state changes when provided", async () => {
     const user = userEvent.setup();
     const createTakeoffJobMock = vi.mocked(createTakeoffJob);

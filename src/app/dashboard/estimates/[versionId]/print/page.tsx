@@ -24,6 +24,7 @@ import {
 } from "@/lib/estimates/margin-tiers-loader";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import {
+  isMissingEstimateRoundingAdjustmentSchema,
   resolveEstimatePdfPreviewLayout,
 } from "@/lib/estimates/pdf-generator";
 import { formatEstimateReference } from "@/lib/estimates/reference";
@@ -56,6 +57,11 @@ type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const PRINT_VERSION_SELECT =
+  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )";
+const LEGACY_PRINT_VERSION_SELECT =
+  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )";
 
 function formatPrintDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -118,13 +124,30 @@ export default async function PrintEstimatePage({
     requestedLayout
   );
 
-  const versionPromise = supabase
-    .from("estimate_versions")
-    .select(
-      "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )"
-    )
-    .eq("id", versionId)
-    .single();
+  const versionPromise = (async () => {
+    const primaryResult = await supabase
+      .from("estimate_versions")
+      .select(PRINT_VERSION_SELECT)
+      .eq("id", versionId)
+      .single();
+
+    if (!isMissingEstimateRoundingAdjustmentSchema(primaryResult.error)) {
+      return primaryResult;
+    }
+
+    const legacyResult = await supabase
+      .from("estimate_versions")
+      .select(LEGACY_PRINT_VERSION_SELECT)
+      .eq("id", versionId)
+      .single();
+
+    return {
+      ...legacyResult,
+      data: legacyResult.data
+        ? { ...legacyResult.data, rounding_adjustment_cents: 0 }
+        : null,
+    };
+  })();
 
   const itemsPromise = supabase
     .from("estimate_items")
@@ -254,15 +277,10 @@ export default async function PrintEstimatePage({
       })();
   const discountCents = computedTotals.discountCents;
   const appliedMarginMultiplier = computedTotals.appliedMarginMultiplier;
-  const totalHtCents = Number.isFinite(version.total_ht_cents ?? NaN)
-    ? version.total_ht_cents
-    : computedTotals.saleTotalCents;
-  const totalTaxCents = Number.isFinite(version.total_tax_cents ?? NaN)
-    ? version.total_tax_cents
-    : computedTotals.adjustedTaxCents;
-  const totalTtcCents = Number.isFinite(version.total_ttc_cents ?? NaN)
-    ? version.total_ttc_cents
-    : computedTotals.roundedTtcCents;
+  const totalHtCents = computedTotals.saleTotalCents;
+  const totalTaxCents = computedTotals.taxCents;
+  const totalTtcCents = computedTotals.roundedTtcCents;
+  const roundingAdjustmentCents = computedTotals.roundingAdjustmentCents;
 
   let sealState: SealIntegrityState = "unsealed";
   let sealHashPrefix = version.seal_hash?.slice(0, 8) ?? null;
@@ -394,6 +412,7 @@ export default async function PrintEstimatePage({
           totalHtCents={totalHtCents}
           totalTaxCents={totalTaxCents}
           totalTtcCents={totalTtcCents}
+          roundingAdjustmentCents={roundingAdjustmentCents}
           items={items}
           exclusions={version.exclusions}
           issuerName={userContext.profile?.full_name}

@@ -133,6 +133,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   missing_quantity: "blocking",
   missing_labor_time: "warning",
   missing_labor_role: "warning",
+  line_nature_mismatch: "blocking",
   price_outlier: "warning",
   quantity_outlier: "warning",
   supplier_price_outdated: "warning",

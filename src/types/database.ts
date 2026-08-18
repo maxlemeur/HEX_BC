@@ -1083,6 +1083,7 @@ export type Database = {
           total_ht_cents: number;
           total_tax_cents: number;
           total_ttc_cents: number;
+          rounding_adjustment_cents: number;
           content_revision: number;
           calc_snapshot_content_revision: number | null;
           calc_snapshot_context: Json | null;
@@ -1127,6 +1128,7 @@ export type Database = {
           total_ht_cents?: number;
           total_tax_cents?: number;
           total_ttc_cents?: number;
+          rounding_adjustment_cents?: number;
           content_revision?: number;
           calc_snapshot_content_revision?: number | null;
           calc_snapshot_context?: Json | null;
@@ -1171,6 +1173,7 @@ export type Database = {
           total_ht_cents?: number;
           total_tax_cents?: number;
           total_ttc_cents?: number;
+          rounding_adjustment_cents?: number;
           content_revision?: number;
           calc_snapshot_content_revision?: number | null;
           calc_snapshot_context?: Json | null;
@@ -2746,6 +2749,11 @@ export type Database = {
           version_id: string;
           parent_id: string | null;
           item_type: "section" | "line";
+          line_nature?:
+            | "supply_only"
+            | "supply_and_labor"
+            | "labor_only"
+            | null;
           position: number;
           title: string;
           aid?: string | null;
@@ -2790,6 +2798,11 @@ export type Database = {
           version_id: string;
           parent_id?: string | null;
           item_type: "section" | "line";
+          line_nature?:
+            | "supply_only"
+            | "supply_and_labor"
+            | "labor_only"
+            | null;
           position?: number;
           title: string;
           aid?: string | null;
@@ -2834,6 +2847,11 @@ export type Database = {
           version_id?: string;
           parent_id?: string | null;
           item_type?: "section" | "line";
+          line_nature?:
+            | "supply_only"
+            | "supply_and_labor"
+            | "labor_only"
+            | null;
           position?: number;
           title?: string;
           aid?: string | null;
@@ -3861,6 +3879,10 @@ export type Database = {
       employee_role: "buyer" | "site_manager" | "admin";
       estimate_status: "draft" | "sending" | "sent" | "accepted" | "archived";
       estimate_item_type: "section" | "line";
+      estimate_line_nature:
+        | "supply_only"
+        | "supply_and_labor"
+        | "labor_only";
       estimate_margin_mode: "fixed" | "tiered";
       estimate_discount_mode: "simple" | "cascade";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";

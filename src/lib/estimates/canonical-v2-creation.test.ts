@@ -174,13 +174,8 @@ describe("persistCanonicalEstimateV2", () => {
       total_ht_cents: 1999,
       total_tax_cents: 0,
       total_ttc_cents: 1999,
-      calc_snapshot_context: {
-        effective_margin_multiplier: 1.25,
-        labor_split_enabled: false,
-        labor_roles: [],
-        margin_tiers: [],
-      },
     });
+    expect(payload.p_version_payload).not.toHaveProperty("calc_snapshot_context");
     expect(line).toMatchObject({
       line_total_ht_cents: 1999,
       line_tax_cents: 0,

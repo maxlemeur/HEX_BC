@@ -141,6 +141,7 @@ export const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
 
 export const SPREADSHEET_COLUMN_KEYS = {
   title: "title",
+  lineNature: "line_nature",
   quantity: "quantity",
   unit: "unit",
   unitPrice: "unit_price",
@@ -183,6 +184,8 @@ export function getQualityFlagCellTarget(
       return options.isLaborRoleVisible
         ? SPREADSHEET_COLUMN_KEYS.laborRole
         : null;
+    case "line_nature_mismatch":
+      return SPREADSHEET_COLUMN_KEYS.lineNature;
     case "labor_split_incomplete":
       return options.isLaborSplitEnabled
         ? SPREADSHEET_COLUMN_KEYS.hMoAtelier

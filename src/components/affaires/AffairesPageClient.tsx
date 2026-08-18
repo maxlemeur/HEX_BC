@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { useUiMode } from "@/hooks/useUiMode";
+import { useIsWideViewport } from "@/hooks/useIsTablet";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
@@ -49,7 +50,7 @@ const PAGE_SIZE_OPTIONS: readonly AffairePageSize[] =
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
 const PAGE_SIZE_STORAGE_KEY = "affaires-page-size";
 const MANAGER_QUEUE_FETCH_TIMEOUT_MS = 8_000;
-export const AFFAIRE_SEARCH_DEBOUNCE_MS = 400;
+export const AFFAIRE_SEARCH_DEBOUNCE_MS = 250;
 
 const SORT_OPTIONS: SortOption[] = [
   { key: "updatedAt", label: "Date MAJ", defaultDirection: "desc" },
@@ -120,6 +121,7 @@ export function AffairesPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isExpert } = useUiMode();
+  const isWideViewport = useIsWideViewport();
   const toast = useToast();
 
   // -- State --
@@ -750,19 +752,8 @@ export function AffairesPageClient({
       {/* Content */}
       <div className="mt-4">
         {isExpert ? (
-          <>
-            <div className="xl:hidden">
-              <AffairesCardList
-                items={data.list.items}
-                emptyVariant={emptyVariant}
-                onCreateAffaire={handleCreateAffaire}
-                onToggleFavorite={handleToggleFavorite}
-                favoritePendingIds={favoritePendingIds}
-                selectedProjectIds={selectedProjectIdSet}
-                onToggleProjectSelection={handleToggleProjectSelection}
-              />
-            </div>
-            <div className="hidden xl:block">
+          <div className={isWideViewport ? undefined : "xl:hidden"}>
+            {isWideViewport ? (
               <AffairesDenseTable
                 items={data.list.items}
                 emptyVariant={emptyVariant}
@@ -776,8 +767,18 @@ export function AffairesPageClient({
                 managerQueueSummary={managerQueueSummary}
                 managerQueueSummaryState={managerQueueSummaryState}
               />
-            </div>
-          </>
+            ) : (
+              <AffairesCardList
+                items={data.list.items}
+                emptyVariant={emptyVariant}
+                onCreateAffaire={handleCreateAffaire}
+                onToggleFavorite={handleToggleFavorite}
+                favoritePendingIds={favoritePendingIds}
+                selectedProjectIds={selectedProjectIdSet}
+                onToggleProjectSelection={handleToggleProjectSelection}
+              />
+            )}
+          </div>
         ) : (
           <AffairesCardList
             items={data.list.items}

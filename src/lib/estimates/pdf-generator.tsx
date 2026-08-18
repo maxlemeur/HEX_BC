@@ -69,6 +69,7 @@ import {
   normalizeEstimateCurrency,
 } from "@/lib/money";
 import { classifyEstimatePdfStorageFailure } from "@/lib/estimates/pdf-storage-error";
+import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
 import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
@@ -100,6 +101,11 @@ type SupabaseErrorLike = {
   details?: string | null;
   hint?: string | null;
 };
+
+const VERSION_ACCESS_SELECT =
+  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)";
+const LEGACY_VERSION_ACCESS_SELECT =
+  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)";
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -139,6 +145,7 @@ type VersionWithProject = Pick<
   | "total_ht_cents"
   | "total_tax_cents"
   | "total_ttc_cents"
+  | "rounding_adjustment_cents"
   | "currency"
   | "content_revision"
   | "calc_snapshot_content_revision"
@@ -408,34 +415,6 @@ const businessPdfStyles = StyleSheet.create({
   },
   centeredText: {
     textAlign: "center",
-  },
-  totalsCard: {
-    marginTop: 12,
-    marginLeft: "auto",
-    width: 222,
-    border: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  totalsMain: {
-    display: "flex",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    paddingHorizontal: 11,
-    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.brandBlue,
-    color: BUSINESS_DOCUMENT_THEME.colors.white,
-    fontWeight: 700,
-  },
-  totalsSecondary: {
-    display: "flex",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 11,
-    borderTop: `1px solid ${BUSINESS_DOCUMENT_THEME.colors.border}`,
-    backgroundColor: BUSINESS_DOCUMENT_THEME.colors.surface,
-    color: BUSINESS_DOCUMENT_THEME.colors.muted,
   },
   conditionsCard: {
     marginTop: 14,
@@ -732,14 +711,26 @@ async function getVersionAccessOrThrow(
   context: AuthenticatedContext,
   versionId: string,
 ): Promise<VersionAccess> {
-  const { data, error } = await context.supabase
+  let { data, error } = await context.supabase
     .from("estimate_versions")
-    .select(
-      "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)",
-    )
+    .select(VERSION_ACCESS_SELECT)
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
     .single();
+
+  if (isMissingEstimateRoundingAdjustmentSchema(error)) {
+    const legacyResult = await context.supabase
+      .from("estimate_versions")
+      .select(LEGACY_VERSION_ACCESS_SELECT)
+      .eq("id", versionId)
+      .eq("tenant_id", context.tenantId)
+      .single();
+
+    data = legacyResult.data
+      ? { ...legacyResult.data, rounding_adjustment_cents: 0 }
+      : null;
+    error = legacyResult.error;
+  }
 
   if (error || !data) {
     throw notFound("Version de chiffrage introuvable.");
@@ -850,6 +841,20 @@ function normalizedSupabaseError(error: SupabaseErrorLike) {
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .toLowerCase();
+}
+
+export function isMissingEstimateRoundingAdjustmentSchema(
+  error: SupabaseErrorLike | null | undefined,
+) {
+  if (!error) return false;
+  const code = error.code?.toUpperCase() ?? "";
+  const message = normalizedSupabaseError(error);
+
+  return (
+    code === "42703" &&
+    message.includes("rounding_adjustment_cents") &&
+    message.includes("estimate_versions")
+  );
 }
 
 function isMissingEstimateTermsSchema(error: SupabaseErrorLike) {
@@ -1274,6 +1279,7 @@ export function buildEstimatePdfDocument(input: {
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
+  roundingAdjustmentCents: number;
 }) {
   const currency = normalizeEstimateCurrency(input.version.currency) ?? "EUR";
   const vatReverseCharge =
@@ -1379,24 +1385,15 @@ export function buildEstimatePdfDocument(input: {
 
         <PdfEstimateTable prepared={input.prepared} currency={currency} />
 
-        <View style={businessPdfStyles.totalsCard} wrap={false}>
-          <View style={businessPdfStyles.totalsMain}>
-            <Text>Total HT</Text>
-            <Text>{formatCurrency(input.totalHtCents, currency)}</Text>
-          </View>
-          {!vatReverseCharge && input.version.tax_rate_bp > 0 ? (
-            <View style={businessPdfStyles.totalsSecondary}>
-              <Text>TVA</Text>
-              <Text>{formatCurrency(input.totalTaxCents, currency)}</Text>
-            </View>
-          ) : null}
-          {!vatReverseCharge ? (
-            <View style={businessPdfStyles.totalsSecondary}>
-              <Text>Total TTC</Text>
-              <Text>{formatCurrency(input.totalTtcCents, currency)}</Text>
-            </View>
-          ) : null}
-        </View>
+        <PdfEstimateTotalsCard
+          totalHtCents={input.totalHtCents}
+          totalTaxCents={input.totalTaxCents}
+          amountDueCents={input.totalTtcCents}
+          roundingAdjustmentCents={input.roundingAdjustmentCents}
+          currency={currency}
+          taxRateBp={input.version.tax_rate_bp}
+          vatReverseCharge={vatReverseCharge}
+        />
         {vatReverseCharge ? (
           <Text style={businessPdfStyles.vatReverseChargeNotice}>
             {ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}
@@ -1672,8 +1669,12 @@ export async function generateEstimatePdfNow(
           preserveStoredSnapshot: true,
           versionTotals: {
             total_ht_cents: access.version.total_ht_cents,
-            total_tax_cents: access.version.total_tax_cents,
+            total_tax_cents:
+              access.version.total_tax_cents -
+              access.version.rounding_adjustment_cents,
             total_ttc_cents: access.version.total_ttc_cents,
+            rounding_adjustment_cents:
+              access.version.rounding_adjustment_cents,
           },
         })
       : null;
@@ -1719,12 +1720,10 @@ export async function generateEstimatePdfNow(
         });
       })();
 
-    const totalHtCents =
-      access.version.total_ht_cents ?? computedTotals.saleTotalCents;
-    const totalTaxCents =
-      access.version.total_tax_cents ?? computedTotals.adjustedTaxCents;
-    const totalTtcCents =
-      access.version.total_ttc_cents ?? computedTotals.roundedTtcCents;
+    const totalHtCents = computedTotals.saleTotalCents;
+    const totalTaxCents = computedTotals.taxCents;
+    const totalTtcCents = computedTotals.roundedTtcCents;
+    const roundingAdjustmentCents = computedTotals.roundingAdjustmentCents;
 
     const prepared = prepareEstimateDocumentData({
       items,
@@ -1759,6 +1758,7 @@ export async function generateEstimatePdfNow(
       totalHtCents,
       totalTaxCents,
       totalTtcCents,
+      roundingAdjustmentCents,
     });
 
     let pdfBuffer: Buffer;

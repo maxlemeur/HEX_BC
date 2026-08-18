@@ -200,6 +200,8 @@ function LaunchMetreDialogContent({
   const toast = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
+  const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
+  const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -378,6 +380,8 @@ function LaunchMetreDialogContent({
 
       let resolvedVersionLabel = versionLabel ?? "Brouillon";
       let createdJobId: string | null = null;
+      let queuedForRecovery = false;
+      let recoveryUnconfirmed = false;
 
       if (selectedOption.mode === "existing_draft") {
         const result = await launchTakeoffFromPlanSet({
@@ -387,6 +391,9 @@ function LaunchMetreDialogContent({
           level: selectedLevel,
         });
         createdJobId = result.jobId;
+        queuedForRecovery = result.dispatch?.status === "queued_for_recovery";
+        recoveryUnconfirmed =
+          result.dispatch?.status === "persistence_unconfirmed";
       } else {
         const result = await launchTakeoffFromSourceVersionPlanSet({
           projectId,
@@ -395,6 +402,9 @@ function LaunchMetreDialogContent({
           level: selectedLevel,
         });
         createdJobId = result.jobId;
+        queuedForRecovery = result.dispatch?.status === "queued_for_recovery";
+        recoveryUnconfirmed =
+          result.dispatch?.status === "persistence_unconfirmed";
         resolvedVersionLabel = `Nouveau brouillon depuis V${selectedOption.versionNumber}`;
       }
 
@@ -402,12 +412,27 @@ function LaunchMetreDialogContent({
         throw new Error("Impossible de lancer l'analyse.");
       }
 
-      toast.success({
-        title: "Analyse lancée",
-        description: `${resolvedVersionLabel} — ${selectedPlanSet.fileCount} fichier${selectedPlanSet.fileCount > 1 ? "s" : ""} concerné${selectedPlanSet.fileCount > 1 ? "s" : ""}. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
+      const toastPayload = {
+        title: recoveryUnconfirmed
+          ? "Analyse créée, reprise à vérifier"
+          : queuedForRecovery
+            ? "Analyse enregistrée, démarrage en attente"
+            : "Analyse transmise au traitement",
+        description: recoveryUnconfirmed
+          ? `${resolvedVersionLabel} — le démarrage immédiat et l'enregistrement de la reprise n'ont pas pu être confirmés. Ouvrez le centre d'activité pour réessayer avec l'identifiant ${createdJobId}.`
+          : queuedForRecovery
+            ? `${resolvedVersionLabel} — la demande est conservée et sera reprise automatiquement. Suivez son état dans le centre d'activité des métrés.`
+            : `${resolvedVersionLabel} — ${selectedPlanSet.fileCount} fichier${selectedPlanSet.fileCount > 1 ? "s" : ""} concerné${selectedPlanSet.fileCount > 1 ? "s" : ""}. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
         durationMs: 6000,
-      });
+      };
+      if (queuedForRecovery || recoveryUnconfirmed) {
+        toast.warning(toastPayload);
+      } else {
+        toast.success(toastPayload);
+      }
       setLaunchSuccessVersionLabel(resolvedVersionLabel);
+      setLaunchQueuedForRecovery(queuedForRecovery);
+      setLaunchRecoveryUnconfirmed(recoveryUnconfirmed);
       setLaunchSuccess(true);
       onLaunched?.(createdJobId);
     } catch (error) {
@@ -458,12 +483,21 @@ function LaunchMetreDialogContent({
                 </svg>
               </div>
               <p className="text-sm font-semibold text-[var(--slate-800)]">
-                Analyse lancée avec succès
+                {launchRecoveryUnconfirmed
+                  ? "Analyse créée, reprise à vérifier"
+                  : launchQueuedForRecovery
+                    ? "Analyse enregistrée, démarrage en attente"
+                    : "Analyse transmise au traitement"}
               </p>
               <p className="text-xs text-[var(--slate-500)]">
                 {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
                 {selectedPlanSet?.fileCount ?? 0} fichier
                 {(selectedPlanSet?.fileCount ?? 0) > 1 ? "s" : ""}.
+                {launchRecoveryUnconfirmed
+                  ? " La reprise automatique n'a pas pu être confirmée : ouvrez le centre d'activité et relancez ce job."
+                  : launchQueuedForRecovery
+                    ? " La demande est conservée et sera reprise automatiquement."
+                    : " Le traitement a accepté la demande."}
               </p>
               <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-center sm:gap-3">
                 <button

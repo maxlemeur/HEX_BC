@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { resubmitTakeoffJob } from "@/lib/takeoff/server";
@@ -18,11 +19,23 @@ export async function POST(
   try {
     const jobId = await getJobId(params);
     const data = await resubmitTakeoffJob(jobId);
+    let dispatch:
+      | {
+          status: "accepted" | "queued_for_recovery" | "persistence_unconfirmed";
+          correlation_id: string;
+          persisted: boolean;
+        }
+      | undefined;
 
     if (data.outcome === "applied") {
       const triggerResult = await triggerTakeoffJobProcessing({
         jobId: data.job.id,
         trigger: "retry",
+      });
+      const dispatchPersisted = await persistTakeoffDispatchOutcome({
+        jobId: data.job.id,
+        trigger: "retry",
+        result: triggerResult,
       });
 
       if (!triggerResult.triggered) {
@@ -34,9 +47,19 @@ export async function POST(
           }
         );
       }
+
+      dispatch = {
+        status: triggerResult.triggered
+          ? "accepted"
+          : dispatchPersisted
+            ? "queued_for_recovery"
+            : "persistence_unconfirmed",
+        correlation_id: triggerResult.correlationId,
+        persisted: dispatchPersisted,
+      };
     }
 
-    return ok(data);
+    return ok({ ...data, ...(dispatch ? { dispatch } : {}) });
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

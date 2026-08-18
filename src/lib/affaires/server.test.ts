@@ -42,6 +42,7 @@ import {
   fetchAffaireDashboardOverview,
   fetchAffaireHubDpgfSource,
   fetchAffaireHubFinishLineSummary,
+  fetchAffaireHubInitialData,
   fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPlansSummary,
   fetchAffaireHubPageData,
@@ -3126,7 +3127,7 @@ describe("affaires hub server", () => {
   });
 
   it("aggregates hub page data with Promise.all", async () => {
-    const context = createHubContext({
+    const createPageContext = () => createHubContext({
       tableScenarios: {
         estimate_projects: [
           {
@@ -3172,6 +3173,12 @@ describe("affaires hub server", () => {
               error: null,
             },
           },
+          {
+            limit: {
+              data: [],
+              error: null,
+            },
+          },
         ],
         estimate_items: [
           {
@@ -3193,6 +3200,7 @@ describe("affaires hub server", () => {
       },
     });
 
+    const context = createPageContext();
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
     vi.mocked(listEstimateProjectVersions).mockResolvedValue({
       items: [],
@@ -3217,6 +3225,30 @@ describe("affaires hub server", () => {
     });
     expect(pageData.timeline.pagination.page).toBe(1);
     expect(pageData.dpgfSource).toBeNull();
+
+    const initialContext = createPageContext();
+    vi.mocked(getAuthenticatedContext).mockResolvedValueOnce(initialContext as never);
+    vi.mocked(listEstimateProjectVersions).mockRejectedValueOnce(
+      new Error("timeline unavailable")
+    );
+
+    const initialData = await fetchAffaireHubInitialData(PROJECT_ID, 1);
+
+    expect(initialData.summary.project.name).toBe("Affaire Hub");
+    expect(initialData.timelineResult.status).toBe("rejected");
+    expect(initialData.dpgfSourceResult).toEqual({
+      status: "fulfilled",
+      value: null,
+    });
+    expect(initialData.marginAnalysisResult).toEqual({
+      status: "fulfilled",
+      value: null,
+    });
+    expect(
+      vi
+        .mocked(initialContext.supabase.from)
+        .mock.calls.filter(([table]) => table === "estimate_projects")
+    ).toHaveLength(1);
   });
 });
 

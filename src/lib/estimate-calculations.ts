@@ -542,6 +542,7 @@ export type EstimateVersionForCalc = {
   total_ht_cents?: number | null;
   total_tax_cents?: number | null;
   total_ttc_cents?: number | null;
+  rounding_adjustment_cents?: number | null;
 };
 
 export type SectionTotals = {

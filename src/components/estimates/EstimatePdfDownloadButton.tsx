@@ -27,7 +27,7 @@ function toSafeErrorMessage(error: unknown) {
     const message = error.message.trim();
     if (message.length > 0) return message;
   }
-  return "Echec generation PDF";
+  return "Échec de la génération du PDF";
 }
 
 function openDownload(url: string) {
@@ -44,8 +44,8 @@ function wait(delayMs: number) {
 export function EstimatePdfDownloadButton({
   versionId,
   className,
-  label = "Telecharger PDF",
-  processingLabel = "Generation PDF...",
+  label = "Préparer le PDF",
+  processingLabel = "Génération du PDF…",
   showInlineError = true,
   onSuccess,
   onError,
@@ -64,12 +64,12 @@ export function EstimatePdfDownloadButton({
         return status.downloadUrl;
       }
       if (status.status === "failed") {
-        throw new Error(status.lastError ?? "Echec generation PDF");
+        throw new Error(status.lastError ?? "Échec de la génération du PDF");
       }
       await wait(POLL_INTERVAL_MS);
     }
 
-    throw new Error("Echec generation PDF");
+    throw new Error("Échec de la génération du PDF");
   }, [versionId]);
 
   const handleGenerate = useCallback(

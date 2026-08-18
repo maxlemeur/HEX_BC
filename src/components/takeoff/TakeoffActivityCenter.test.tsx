@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -91,6 +91,10 @@ const RESPONSE_WITH_JOB: TakeoffActivityCenterResponse = {
       carriedOverFrom: null,
       neverApplied: true,
       retryCount: 0,
+      dispatchStatus: null,
+      dispatchOutcome: null,
+      dispatchCorrelationId: null,
+      dispatchUpdatedAt: null,
     },
   ],
   pagination: { limit: 20, offset: 0, total: 1 },
@@ -98,14 +102,16 @@ const RESPONSE_WITH_JOB: TakeoffActivityCenterResponse = {
 
 function renderCenter(input?: {
   response?: TakeoffActivityCenterResponse;
+  isLoading?: boolean;
   withPlanSet?: boolean;
   planFileCount?: number;
   secondaryPlanFileCount?: number;
+  defaultPlanSetId?: string | null;
 }) {
   useSWRMock.mockReturnValue({
     data: input?.response ?? EMPTY_RESPONSE,
     error: undefined,
-    isLoading: false,
+    isLoading: input?.isLoading ?? false,
   });
 
   const withPlanSet = input?.withPlanSet ?? false;
@@ -143,7 +149,10 @@ function renderCenter(input?: {
                 versionNumber: 1,
               },
               plansContext: {
-                defaultPlanSetId: "plan-set-1",
+                defaultPlanSetId:
+                  input?.defaultPlanSetId === undefined
+                    ? "plan-set-1"
+                    : input.defaultPlanSetId,
                 defaultPlanSetName: "Plans architecte",
                 defaultPlanSetFileCount: input?.planFileCount ?? 2,
               },
@@ -162,6 +171,7 @@ describe("TakeoffActivityCenter", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -203,6 +213,20 @@ describe("TakeoffActivityCenter", () => {
     renderCenter({ withPlanSet: true });
 
     expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-1");
+  });
+
+  it("opens a usable non-default plan set from a deep link", () => {
+    searchParams = new URLSearchParams(
+      "launch=1&launchPlanSet=plan-set-2"
+    );
+
+    renderCenter({
+      withPlanSet: true,
+      defaultPlanSetId: null,
+      secondaryPlanFileCount: 3,
+    });
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-2");
   });
 
   it("routes an empty plan set back to plan preparation", () => {
@@ -270,6 +294,26 @@ describe("TakeoffActivityCenter", () => {
     expect(screen.getAllByText("Plans architecte").length).toBeGreaterThan(0);
   });
 
+  it("shows persisted automatic recovery for a delayed start", () => {
+    renderCenter({
+      response: {
+        ...RESPONSE_WITH_JOB,
+        jobs: [
+          {
+            ...RESPONSE_WITH_JOB.jobs[0],
+            dispatchStatus: "trigger_failed",
+            dispatchOutcome: "timeout",
+            dispatchCorrelationId: "dispatch-follow-up-456",
+          },
+        ],
+      },
+      withPlanSet: true,
+    });
+
+    expect(screen.getAllByText("Reprise automatique")).toHaveLength(2);
+    expect(screen.getByText(/dispatch-follow-up-456/)).toBeInTheDocument();
+  });
+
   it("shows an unavailable DPGF coverage without an error alert", () => {
     renderCenter({
       response: {
@@ -322,5 +366,18 @@ describe("TakeoffActivityCenter", () => {
     for (const label of ["Analyses", "Exceptions", "Historique"]) {
       expect(screen.getByRole("tab", { name: label })).toHaveClass("min-h-11");
     }
+  });
+
+  it("announces when analysis loading exceeds the normal delay", () => {
+    vi.useFakeTimers();
+    renderCenter({ isLoading: true });
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Chargement des analyses"
+    );
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Le chargement prend plus de temps que prévu"
+    );
   });
 });

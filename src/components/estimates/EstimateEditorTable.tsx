@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   Fragment,
   useCallback,
@@ -17,30 +18,21 @@ import {
 
 import type { SectionTotals } from "@/lib/estimate-calculations";
 import type { SupportedEstimateCurrency } from "@/lib/money";
-import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
 import {
   EstimateEditorRow,
   getSpreadsheetColumnKeys,
 } from "@/components/estimates/components/EstimateEditorRow";
-import { MobileEstimateLineEditor } from "@/components/estimates/components/estimate-editor-row/MobileEstimateLineEditor";
 import {
   EstimateSuggestionRow,
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
 import { EstimateEditorTableChrome } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableChrome";
-import { EstimateEditorTableSectionDialogs } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs";
-import { EstimateEditorTableLineContextMenu } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu";
 import {
   MobileEstimateList,
   type MobileEstimateListRow,
 } from "@/components/estimates/components/estimate-editor-table/MobileEstimateList";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
-import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
-import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
-import {
-  SupplierComparisonPanel,
-  type SupplierComparisonAlternative,
-} from "@/components/estimates/SupplierComparisonPanel";
+import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
   EstimateEditorRowActionsProvider,
@@ -112,6 +104,42 @@ import {
   type SuggestionLearningState,
 } from "@/components/estimates/estimate-editor-table-types";
 import type { Database } from "@/types/database";
+
+const PastePreviewDialog = dynamic(() =>
+  import("@/components/estimates/PastePreviewDialog").then(
+    (module) => module.PastePreviewDialog
+  )
+);
+const MobileEstimateLineEditor = dynamic(() =>
+  import(
+    "@/components/estimates/components/estimate-editor-row/MobileEstimateLineEditor"
+  ).then((module) => module.MobileEstimateLineEditor)
+);
+const EstimateEditorTableSectionDialogs = dynamic(() =>
+  import(
+    "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs"
+  ).then((module) => module.EstimateEditorTableSectionDialogs)
+);
+const EstimateEditorTableLineContextMenu = dynamic(() =>
+  import(
+    "@/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu"
+  ).then((module) => module.EstimateEditorTableLineContextMenu)
+);
+const AssemblyPicker = dynamic(() =>
+  import("@/components/estimates/AssemblyPicker").then(
+    (module) => module.AssemblyPicker
+  )
+);
+const QuickTemplatePicker = dynamic(() =>
+  import("@/components/estimates/editor/QuickTemplatePicker").then(
+    (module) => module.QuickTemplatePicker
+  )
+);
+const SupplierComparisonPanel = dynamic(() =>
+  import("@/components/estimates/SupplierComparisonPanel").then(
+    (module) => module.SupplierComparisonPanel
+  )
+);
 
 export type {
   SuggestionCorrectionPayload,
@@ -710,10 +738,10 @@ export function resolveEstimateEditorGridStyle(
   isLaborSplitEnabled: boolean
 ): CSSProperties | undefined {
   // Designation, Qte, U, PR. FO — toujours presentes.
-  const desktopColumns = ["minmax(260px, 3fr)", "64px", "54px", "88px"];
-  const tabletColumns = ["minmax(220px, 3fr)", "58px", "50px", "80px"];
-  let desktopMinWidth = 260 + 64 + 54 + 88;
-  let tabletMinWidth = 220 + 58 + 50 + 80;
+  const desktopColumns = ["minmax(300px, 3fr)", "64px", "54px", "88px"];
+  const tabletColumns = ["minmax(260px, 3fr)", "58px", "50px", "80px"];
+  let desktopMinWidth = 300 + 64 + 54 + 88;
+  let tabletMinWidth = 260 + 58 + 50 + 80;
 
   const addOptionalColumn = (
     column: ColumnKey,
@@ -2291,14 +2319,16 @@ export function EstimateEditorTable({
                   setIsQuickTemplatePickerOpen((prev) => !prev);
                 }}
                 quickTemplatePickerNode={
-                  <QuickTemplatePicker
-                    isOpen={isQuickTemplatePickerOpen}
-                    isReadOnly={isReadOnly}
-                    onInsert={(templateId) =>
-                      onInsertTemplate(templateId, insertionAnchorItemId)
-                    }
-                    onClose={() => setIsQuickTemplatePickerOpen(false)}
-                  />
+                  isQuickTemplatePickerOpen ? (
+                    <QuickTemplatePicker
+                      isOpen
+                      isReadOnly={isReadOnly}
+                      onInsert={(templateId) =>
+                        onInsertTemplate(templateId, insertionAnchorItemId)
+                      }
+                      onClose={() => setIsQuickTemplatePickerOpen(false)}
+                    />
+                  ) : null
                 }
               />
             }
@@ -2359,41 +2389,45 @@ export function EstimateEditorTable({
             />
           ) : null}
 
-          <EstimateEditorTableSectionDialogs
-            isViewerMode={isViewerMode}
-            isReadOnly={isReadOnly}
-            isItemConversionPending={isItemConversionPending}
-            sectionContextMenu={sectionContextMenu}
-            sectionContextMeta={sectionContextMeta}
-            onCloseSectionContextMenu={closeSectionContextMenu}
-            onAddLine={onAddLine}
-            onAddSection={onAddSection}
-            onConvertSectionToLine={handleConvertSectionToLine}
-            onDuplicateSectionInPlace={handleDuplicateSectionInPlace}
-            onOpenDuplicateSectionDialog={handleOpenDuplicateSectionDialog}
-            onOpenSaveAsAssemblyDialog={handleOpenSaveAsAssemblyDialog}
-            onDeleteSection={onDeleteItem}
-            onDuplicateSection={onDuplicateSection}
-            onDuplicateSectionToVersion={onDuplicateSectionToVersion}
-            availableSectionDuplicateTargets={availableSectionDuplicateTargets}
-            duplicateSectionDialogSectionId={duplicateSectionDialogSectionId}
-            duplicateSectionTargetVersionId={duplicateSectionTargetVersionId}
-            onDuplicateSectionTargetVersionIdChange={
-              setDuplicateSectionTargetVersionId
-            }
-            isDuplicateSectionPending={isDuplicateSectionPending}
-            onCloseDuplicateSectionDialog={closeDuplicateSectionDialog}
-            onConfirmDuplicateSectionToVersion={
-              handleConfirmDuplicateSectionToVersion
-            }
-            saveAsAssemblyDialogSectionId={saveAsAssemblyDialogSectionId}
-            saveAsAssemblyName={saveAsAssemblyName}
-            onSaveAsAssemblyNameChange={setSaveAsAssemblyName}
-            saveAsAssemblyNameInputRef={saveAsAssemblyNameInputRef}
-            isSaveAsAssemblyPending={isSaveAsAssemblyPending}
-            onCloseSaveAsAssemblyDialog={closeSaveAsAssemblyDialog}
-            onConfirmSaveAsAssembly={handleConfirmSaveAsAssembly}
-          />
+          {sectionContextMenu ||
+          duplicateSectionDialogSectionId ||
+          saveAsAssemblyDialogSectionId ? (
+            <EstimateEditorTableSectionDialogs
+              isViewerMode={isViewerMode}
+              isReadOnly={isReadOnly}
+              isItemConversionPending={isItemConversionPending}
+              sectionContextMenu={sectionContextMenu}
+              sectionContextMeta={sectionContextMeta}
+              onCloseSectionContextMenu={closeSectionContextMenu}
+              onAddLine={onAddLine}
+              onAddSection={onAddSection}
+              onConvertSectionToLine={handleConvertSectionToLine}
+              onDuplicateSectionInPlace={handleDuplicateSectionInPlace}
+              onOpenDuplicateSectionDialog={handleOpenDuplicateSectionDialog}
+              onOpenSaveAsAssemblyDialog={handleOpenSaveAsAssemblyDialog}
+              onDeleteSection={onDeleteItem}
+              onDuplicateSection={onDuplicateSection}
+              onDuplicateSectionToVersion={onDuplicateSectionToVersion}
+              availableSectionDuplicateTargets={availableSectionDuplicateTargets}
+              duplicateSectionDialogSectionId={duplicateSectionDialogSectionId}
+              duplicateSectionTargetVersionId={duplicateSectionTargetVersionId}
+              onDuplicateSectionTargetVersionIdChange={
+                setDuplicateSectionTargetVersionId
+              }
+              isDuplicateSectionPending={isDuplicateSectionPending}
+              onCloseDuplicateSectionDialog={closeDuplicateSectionDialog}
+              onConfirmDuplicateSectionToVersion={
+                handleConfirmDuplicateSectionToVersion
+              }
+              saveAsAssemblyDialogSectionId={saveAsAssemblyDialogSectionId}
+              saveAsAssemblyName={saveAsAssemblyName}
+              onSaveAsAssemblyNameChange={setSaveAsAssemblyName}
+              saveAsAssemblyNameInputRef={saveAsAssemblyNameInputRef}
+              isSaveAsAssemblyPending={isSaveAsAssemblyPending}
+              onCloseSaveAsAssemblyDialog={closeSaveAsAssemblyDialog}
+              onConfirmSaveAsAssembly={handleConfirmSaveAsAssembly}
+            />
+          ) : null}
 
       {supplierComparisonMenu ? (
         <EstimateEditorTableLineContextMenu
@@ -2418,20 +2452,22 @@ export function EstimateEditorTable({
         />
       ) : null}
 
-      <SupplierComparisonPanel
-        isOpen={Boolean(activeSupplierComparisonItem)}
-        itemTitle={activeSupplierComparisonItem?.title ?? ""}
-        alternatives={activeSupplierComparison?.alternatives ?? []}
-        bestSupplierPriceId={
-          activeSupplierComparison?.best_supplier_price_id ?? null
-        }
-        isLoading={isSupplierComparisonLoading}
-        error={supplierComparisonError}
-        isReadOnly={isReadOnly}
-        estimateCurrency={currency}
-        onClose={handleCloseSupplierComparisonPanel}
-        onSelectAlternative={handleSelectSupplierComparisonAlternative}
-      />
+      {activeSupplierComparisonItem ? (
+        <SupplierComparisonPanel
+          isOpen
+          itemTitle={activeSupplierComparisonItem.title}
+          alternatives={activeSupplierComparison?.alternatives ?? []}
+          bestSupplierPriceId={
+            activeSupplierComparison?.best_supplier_price_id ?? null
+          }
+          isLoading={isSupplierComparisonLoading}
+          error={supplierComparisonError}
+          isReadOnly={isReadOnly}
+          estimateCurrency={currency}
+          onClose={handleCloseSupplierComparisonPanel}
+          onSelectAlternative={handleSelectSupplierComparisonAlternative}
+        />
+      ) : null}
 
       <datalist id="estimate-unit-options">
         {DEFAULT_UNITS.map((unit) => (
@@ -2445,28 +2481,32 @@ export function EstimateEditorTable({
         ))}
       </datalist>
 
-      <AssemblyPicker
-        isOpen={isAssemblyPickerOpen}
-        isReadOnly={isReadOnly}
-        anchorItemId={insertionAnchorItemId}
-        anchorLabel={activeLineBreadcrumb}
-        onClose={() => setIsAssemblyPickerOpen(false)}
-        onInsert={(assemblyId) =>
-          onInsertAssembly(assemblyId, insertionAnchorItemId)
-        }
-      />
+      {isAssemblyPickerOpen ? (
+        <AssemblyPicker
+          isOpen
+          isReadOnly={isReadOnly}
+          anchorItemId={insertionAnchorItemId}
+          anchorLabel={activeLineBreadcrumb}
+          onClose={() => setIsAssemblyPickerOpen(false)}
+          onInsert={(assemblyId) =>
+            onInsertAssembly(assemblyId, insertionAnchorItemId)
+          }
+        />
+      ) : null}
 
-      <PastePreviewDialog
-        isOpen={isPastePreviewOpen}
-        detectedFormat={detectedClipboardFormatForDialog}
-        mapping={pasteMappingEntries}
-        rows={pasteDialogRows}
-        errors={pasteErrors}
-        onMappingChange={handlePasteMappingChange}
-        onToggleRow={handleTogglePasteRow}
-        onConfirm={() => void handleConfirmPastePreview()}
-        onClose={closePastePreview}
-      />
+      {isPastePreviewOpen ? (
+        <PastePreviewDialog
+          isOpen
+          detectedFormat={detectedClipboardFormatForDialog}
+          mapping={pasteMappingEntries}
+          rows={pasteDialogRows}
+          errors={pasteErrors}
+          onMappingChange={handlePasteMappingChange}
+          onToggleRow={handleTogglePasteRow}
+          onConfirm={() => void handleConfirmPastePreview()}
+          onClose={closePastePreview}
+        />
+      ) : null}
 
       {/* Spacer so table content isn't hidden behind the fixed bulk-selection bar */}
       {hasSelectedLines && <div className="h-16" />}

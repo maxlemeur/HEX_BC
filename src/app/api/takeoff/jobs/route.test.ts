@@ -33,7 +33,12 @@ vi.mock("@/lib/takeoff/edge-trigger", () => ({
     triggered: true,
     correlationId: "00000000-0000-4000-8000-000000000000",
     statusCode: 202,
+    outcome: "accepted",
   }),
+}));
+
+vi.mock("@/lib/takeoff/dispatch-state", () => ({
+  persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true),
 }));
 
 import { GET, POST } from "@/app/api/takeoff/jobs/route";
@@ -41,6 +46,7 @@ import { forbidden } from "@/lib/estimates/errors";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { TAKEOFF_PROMPT_VERSION_BY_LEVEL } from "@/lib/takeoff/prompts";
 import * as takeoffServer from "@/lib/takeoff/server";
@@ -526,6 +532,7 @@ describe("POST /api/takeoff/jobs", () => {
       triggered: true,
       correlationId: "00000000-0000-4000-8000-000000000000",
       statusCode: 202,
+      outcome: "accepted",
     });
   });
 
@@ -540,6 +547,11 @@ describe("POST /api/takeoff/jobs", () => {
         id: string;
         status: string;
         level: string;
+        dispatch?: {
+          status: string;
+          correlation_id: string;
+          persisted: boolean;
+        };
       };
     };
 
@@ -548,6 +560,11 @@ describe("POST /api/takeoff/jobs", () => {
     expect(body.data?.id).toMatch(UUID_REGEX);
     expect(body.data?.status).toBe("pending");
     expect(body.data?.level).toBe("A");
+    expect(body.data?.dispatch).toEqual({
+      status: "accepted",
+      correlation_id: "00000000-0000-4000-8000-000000000000",
+      persisted: true,
+    });
     expect(supabase.__state.uploads).toHaveLength(1);
     expect(supabase.__state.audits).toHaveLength(1);
     expect(supabase.__state.audits[0]?.action).toBe("takeoff.job.created");
@@ -911,17 +928,31 @@ describe("POST /api/takeoff/jobs", () => {
       triggered: false,
       correlationId: "11111111-1111-4111-8111-111111111111",
       statusCode: null,
+      outcome: "network_error",
     });
 
     const response = await POST(buildTakeoffRequest());
     const body = (await response.json()) as {
       ok: boolean;
-      data?: { id: string; status: string };
+      data?: {
+        id: string;
+        status: string;
+        dispatch?: {
+          status: string;
+          correlation_id: string;
+          persisted: boolean;
+        };
+      };
     };
 
     expect(response.status).toBe(201);
     expect(body.ok).toBe(true);
     expect(body.data?.status).toBe("pending");
+    expect(body.data?.dispatch).toEqual({
+      status: "queued_for_recovery",
+      correlation_id: "11111111-1111-4111-8111-111111111111",
+      persisted: true,
+    });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       "Takeoff job created but async processing trigger failed.",
       expect.objectContaining({
@@ -930,6 +961,31 @@ describe("POST /api/takeoff/jobs", () => {
       })
     );
 
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("reports an unconfirmed recovery instead of a false durable queue", async () => {
+    const supabase = createSupabaseMock();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
+      triggered: false,
+      correlationId: "22222222-2222-4222-8222-222222222222",
+      statusCode: null,
+      outcome: "timeout",
+    });
+    vi.mocked(persistTakeoffDispatchOutcome).mockResolvedValueOnce(false);
+
+    const response = await POST(buildTakeoffRequest());
+    const body = (await response.json()) as {
+      data?: { dispatch?: { status: string; persisted: boolean } };
+    };
+
+    expect(response.status).toBe(201);
+    expect(body.data?.dispatch).toMatchObject({
+      status: "persistence_unconfirmed",
+      persisted: false,
+    });
     consoleErrorSpy.mockRestore();
   });
 });

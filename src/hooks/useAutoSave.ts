@@ -7,8 +7,16 @@ export const DEFAULT_AUTOSAVE_RETRY_DELAY_MS = 2000;
 export const DEFAULT_AUTOSAVE_MAX_RETRIES = 3;
 export const MAX_AUTOSAVE_RETRY_DELAY_MS = 30_000;
 
-export type AutoSaveStatus = "idle" | "saving" | "saved" | "error";
-export type AutoSaveReason = "debounce" | "manual" | "retry";
+export type AutoSaveStatus =
+  | "idle"
+  | "pending"
+  | "saving"
+  | "saved"
+  | "error"
+  | "offline"
+  | "disabled"
+  | "blocked";
+export type AutoSaveReason = "debounce" | "manual" | "retry" | "reconnect";
 export type AutoSaveResult = "saved" | "noop" | "blocked" | "error";
 
 type SaveShortcutLikeEvent = {
@@ -19,6 +27,7 @@ type SaveShortcutLikeEvent = {
 
 export type UseAutoSaveOptions = {
   enabled: boolean;
+  automaticEnabled?: boolean;
   hasPendingChanges: boolean;
   debounceMs?: number;
   retryDelayMs?: number;
@@ -32,9 +41,36 @@ export type UseAutoSaveResult = {
   status: AutoSaveStatus;
   statusLabel: string;
   isSaving: boolean;
+  isOnline: boolean;
+  lastSavedAt: string | null;
   flushNow: () => Promise<void>;
   scheduleSave: () => void;
 };
+
+type RestingStatusInput = {
+  enabled: boolean;
+  automaticEnabled: boolean;
+  hasPendingChanges: boolean;
+  isOnline: boolean;
+};
+
+function readBrowserOnlineStatus() {
+  return typeof navigator === "undefined" ? true : navigator.onLine;
+}
+
+function resolveRestingStatus({
+  enabled,
+  automaticEnabled,
+  hasPendingChanges,
+  isOnline,
+}: RestingStatusInput): AutoSaveStatus {
+  if (!enabled) return "blocked";
+  if (!isOnline && hasPendingChanges) return "offline";
+  if (!automaticEnabled) {
+    return hasPendingChanges ? "pending" : "disabled";
+  }
+  return hasPendingChanges ? "pending" : "idle";
+}
 
 export function isSaveShortcutKey(event: SaveShortcutLikeEvent) {
   const normalizedKey = event.key?.toLowerCase();
@@ -64,20 +100,29 @@ export function resolveAutoSaveRetryDelay(
 
 export function resolveAutoSaveStatusLabel(status: AutoSaveStatus) {
   switch (status) {
+    case "pending":
+      return "En attente";
     case "saving":
-      return "Sauvegarde en cours…";
+      return "Synchronisation…";
     case "error":
-      return "Erreur de sauvegarde";
+      return "Échec de synchronisation";
+    case "offline":
+      return "Hors ligne";
+    case "disabled":
+      return "Auto désactivée";
+    case "blocked":
+      return "Synchronisation bloquée";
     case "saved":
       return "Sauvegardé";
     case "idle":
     default:
-      return "Sauvegarde auto";
+      return "À jour";
   }
 }
 
 export function useAutoSave({
   enabled,
+  automaticEnabled = true,
   hasPendingChanges,
   debounceMs = DEFAULT_AUTOSAVE_DEBOUNCE_MS,
   retryDelayMs = DEFAULT_AUTOSAVE_RETRY_DELAY_MS,
@@ -86,21 +131,32 @@ export function useAutoSave({
   enableBeforeUnloadGuard = true,
   onSave,
 }: UseAutoSaveOptions): UseAutoSaveResult {
-  const [status, setStatus] = useState<AutoSaveStatus>("idle");
+  const [status, setStatus] = useState<AutoSaveStatus>(() =>
+    resolveRestingStatus({
+      enabled,
+      automaticEnabled,
+      hasPendingChanges,
+      isOnline: readBrowserOnlineStatus(),
+    })
+  );
   const [isSaving, setIsSaving] = useState(false);
+  const [isOnline, setIsOnline] = useState(readBrowserOnlineStatus);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queuedSaveAfterCurrentRef = useRef(false);
   const automaticRetryCountRef = useRef(0);
-  const executeSaveRef = useRef<((reason: AutoSaveReason) => Promise<void>) | null>(
-    null
-  );
+  const executeSaveRef = useRef<
+    ((reason: AutoSaveReason) => Promise<void>) | null
+  >(null);
 
   const isMountedRef = useRef(true);
   const isSavingRef = useRef(isSaving);
   const enabledRef = useRef(enabled);
+  const automaticEnabledRef = useRef(automaticEnabled);
   const hasPendingRef = useRef(hasPendingChanges);
+  const isOnlineRef = useRef(isOnline);
   const debounceMsRef = useRef(debounceMs);
   const retryDelayMsRef = useRef(retryDelayMs);
   const maxAutomaticRetriesRef = useRef(maxAutomaticRetries);
@@ -125,8 +181,16 @@ export function useAutoSave({
   }, [enabled]);
 
   useEffect(() => {
+    automaticEnabledRef.current = automaticEnabled;
+  }, [automaticEnabled]);
+
+  useEffect(() => {
     hasPendingRef.current = hasPendingChanges;
   }, [hasPendingChanges]);
+
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
 
   useEffect(() => {
     debounceMsRef.current = debounceMs;
@@ -163,11 +227,23 @@ export function useAutoSave({
     clearRetryTimer();
   }, [clearDebounceTimer, clearRetryTimer]);
 
+  const currentRestingStatus = useCallback(
+    () =>
+      resolveRestingStatus({
+        enabled: enabledRef.current,
+        automaticEnabled: automaticEnabledRef.current,
+        hasPendingChanges: hasPendingRef.current,
+        isOnline: isOnlineRef.current,
+      }),
+    []
+  );
+
   const scheduleDebouncedSave = useCallback(() => {
     if (!isMountedRef.current) return;
-    if (!enabledRef.current) return;
-    if (!hasPendingRef.current) return;
+    if (!enabledRef.current || !automaticEnabledRef.current) return;
+    if (!isOnlineRef.current || !hasPendingRef.current) return;
 
+    setStatus("pending");
     clearDebounceTimer();
     debounceTimeoutRef.current = setTimeout(() => {
       debounceTimeoutRef.current = null;
@@ -177,7 +253,8 @@ export function useAutoSave({
 
   const scheduleRetry = useCallback((force = false) => {
     if (!isMountedRef.current) return;
-    if (!enabledRef.current) return;
+    if (!enabledRef.current || !automaticEnabledRef.current) return;
+    if (!isOnlineRef.current) return;
     if (!force && !hasPendingRef.current) return;
     if (retryTimeoutRef.current !== null) return;
     if (automaticRetryCountRef.current >= maxAutomaticRetriesRef.current) return;
@@ -197,7 +274,14 @@ export function useAutoSave({
   const executeSave = useCallback(
     async (reason: AutoSaveReason) => {
       if (!isMountedRef.current) return;
-      if (!enabledRef.current) return;
+      if (!enabledRef.current) {
+        setStatus("blocked");
+        return;
+      }
+      if (!isOnlineRef.current) {
+        setStatus("offline");
+        return;
+      }
 
       if (isSavingRef.current) {
         queuedSaveAfterCurrentRef.current = true;
@@ -205,12 +289,12 @@ export function useAutoSave({
       }
 
       if (!hasPendingRef.current) {
-        setStatus("saved");
+        setStatus(currentRestingStatus());
         return;
       }
 
       clearDebounceTimer();
-      if (reason === "manual") {
+      if (reason === "manual" || reason === "reconnect") {
         clearRetryTimer();
         automaticRetryCountRef.current = 0;
       }
@@ -225,12 +309,18 @@ export function useAutoSave({
         const result = await onSaveRef.current(reason);
         if (!isMountedRef.current) return;
 
-        if (result === "error" || result === "blocked") {
-          shouldRetry = shouldAutomaticallyRetry(result);
+        if (result === "error") {
+          shouldRetry = true;
           setStatus("error");
+        } else if (result === "blocked") {
+          setStatus("blocked");
+        } else if (result === "saved") {
+          automaticRetryCountRef.current = 0;
+          setLastSavedAt(new Date().toISOString());
+          setStatus("saved");
         } else {
           automaticRetryCountRef.current = 0;
-          setStatus("saved");
+          setStatus(currentRestingStatus());
         }
       } catch {
         if (!isMountedRef.current) return;
@@ -248,13 +338,23 @@ export function useAutoSave({
           scheduleRetry(true);
         } else if (queuedSaveAfterCurrentRef.current && hasPendingRef.current) {
           queuedSaveAfterCurrentRef.current = false;
-          scheduleDebouncedSave();
+          if (automaticEnabledRef.current) {
+            scheduleDebouncedSave();
+          } else {
+            setStatus("pending");
+          }
         } else {
           queuedSaveAfterCurrentRef.current = false;
         }
       }
     },
-    [clearDebounceTimer, clearRetryTimer, scheduleDebouncedSave, scheduleRetry]
+    [
+      clearDebounceTimer,
+      clearRetryTimer,
+      currentRestingStatus,
+      scheduleDebouncedSave,
+      scheduleRetry,
+    ]
   );
 
   useEffect(() => {
@@ -262,8 +362,11 @@ export function useAutoSave({
   }, [executeSave]);
 
   const scheduleSave = useCallback(() => {
-    if (!enabledRef.current) return;
-    if (!hasPendingRef.current) return;
+    if (!enabledRef.current || !hasPendingRef.current) return;
+    if (!automaticEnabledRef.current) {
+      setStatus("pending");
+      return;
+    }
     scheduleDebouncedSave();
   }, [scheduleDebouncedSave]);
 
@@ -274,8 +377,26 @@ export function useAutoSave({
   useEffect(() => {
     if (!enabled) {
       clearTimers();
+      if (!isSavingRef.current) setStatus("blocked");
+      return;
+    }
+
+    if (!isOnline && hasPendingChanges) {
+      clearTimers();
+      if (!isSavingRef.current) setStatus("offline");
+      return;
+    }
+
+    if (!automaticEnabled) {
+      clearTimers();
       if (!isSavingRef.current) {
-        setStatus("idle");
+        setStatus((current) =>
+          current === "saved"
+            ? current
+            : hasPendingChanges
+              ? "pending"
+              : "disabled"
+        );
       }
       return;
     }
@@ -289,38 +410,75 @@ export function useAutoSave({
       clearTimers();
       automaticRetryCountRef.current = 0;
       if (!isSavingRef.current) {
-        setStatus("saved");
+        setStatus((current) => (current === "saved" ? current : "idle"));
       }
     }
-  }, [clearTimers, enabled, hasPendingChanges, scheduleDebouncedSave]);
+  }, [
+    automaticEnabled,
+    clearTimers,
+    enabled,
+    hasPendingChanges,
+    isOnline,
+    scheduleDebouncedSave,
+  ]);
 
   useEffect(() => {
-    if (!enabled || !enableShortcut) return;
+    const handleOffline = () => {
+      isOnlineRef.current = false;
+      setIsOnline(false);
+      clearTimers();
+      if (hasPendingRef.current && !isSavingRef.current) {
+        setStatus("offline");
+      }
+    };
+    const handleOnline = () => {
+      isOnlineRef.current = true;
+      setIsOnline(true);
+      if (
+        enabledRef.current &&
+        automaticEnabledRef.current &&
+        hasPendingRef.current
+      ) {
+        automaticRetryCountRef.current = 0;
+        setStatus("pending");
+        void executeSaveRef.current?.("reconnect");
+      }
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [clearTimers]);
+
+  useEffect(() => {
+    if (!enableShortcut) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!isSaveShortcutKey(event)) return;
-      if (!hasPendingRef.current && !isSavingRef.current) return;
 
       event.preventDefault();
-      void executeSave("manual");
+      if (
+        enabledRef.current &&
+        (hasPendingRef.current || isSavingRef.current)
+      ) {
+        void executeSave("manual");
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enableShortcut, enabled, executeSave]);
+  }, [enableShortcut, executeSave]);
 
   useEffect(() => {
-    if (!enabled || !enableBeforeUnloadGuard) return;
+    if (!enableBeforeUnloadGuard) return;
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (
-        !shouldBlockBeforeUnload(
-          hasPendingRef.current,
-          isSavingRef.current
-        )
-      ) {
+      if (!shouldBlockBeforeUnload(hasPendingRef.current, isSavingRef.current)) {
         return;
       }
 
@@ -332,7 +490,7 @@ export function useAutoSave({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [enableBeforeUnloadGuard, enabled]);
+  }, [enableBeforeUnloadGuard]);
 
   useEffect(() => {
     return () => {
@@ -340,19 +498,20 @@ export function useAutoSave({
     };
   }, [clearTimers]);
 
-  // Auto-reset "saved" status back to "idle" after 3 seconds
   useEffect(() => {
     if (status !== "saved") return;
     const timer = setTimeout(() => {
-      setStatus("idle");
+      setStatus(currentRestingStatus());
     }, 3000);
     return () => clearTimeout(timer);
-  }, [status]);
+  }, [currentRestingStatus, status]);
 
   return {
     status,
     statusLabel: resolveAutoSaveStatusLabel(status),
     isSaving,
+    isOnline,
+    lastSavedAt,
     flushNow,
     scheduleSave,
   };

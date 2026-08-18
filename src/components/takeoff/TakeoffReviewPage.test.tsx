@@ -994,6 +994,7 @@ describe("TakeoffReviewPage", () => {
         updated_count: 0,
         ignored_count: 0,
         created_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+        item_links: [],
       },
     });
 

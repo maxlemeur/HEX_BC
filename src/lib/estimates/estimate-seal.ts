@@ -7,7 +7,8 @@ import type { Database, Json } from "@/types/database";
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 
-export const CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION = 3;
+export const CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION = 4;
+export const UNIFIED_ESTIMATE_SEAL_PAYLOAD_VERSION = 3;
 export const PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION = 2;
 export const LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION = 1;
 
@@ -25,6 +26,7 @@ export type EstimateSealVersionFields = Pick<
   | "total_ht_cents"
   | "total_tax_cents"
   | "total_ttc_cents"
+  | "rounding_adjustment_cents"
   | "margin_multiplier"
   | "margin_mode"
   | "discount_bp"
@@ -61,6 +63,7 @@ type EstimateSealCanonicalItem = Pick<
   | "line_tax_cents"
   | "line_total_ttc_cents"
 > & {
+  line_nature?: EstimateItemRow["line_nature"];
   parent_id?: string | null;
   description?: string | null;
   labor_role_id?: string | null;
@@ -95,6 +98,7 @@ export type EstimateSealPayload = {
     total_ht_cents: number;
     total_tax_cents: number;
     total_ttc_cents: number;
+    rounding_adjustment_cents?: number;
     margin_multiplier: number;
     margin_mode?: EstimateVersionRow["margin_mode"];
     discount_bp: number;
@@ -136,6 +140,7 @@ export function buildCanonicalEstimateSealPayload(
   const includeLaborSplit = options?.includeLaborSplit ?? true;
   const includeCalcEngineVersion = options?.includeCalcEngineVersion ?? true;
   const includeUnifiedEngineContract = payloadVersion >= 3;
+  const includeExplicitRoundingContract = payloadVersion >= 4;
   const canonicalItems = [...input.items]
     .sort((left, right) =>
       left.position !== right.position
@@ -197,6 +202,9 @@ export function buildCanonicalEstimateSealPayload(
         line_total_ht_cents: item.line_total_ht_cents,
         line_tax_cents: item.line_tax_cents,
         line_total_ttc_cents: item.line_total_ttc_cents,
+        ...(includeExplicitRoundingContract
+          ? { line_nature: item.line_nature ?? null }
+          : {}),
         ...(includeUnifiedEngineContract
           ? {
               parent_id: item.parent_id,
@@ -234,6 +242,12 @@ export function buildCanonicalEstimateSealPayload(
       total_ht_cents: input.version.total_ht_cents,
       total_tax_cents: input.version.total_tax_cents,
       total_ttc_cents: input.version.total_ttc_cents,
+      ...(includeExplicitRoundingContract
+        ? {
+            rounding_adjustment_cents:
+              input.version.rounding_adjustment_cents,
+          }
+        : {}),
       margin_multiplier: input.version.margin_multiplier,
       ...(includeUnifiedEngineContract
         ? {

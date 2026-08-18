@@ -9,7 +9,12 @@ vi.mock("@/lib/takeoff/edge-trigger", () => ({
     triggered: true,
     correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     statusCode: 202,
+    outcome: "accepted",
   }),
+}));
+
+vi.mock("@/lib/takeoff/dispatch-state", () => ({
+  persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true),
 }));
 
 import { POST } from "@/app/api/takeoff/jobs/[jobId]/resubmit/route";
@@ -47,6 +52,7 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
       triggered: true,
       correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       statusCode: 202,
+      outcome: "accepted",
     });
   });
 
@@ -62,7 +68,14 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(body.data).toEqual(RESUBMIT_RESPONSE);
+    expect(body.data).toEqual({
+      ...RESUBMIT_RESPONSE,
+      dispatch: {
+        status: "accepted",
+        correlation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        persisted: true,
+      },
+    });
     expect(vi.mocked(resubmitTakeoffJob)).toHaveBeenCalledWith(JOB_ID);
     expect(vi.mocked(triggerTakeoffJobProcessing)).toHaveBeenCalledWith({
       jobId: JOB_ID,
@@ -105,6 +118,7 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
       triggered: false,
       correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       statusCode: 504,
+      outcome: "http_error",
     });
     const [request, context] = buildPostRequest();
 
@@ -116,6 +130,10 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
           id?: string;
           status?: string;
         };
+        dispatch?: {
+          status?: string;
+          correlation_id?: string;
+        };
       };
     };
 
@@ -123,6 +141,11 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
     expect(body.ok).toBe(true);
     expect(body.data?.job?.id).toBe(JOB_ID);
     expect(body.data?.job?.status).toBe("pending");
+    expect(body.data?.dispatch).toEqual({
+      status: "queued_for_recovery",
+      correlation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      persisted: true,
+    });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       "Takeoff resubmit accepted but async processing trigger failed.",
       expect.objectContaining({

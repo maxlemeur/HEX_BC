@@ -8,6 +8,12 @@ import {
   listEstimateRulesForCurrentTenant,
   updateEstimateRuleForCurrentTenant,
 } from "@/lib/estimates/rules-engine";
+import {
+  DEFAULT_APPROVAL_THRESHOLD_EUROS,
+  formatRuleThreshold,
+  toDisplayedRuleThreshold,
+  toPersistedRuleThreshold,
+} from "@/lib/estimates/rule-threshold";
 
 type RuleType =
   | "min_margin"
@@ -74,7 +80,10 @@ function parseRequiredEnum<T extends string>(input: {
   throw new Error(`${input.fieldName} invalide.`);
 }
 
-function parseThresholdValue(value: FormDataEntryValue | null) {
+function parseThresholdValue(
+  value: FormDataEntryValue | null,
+  ruleType: RuleType,
+) {
   const raw = typeof value === "string" ? value.trim().replace(",", ".") : "";
   const parsed = Number.parseFloat(raw);
 
@@ -82,7 +91,7 @@ function parseThresholdValue(value: FormDataEntryValue | null) {
     throw new Error("threshold_value invalide.");
   }
 
-  return parsed;
+  return toPersistedRuleThreshold(ruleType, parsed);
 }
 
 async function createRuleAction(formData: FormData) {
@@ -110,7 +119,10 @@ async function createRuleAction(formData: FormData) {
     rule_type: ruleType,
     scope_type: scopeType,
     scope_id: normalizeOptionalUuid(formData.get("scope_id")),
-    threshold_value: parseThresholdValue(formData.get("threshold_value")),
+    threshold_value: parseThresholdValue(
+      formData.get("threshold_value"),
+      ruleType,
+    ),
     action,
     is_active: formData.get("is_active") === "on",
   });
@@ -150,7 +162,10 @@ async function updateRuleAction(formData: FormData) {
       rule_type: ruleType,
       scope_type: scopeType,
       scope_id: normalizeOptionalUuid(formData.get("scope_id")),
-      threshold_value: parseThresholdValue(formData.get("threshold_value")),
+      threshold_value: parseThresholdValue(
+        formData.get("threshold_value"),
+        ruleType,
+      ),
       action,
       is_active: formData.get("is_active") === "on",
     },
@@ -193,7 +208,10 @@ async function toggleRuleAction(formData: FormData) {
       rule_type: ruleType,
       scope_type: scopeType,
       scope_id: normalizeOptionalUuid(formData.get("scope_id")),
-      threshold_value: parseThresholdValue(formData.get("threshold_value")),
+      threshold_value: parseThresholdValue(
+        formData.get("threshold_value"),
+        ruleType,
+      ),
       action,
       is_active: nextIsActive,
     },
@@ -238,7 +256,7 @@ export default async function AdminRulesPage() {
   return (
     <div className="animate-fade-in">
       <div className="page-header">
-        <h1 className="page-title">Rules engine</h1>
+        <h1 className="page-title">Règles d’approbation</h1>
         <p className="page-description">
           Configurez les garde-fous de marge/remise et les seuils d&apos;approbation.
         </p>
@@ -246,12 +264,12 @@ export default async function AdminRulesPage() {
 
       <div className="dashboard-card mb-6 p-5">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-          Nouvelle regle
+          Nouvelle règle
         </h2>
         <form action={createRuleAction} className="grid gap-3 lg:grid-cols-6">
           <label className="lg:col-span-1">
             <span className="mb-1 block text-xs text-[var(--slate-500)]">Type</span>
-            <select name="rule_type" defaultValue="min_margin" className="form-input h-10">
+            <select name="rule_type" defaultValue="require_approval" className="form-input h-10">
               {RULE_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -289,14 +307,18 @@ export default async function AdminRulesPage() {
               min="0"
               step="0.01"
               className="form-input h-10"
-              defaultValue="0"
+              defaultValue={DEFAULT_APPROVAL_THRESHOLD_EUROS}
               required
             />
+            <span className="mt-1 block text-[11px] text-[var(--slate-500)]">
+              Pour une approbation, saisissez le montant en euros HT. La règle
+              se déclenche dès que ce seuil est atteint.
+            </span>
           </label>
 
           <label className="lg:col-span-1">
             <span className="mb-1 block text-xs text-[var(--slate-500)]">Action</span>
-            <select name="action" defaultValue="block" className="form-input h-10">
+            <select name="action" defaultValue="require_approval" className="form-input h-10">
               {ACTION_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -322,12 +344,12 @@ export default async function AdminRulesPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Regle</th>
+                <th>Règle</th>
                 <th>Scope</th>
                 <th>Scope ID</th>
                 <th>Seuil</th>
                 <th>Action</th>
-                <th>Etat</th>
+                <th>État</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
@@ -335,7 +357,7 @@ export default async function AdminRulesPage() {
               {rules.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-[var(--slate-500)]">
-                    Aucune regle configuree.
+                    Aucune règle configurée.
                   </td>
                 </tr>
               ) : (
@@ -350,7 +372,12 @@ export default async function AdminRulesPage() {
                     <td className="font-mono text-xs text-[var(--slate-600)]">
                       {rule.scope_id ?? "—"}
                     </td>
-                    <td className="text-sm text-[var(--slate-700)]">{rule.threshold_value}</td>
+                    <td className="text-sm text-[var(--slate-700)]">
+                      {formatRuleThreshold(
+                        rule.rule_type,
+                        rule.threshold_value,
+                      )}
+                    </td>
                     <td className="text-sm text-[var(--slate-700)]">{renderActionLabel(rule.action)}</td>
                     <td>
                       {rule.is_active ? (
@@ -367,7 +394,7 @@ export default async function AdminRulesPage() {
                       <div className="flex flex-col items-end gap-2">
                         <details className="dashboard-card w-full max-w-[760px] p-3 text-left">
                           <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
-                            Editer
+                            Éditer
                           </summary>
                           <form action={updateRuleAction} className="mt-3 grid gap-2 lg:grid-cols-6">
                             <input type="hidden" name="rule_id" value={rule.id} />
@@ -396,7 +423,10 @@ export default async function AdminRulesPage() {
                               type="number"
                               min="0"
                               step="0.01"
-                              defaultValue={rule.threshold_value}
+                              defaultValue={toDisplayedRuleThreshold(
+                                rule.rule_type,
+                                rule.threshold_value,
+                              )}
                               className="form-input h-9 text-sm"
                               required
                             />
@@ -425,7 +455,14 @@ export default async function AdminRulesPage() {
                             <input type="hidden" name="rule_type" value={rule.rule_type} />
                             <input type="hidden" name="scope_type" value={rule.scope_type} />
                             <input type="hidden" name="scope_id" value={rule.scope_id ?? ""} />
-                            <input type="hidden" name="threshold_value" value={rule.threshold_value} />
+                            <input
+                              type="hidden"
+                              name="threshold_value"
+                              value={toDisplayedRuleThreshold(
+                                rule.rule_type,
+                                rule.threshold_value,
+                              )}
+                            />
                             <input type="hidden" name="action" value={rule.action} />
                             <input
                               type="hidden"
@@ -433,7 +470,7 @@ export default async function AdminRulesPage() {
                               value={rule.is_active ? "false" : "true"}
                             />
                             <button type="submit" className="btn btn-secondary btn-sm">
-                              {rule.is_active ? "Desactiver" : "Activer"}
+                              {rule.is_active ? "Désactiver" : "Activer"}
                             </button>
                           </form>
 

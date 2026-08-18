@@ -533,23 +533,25 @@ select ok(
   exists (
     select 1
     from pg_proc as procedure
-    where procedure.oid = 'public.apply_takeoff_job_guarded(uuid,text,uuid)'::regprocedure
-      and procedure.prosecdef = false
+    where procedure.oid =
+      'public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb)'::regprocedure
+      and procedure.prosecdef = true
       and position(
         'set_config(''app.takeoff_apply_job'', ''on'', true)'
         in procedure.prosrc
       ) > 0
       and position(
-        'TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED'
+        'set_config(''app.takeoff_apply_atomic'', ''on'', true)'
         in procedure.prosrc
       ) > 0
+      and position('TAKEOFF_ROOT_REPLACE_DISABLED' in procedure.prosrc) > 0
       and exists (
         select 1
         from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
         where setting = 'search_path=pg_catalog'
       )
   ),
-  'guarded takeoff apply RPC is invoker-safe and sets its local boundary marker'
+  'atomic takeoff apply RPC sets both boundaries and blocks root replacement'
 );
 
 select ok(
@@ -557,7 +559,7 @@ select ok(
     select 1
     from pg_proc as procedure
     where procedure.oid =
-      'public.apply_takeoff_job_guarded(uuid,text,uuid,text)'::regprocedure
+      'public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb,text)'::regprocedure
       and procedure.prosecdef = true
       and position('authorization_token_hash' in procedure.prosrc) > 0
       and position('permit.user_id = caller_id' in procedure.prosrc) > 0
@@ -581,12 +583,12 @@ select ok(
 select ok(
   has_function_privilege(
     'authenticated',
-    'public.apply_takeoff_job_guarded(uuid,text,uuid,text)'::regprocedure,
+    'public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb,text)'::regprocedure,
     'EXECUTE'
   )
   and not has_function_privilege(
     'anon',
-    'public.apply_takeoff_job_guarded(uuid,text,uuid,text)'::regprocedure,
+    'public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb,text)'::regprocedure,
     'EXECUTE'
   ),
   'token-bound DPGF apply RPC is exposed only to authenticated callers'
@@ -631,20 +633,25 @@ select ok(
 select ok(
   has_function_privilege(
     'authenticated',
-    'public.apply_takeoff_job_guarded(uuid,text,uuid)'::regprocedure,
+    'public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb)'::regprocedure,
     'EXECUTE'
   )
-  and has_function_privilege(
+  and not has_function_privilege(
     'authenticated',
     'public.apply_takeoff_job(uuid,text,uuid)'::regprocedure,
     'EXECUTE'
   )
   and not has_function_privilege(
-    'anon',
+    'authenticated',
     'public.apply_takeoff_job_guarded(uuid,text,uuid)'::regprocedure,
     'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb)'::regprocedure,
+    'EXECUTE'
   ),
-  'guarded takeoff apply RPC is exposed only to authenticated callers'
+  'only the atomic guarded takeoff wrapper remains exposed to authenticated callers'
 );
 
 select ok(

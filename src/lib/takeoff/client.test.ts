@@ -9,6 +9,7 @@ import {
   fetchTakeoffPriceSuggestion,
   fetchTakeoffJobCompare,
   fetchTakeoffMappingRules,
+  TAKEOFF_READ_REQUEST_TIMEOUT_MS,
   isTakeoffApiError,
   previewTakeoffConversion,
   requestTakeoffPriceSuggestion,
@@ -101,6 +102,7 @@ const APPLY_RESPONSE = {
     updated_count: 0,
     ignored_count: 0,
     created_ids: ["99999999-9999-4999-8999-999999999999"],
+    item_links: [],
   },
 };
 
@@ -397,6 +399,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
 
 describe("takeoff client mapping rules wrappers", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -422,6 +425,30 @@ describe("takeoff client mapping rules wrappers", () => {
       })
     );
     expect(result).toEqual([MAPPING_RULE]);
+  });
+
+  it("fails a silent GET after the shared read timeout with a retryable error", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true }
+        );
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = fetchTakeoffMappingRules();
+    const assertion = expect(request).rejects.toMatchObject({
+      status: 408,
+      code: "TAKEOFF_REQUEST_TIMEOUT",
+      retryable: true,
+    });
+    await vi.advanceTimersByTimeAsync(TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+    await assertion;
+    vi.useRealTimers();
   });
 
   it("creates a mapping rule via POST and sends JSON payload", async () => {

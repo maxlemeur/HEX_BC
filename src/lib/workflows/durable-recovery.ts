@@ -4,6 +4,7 @@ import {
   type ProcurementStorageCleanupDrainResult,
 } from "@/lib/procurement/storage-cleanup-outbox";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import type { DurableWorkflowRpcClient } from "@/lib/workflows/affaire-intake-lifecycle";
 
@@ -29,6 +30,7 @@ type DurableRecoveryDependencies = {
   limit?: number;
   maxIntakePerRun?: number;
   triggerTakeoff?: typeof triggerTakeoffJobProcessing;
+  persistTakeoffDispatch?: typeof persistTakeoffDispatchOutcome;
   processIntake?: typeof processAffaireIntakeUpload;
   drainStorageCleanup?: typeof drainProcurementStorageCleanupOutbox;
   storageCleanupLimit?: number;
@@ -74,6 +76,8 @@ export async function recoverDurableWorkflows(
   const now = dependencies.now ?? (() => new Date());
   const triggerTakeoff =
     dependencies.triggerTakeoff ?? triggerTakeoffJobProcessing;
+  const persistTakeoffDispatch =
+    dependencies.persistTakeoffDispatch ?? persistTakeoffDispatchOutcome;
   const processIntake = dependencies.processIntake ?? processAffaireIntakeUpload;
   const drainStorageCleanup =
     dependencies.drainStorageCleanup ?? drainProcurementStorageCleanupOutbox;
@@ -147,6 +151,11 @@ export async function recoverDurableWorkflows(
         const result = await triggerTakeoff({
           jobId: workflow.workId,
           trigger: workflow.triggerKind,
+        });
+        await persistTakeoffDispatch({
+          jobId: workflow.workId,
+          trigger: workflow.triggerKind,
+          result,
         });
         if (!result.triggered) {
           throw new Error(

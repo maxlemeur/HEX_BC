@@ -254,6 +254,78 @@ describe("EstimateEditorRow behavior", () => {
     expect(priceCell).toHaveAttribute("data-input-value", "12.01");
 
   });
+
+  it("persists an explicit line nature and exposes contextual labels", () => {
+    const { container } = renderRow(
+      createItem({
+        id: "line-nature",
+        title: "Litière sur mesure",
+        line_nature: "supply_only",
+      }),
+    );
+
+    const natureSelect = screen.getByRole("combobox", {
+      name: "Fournitures — nature de ligne pour Litière sur mesure",
+    });
+    expect(screen.getByText("Fournitures")).toBeInTheDocument();
+    expect(natureSelect).toHaveAttribute(
+      "data-cell-id",
+      "line-nature::line_nature",
+    );
+    fireEvent.change(natureSelect, {
+      target: { value: "supply_and_labor" },
+    });
+
+    expect(rowActionSpies.onPatchItem).toHaveBeenCalledWith(
+      "line-nature",
+      { line_nature: "supply_and_labor" },
+      { persist: true },
+    );
+    expect(
+      screen.getByRole("combobox", {
+        name: "Unité pour Litière sur mesure",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", {
+        name: "Heures de main-d’œuvre pour Litière sur mesure",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector(
+        'input[aria-label="Prix de vente unitaire HT pour Litière sur mesure"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("renders line nature as static metadata in read-only mode", () => {
+    const { container } = renderRow(
+      createItem({
+        id: "line-nature-readonly",
+        title: "Tuyau DN 100 acier",
+        line_nature: "supply_and_labor",
+      }),
+      { isReadOnly: true },
+    );
+
+    const naturePicker = container.querySelector(
+      '[data-cell-id="line-nature-readonly::line_nature"]',
+    );
+    expect(naturePicker).toHaveTextContent("Fournitures + MO");
+    expect(naturePicker).toHaveAttribute(
+      "title",
+      "Fournitures + main-d’œuvre — nature de ligne en lecture seule.",
+    );
+    expect(
+      screen.queryByRole("combobox", {
+        name: /nature de ligne pour Tuyau DN 100 acier/i,
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector(".estimate-line-nature-picker__chevron"),
+    ).toBeNull();
+    expect(rowActionSpies.onPatchItem).not.toHaveBeenCalled();
+  });
   it("selects the generated line title on focus and click", () => {
     renderRow(
       createItem({
@@ -360,6 +432,7 @@ describe("EstimateEditorRow behavior", () => {
     const { container } = renderRow(
       createItem({
         id: "line-responsive-designation",
+        title: "Tuyau DN 100 acier",
       })
     );
 
@@ -374,9 +447,14 @@ describe("EstimateEditorRow behavior", () => {
       container.querySelectorAll(".estimate-line-truth__badge")
     );
     const truthGroup = screen.getByTestId("estimate-line-truth");
+    const naturePicker = container.querySelector<HTMLElement>(
+      ".estimate-line-nature-picker",
+    );
 
     expect(primaryRow).toContainElement(titleInput);
+    expect(titleInput).toHaveValue("Tuyau DN 100 acier");
     expect(supportRow).not.toContainElement(titleInput);
+    expect(supportRow).toContainElement(naturePicker);
     expect(screen.queryByText("+ AID")).not.toBeInTheDocument();
     expect(container.querySelector(".estimate-aid-inline")).not.toBeInTheDocument();
     fireEvent.contextMenu(titleInput, { clientX: 30, clientY: 40 });

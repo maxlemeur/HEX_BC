@@ -22297,6 +22297,14 @@
                               "type": "string",
                               "const": "line"
                             },
+                            "line_nature": {
+                              "type": "string",
+                              "enum": [
+                                "supply_only",
+                                "supply_and_labor",
+                                "labor_only"
+                              ]
+                            },
                             "parent_id": {
                               "anyOf": [
                                 {
@@ -22558,6 +22566,14 @@
                     "data": {
                       "type": "object",
                       "properties": {
+                        "line_nature": {
+                          "type": "string",
+                          "enum": [
+                            "supply_only",
+                            "supply_and_labor",
+                            "labor_only"
+                          ]
+                        },
                         "parent_id": {
                           "anyOf": [
                             {
@@ -24531,6 +24547,14 @@
                 "type": "string",
                 "const": "line"
               },
+              "line_nature": {
+                "type": "string",
+                "enum": [
+                  "supply_only",
+                  "supply_and_labor",
+                  "labor_only"
+                ]
+              },
               "parent_id": {
                 "anyOf": [
                   {
@@ -25086,6 +25110,14 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
+          "line_nature": {
+            "type": "string",
+            "enum": [
+              "supply_only",
+              "supply_and_labor",
+              "labor_only"
+            ]
+          },
           "parent_id": {
             "anyOf": [
               {
@@ -25364,6 +25396,14 @@
                   "type": "string",
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "line_nature": {
+                  "type": "string",
+                  "enum": [
+                    "supply_only",
+                    "supply_and_labor",
+                    "labor_only"
+                  ]
                 },
                 "parent_id": {
                   "anyOf": [
@@ -34897,6 +34937,88 @@
                         }
                       ]
                     },
+                    "dispatch_status": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "started",
+                            "queued",
+                            "trigger_failed"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dispatch_outcome": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "accepted",
+                            "configuration_missing",
+                            "http_error",
+                            "timeout",
+                            "network_error"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dispatch_trigger": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "create",
+                            "retry",
+                            "manual",
+                            "reconcile"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dispatch_correlation_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dispatch_status_code": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dispatch_updated_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "started_at": {
                       "anyOf": [
                         {
@@ -35151,6 +35273,33 @@
               },
               "created_at": {
                 "type": "string"
+              },
+              "dispatch": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "queued_for_recovery",
+                      "persistence_unconfirmed"
+                    ]
+                  },
+                  "correlation_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "persisted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "status",
+                  "correlation_id",
+                  "persisted"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -35159,7 +35308,8 @@
               "level",
               "source_file_name",
               "estimate_version_id",
-              "created_at"
+              "created_at",
+              "dispatch"
             ],
             "additionalProperties": false
           }
@@ -35325,6 +35475,88 @@
                     ]
                   },
                   "error_message": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "queued",
+                          "trigger_failed"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_outcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accepted",
+                          "configuration_missing",
+                          "http_error",
+                          "timeout",
+                          "network_error"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_trigger": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "create",
+                          "retry",
+                          "manual",
+                          "reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_correlation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_status_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_updated_at": {
                     "anyOf": [
                       {
                         "type": "string"
@@ -36082,6 +36314,88 @@
                       }
                     ]
                   },
+                  "dispatch_status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "queued",
+                          "trigger_failed"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_outcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accepted",
+                          "configuration_missing",
+                          "http_error",
+                          "timeout",
+                          "network_error"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_trigger": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "create",
+                          "retry",
+                          "manual",
+                          "reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_correlation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_status_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_updated_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "started_at": {
                     "anyOf": [
                       {
@@ -36224,6 +36538,29 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
+                  },
+                  "item_links": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "takeoff_item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "estimate_item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      "required": [
+                        "takeoff_item_id",
+                        "estimate_item_id"
+                      ],
+                      "additionalProperties": false
+                    }
                   }
                 },
                 "required": [
@@ -36231,7 +36568,8 @@
                   "created_count",
                   "updated_count",
                   "ignored_count",
-                  "created_ids"
+                  "created_ids",
+                  "item_links"
                 ],
                 "additionalProperties": false
               }
@@ -36398,6 +36736,88 @@
                       }
                     ]
                   },
+                  "dispatch_status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "queued",
+                          "trigger_failed"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_outcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accepted",
+                          "configuration_missing",
+                          "http_error",
+                          "timeout",
+                          "network_error"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_trigger": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "create",
+                          "retry",
+                          "manual",
+                          "reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_correlation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_status_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_updated_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "started_at": {
                     "anyOf": [
                       {
@@ -36505,6 +36925,33 @@
                   "created_at",
                   "updated_at",
                   "metrics"
+                ],
+                "additionalProperties": false
+              },
+              "dispatch": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "queued_for_recovery",
+                      "persistence_unconfirmed"
+                    ]
+                  },
+                  "correlation_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "persisted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "status",
+                  "correlation_id",
+                  "persisted"
                 ],
                 "additionalProperties": false
               }

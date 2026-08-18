@@ -5,6 +5,8 @@ import {
 
 const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
 const AUTOSAVE_BUFFER_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
+const AUTOSAVE_PREFERENCE_STORAGE_PREFIX =
+  "estimate:edit:autosave-enabled:v1:";
 
 export type EditorConflictDraft<TSettings, TItem> = {
   settings: TSettings | null;
@@ -26,6 +28,44 @@ function buildConflictDraftStorageKey(versionId: string) {
 
 function buildAutoSaveDraftStorageKey(versionId: string) {
   return `${AUTOSAVE_BUFFER_STORAGE_PREFIX}${versionId}`;
+}
+
+function buildAutoSavePreferenceStorageKey(userId: string) {
+  return `${AUTOSAVE_PREFERENCE_STORAGE_PREFIX}${userId}`;
+}
+
+export function readAutoSaveEnabledPreferenceFromLocal(userId: string | null) {
+  if (!userId || typeof window === "undefined") return true;
+
+  try {
+    const raw = window.localStorage.getItem(
+      buildAutoSavePreferenceStorageKey(userId)
+    );
+    if (!raw) return true;
+
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) && typeof parsed.enabled === "boolean"
+      ? parsed.enabled
+      : true;
+  } catch {
+    return true;
+  }
+}
+
+export function writeAutoSaveEnabledPreferenceToLocal(
+  userId: string | null,
+  enabled: boolean
+) {
+  if (!userId || typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      buildAutoSavePreferenceStorageKey(userId),
+      JSON.stringify({ enabled })
+    );
+  } catch {
+    // The preference is best-effort; the in-memory choice remains effective.
+  }
 }
 
 export function readConflictDraftFromSession<TSettings, TItem>(

@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAutoSaveDraftFromLocal,
   clearConflictDraftFromSession,
+  readAutoSaveEnabledPreferenceFromLocal,
   readAutoSaveDraftFromLocal,
   readConflictDraftFromSession,
+  writeAutoSaveEnabledPreferenceToLocal,
   writeAutoSaveDraftToLocal,
   writeConflictDraftToSession,
 } from "@/lib/estimates/editor-drafts";
@@ -14,6 +16,7 @@ import {
 const FIXED_NOW = "2026-07-15T16:45:00.000Z";
 const CONFLICT_KEY = "estimate:edit:conflict-draft:";
 const AUTOSAVE_KEY = "estimate:edit:autosave-buffer:";
+const AUTOSAVE_PREFERENCE_KEY = "estimate:edit:autosave-enabled:v1:";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -152,6 +155,34 @@ describe("estimate editor autosave drafts", () => {
 
     writeAutoSaveDraftToLocal("version-2", []);
     expect(readAutoSaveDraftFromLocal("version-2")).toBeNull();
+  });
+});
+
+describe("estimate editor autosave preference", () => {
+  it("defaults to enabled and stores a versioned per-user choice", () => {
+    expect(readAutoSaveEnabledPreferenceFromLocal("user-1")).toBe(true);
+
+    writeAutoSaveEnabledPreferenceToLocal("user-1", false);
+
+    expect(readAutoSaveEnabledPreferenceFromLocal("user-1")).toBe(false);
+    expect(readAutoSaveEnabledPreferenceFromLocal("user-2")).toBe(true);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `${AUTOSAVE_PREFERENCE_KEY}user-1`
+        ) ?? "null"
+      )
+    ).toEqual({ enabled: false });
+  });
+
+  it("falls back safely for malformed or unavailable preferences", () => {
+    window.localStorage.setItem(
+      `${AUTOSAVE_PREFERENCE_KEY}invalid`,
+      JSON.stringify({ enabled: "no" })
+    );
+
+    expect(readAutoSaveEnabledPreferenceFromLocal("invalid")).toBe(true);
+    expect(readAutoSaveEnabledPreferenceFromLocal(null)).toBe(true);
   });
 });
 

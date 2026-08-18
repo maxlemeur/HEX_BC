@@ -816,7 +816,7 @@ from canonical_definition;
 
 with freeze_definition as (
   select lower(pg_get_functiondef(
-    'public.freeze_estimate_v2_snapshot(uuid,uuid,timestamptz,bigint,uuid,text,jsonb,jsonb,jsonb)'::regprocedure
+    'public.freeze_estimate_v2_snapshot_without_explicit_rounding(uuid,uuid,timestamptz,bigint,uuid,text,jsonb,jsonb,jsonb)'::regprocedure
   )) as source
 )
 select ok(
@@ -1828,10 +1828,20 @@ select lives_ok(
       'approval',
       '{"labor_split_enabled":true,"labor_roles":[{"id":"71000000-0000-4000-8000-000000000060","hourly_rate_cents":5000}],"margin_tiers":[],"effective_margin_multiplier":1}'::jsonb,
       '[{"id":"71000000-0000-4000-8000-000000000053","snapshot_pu_ht_cents":210,"snapshot_fo_ht_cents":140,"snapshot_mo_ht_cents":70,"snapshot_mo_atelier_ht_cents":30,"snapshot_mo_chantier_ht_cents":40,"line_total_ht_cents":210,"line_tax_cents":42,"line_total_ttc_cents":252}]'::jsonb,
-      '{"total_ht_cents":210,"total_tax_cents":42,"total_ttc_cents":252}'::jsonb
+      '{"total_ht_cents":210,"total_tax_cents":42,"total_ttc_cents":252,"rounding_adjustment_cents":2}'::jsonb
     )
   $$,
   'split freeze ignores legacy h_mo and its missing legacy role once both active split durations have dedicated roles'
+);
+
+select is(
+  (
+    select version.rounding_adjustment_cents
+    from public.estimate_versions version
+    where version.id = '71000000-0000-4000-8000-000000000051'
+  ),
+  2,
+  'freeze persists commercial rounding separately from the historical balancing tax total'
 );
 
 update public.feature_flags

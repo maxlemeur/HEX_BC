@@ -25,7 +25,6 @@ import {
   exportEstimate,
   type EstimateExportMode,
 } from "@/lib/estimates/client";
-import { exportToCSV } from "@/lib/export";
 
 type ActiveEstimateExportMode = EstimateExportMode | "csv";
 
@@ -253,6 +252,7 @@ export function useEstimateEditorExportController(input: {
         projectName,
         versionNumber: version?.version_number,
       });
+      const { exportToCSV } = await import("@/lib/export");
       exportToCSV(
         lines,
         getEstimateLineExportColumns(isLaborSplitEnabled),

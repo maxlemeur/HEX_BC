@@ -73,7 +73,7 @@ describe("Level C localized proof security", () => {
     );
   });
 
-  it("recomputes the DPGF comparison before the normal server apply path", () => {
+  it("recomputes the DPGF comparison before the atomic server apply path", () => {
     const applyBody = takeoffServerSource.match(
       /export async function applyTakeoffJob\([\s\S]*?\n}\n\nexport async function/
     )?.[0];
@@ -85,13 +85,14 @@ describe("Level C localized proof security", () => {
     expect(applyBody).toMatch(/guard: "dpgf_comparison"/);
     expect(applyBody).toMatch(/TAKEOFF_APPLY_GUARD_FAILED/);
 
-    const patchIndex = applyBody?.indexOf("applyTakeoffItemPreApplyPatches") ?? -1;
+    const previewIndex =
+      applyBody?.indexOf("buildTakeoffMappingPreviewForJob") ?? -1;
     const comparisonIndex = applyBody?.indexOf("fetchDpgfTakeoffComparison") ?? -1;
     const authorizationIndex =
       applyBody?.indexOf("issueTakeoffDpgfApplyAuthorization") ?? -1;
     const rpcIndex = applyBody?.indexOf("invokeApplyTakeoffRpc") ?? -1;
-    expect(patchIndex).toBeGreaterThan(-1);
-    expect(comparisonIndex).toBeGreaterThan(patchIndex);
+    expect(previewIndex).toBeGreaterThan(-1);
+    expect(comparisonIndex).toBeGreaterThan(previewIndex);
     expect(authorizationIndex).toBeGreaterThan(comparisonIndex);
     expect(rpcIndex).toBeGreaterThan(authorizationIndex);
   });
@@ -132,8 +133,10 @@ describe("Level C localized proof security", () => {
     )?.[0];
 
     expect(invocation).toBeDefined();
-    expect(tokenBranch).toMatch(/"apply_takeoff_job_guarded"/);
+    expect(tokenBranch).toMatch(/"apply_takeoff_job_guarded_atomic"/);
     expect(tokenBranch).toMatch(/p_dpgf_authorization_token/);
+    expect(tokenBranch).toMatch(/p_mapping_plan/);
+    expect(invocation).not.toMatch(/"apply_takeoff_job_guarded"\s+as never/);
     expect(tokenBranch).not.toMatch(/"apply_takeoff_job"\s+as never/);
     expect(takeoffServerSource).toMatch(
       /authorization_token_hash:\s*toHexSha256\(authorizationToken\)/

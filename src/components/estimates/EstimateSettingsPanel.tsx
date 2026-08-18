@@ -725,14 +725,14 @@ export function EstimateSettingsPanel({
 
         <div className="estimate-summary lg:sticky lg:top-8 lg:self-start">
           <div className="estimate-summary__header">
-            <h3>Resume</h3>
-            <p>Calculs temps reel</p>
+            <h3>Résumé</h3>
+            <p>Calculs en temps réel</p>
           </div>
 
           {totals ? (
             <div className="estimate-summary__list">
               <div className="estimate-summary__row">
-                <span>Cout total</span>
+                <span>Coût total</span>
                 <strong>
                   {formatCurrency(totals.costSubtotalCents, settings.currency)}
                 </strong>
@@ -744,7 +744,7 @@ export function EstimateSettingsPanel({
                 </strong>
               </div>
               <div className="estimate-summary__row">
-                <span>Marge appliquee</span>
+                <span>Marge appliquée</span>
                 <strong>
                   x{formatMarginMultiplier(totals.appliedMarginMultiplier)}
                 </strong>
@@ -764,17 +764,42 @@ export function EstimateSettingsPanel({
               <div className="estimate-summary__row">
                 <span>TVA</span>
                 <strong>
-                  {formatCurrency(totals.adjustedTaxCents, settings.currency)}
+                  {formatCurrency(
+                    totals.adjustedTaxCents - totals.roundingAdjustmentCents,
+                    settings.currency,
+                  )}
                 </strong>
               </div>
-              <div className="estimate-summary__row">
-                <span>Ajustement arrondi</span>
-                <strong>
-                  {formatCurrency(totals.roundingAdjustmentCents, settings.currency)}
-                </strong>
-              </div>
+              {totals.roundingAdjustmentCents !== 0 ? (
+                <>
+                  <div className="estimate-summary__row">
+                    <span>TTC calculé</span>
+                    <strong>
+                      {formatCurrency(
+                        totals.roundedTtcCents -
+                          totals.roundingAdjustmentCents,
+                        settings.currency,
+                      )}
+                    </strong>
+                  </div>
+                  <div className="estimate-summary__row">
+                    <span>Arrondi commercial</span>
+                    <strong>
+                      {totals.roundingAdjustmentCents > 0 ? "+" : "−"}
+                      {formatCurrency(
+                        Math.abs(totals.roundingAdjustmentCents),
+                        settings.currency,
+                      )}
+                    </strong>
+                  </div>
+                  <p className="text-xs text-[var(--slate-500)]">
+                    Optionnel, cet ajustement s’applique uniquement au total TTC
+                    à payer.
+                  </p>
+                </>
+              ) : null}
               <div className="estimate-summary__row estimate-summary__row--total">
-                <span>Total TTC</span>
+                <span>TTC à payer</span>
                 <strong>
                   {formatCurrency(totals.roundedTtcCents, settings.currency)}
                 </strong>

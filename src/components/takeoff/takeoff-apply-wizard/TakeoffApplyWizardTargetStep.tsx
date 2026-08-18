@@ -33,7 +33,7 @@ export function TakeoffApplyWizardTargetStep({
             : "Brouillon actuellement ouvert"}
         </p>
         <p className="mt-1 text-sm text-[var(--slate-600)]">
-          Les quantites seront injectees dans ce devis brouillon apres confirmation finale.
+          Les quantités seront injectées dans cette section après confirmation finale. La racine du devis n&apos;est jamais proposée comme cible.
         </p>
       </div>
 

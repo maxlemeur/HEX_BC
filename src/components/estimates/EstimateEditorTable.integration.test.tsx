@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -247,6 +248,7 @@ function renderEstimateEditorTable(options?: {
             missing_quantity: 0,
             missing_labor_time: 0,
             missing_labor_role: 0,
+            line_nature_mismatch: 0,
             price_outlier: 0,
             quantity_outlier: 0,
             supplier_price_outdated: 0,
@@ -538,7 +540,7 @@ describe("EstimateEditorTable integration", () => {
     }
   });
 
-  it("uses a compact mobile list with quick add and a secondary full-table mode", () => {
+  it("uses a compact mobile list with quick add and a secondary full-table mode", async () => {
     const originalMatchMedia = window.matchMedia;
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -594,7 +596,7 @@ describe("EstimateEditorTable integration", () => {
         screen.getByRole("button", { name: "Modifier la ligne Tube acier" }),
       );
       expect(
-        screen.getByRole("dialog", { name: "Modifier la ligne" }),
+        await screen.findByRole("dialog", { name: "Modifier la ligne" }),
       ).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
 
@@ -628,7 +630,7 @@ describe("EstimateEditorTable integration", () => {
     }
   });
 
-  it("opens the line editor only on mobile and supports consecutive entry", () => {
+  it("opens the line editor only on mobile and supports consecutive entry", async () => {
     const originalMatchMedia = window.matchMedia;
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -658,11 +660,24 @@ describe("EstimateEditorTable integration", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Modifier line-1" }));
 
-      expect(
-        screen.getByRole("dialog", { name: "Modifier la ligne" }),
-      ).toBeInTheDocument();
+      const mobileEditor = await screen.findByRole("dialog", {
+        name: "Modifier la ligne",
+      });
+      expect(mobileEditor).toBeInTheDocument();
       expect(screen.getByTestId("estimate-mobile-line-title-input")).toHaveValue(
         "Tube acier",
+      );
+
+      fireEvent.change(
+        within(mobileEditor).getByRole("combobox", {
+          name: "Nature de ligne pour Tube acier",
+        }),
+        { target: { value: "supply_only" } },
+      );
+      expect(onPatchItem).toHaveBeenCalledWith(
+        "line-1",
+        { line_nature: "supply_only" },
+        { persist: true },
       );
 
       const quantityInput = screen.getByLabelText("Quantité");

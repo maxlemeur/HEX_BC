@@ -128,6 +128,12 @@ function createJobDetailResponse(
       error_message: null,
       next_retry_at: null,
       last_error_at: null,
+      dispatch_status: null,
+      dispatch_outcome: null,
+      dispatch_trigger: null,
+      dispatch_correlation_id: null,
+      dispatch_status_code: null,
+      dispatch_updated_at: null,
       provider_reconcile_due_at: null,
       provider_reconcile_attempt_count: 0,
       provider_reconcile_lease_expires_at: null,
@@ -237,6 +243,33 @@ describe("TakeoffJobMonitor", () => {
     expect(
       screen.queryByRole("link", { name: /voir les resultats/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps the delayed-start recovery visible after a reload", () => {
+    const detail = createJobDetailResponse("pending");
+    detail.job.dispatch_status = "trigger_failed";
+    detail.job.dispatch_outcome = "timeout";
+    detail.job.dispatch_correlation_id = "dispatch-follow-up-123";
+
+    useTakeoffJobPollingMock.mockReturnValue({
+      data: detail,
+      error: null,
+      errorStatus: null,
+      isPolling: true,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <TakeoffJobMonitor
+        jobId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+      />
+    );
+
+    expect(
+      screen.getByText("Démarrage immédiat indisponible, reprise automatique active.")
+    ).toBeInTheDocument();
+    expect(screen.getByText(/dispatch-follow-up-123/)).toBeInTheDocument();
   });
 
   it("acquires a lock before apply when no active lock exists", async () => {

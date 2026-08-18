@@ -86,7 +86,26 @@ export type TakeoffJobResponse = {
   source_file_name: string | null;
   estimate_version_id: string;
   created_at: string;
+  dispatch?: TakeoffJobDispatch;
 };
+
+export type TakeoffJobDispatch = {
+  status: "accepted" | "queued_for_recovery" | "persistence_unconfirmed";
+  correlation_id: string;
+  persisted: boolean;
+};
+
+export type TakeoffDispatchStatus =
+  | "started"
+  | "queued"
+  | "trigger_failed";
+
+export type TakeoffDispatchOutcome =
+  | "accepted"
+  | "configuration_missing"
+  | "http_error"
+  | "timeout"
+  | "network_error";
 
 export type TakeoffJobMetrics = {
   token_count: number | null;
@@ -116,6 +135,12 @@ export type TakeoffJobSummary = {
   error_message: string | null;
   next_retry_at: string | null;
   last_error_at: string | null;
+  dispatch_status?: TakeoffDispatchStatus | null;
+  dispatch_outcome?: TakeoffDispatchOutcome | null;
+  dispatch_trigger?: "create" | "retry" | "manual" | "reconcile" | null;
+  dispatch_correlation_id?: string | null;
+  dispatch_status_code?: number | null;
+  dispatch_updated_at?: string | null;
   provider_reconcile_due_at?: string | null;
   provider_reconcile_attempt_count?: number;
   provider_reconcile_lease_expires_at?: string | null;
@@ -208,6 +233,10 @@ export type TakeoffApplySummary = {
   updated_count: number;
   ignored_count: number;
   created_ids: string[];
+  item_links: Array<{
+    takeoff_item_id: string;
+    estimate_item_id: string;
+  }>;
 };
 
 export type TakeoffJobListResponse = {
@@ -328,6 +357,7 @@ export type TakeoffJobActionResponse = {
   job: TakeoffJobSummary;
   command?: "retry" | "cancel" | "reconcile" | "resubmit";
   outcome?: "applied" | "noop";
+  dispatch?: TakeoffJobDispatch;
 };
 
 export type TakeoffApplyResponse = {
@@ -1196,6 +1226,10 @@ export type TakeoffActivityCenterJobRow = {
   carriedOverFrom: string | null;
   neverApplied: boolean;
   retryCount: number;
+  dispatchStatus?: TakeoffDispatchStatus | null;
+  dispatchOutcome?: TakeoffDispatchOutcome | null;
+  dispatchCorrelationId?: string | null;
+  dispatchUpdatedAt?: string | null;
 };
 
 export type TakeoffActivityCenterFilters = {

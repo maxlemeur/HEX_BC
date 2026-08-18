@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
+import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
 import {
   DEFAULT_MAX_SECTION_DEPTH,
   MAX_SECTION_DEPTH,
@@ -396,6 +397,7 @@ const laborSplitItemFields = {
 
 const createLineItemSchema = z.object({
   item_type: z.literal("line"),
+  line_nature: z.enum(ESTIMATE_LINE_NATURES).optional(),
   parent_id: nullableUuidSchema.optional(),
   position: positiveIntegerSchema.optional(),
   title: requiredTextSchema.optional(),
@@ -419,12 +421,10 @@ const createLineItemSchema = z.object({
   source_page: z.union([positiveIntegerSchema, z.null()]).optional(),
 });
 
-export const createEstimateItemSchema = z.discriminatedUnion("item_type", [
-  createSectionItemSchema,
-  createLineItemSchema,
-]);
+export const createEstimateItemSchema = z.discriminatedUnion("item_type", [createSectionItemSchema, createLineItemSchema]);
 
 const updateEstimateItemFields = {
+  line_nature: z.enum(ESTIMATE_LINE_NATURES).optional(),
   parent_id: nullableUuidSchema.optional(),
   position: positiveIntegerSchema.optional(),
   title: requiredTextSchema.optional(),

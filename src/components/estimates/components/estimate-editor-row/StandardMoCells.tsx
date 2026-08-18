@@ -101,6 +101,7 @@ export function StandardMoCells({
           ref={hMoEditorProps.ref}
           tabIndex={hMoEditorProps.tabIndex}
           value={hMoValue}
+          aria-label={`Heures de main-d’œuvre pour ${item.title || "sans titre"}`}
           onFocus={hMoEditorProps.onFocus}
           onKeyDown={hMoEditorProps.onKeyDown}
           onValueChange={(value) =>
@@ -141,6 +142,7 @@ export function StandardMoCells({
             step="0.1"
             min={0}
             value={hMoMajorationPercent}
+            aria-label={`Majoration de main-d’œuvre en pourcentage pour ${item.title || "sans titre"}`}
             onFocus={hMoMajorationEditorProps.onFocus}
             onKeyDown={hMoMajorationEditorProps.onKeyDown}
             onChange={(event) =>

@@ -589,7 +589,7 @@ describe("AffaireFinishLineActions", () => {
 
     await user.click(
       within(getLatestByTestId("affaire-finish-line-pdf")).getByRole("button", {
-        name: /Telecharger le PDF/i,
+        name: /Préparer le PDF/i,
       })
     );
 

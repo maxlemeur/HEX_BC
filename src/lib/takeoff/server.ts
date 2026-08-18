@@ -6,7 +6,6 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   assertDraftStatus,
   bulkUpdateEstimateItems,
-  insertAssemblyIntoVersion,
   suggestEstimateCataloguePrices,
   updateEstimateItem,
 } from "@/lib/estimates/server";
@@ -239,6 +238,12 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "retry_count",
   "next_retry_at",
   "last_error_at",
+  "dispatch_status",
+  "dispatch_outcome",
+  "dispatch_trigger",
+  "dispatch_correlation_id",
+  "dispatch_status_code",
+  "dispatch_updated_at",
   "provider_reconcile_due_at",
   "provider_reconcile_attempt_count",
   "provider_reconcile_lease_expires_at",
@@ -445,20 +450,6 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
   "first_detected_at",
   "last_detected_at",
 ].join(", ");
-const TAKEOFF_APPLIED_ESTIMATE_ITEMS_SELECT = [
-  "id",
-  "parent_id",
-  "position",
-  "title",
-  "description",
-  "source_job_id",
-  "item_type",
-  "updated_at",
-].join(", ");
-const TAKEOFF_MAPPING_SKIP_REASON = "Exclu par regle de mapping: skip";
-const TAKEOFF_MAPPING_ASSEMBLY_REASON =
-  "Exclu par regle de mapping: apply_assembly";
-
 const optionalUuidSearchParamSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === null) return undefined;
@@ -672,6 +663,27 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     error_message: z.string().nullable(),
     next_retry_at: z.string().nullable().optional(),
     last_error_at: z.string().nullable().optional(),
+    dispatch_status: z
+      .enum(["started", "queued", "trigger_failed"])
+      .nullable()
+      .optional(),
+    dispatch_outcome: z
+      .enum([
+        "accepted",
+        "configuration_missing",
+        "http_error",
+        "timeout",
+        "network_error",
+      ])
+      .nullable()
+      .optional(),
+    dispatch_trigger: z
+      .enum(["create", "retry", "manual", "reconcile"])
+      .nullable()
+      .optional(),
+    dispatch_correlation_id: z.string().uuid().nullable().optional(),
+    dispatch_status_code: z.number().int().min(100).max(599).nullable().optional(),
+    dispatch_updated_at: z.string().nullable().optional(),
     provider_reconcile_due_at: z.string().nullable().optional(),
     provider_reconcile_attempt_count: z.number().int().nonnegative().nullable().optional(),
     provider_reconcile_lease_expires_at: z.string().nullable().optional(),
@@ -706,6 +718,12 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     error_message: row.error_message,
     next_retry_at: row.next_retry_at ?? null,
     last_error_at: row.last_error_at ?? null,
+    dispatch_status: row.dispatch_status ?? null,
+    dispatch_outcome: row.dispatch_outcome ?? null,
+    dispatch_trigger: row.dispatch_trigger ?? null,
+    dispatch_correlation_id: row.dispatch_correlation_id ?? null,
+    dispatch_status_code: row.dispatch_status_code ?? null,
+    dispatch_updated_at: row.dispatch_updated_at ?? null,
     provider_reconcile_due_at: row.provider_reconcile_due_at ?? null,
     provider_reconcile_attempt_count: row.provider_reconcile_attempt_count ?? 0,
     provider_reconcile_lease_expires_at:
@@ -1038,6 +1056,14 @@ const takeoffApplyRpcSummarySchema = z
     updated_count: z.number().int().nonnegative().optional(),
     ignored_count: z.number().int().nonnegative().optional(),
     created_ids: z.array(z.string()).optional(),
+    item_links: z
+      .array(
+        z.object({
+          takeoff_item_id: z.string().uuid(),
+          estimate_item_id: z.string().uuid(),
+        })
+      )
+      .optional(),
   })
   .passthrough();
 
@@ -1100,6 +1126,18 @@ type TakeoffJobDetailRow = {
   retry_count: number | null;
   next_retry_at: string | null;
   last_error_at: string | null;
+  dispatch_status: "started" | "queued" | "trigger_failed" | null;
+  dispatch_outcome:
+    | "accepted"
+    | "configuration_missing"
+    | "http_error"
+    | "timeout"
+    | "network_error"
+    | null;
+  dispatch_trigger: "create" | "retry" | "manual" | "reconcile" | null;
+  dispatch_correlation_id: string | null;
+  dispatch_status_code: number | null;
+  dispatch_updated_at: string | null;
   provider_reconcile_due_at: string | null;
   provider_reconcile_attempt_count: number | null;
   provider_reconcile_lease_token?: string | null;
@@ -1148,17 +1186,6 @@ type TakeoffMappingRuleRow = {
   action_params: unknown;
   priority: number;
   is_active: boolean;
-};
-
-type EstimateLineForTakeoffMappingRow = {
-  id: string;
-  parent_id: string | null;
-  position: number;
-  title: string;
-  description: string | null;
-  source_job_id: string | null;
-  item_type: string;
-  updated_at: string;
 };
 
 type TakeoffPriceSuggestionRow = {
@@ -1626,18 +1653,39 @@ type ApplyTakeoffRpcArgs = {
   job_id: string;
   strategy: TakeoffApplyStrategy;
   target_section_id: string | null;
+  mapping_plan: TakeoffAtomicMappingPlanItem[];
   dpgf_authorization_token?: string | null;
 };
 
-function isApplyTakeoffRpcSignatureMismatch(
-  error: ApplyTakeoffRpcError,
-  functionName: "apply_takeoff_job" | "apply_takeoff_job_guarded"
-) {
-  const normalizedMessage = (error.message ?? "").toLowerCase();
-  return (
-    error.code === "PGRST202" ||
-    normalizedMessage.includes(`could not find the function public.${functionName}`)
-  );
+type TakeoffAtomicMappingPlanItem = {
+  item_id: string;
+  source_order: number;
+  rule_id: string | null;
+  action: TakeoffMappingPreviewItem["action"];
+  designation: string;
+  unit_price_cents: number | null;
+  category_id: string | null;
+  assembly_id: string | null;
+};
+
+function buildTakeoffAtomicMappingPlan(
+  previewItems: TakeoffMappingPreviewItem[]
+): TakeoffAtomicMappingPlanItem[] {
+  return previewItems.map((item) => ({
+    item_id: item.item_id,
+    source_order: item.source_order,
+    rule_id: item.rule_id,
+    action: item.action,
+    designation: item.transformed.designation,
+    unit_price_cents:
+      item.action === "set_price"
+        ? item.transformed.unit_price_cents
+        : null,
+    category_id:
+      item.action === "set_category" ? item.transformed.category_id : null,
+    assembly_id:
+      item.action === "apply_assembly" ? item.transformed.assembly_id : null,
+  }));
 }
 
 async function invokeApplyTakeoffRpc(input: {
@@ -1646,51 +1694,26 @@ async function invokeApplyTakeoffRpc(input: {
 }) {
   if (input.args.dpgf_authorization_token) {
     return input.supabase.rpc(
-      "apply_takeoff_job_guarded" as never,
+      "apply_takeoff_job_guarded_atomic" as never,
       {
         p_job_id: input.args.job_id,
         p_strategy: input.args.strategy,
         p_target_section_id: input.args.target_section_id,
+        p_mapping_plan: input.args.mapping_plan,
         p_dpgf_authorization_token: input.args.dpgf_authorization_token,
       } as never
     );
   }
 
-  const guardedAttempt = await input.supabase.rpc(
-    "apply_takeoff_job_guarded" as never,
+  return input.supabase.rpc(
+    "apply_takeoff_job_guarded_atomic" as never,
     {
       p_job_id: input.args.job_id,
       p_strategy: input.args.strategy,
       p_target_section_id: input.args.target_section_id,
+      p_mapping_plan: input.args.mapping_plan,
     } as never
   );
-
-  if (
-    !guardedAttempt.error ||
-    !isApplyTakeoffRpcSignatureMismatch(
-      guardedAttempt.error,
-      "apply_takeoff_job_guarded"
-    )
-  ) {
-    return guardedAttempt;
-  }
-
-  const legacyAttempt = await input.supabase.rpc(
-    "apply_takeoff_job" as never,
-    {
-      p_job_id: input.args.job_id,
-      p_strategy: input.args.strategy,
-      p_target_section_id: input.args.target_section_id,
-    } as never
-  );
-  if (
-    !legacyAttempt.error ||
-    !isApplyTakeoffRpcSignatureMismatch(legacyAttempt.error, "apply_takeoff_job")
-  ) {
-    return legacyAttempt;
-  }
-
-  return input.supabase.rpc("apply_takeoff_job" as never, input.args as never);
 }
 
 async function issueTakeoffDpgfApplyAuthorization(input: {
@@ -1781,6 +1804,54 @@ function mapApplyTakeoffRpcError(
       hint: error.hint ?? null,
     },
   };
+
+  if (error.code === "PGRST202") {
+    return new TakeoffError({
+      status: 503,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message:
+        "L’application atomique du métré n’est pas encore disponible. Réessayez après la mise à jour du service.",
+      details: {
+        ...details,
+        guard: "atomic_apply_unavailable",
+      },
+      retryable: true,
+      jobId: input.jobId,
+    });
+  }
+
+  if (normalized.includes("takeoff_root_replace_disabled")) {
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      message:
+        "Le remplacement complet du devis est désactivé : choisissez une section pour limiter l’application et protéger le chiffrage existant.",
+      details: {
+        ...details,
+        guard: "root_replace_disabled",
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (
+    normalized.includes("takeoff_atomic_mapping_plan") ||
+    normalized.includes("takeoff_atomic_line_mapping_failed")
+  ) {
+    return new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Le métré ou le devis a changé depuis l’aperçu. Rechargez la revue avant d’appliquer.",
+      details: {
+        ...details,
+        guard: "atomic_mapping_stale",
+      },
+      retryable: true,
+      jobId: input.jobId,
+    });
+  }
 
   if (
     normalized.includes("takeoff_dpgf_apply_authorization_required") ||
@@ -1902,6 +1973,7 @@ function normalizeTakeoffApplySummary(input: {
     updated_count: updatedItemsCount,
     ignored_count: ignoredItemsCount,
     created_ids: row.created_ids ?? row.created_item_ids ?? [],
+    item_links: row.item_links ?? [],
   };
 }
 
@@ -6524,18 +6596,6 @@ export async function updateTakeoffRiskAlertStatus(
   };
 }
 
-function normalizeTakeoffMappingText(value: string | null | undefined): string {
-  if (typeof value !== "string") return "";
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function buildTakeoffMappingKey(input: {
-  designation: string;
-  unit: string;
-}): string {
-  return `${normalizeTakeoffMappingText(input.designation).toLocaleLowerCase("fr-FR")}::${normalizeTakeoffMappingText(input.unit).toLocaleLowerCase("fr-FR")}`;
-}
-
 async function listActiveTakeoffMappingRules(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
@@ -7270,374 +7330,6 @@ async function assertTakeoffApplyDraftLockOwnership(input: {
   await bulkUpdateEstimateItems(input.estimateVersionId, [], concurrencyToken);
 }
 
-type TakeoffItemPreApplyPatch = {
-  item_id: string;
-  payload: {
-    designation?: string;
-    is_excluded?: boolean;
-    exclusion_reason?: string | null;
-    updated_at: string;
-  };
-};
-
-function buildTakeoffItemPreApplyPatches(
-  previewItems: TakeoffMappingPreviewItem[]
-): TakeoffItemPreApplyPatch[] {
-  return previewItems
-    .map((item) => {
-      if (item.original.is_excluded) {
-        return null;
-      }
-
-      const patch: TakeoffItemPreApplyPatch["payload"] = {
-        updated_at: new Date().toISOString(),
-      };
-
-      if (
-        item.action === "rename" &&
-        item.transformed.designation !== item.original.designation
-      ) {
-        patch.designation = item.transformed.designation;
-      }
-
-      if (item.action === "skip" || item.action === "apply_assembly") {
-        patch.is_excluded = true;
-        patch.exclusion_reason =
-          item.action === "skip"
-            ? TAKEOFF_MAPPING_SKIP_REASON
-            : TAKEOFF_MAPPING_ASSEMBLY_REASON;
-      }
-
-      if (Object.keys(patch).length <= 1) {
-        return null;
-      }
-
-      return {
-        item_id: item.item_id,
-        payload: patch,
-      } satisfies TakeoffItemPreApplyPatch;
-    })
-    .filter((entry): entry is TakeoffItemPreApplyPatch => Boolean(entry));
-}
-
-function buildTakeoffItemPreApplyRollbackPatches(input: {
-  previewItems: TakeoffMappingPreviewItem[];
-  patches: TakeoffItemPreApplyPatch[];
-}): TakeoffItemPreApplyPatch[] {
-  const previewByItemId = new Map(
-    input.previewItems.map((previewItem) => [previewItem.item_id, previewItem])
-  );
-  const rollbackTimestamp = new Date().toISOString();
-
-  return input.patches
-    .map((patch) => {
-      const previewItem = previewByItemId.get(patch.item_id);
-      if (!previewItem) {
-        return null;
-      }
-
-      const rollbackPayload: TakeoffItemPreApplyPatch["payload"] = {
-        updated_at: rollbackTimestamp,
-      };
-
-      if ("designation" in patch.payload) {
-        rollbackPayload.designation = previewItem.original.designation;
-      }
-      if ("is_excluded" in patch.payload) {
-        rollbackPayload.is_excluded = previewItem.original.is_excluded;
-      }
-      if ("exclusion_reason" in patch.payload) {
-        rollbackPayload.exclusion_reason = null;
-      }
-
-      return {
-        item_id: patch.item_id,
-        payload: rollbackPayload,
-      } satisfies TakeoffItemPreApplyPatch;
-    })
-    .filter((entry): entry is TakeoffItemPreApplyPatch => Boolean(entry));
-}
-
-async function applyTakeoffItemPreApplyPatches(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  jobId: string;
-  patches: TakeoffItemPreApplyPatch[];
-}) {
-  for (const patch of input.patches) {
-    const { error } = await input.supabase
-      .from("takeoff_items" as never)
-      .update(patch.payload as never)
-      .eq("tenant_id" as never, input.tenantId as never)
-      .eq("job_id" as never, input.jobId as never)
-      .eq("id" as never, patch.item_id as never);
-
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de preparer les items takeoff pour apply."),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.jobId,
-        }
-      );
-    }
-  }
-}
-
-async function rollbackTakeoffItemPreApplyPatches(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  jobId: string;
-  patches: TakeoffItemPreApplyPatch[];
-}) {
-  if (input.patches.length === 0) {
-    return;
-  }
-
-  try {
-    await applyTakeoffItemPreApplyPatches(input);
-  } catch (error) {
-    console.error("Failed to rollback takeoff item pre-apply patches", {
-      tenantId: input.tenantId,
-      jobId: input.jobId,
-      error,
-    });
-  }
-}
-
-async function loadAppliedEstimateLinesForTakeoffJob(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  estimateVersionId: string;
-  jobId: string;
-  targetSectionId: string | null;
-}): Promise<EstimateLineForTakeoffMappingRow[]> {
-  let query = input.supabase
-    .from("estimate_items" as never)
-    .select(TAKEOFF_APPLIED_ESTIMATE_ITEMS_SELECT as never)
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.estimateVersionId as never)
-    .eq("item_type" as never, "line" as never)
-    .eq("source_job_id" as never, input.jobId as never);
-
-  if (input.targetSectionId === null) {
-    query = query.is("parent_id" as never, null);
-  } else {
-    query = query.eq("parent_id" as never, input.targetSectionId as never);
-  }
-
-  const { data, error } = await query
-    .order("position" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        error,
-        "Impossible de charger les lignes appliquees pour le mapping takeoff."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.jobId,
-      }
-    );
-  }
-
-  return (data ?? []) as EstimateLineForTakeoffMappingRow[];
-}
-
-function mapPreviewItemsToEstimateLineIds(input: {
-  previewItems: TakeoffMappingPreviewItem[];
-  estimateLines: EstimateLineForTakeoffMappingRow[];
-}): Map<string, string | null> {
-  const linesByKey = new Map<string, EstimateLineForTakeoffMappingRow[]>();
-  for (const line of input.estimateLines) {
-    const key = buildTakeoffMappingKey({
-      designation: line.title,
-      unit: line.description ?? "",
-    });
-    const current = linesByKey.get(key) ?? [];
-    current.push(line);
-    linesByKey.set(key, current);
-  }
-
-  const sourceByKeyOffset = new Map<string, number>();
-  const result = new Map<string, string | null>();
-  const orderedPreviewItems = [...input.previewItems].sort(
-    (left, right) => left.source_order - right.source_order
-  );
-
-  for (const item of orderedPreviewItems) {
-    if (item.original.is_excluded || item.transformed.is_excluded) {
-      result.set(item.item_id, null);
-      continue;
-    }
-
-    const key = buildTakeoffMappingKey({
-      designation: item.transformed.designation,
-      unit: item.transformed.unit,
-    });
-    const keyOffset = sourceByKeyOffset.get(key) ?? 0;
-    const candidateLine = linesByKey.get(key)?.[keyOffset] ?? null;
-    sourceByKeyOffset.set(key, keyOffset + 1);
-    result.set(item.item_id, candidateLine?.id ?? null);
-  }
-
-  return result;
-}
-
-function buildEstimateLineUpdatesFromMappingPreview(input: {
-  previewItems: TakeoffMappingPreviewItem[];
-  estimateLineByItemId: Map<string, string | null>;
-}) {
-  const updatesByEstimateItemId = new Map<
-    string,
-    {
-      id: string;
-      title?: string;
-      unit_price_ht_cents?: number;
-      category_id?: string | null;
-    }
-  >();
-
-  for (const item of input.previewItems) {
-    const estimateItemId = input.estimateLineByItemId.get(item.item_id) ?? null;
-    if (!estimateItemId) {
-      continue;
-    }
-
-    if (item.action !== "rename" && item.action !== "set_price" && item.action !== "set_category") {
-      continue;
-    }
-
-    const currentPatch = updatesByEstimateItemId.get(estimateItemId) ?? {
-      id: estimateItemId,
-    };
-
-    if (item.action === "rename") {
-      currentPatch.title = item.transformed.designation;
-    }
-
-    if (
-      item.action === "set_price" &&
-      typeof item.transformed.unit_price_cents === "number"
-    ) {
-      currentPatch.unit_price_ht_cents = item.transformed.unit_price_cents;
-    }
-
-    if (item.action === "set_category") {
-      currentPatch.category_id = item.transformed.category_id;
-    }
-
-    updatesByEstimateItemId.set(estimateItemId, currentPatch);
-  }
-
-  return Array.from(updatesByEstimateItemId.values()).filter((update) => {
-    return (
-      Object.prototype.hasOwnProperty.call(update, "title") ||
-      Object.prototype.hasOwnProperty.call(update, "unit_price_ht_cents") ||
-      Object.prototype.hasOwnProperty.call(update, "category_id")
-    );
-  });
-}
-
-async function getEstimateVersionUpdatedAt(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  estimateVersionId: string;
-}): Promise<string> {
-  const { data, error } = await input.supabase
-    .from("estimate_versions" as never)
-    .select("updated_at" as never)
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("id" as never, input.estimateVersionId as never)
-    .maybeSingle();
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger le jeton de concurrence."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  const updatedAt =
-    (data as { updated_at: string | null } | null)?.updated_at ?? null;
-  if (!updatedAt) {
-    throw new TakeoffError({
-      status: 500,
-      code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "Jeton de concurrence introuvable pour la version de chiffrage.",
-      details: {
-        estimate_version_id: input.estimateVersionId,
-      },
-      retryable: false,
-    });
-  }
-
-  return updatedAt;
-}
-
-async function applyEstimateLineUpdatesFromMapping(input: {
-  estimateVersionId: string;
-  updates: Array<{
-    id: string;
-    title?: string;
-    unit_price_ht_cents?: number;
-    category_id?: string | null;
-  }>;
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-}) {
-  if (input.updates.length === 0) {
-    return;
-  }
-
-  const concurrencyToken = await getEstimateVersionUpdatedAt({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    estimateVersionId: input.estimateVersionId,
-  });
-
-  await bulkUpdateEstimateItems(input.estimateVersionId, input.updates, concurrencyToken);
-}
-
-async function applyAssemblyInsertionsFromMapping(input: {
-  estimateVersionId: string;
-  targetSectionId: string | null;
-  previewItems: TakeoffMappingPreviewItem[];
-}) {
-  const assemblyItems = [...input.previewItems]
-    .filter(
-      (item) =>
-        !item.original.is_excluded &&
-        item.action === "apply_assembly" &&
-        typeof item.transformed.assembly_id === "string"
-    )
-    .sort((left, right) => left.source_order - right.source_order);
-
-  let afterItemId = input.targetSectionId;
-  for (const item of assemblyItems) {
-    const inserted = await insertAssemblyIntoVersion({
-      assemblyId: item.transformed.assembly_id!,
-      versionId: input.estimateVersionId,
-      afterItemId,
-    });
-
-    const insertedItems = Array.isArray(inserted?.items) ? inserted.items : [];
-    const nextAnchorId =
-      insertedItems.find((insertedItem) => insertedItem.item_type === "section")?.id ??
-      insertedItems[0]?.id;
-    if (nextAnchorId) {
-      afterItemId = nextAnchorId;
-    }
-  }
-}
-
 async function logTakeoffMappingApplyAuditEvents(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
@@ -7695,6 +7387,22 @@ export async function applyTakeoffJob(
       "Identifiant job invalide."
     );
     const payload = parseApplyTakeoffPayload(body);
+
+    if (payload.strategy === "replace" && !payload.target_section_id) {
+      throw new TakeoffError({
+        status: 422,
+        code: TakeoffErrorCode.VALIDATION_ERROR,
+        message:
+          "Le remplacement complet du devis est désactivé : choisissez une section pour limiter l’application et protéger le chiffrage existant.",
+        details: {
+          guard: "root_replace_disabled",
+          strategy: payload.strategy,
+          target_section_id: null,
+        },
+        retryable: false,
+        jobId: normalizedJobId,
+      });
+    }
 
     const jobRow = await getTakeoffJobDetailByIdOrThrow({
       supabase,
@@ -7838,22 +7546,10 @@ export async function applyTakeoffJob(
       estimateVersionId: jobRow.estimate_version_id,
     });
 
-    const preApplyItemPatches = buildTakeoffItemPreApplyPatches(mappingPreview.items);
-    const preApplyItemRollbackPatches = buildTakeoffItemPreApplyRollbackPatches({
-      previewItems: mappingPreview.items,
-      patches: preApplyItemPatches,
-    });
     let dpgfAuthorizationToken: string | null = null;
     let rpcData: unknown;
 
     try {
-      await applyTakeoffItemPreApplyPatches({
-        supabase,
-        tenantId,
-        jobId: normalizedJobId,
-        patches: preApplyItemPatches,
-      });
-
       if (hasDpgfTargetLines) {
         const dpgfComparison = await fetchDpgfTakeoffComparison(normalizedJobId, {
           version_id: jobRow.estimate_version_id,
@@ -7891,6 +7587,7 @@ export async function applyTakeoffJob(
           job_id: normalizedJobId,
           strategy: payload.strategy,
           target_section_id: payload.target_section_id ?? null,
+          mapping_plan: buildTakeoffAtomicMappingPlan(mappingPreview.items),
           dpgf_authorization_token: dpgfAuthorizationToken,
         },
       });
@@ -7903,12 +7600,6 @@ export async function applyTakeoffJob(
 
       rpcData = rpcAttempt.data;
     } catch (error) {
-      await rollbackTakeoffItemPreApplyPatches({
-        supabase,
-        tenantId,
-        jobId: normalizedJobId,
-        patches: preApplyItemRollbackPatches,
-      });
       if (dpgfAuthorizationToken) {
         await revokeTakeoffDpgfApplyAuthorization({
           authorizationToken: dpgfAuthorizationToken,
@@ -7927,92 +7618,22 @@ export async function applyTakeoffJob(
     const hasAuditableMappingTransformations = mappingPreview.items.some(
       (item) => !item.original.is_excluded && item.action !== "none"
     );
-    const hasEstimateLineMappingUpdates = mappingPreview.items.some(
-      (item) =>
-        !item.original.is_excluded &&
-        (item.action === "rename" ||
-          item.action === "set_price" ||
-          item.action === "set_category")
-    );
-    const hasAssemblyInsertions = mappingPreview.items.some(
-      (item) => !item.original.is_excluded && item.action === "apply_assembly"
-    );
-
     if (hasAuditableMappingTransformations) {
-      // A ce stade le RPC a DEJA insere les lignes et bascule le job en
-      // 'applied' : ces transformations ne peuvent plus etre annulees ici, et
-      // le garde d'entree (status !== 'completed' -> 409) interdit tout
-      // re-appel. Sans ce catch, un echec ici remontait une erreur generique
-      // « Impossible d'appliquer », laissant croire que rien n'avait ete fait
-      // alors que le devis contenait deja les lignes SANS leurs prix,
-      // renommages, categories ni ouvrages.
-      try {
-        const estimateLineByItemId = new Map<string, string | null>();
-
-        if (hasEstimateLineMappingUpdates) {
-          const appliedEstimateLines = await loadAppliedEstimateLinesForTakeoffJob({
-            supabase,
-            tenantId,
-            estimateVersionId: jobRow.estimate_version_id,
-            jobId: normalizedJobId,
-            targetSectionId: payload.target_section_id ?? null,
-          });
-          const mappedEstimateLineIds = mapPreviewItemsToEstimateLineIds({
-            previewItems: mappingPreview.items,
-            estimateLines: appliedEstimateLines,
-          });
-          for (const [itemId, estimateItemId] of mappedEstimateLineIds.entries()) {
-            estimateLineByItemId.set(itemId, estimateItemId);
-          }
-
-          const estimateLineUpdates = buildEstimateLineUpdatesFromMappingPreview({
-            previewItems: mappingPreview.items,
-            estimateLineByItemId,
-          });
-          await applyEstimateLineUpdatesFromMapping({
-            estimateVersionId: jobRow.estimate_version_id,
-            updates: estimateLineUpdates,
-            supabase,
-            tenantId,
-          });
-        }
-
-        if (hasAssemblyInsertions) {
-          await applyAssemblyInsertionsFromMapping({
-            estimateVersionId: jobRow.estimate_version_id,
-            targetSectionId: payload.target_section_id ?? null,
-            previewItems: mappingPreview.items,
-          });
-        }
-
-        await logTakeoffMappingApplyAuditEvents({
-          supabase,
-          tenantId,
-          userId,
-          jobId: normalizedJobId,
-          estimateVersionId: jobRow.estimate_version_id,
-          previewItems: mappingPreview.items,
-          estimateLineByItemId,
-        });
-      } catch {
-        const linesApplied =
-          summary.created_count + summary.updated_count > 0;
-        throw new TakeoffError({
-          status: 500,
-          code: TakeoffErrorCode.INTERNAL_ERROR,
-          message: linesApplied
-            ? "Les lignes de metre ont ete appliquees au devis, mais les transformations de mapping (prix, renommage, categorie, ouvrages) ont echoue. Le devis contient donc ces lignes avec les valeurs brutes du metre : verifiez et corrigez leurs prix et designations avant envoi."
-            : "L'application des ouvrages a echoue et aucune ligne de metre n'a ete ajoutee au devis. Verifiez le devis avant toute nouvelle tentative.",
-          details: {
-            job_id: normalizedJobId,
-            estimate_version_id: jobRow.estimate_version_id,
-            partial_apply: true,
-            lines_applied: linesApplied,
-            mapping_applied: false,
-            cause_code: "MAPPING_TRANSFORM_FAILED",
-          },
-        });
-      }
+      const estimateLineByItemId = new Map(
+        summary.item_links.map((link) => [
+          link.takeoff_item_id,
+          link.estimate_item_id,
+        ])
+      );
+      await logTakeoffMappingApplyAuditEvents({
+        supabase,
+        tenantId,
+        userId,
+        jobId: normalizedJobId,
+        estimateVersionId: jobRow.estimate_version_id,
+        previewItems: mappingPreview.items,
+        estimateLineByItemId,
+      });
     }
 
     const updatedJobRow = await getTakeoffJobDetailByIdOrThrow({

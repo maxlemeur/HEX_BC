@@ -4,8 +4,13 @@ vi.mock("@/lib/takeoff/async-worker", () => ({
   processTakeoffJobAttempt: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/dispatch-state", () => ({
+  persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true),
+}));
+
 import { POST } from "@/app/api/internal/takeoff/process-job/route";
 import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 
 const JOB_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -77,6 +82,14 @@ describe("POST /api/internal/takeoff/process-job", () => {
         trigger: "retry",
       })
     );
+    expect(persistTakeoffDispatchOutcome).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      trigger: "retry",
+      result: expect.objectContaining({
+        triggered: true,
+        outcome: "accepted",
+      }),
+    });
   });
 
   it("returns 401 for invalid worker secret", async () => {
@@ -91,6 +104,7 @@ describe("POST /api/internal/takeoff/process-job", () => {
     expect(payload.ok).toBe(false);
     expect(payload.error?.code).toBe("UNAUTHORIZED");
     expect(processTakeoffJobAttempt).not.toHaveBeenCalled();
+    expect(persistTakeoffDispatchOutcome).not.toHaveBeenCalled();
   });
 
   it("uses correlation id from header when payload omits it", async () => {
@@ -126,5 +140,15 @@ describe("POST /api/internal/takeoff/process-job", () => {
         correlationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       })
     );
+    expect(persistTakeoffDispatchOutcome).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      trigger: "manual",
+      result: {
+        triggered: true,
+        correlationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        statusCode: null,
+        outcome: "accepted",
+      },
+    });
   });
 });

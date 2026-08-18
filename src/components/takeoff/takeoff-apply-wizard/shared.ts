@@ -47,10 +47,12 @@ export const STRATEGY_OPTIONS: Array<{
   },
   {
     value: "replace",
-    label: "Remplacer la zone cible",
-    description: "Remplace le contenu actuel de la zone cible par les lignes issues du metre retenu.",
-    impactLabel: "Impact fort sur la zone choisie.",
-    caution: "Le contenu existant de la zone cible sera remplace.",
+    label: "Remplacer uniquement la section choisie",
+    description:
+      "Remplace le contenu actuel de la section sélectionnée par les lignes issues du métré retenu.",
+    impactLabel: "Impact fort, limité à la section choisie.",
+    caution:
+      "La racine du devis reste protégée. La preview et la confirmation précèdent l'application atomique.",
   },
   {
     value: "merge",

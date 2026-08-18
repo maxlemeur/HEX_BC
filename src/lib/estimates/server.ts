@@ -85,6 +85,7 @@ import {
   CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION,
   LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION,
   PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
+  UNIFIED_ESTIMATE_SEAL_PAYLOAD_VERSION,
   type EstimateSealVersionFields,
 } from "./estimate-seal";
 import {
@@ -109,6 +110,7 @@ import {
   type EstimateLineTruth,
 } from "./line-truth";
 import { assertCanWriteEstimateWorkflows } from "./write-access";
+import { resolveEstimateLineNature } from "./line-nature";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -1904,7 +1906,7 @@ export async function loadEstimateSealSource(input: {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash"
+      "id, tenant_id, project_id, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -1921,7 +1923,7 @@ export async function loadEstimateSealSource(input: {
   const { data: itemsData, error: itemsError } = await input.supabase
     .from("estimate_items")
     .select(
-      "id, position, item_type, parent_id, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, labor_role_id, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, category_id, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, snapshot_pu_ht_cents, snapshot_fo_ht_cents, snapshot_mo_ht_cents, snapshot_mo_atelier_ht_cents, snapshot_mo_chantier_ht_cents"
+      "id, position, item_type, line_nature, parent_id, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, labor_role_id, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, category_id, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, snapshot_pu_ht_cents, snapshot_fo_ht_cents, snapshot_mo_ht_cents, snapshot_mo_atelier_ht_cents, snapshot_mo_chantier_ht_cents"
     )
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId)
@@ -8087,7 +8089,7 @@ export async function verifyEstimateSeal(versionId: string) {
     versionId,
   });
   const currentSealCandidate = {
-    scheme: "v3" as const,
+    scheme: "v4" as const,
     hash: computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource)),
   };
   const previousSealCandidate = {
@@ -8095,6 +8097,14 @@ export async function verifyEstimateSeal(versionId: string) {
     hash: computeEstimateSealHash(
       buildCanonicalEstimateSealPayload(sealSource, {
         payloadVersion: PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
+      })
+    ),
+  };
+  const unifiedSealCandidate = {
+    scheme: "v3" as const,
+    hash: computeEstimateSealHash(
+      buildCanonicalEstimateSealPayload(sealSource, {
+        payloadVersion: UNIFIED_ESTIMATE_SEAL_PAYLOAD_VERSION,
       })
     ),
   };
@@ -8119,11 +8129,12 @@ export async function verifyEstimateSeal(versionId: string) {
       ),
     },
   ];
-  // Les nouveaux sceaux engine v2 couvrent le contrat complet en payload v3.
-  // Le candidat v2 conserve la compatibilite des sceaux emis avant ce contrat.
+  // Les nouveaux sceaux engine v2 couvrent aussi la nature de ligne et
+  // l'arrondi commercial explicite en v4. Les candidats v3/v2 conservent la
+  // compatibilite des sceaux emis avant ce contrat.
   const sealCandidates =
     resolveCalcEngineVersion(sealSource.version) === 2
-      ? [currentSealCandidate, previousSealCandidate]
+      ? [currentSealCandidate, unifiedSealCandidate, previousSealCandidate]
       : [previousSealCandidate, ...legacySealCandidates];
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
   const matchedCandidate =
@@ -8812,6 +8823,19 @@ export async function createEstimateItem(
   const categoryId = input.category_id ?? null;
   const supplyTypeId = input.supply_type_id ?? null;
   const selectedSupplierPriceId = input.selected_supplier_price_id ?? null;
+  const lineNature =
+    input.line_nature ??
+    resolveEstimateLineNature({
+      unit_price_ht_cents: unitPriceHtCents,
+      supply_type_id: supplyTypeId,
+      selected_supplier_price_id: selectedSupplierPriceId,
+      h_mo: hMo,
+      h_mo_atelier: hMoAtelier,
+      h_mo_chantier: hMoChantier,
+      labor_role_id: laborRoleId,
+      labor_role_atelier_id: laborRoleAtelierId,
+      labor_role_chantier_id: laborRoleChantierId,
+    });
   assertLinePlacementAllowed({
     maxSectionDepth,
     parentSectionLevel,
@@ -8887,6 +8911,7 @@ export async function createEstimateItem(
       version_id: versionId,
       parent_id: parentId,
       item_type: "line",
+      line_nature: lineNature,
       position,
       title,
       aid,
@@ -8933,6 +8958,7 @@ export async function createEstimateItem(
 }
 
 const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
+  "line_nature",
   "description",
   "quantity",
   "unit_price_ht_cents",
@@ -9093,6 +9119,7 @@ export async function updateEstimateItem(
         payload,
         {
           item_type: "section",
+          line_nature: null,
           description: null,
           quantity: null,
           unit_price_ht_cents: null,
@@ -9158,6 +9185,7 @@ export async function updateEstimateItem(
     currentItem.item_type === "line"
       ? currentItem
       : ({
+          line_nature: "supply_only",
           quantity: 1,
           unit_price_ht_cents: 0,
           tax_rate_bp: version.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
@@ -9246,6 +9274,21 @@ export async function updateEstimateItem(
     "selected_supplier_price_id" in input
       ? (input.selected_supplier_price_id ?? null)
       : (currentLineDefaults.selected_supplier_price_id ?? null);
+  const nextLineNature =
+    "line_nature" in input
+      ? input.line_nature
+      : resolveEstimateLineNature({
+          line_nature: currentLineDefaults.line_nature,
+          unit_price_ht_cents: nextUnitPriceHtCents,
+          supply_type_id: nextSupplyTypeId,
+          selected_supplier_price_id: nextSelectedSupplierPriceId,
+          h_mo: nextHMo,
+          h_mo_atelier: nextHMoAtelier,
+          h_mo_chantier: nextHMoChantier,
+          labor_role_id: nextLaborRoleId,
+          labor_role_atelier_id: nextLaborRoleAtelierId,
+          labor_role_chantier_id: nextLaborRoleChantierId,
+        });
   const nextPosition =
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
@@ -9348,6 +9391,7 @@ export async function updateEstimateItem(
 
   const payload: EstimateItemUpdate = {
     item_type: "line",
+    line_nature: nextLineNature,
     parent_id: nextParentId,
     position: nextPosition,
     title: nextTitle,

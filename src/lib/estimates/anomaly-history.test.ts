@@ -30,6 +30,7 @@ vi.mock("@/lib/estimate-quality", () => ({
     "missing_quantity",
     "missing_labor_time",
     "missing_labor_role",
+    "line_nature_mismatch",
     "supplier_price_outdated",
     "labor_split_incomplete",
     "price_outlier",
@@ -40,6 +41,7 @@ vi.mock("@/lib/estimate-quality", () => ({
     missing_quantity: { label: "Quantite manquante", description: "" },
     missing_labor_time: { label: "Temps MO manquant", description: "" },
     missing_labor_role: { label: "Role MO manquant", description: "" },
+    line_nature_mismatch: { label: "Nature incoherente", description: "" },
     supplier_price_outdated: {
       label: "Prix fournisseur obsolete",
       description: "",

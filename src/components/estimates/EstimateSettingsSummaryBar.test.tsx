@@ -48,7 +48,7 @@ describe("EstimateSettingsSummaryBar", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Voir les details TVA, Remise et TTC",
+        name: "Voir les détails de TVA, remise et TTC",
       }),
     );
 
@@ -58,11 +58,40 @@ describe("EstimateSettingsSummaryBar", () => {
     expect(portal).toBeInTheDocument();
     expect(portal).toHaveTextContent("TVA");
     expect(portal).toHaveTextContent("Remise");
-    expect(portal).toHaveTextContent("Total TTC");
+    expect(portal).toHaveTextContent("TTC à payer");
 
     fireEvent.click(
       within(portal as HTMLElement).getByRole("button", { name: /TVA/ }),
     );
     expect(onOpenSettings).toHaveBeenCalledWith("tax");
+  });
+
+  it("explains an active commercial rounding adjustment", () => {
+    render(
+      <EstimateSettingsSummaryBar
+        totals={{
+          ...totals,
+          ttcCents: 91_276,
+          roundedTtcCents: 91_300,
+          roundingAdjustmentCents: 24,
+          adjustedTaxCents: 15_237,
+        }}
+        currency="EUR"
+        taxRateBp={2_000}
+        isExpert
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /TTC calculé 912,76.*arrondi commercial \+0,24.*TTC à payer 913,00/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /Arrondi commercial optionnel : \+0,24/i,
+      }),
+    ).toBeInTheDocument();
   });
 });

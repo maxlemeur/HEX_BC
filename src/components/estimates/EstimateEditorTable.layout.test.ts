@@ -43,11 +43,11 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 112px 56px 56px 104px 112px 56px 88px 100px 42px",
+        "minmax(300px, 3fr) 64px 54px 88px 112px 56px 56px 104px 112px 56px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(220px, 3fr) 58px 50px 80px 100px 56px 56px 96px 100px 56px 82px 94px 40px",
-      "--estimate-desktop-min-width": "1192px",
-      "--estimate-tablet-min-width": "1088px",
+        "minmax(260px, 3fr) 58px 50px 80px 100px 56px 56px 96px 100px 56px 82px 94px 40px",
+      "--estimate-desktop-min-width": "1232px",
+      "--estimate-tablet-min-width": "1128px",
     });
     expect(style).not.toHaveProperty("--estimate-grid");
   });
@@ -59,10 +59,10 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 56px 88px 100px 42px",
+        "minmax(300px, 3fr) 64px 54px 88px 56px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(220px, 3fr) 58px 50px 80px 56px 82px 94px 40px",
-      "--estimate-desktop-min-width": "752px",
+        "minmax(260px, 3fr) 58px 50px 80px 56px 82px 94px 40px",
+      "--estimate-desktop-min-width": "792px",
       "--estimate-tablet-min-width": "900px",
     });
   });
@@ -78,11 +78,11 @@ describe("estimate editor responsive grid", () => {
 
     expect(style).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 112px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px",
+        "minmax(300px, 3fr) 64px 54px 88px 112px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px",
       "--estimate-grid-tablet":
-        "minmax(220px, 3fr) 58px 50px 80px 100px 56px 88px 68px 96px 56px 68px 96px 56px 82px 94px 40px",
-      "--estimate-desktop-min-width": "1436px",
-      "--estimate-tablet-min-width": "1308px",
+        "minmax(260px, 3fr) 58px 50px 80px 100px 56px 88px 68px 96px 56px 68px 96px 56px 82px 94px 40px",
+      "--estimate-desktop-min-width": "1476px",
+      "--estimate-tablet-min-width": "1348px",
     });
   });
 
@@ -96,8 +96,8 @@ describe("estimate editor responsive grid", () => {
 
     expect(withMargin).toMatchObject({
       "--estimate-grid-desktop":
-        "minmax(260px, 3fr) 64px 54px 88px 56px 100px 100px 78px 88px 100px 42px",
-      "--estimate-desktop-min-width": "1030px",
+        "minmax(300px, 3fr) 64px 54px 88px 56px 100px 100px 78px 88px 100px 42px",
+      "--estimate-desktop-min-width": "1070px",
     });
   });
 
@@ -109,7 +109,7 @@ describe("estimate editor responsive grid", () => {
     );
 
     expect(before?.["--estimate-grid-desktop"]).toBe(
-      "minmax(260px, 3fr) 64px 54px 88px 56px 88px 100px 42px",
+      "minmax(300px, 3fr) 64px 54px 88px 56px 88px 100px 42px",
     );
   });
 
@@ -123,7 +123,7 @@ describe("estimate editor responsive grid", () => {
     expect(css).toContain("--density-row-h: 30px;");
     expect(css).toContain("--density-cell-px: 6px;");
     expect(css).toContain("--density-cell-py: 2px;");
-    expect(css).toMatch(
+    expect(css).not.toMatch(
       /@media \(min-width: 1025px\)[\s\S]*?\.estimate-table \.estimate-line-designation \{[\s\S]*?flex-direction: row;/,
     );
     // Le badge de provenance doit rester lisible en desktop : plus jamais

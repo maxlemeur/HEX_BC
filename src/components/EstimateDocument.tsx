@@ -48,6 +48,7 @@ export type EstimateDocumentProps = {
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
+  roundingAdjustmentCents?: number;
   items: EstimateItem[];
   exclusions?: string | null;
   issuerName?: string | null;
@@ -200,6 +201,7 @@ export function EstimateDocument({
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
+  roundingAdjustmentCents = 0,
   items,
   exclusions,
   issuerName,
@@ -252,6 +254,7 @@ export function EstimateDocument({
         total_ht_cents: totalHtCents,
         total_tax_cents: totalTaxCents,
         total_ttc_cents: totalTtcCents,
+        rounding_adjustment_cents: roundingAdjustmentCents,
       },
     }),
     calcEngineVersion,
@@ -473,10 +476,35 @@ export function EstimateDocument({
                 {ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}
               </div>
             ) : null}
+            {!isVatReverseCharge && roundingAdjustmentCents !== 0 ? (
+              <>
+                <div className="flex items-center justify-between border-b border-border bg-surface-subtle px-5 py-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    TTC calculé
+                  </span>
+                  <span className="text-sm font-medium text-slate-600">
+                    {formatCurrency(
+                      totalTtcCents - roundingAdjustmentCents,
+                      resolvedCurrency
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-b border-border bg-surface-subtle px-5 py-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Arrondi commercial
+                  </span>
+                  <span className="text-sm font-medium text-slate-600">
+                    {formatCurrency(roundingAdjustmentCents, resolvedCurrency)}
+                  </span>
+                </div>
+              </>
+            ) : null}
             {!isVatReverseCharge ? (
               <div className="flex items-center justify-between bg-surface-subtle px-5 py-2">
                 <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Total TTC
+                  {roundingAdjustmentCents !== 0
+                    ? "Montant à payer"
+                    : "Total TTC"}
                 </span>
                 <span className="text-sm font-semibold text-slate-600">
                   {formatCurrency(totalTtcCents, resolvedCurrency)}

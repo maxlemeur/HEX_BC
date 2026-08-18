@@ -32,6 +32,8 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 vi.mock("@/hooks/useAutoSave", () => ({
+  isSaveShortcutKey: (event: KeyboardEvent) =>
+    event.key.toLowerCase() === "s" && (event.ctrlKey || event.metaKey),
   useAutoSave: mocks.useAutoSave,
 }));
 
@@ -46,6 +48,7 @@ vi.mock("@/hooks/useDraftLock", () => ({
 type ControllerInput = Parameters<typeof useEstimateEditorSyncController>[0];
 
 const AUTO_SAVE_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
+const AUTO_SAVE_PREFERENCE_PREFIX = "estimate:edit:autosave-enabled:v1:";
 const CONFLICT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
 
 function createDeferred<T>() {
@@ -98,6 +101,7 @@ function createVersion(
     total_ht_cents: 1000,
     total_tax_cents: 200,
     total_ttc_cents: 1200,
+    rounding_adjustment_cents: 0,
     content_revision: 1,
     seal_hash: null,
     parent_version_id: null,
@@ -199,6 +203,9 @@ function createInput(
     activeVersion: version,
     currentUserId: "user-1",
     isViewerReadOnly: false,
+    hasPendingSettingsChanges: false,
+    isSavingSettings: false,
+    savePendingSettings: vi.fn().mockResolvedValue(undefined),
     items: [createItem()],
     settings: createSettings(),
     getVersionSnapshot: vi.fn(() => version),
@@ -278,8 +285,10 @@ beforeEach(() => {
   mocks.flushAutoSaveNow.mockResolvedValue(undefined);
   mocks.useAutoSave.mockReturnValue({
     status: "idle",
-    statusLabel: "Sauvegarde auto",
+    statusLabel: "À jour",
     isSaving: false,
+    isOnline: true,
+    lastSavedAt: null,
     flushNow: mocks.flushAutoSaveNow,
     scheduleSave: mocks.scheduleAutoSave,
   });
@@ -325,13 +334,16 @@ describe("useEstimateEditorSyncController contract", () => {
       "draftLockError",
       "draftLockHolderName",
       "hasPendingBufferedUpdates",
+      "hasPendingChanges",
       "hasRestorableDraft",
+      "isAutoSaveEnabled",
       "isAutoSaveSaving",
       "isDraftLockAcquiring",
       "isDraftLockOwnedByCurrentUser",
       "isDraftLockedByOther",
       "isForcingDraftUnlock",
       "isReloadingVersion",
+      "lastSavedAt",
     ]);
     expect(Object.keys(result.current.actions).sort()).toEqual([
       "clearBufferedItemUpdates",
@@ -352,6 +364,8 @@ describe("useEstimateEditorSyncController contract", () => {
       "reloadAfterConflict",
       "restoreConflictDraft",
       "retryTotalsSave",
+      "saveNow",
+      "setAutoSaveEnabled",
       "triggerVersionReload",
     ]);
     expect(Object.keys(result.current.meta).sort()).toEqual([
@@ -366,9 +380,11 @@ describe("useEstimateEditorSyncController contract", () => {
     ]);
     expect(result.current.state).toMatchObject({
       autoSaveStatus: "idle",
-      autoSaveStatusLabel: "Sauvegarde auto",
+      autoSaveStatusLabel: "À jour",
       isAutoSaveSaving: false,
+      isAutoSaveEnabled: true,
       hasPendingBufferedUpdates: false,
+      hasPendingChanges: false,
       conflict: null,
       isReloadingVersion: false,
       hasRestorableDraft: false,
@@ -384,6 +400,7 @@ describe("useEstimateEditorSyncController contract", () => {
     expect(mocks.useAutoSave).toHaveBeenLastCalledWith(
       expect.objectContaining({
         enabled: true,
+        automaticEnabled: true,
         hasPendingChanges: false,
         debounceMs: 2000,
       })
@@ -445,6 +462,106 @@ describe("useEstimateEditorSyncController contract", () => {
     });
     expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();
   });
+
+  it("persists the user autosave preference and keeps manual saving available", async () => {
+    window.localStorage.setItem(
+      `${AUTO_SAVE_PREFERENCE_PREFIX}user-1`,
+      JSON.stringify({ enabled: false })
+    );
+    const input = createInput();
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await waitFor(() => {
+      expect(result.current.state.isAutoSaveEnabled).toBe(false);
+    });
+    expect(mocks.useAutoSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        automaticEnabled: false,
+        enabled: true,
+      })
+    );
+
+    act(() => {
+      result.current.actions.setAutoSaveEnabled(true);
+    });
+
+    expect(result.current.state.isAutoSaveEnabled).toBe(true);
+    expect(
+      readStoragePayload(
+        window.localStorage,
+        `${AUTO_SAVE_PREFERENCE_PREFIX}user-1`
+      )
+    ).toEqual({ enabled: true });
+
+    await act(async () => {
+      await result.current.actions.saveNow();
+    });
+    expect(mocks.flushAutoSaveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes unsaved settings in status, navigation guard and Ctrl+S", async () => {
+    const savePendingSettings = vi.fn().mockResolvedValue(undefined);
+    const input = createInput({
+      hasPendingSettingsChanges: true,
+      savePendingSettings,
+    });
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    expect(result.current.state).toMatchObject({
+      autoSaveStatus: "pending",
+      autoSaveStatusLabel: "Non sauvegardé",
+      hasPendingChanges: true,
+    });
+    expect(mocks.useAutoSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enableShortcut: false })
+    );
+    expect(mocks.useAutoSaveNavigationGuard).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        hasPendingChanges: true,
+        isSaving: false,
+      })
+    );
+
+    const shortcutEvent = new KeyboardEvent("keydown", {
+      key: "s",
+      ctrlKey: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      window.dispatchEvent(shortcutEvent);
+      await Promise.resolve();
+    });
+
+    expect(shortcutEvent.defaultPrevented).toBe(true);
+    expect(savePendingSettings).toHaveBeenCalledTimes(1);
+
+    let canProceed = true;
+    await act(async () => {
+      canProceed =
+        await result.current.actions.ensureGroupedActionCanProceed(
+          "envoyer le chiffrage"
+        );
+    });
+    expect(canProceed).toBe(false);
+    expect(input.reportError).toHaveBeenLastCalledWith(
+      "Le paramétrage comporte des modifications non enregistrées. Enregistrez-le avant l’action « envoyer le chiffrage »."
+    );
+
+    await act(async () => {
+      canProceed =
+        await result.current.actions.ensureGroupedActionCanProceed(
+          "sauvegarder les paramètres",
+          { allowPendingSettings: true }
+        );
+    });
+    expect(canProceed).toBe(true);
+  });
 });
 
 describe("useEstimateEditorSyncController buffered updates", () => {
@@ -480,7 +597,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     ]);
     expect(input.setTotalsOutOfSync).toHaveBeenCalledWith(true);
     expect(input.reportError).toHaveBeenCalledWith(
-      "Des modifications locales ont ete recuperees et seront re-sauvegardees automatiquement."
+      "Des modifications locales ont été récupérées. Elles restent en attente de synchronisation."
     );
     expect(result.current.actions.overlayPendingUpdates(input.items)).toEqual([
       expect.objectContaining({ title: "Titre local", quantity: 3 }),
@@ -596,6 +713,81 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(
       window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}version-1`)
     ).toBeNull();
+  });
+
+  it("does not replay committed lines when only totals synchronization fails", async () => {
+    const totals = createTotals();
+    let currentVersion = createVersion();
+    const applyVersionFlushResult = vi.fn(
+      ({ updatedAt }: { updatedAt: string }) => {
+        currentVersion = { ...currentVersion, updated_at: updatedAt };
+      }
+    );
+    mocks.bulkUpdateEstimateItems.mockRejectedValueOnce(
+      new Error("Totaux indisponibles")
+    );
+    const input = createInput({
+      activeVersion: currentVersion,
+      getVersionSnapshot: vi.fn(() => currentVersion),
+      getPersistedTotals: vi.fn(() => totals),
+      applyVersionFlushResult,
+    });
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate("line-1", {
+        title: "Ligne déjà enregistrée",
+      });
+    });
+
+    let firstResult: string | undefined;
+    await act(async () => {
+      firstResult =
+        await result.current.actions.flushBufferedItemUpdates();
+    });
+
+    expect(firstResult).toBe("error");
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
+    expect(result.current.state.hasPendingChanges).toBe(true);
+    expect(result.current.actions.hasPendingUpdatesNow()).toBe(true);
+    expect(applyVersionFlushResult).toHaveBeenLastCalledWith({
+      versionId: "version-1",
+      totalsPatch: undefined,
+      updatedAt: "token-batch",
+    });
+    expect(
+      window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}version-1`)
+    ).toBeNull();
+    expect(input.reportError).toHaveBeenLastCalledWith(
+      "Les lignes sont enregistrées, mais les totaux n’ont pas pu être synchronisés. Une nouvelle tentative va être effectuée."
+    );
+
+    let retryResult: string | undefined;
+    await act(async () => {
+      retryResult =
+        await result.current.actions.flushBufferedItemUpdates();
+    });
+
+    expect(retryResult).toBe("saved");
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
+    expect(mocks.bulkUpdateEstimateItems).toHaveBeenNthCalledWith(
+      2,
+      "version-1",
+      "token-batch",
+      [],
+      {
+        total_ht_cents: 12_000,
+        total_tax_cents: 2_400,
+        total_ttc_cents: 14_400,
+      }
+    );
+    expect(result.current.state.hasPendingChanges).toBe(false);
+    expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
   });
 
   it("reacquires a missing draft lock and retries the buffered save", async () => {
@@ -908,7 +1100,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
     expect(input.reportError).toHaveBeenCalledWith(null);
     expect(input.reportNotice).toHaveBeenLastCalledWith(
-      "Modifications locales restaurées. Les lignes sont resynchronisées automatiquement ; enregistrez le paramétrage pour confirmer les réglages."
+      "Modifications locales restaurées. Les lignes restent en attente de synchronisation ; enregistrez le paramétrage pour confirmer les réglages."
     );
     expect(
       readStoragePayload(

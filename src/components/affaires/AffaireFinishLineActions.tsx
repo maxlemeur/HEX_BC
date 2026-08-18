@@ -264,15 +264,16 @@ export function AffaireFinishLineActions({
             <article className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
               <p className="text-sm font-semibold text-[var(--slate-800)]">PDF du devis</p>
               <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
-                Le document telecharge correspond a la {formatVersionLabel(currentVersion).toLowerCase()}.
-                Il reutilise le PDF existant si disponible, puis le regenere seulement si besoin.
+                Préparez le PDF de la {formatVersionLabel(currentVersion).toLowerCase()},
+                puis téléchargez-le une fois prêt. Le document existant est réutilisé
+                s’il est encore valide.
               </p>
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
                 <EstimatePdfDownloadButton
                   versionId={currentVersion.id}
                   className="btn btn-secondary btn-sm"
-                  label="Telecharger le PDF"
-                  processingLabel="Generation du PDF..."
+                  label="Préparer le PDF"
+                  processingLabel="Génération du PDF…"
                   showInlineError={false}
                   onSuccess={() => {
                     const successMessage = `PDF pret pour la version V${currentVersion.versionNumber}.`;

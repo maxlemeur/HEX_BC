@@ -145,6 +145,8 @@ export function TakeoffLaunchPrompt({
   const [state, setState] = useState<PromptState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
+  const [queuedForRecovery, setQueuedForRecovery] = useState(false);
+  const [recoveryUnconfirmed, setRecoveryUnconfirmed] = useState(false);
   const [launchedVersionLabel, setLaunchedVersionLabel] = useState<string | null>(null);
   const [pendingDraftVersionId, setPendingDraftVersionId] = useState<string | null>(null);
   const launchableLevels = useMemo(
@@ -228,18 +230,37 @@ export function TakeoffLaunchPrompt({
         level: selectedLevel,
       });
       createdJobIdForLaunch = result.jobId;
+      const launchQueuedForRecovery =
+        result.dispatch?.status === "queued_for_recovery";
+      const launchRecoveryUnconfirmed =
+        result.dispatch?.status === "persistence_unconfirmed";
 
       if (!resolvedVersionId || !createdJobIdForLaunch) {
         throw new Error("Impossible de lancer l'analyse.");
       }
 
       setCreatedJobId(createdJobIdForLaunch);
+      setQueuedForRecovery(launchQueuedForRecovery);
+      setRecoveryUnconfirmed(launchRecoveryUnconfirmed);
       setLaunchedVersionLabel(resolvedVersionLabelForLaunch);
       setState("success");
-      toast.success({
-        title: "Analyse lancée",
-        description: `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
-      });
+      const toastPayload = {
+        title: launchRecoveryUnconfirmed
+          ? "Analyse créée, reprise à vérifier"
+          : launchQueuedForRecovery
+            ? "Analyse enregistrée, démarrage en attente"
+            : "Analyse transmise au traitement",
+        description: launchRecoveryUnconfirmed
+          ? `${resolvedVersionLabelForLaunch} — ni le démarrage immédiat ni la reprise automatique n'ont pu être confirmés. Ouvrez le centre d'activité pour réessayer.`
+          : launchQueuedForRecovery
+            ? `${resolvedVersionLabelForLaunch} — la demande est conservée et sera reprise automatiquement.`
+            : `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
+      };
+      if (launchQueuedForRecovery || launchRecoveryUnconfirmed) {
+        toast.warning(toastPayload);
+      } else {
+        toast.success(toastPayload);
+      }
       onLaunched?.(createdJobIdForLaunch, resolvedVersionId);
     } catch (err) {
       setState("error");
@@ -330,13 +351,22 @@ export function TakeoffLaunchPrompt({
                 <polyline points="20 6 9 17 4 12" />
               </svg>
               <span className="text-xs font-medium text-[var(--success)]">
-                Analyse lancée
+                {recoveryUnconfirmed
+                  ? "Analyse créée, reprise à vérifier"
+                  : queuedForRecovery
+                    ? "Analyse enregistrée, démarrage en attente"
+                    : "Analyse transmise au traitement"}
               </span>
             </div>
             <p className="text-xs text-[var(--slate-600)]">
               {launchedVersionLabel ?? resolvedVersionLabel} — {planFileCount} fichier
               {planFileCount > 1 ? "s" : ""} concerné
               {planFileCount > 1 ? "s" : ""}.
+              {recoveryUnconfirmed
+                ? " La reprise automatique n'a pas pu être confirmée : ouvrez le suivi pour réessayer."
+                : queuedForRecovery
+                  ? " La demande sera reprise automatiquement."
+                  : " Le traitement a accepté la demande."}
             </p>
             {createdJobId && (
               <Link

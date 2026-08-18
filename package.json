@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
-    "build": "npm run validate-openapi && next build",
+    "build": "npm run validate-openapi && next build && npm run check:performance",
     "start": "next start",
     "e2e": "node ./e2e/run-ps1.mjs e2e/smoke.ps1",
     "e2e:auth": "node ./e2e/run-ps1.mjs e2e/auth.ps1",
@@ -38,6 +38,7 @@
     "audit:dependencies": "node --import tsx scripts/check-dependency-audit.ts",
     "audit:signatures": "npm audit signatures",
     "check:architecture": "node --import tsx scripts/check-architecture-budgets.ts",
+    "check:performance": "node --import tsx scripts/check-performance-budgets.ts",
     "benchmark:takeoff:provider": "node --env-file-if-exists=.env.local --import tsx scripts/run-takeoff-provider-benchmark.ts",
     "lint": "eslint . --max-warnings=0",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",

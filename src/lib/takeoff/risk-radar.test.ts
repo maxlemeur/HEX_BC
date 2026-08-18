@@ -180,7 +180,7 @@ describe("takeoff risk radar", () => {
     expect(
       candidates.find((candidate) => candidate.cause_code === "atypical_price")
         ?.reason_labels
-    ).toEqual(["Prix atypique", "Prix fournisseur obsolete"]);
+    ).toEqual(["Prix atypique", "Prix fournisseur obsolète"]);
     expect(
       candidates.find((candidate) => candidate.cause_code === "missing_piece")
         ?.provenance[0]?.kind

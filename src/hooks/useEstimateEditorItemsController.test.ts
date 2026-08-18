@@ -83,6 +83,7 @@ function createVersion(
     total_ht_cents: 1000,
     total_tax_cents: 200,
     total_ttc_cents: 1200,
+    rounding_adjustment_cents: 0,
     content_revision: 1,
     seal_hash: null,
     parent_version_id: null,

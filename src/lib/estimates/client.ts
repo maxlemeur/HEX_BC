@@ -4336,6 +4336,7 @@ function toCreateEstimateItemBody(
       }
     : {
         item_type: "line" as const,
+        line_nature: item.line_nature ?? undefined,
         parent_id: item.parent_id ?? null,
         position: item.position,
         title: item.title,

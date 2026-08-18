@@ -163,6 +163,23 @@ function expectSectionSummary(
 }
 
 describe("EstimateDocument - EST-121", () => {
+  it("separe la TVA, l'arrondi commercial et le montant a payer", () => {
+    const markup = renderEstimateDocument([], {
+      totalHtCents: 76_039,
+      totalTaxCents: 15_208,
+      totalTtcCents: 91_300,
+      roundingAdjustmentCents: 53,
+    });
+
+    expect(markup).toContain("TVA");
+    expect(markup).toContain("TTC calculé");
+    expect(markup).toContain("Arrondi commercial");
+    expect(markup).toContain("Montant à payer");
+    expect(markup).toContain(formatCurrencyForTest(15_208, "EUR"));
+    expect(markup).toContain(formatCurrencyForTest(53, "EUR"));
+    expect(markup).toContain(formatCurrencyForTest(91_300, "EUR"));
+  });
+
   it("masque la remise sur le document client lorsqu'elle est nulle", () => {
     const markup = renderEstimateDocument([], { discountCents: 0 });
 

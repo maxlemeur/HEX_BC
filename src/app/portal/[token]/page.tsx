@@ -92,7 +92,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     supabase
       .from("estimate_versions")
       .select(
-        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name, user_id )"
+        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name, user_id )"
       )
       .eq("id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
@@ -264,15 +264,10 @@ export default async function PortalPage({ params }: PortalPageProps) {
   const discountCents = computedTotals.discountCents;
   const appliedMarginMultiplier = computedTotals.appliedMarginMultiplier;
 
-  const totalHtCents = Number.isFinite(version.total_ht_cents ?? NaN)
-    ? version.total_ht_cents
-    : computedTotals.saleTotalCents;
-  const totalTaxCents = Number.isFinite(version.total_tax_cents ?? NaN)
-    ? version.total_tax_cents
-    : computedTotals.adjustedTaxCents;
-  const totalTtcCents = Number.isFinite(version.total_ttc_cents ?? NaN)
-    ? version.total_ttc_cents
-    : computedTotals.roundedTtcCents;
+  const totalHtCents = computedTotals.saleTotalCents;
+  const totalTaxCents = computedTotals.taxCents;
+  const totalTtcCents = computedTotals.roundedTtcCents;
+  const roundingAdjustmentCents = computedTotals.roundingAdjustmentCents;
 
   const totalDisplayFormatted = formatCurrency(
     vatReverseCharge ? totalHtCents : totalTtcCents,
@@ -319,6 +314,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
           totalHtCents={totalHtCents}
           totalTaxCents={totalTaxCents}
           totalTtcCents={totalTtcCents}
+          roundingAdjustmentCents={roundingAdjustmentCents}
           items={items}
           exclusions={version.exclusions}
           issuerName={issuerProfile?.full_name}

@@ -45,6 +45,7 @@ function createLine(
     version_id: "version-1",
     parent_id: null,
     item_type: "line",
+    line_nature: "supply_and_labor",
     position: 1,
     title: `Line ${id}`,
     aid: null,

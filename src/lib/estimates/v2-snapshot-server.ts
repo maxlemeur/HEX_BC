@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { computeEstimateQualityFlagsForItem } from "@/lib/estimate-quality";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
@@ -94,6 +95,20 @@ export async function freezeEstimateV2Snapshot(
   }
 
   const items = (itemsData ?? []) as EstimateItemRow[];
+  const mismatchedItemIds = items
+    .filter((item) =>
+      computeEstimateQualityFlagsForItem(item).includes(
+        "line_nature_mismatch"
+      )
+    )
+    .map((item) => item.id);
+  if (mismatchedItemIds.length > 0) {
+    throw badRequest(
+      "La nature de certaines lignes ne correspond pas aux fournitures ou a la main-d'oeuvre saisies.",
+      { item_ids: mismatchedItemIds },
+      "ESTIMATE_LINE_NATURE_MISMATCH"
+    );
+  }
   const calculatedSnapshot = await calculateEstimateSnapshotForItems({
     supabase: input.supabase,
     tenantId: input.tenantId,

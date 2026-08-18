@@ -284,6 +284,13 @@ export type AffaireHubPageDataResult = {
   dpgfSource: AffaireHubDpgfSourceResult;
 };
 
+export type AffaireHubInitialDataResult = {
+  summary: AffaireHubSummaryResult;
+  timelineResult: PromiseSettledResult<AffaireHubTimelineResult>;
+  dpgfSourceResult: PromiseSettledResult<AffaireHubDpgfSourceResult>;
+  marginAnalysisResult: PromiseSettledResult<AffaireHubMarginAnalysisResult>;
+};
+
 export type MarginSectionBreakdown = {
   sectionId: string;
   sectionTitle: string;
@@ -2113,6 +2120,37 @@ export async function fetchAffaireHubPageData(
     summary,
     timeline,
     dpgfSource,
+  };
+}
+
+export async function fetchAffaireHubInitialData(
+  projectId: string,
+  page?: number
+): Promise<AffaireHubInitialDataResult> {
+  const context = await getAuthenticatedContext();
+  const safePage = normalizeHubTimelinePage(page);
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+
+  const [summaryResult, timelineResult, dpgfSourceResult, marginAnalysisResult] =
+    await Promise.allSettled([
+      fetchAffaireHubSummaryWithContext(context, project),
+      listEstimateProjectVersions({
+        projectId: project.id,
+        page: safePage,
+      }),
+      fetchAffaireHubDpgfSourceWithContext(context, project),
+      fetchAffaireHubMarginAnalysisWithContext(context, project),
+    ]);
+
+  if (summaryResult.status === "rejected") {
+    throw summaryResult.reason;
+  }
+
+  return {
+    summary: summaryResult.value,
+    timelineResult,
+    dpgfSourceResult,
+    marginAnalysisResult,
   };
 }
 

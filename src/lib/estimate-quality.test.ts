@@ -19,10 +19,12 @@ function createLine(input: {
   hMoChantier?: number | null;
   laborRoleAtelierId?: string | null;
   laborRoleChantierId?: string | null;
+  lineNature?: EstimateItem["line_nature"];
 }): EstimateItem {
   return {
     id: input.id,
     item_type: "line",
+    line_nature: input.lineNature ?? null,
     quantity: input.quantity,
     unit_price_ht_cents: input.unitPriceHtCents,
     h_mo: input.laborHours ?? 1,
@@ -63,6 +65,7 @@ describe("estimate quality flags", () => {
         unitPriceHtCents: 0,
         laborHours: 0,
         laborRoleId: null,
+        lineNature: "supply_and_labor",
       }),
       createLine({
         id: "line-2",
@@ -107,5 +110,83 @@ describe("estimate quality flags", () => {
 
     expect(flags).toContain("supplier_price_outdated");
     expect(flags).toContain("labor_split_incomplete");
+  });
+
+  it("does not require labor for a supply-only line", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "supply-only",
+        quantity: 1,
+        unitPriceHtCents: 2500,
+        laborHours: 0,
+        laborRoleId: null,
+        lineNature: "supply_only",
+      }),
+    );
+
+    expect(flags).not.toContain("missing_labor_time");
+    expect(flags).not.toContain("missing_labor_role");
+  });
+
+  it("does not require a supply price for a labor-only line", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "labor-only",
+        quantity: 1,
+        unitPriceHtCents: 0,
+        laborHours: 2,
+        laborRoleId: "role-1",
+        lineNature: "labor_only",
+      }),
+    );
+
+    expect(flags).not.toContain("missing_price");
+  });
+
+  it("requires both supply and labor for a mixed line", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "mixed",
+        quantity: 1,
+        unitPriceHtCents: 0,
+        laborHours: 0,
+        laborRoleId: null,
+        lineNature: "supply_and_labor",
+      }),
+    );
+
+    expect(flags).toEqual(
+      expect.arrayContaining(["missing_price", "missing_labor_time"]),
+    );
+  });
+
+  it("flags labor values hidden by a supply-only nature", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "supply-with-labor",
+        quantity: 1,
+        unitPriceHtCents: 2500,
+        laborHours: 2,
+        laborRoleId: "role-1",
+        lineNature: "supply_only",
+      }),
+    );
+
+    expect(flags).toContain("line_nature_mismatch");
+  });
+
+  it("flags supply values hidden by a labor-only nature", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "labor-with-supply",
+        quantity: 1,
+        unitPriceHtCents: 2500,
+        laborHours: 2,
+        laborRoleId: "role-1",
+        lineNature: "labor_only",
+      }),
+    );
+
+    expect(flags).toContain("line_nature_mismatch");
   });
 });

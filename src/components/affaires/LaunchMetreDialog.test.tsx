@@ -7,6 +7,7 @@ import { LaunchMetreDialog } from "./LaunchMetreDialog";
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
+const toastWarningMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
@@ -16,6 +17,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
 vi.mock("@/components/ui/Toast", () => ({
   useToast: () => ({
     success: toastSuccessMock,
+    warning: toastWarningMock,
     error: vi.fn(),
   }),
 }));
@@ -132,11 +134,13 @@ describe("LaunchMetreDialog", () => {
     expect(launchTakeoffFromSourceVersionPlanSetMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Analyse lancée",
+        title: "Analyse transmise au traitement",
         durationMs: 6000,
       })
     );
-    expect(screen.getByText("Analyse lancée avec succès")).toBeInTheDocument();
+    expect(
+      screen.getByText("Analyse transmise au traitement")
+    ).toBeInTheDocument();
     expect(onLaunched).toHaveBeenCalledWith("job-1");
 
     await user.click(screen.getByRole("link", { name: "Centre d'activité" }));
@@ -175,9 +179,32 @@ describe("LaunchMetreDialog", () => {
     });
 
     expect(launchTakeoffFromPlanSetMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/Nouveau brouillon depuis V2/)).toHaveTextContent(
+      "Nouveau brouillon depuis V2 — 5 fichiers. Le traitement a accepté la demande."
+    );
+  });
+
+  it("does not promise recovery when its persistence is unconfirmed", async () => {
+    const user = userEvent.setup();
+    launchTakeoffFromPlanSetMock.mockResolvedValue({
+      jobId: "job-unconfirmed",
+      dispatch: {
+        status: "persistence_unconfirmed",
+        correlationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        persisted: false,
+      },
+    });
+
+    render(<LaunchMetreDialog {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
+
     expect(
-      screen.getByText("Nouveau brouillon depuis V2 — 5 fichiers.")
+      await screen.findByText("Analyse créée, reprise à vérifier")
     ).toBeInTheDocument();
+    expect(screen.getByText(/reprise automatique n'a pas pu être confirmée/i)).toBeInTheDocument();
+    expect(toastWarningMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Analyse créée, reprise à vérifier" })
+    );
   });
 
   it("prefers an exploitable plan set when the default set is empty", async () => {

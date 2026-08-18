@@ -43,6 +43,7 @@ describe("durable workflow recovery", () => {
       statusCode: 202,
     });
     const processIntake = vi.fn().mockResolvedValue("ready");
+    const persistTakeoffDispatch = vi.fn().mockResolvedValue(true);
     const drainStorageCleanup = vi
       .fn()
       .mockResolvedValue(STORAGE_CLEANUP_RESULT);
@@ -50,6 +51,7 @@ describe("durable workflow recovery", () => {
     const result = await recoverDurableWorkflows({
       client,
       triggerTakeoff,
+      persistTakeoffDispatch,
       processIntake,
       drainStorageCleanup,
       now: () => new Date("2026-08-12T09:00:00.000Z"),
@@ -60,6 +62,11 @@ describe("durable workflow recovery", () => {
       trigger: "retry",
     });
     expect(processIntake).toHaveBeenCalledWith(INTAKE_ID);
+    expect(persistTakeoffDispatch).toHaveBeenCalledWith({
+      jobId: TAKEOFF_ID,
+      trigger: "retry",
+      result: expect.objectContaining({ triggered: true }),
+    });
     expect(drainStorageCleanup).toHaveBeenCalledWith({
       client: undefined,
       limit: 25,
@@ -94,6 +101,7 @@ describe("durable workflow recovery", () => {
       statusCode: 503,
     });
     const processIntake = vi.fn();
+    const persistTakeoffDispatch = vi.fn().mockResolvedValue(true);
     const drainStorageCleanup = vi
       .fn()
       .mockResolvedValue(STORAGE_CLEANUP_RESULT);
@@ -101,12 +109,18 @@ describe("durable workflow recovery", () => {
     const result = await recoverDurableWorkflows({
       client,
       triggerTakeoff,
+      persistTakeoffDispatch,
       processIntake,
       drainStorageCleanup,
       maxIntakePerRun: 0,
     });
 
     expect(processIntake).not.toHaveBeenCalled();
+    expect(persistTakeoffDispatch).toHaveBeenCalledWith({
+      jobId: TAKEOFF_ID,
+      trigger: "create",
+      result: expect.objectContaining({ triggered: false }),
+    });
     expect(result.dispatchedCount).toBe(0);
     expect(result.failedCount).toBe(1);
     expect(result.skippedCount).toBe(1);

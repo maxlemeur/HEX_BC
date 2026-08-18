@@ -431,6 +431,7 @@ export default function TakeoffJobMonitor({
   const [resubmitState, setResubmitState] = useState<ActionState>("idle");
   const [cancelState, setCancelState] = useState<ActionState>("idle");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [applyState, setApplyState] = useState<ActionState>("idle");
   const [applyError, setApplyError] = useState<string | null>(null);
   const [isApplyWizardOpen, setIsApplyWizardOpen] = useState(false);
@@ -441,8 +442,18 @@ export default function TakeoffJobMonitor({
   const handleReconcile = useCallback(async () => {
     setReconcileState("loading");
     setActionError(null);
+    setActionNotice(null);
     try {
-      await reconcileTakeoffJob(jobId);
+      const response = await reconcileTakeoffJob(jobId);
+      if (response.dispatch?.status === "persistence_unconfirmed") {
+        setActionNotice(
+          `Réconciliation créée, mais la reprise automatique n'a pas pu être confirmée. Réessayez (suivi ${response.dispatch.correlation_id}).`
+        );
+      } else if (response.dispatch?.status === "queued_for_recovery") {
+        setActionNotice(
+          `Réconciliation enregistrée. La reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+        );
+      }
       setReconcileState("idle");
       refetch();
     } catch (err) {
@@ -458,8 +469,18 @@ export default function TakeoffJobMonitor({
   const handleResubmit = useCallback(async () => {
     setResubmitState("loading");
     setActionError(null);
+    setActionNotice(null);
     try {
-      await resubmitTakeoffJob(jobId);
+      const response = await resubmitTakeoffJob(jobId);
+      if (response.dispatch?.status === "persistence_unconfirmed") {
+        setActionNotice(
+          `Nouvelle soumission créée, mais la reprise automatique n'a pas pu être confirmée. Réessayez (suivi ${response.dispatch.correlation_id}).`
+        );
+      } else if (response.dispatch?.status === "queued_for_recovery") {
+        setActionNotice(
+          `Nouvelle soumission enregistrée. La reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+        );
+      }
       setResubmitState("idle");
       refetch();
     } catch (err) {
@@ -647,11 +668,35 @@ export default function TakeoffJobMonitor({
           <JobDetailsGrid job={job} />
         </dl>
         <JobErrorSection job={job} />
+        {(job.dispatch_status === "queued" ||
+          job.dispatch_status === "trigger_failed") && (
+          <div
+            className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning-light)] p-3"
+            role="status"
+          >
+            <p className="text-sm font-medium text-[var(--slate-800)]">
+              Démarrage immédiat indisponible, reprise automatique active.
+            </p>
+            {job.dispatch_correlation_id ? (
+              <p className="mt-1 text-xs text-[var(--slate-600)]">
+                Identifiant de suivi : {job.dispatch_correlation_id}
+              </p>
+            ) : null}
+          </div>
+        )}
       </section>
 
       {actionError && (
         <div className="mt-4 rounded-md border border-[var(--error)] bg-[var(--error-light)] p-3">
           <p className="text-sm text-[var(--error)]">{actionError}</p>
+        </div>
+      )}
+      {actionNotice && (
+        <div
+          className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning-light)] p-3"
+          role="status"
+        >
+          <p className="text-sm text-[var(--slate-700)]">{actionNotice}</p>
         </div>
       )}
       {applySuccess && (

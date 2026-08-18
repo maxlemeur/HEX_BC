@@ -14,6 +14,7 @@ const replaceMock = vi.fn();
 const refreshMock = vi.fn();
 let searchParamsValue = new URLSearchParams();
 let isExpertValue = false;
+let isWideViewportValue = false;
 
 vi.mock("next/dynamic", () => ({
   default: () => function MockDynamic(props: {
@@ -47,6 +48,10 @@ vi.mock("@/hooks/useUiMode", () => ({
   useUiMode: () => ({
     isExpert: isExpertValue,
   }),
+}));
+
+vi.mock("@/hooks/useIsTablet", () => ({
+  useIsWideViewport: () => isWideViewportValue,
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -167,6 +172,7 @@ describe("AffairesPageClient", () => {
     vi.useRealTimers();
     searchParamsValue = new URLSearchParams();
     isExpertValue = false;
+    isWideViewportValue = false;
     window.localStorage.clear();
   });
 
@@ -545,7 +551,8 @@ describe("AffairesPageClient", () => {
       expect(screen.getByText("0 affaire selectionnee")).toBeInTheDocument();
     });
   });
-  it("syncs the manager queue filter to the URL", async () => {
+
+  it("mounts only the card layout on a narrow expert viewport", () => {
     isExpertValue = true;
 
     render(
@@ -562,6 +569,31 @@ describe("AffairesPageClient", () => {
       />
     );
 
+    expect(screen.getByTestId("card-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("dense-table")).not.toBeInTheDocument();
+  });
+
+  it("syncs the manager queue filter to the URL", async () => {
+    isExpertValue = true;
+    isWideViewportValue = true;
+
+    render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialManager="all"
+        initialCursor={null}
+        initialSize={20}
+        initialSort="updatedAt"
+        initialDir="desc"
+      />
+    );
+
+    expect(screen.getByTestId("dense-table")).toBeInTheDocument();
+    expect(screen.queryByTestId("card-list")).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "manager-follow-up" }));
 
     await waitFor(() => {
@@ -575,6 +607,7 @@ describe("AffairesPageClient", () => {
   it("falls back to an error state when the manager queue fetch stalls", async () => {
     vi.useFakeTimers();
     isExpertValue = true;
+    isWideViewportValue = true;
     const deferred = createDeferred<{
       counts: { followUp: number; reservations: number; revalidation: number };
       incompleteCount: number;
@@ -608,6 +641,7 @@ describe("AffairesPageClient", () => {
 
   it("does not start manager qualification for portfolios above the supported volume", async () => {
     isExpertValue = true;
+    isWideViewportValue = true;
 
     render(
       <AffairesPageClient

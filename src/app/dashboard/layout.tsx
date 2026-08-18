@@ -3,6 +3,7 @@ import packageMetadata from "../../../package.json";
 import { DashboardShell } from "@/components/DashboardShell";
 import { CommandPaletteLoader } from "@/components/ui/CommandPaletteLoader";
 import { UserProvider } from "@/components/UserContext";
+import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
 import { getUserContext } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export default async function DashboardLayout({
         {children}
       </DashboardShell>
       <CommandPaletteLoader />
+      <WebVitalsReporter buildId={appBuildId} />
     </UserProvider>
   );
 }

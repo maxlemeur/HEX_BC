@@ -30,6 +30,7 @@ describe("triggerTakeoffJobProcessing", () => {
 
     expect(result.triggered).toBe(true);
     expect(result.statusCode).toBe(202);
+    expect(result.outcome).toBe("accepted");
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
@@ -45,6 +46,7 @@ describe("triggerTakeoffJobProcessing", () => {
 
     expect(result.triggered).toBe(false);
     expect(result.statusCode).toBeNull();
+    expect(result.outcome).toBe("network_error");
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       "Takeoff edge trigger request failed.",
       expect.objectContaining({
@@ -53,6 +55,33 @@ describe("triggerTakeoffJobProcessing", () => {
       })
     );
 
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("classifies a forced timeout instead of reporting a false launch", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchFn = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true }
+        );
+      })
+    );
+
+    const result = await triggerTakeoffJobProcessing({
+      jobId: JOB_ID,
+      fetchFn: fetchFn as unknown as typeof fetch,
+      correlationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      timeoutMs: 5,
+    });
+
+    expect(result).toMatchObject({
+      triggered: false,
+      statusCode: null,
+      outcome: "timeout",
+    });
     consoleErrorSpy.mockRestore();
   });
 });

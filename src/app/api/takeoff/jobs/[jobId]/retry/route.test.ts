@@ -9,7 +9,12 @@ vi.mock("@/lib/takeoff/edge-trigger", () => ({
     triggered: true,
     correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     statusCode: 202,
+    outcome: "accepted",
   }),
+}));
+
+vi.mock("@/lib/takeoff/dispatch-state", () => ({
+  persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true),
 }));
 
 import { POST } from "@/app/api/takeoff/jobs/[jobId]/retry/route";
@@ -45,6 +50,7 @@ describe("POST /api/takeoff/jobs/[jobId]/retry", () => {
       triggered: true,
       correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       statusCode: 202,
+      outcome: "accepted",
     });
   });
 
@@ -60,7 +66,14 @@ describe("POST /api/takeoff/jobs/[jobId]/retry", () => {
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(body.data).toEqual(RETRY_RESPONSE);
+    expect(body.data).toEqual({
+      ...RETRY_RESPONSE,
+      dispatch: {
+        status: "accepted",
+        correlation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        persisted: true,
+      },
+    });
     expect(vi.mocked(retryTakeoffJob)).toHaveBeenCalledWith(JOB_ID);
     expect(vi.mocked(triggerTakeoffJobProcessing)).toHaveBeenCalledWith({
       jobId: JOB_ID,
@@ -75,12 +88,26 @@ describe("POST /api/takeoff/jobs/[jobId]/retry", () => {
       triggered: false,
       correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       statusCode: null,
+      outcome: "network_error",
     });
     const [request, context] = buildPostRequest();
 
     const response = await POST(request, context);
+    const body = (await response.json()) as {
+      data?: {
+        dispatch?: {
+          status?: string;
+          correlation_id?: string;
+        };
+      };
+    };
 
     expect(response.status).toBe(200);
+    expect(body.data?.dispatch).toEqual({
+      status: "queued_for_recovery",
+      correlation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      persisted: true,
+    });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       "Takeoff retry accepted but async processing trigger failed.",
       {

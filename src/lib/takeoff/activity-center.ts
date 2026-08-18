@@ -62,6 +62,16 @@ type JobRow = {
   provider_reconcile_lease_expires_at: string | null;
   created_at: string;
   retry_count: number;
+  dispatch_status: "started" | "queued" | "trigger_failed" | null;
+  dispatch_outcome:
+    | "accepted"
+    | "configuration_missing"
+    | "http_error"
+    | "timeout"
+    | "network_error"
+    | null;
+  dispatch_correlation_id: string | null;
+  dispatch_updated_at: string | null;
 };
 
 type ResolvedJobSource = {
@@ -216,7 +226,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count" as never
+          "id, estimate_version_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       filterOpts
@@ -871,6 +881,10 @@ export async function listActivityCenterJobs(
       carriedOverFrom: isEnrichable ? (carryOverMap.get(row.id) ?? null) : null,
       neverApplied: row.status === "completed",
       retryCount: row.retry_count,
+      dispatchStatus: row.dispatch_status ?? null,
+      dispatchOutcome: row.dispatch_outcome ?? null,
+      dispatchCorrelationId: row.dispatch_correlation_id ?? null,
+      dispatchUpdatedAt: row.dispatch_updated_at ?? null,
     };
   });
 

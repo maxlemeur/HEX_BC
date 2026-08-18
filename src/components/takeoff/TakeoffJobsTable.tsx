@@ -57,17 +57,37 @@ export default function TakeoffJobsTable({
     Record<string, ActionKind>
   >({});
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const handleAction = useCallback(
     async (jobId: string, action: ActionKind) => {
       setActionError(null);
+      setActionNotice(null);
       setPendingActions((current) => ({ ...current, [jobId]: action }));
 
       try {
         if (action === "reconcile") {
-          await reconcileTakeoffJob(jobId);
+          const response = await reconcileTakeoffJob(jobId);
+          if (response.dispatch?.status === "persistence_unconfirmed") {
+            setActionNotice(
+              `Réconciliation créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis ce job (suivi ${response.dispatch.correlation_id}).`
+            );
+          } else if (response.dispatch?.status === "queued_for_recovery") {
+            setActionNotice(
+              `Réconciliation enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+            );
+          }
         } else if (action === "resubmit") {
-          await resubmitTakeoffJob(jobId);
+          const response = await resubmitTakeoffJob(jobId);
+          if (response.dispatch?.status === "persistence_unconfirmed") {
+            setActionNotice(
+              `Nouvelle soumission créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis ce job (suivi ${response.dispatch.correlation_id}).`
+            );
+          } else if (response.dispatch?.status === "queued_for_recovery") {
+            setActionNotice(
+              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+            );
+          }
         } else {
           await cancelTakeoffJob(jobId);
         }
@@ -199,6 +219,15 @@ export default function TakeoffJobsTable({
         </div>
       ) : null}
 
+      {actionNotice ? (
+        <div
+          className="mb-4 rounded-xl border border-[var(--warning)]/40 bg-[var(--warning-light)] p-3 text-sm text-[var(--slate-700)]"
+          role="status"
+        >
+          {actionNotice}
+        </div>
+      ) : null}
+
       {jobs.length === 0 ? (
         <EmptyState
           icon={
@@ -296,6 +325,12 @@ export default function TakeoffJobsTable({
                         {job.operatorStateLabel ?? job.operatorState}
                       </Badge>
                     ) : null}
+                    {job.dispatchStatus === "queued" ||
+                    job.dispatchStatus === "trigger_failed" ? (
+                      <Badge variant="warning" size="sm">
+                        Reprise automatique
+                      </Badge>
+                    ) : null}
                     {job.neverApplied ? (
                       <Badge variant="warning" size="sm">
                         Jamais appliqué
@@ -304,6 +339,18 @@ export default function TakeoffJobsTable({
                   </div>
 
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    {(job.dispatchStatus === "queued" ||
+                      job.dispatchStatus === "trigger_failed") &&
+                    job.dispatchCorrelationId ? (
+                      <div className="col-span-2 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-light)] p-2">
+                        <dt className="text-xs font-semibold text-[var(--slate-700)]">
+                          Démarrage différé
+                        </dt>
+                        <dd className="mt-1 text-xs text-[var(--slate-600)]">
+                          La demande est conservée. Suivi {job.dispatchCorrelationId}
+                        </dd>
+                      </div>
+                    ) : null}
                     <div>
                       <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
                         Source
@@ -449,6 +496,12 @@ export default function TakeoffJobsTable({
                               size="sm"
                             >
                               {job.operatorStateLabel ?? job.operatorState}
+                            </Badge>
+                          ) : null}
+                          {job.dispatchStatus === "queued" ||
+                          job.dispatchStatus === "trigger_failed" ? (
+                            <Badge variant="warning" size="sm">
+                              Reprise automatique
                             </Badge>
                           ) : null}
                           {job.neverApplied ? (

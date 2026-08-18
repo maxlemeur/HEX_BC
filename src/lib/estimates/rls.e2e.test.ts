@@ -1500,11 +1500,23 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
   const { error: viewerApplyError } = await callLooseRpc(
     viewerClient,
-    "apply_takeoff_job_guarded",
+    "apply_takeoff_job_guarded_atomic",
     {
       p_job_id: viewerCompletedJobId,
       p_strategy: "append",
       p_target_section_id: null,
+      p_mapping_plan: [
+        {
+          item_id: viewerOwnedItemId,
+          source_order: 0,
+          rule_id: null,
+          action: "none",
+          designation: "Viewer-owned item",
+          unit_price_cents: null,
+          category_id: null,
+          assembly_id: null,
+        },
+      ],
     }
   );
   if (viewerApplyError?.code !== "42501") {
@@ -2095,10 +2107,22 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
 
   const { data: guardedApplyData, error: guardedApplyError } =
-    await callLooseRpc(engineerClient, "apply_takeoff_job_guarded", {
+    await callLooseRpc(engineerClient, "apply_takeoff_job_guarded_atomic", {
       p_job_id: completedJobId,
       p_strategy: "append",
       p_target_section_id: seedContext.sectionId,
+      p_mapping_plan: [
+        {
+          item_id: completedItemId,
+          source_order: 0,
+          rule_id: null,
+          action: "none",
+          designation: "Completed RLS fixture updated",
+          unit_price_cents: null,
+          category_id: null,
+          assembly_id: null,
+        },
+      ],
     });
   await assertNoError("guarded takeoff apply RPC", guardedApplyError);
   const guardedApplySummary = Array.isArray(guardedApplyData)

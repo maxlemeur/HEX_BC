@@ -121,10 +121,12 @@ function createLineItem(input: {
   laborHours?: number;
   laborRoleId?: string | null;
   selectedSupplierPriceId?: string | null;
+  lineNature?: "supply_only" | "supply_and_labor" | "labor_only";
 }) {
   return {
     id: input.id,
     item_type: "line",
+    line_nature: input.lineNature ?? "supply_and_labor",
     quantity: input.quantity,
     unit_price_ht_cents: input.unitPriceHtCents,
     h_mo: input.laborHours ?? 1,
@@ -255,6 +257,47 @@ describe("estimate send gating", () => {
     expect(result.canSend).toBe(true);
     expect(result.blockingFlags).toHaveLength(0);
     expect(result.warningFlags.map((flag) => flag.key)).toContain("missing_price");
+  });
+
+  it("blocks publication when the selected line nature hides entered labor", async () => {
+    const supabase = createSupabaseGatingMock({
+      items: [
+        createLineItem({
+          id: "line-1",
+          quantity: 1,
+          unitPriceHtCents: 5000,
+          laborHours: 2,
+          laborRoleId: "role-1",
+          lineNature: "supply_only",
+        }),
+      ],
+      marginTiers: [],
+      documents: [{ id: "doc-1" }],
+    });
+
+    const result = await evaluateEstimateSendGating({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID,
+        margin_mode: "fixed",
+        margin_multiplier: 1,
+        total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+      },
+      project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
+        notes: null,
+      },
+    });
+
+    expect(result.canSend).toBe(false);
+    expect(result.blockingFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "line_nature_mismatch" }),
+      ]),
+    );
   });
 
   it("adds supplier_price_outdated warning for stale selected supplier prices", async () => {

@@ -120,6 +120,7 @@ export function LaborSplitCells({
           step="0.1"
           min={0}
           value={hMoMajorationPercent}
+          aria-label={`Majoration de main-d’œuvre en pourcentage pour ${item.title || "sans titre"}`}
           onFocus={hMoMajorationEditorProps.onFocus}
           onKeyDown={hMoMajorationEditorProps.onKeyDown}
           onChange={(event) =>
@@ -169,6 +170,7 @@ export function LaborSplitCells({
           step="0.1"
           min={0}
           value={splitFields.h_mo_atelier ?? ""}
+          aria-label={`Heures de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={hMoAtelierEditorProps.onFocus}
           onKeyDown={hMoAtelierEditorProps.onKeyDown}
           onChange={(event) =>
@@ -205,6 +207,7 @@ export function LaborSplitCells({
           ref={laborRoleAtelierEditorProps.ref}
           tabIndex={laborRoleAtelierEditorProps.tabIndex}
           value={splitFields.labor_role_atelier_id ?? ""}
+          aria-label={`Rôle de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={laborRoleAtelierEditorProps.onFocus}
           onBlur={laborRoleAtelierEditorProps.onBlur}
           onKeyDown={laborRoleAtelierEditorProps.onKeyDown}
@@ -248,6 +251,7 @@ export function LaborSplitCells({
           step="0.01"
           min={0}
           value={splitFields.k_mo_atelier ?? ""}
+          aria-label={`Coefficient de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={kMoAtelierEditorProps.onFocus}
           onKeyDown={kMoAtelierEditorProps.onKeyDown}
           onChange={(event) =>
@@ -289,6 +293,7 @@ export function LaborSplitCells({
           step="0.1"
           min={0}
           value={splitFields.h_mo_chantier ?? ""}
+          aria-label={`Heures de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={hMoChantierEditorProps.onFocus}
           onKeyDown={hMoChantierEditorProps.onKeyDown}
           onChange={(event) =>
@@ -325,6 +330,7 @@ export function LaborSplitCells({
           ref={laborRoleChantierEditorProps.ref}
           tabIndex={laborRoleChantierEditorProps.tabIndex}
           value={splitFields.labor_role_chantier_id ?? ""}
+          aria-label={`Rôle de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={laborRoleChantierEditorProps.onFocus}
           onBlur={laborRoleChantierEditorProps.onBlur}
           onKeyDown={laborRoleChantierEditorProps.onKeyDown}
@@ -368,6 +374,7 @@ export function LaborSplitCells({
           step="0.01"
           min={0}
           value={splitFields.k_mo_chantier ?? ""}
+          aria-label={`Coefficient de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={kMoChantierEditorProps.onFocus}
           onKeyDown={kMoChantierEditorProps.onKeyDown}
           onChange={(event) =>

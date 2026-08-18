@@ -166,18 +166,13 @@ function buildLineRows(input: {
         input.breakdown.totals.saleTotalCents,
         lineValues.map((line) => line?.saleNetHtCents ?? 0)
       );
-  // Le TTC arrondi est la grandeur contractuelle du pied. Sa TVA ajustée est
-  // donc dérivée une seule fois, puis répartie. On reconstruit chaque TTC par
-  // HT + TVA : aucune allocation indépendante ne peut casser l'identité
-  // comptable sur une ligne, même quand l'arrondi global porte un reliquat.
-  const adjustedTaxTotalCents = Math.max(
-    input.breakdown.totals.adjustedTaxCents,
-    0
-  );
+  // La TVA reste la taxe comptable réelle. L'arrondi commercial est présenté
+  // séparément dans le pied et ne doit jamais être ventilé comme de la taxe.
+  const actualTaxTotalCents = Math.max(input.breakdown.totals.taxCents, 0);
   const taxShares = input.preserveStoredSnapshot
     ? lineValues.map((line) => line?.taxCents ?? 0)
     : allocateProRata(
-        adjustedTaxTotalCents,
+        actualTaxTotalCents,
         lineValues.map((line) => line?.taxCents ?? 0)
       );
   const lineIndexById = new Map(
@@ -359,11 +354,28 @@ async function writeWorkbook(input: {
       : ([
           [
             "Total TVA",
-            toEuroAmount(
-              Math.max(input.payload.totals.adjustedTaxCents, 0)
-            ) ?? 0,
+            toEuroAmount(Math.max(input.payload.totals.taxCents, 0)) ?? 0,
           ],
-          ["Total TTC", toEuroAmount(input.payload.totals.roundedTtcCents) ?? 0],
+          ...(input.payload.totals.roundingAdjustmentCents !== 0
+            ? ([
+                [
+                  "TTC calcule",
+                  toEuroAmount(input.payload.totals.ttcCents) ?? 0,
+                ],
+                [
+                  "Arrondi commercial",
+                  toEuroAmount(
+                    input.payload.totals.roundingAdjustmentCents
+                  ) ?? 0,
+                ],
+              ] as Array<[string, string | number]>)
+            : []),
+          [
+            input.payload.totals.roundingAdjustmentCents !== 0
+              ? "Montant a payer"
+              : "Total TTC",
+            toEuroAmount(input.payload.totals.roundedTtcCents) ?? 0,
+          ],
         ] as Array<[string, string | number]>)),
     [
       "Parametres",

@@ -630,8 +630,10 @@ export async function persistCanonicalEstimateV2(
       line_total_ttc_cents: projected.line_total_ttc_cents,
     };
   });
-  Object.assign(versionPayload, projection.totals, {
-    calc_snapshot_context: calculated.context,
+  Object.assign(versionPayload, {
+    total_ht_cents: projection.totals.total_ht_cents,
+    total_tax_cents: projection.totals.total_tax_cents,
+    total_ttc_cents: projection.totals.total_ttc_cents,
   });
 
   const projectId =

@@ -21,6 +21,7 @@ export type EstimateEditorRowItemPatch = Partial<
     EstimateItem,
     | "title"
     | "aid"
+    | "line_nature"
     | "description"
     | "quantity"
     | "unit_price_ht_cents"

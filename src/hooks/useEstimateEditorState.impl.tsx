@@ -180,6 +180,49 @@ function normalizeCascadeDiscountSteps(steps: number[] | undefined): number[] {
     .slice(0, MAX_CASCADE_DISCOUNT_STEPS);
 }
 
+function buildSettingsComparisonSnapshot(
+  settings: EstimateSettingsState | null
+) {
+  if (!settings) return null;
+
+  return {
+    title: settings.title,
+    date_devis: settings.date_devis,
+    exclusions: settings.exclusions,
+    validite_jours: settings.validite_jours,
+    currency: settings.currency,
+    margin_multiplier: settings.margin_multiplier,
+    margin_mode: settings.margin_mode ?? "fixed",
+    discount_cents: settings.discount_cents,
+    discount_mode: settings.discount_mode ?? "simple",
+    discount_steps: normalizeCascadeDiscountSteps(settings.discount_steps),
+    global_coefficient: settings.global_coefficient ?? 1,
+    tax_rate_bp: settings.tax_rate_bp,
+    contractor_role: settings.contractor_role ?? "principal",
+    rounding_mode: settings.rounding_mode,
+    rounding_step_cents: settings.rounding_step_cents,
+  };
+}
+
+function haveEstimateSettingsChanged(
+  settings: EstimateSettingsState | null,
+  savedSettings: EstimateSettingsState | null
+) {
+  return (
+    JSON.stringify(buildSettingsComparisonSnapshot(settings)) !==
+    JSON.stringify(buildSettingsComparisonSnapshot(savedSettings))
+  );
+}
+
+function resolveLatestSavedAt(
+  first: string | null | undefined,
+  second: string | null | undefined
+) {
+  if (!first) return second ?? null;
+  if (!second) return first;
+  return Date.parse(first) >= Date.parse(second) ? first : second;
+}
+
 function formatSectionDuplicateTargetLabel(input: {
   versionNumber: number;
   title: string | null;
@@ -441,6 +484,11 @@ export function useEstimateEditorState({
     []
   );
 
+  const hasUnsavedSettings = useMemo(
+    () => haveEstimateSettingsChanged(settings, savedSettings),
+    [savedSettings, settings]
+  );
+
   const syncController = useEstimateEditorSyncController({
     routeVersionId: resolvedVersionId,
     activeVersion: version
@@ -451,6 +499,11 @@ export function useEstimateEditorState({
       : null,
     currentUserId: profile?.id ?? null,
     isViewerReadOnly,
+    hasPendingSettingsChanges: hasUnsavedSettings,
+    isSavingSettings,
+    savePendingSettings: async () => {
+      await handleSaveSettings();
+    },
     items,
     settings,
     getVersionSnapshot,
@@ -467,6 +520,10 @@ export function useEstimateEditorState({
   const {
     autoSaveStatus,
     autoSaveStatusLabel,
+    isAutoSaveSaving,
+    isAutoSaveEnabled,
+    lastSavedAt,
+    hasPendingChanges,
     conflict: conflictState,
     isReloadingVersion,
     hasRestorableDraft,
@@ -478,6 +535,8 @@ export function useEstimateEditorState({
   const {
     overlayPendingUpdates: applyPendingBufferedUpdatesToItems,
     enqueueItemUpdate: enqueueBufferedItemUpdate,
+    setAutoSaveEnabled,
+    saveNow,
     flushBufferedItemUpdates,
     ensureGroupedActionCanProceed,
     retryTotalsSave,
@@ -1161,9 +1220,15 @@ export function useEstimateEditorState({
   }, [persistedTotals]);
 
   const autoSaveStatusClassName = useMemo(() => {
-    if (autoSaveStatus === "saving") return "status-badge status-sent";
-    if (autoSaveStatus === "error") return "status-badge status-canceled";
-    if (autoSaveStatus === "saved") return "status-badge status-accepted";
+    if (autoSaveStatus === "saving" || autoSaveStatus === "pending") {
+      return "status-badge status-sent";
+    }
+    if (autoSaveStatus === "error" || autoSaveStatus === "offline") {
+      return "status-badge status-canceled";
+    }
+    if (autoSaveStatus === "saved" || autoSaveStatus === "idle") {
+      return "status-badge status-accepted";
+    }
     return "status-badge status-draft";
   }, [autoSaveStatus]);
 
@@ -1272,7 +1337,12 @@ export function useEstimateEditorState({
       });
 
     try {
-      if (!(await ensureGroupedActionCanProceed("sauvegarder les paramètres"))) {
+      if (
+        !(await ensureGroupedActionCanProceed(
+          "sauvegarder les paramètres",
+          { allowPendingSettings: true }
+        ))
+      ) {
         return;
       }
       if (!isCurrentSettingsSave()) return;
@@ -2282,6 +2352,27 @@ export function useEstimateEditorState({
         return;
       }
 
+      if (hasUnsavedSettings) {
+        setActionError(
+          "Enregistrez le paramétrage avant de dupliquer cette section vers une autre version."
+        );
+        return;
+      }
+
+      if (
+        !(await ensureGroupedActionCanProceed(
+          "dupliquer cette section vers une autre version"
+        ))
+      ) {
+        return;
+      }
+
+      const synchronizedVersionSnapshot = versionRef.current;
+      if (!synchronizedVersionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
       setActionError(null);
       let targetLockAcquired = false;
       let redirected = false;
@@ -2299,7 +2390,7 @@ export function useEstimateEditorState({
         }
 
         targetLockAcquired = true;
-        await duplicateEstimateSection(versionSnapshot.id, sectionId, {
+        await duplicateEstimateSection(synchronizedVersionSnapshot.id, sectionId, {
           targetVersionId,
         });
 
@@ -2325,7 +2416,9 @@ export function useEstimateEditorState({
     },
     [
       conflictState?.message,
+      ensureGroupedActionCanProceed,
       handleDuplicateSection,
+      hasUnsavedSettings,
       isConflictLocked,
       isReadOnly,
       readOnlyActionErrorMessage,
@@ -2529,6 +2622,22 @@ export function useEstimateEditorState({
         autoSaveStatusLabel,
         autoSaveStatusClassName,
         showAutoSaveStatus: version.status === "draft",
+        isAutoSaveEnabled,
+        hasPendingChanges,
+        lastSavedAt: resolveLatestSavedAt(lastSavedAt, version.updated_at),
+        isSaveNowDisabled:
+          !hasPendingChanges ||
+          isSaveBlocked ||
+          isAutoSaveSaving ||
+          isSavingSettings,
+        onAutoSaveEnabledChange: setAutoSaveEnabled,
+        onSaveNow: () => {
+          if (hasUnsavedSettings) {
+            void handleSaveSettings();
+            return;
+          }
+          void saveNow();
+        },
         canSend,
         canAccept,
         canArchive,

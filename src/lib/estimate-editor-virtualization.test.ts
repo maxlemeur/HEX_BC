@@ -235,4 +235,25 @@ describe("isEstimateEditorVirtualizationEnabled", () => {
     expect(isEstimateEditorVirtualizationEnabled(config, 600)).toBe(true);
     expect(isEstimateEditorVirtualizationEnabled(config, 1200)).toBe(true);
   });
+
+  it("virtualizes medium estimates with the default auto threshold", () => {
+    const config = {
+      enabled: false,
+      mode: "auto" as const,
+      autoThreshold: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD,
+    };
+
+    expect(
+      isEstimateEditorVirtualizationEnabled(
+        config,
+        ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD - 1
+      )
+    ).toBe(false);
+    expect(
+      isEstimateEditorVirtualizationEnabled(
+        config,
+        ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD
+      )
+    ).toBe(true);
+  });
 });

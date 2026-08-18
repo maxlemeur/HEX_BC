@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { retryTakeoffJob } from "@/lib/takeoff/server";
@@ -23,6 +24,11 @@ export async function POST(
       jobId: data.job.id,
       trigger: "retry",
     });
+    const dispatchPersisted = await persistTakeoffDispatchOutcome({
+      jobId: data.job.id,
+      trigger: "retry",
+      result: triggerResult,
+    });
 
     if (!triggerResult.triggered) {
       console.error("Takeoff retry accepted but async processing trigger failed.", {
@@ -31,7 +37,18 @@ export async function POST(
       });
     }
 
-    return ok(data);
+    return ok({
+      ...data,
+      dispatch: {
+        status: triggerResult.triggered
+          ? "accepted"
+          : dispatchPersisted
+            ? "queued_for_recovery"
+            : "persistence_unconfirmed",
+        correlation_id: triggerResult.correlationId,
+        persisted: dispatchPersisted,
+      },
+    });
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

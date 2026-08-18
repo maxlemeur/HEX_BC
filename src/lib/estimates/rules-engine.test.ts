@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkApprovalRule,
   evaluateApprovalSummary,
   evaluateRules,
 } from "@/lib/estimates/rules-engine";
+
+describe("approval threshold", () => {
+  it("requires approval as soon as the HT reaches the configured threshold", () => {
+    expect(
+      checkApprovalRule({ actualValue: 500_000, threshold: 500_000 }),
+    ).toMatchObject({ violated: true });
+    expect(
+      checkApprovalRule({ actualValue: 499_999, threshold: 500_000 }),
+    ).toMatchObject({ violated: false });
+  });
+});
 
 type QueryResult = {
   data: unknown;

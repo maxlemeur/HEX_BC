@@ -7,7 +7,17 @@ afterEach(() => {
   cleanup();
 });
 
-function renderToolbar(versionZeroActionLabel?: string) {
+function renderToolbar(
+  versionZeroActionLabel?: string,
+  options?: {
+    showAutoSaveStatus?: boolean;
+    isAutoSaveEnabled?: boolean;
+    hasPendingChanges?: boolean;
+    isSaveNowDisabled?: boolean;
+  }
+) {
+  const onAutoSaveEnabledChange = vi.fn();
+  const onSaveNow = vi.fn();
   render(
     <EstimateEditorToolbar
       projectName="358 LLG LT"
@@ -16,7 +26,13 @@ function renderToolbar(versionZeroActionLabel?: string) {
       autoSaveStatus="idle"
       autoSaveStatusLabel=""
       autoSaveStatusClassName=""
-      showAutoSaveStatus={false}
+      showAutoSaveStatus={options?.showAutoSaveStatus ?? false}
+      isAutoSaveEnabled={options?.isAutoSaveEnabled ?? true}
+      hasPendingChanges={options?.hasPendingChanges ?? false}
+      lastSavedAt="2026-08-13T13:42:00.000Z"
+      isSaveNowDisabled={options?.isSaveNowDisabled ?? true}
+      onAutoSaveEnabledChange={onAutoSaveEnabledChange}
+      onSaveNow={onSaveNow}
       canSend={false}
       canAccept={false}
       canArchive={false}
@@ -47,6 +63,8 @@ function renderToolbar(versionZeroActionLabel?: string) {
       versionId="version-1"
     />
   );
+
+  return { onAutoSaveEnabledChange, onSaveNow };
 }
 
 describe("EstimateEditorToolbar page actions", () => {
@@ -89,5 +107,37 @@ describe("EstimateEditorToolbar page actions", () => {
       screen.queryByRole("menu", { name: "Plus d'actions du chiffrage" })
     ).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("lets the user disable autosave and save pending changes manually", () => {
+    const { onAutoSaveEnabledChange, onSaveNow } = renderToolbar(undefined, {
+      showAutoSaveStatus: true,
+      isAutoSaveEnabled: true,
+      hasPendingChanges: true,
+      isSaveNowDisabled: false,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Plus d'actions" }));
+
+    const toggle = screen.getByRole("menuitemcheckbox", {
+      name: "Sauvegarde automatique",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Activée")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Les lignes sont automatiques ; le paramétrage reste manuel."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("estimate-page-toolbar-last-saved-at"))
+      .toHaveTextContent("Dernière sauvegarde : 13/08/2026 15:42");
+
+    fireEvent.click(toggle);
+    expect(onAutoSaveEnabledChange).toHaveBeenCalledWith(false);
+
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /Sauvegarder maintenant/ })
+    );
+    expect(onSaveNow).toHaveBeenCalledTimes(1);
   });
 });

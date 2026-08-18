@@ -12,6 +12,12 @@ export type TriggerTakeoffJobProcessingResult = {
   triggered: boolean;
   correlationId: string;
   statusCode: number | null;
+  outcome:
+    | "accepted"
+    | "configuration_missing"
+    | "http_error"
+    | "timeout"
+    | "network_error";
 };
 
 const DEFAULT_EDGE_TRIGGER_TIMEOUT_MS = 1_500;
@@ -53,6 +59,7 @@ export async function triggerTakeoffJobProcessing(
       triggered: false,
       correlationId,
       statusCode: null,
+      outcome: "configuration_missing",
     };
   }
 
@@ -89,6 +96,7 @@ export async function triggerTakeoffJobProcessing(
       triggered: response.ok,
       correlationId,
       statusCode: response.status,
+      outcome: response.ok ? "accepted" : "http_error",
     };
   } catch (error) {
     console.error("Takeoff edge trigger request failed.", {
@@ -101,6 +109,10 @@ export async function triggerTakeoffJobProcessing(
       triggered: false,
       correlationId,
       statusCode: null,
+      outcome:
+        error instanceof Error && error.name === "AbortError"
+          ? "timeout"
+          : "network_error",
     };
   } finally {
     clearTimeout(timeout);

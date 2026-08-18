@@ -23,12 +23,9 @@ import {
   parseAffaireHubDevScenario,
 } from "@/lib/affaires/hub-dev-scenarios";
 import {
-  fetchAffaireHubDpgfSource,
   fetchAffaireHubFinishLineSummary,
-  fetchAffaireHubMarginAnalysis,
+  fetchAffaireHubInitialData,
   fetchAffaireHubPlansSummary,
-  fetchAffaireHubSummary,
-  fetchAffaireHubTimeline,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
 import {
@@ -98,31 +95,29 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     search.registerFocus
   );
 
-  const summaryPromise = fetchAffaireHubSummary(projectId);
-  const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
-  const dpgfSourcePromise = fetchAffaireHubDpgfSource(projectId);
-  const marginAnalysisPromise = fetchAffaireHubMarginAnalysis(projectId);
+  const initialDataPromise = fetchAffaireHubInitialData(projectId, timelinePage);
   const takeoffEnabledPromise = isTakeoffEnabled(tenantId);
+  const takeoffDataPromise = takeoffEnabledPromise.then(
+    (enabled) =>
+      enabled
+        ? Promise.allSettled([
+            fetchAffaireHubPlansSummary(projectId),
+            fetchProjectVersionList(projectId),
+          ])
+        : null,
+    () => null
+  );
   const intakeWorkspacePromise = fetchAffaireIntakeWorkspace(projectId);
 
-  const [
-    summaryResult,
-    timelineResult,
-    dpgfSourceResult,
-    marginResult,
-    takeoffEnabledResult,
-    intakeWorkspaceResult,
-  ] = await Promise.allSettled([
-    summaryPromise,
-    timelinePromise,
-    dpgfSourcePromise,
-    marginAnalysisPromise,
-    takeoffEnabledPromise,
-    intakeWorkspacePromise,
-  ]);
+  const [initialDataResult, takeoffEnabledResult, intakeWorkspaceResult] =
+    await Promise.allSettled([
+      initialDataPromise,
+      takeoffEnabledPromise,
+      intakeWorkspacePromise,
+    ]);
 
-  if (summaryResult.status === "rejected") {
-    const err = summaryResult.reason as unknown;
+  if (initialDataResult.status === "rejected") {
+    const err = initialDataResult.reason as unknown;
     if (
       err !== null &&
       typeof err === "object" &&
@@ -134,7 +129,12 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     throw err;
   }
 
-  const summary = summaryResult.value;
+  const {
+    summary,
+    timelineResult,
+    dpgfSourceResult,
+    marginAnalysisResult: marginResult,
+  } = initialDataResult.value;
   const currentVersionId = summary.currentVersion?.id ?? null;
   const [
     approvalSummaryResult,
@@ -258,19 +258,17 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const hasIntakeWorkspaceError = intakeWorkspaceResult.status === "rejected";
 
   if (takeoffEnabled) {
-    const [plansSummaryResult, projectVersionsResult] = await Promise.allSettled([
-      fetchAffaireHubPlansSummary(projectId),
-      fetchProjectVersionList(projectId),
-    ]);
+    const takeoffData = await takeoffDataPromise;
+    const [plansSummaryResult, projectVersionsResult] = takeoffData ?? [];
 
-    if (plansSummaryResult.status === "fulfilled") {
+    if (plansSummaryResult?.status === "fulfilled") {
       plansSummary = plansSummaryResult.value;
     } else {
       sectionErrors.plansSummary =
         "Impossible de charger le resume plans & metres pour le moment.";
     }
 
-    if (projectVersionsResult.status === "fulfilled") {
+    if (projectVersionsResult?.status === "fulfilled") {
       projectVersions = projectVersionsResult.value;
     }
   }

@@ -11,6 +11,7 @@ import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
 import { Button } from "@/components/ui/Button";
+import { useDelayedLoadingIndicator } from "@/hooks/useDelayedLoadingIndicator";
 import {
   fetchPlanSetsForProject,
   isTakeoffApiError,
@@ -45,7 +46,9 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
   } = useSWR<PlanSetListItem[]>(swrKey, () => fetchPlanSetsForProject(projectId), {
     revalidateOnFocus: false,
     fallbackData: initialPlanSets,
+    shouldRetryOnError: false,
   });
+  const isSlowLoading = useDelayedLoadingIndicator(isLoading);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -140,7 +143,12 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
 
       {/* Loading skeleton */}
       {isLoading && (
-        <div className="space-y-4">
+        <div className="space-y-4" role="status" aria-live="polite">
+          <p className="text-sm text-[var(--slate-600)]">
+            {isSlowLoading
+              ? "Le chargement prend plus de temps que prévu…"
+              : "Chargement des jeux de plans…"}
+          </p>
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />

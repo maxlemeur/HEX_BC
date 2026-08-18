@@ -35,6 +35,7 @@ import {
   markEstimatePdfFailed,
   markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
+import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -96,6 +97,7 @@ type PdfMockInput = {
   uploadError?: unknown;
   publishError?: unknown;
   documentState?: { value: EstimateDocumentMock | null };
+  missingRoundingAdjustmentColumn?: boolean;
 };
 
 function createSupabasePdfMock(input?: PdfMockInput) {
@@ -145,6 +147,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
         total_ht_cents: input?.versionTotals?.total_ht_cents ?? 10000,
         total_tax_cents: input?.versionTotals?.total_tax_cents ?? 2000,
         total_ttc_cents: input?.versionTotals?.total_ttc_cents ?? 12000,
+        rounding_adjustment_cents: 0,
         content_revision: input?.contentRevision ?? 1,
         estimate_projects: {
           id: PROJECT_ID,
@@ -160,6 +163,22 @@ function createSupabasePdfMock(input?: PdfMockInput) {
     }),
   };
   versionSelectBuilder.eq.mockReturnValue(versionSelectBuilder);
+  const missingRoundingVersionSelectBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: null,
+      error: {
+        code: "42703",
+        message:
+          "column estimate_versions.rounding_adjustment_cents does not exist",
+        details: null,
+        hint: null,
+      },
+    }),
+  };
+  missingRoundingVersionSelectBuilder.eq.mockReturnValue(
+    missingRoundingVersionSelectBuilder,
+  );
 
   const itemsBuilder = {
     eq: vi.fn(),
@@ -279,12 +298,18 @@ function createSupabasePdfMock(input?: PdfMockInput) {
   const createSignedUrl = vi
     .fn()
     .mockResolvedValue({ data: { signedUrl: "https://example.com/signed" }, error: null });
+  const versionSelect = vi.fn((columns: string) =>
+    input?.missingRoundingAdjustmentColumn &&
+    columns.includes("rounding_adjustment_cents")
+      ? missingRoundingVersionSelectBuilder
+      : versionSelectBuilder
+  );
   const from = vi.fn((table: string) => {
     if (table === "tenant_memberships") {
       return { select: vi.fn(() => tenantMembershipBuilder) };
     }
     if (table === "estimate_versions") {
-      return { select: vi.fn(() => versionSelectBuilder) };
+      return { select: versionSelect };
     }
     if (table === "estimate_items") {
       return { select: vi.fn(() => itemsBuilder) };
@@ -378,6 +403,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
       createSignedUrl,
       documentState,
       from,
+      versionSelect,
     },
   };
 
@@ -499,9 +525,20 @@ describe("estimate pdf generator", () => {
     const renderedDocument = JSON.stringify(
       vi.mocked(renderToBuffer).mock.calls[0]?.[0]
     );
+    const renderedTotals = JSON.stringify(
+      PdfEstimateTotalsCard({
+        totalHtCents: 12000,
+        totalTaxCents: 0,
+        amountDueCents: 12000,
+        roundingAdjustmentCents: 0,
+        currency: "EUR",
+        taxRateBp: 2000,
+        vatReverseCharge: true,
+      })
+    );
     expect(renderedDocument).toContain("Autoliquidation");
-    expect(renderedDocument).toContain("Total HT");
-    expect(renderedDocument).not.toContain("Total TTC");
+    expect(renderedTotals).toContain("Total HT");
+    expect(renderedTotals).not.toContain("Total TTC");
     expect(renderedDocument).not.toMatch(
       /"children":(?:\["TVA"\]|"TVA")/
     );
@@ -718,6 +755,26 @@ describe("estimate pdf generator", () => {
       legacyCommercialPath,
       3600,
     );
+  });
+
+  it("keeps PDF reads available before the explicit rounding migration", async () => {
+    const authenticatedSupabase = createSupabasePdfMock({
+      missingRoundingAdjustmentColumn: true,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      authenticatedSupabase as never,
+    );
+
+    await expect(getEstimatePdfStatus(VERSION_ID)).resolves.toEqual({
+      status: "missing",
+    });
+    expect(authenticatedSupabase.__mocks.versionSelect).toHaveBeenCalledTimes(2);
+    expect(
+      authenticatedSupabase.__mocks.versionSelect.mock.calls[0]?.[0],
+    ).toContain("rounding_adjustment_cents");
+    expect(
+      authenticatedSupabase.__mocks.versionSelect.mock.calls[1]?.[0],
+    ).not.toContain("rounding_adjustment_cents");
   });
 
   it("keeps a failed regeneration failed when an older publication remains", async () => {

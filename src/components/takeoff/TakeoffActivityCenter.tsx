@@ -10,9 +10,10 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
-import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import { ProductionRibbon } from "@/components/dashboard/ProductionRibbon";
+import { useDelayedLoadingIndicator } from "@/hooks/useDelayedLoadingIndicator";
+import type { TakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import {
   BUSINESS_STATUS_FILTER_OPTIONS,
   BUSINESS_LEVEL_FILTER_OPTIONS,
@@ -27,25 +28,6 @@ import TakeoffJobsTable from "./TakeoffJobsTable";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
 
-type LaunchContext = {
-  currentVersion: {
-    id: string;
-    status: string;
-    versionNumber: number;
-  } | null;
-  plansContext: {
-    defaultPlanSetId: string | null;
-    defaultPlanSetName?: string | null;
-    defaultPlanSetSource?: string | null;
-    defaultPlanSetFileCount?: number;
-    launchRecommendation?: TakeoffDocumentRecommendation | null;
-  } | null;
-  availableVersions: Array<{
-    id: string;
-    versionNumber: number;
-  }>;
-};
-
 type Props = {
   projectId: string;
   versions: Array<{ id: string; version_number: number }>;
@@ -55,7 +37,7 @@ type Props = {
     metadata?: Record<string, unknown> | null;
     fileCount?: number;
   }>;
-  launchContext?: LaunchContext | null;
+  launchContext?: TakeoffLaunchContext | null;
   ribbonHeader?: ReactNode;
   ribbonPreamble?: ReactNode;
 };
@@ -165,8 +147,10 @@ export default function TakeoffActivityCenter({
       revalidateOnReconnect: true,
       refreshInterval: computeRefreshInterval,
       keepPreviousData: true,
+      shouldRetryOnError: false,
     }
   );
+  const isSlowLoading = useDelayedLoadingIndicator(isLoading);
 
   // Derive lot options from project-scoped plan-set metadata so filtering is stable across pages.
   const lotOptions = (() => {
@@ -492,7 +476,14 @@ export default function TakeoffActivityCenter({
       >
         {activeTab === "jobs" &&
           (isLoading ? (
-            <JobsTableSkeleton />
+            <div role="status" aria-live="polite">
+              <p className="mb-3 text-sm text-[var(--slate-600)]">
+                {isSlowLoading
+                  ? "Le chargement prend plus de temps que prévu…"
+                  : "Chargement des analyses…"}
+              </p>
+              <JobsTableSkeleton />
+            </div>
           ) : error ? (
             <section className="dashboard-card mt-4 p-6">
               <h2 className="text-xl font-black text-[var(--slate-800)]">

@@ -9,7 +9,12 @@ vi.mock("@/lib/takeoff/edge-trigger", () => ({
     triggered: true,
     correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     statusCode: 202,
+    outcome: "accepted",
   }),
+}));
+
+vi.mock("@/lib/takeoff/dispatch-state", () => ({
+  persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true),
 }));
 
 import { POST } from "@/app/api/takeoff/jobs/[jobId]/reconcile/route";
@@ -47,6 +52,7 @@ describe("POST /api/takeoff/jobs/[jobId]/reconcile", () => {
       triggered: true,
       correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       statusCode: 202,
+      outcome: "accepted",
     });
   });
 
@@ -64,7 +70,14 @@ describe("POST /api/takeoff/jobs/[jobId]/reconcile", () => {
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(body.data).toEqual(RECONCILE_RESPONSE);
+    expect(body.data).toEqual({
+      ...RECONCILE_RESPONSE,
+      dispatch: {
+        status: "accepted",
+        correlation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        persisted: true,
+      },
+    });
     expect(vi.mocked(reconcileTakeoffJobNow)).toHaveBeenCalledWith(JOB_ID);
     expect(vi.mocked(triggerTakeoffJobProcessing)).toHaveBeenCalledWith({
       jobId: JOB_ID,
@@ -115,7 +128,7 @@ describe("POST /api/takeoff/jobs/[jobId]/reconcile", () => {
     expect(vi.mocked(triggerTakeoffJobProcessing)).not.toHaveBeenCalled();
   });
 
-  it("returns 503 when the reconcile worker trigger is not queued", async () => {
+  it("returns a durable recovery state when the reconcile trigger fails", async () => {
     vi.mocked(reconcileTakeoffJobNow).mockResolvedValue(
       RECONCILE_RESPONSE as never
     );
@@ -123,25 +136,36 @@ describe("POST /api/takeoff/jobs/[jobId]/reconcile", () => {
       triggered: false,
       correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       statusCode: 503,
+      outcome: "http_error",
     });
     const [request, context] = buildPostRequest();
 
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const response = await POST(request, context);
     const body = (await response.json()) as {
       ok: boolean;
-      error?: {
-        code?: string;
-        message?: string;
-        retryable?: boolean;
+      data?: {
+        dispatch?: {
+          status?: string;
+          correlation_id?: string;
+        };
       };
     };
 
-    expect(response.status).toBe(503);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe(TakeoffErrorCode.INTERNAL_ERROR);
-    expect(body.error?.message).toBe(
-      "Le worker async takeoff n'a pas pu etre declenche."
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.dispatch).toEqual({
+      status: "queued_for_recovery",
+      correlation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      persisted: true,
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Takeoff reconcile accepted but async processing trigger failed.",
+      {
+        jobId: JOB_ID,
+        correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      }
     );
-    expect(body.error?.retryable).toBe(true);
+    consoleErrorSpy.mockRestore();
   });
 });

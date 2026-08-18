@@ -2309,12 +2309,12 @@ body {
 }
 
 .estimate-table {
-  --estimate-grid-desktop: minmax(260px, 3fr) 64px 54px 88px 112px 56px 56px 104px 112px 56px 88px 100px 42px;
-  --estimate-grid-tablet: minmax(220px, 3fr) 58px 50px 80px 100px 56px 56px 96px 100px 56px 82px 94px 40px;
+  --estimate-grid-desktop: minmax(300px, 3fr) 64px 54px 88px 112px 56px 56px 104px 112px 56px 88px 100px 42px;
+  --estimate-grid-tablet: minmax(260px, 3fr) 58px 50px 80px 100px 56px 56px 96px 100px 56px 82px 94px 40px;
   --estimate-grid: var(--estimate-grid-desktop);
-  --estimate-desktop-min-width: 1192px;
+  --estimate-desktop-min-width: 1232px;
   --estimate-min-width: var(--estimate-desktop-min-width);
-  --estimate-tablet-min-width: 1088px;
+  --estimate-tablet-min-width: 1128px;
   --density-row-h: 30px;
   --density-cell-px: 6px;
   --density-cell-py: 2px;
@@ -2332,12 +2332,12 @@ body {
    mode MO eclatee. Ces valeurs y sont reprises a l identique ; les modifier ici
    seul n aurait plus d effet. */
 .estimate-table--labor-split {
-  --estimate-grid-desktop: minmax(260px, 3fr) 64px 54px 88px 112px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px;
-  --estimate-grid-tablet: minmax(220px, 3fr) 58px 50px 80px 100px 56px 88px 68px 96px 56px 68px 96px 56px 82px 94px 40px;
+  --estimate-grid-desktop: minmax(300px, 3fr) 64px 54px 88px 112px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px;
+  --estimate-grid-tablet: minmax(260px, 3fr) 58px 50px 80px 100px 56px 88px 68px 96px 56px 68px 96px 56px 82px 94px 40px;
   --estimate-grid: var(--estimate-grid-desktop);
-  --estimate-desktop-min-width: 1436px;
+  --estimate-desktop-min-width: 1476px;
   --estimate-min-width: var(--estimate-desktop-min-width);
-  --estimate-tablet-min-width: 1308px;
+  --estimate-tablet-min-width: 1348px;
 }
 
 .estimate-table__head {
@@ -3529,6 +3529,75 @@ body {
   gap: 4px 6px;
 }
 
+.estimate-line-nature-picker {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  color: var(--slate-600);
+  cursor: pointer;
+}
+
+.estimate-line-nature-picker__label {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  border: 1px solid var(--slate-200);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.estimate-line-nature-picker__chevron {
+  flex: 0 0 auto;
+  color: var(--slate-400);
+  font-size: 9px;
+}
+
+.estimate-line-nature-picker__select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  appearance: auto;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.estimate-line-nature-picker:not(.estimate-line-nature-picker--readonly):hover
+  .estimate-line-nature-picker__label {
+  border-color: var(--slate-300);
+  color: var(--slate-800);
+}
+
+.estimate-line-nature-picker:has(.estimate-line-nature-picker__select:focus-visible),
+.estimate-line-nature-picker--readonly:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+.estimate-line-nature-picker--readonly {
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .estimate-line-nature-picker,
+  .estimate-line-nature-picker__label {
+    min-height: 44px;
+  }
+}
+
 .estimate-line-truth {
   display: contents;
 }
@@ -3547,22 +3616,6 @@ body {
 }
 
 @media (min-width: 1025px) {
-  .estimate-table .estimate-line-designation {
-    flex-direction: row;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .estimate-table .estimate-line-designation__primary {
-    flex: 1 1 auto;
-  }
-
-  .estimate-table .estimate-line-designation__support {
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
-    gap: 3px;
-  }
-
   .estimate-table .estimate-section-more-btn,
   .estimate-table .estimate-cell--actions .btn-sm {
     height: 28px;
@@ -4055,12 +4108,19 @@ body {
   }
 
   [data-testid="estimate-page-toolbar-autosave-status"] {
-    max-width: 116px;
+    max-width: 140px;
+    min-width: 0;
     min-height: 40px;
     align-items: center;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  [data-testid="estimate-page-toolbar-autosave-status"] > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   [data-testid="estimate-page-toolbar-more-actions-button"] {

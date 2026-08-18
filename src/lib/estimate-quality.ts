@@ -3,6 +3,11 @@ import type {
   EstimateOutlierFlagsByItemId,
   EstimateOutlierFlagKey,
 } from "@/lib/estimates/outlier-detection";
+import {
+  lineNatureExpectsLabor,
+  lineNatureExpectsSupply,
+  resolveEstimateLineNature,
+} from "@/lib/estimates/line-nature";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -11,6 +16,7 @@ export const ESTIMATE_QUALITY_FLAG_KEYS = [
   "missing_quantity",
   "missing_labor_time",
   "missing_labor_role",
+  "line_nature_mismatch",
   "supplier_price_outdated",
   "labor_split_incomplete",
   "price_outlier",
@@ -30,25 +36,30 @@ export const ESTIMATE_QUALITY_FLAG_META: Record<
 > = {
   missing_price: {
     label: "Prix manquant",
-    description: "Le prix unitaire FO est absent ou egal a 0.",
+    description: "Le prix unitaire de fourniture est absent ou égal à 0.",
   },
   missing_quantity: {
-    label: "Quantite manquante",
-    description: "La quantite est absente ou egale a 0.",
+    label: "Quantité manquante",
+    description: "La quantité est absente ou égale à 0.",
   },
   missing_labor_time: {
-    label: "Temps MO manquant",
-    description: "Le temps de main d'oeuvre est absent ou egal a 0.",
+    label: "Temps de main-d’œuvre manquant",
+    description: "Le temps de main-d’œuvre est absent ou égal à 0.",
   },
   missing_labor_role: {
-    label: "Role MO manquant",
+    label: "Rôle de main-d’œuvre manquant",
     description:
-      "Un temps MO est saisi mais aucun role de main d'oeuvre n'est selectionne.",
+      "Un temps de main-d’œuvre est saisi mais aucun rôle n’est sélectionné.",
+  },
+  line_nature_mismatch: {
+    label: "Nature de ligne incohérente",
+    description:
+      "La ligne contient des fournitures ou de la main-d’œuvre exclues par la nature sélectionnée. Corrigez la nature ou les valeurs avant publication.",
   },
   supplier_price_outdated: {
-    label: "Prix fournisseur obsolete",
+    label: "Prix fournisseur obsolète",
     description:
-      "Le prix fournisseur selectionne est obsolete selon le seuil de fraicheur configure.",
+      "Le prix fournisseur sélectionné est obsolète selon le seuil de fraîcheur configuré.",
   },
   labor_split_incomplete: {
     label: "Split MO incomplet",
@@ -107,10 +118,10 @@ function resolveActiveOutlierFlags(input: {
 
 function hasLaborSplitPayload(item: EstimateItem) {
   return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
+    (item.h_mo_atelier ?? 0) > 0 ||
     (item.labor_role_atelier_id !== null &&
       item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
+    (item.h_mo_chantier ?? 0) > 0 ||
     (item.labor_role_chantier_id !== null &&
       item.labor_role_chantier_id !== undefined) ||
     ((item.k_mo_atelier ?? 1) !== 1) ||
@@ -137,27 +148,50 @@ export function computeEstimateQualityFlagsForItem(
   const laborHoursChantier = parsePositiveNumber(item.h_mo_chantier ?? null);
   const laborRoleAtelierId = item.labor_role_atelier_id ?? null;
   const laborRoleChantierId = item.labor_role_chantier_id ?? null;
+  const lineNature = resolveEstimateLineNature(item);
+  const expectsSupply = lineNatureExpectsSupply(lineNature);
+  const expectsLabor = lineNatureExpectsLabor(lineNature);
+  const hasSupplyComponent =
+    unitPriceHtCents > 0 ||
+    Boolean(item.supply_type_id) ||
+    Boolean(item.selected_supplier_price_id);
+  const hasLaborComponent =
+    laborHours > 0 ||
+    laborHoursAtelier > 0 ||
+    laborHoursChantier > 0 ||
+    Boolean(laborRoleId) ||
+    Boolean(laborRoleAtelierId) ||
+    Boolean(laborRoleChantierId);
+  const splitEnabled =
+    options?.isLaborSplitEnabled ?? hasLaborSplitPayload(item);
+  const effectiveLaborHours = splitEnabled
+    ? laborHoursAtelier + laborHoursChantier
+    : laborHours;
 
-  if (unitPriceHtCents <= 0) {
+  if (expectsSupply && unitPriceHtCents <= 0) {
     flags.push("missing_price");
   }
   if (quantity <= 0) {
     flags.push("missing_quantity");
   }
-  if (laborHours <= 0) {
+  if (expectsLabor && effectiveLaborHours <= 0) {
     flags.push("missing_labor_time");
   }
-  if (laborHours > 0 && !laborRoleId) {
+  if (expectsLabor && !splitEnabled && laborHours > 0 && !laborRoleId) {
     flags.push("missing_labor_role");
+  }
+  if (
+    (lineNature === "supply_only" && hasLaborComponent) ||
+    (lineNature === "labor_only" && hasSupplyComponent)
+  ) {
+    flags.push("line_nature_mismatch");
   }
 
   if (options?.staleSupplierPriceItemIds?.has(item.id)) {
     flags.push("supplier_price_outdated");
   }
 
-  const splitEnabled =
-    options?.isLaborSplitEnabled ?? hasLaborSplitPayload(item);
-  if (splitEnabled) {
+  if (expectsLabor && splitEnabled) {
     const hasAtelierValues = hasLaborValue(laborHoursAtelier, laborRoleAtelierId);
     const hasChantierValues = hasLaborValue(
       laborHoursChantier,

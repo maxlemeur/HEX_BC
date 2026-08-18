@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,6 +82,7 @@ describe("ProjectPlanCenter", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -183,5 +184,20 @@ describe("ProjectPlanCenter", () => {
     expect(
       screen.queryByRole("button", { name: /créer.*jeu de plans/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("explains a slow load instead of leaving an unlabeled skeleton", () => {
+    vi.useFakeTimers();
+    mockPlanSetsState({ isLoading: true });
+
+    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Chargement des jeux de plans"
+    );
+
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Le chargement prend plus de temps que prévu"
+    );
   });
 });

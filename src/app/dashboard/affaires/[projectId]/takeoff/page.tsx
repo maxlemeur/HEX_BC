@@ -13,6 +13,7 @@ import {
 } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { countLegacyPlanSets } from "@/lib/takeoff/flow-hierarchy";
+import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 
@@ -71,30 +72,17 @@ export default async function AffaireTakeoffPage({ params }: Props) {
     hubSummaryResult.status === "fulfilled" ? hubSummaryResult.value : null;
   const plansSummary =
     plansSummaryResult.status === "fulfilled" ? plansSummaryResult.value : null;
-  const launchContext =
-    plansSummary?.defaultPlanSetId &&
-    (hubSummary?.currentVersion || versions.length > 0)
+  const launchContext = buildTakeoffLaunchContext({
+    currentVersion: hubSummary?.currentVersion
       ? {
-          currentVersion: hubSummary?.currentVersion
-            ? {
-                id: hubSummary.currentVersion.id,
-                status: hubSummary.currentVersion.status,
-                versionNumber: hubSummary.currentVersion.versionNumber,
-              }
-            : null,
-          plansContext: {
-            defaultPlanSetId: plansSummary.defaultPlanSetId,
-            defaultPlanSetName: plansSummary.defaultPlanSetName,
-            defaultPlanSetSource: plansSummary.defaultPlanSetSource,
-            defaultPlanSetFileCount: plansSummary.defaultPlanSetFileCount,
-            launchRecommendation: plansSummary.launchRecommendation ?? null,
-          },
-          availableVersions: versions.map((version) => ({
-            id: version.id,
-            versionNumber: version.version_number,
-          })),
+          id: hubSummary.currentVersion.id,
+          status: hubSummary.currentVersion.status,
+          versionNumber: hubSummary.currentVersion.versionNumber,
         }
-      : null;
+      : null,
+    versions,
+    plansSummary,
+  });
 
   return (
     <div className="min-w-0">

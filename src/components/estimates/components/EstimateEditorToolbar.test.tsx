@@ -77,6 +77,7 @@ function renderToolbar(overrides?: {
             missing_quantity: 1,
             missing_labor_time: 0,
             missing_labor_role: 0,
+            line_nature_mismatch: 0,
             price_outlier: 0,
             quantity_outlier: 0,
             supplier_price_outdated: 0,

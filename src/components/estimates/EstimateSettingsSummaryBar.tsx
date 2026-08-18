@@ -6,6 +6,16 @@ import { Popover } from "@/components/ui/Popover";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 
+function formatSignedCurrency(
+  cents: number,
+  currency: SupportedEstimateCurrency,
+) {
+  const formatted = formatCurrency(Math.abs(cents), currency);
+  if (cents > 0) return `+${formatted}`;
+  if (cents < 0) return `−${formatted}`;
+  return formatted;
+}
+
 /* ---------- types ---------- */
 
 export type SettingsSection =
@@ -88,7 +98,7 @@ function GearButton({ onClick }: { onClick: () => void }) {
       type="button"
       className="estimate-summary-bar__gear"
       onClick={onClick}
-      aria-label="Ouvrir les parametres"
+      aria-label="Ouvrir les paramètres"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -141,9 +151,25 @@ export function EstimateSettingsSummaryBar({
     const tvaPercent = `${(taxRateBp / 100).toFixed(tvaPrecision)}%`;
     const discountDisplay = formatCurrency(totals.discountCents, currency);
     const totalHt = formatCurrency(totals.saleTotalCents, currency);
+    const ttcBeforeRoundingCents =
+      totals.roundedTtcCents - totals.roundingAdjustmentCents;
+    const ttcBeforeRounding = formatCurrency(ttcBeforeRoundingCents, currency);
+    const roundingAdjustment = formatSignedCurrency(
+      totals.roundingAdjustmentCents,
+      currency,
+    );
     const totalTtc = formatCurrency(totals.roundedTtcCents, currency);
 
-    return { marginPercent, tvaPercent, discountDisplay, totalHt, totalTtc };
+    return {
+      marginPercent,
+      tvaPercent,
+      discountDisplay,
+      totalHt,
+      ttcBeforeRounding,
+      roundingAdjustment,
+      hasCommercialRounding: totals.roundingAdjustmentCents !== 0,
+      totalTtc,
+    };
   }, [totals, taxRateBp, currency]);
 
   const openSection = (section: SettingsSection) => () =>
@@ -153,7 +179,7 @@ export function EstimateSettingsSummaryBar({
     <div
       className="estimate-summary-bar"
       role="region"
-      aria-label="Resume du parametrage"
+      aria-label="Résumé du paramétrage"
     >
       {!derived ? (
         <SkeletonChips />
@@ -190,11 +216,24 @@ export function EstimateSettingsSummaryBar({
               />
               {/* Total TTC */}
               <SummaryChip
-                label="Total TTC"
+                label="TTC à payer"
                 value={derived.totalTtc}
                 variant="highlight"
                 onClick={openSection("rounding")}
+                ariaLabel={
+                  derived.hasCommercialRounding
+                    ? `TTC calculé ${derived.ttcBeforeRounding}, arrondi commercial ${derived.roundingAdjustment}, TTC à payer ${derived.totalTtc}`
+                    : undefined
+                }
               />
+              {derived.hasCommercialRounding ? (
+                <SummaryChip
+                  label="Arrondi"
+                  value={derived.roundingAdjustment}
+                  onClick={openSection("rounding")}
+                  ariaLabel={`Arrondi commercial optionnel : ${derived.roundingAdjustment}`}
+                />
+              ) : null}
             </>
           ) : (
             <>
@@ -213,7 +252,7 @@ export function EstimateSettingsSummaryBar({
                   <button
                     type="button"
                     className="estimate-summary-bar__chip"
-                    aria-label="Voir les details TVA, Remise et TTC"
+                    aria-label="Voir les détails de TVA, remise et TTC"
                   >
                     ...
                   </button>
@@ -231,7 +270,19 @@ export function EstimateSettingsSummaryBar({
                     onClick={openSection("discount")}
                   />
                   <PopoverRow
-                    label="Total TTC"
+                    label="TTC calculé"
+                    value={derived.ttcBeforeRounding}
+                    onClick={openSection("rounding")}
+                  />
+                  {derived.hasCommercialRounding ? (
+                    <PopoverRow
+                      label="Arrondi commercial"
+                      value={derived.roundingAdjustment}
+                      onClick={openSection("rounding")}
+                    />
+                  ) : null}
+                  <PopoverRow
+                    label="TTC à payer"
                     value={derived.totalTtc}
                     onClick={openSection("rounding")}
                   />

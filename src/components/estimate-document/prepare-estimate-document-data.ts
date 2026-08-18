@@ -120,8 +120,10 @@ export function buildLegacyDocumentBreakdown({
   preserveStoredSnapshot?: boolean;
   versionTotals?: {
     total_ht_cents: number | null;
+    /** TVA comptable, hors arrondi commercial. */
     total_tax_cents: number | null;
     total_ttc_cents: number | null;
+    rounding_adjustment_cents?: number | null;
   };
 }): EstimateBreakdown {
   if (calcEngineVersion === 2 && preserveStoredSnapshot) {
@@ -132,8 +134,12 @@ export function buildLegacyDocumentBreakdown({
         discount_mode: "simple",
         global_coefficient: globalCoefficient,
         total_ht_cents: versionTotals?.total_ht_cents,
-        total_tax_cents: versionTotals?.total_tax_cents,
+        total_tax_cents:
+          (versionTotals?.total_tax_cents ?? 0) +
+          (versionTotals?.rounding_adjustment_cents ?? 0),
         total_ttc_cents: versionTotals?.total_ttc_cents,
+        rounding_adjustment_cents:
+          versionTotals?.rounding_adjustment_cents,
       },
     });
   }

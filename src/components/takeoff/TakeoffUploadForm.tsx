@@ -309,6 +309,8 @@ export function TakeoffUploadForm({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [queuedForRecovery, setQueuedForRecovery] = useState(false);
+  const [recoveryUnconfirmed, setRecoveryUnconfirmed] = useState(false);
   const uploadRules = resolveAllowedLevelOptions(normalizedAllowedLevels);
   const recommendation = useMemo(
     () =>
@@ -347,7 +349,12 @@ export function TakeoffUploadForm({
     }
 
     if (submitState === "success") {
-      return "Extraction lancee";
+      if (recoveryUnconfirmed) {
+        return "Reprise à vérifier";
+      }
+      return queuedForRecovery
+        ? "Extraction en attente"
+        : "Extraction lancée";
     }
 
     if (submitState === "error") {
@@ -413,6 +420,8 @@ export function TakeoffUploadForm({
     setSubmitState("idle");
     setUploadProgress(0);
     setErrorMessage(null);
+    setQueuedForRecovery(false);
+    setRecoveryUnconfirmed(false);
   }
 
   function generateIdempotencyKey(file: File) {
@@ -542,7 +551,19 @@ export function TakeoffUploadForm({
 
       setSubmitState("success");
       setUploadProgress(100);
-      setAnnouncement("Extraction lancee avec succes. Redirection en cours.");
+      const isQueuedForRecovery =
+        job.dispatch?.status === "queued_for_recovery";
+      const isRecoveryUnconfirmed =
+        job.dispatch?.status === "persistence_unconfirmed";
+      setQueuedForRecovery(isQueuedForRecovery);
+      setRecoveryUnconfirmed(isRecoveryUnconfirmed);
+      setAnnouncement(
+        isRecoveryUnconfirmed
+          ? "Analyse créée, mais ni son démarrage immédiat ni sa reprise automatique n'ont pu être confirmés. Ouvrez le suivi pour réessayer."
+          : isQueuedForRecovery
+            ? "Analyse enregistrée. Son démarrage est en attente et sera relancé automatiquement. Redirection en cours."
+            : "Extraction lancée avec succès. Redirection en cours."
+      );
       if (onSuccess) {
         onSuccess(job);
       } else {

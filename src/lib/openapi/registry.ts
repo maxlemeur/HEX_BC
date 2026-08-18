@@ -1293,6 +1293,27 @@ const estimateAssemblyDataSchema = z.object({
 });
 
 const estimateBatchDataSchema = estimateBatchResultSchema;
+const takeoffDispatchStatusSchema = z.enum([
+  "started",
+  "queued",
+  "trigger_failed",
+]);
+const takeoffDispatchOutcomeSchema = z.enum([
+  "accepted",
+  "configuration_missing",
+  "http_error",
+  "timeout",
+  "network_error",
+]);
+const takeoffJobDispatchSchema = z.object({
+  status: z.enum([
+    "accepted",
+    "queued_for_recovery",
+    "persistence_unconfirmed",
+  ]),
+  correlation_id: uuidSchema,
+  persisted: z.boolean(),
+});
 const takeoffJobCreateDataSchema = z.object({
   id: uuidSchema,
   status: z.string(),
@@ -1300,6 +1321,7 @@ const takeoffJobCreateDataSchema = z.object({
   source_file_name: z.string().nullable(),
   estimate_version_id: uuidSchema,
   created_at: z.string(),
+  dispatch: takeoffJobDispatchSchema,
 });
 const takeoffJobCreateFormDataSchema = z.object({
   file: z.any(),
@@ -1327,6 +1349,15 @@ const takeoffJobSummarySchema = z.object({
   retry_count: z.number().int().min(0),
   error_code: z.string().nullable(),
   error_message: z.string().nullable(),
+  dispatch_status: takeoffDispatchStatusSchema.nullable().optional(),
+  dispatch_outcome: takeoffDispatchOutcomeSchema.nullable().optional(),
+  dispatch_trigger: z
+    .enum(["create", "retry", "manual", "reconcile"])
+    .nullable()
+    .optional(),
+  dispatch_correlation_id: uuidSchema.nullable().optional(),
+  dispatch_status_code: z.number().int().min(100).max(599).nullable().optional(),
+  dispatch_updated_at: z.string().nullable().optional(),
   started_at: z.string().nullable(),
   completed_at: z.string().nullable(),
   created_at: z.string(),
@@ -1392,6 +1423,7 @@ const takeoffJobDetailDataSchema = z.object({
 });
 const takeoffJobActionDataSchema = z.object({
   job: takeoffJobSummarySchema,
+  dispatch: takeoffJobDispatchSchema.optional(),
 });
 const takeoffApplyStrategySchema = z.enum(["append", "replace", "merge"]);
 const takeoffApplyOverrideActionSchema = z.enum([
@@ -1464,6 +1496,12 @@ const takeoffJobApplySummarySchema = z.object({
   updated_count: z.number().int().min(0),
   ignored_count: z.number().int().min(0),
   created_ids: z.array(uuidSchema),
+  item_links: z.array(
+    z.object({
+      takeoff_item_id: uuidSchema,
+      estimate_item_id: uuidSchema,
+    })
+  ),
 });
 const takeoffJobApplyDataSchema = z.object({
   job: takeoffJobSummarySchema,

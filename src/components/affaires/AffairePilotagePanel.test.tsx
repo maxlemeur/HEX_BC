@@ -1222,7 +1222,7 @@ describe("AffairePilotagePanel", () => {
       scope.queryByText("PDF, email et BDC depuis le meme point")
     ).not.toBeInTheDocument();
     expect(
-      scope.queryByRole("button", { name: /Telecharger le PDF/i })
+      scope.queryByRole("button", { name: /Préparer le PDF/i })
     ).not.toBeInTheDocument();
     expect(
       scope.queryByRole("button", { name: /Preparer l'envoi/i })

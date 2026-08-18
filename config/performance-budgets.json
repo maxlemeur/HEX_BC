@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "budgets": [
+    {
+      "name": "estimate-editor",
+      "manifest": "server/app/dashboard/estimates/[versionId]/edit/page_client-reference-manifest.js",
+      "maxRawBytes": 1650000,
+      "maxGzipBytes": 450000
+    }
+  ]
+}

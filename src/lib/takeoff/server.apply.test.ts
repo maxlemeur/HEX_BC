@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/estimates/server", () => ({
   assertDraftStatus: vi.fn(),
   bulkUpdateEstimateItems: vi.fn(),
-  insertAssemblyIntoVersion: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/tenant-context", () => ({
@@ -15,10 +14,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   getTakeoffLowConfidenceThresholdForTenant: vi.fn(),
 }));
 
-import {
-  bulkUpdateEstimateItems,
-  insertAssemblyIntoVersion,
-} from "@/lib/estimates/server";
+import { bulkUpdateEstimateItems } from "@/lib/estimates/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   assertTakeoffEnabled,
@@ -86,7 +82,7 @@ type StoredTakeoffItem = {
 };
 
 type SupabaseMockOptions = {
-  guardedRpcMissing?: boolean;
+  atomicRpcMissing?: boolean;
   jobStatus?: string;
   jobLevel?: string;
   takeoffItems?: StoredTakeoffItem[];
@@ -112,6 +108,10 @@ type SupabaseMockOptions = {
     updated_count: number;
     ignored_count: number;
     created_ids: string[];
+    item_links?: Array<{
+      takeoff_item_id: string;
+      estimate_item_id: string;
+    }>;
   };
   auditError?: {
     code?: string;
@@ -183,6 +183,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       level: options.jobLevel ?? "A",
     }),
     auditActions: [] as string[],
+    auditPayloads: [] as Array<Record<string, unknown>>,
     takeoffItems:
       options.takeoffItems?.map((item) => ({ ...item })) ?? [baseTakeoffItem()],
     takeoffItemUpdateAppliedCount: 0,
@@ -369,6 +370,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       if (table === "audit_logs") {
         return {
           insert: vi.fn(async (payload: Record<string, unknown>) => {
+            state.auditPayloads.push(payload);
             if (typeof payload.action === "string") {
               state.auditActions.push(payload.action);
             }
@@ -385,20 +387,17 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn(async (fn: string) => {
-      if (fn === "apply_takeoff_job_guarded" && options.guardedRpcMissing) {
+      if (fn === "apply_takeoff_job_guarded_atomic" && options.atomicRpcMissing) {
         return {
           data: null,
           error: {
             code: "PGRST202",
             message:
-              "Could not find the function public.apply_takeoff_job_guarded",
+              "Could not find the function public.apply_takeoff_job_guarded_atomic",
           },
         };
       }
-      if (
-        fn !== "apply_takeoff_job_guarded" &&
-        !(options.guardedRpcMissing && fn === "apply_takeoff_job")
-      ) {
+      if (fn !== "apply_takeoff_job_guarded_atomic") {
         throw new Error(`Unexpected rpc function: ${fn}`);
       }
 
@@ -422,6 +421,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           updated_count: options.rpcSummary?.updated_count ?? 0,
           ignored_count: options.rpcSummary?.ignored_count ?? 0,
           created_ids: options.rpcSummary?.created_ids ?? [CREATED_ITEM_ID],
+          item_links: options.rpcSummary?.item_links ?? [],
         },
         error: null,
       };
@@ -436,7 +436,6 @@ describe("applyTakeoffJob", () => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
     vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.5);
-    vi.mocked(insertAssemblyIntoVersion).mockResolvedValue({} as never);
   });
 
   it("applies a completed job, runs lock precheck and returns job+summary", async () => {
@@ -466,11 +465,17 @@ describe("applyTakeoffJob", () => {
       VERSION_UPDATED_AT
     );
     expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job_guarded",
+      "apply_takeoff_job_guarded_atomic",
       expect.objectContaining({
         p_job_id: JOB_ID,
         p_strategy: "merge",
         p_target_section_id: SECTION_ID,
+        p_mapping_plan: [
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_1,
+            action: "none",
+          }),
+        ],
       })
     );
     expect(response.job.status).toBe("applied");
@@ -480,6 +485,7 @@ describe("applyTakeoffJob", () => {
       updated_count: 0,
       ignored_count: 0,
       created_ids: [CREATED_ITEM_ID],
+      item_links: [],
     });
     expect(supabase.__state.auditActions).toEqual([
       "takeoff.apply.started",
@@ -487,8 +493,8 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
-  it("falls back to the legacy RPC only when the guarded RPC is absent", async () => {
-    const supabase = createSupabaseMock({ guardedRpcMissing: true });
+  it("fails closed when the atomic RPC is absent", async () => {
+    const supabase = createSupabaseMock({ atomicRpcMissing: true });
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase,
       userId: USER_ID,
@@ -503,22 +509,25 @@ describe("applyTakeoffJob", () => {
       },
     } as never);
 
-    const response = await applyTakeoffJob(JOB_ID, {
-      strategy: "merge",
-      target_section_id: SECTION_ID,
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 503,
+      retryable: true,
+      details: {
+        guard: "atomic_apply_unavailable",
+      },
     });
 
-    expect(response.job.status).toBe("applied");
-    expect(supabase.rpc).toHaveBeenNthCalledWith(
-      1,
-      "apply_takeoff_job_guarded",
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "apply_takeoff_job_guarded_atomic",
       expect.any(Object)
     );
-    expect(supabase.rpc).toHaveBeenNthCalledWith(
-      2,
-      "apply_takeoff_job",
-      expect.objectContaining({ p_job_id: JOB_ID })
-    );
+    expect(supabase.__state.job.status).toBe("completed");
   });
 
   it("maps rpc conflicts to TakeoffError and logs failed audit event", async () => {
@@ -597,7 +606,7 @@ describe("applyTakeoffJob", () => {
     });
   });
 
-  it("rolls back takeoff item pre-apply patches when apply RPC fails", async () => {
+  it("does not patch takeoff items outside the atomic RPC when apply fails", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createSupabaseMock({
       mappingRules: [
@@ -653,14 +662,14 @@ describe("applyTakeoffJob", () => {
       is_excluded: false,
       exclusion_reason: null,
     });
-    expect(supabase.__state.takeoffItemUpdateAppliedCount).toBe(2);
+    expect(supabase.__state.takeoffItemUpdateAppliedCount).toBe(0);
     expect(supabase.__state.auditActions).toEqual([
       "takeoff.apply.started",
       "takeoff.apply.failed",
     ]);
   });
 
-  it("n'annonce aucune ligne appliquee et ne fuite pas la cause quand un ouvrage seul echoue", async () => {
+  it("keeps the job recoverable when an assembly fails inside the atomic RPC", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createSupabaseMock({
       mappingRules: [
@@ -678,11 +687,9 @@ describe("applyTakeoffJob", () => {
           created_at: "2026-02-25T09:00:00.000Z",
         },
       ],
-      rpcSummary: {
-        created_count: 0,
-        updated_count: 0,
-        ignored_count: 1,
-        created_ids: [],
+      rpcError: {
+        code: "P0001",
+        message: "TAKEOFF_MAPPING_ASSEMBLY_INSERT_FAILED",
       },
     });
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
@@ -698,35 +705,30 @@ describe("applyTakeoffJob", () => {
         updated_at: VERSION_UPDATED_AT,
       },
     } as never);
-    // L'action apply_assembly exclut la ligne brute avant le RPC. Le job passe
-    // donc à "applied" sans ligne créée, puis l'insertion d'ouvrage échoue.
-    vi.mocked(insertAssemblyIntoVersion).mockRejectedValueOnce(
-      new Error("secret interne de concurrence")
-    );
-
-    let caughtError: unknown;
-    try {
-      await applyTakeoffJob(JOB_ID, {
+    await expect(
+      applyTakeoffJob(JOB_ID, {
         strategy: "merge",
         target_section_id: SECTION_ID,
-      });
-    } catch (error) {
-      caughtError = error;
-    }
-
-    expect(caughtError).toMatchObject({
-      status: 500,
-      details: {
-        partial_apply: true,
-        lines_applied: false,
-        mapping_applied: false,
-        cause_code: "MAPPING_TRANSFORM_FAILED",
-      },
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
     });
-    expect(JSON.stringify(caughtError)).not.toContain("secret interne");
+
+    expect(supabase.__state.job.status).toBe("completed");
+    expect(supabase.__state.takeoffItemUpdateAppliedCount).toBe(0);
+    expect(supabase.__state.takeoffItems[0]).toMatchObject({
+      id: TAKEOFF_ITEM_ID_1,
+      designation: "Tube PVC 100",
+      is_excluded: false,
+    });
+    expect(supabase.__state.auditActions).toEqual([
+      "takeoff.apply.started",
+      "takeoff.apply.failed",
+    ]);
   });
 
-  it("conserve la ligne brute quand un ouvrage du même job échoue sans fuiter la cause", async () => {
+  it("sends mixed mapping actions as one ordered atomic plan", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createSupabaseMock({
       takeoffItems: [
@@ -772,46 +774,39 @@ describe("applyTakeoffJob", () => {
         updated_at: VERSION_UPDATED_AT,
       },
     } as never);
-    vi.mocked(insertAssemblyIntoVersion).mockRejectedValueOnce(
-      new Error("secret interne de concurrence mixte")
-    );
-
-    let caughtError: unknown;
-    try {
-      await applyTakeoffJob(JOB_ID, {
-        strategy: "merge",
-        target_section_id: SECTION_ID,
-      });
-    } catch (error) {
-      caughtError = error;
-    }
-
-    expect(insertAssemblyIntoVersion).toHaveBeenCalledWith({
-      assemblyId,
-      versionId: VERSION_ID,
-      afterItemId: SECTION_ID,
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
     });
-    expect(supabase.__state.takeoffItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
+
+    expect(response.job.status).toBe("applied");
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "apply_takeoff_job_guarded_atomic",
+      expect.objectContaining({
+        p_mapping_plan: [
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_1,
+            action: "apply_assembly",
+            assembly_id: assemblyId,
+          }),
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_2,
+            action: "none",
+          }),
+        ],
+      })
+    );
+    expect(supabase.__state.takeoffItems).toEqual([
+      expect.objectContaining({
           id: TAKEOFF_ITEM_ID_1,
-          is_excluded: true,
-        }),
-        expect.objectContaining({
+          is_excluded: false,
+      }),
+      expect.objectContaining({
           id: TAKEOFF_ITEM_ID_2,
           is_excluded: false,
-        }),
-      ])
-    );
-    expect(caughtError).toMatchObject({
-      details: {
-        partial_apply: true,
-        lines_applied: true,
-        mapping_applied: false,
-        cause_code: "MAPPING_TRANSFORM_FAILED",
-      },
-    });
-    expect(JSON.stringify(caughtError)).not.toContain("secret interne");
+      }),
+    ]);
+    expect(supabase.__state.takeoffItemUpdateAppliedCount).toBe(0);
   });
 
   it("applies mapping action apply_assembly and logs mapping audit entries", async () => {
@@ -853,12 +848,18 @@ describe("applyTakeoffJob", () => {
     });
 
     expect(response.job.status).toBe("applied");
-    expect(insertAssemblyIntoVersion).toHaveBeenCalledTimes(1);
-    expect(insertAssemblyIntoVersion).toHaveBeenCalledWith({
-      assemblyId,
-      versionId: VERSION_ID,
-      afterItemId: SECTION_ID,
-    });
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "apply_takeoff_job_guarded_atomic",
+      expect.objectContaining({
+        p_mapping_plan: [
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_1,
+            action: "apply_assembly",
+            assembly_id: assemblyId,
+          }),
+        ],
+      })
+    );
     expect(supabase.__state.auditActions).toContain("takeoff.mapping.applied");
     expect(supabase.__state.auditActions).toEqual([
       "takeoff.apply.started",
@@ -867,10 +868,76 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
+  it("links a raw takeoff item to its committed estimate line in the audit", async () => {
+    const supabase = createSupabaseMock({
+      mappingRules: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Prix tube PVC",
+          match_pattern: "tube pvc",
+          match_type: "contains",
+          action: "set_price",
+          action_params: { unit_price_cents: 2500 },
+          priority: 1,
+          is_active: true,
+          created_at: "2026-02-25T09:00:00.000Z",
+        },
+      ],
+      rpcSummary: {
+        created_count: 1,
+        updated_count: 0,
+        ignored_count: 0,
+        created_ids: [CREATED_ITEM_ID],
+        item_links: [
+          {
+            takeoff_item_id: TAKEOFF_ITEM_ID_1,
+            estimate_item_id: CREATED_ITEM_ID,
+          },
+        ],
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
+    });
+
+    expect(response.summary.item_links).toEqual([
+      {
+        takeoff_item_id: TAKEOFF_ITEM_ID_1,
+        estimate_item_id: CREATED_ITEM_ID,
+      },
+    ]);
+    expect(
+      supabase.__state.auditPayloads.find(
+        (payload) => payload.action === "takeoff.mapping.applied"
+      )
+    ).toMatchObject({
+      after_data: {
+        metadata: {
+          item_id: TAKEOFF_ITEM_ID_1,
+          action: "set_price",
+          estimate_item_id: CREATED_ITEM_ID,
+        },
+      },
+    });
+  });
+
   it("preserves apply_assembly insertion order by chaining anchor ids", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const insertedSectionId1 = "6cbe3a2a-41fd-4b98-8f02-3aa31a81f401";
-    const insertedSectionId2 = "fd93367e-9069-4a54-b0ea-0d2229cc2115";
     const supabase = createSupabaseMock({
       takeoffItems: [
         baseTakeoffItem({
@@ -913,31 +980,29 @@ describe("applyTakeoffJob", () => {
         updated_at: VERSION_UPDATED_AT,
       },
     } as never);
-    vi.mocked(insertAssemblyIntoVersion)
-      .mockResolvedValueOnce({
-        items: [{ id: insertedSectionId1, item_type: "section" }],
-      } as never)
-      .mockResolvedValueOnce({
-        items: [{ id: insertedSectionId2, item_type: "section" }],
-      } as never);
-
     const response = await applyTakeoffJob(JOB_ID, {
       strategy: "merge",
       target_section_id: SECTION_ID,
     });
 
     expect(response.job.status).toBe("applied");
-    expect(insertAssemblyIntoVersion).toHaveBeenCalledTimes(2);
-    expect(insertAssemblyIntoVersion).toHaveBeenNthCalledWith(1, {
-      assemblyId,
-      versionId: VERSION_ID,
-      afterItemId: SECTION_ID,
-    });
-    expect(insertAssemblyIntoVersion).toHaveBeenNthCalledWith(2, {
-      assemblyId,
-      versionId: VERSION_ID,
-      afterItemId: insertedSectionId1,
-    });
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "apply_takeoff_job_guarded_atomic",
+      expect.objectContaining({
+        p_mapping_plan: [
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_1,
+            source_order: 0,
+            assembly_id: assemblyId,
+          }),
+          expect.objectContaining({
+            item_id: TAKEOFF_ITEM_ID_2,
+            source_order: 1,
+            assembly_id: assemblyId,
+          }),
+        ],
+      })
+    );
   });
 
   it("blocks non-admin override attempts for level C guard failures", async () => {
@@ -1181,7 +1246,7 @@ describe("applyTakeoffJob", () => {
 
     expect(response.job.status).toBe("applied");
     expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job_guarded",
+      "apply_takeoff_job_guarded_atomic",
       expect.objectContaining({ p_job_id: JOB_ID })
     );
   });

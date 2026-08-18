@@ -60,6 +60,7 @@ const APPLY_RESPONSE = {
     created_ids: [
       "55555555-5555-4555-8555-555555555555",
     ],
+    item_links: [],
   },
 };
 

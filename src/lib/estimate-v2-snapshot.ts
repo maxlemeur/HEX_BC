@@ -29,6 +29,7 @@ export type EstimateV2SnapshotProjection = {
     total_ht_cents: number;
     total_tax_cents: number;
     total_ttc_cents: number;
+    rounding_adjustment_cents: number;
   };
 };
 
@@ -198,6 +199,7 @@ export function buildStoredEstimateBreakdown({
     | "total_ht_cents"
     | "total_tax_cents"
     | "total_ttc_cents"
+    | "rounding_adjustment_cents"
   >;
 }): EstimateBreakdown {
   const lines = items.filter((item) => item.item_type === "line");
@@ -258,10 +260,6 @@ export function buildStoredEstimateBreakdown({
     });
   });
 
-  const { sectionById, rootLineIds } = aggregateEstimateV2Sections(
-    items,
-    lineById
-  );
   const storedHtCents = Number.isFinite(version?.total_ht_cents ?? Number.NaN)
     ? (version?.total_ht_cents ?? sumHtCents)
     : sumHtCents;
@@ -271,6 +269,42 @@ export function buildStoredEstimateBreakdown({
   const storedTtcCents = Number.isFinite(version?.total_ttc_cents ?? Number.NaN)
     ? (version?.total_ttc_cents ?? storedHtCents + storedTaxCents)
     : storedHtCents + storedTaxCents;
+  const storedRoundingAdjustmentCents = Number.isFinite(
+    version?.rounding_adjustment_cents ?? Number.NaN
+  )
+    ? (version?.rounding_adjustment_cents ?? 0)
+    : 0;
+  const actualTaxCents = Math.max(
+    storedTaxCents - storedRoundingAdjustmentCents,
+    0
+  );
+  if (actualTaxCents !== sumTaxCents && lines.length > 0) {
+    const currentTaxWeights = lines.map(
+      (item) => lineById.get(item.id)?.taxCents ?? 0
+    );
+    const htWeights = lines.map(
+      (item) => lineById.get(item.id)?.saleNetHtCents ?? 0
+    );
+    const effectiveWeights = currentTaxWeights.some((value) => value > 0)
+      ? currentTaxWeights
+      : htWeights.some((value) => value > 0)
+        ? htWeights
+        : lines.map(() => 1);
+    const allocatedActualTax = allocateProRata(actualTaxCents, effectiveWeights);
+    lines.forEach((item, index) => {
+      const line = lineById.get(item.id);
+      if (!line) return;
+      lineById.set(item.id, {
+        ...line,
+        taxCents: allocatedActualTax[index],
+      });
+    });
+    sumTaxCents = actualTaxCents;
+  }
+  const { sectionById, rootLineIds } = aggregateEstimateV2Sections(
+    items,
+    lineById
+  );
   const discountMode: DiscountMode =
     version?.discount_mode === "cascade" ? "cascade" : "simple";
 
@@ -287,12 +321,11 @@ export function buildStoredEstimateBreakdown({
       discountMode,
       discountStepTotals: [],
       saleTotalCents: storedHtCents,
-      taxCents: storedTaxCents,
-      ttcCents: storedHtCents + storedTaxCents,
+      taxCents: actualTaxCents,
+      ttcCents: storedHtCents + actualTaxCents,
       roundedTtcCents: storedTtcCents,
-      roundingAdjustmentCents:
-        storedTtcCents - (storedHtCents + storedTaxCents),
-      adjustedTaxCents: storedTtcCents - storedHtCents,
+      roundingAdjustmentCents: storedRoundingAdjustmentCents,
+      adjustedTaxCents: storedTaxCents,
     },
     lineById,
     sectionById,
@@ -301,8 +334,9 @@ export function buildStoredEstimateBreakdown({
       sumAllocatedHtCents: sumHtCents,
       matchesFooter:
         sumHtCents === storedHtCents &&
-        sumTaxCents === storedTaxCents &&
-        sumHtCents + sumTaxCents === storedTtcCents,
+        sumTaxCents === actualTaxCents &&
+        sumHtCents + sumTaxCents + storedRoundingAdjustmentCents ===
+          storedTtcCents,
     },
   };
 }
@@ -355,6 +389,7 @@ export function buildEstimateV2SnapshotProjection({
     total_ht_cents: breakdown.totals.saleTotalCents,
     total_tax_cents: breakdown.totals.adjustedTaxCents,
     total_ttc_cents: breakdown.totals.roundedTtcCents,
+    rounding_adjustment_cents: breakdown.totals.roundingAdjustmentCents,
   };
   const summed = projectedItems.reduce(
     (accumulator, item) => ({

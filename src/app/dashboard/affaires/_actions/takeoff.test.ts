@@ -4,6 +4,9 @@ const createTakeoffJobFromPlanSetMock = vi.hoisted(() => vi.fn());
 const triggerTakeoffJobProcessingMock = vi.hoisted(() => vi.fn());
 const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
 const deleteEstimateVersionMock = vi.hoisted(() => vi.fn());
+const persistTakeoffDispatchOutcomeMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(true)
+);
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -30,6 +33,10 @@ vi.mock("@/lib/takeoff/server", () => ({
 
 vi.mock("@/lib/takeoff/edge-trigger", () => ({
   triggerTakeoffJobProcessing: triggerTakeoffJobProcessingMock,
+}));
+
+vi.mock("@/lib/takeoff/dispatch-state", () => ({
+  persistTakeoffDispatchOutcome: persistTakeoffDispatchOutcomeMock,
 }));
 
 import { revalidatePath } from "next/cache";
@@ -64,7 +71,10 @@ describe("launchTakeoffFromPlanSet", () => {
 
   it("calls createTakeoffJobFromPlanSet with correct args", async () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: true,
+      correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
 
     const result = await launchTakeoffFromPlanSet({
       projectId: PROJECT_ID,
@@ -79,12 +89,22 @@ describe("launchTakeoffFromPlanSet", () => {
       estimateVersionId: VERSION_ID,
       level: "B",
     });
-    expect(result).toEqual({ jobId: JOB_ID });
+    expect(result).toEqual({
+      jobId: JOB_ID,
+      dispatch: {
+        status: "accepted",
+        correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        persisted: true,
+      },
+    });
   });
 
   it("calls triggerTakeoffJobProcessing with created job id", async () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: true,
+      correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
 
     await launchTakeoffFromPlanSet({
       projectId: PROJECT_ID,
@@ -99,9 +119,63 @@ describe("launchTakeoffFromPlanSet", () => {
     });
   });
 
+  it("returns a durable recovery state when the immediate trigger fails", async () => {
+    createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: false,
+      correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    });
+
+    await expect(
+      launchTakeoffFromPlanSet({
+        projectId: PROJECT_ID,
+        planSetId: PLAN_SET_ID,
+        versionId: VERSION_ID,
+        level: "B",
+      })
+    ).resolves.toMatchObject({
+      jobId: JOB_ID,
+      dispatch: {
+        status: "queued_for_recovery",
+        correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        persisted: true,
+      },
+    });
+  });
+
+  it("does not claim durable recovery when dispatch persistence also fails", async () => {
+    createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: false,
+      correlationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      statusCode: null,
+      outcome: "timeout",
+    });
+    persistTakeoffDispatchOutcomeMock.mockResolvedValueOnce(false);
+
+    await expect(
+      launchTakeoffFromPlanSet({
+        projectId: PROJECT_ID,
+        planSetId: PLAN_SET_ID,
+        versionId: VERSION_ID,
+        level: "B",
+      })
+    ).resolves.toMatchObject({
+      jobId: JOB_ID,
+      dispatch: {
+        status: "persistence_unconfirmed",
+        correlationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        persisted: false,
+      },
+    });
+  });
+
   it("calls revalidatePath for hub and takeoff pages", async () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: true,
+      correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
 
     await launchTakeoffFromPlanSet({
       projectId: PROJECT_ID,
@@ -120,7 +194,10 @@ describe("launchTakeoffFromPlanSet", () => {
 
   it("passes through level C when requested", async () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: true,
+      correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
 
     await launchTakeoffFromPlanSet({
       projectId: PROJECT_ID,
@@ -160,7 +237,10 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
   it("duplicates the source version before launching takeoff", async () => {
     duplicateEstimateVersionMock.mockResolvedValue({ version_id: VERSION_ID });
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({
+      triggered: true,
+      correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
 
     const result = await launchTakeoffFromSourceVersionPlanSet({
       projectId: PROJECT_ID,
@@ -175,6 +255,11 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     expect(result).toEqual({
       jobId: JOB_ID,
       versionId: VERSION_ID,
+      dispatch: {
+        status: "accepted",
+        correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        persisted: true,
+      },
     });
   });
 

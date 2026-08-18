@@ -126,6 +126,9 @@ type TakeoffApiErrorMetadata = Pick<
   "retryable" | "jobId" | "level"
 >;
 
+export const TAKEOFF_READ_REQUEST_TIMEOUT_MS = 10_000;
+export const TAKEOFF_WRITE_REQUEST_TIMEOUT_MS = 60_000;
+
 export class TakeoffApiError extends Error {
   readonly status: number;
   readonly details: unknown;
@@ -322,11 +325,55 @@ async function requestTakeoffJson<T>(
   init: RequestInit,
   fallbackMessage: string
 ): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...init,
-  });
-  const payload = await readJsonPayload(response);
+  const method = (init.method ?? "GET").toUpperCase();
+  const timeoutMs =
+    method === "GET"
+      ? TAKEOFF_READ_REQUEST_TIMEOUT_MS
+      : TAKEOFF_WRITE_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const callerSignal = init.signal;
+  let timedOut = false;
+
+  const abortFromCaller = () => {
+    controller.abort(callerSignal?.reason);
+  };
+
+  if (callerSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  let response: Response;
+  let payload: unknown;
+  try {
+    response = await fetch(path, {
+      credentials: "same-origin",
+      ...init,
+      signal: controller.signal,
+    });
+    payload = await readJsonPayload(response);
+  } catch (error) {
+    if (timedOut) {
+      throw new TakeoffApiError(
+        "Le chargement prend trop de temps. Vérifiez votre connexion puis réessayez.",
+        408,
+        { path, timeout_ms: timeoutMs },
+        "TAKEOFF_REQUEST_TIMEOUT",
+        { retryable: true }
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+  }
 
   if (!response.ok) {
     throw new TakeoffApiError(

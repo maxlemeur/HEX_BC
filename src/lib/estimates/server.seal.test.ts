@@ -478,6 +478,7 @@ describe("estimate seal payload versions", () => {
     id: "77777777-7777-4777-8777-777777777777",
     position: 1,
     item_type: "line",
+    line_nature: "supply_and_labor",
     parent_id: null,
     title: "Ligne v2",
     description: "u",
@@ -514,6 +515,7 @@ describe("estimate seal payload versions", () => {
     total_ht_cents: 10_000,
     total_tax_cents: 1_000,
     total_ttc_cents: 11_000,
+    rounding_adjustment_cents: 50,
     margin_multiplier: 1.35,
     margin_mode: "tiered",
     discount_bp: 1_000,
@@ -535,15 +537,16 @@ describe("estimate seal payload versions", () => {
     seal_hash: null,
   };
 
-  it("uses v3 for engine 2 and seals every immutable unified-engine setting", () => {
+  it("uses v4 for engine 2 and seals line nature plus explicit rounding", () => {
     const payload = buildCanonicalEstimateSealPayload({
       version: version as never,
       items: [item] as never,
     });
 
     expect(payload).toMatchObject({
-      meta: { payload_version: 3 },
+      meta: { payload_version: 4 },
       version: {
+        rounding_adjustment_cents: 50,
         validite_jours: 45,
         title: "Offre v2",
         exclusions: "Hors peinture",
@@ -571,6 +574,7 @@ describe("estimate seal payload versions", () => {
       { validite_jours: 30 },
       { title: "Offre v2 modifiée" },
       { exclusions: "Hors peinture et échafaudage" },
+      { rounding_adjustment_cents: 49 },
       { calc_snapshot_content_revision: 8 },
       {
         calc_snapshot_context: {
@@ -593,6 +597,11 @@ describe("estimate seal payload versions", () => {
       items: [{ ...item, snapshot_pu_ht_cents: 4_949 }] as never,
     });
     expect(computeEstimateSealHash(snapshotMutation)).not.toBe(baseHash);
+    const lineNatureMutation = buildCanonicalEstimateSealPayload({
+      version: version as never,
+      items: [{ ...item, line_nature: "supply_only" }] as never,
+    });
+    expect(computeEstimateSealHash(lineNatureMutation)).not.toBe(baseHash);
     const hierarchyMutation = buildCanonicalEstimateSealPayload({
       version: version as never,
       items: [{ ...item, parent_id: "another-section" }] as never,

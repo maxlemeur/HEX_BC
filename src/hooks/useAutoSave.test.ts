@@ -56,10 +56,18 @@ describe("useAutoSave helpers", () => {
   });
 
   it("maps autosave statuses to the expected french labels", () => {
-    expect(resolveAutoSaveStatusLabel("saving")).toBe("Sauvegarde en cours\u2026");
+    expect(resolveAutoSaveStatusLabel("pending")).toBe("En attente");
+    expect(resolveAutoSaveStatusLabel("saving")).toBe("Synchronisation\u2026");
     expect(resolveAutoSaveStatusLabel("saved")).toBe("Sauvegardé");
-    expect(resolveAutoSaveStatusLabel("idle")).toBe("Sauvegarde auto");
-    expect(resolveAutoSaveStatusLabel("error")).toBe("Erreur de sauvegarde");
+    expect(resolveAutoSaveStatusLabel("idle")).toBe("À jour");
+    expect(resolveAutoSaveStatusLabel("error")).toBe(
+      "Échec de synchronisation"
+    );
+    expect(resolveAutoSaveStatusLabel("offline")).toBe("Hors ligne");
+    expect(resolveAutoSaveStatusLabel("disabled")).toBe("Auto désactivée");
+    expect(resolveAutoSaveStatusLabel("blocked")).toBe(
+      "Synchronisation bloquée"
+    );
   });
 
   it("prevents regressions to legacy autosave labels", () => {
@@ -133,7 +141,7 @@ describe("useAutoSave behavior", () => {
     expect(onSave).toHaveBeenCalledWith("debounce");
   });
 
-  it("exposes saving and saved states before returning to idle", async () => {
+  it("exposes saving and saved states before returning to pending when changes remain", async () => {
     const deferredSave = createDeferred<AutoSaveResult>();
     const onSave = vi.fn().mockReturnValue(deferredSave.promise);
     const { result } = renderHook(() =>
@@ -145,7 +153,7 @@ describe("useAutoSave behavior", () => {
       })
     );
 
-    expect(result.current.status).toBe("idle");
+    expect(result.current.status).toBe("pending");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -168,7 +176,7 @@ describe("useAutoSave behavior", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
-    expect(result.current.status).toBe("idle");
+    expect(result.current.status).toBe("pending");
   });
 
   it("flushes immediately with Ctrl+S and cancels the pending debounce", async () => {
@@ -201,6 +209,112 @@ describe("useAutoSave behavior", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps manual save available when automatic saving is disabled", async () => {
+    const onSave = vi.fn().mockResolvedValue("saved" satisfies AutoSaveResult);
+    const { result } = renderHook(() =>
+      useAutoSave({
+        enabled: true,
+        automaticEnabled: false,
+        hasPendingChanges: true,
+        debounceMs: 2_000,
+        onSave,
+      })
+    );
+
+    expect(result.current.status).toBe("pending");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(onSave).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.flushNow();
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith("manual");
+    expect(result.current.status).toBe("saved");
+  });
+
+  it("prevents the browser Save As shortcut even when the editor is clean", () => {
+    const onSave = vi.fn().mockResolvedValue("noop" satisfies AutoSaveResult);
+    renderHook(() =>
+      useAutoSave({
+        enabled: true,
+        hasPendingChanges: false,
+        onSave,
+      })
+    );
+    const event = new KeyboardEvent("keydown", {
+      key: "s",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("prevents the browser Save As shortcut when saving is blocked", () => {
+    const onSave = vi.fn().mockResolvedValue("blocked" satisfies AutoSaveResult);
+    renderHook(() =>
+      useAutoSave({
+        enabled: false,
+        hasPendingChanges: false,
+        onSave,
+      })
+    );
+    const event = new KeyboardEvent("keydown", {
+      key: "s",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("resumes pending autosave as soon as the browser comes back online", async () => {
+    let online = false;
+    vi.spyOn(window.navigator, "onLine", "get").mockImplementation(
+      () => online
+    );
+    const onSave = vi.fn().mockResolvedValue("saved" satisfies AutoSaveResult);
+    const { result, rerender } = renderHook(
+      ({ hasPendingChanges }) =>
+        useAutoSave({
+          enabled: true,
+          hasPendingChanges,
+          onSave,
+        }),
+      { initialProps: { hasPendingChanges: true } }
+    );
+
+    expect(result.current.status).toBe("offline");
+    online = true;
+
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await Promise.resolve();
+    });
+    rerender({ hasPendingChanges: false });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith("reconnect");
+    expect(result.current.status).toBe("idle");
   });
 
   it("queues one debounced save when another flush is requested in flight", async () => {
@@ -313,7 +427,7 @@ describe("useAutoSave behavior", () => {
     expect(onSave).toHaveBeenCalledTimes(4);
   });
 
-  it("marks blocked saves as errors without retrying", async () => {
+  it("marks blocked saves explicitly without retrying", async () => {
     const onSave = vi.fn().mockResolvedValue("blocked" satisfies AutoSaveResult);
     const { result } = renderHook(() =>
       useAutoSave({
@@ -328,7 +442,7 @@ describe("useAutoSave behavior", () => {
       await result.current.flushNow();
     });
 
-    expect(result.current.status).toBe("error");
+    expect(result.current.status).toBe("blocked");
     expect(onSave).toHaveBeenCalledTimes(1);
 
     await act(async () => {

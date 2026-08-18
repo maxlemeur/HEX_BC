@@ -621,7 +621,15 @@ describe("streamEstimateVersionXlsx", () => {
     );
     const totalHt = summaryRows.find((row) => row[0] === "Total HT")?.[1];
     const totalTax = summaryRows.find((row) => row[0] === "Total TVA")?.[1];
-    const totalTtc = summaryRows.find((row) => row[0] === "Total TTC")?.[1];
+    const calculatedTtc = summaryRows.find(
+      (row) => row[0] === "TTC calcule"
+    )?.[1];
+    const rounding = summaryRows.find(
+      (row) => row[0] === "Arrondi commercial"
+    )?.[1];
+    const amountDue = summaryRows.find(
+      (row) => row[0] === "Montant a payer"
+    )?.[1];
 
     exportedLines.forEach((row) => {
       expect(toCents(row[5])).toBeGreaterThanOrEqual(0);
@@ -637,9 +645,14 @@ describe("streamEstimateVersionXlsx", () => {
     ).toBe(toCents(totalTax));
     expect(
       exportedLines.reduce((sum, row) => sum + toCents(row[7]), 0)
-    ).toBe(toCents(totalTtc));
-    expect(toCents(totalHt) + toCents(totalTax)).toBe(toCents(totalTtc));
-    expect(totalTtc).toBe(78);
+    ).toBe(toCents(calculatedTtc));
+    expect(toCents(totalHt) + toCents(totalTax)).toBe(
+      toCents(calculatedTtc)
+    );
+    expect(toCents(calculatedTtc) + toCents(rounding)).toBe(
+      toCents(amountDue)
+    );
+    expect(amountDue).toBe(78);
   });
 
   it("keeps a one-line downward rounding export aligned with the engine TTC clamp", async () => {
@@ -712,19 +725,31 @@ describe("streamEstimateVersionXlsx", () => {
     );
     const totalHt = summaryRows.find((row) => row[0] === "Total HT")?.[1];
     const totalTax = summaryRows.find((row) => row[0] === "Total TVA")?.[1];
-    const totalTtc = summaryRows.find((row) => row[0] === "Total TTC")?.[1];
+    const calculatedTtc = summaryRows.find(
+      (row) => row[0] === "TTC calcule"
+    )?.[1];
+    const rounding = summaryRows.find(
+      (row) => row[0] === "Arrondi commercial"
+    )?.[1];
+    const amountDue = summaryRows.find(
+      (row) => row[0] === "Montant a payer"
+    )?.[1];
 
     expect(toCents(line?.[5])).toBe(3333);
     expect(toCents(line?.[6])).toBeGreaterThanOrEqual(0);
     expect(toCents(line?.[5]) + toCents(line?.[6])).toBe(toCents(line?.[7]));
-    expect(toCents(totalHt) + toCents(totalTax)).toBe(toCents(totalTtc));
+    expect(toCents(totalHt) + toCents(totalTax)).toBe(
+      toCents(calculatedTtc)
+    );
     expect(toCents(line?.[5])).toBe(toCents(totalHt));
     expect(toCents(line?.[6])).toBe(toCents(totalTax));
-    expect(toCents(line?.[7])).toBe(toCents(totalTtc));
+    expect(toCents(line?.[7])).toBe(toCents(calculatedTtc));
     // 33,66 € arrondi vers le bas au pas de 10 € donnerait 30 €, sous le HT.
     // Le moteur borne donc le TTC contractuel au HT : 33,33 €, TVA ajustée 0.
-    expect(toCents(totalTtc)).toBe(3333);
-    expect(toCents(totalTax)).toBe(0);
+    expect(toCents(totalTax)).toBe(33);
+    expect(toCents(calculatedTtc)).toBe(3366);
+    expect(toCents(rounding)).toBe(-33);
+    expect(toCents(amountDue)).toBe(3333);
   });
 
   it("falls back to project name when reference is empty in filename", async () => {

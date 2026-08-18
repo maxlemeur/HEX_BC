@@ -11,6 +11,8 @@ import {
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import {
+  isSaveShortcutKey,
+  resolveAutoSaveStatusLabel,
   useAutoSave,
   type AutoSaveResult,
   type AutoSaveStatus,
@@ -34,8 +36,10 @@ import {
 import {
   clearAutoSaveDraftFromLocal,
   clearConflictDraftFromSession,
+  readAutoSaveEnabledPreferenceFromLocal,
   readAutoSaveDraftFromLocal,
   readConflictDraftFromSession,
+  writeAutoSaveEnabledPreferenceToLocal,
   writeAutoSaveDraftToLocal,
   writeConflictDraftToSession,
   type EditorConflictDraft,
@@ -73,6 +77,9 @@ type EstimateEditorSyncControllerInput = {
   activeVersion: Pick<EstimateVersionRow, "id" | "status"> | null;
   currentUserId: string | null;
   isViewerReadOnly: boolean;
+  hasPendingSettingsChanges: boolean;
+  isSavingSettings: boolean;
+  savePendingSettings: () => Promise<void>;
   items: EditorEstimateItem[];
   settings: EstimateSettingsState | null;
   getVersionSnapshot: () => EstimateVersionRow | null;
@@ -98,7 +105,10 @@ export type EstimateEditorSyncController = {
     autoSaveStatus: AutoSaveStatus;
     autoSaveStatusLabel: string;
     isAutoSaveSaving: boolean;
+    isAutoSaveEnabled: boolean;
+    lastSavedAt: string | null;
     hasPendingBufferedUpdates: boolean;
+    hasPendingChanges: boolean;
     conflict: EstimateEditorConflictState | null;
     isReloadingVersion: boolean;
     hasRestorableDraft: boolean;
@@ -117,8 +127,13 @@ export type EstimateEditorSyncController = {
       itemId: string,
       payload: EstimateItemUpdatePayload
     ) => void;
+    setAutoSaveEnabled: (enabled: boolean) => void;
+    saveNow: () => Promise<void>;
     flushBufferedItemUpdates: () => Promise<AutoSaveResult>;
-    ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
+    ensureGroupedActionCanProceed: (
+      actionLabel: string,
+      options?: { allowPendingSettings?: boolean }
+    ) => Promise<boolean>;
     retryTotalsSave: () => Promise<void>;
     recoverDraftLock: () => Promise<boolean>;
     isFlushInProgress: () => boolean;
@@ -187,6 +202,9 @@ export function useEstimateEditorSyncController({
   activeVersion,
   currentUserId,
   isViewerReadOnly,
+  hasPendingSettingsChanges,
+  isSavingSettings,
+  savePendingSettings,
   items,
   settings,
   getVersionSnapshot,
@@ -202,6 +220,10 @@ export function useEstimateEditorSyncController({
 }: EstimateEditorSyncControllerInput): EstimateEditorSyncController {
   const [hasPendingBufferedUpdates, setHasPendingBufferedUpdates] =
     useState(false);
+  const [hasPendingTotalsSave, setHasPendingTotalsSave] = useState(false);
+  const [isAutoSaveEnabled, setIsAutoSaveEnabledState] = useState(() =>
+    readAutoSaveEnabledPreferenceFromLocal(currentUserId)
+  );
   const [conflict, setConflict] =
     useState<EstimateEditorConflictState | null>(null);
   const [restorableDraft, setRestorableDraft] =
@@ -213,6 +235,9 @@ export function useEstimateEditorSyncController({
     Map<string, EstimateItemUpdatePayload>
   >(new Map());
   const pendingBufferedUpdateCountRef = useRef(0);
+  const hasPendingTotalsSaveRef = useRef(false);
+  const isAutoSaveEnabledRef = useRef(isAutoSaveEnabled);
+  const savePendingSettingsRef = useRef(savePendingSettings);
   const isFlushingBufferedUpdatesRef = useRef(false);
   const activeFlushIdRef = useRef(0);
   const routeVersionIdRef = useRef(routeVersionId);
@@ -249,6 +274,40 @@ export function useEstimateEditorSyncController({
     };
   }, [routeVersionId]);
 
+  useLayoutEffect(() => {
+    isAutoSaveEnabledRef.current = isAutoSaveEnabled;
+  }, [isAutoSaveEnabled]);
+
+  useLayoutEffect(() => {
+    savePendingSettingsRef.current = savePendingSettings;
+  }, [savePendingSettings]);
+
+  useEffect(() => {
+    const storedPreference =
+      readAutoSaveEnabledPreferenceFromLocal(currentUserId);
+    isAutoSaveEnabledRef.current = storedPreference;
+    setIsAutoSaveEnabledState(storedPreference);
+  }, [currentUserId]);
+
+  const setAutoSaveEnabled = useCallback(
+    (enabled: boolean) => {
+      isAutoSaveEnabledRef.current = enabled;
+      setIsAutoSaveEnabledState(enabled);
+      writeAutoSaveEnabledPreferenceToLocal(currentUserId, enabled);
+      reportNotice(
+        enabled
+          ? "Sauvegarde automatique activée."
+          : "Sauvegarde automatique désactivée. Utilisez « Sauvegarder maintenant » ou Ctrl+S pour synchroniser vos modifications."
+      );
+    },
+    [currentUserId, reportNotice]
+  );
+
+  const updateHasPendingTotalsSave = useCallback((value: boolean) => {
+    hasPendingTotalsSaveRef.current = value;
+    setHasPendingTotalsSave(value);
+  }, []);
+
   const persistBufferedItemUpdatesToLocal = useCallback(() => {
     if (!routeVersionId) return;
 
@@ -269,11 +328,12 @@ export function useEstimateEditorSyncController({
       pendingItemUpdatesRef.current.clear();
       pendingBufferedUpdateCountRef.current = 0;
       setHasPendingBufferedUpdates(false);
+      updateHasPendingTotalsSave(false);
       if (options?.clearPersisted && routeVersionId) {
         clearAutoSaveDraftFromLocal(routeVersionId);
       }
     },
-    [routeVersionId]
+    [routeVersionId, updateHasPendingTotalsSave]
   );
 
   const overlayPendingUpdates = useCallback(
@@ -305,7 +365,7 @@ export function useEstimateEditorSyncController({
       if (rehydration.hasPendingUpdates) {
         setTotalsOutOfSync(true);
         reportError(
-          "Des modifications locales ont ete recuperees et seront re-sauvegardees automatiquement."
+          "Des modifications locales ont été récupérées. Elles restent en attente de synchronisation."
         );
       }
     });
@@ -514,7 +574,7 @@ export function useEstimateEditorSyncController({
   ]);
 
   useEffect(() => {
-    if (!hasPendingBufferedUpdates) return;
+    if (!hasPendingSettingsChanges && !isSavingSettings) return;
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -525,23 +585,27 @@ export function useEstimateEditorSyncController({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [hasPendingBufferedUpdates]);
+  }, [hasPendingSettingsChanges, isSavingSettings]);
 
   const flushBufferedItemUpdates = useCallback(async (): Promise<AutoSaveResult> => {
     if (isFlushingBufferedUpdatesRef.current) return "noop";
+
+    const hasPendingAutoSaveWork =
+      pendingItemUpdatesRef.current.size > 0 ||
+      hasPendingTotalsSaveRef.current;
     if (isSaveBlockedRef.current) {
-      return pendingItemUpdatesRef.current.size > 0 ? "blocked" : "noop";
+      return hasPendingAutoSaveWork ? "blocked" : "noop";
     }
 
     const versionSnapshot = getVersionSnapshot();
     if (!versionSnapshot || versionSnapshot.id !== routeVersionId) {
-      return pendingItemUpdatesRef.current.size > 0 ? "blocked" : "noop";
+      return hasPendingAutoSaveWork ? "blocked" : "noop";
     }
 
     const bufferedEntries = serializeBufferedUpdates(
       pendingItemUpdatesRef.current
     );
-    if (bufferedEntries.length === 0) {
+    if (bufferedEntries.length === 0 && !hasPendingTotalsSaveRef.current) {
       setHasPendingBufferedUpdates(false);
       return "noop";
     }
@@ -561,6 +625,8 @@ export function useEstimateEditorSyncController({
       id: entry.id,
       data: entry.updates,
     }));
+    let lineBatchCommitted = false;
+    let committedLineVersionToken: string | null = null;
 
     const isCurrentFlush = () =>
       activeFlushIdRef.current === flushId &&
@@ -568,25 +634,32 @@ export function useEstimateEditorSyncController({
       routeVersionIdRef.current === flushVersionId;
 
     try {
-      const batchResult = await runWithDraftLockRecovery(() =>
-        batchEstimateOperations(
-          flushVersionId,
-          versionSnapshot.updated_at,
-          batchOperations
-        )
-      );
+      let nextVersionToken = versionSnapshot.updated_at;
 
-      if (!batchResult.committed) {
-        const failedResult = batchResult.results.find(
-          (result) => result.status === "error"
+      if (batchOperations.length > 0) {
+        const batchResult = await runWithDraftLockRecovery(() =>
+          batchEstimateOperations(
+            flushVersionId,
+            nextVersionToken,
+            batchOperations
+          )
         );
-        throw new Error(
-          failedResult?.message ??
-            "Une operation de sauvegarde groupee a echoue."
-        );
+
+        if (!batchResult.committed) {
+          const failedResult = batchResult.results.find(
+            (result) => result.status === "error"
+          );
+          throw new Error(
+            failedResult?.message ??
+              "Une opération de sauvegarde groupée a échoué."
+          );
+        }
+
+        lineBatchCommitted = true;
+        nextVersionToken = batchResult.versionToken.updated_at;
+        committedLineVersionToken = nextVersionToken;
       }
 
-      let nextVersionToken = batchResult.versionToken.updated_at;
       if (versionTotalsPatch) {
         const bulkResult = await runWithDraftLockRecovery(() =>
           bulkUpdateEstimateItems(
@@ -603,6 +676,7 @@ export function useEstimateEditorSyncController({
         return "saved";
       }
 
+      updateHasPendingTotalsSave(false);
       setTotalsOutOfSync(false);
       applyVersionFlushResult({
         versionId: flushVersionId,
@@ -611,35 +685,51 @@ export function useEstimateEditorSyncController({
       });
       persistBufferedItemUpdatesToLocal();
       setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
-      clearHistory();
+      if (lineBatchCommitted) clearHistory();
       return "saved";
     } catch (error) {
       if (!isCurrentFlush()) {
-        const persistedDraft =
-          readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(flushVersionId);
-        const restoredEntries = new Map<string, EstimateItemUpdatePayload>();
-        bufferedEntries.forEach((entry) => {
-          upsertBufferedUpdate(restoredEntries, entry.id, entry.updates);
-        });
-        persistedDraft?.buffered_updates.forEach((entry) => {
-          upsertBufferedUpdate(restoredEntries, entry.id, entry.updates);
-        });
-        writeAutoSaveDraftToLocal(
-          flushVersionId,
-          serializeBufferedUpdates(restoredEntries)
-        );
+        if (!lineBatchCommitted) {
+          const persistedDraft =
+            readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(flushVersionId);
+          const restoredEntries = new Map<string, EstimateItemUpdatePayload>();
+          bufferedEntries.forEach((entry) => {
+            upsertBufferedUpdate(restoredEntries, entry.id, entry.updates);
+          });
+          persistedDraft?.buffered_updates.forEach((entry) => {
+            upsertBufferedUpdate(restoredEntries, entry.id, entry.updates);
+          });
+          writeAutoSaveDraftToLocal(
+            flushVersionId,
+            serializeBufferedUpdates(restoredEntries)
+          );
+        }
         return "blocked";
       }
 
-      bufferedEntries.forEach((entry) => {
-        const existing = pendingItemUpdatesRef.current.get(entry.id) ?? {};
-        pendingItemUpdatesRef.current.set(entry.id, {
-          ...entry.updates,
-          ...existing,
+      if (lineBatchCommitted && committedLineVersionToken) {
+        applyVersionFlushResult({
+          versionId: flushVersionId,
+          totalsPatch: undefined,
+          updatedAt: committedLineVersionToken,
         });
-      });
-      pendingBufferedUpdateCountRef.current += bufferedEntries.length;
-      setHasPendingBufferedUpdates(true);
+        updateHasPendingTotalsSave(Boolean(versionTotalsPatch));
+        clearHistory();
+      } else {
+        bufferedEntries.forEach((entry) => {
+          const existing = pendingItemUpdatesRef.current.get(entry.id) ?? {};
+          pendingItemUpdatesRef.current.set(entry.id, {
+            ...entry.updates,
+            ...existing,
+          });
+        });
+        pendingBufferedUpdateCountRef.current += bufferedEntries.length;
+        if (bufferedEntries.length === 0 && versionTotalsPatch) {
+          updateHasPendingTotalsSave(true);
+        }
+      }
+
+      setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
       persistBufferedItemUpdatesToLocal();
 
       if (handleVersionConflict(error, { persistDraft: true })) {
@@ -649,11 +739,13 @@ export function useEstimateEditorSyncController({
 
       setTotalsOutOfSync(true);
       reportError(
-        resolveErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Impossible de mettre a jour les lignes."
-        )
+        lineBatchCommitted
+          ? "Les lignes sont enregistrées, mais les totaux n’ont pas pu être synchronisés. Une nouvelle tentative va être effectuée."
+          : resolveErrorMessage(
+              error instanceof Error
+                ? error.message
+                : "Impossible de mettre à jour les lignes."
+            )
       );
       return "error";
     } finally {
@@ -673,33 +765,96 @@ export function useEstimateEditorSyncController({
     runWithDraftLockRecovery,
     routeVersionId,
     setTotalsOutOfSync,
+    updateHasPendingTotalsSave,
   ]);
 
+  const hasPendingAutoSaveChanges =
+    hasPendingBufferedUpdates || hasPendingTotalsSave;
   const {
-    status: autoSaveStatus,
-    statusLabel: autoSaveStatusLabel,
+    status: rawAutoSaveStatus,
+    statusLabel: rawAutoSaveStatusLabel,
     isSaving: isAutoSaveSaving,
+    isOnline,
+    lastSavedAt,
     flushNow: flushAutoSaveNow,
     scheduleSave: scheduleAutoSave,
   } = useAutoSave({
     enabled: Boolean(
       routeVersionId && hasMatchingActiveVersion && !isSaveBlocked
     ),
-    hasPendingChanges: hasPendingBufferedUpdates,
+    automaticEnabled: isAutoSaveEnabled,
+    hasPendingChanges: hasPendingAutoSaveChanges,
     debounceMs: AUTOSAVE_DEBOUNCE_MS,
+    enableShortcut: !hasPendingSettingsChanges,
     onSave: flushBufferedItemUpdates,
   });
 
+  useEffect(() => {
+    if (!routeVersionId || !hasPendingSettingsChanges) return;
+
+    const handleSettingsSaveShortcut = (event: KeyboardEvent) => {
+      if (!isSaveShortcutKey(event)) return;
+      event.preventDefault();
+      if (isSavingSettings) return;
+      void savePendingSettingsRef.current();
+    };
+
+    window.addEventListener("keydown", handleSettingsSaveShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleSettingsSaveShortcut);
+    };
+  }, [hasPendingSettingsChanges, isSavingSettings, routeVersionId]);
+
+  const hasPendingChanges =
+    hasPendingAutoSaveChanges || hasPendingSettingsChanges;
+  const autoSaveStatus = useMemo<AutoSaveStatus>(() => {
+    if (isSaveBlocked) return "blocked";
+    if (!isOnline && hasPendingChanges) return "offline";
+    if (isAutoSaveSaving || isSavingSettings) return "saving";
+    if (hasPendingSettingsChanges) return "pending";
+    return rawAutoSaveStatus;
+  }, [
+    hasPendingChanges,
+    hasPendingSettingsChanges,
+    isAutoSaveSaving,
+    isOnline,
+    isSaveBlocked,
+    isSavingSettings,
+    rawAutoSaveStatus,
+  ]);
+  const autoSaveStatusLabel = useMemo(() => {
+    if (autoSaveStatus === "blocked") {
+      if (isConflictLocked) return "Conflit";
+      if (isDraftLockedByOther) return "Verrouillé";
+      if (isDraftLockPending) return "Connexion…";
+      return "Lecture seule";
+    }
+    if (autoSaveStatus === "pending" && hasPendingSettingsChanges) {
+      return "Non sauvegardé";
+    }
+    return autoSaveStatus === rawAutoSaveStatus
+      ? rawAutoSaveStatusLabel
+      : resolveAutoSaveStatusLabel(autoSaveStatus);
+  }, [
+    autoSaveStatus,
+    hasPendingSettingsChanges,
+    isConflictLocked,
+    isDraftLockPending,
+    isDraftLockedByOther,
+    rawAutoSaveStatus,
+    rawAutoSaveStatusLabel,
+  ]);
+
   const handleBlockedNavigation = useCallback(() => {
     reportError(
-      "Des modifications locales sont en attente de sauvegarde automatique. Patientez la fin de la synchronisation avant de quitter cette page."
+      "Des modifications ne sont pas encore synchronisées. Utilisez « Sauvegarder maintenant » ou Ctrl+S, puis réessayez."
     );
   }, [reportError]);
 
   useAutoSaveNavigationGuard({
     enabled: Boolean(routeVersionId),
-    hasPendingChanges: hasPendingBufferedUpdates,
-    isSaving: isAutoSaveSaving,
+    hasPendingChanges,
+    isSaving: isAutoSaveSaving || isSavingSettings,
     onBlockedNavigation: handleBlockedNavigation,
   });
 
@@ -711,6 +866,7 @@ export function useEstimateEditorSyncController({
 
       pendingBufferedUpdateCountRef.current += 1;
       if (
+        isAutoSaveEnabledRef.current &&
         shouldFlushBufferedUpdates(
           pendingBufferedUpdateCountRef.current,
           AUTOSAVE_IMMEDIATE_FLUSH_UPDATES
@@ -746,7 +902,7 @@ export function useEstimateEditorSyncController({
     reportNotice(
       skippedItemCount > 0
         ? "Les modifications des lignes encore présentes ont été restaurées. Certaines différences de structure n’ont pas été réappliquées afin de préserver les données serveur."
-        : "Modifications locales restaurées. Les lignes sont resynchronisées automatiquement ; enregistrez le paramétrage pour confirmer les réglages."
+        : "Modifications locales restaurées. Les lignes restent en attente de synchronisation ; enregistrez le paramétrage pour confirmer les réglages."
     );
   }, [
     applyRestoredDraft,
@@ -758,7 +914,17 @@ export function useEstimateEditorSyncController({
   ]);
 
   const ensureGroupedActionCanProceed = useCallback(
-    async (actionLabel: string) => {
+    async (
+      actionLabel: string,
+      options?: { allowPendingSettings?: boolean }
+    ) => {
+      if (hasPendingSettingsChanges && !options?.allowPendingSettings) {
+        reportError(
+          `Le paramétrage comporte des modifications non enregistrées. Enregistrez-le avant l’action « ${actionLabel} ».`
+        );
+        return false;
+      }
+
       if (isFlushingBufferedUpdatesRef.current) {
         reportError(
           "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
@@ -784,7 +950,8 @@ export function useEstimateEditorSyncController({
 
       if (
         flushResult === "noop" &&
-        pendingItemUpdatesRef.current.size > 0
+        (pendingItemUpdatesRef.current.size > 0 ||
+          hasPendingTotalsSaveRef.current)
       ) {
         reportError(
           "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
@@ -794,12 +961,13 @@ export function useEstimateEditorSyncController({
 
       return true;
     },
-    [flushBufferedItemUpdates, reportError]
+    [flushBufferedItemUpdates, hasPendingSettingsChanges, reportError]
   );
 
-  const retryTotalsSave = useCallback(async () => {
+  const saveNow = useCallback(async () => {
     await flushAutoSaveNow();
   }, [flushAutoSaveNow]);
+  const retryTotalsSave = saveNow;
 
   const isFlushInProgress = useCallback(
     () => isFlushingBufferedUpdatesRef.current,
@@ -807,7 +975,9 @@ export function useEstimateEditorSyncController({
   );
 
   const hasPendingUpdatesNow = useCallback(
-    () => pendingItemUpdatesRef.current.size > 0,
+    () =>
+      pendingItemUpdatesRef.current.size > 0 ||
+      hasPendingTotalsSaveRef.current,
     []
   );
 
@@ -820,7 +990,9 @@ export function useEstimateEditorSyncController({
       persistBufferedItemUpdatesToLocal();
       pendingItemUpdates.clear();
       pendingBufferedUpdateCountRef.current = 0;
+      hasPendingTotalsSaveRef.current = false;
       setHasPendingBufferedUpdates(false);
+      setHasPendingTotalsSave(false);
     };
   }, [persistBufferedItemUpdatesToLocal]);
 
@@ -829,7 +1001,10 @@ export function useEstimateEditorSyncController({
       autoSaveStatus,
       autoSaveStatusLabel,
       isAutoSaveSaving,
+      isAutoSaveEnabled,
+      lastSavedAt,
       hasPendingBufferedUpdates,
+      hasPendingChanges,
       conflict,
       isReloadingVersion,
       hasRestorableDraft: Boolean(restorableDraft),
@@ -847,12 +1022,15 @@ export function useEstimateEditorSyncController({
       draftLockError,
       draftLockHolderName,
       hasPendingBufferedUpdates,
+      hasPendingChanges,
+      isAutoSaveEnabled,
       isAutoSaveSaving,
       isDraftLockAcquiring,
       isDraftLockOwnedByCurrentUser,
       isDraftLockedByOther,
       isForcingDraftUnlock,
       isReloadingVersion,
+      lastSavedAt,
       restorableDraft,
     ]
   );
@@ -861,6 +1039,8 @@ export function useEstimateEditorSyncController({
     () => ({
       overlayPendingUpdates,
       enqueueItemUpdate,
+      setAutoSaveEnabled,
+      saveNow,
       flushBufferedItemUpdates,
       ensureGroupedActionCanProceed,
       retryTotalsSave,
@@ -898,6 +1078,8 @@ export function useEstimateEditorSyncController({
       restoreConflictDraft,
       reacquireDraftLock,
       retryTotalsSave,
+      saveNow,
+      setAutoSaveEnabled,
       triggerVersionReload,
     ]
   );

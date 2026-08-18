@@ -34,6 +34,7 @@ const QUALITY_COUNTS: EstimateQualityFlagCounts = {
     missing_quantity: 0,
     missing_labor_time: 0,
     missing_labor_role: 0,
+    line_nature_mismatch: 0,
     supplier_price_outdated: 0,
     labor_split_incomplete: 0,
     price_outlier: 0,

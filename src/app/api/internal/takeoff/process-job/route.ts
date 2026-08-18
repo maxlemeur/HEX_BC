@@ -3,13 +3,14 @@ import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
 import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import type { TakeoffJobAttemptTrigger } from "@/lib/takeoff/types";
 
 const workerPayloadSchema = z
   .object({
     job_id: z.string().uuid("job_id doit etre un UUID valide."),
-    correlation_id: z.string().min(1).max(128).optional(),
+    correlation_id: z.string().uuid("correlation_id doit etre un UUID valide.").optional(),
     trigger: z.enum(["create", "retry", "manual", "reconcile"]).optional(),
   })
   .strict();
@@ -60,13 +61,14 @@ async function parseWorkerPayload(request: Request): Promise<{
   }
 
   const correlationFromHeader = request.headers.get("x-correlation-id");
+  const parsedHeaderCorrelation = z.string().uuid().safeParse(correlationFromHeader);
 
   return {
     jobId: parsed.data.job_id,
     correlationId:
       parsed.data.correlation_id ??
-      (correlationFromHeader && correlationFromHeader.trim().length > 0
-        ? correlationFromHeader
+      (parsedHeaderCorrelation.success
+        ? parsedHeaderCorrelation.data
         : crypto.randomUUID()),
     trigger: parsed.data.trigger ?? "manual",
   };
@@ -77,6 +79,16 @@ export async function POST(request: Request) {
     assertWorkerSecret(request);
 
     const payload = await parseWorkerPayload(request);
+    await persistTakeoffDispatchOutcome({
+      jobId: payload.jobId,
+      trigger: payload.trigger,
+      result: {
+        triggered: true,
+        correlationId: payload.correlationId,
+        statusCode: null,
+        outcome: "accepted",
+      },
+    });
     const outcome = await processTakeoffJobAttempt(payload.jobId, {
       correlationId: payload.correlationId,
       trigger: payload.trigger,

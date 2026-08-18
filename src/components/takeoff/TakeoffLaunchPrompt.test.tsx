@@ -9,7 +9,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+  useToast: () => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }),
 }));
 
 vi.mock("@/lib/estimates/client", () => ({
@@ -182,7 +182,9 @@ describe("TakeoffLaunchPrompt", () => {
     fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Analyse lancée")).toBeInTheDocument();
+      expect(
+        screen.getByText("Analyse transmise au traitement")
+      ).toBeInTheDocument();
     });
 
     expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
