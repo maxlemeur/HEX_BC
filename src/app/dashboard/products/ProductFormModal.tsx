@@ -19,7 +19,6 @@ export type ProductRecord = {
   standard?: string | null;
   unit?: string | null;
   unit_price_cents: number;
-  tax_rate_bp: number;
   is_active: boolean;
   _referencePriceSourceOrderId?: string | null;
   _referencePriceSourceOrderReference?: string | null;
@@ -38,7 +37,6 @@ export type ProductPayload = {
   standard: string | null;
   unit: string;
   unit_price_cents: number;
-  tax_rate_bp: number;
   is_active: boolean;
 };
 
@@ -53,7 +51,6 @@ type ProductFormState = {
   standard: string;
   unit: string;
   unit_price_euros: string;
-  tax_rate_bp: number;
   is_active: boolean;
 };
 
@@ -62,16 +59,13 @@ type ProductFormModalProps = {
   product: ProductRecord | null;
   isSaving: boolean;
   error: string | null;
+  /** Familles déjà utilisées dans le référentiel, proposées en autocomplétion. */
+  categorySuggestions?: readonly string[];
+  /** Matières déjà utilisées dans le référentiel, proposées en autocomplétion. */
+  materialSuggestions?: readonly string[];
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: ProductPayload) => Promise<void> | void;
 };
-
-const TAX_RATE_OPTIONS = [
-  { label: "0 %", value: 0 },
-  { label: "5,5 %", value: 550 },
-  { label: "10 %", value: 1000 },
-  { label: "20 %", value: 2000 },
-] as const;
 
 function euroInputFromCents(value: number) {
   return (value / 100).toFixed(2).replace(".", ",");
@@ -88,8 +82,11 @@ function initialFormState(product: ProductRecord | null): ProductFormState {
     dimensions: product?.dimensions ?? "",
     standard: product?.standard ?? "",
     unit: product?.unit ?? "u",
-    unit_price_euros: euroInputFromCents(product?.unit_price_cents ?? 0),
-    tax_rate_bp: product?.tax_rate_bp ?? 2000,
+    // A la creation le prix reste vide : il vaut 0 par defaut et sera de toute
+    // facon remplace par le dernier achat confirme.
+    unit_price_euros: product
+      ? euroInputFromCents(product.unit_price_cents)
+      : "",
     is_active: product?.is_active ?? true,
   };
 }
@@ -99,11 +96,28 @@ function nullableText(value: string) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Les details techniques restent deplies si le produit en porte deja. */
+function hasTechnicalDetails(product: ProductRecord | null) {
+  if (!product) return false;
+  return Boolean(
+    product.product_type ||
+      product.grade ||
+      product.dimensions ||
+      product.standard,
+  );
+}
+
+function normalizeSuggestions(values: readonly string[] | undefined) {
+  return (values ?? []).filter((value) => value.trim().length > 0);
+}
+
 export function ProductFormModal({
   open,
   product,
   isSaving,
   error,
+  categorySuggestions,
+  materialSuggestions,
   onOpenChange,
   onSubmit,
 }: Readonly<ProductFormModalProps>) {
@@ -111,11 +125,23 @@ export function ProductFormModal({
     initialFormState(product),
   );
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(() =>
+    hasTechnicalDetails(product),
+  );
   const isEditing = product !== null;
 
   const title = useMemo(
     () => (isEditing ? "Modifier le produit" : "Ajouter un produit"),
     [isEditing],
+  );
+
+  const categoryOptions = useMemo(
+    () => normalizeSuggestions(categorySuggestions),
+    [categorySuggestions],
+  );
+  const materialOptions = useMemo(
+    () => normalizeSuggestions(materialSuggestions),
+    [materialSuggestions],
   );
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -128,11 +154,11 @@ export function ProductFormModal({
       return;
     }
 
-    const unitPriceCents = parseEuroToCents(form.unit_price_euros);
+    const rawPrice = form.unit_price_euros.trim();
+    const unitPriceCents =
+      rawPrice.length === 0 ? 0 : parseEuroToCents(rawPrice);
     if (unitPriceCents === null || unitPriceCents < 0) {
-      setLocalError(
-        "Le prix de référence doit être un montant positif ou nul.",
-      );
+      setLocalError("Le prix de référence doit être un montant positif ou nul.");
       return;
     }
 
@@ -147,7 +173,6 @@ export function ProductFormModal({
       standard: nullableText(form.standard),
       unit: form.unit.trim() || "u",
       unit_price_cents: unitPriceCents,
-      tax_rate_bp: form.tax_rate_bp,
       is_active: form.is_active,
     });
   }
@@ -155,7 +180,7 @@ export function ProductFormModal({
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content
-        className="max-h-[92vh] max-w-4xl overflow-hidden p-0"
+        className="max-h-[92vh] max-w-3xl overflow-hidden p-0"
         closeOnEscapeKey={!isSaving}
         closeOnOverlayClick={!isSaving}
       >
@@ -164,8 +189,8 @@ export function ProductFormModal({
             <div>
               <Modal.Title>{title}</Modal.Title>
               <p className="mt-1 text-sm text-[var(--slate-500)]">
-                Identifiez précisément l’article, son unité et son prix interne
-                de référence.
+                Une désignation suffit pour créer l’article. Tout le reste peut
+                être complété plus tard.
               </p>
             </div>
             <Modal.Close
@@ -201,6 +226,10 @@ export function ProductFormModal({
                     }))
                   }
                 />
+                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  Sert au rapprochement automatique avec les DPGF et les imports
+                  fournisseurs.
+                </p>
               </div>
 
               <div>
@@ -222,6 +251,15 @@ export function ProductFormModal({
                   }
                 />
               </div>
+            </fieldset>
+
+            <fieldset className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <legend className="col-span-full mb-1 text-sm font-semibold text-[var(--slate-800)]">
+                Classement
+              </legend>
+              <p className="col-span-full -mt-1 mb-1 text-xs text-[var(--slate-500)]">
+                Ces trois champs pilotent les filtres du référentiel.
+              </p>
 
               <div>
                 <label className="form-label" htmlFor="product-category">
@@ -230,6 +268,11 @@ export function ProductFormModal({
                 <input
                   id="product-category"
                   className="form-input"
+                  list={
+                    categoryOptions.length > 0
+                      ? "product-category-options"
+                      : undefined
+                  }
                   placeholder="Ex. Tuyauterie"
                   value={form.category}
                   onChange={(event) =>
@@ -239,31 +282,14 @@ export function ProductFormModal({
                     }))
                   }
                 />
+                {categoryOptions.length > 0 ? (
+                  <datalist id="product-category-options">
+                    {categoryOptions.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
+                ) : null}
               </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-type">
-                  Type d’article
-                </label>
-                <input
-                  id="product-type"
-                  className="form-input"
-                  placeholder="Ex. Tube, coude, té"
-                  value={form.product_type}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      product_type: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </fieldset>
-
-            <fieldset className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <legend className="col-span-full mb-1 text-sm font-semibold text-[var(--slate-800)]">
-                Caractéristiques métier
-              </legend>
 
               <div>
                 <label className="form-label" htmlFor="product-material">
@@ -272,6 +298,11 @@ export function ProductFormModal({
                 <input
                   id="product-material"
                   className="form-input"
+                  list={
+                    materialOptions.length > 0
+                      ? "product-material-options"
+                      : undefined
+                  }
                   placeholder="Ex. Inox"
                   value={form.material}
                   onChange={(event) =>
@@ -281,71 +312,18 @@ export function ProductFormModal({
                     }))
                   }
                 />
+                {materialOptions.length > 0 ? (
+                  <datalist id="product-material-options">
+                    {materialOptions.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
+                ) : null}
               </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-grade">
-                  Nuance
-                </label>
-                <input
-                  id="product-grade"
-                  className="form-input"
-                  placeholder="Ex. 304L"
-                  value={form.grade}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      grade: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-dimensions">
-                  Dimensions
-                </label>
-                <input
-                  id="product-dimensions"
-                  className="form-input"
-                  placeholder="Ex. DN50 · 60,3 × 2"
-                  value={form.dimensions}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      dimensions: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-standard">
-                  Norme
-                </label>
-                <input
-                  id="product-standard"
-                  className="form-input"
-                  placeholder="Ex. EN 10217-7"
-                  value={form.standard}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      standard: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </fieldset>
-
-            <fieldset className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <legend className="col-span-full mb-1 text-sm font-semibold text-[var(--slate-800)]">
-                Unité et prix de référence
-              </legend>
 
               <div>
                 <label className="form-label" htmlFor="product-unit">
-                  Unité *
+                  Unité
                 </label>
                 <select
                   id="product-unit"
@@ -365,10 +343,16 @@ export function ProductFormModal({
                   <option value="h">Heure (h)</option>
                 </select>
               </div>
+            </fieldset>
 
-              <div className="sm:col-span-1 lg:col-span-2">
+            <fieldset className="mt-6">
+              <legend className="mb-1 text-sm font-semibold text-[var(--slate-800)]">
+                Prix de référence
+              </legend>
+
+              <div className="sm:max-w-sm">
                 <label className="form-label" htmlFor="product-price">
-                  Prix de référence HT *
+                  Prix de référence HT
                 </label>
                 <div className="relative">
                   <input
@@ -376,7 +360,6 @@ export function ProductFormModal({
                     className="form-input pr-12"
                     inputMode="decimal"
                     placeholder="0,00"
-                    required
                     value={form.unit_price_euros}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -392,33 +375,116 @@ export function ProductFormModal({
                 <p className="mt-1 text-xs text-[var(--slate-500)]">
                   {product?._referencePriceSourceOrderId
                     ? "Ce montant vient du dernier achat confirmé. Le modifier le remplace par une saisie interne."
-                    : "Saisie interne utilisée tant qu’aucun achat confirmé n’est disponible."}
-                </p>{" "}
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-tax">
-                  TVA
-                </label>
-                <select
-                  id="product-tax"
-                  className="form-input form-select"
-                  value={form.tax_rate_bp}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      tax_rate_bp: Number(event.target.value),
-                    }))
-                  }
-                >
-                  {TAX_RATE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                    : "Laissez vide si vous ne le connaissez pas : le dernier achat confirmé prendra le relais."}
+                </p>
               </div>
             </fieldset>
+
+            <details
+              className="group mt-6 overflow-hidden rounded-xl border border-[var(--slate-200)]"
+              open={showTechnicalDetails}
+              onToggle={(event) =>
+                setShowTechnicalDetails(event.currentTarget.open)
+              }
+            >
+              <summary className="grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-[var(--slate-50)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-blue)] [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-[var(--slate-800)]">
+                    Détails techniques (optionnel)
+                  </span>
+                  <span className="mt-0.5 block text-xs text-[var(--slate-500)]">
+                    Améliorent la recherche et les suggestions de tarifs.
+                  </span>
+                </span>
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4 shrink-0 text-[var(--slate-500)] transition-transform duration-200 group-open:rotate-180"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+
+              <div className="grid gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label className="form-label" htmlFor="product-type">
+                    Type d’article
+                  </label>
+                  <input
+                    id="product-type"
+                    className="form-input"
+                    placeholder="Ex. Tube, coude, té"
+                    value={form.product_type}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product_type: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" htmlFor="product-grade">
+                    Nuance
+                  </label>
+                  <input
+                    id="product-grade"
+                    className="form-input"
+                    placeholder="Ex. 304L"
+                    value={form.grade}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        grade: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" htmlFor="product-dimensions">
+                    Dimensions
+                  </label>
+                  <input
+                    id="product-dimensions"
+                    className="form-input"
+                    placeholder="Ex. DN50 · 60,3 × 2"
+                    value={form.dimensions}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        dimensions: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" htmlFor="product-standard">
+                    Norme
+                  </label>
+                  <input
+                    id="product-standard"
+                    className="form-input"
+                    placeholder="Ex. EN 10217-7"
+                    value={form.standard}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        standard: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </details>
 
             {isEditing ? (
               <label className="mt-6 flex items-center gap-3 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm text-[var(--slate-700)]">
