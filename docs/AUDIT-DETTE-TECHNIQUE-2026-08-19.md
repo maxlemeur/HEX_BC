@@ -557,3 +557,45 @@ la couche de reprise reste donc inerte jusque-là.
 - **Doublons préexistants** de `getVersionAccessOrThrow` / `assertDraftLockOwnedByCurrentUser` dans `version-zero-drafts.ts`, `structure-drafts.ts`, `generated-ouvrages.ts`, route `outliers` : antérieurs aux remédiations, à rabattre sur `server-context.ts`.
 - `pgtap-rpc-baseline.json` exempte 168/233 fonctions (cliquet) ; `quality-gate.yml` garde `if: !cancelled()`.
 - Rien n'est commité : l'ensemble (remédiations + corrections) doit partir en branche + PR, `main` étant désormais protégé.
+
+## 12. Simplification de la CI (19 août 2026, soir)
+
+L'audit et sa remédiation ont ajouté seize garde-fous « méta » — des tests qui
+vérifient la CI et la configuration, pas le produit — dont huit le 19 août.
+Mesure faite le soir même : sur les huit derniers échecs de CI, **deux seulement**
+signalaient un vrai défaut ; les autres venaient des garde-fous eux-mêmes.
+
+### Retiré
+
+Six gardes supprimés, avec leur outillage (12 fichiers, 1 script npm) :
+
+| Garde | Pourquoi il ne gagnait pas sa place |
+|---|---|
+| `database-types-inventory` | comparait des noms, pas des formes : laissait passer toutes les vraies dérives de `database.ts` |
+| `env-inventory` | scan complet de l'arbre pour vérifier `.env.example` ; utile une fois, pas à chaque commit |
+| `pgtap-rpc-coverage` | baseline exemptant 168 fonctions sur 233 : documentait surtout ce qu'il ne gardait pas |
+| `routes-without-tests` | avertissement pur, sans effet sur la décision de fusion |
+| `quality-gate-migrations` | assertions sur un workflow, déjà couvertes par `ci-guardrails` |
+| `recover-fallback-workflow` | idem |
+
+### Conservé
+
+Les dix restants protègent quelque chose d'irréversible ou de vérifiable :
+frontière d'authentification des routes, budgets d'architecture, propriétés de
+sécurité des workflows, audit de dépendances, historique de migrations
+append-only, environnement E2E, budgets de performance, fuite de `xlsx` dans le
+bundle client, et les tests unitaires des scripts de garde eux-mêmes.
+
+### Assoupli
+
+- Budgets d'architecture : taille au gel +10 %, arrondie à la centaine. Marge
+  minimale 107 lignes au lieu de 1. C'était la cause des quatre derniers échecs
+  avant le 19/08 et de `main` rouge du 09 au 18.
+- Quality Gate découpé en jobs parallèles (statique / tests / build). Retour
+  ~3 min au lieu de 6,2 ; le nom du job en échec indique déjà le périmètre.
+- Build hors des PR (rien ne déploie depuis une branche) ; matrice RLS
+  déclenchée seulement quand `supabase/**` bouge, plus une passe nocturne.
+  Machine par PR : ~9,5 min → ~5,6 min.
+
+Règle retenue pour la suite : traiter le nombre de garde-fous comme un budget.
+Un nouveau garde remplace un ancien plutôt que de s'y ajouter.

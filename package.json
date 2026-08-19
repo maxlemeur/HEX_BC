@@ -39,7 +39,6 @@
     "audit:dependencies": "node --import tsx scripts/check-dependency-audit.ts",
     "audit:signatures": "npm audit signatures",
     "check:architecture": "node --import tsx scripts/check-architecture-budgets.ts",
-    "check:routes-without-tests": "node --import tsx scripts/check-routes-without-tests.ts",
     "check:performance": "node --import tsx scripts/check-performance-budgets.ts",
     "benchmark:takeoff:provider": "node --env-file-if-exists=.env.local --import tsx scripts/run-takeoff-provider-benchmark.ts",
     "lint": "eslint . --max-warnings=0",
