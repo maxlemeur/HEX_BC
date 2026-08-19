@@ -39,6 +39,7 @@ import {
 } from "@/lib/estimates/server";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
+import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 import type { Database } from "@/types/database";
 
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -68,7 +69,6 @@ type SendEstimateEmailInput = {
   idempotencyKey: string;
 };
 
-const ESTIMATE_DOCUMENTS_BUCKET = "estimate-documents";
 const DEFAULT_FALLBACK_PROJECT_NAME = "Votre projet";
 
 function resolveProject(value: EstimateVersionForEmail["estimate_projects"]) {

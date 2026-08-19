@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { ApiError } from "@/lib/estimates/errors";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -48,15 +56,14 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; devisId: string }> }
 ) {
   const { id, devisId } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  try {
+    context = await getAuthenticatedTenantContext();
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase, userId, tenantId } = context;
 
   let payload: { name?: string };
   try {
@@ -86,7 +93,14 @@ export async function PATCH(
     );
   }
 
-  if (!(await canWritePurchaseOrders(supabase, user.id, order.tenant_id))) {
+  if (order.tenant_id !== tenantId) {
+    return NextResponse.json(
+      { error: "Bon de commande introuvable." },
+      { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
     return NextResponse.json(
       { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
       { status: 403 }
@@ -131,15 +145,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; devisId: string }> }
 ) {
   const { id, devisId } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  try {
+    context = await getAuthenticatedTenantContext();
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase, userId, tenantId } = context;
 
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
@@ -154,7 +167,14 @@ export async function DELETE(
     );
   }
 
-  if (!(await canWritePurchaseOrders(supabase, user.id, order.tenant_id))) {
+  if (order.tenant_id !== tenantId) {
+    return NextResponse.json(
+      { error: "Bon de commande introuvable." },
+      { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
     return NextResponse.json(
       { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
       { status: 403 }

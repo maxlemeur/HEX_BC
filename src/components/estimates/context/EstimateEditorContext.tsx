@@ -52,16 +52,12 @@ export function EstimateEditorProvider({
   );
 }
 
-function useEstimateEditorContext() {
+export function useEstimateEditorContext() {
   const context = useContext(EstimateEditorContext);
   if (!context) {
     throw new Error("Estimate editor context is unavailable outside provider.");
   }
   return context;
-}
-
-export function useEstimateEditorState() {
-  return useEstimateEditorContext().state;
 }
 
 export function useEstimateEditorActions() {

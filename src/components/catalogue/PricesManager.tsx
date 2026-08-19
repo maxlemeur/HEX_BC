@@ -22,7 +22,7 @@ import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types"
 import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceLookups";
 import { useSupplierPricesList } from "@/components/catalogue/prices-manager/useSupplierPricesList";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
-import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template";
+import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 
 // --- Filter & Sort config ---
 

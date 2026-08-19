@@ -18,7 +18,8 @@ import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
-export const PLAN_FILES_BUCKET = "plan-files";
+import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
+
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
 const PLAN_FILE_MAX_SIZE_BYTES = 50 * 1024 * 1024;

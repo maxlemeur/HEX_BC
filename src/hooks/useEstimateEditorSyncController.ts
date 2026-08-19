@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import {
@@ -42,7 +35,6 @@ import {
   writeAutoSaveEnabledPreferenceToLocal,
   writeAutoSaveDraftToLocal,
   writeConflictDraftToSession,
-  type EditorConflictDraft,
 } from "@/lib/estimates/editor-drafts";
 import {
   buildEstimateItemUpdatePayload,
@@ -54,23 +46,15 @@ import {
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 
-const AUTOSAVE_DEBOUNCE_MS = 2000;
-const AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
+import {
+  AUTOSAVE_DEBOUNCE_MS,
+  AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
+  type EstimateEditorConflictDraft,
+  type EstimateEditorConflictState,
+  type RestoredDraftApplication,
+} from "@/hooks/useEstimateEditorSyncController.types";
 
-export type EstimateEditorConflictState = {
-  message: string;
-  details: unknown;
-};
-
-export type EstimateEditorConflictDraft = EditorConflictDraft<
-  EstimateSettingsState,
-  EstimateItem
->;
-
-type RestoredDraftApplication = {
-  restoredItems: EstimateItem[];
-  skippedItemCount: number;
-};
+export type { EstimateEditorConflictDraft, EstimateEditorConflictState };
 
 type EstimateEditorSyncControllerInput = {
   routeVersionId: string;

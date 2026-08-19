@@ -15,8 +15,8 @@ import {
 import type { Database } from "@/types/database";
 import {
   useEstimateEditorActions,
+  useEstimateEditorContext,
   useEstimateEditorMeta,
-  useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
 import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
 import { useIsCompactViewport } from "@/hooks/useIsTablet";
@@ -185,7 +185,7 @@ export function LegacyEstimateEditorToolbar({
   quickTemplatePickerNode,
   quickAssemblyPickerNode,
 }: EstimateEditorToolbarProps) {
-  const state = useEstimateEditorState();
+  const state = useEstimateEditorContext().state;
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
   const isCompactViewport = useIsCompactViewport();

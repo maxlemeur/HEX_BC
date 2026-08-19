@@ -18,8 +18,13 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 
 - `npm run e2e:auth` logs in and saves an auth state file for future tests.
 - `npm run e2e:pw:critical` runs the explicit `chromium-critical` project: seven
-  production-compatible specs plus the authentication setup. The full
+  production-compatible specs plus the authentication setup
+  (`dashboard-ux`, `duplicate`, `full-lifecycle`, `hub-launch-metre`,
+  `import-dpgf`, `plan-center`, `team-a-hub-prod`). The full
   `e2e/estimates/*` corpus remains available through `npm run e2e:pw`.
+- `team-a-hub-dev-scenarios.spec.ts` is **not** in `chromium-critical` `testMatch`.
+  It is nightly-only: `e2e-playwright-nightly.yml` runs `npm run e2e:pw` with
+  `E2E_ALLOW_DEV_HUB_SCENARIOS=1`. Locally, set that flag or the spec skips.
 - `npm run e2e:pw:headed` runs the same suite in headed mode.
 - `npm run e2e:pw:report` opens the generated Playwright HTML report.
 - `npm run e2e:rls` runs the EST-261 RLS matrix integration suite.
@@ -81,7 +86,40 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
 - `all`:
   - full HEX coverage (including `ti-140-epic.ps1`)
 
-### Playwright matrix (EST-262 partial)
+## PowerShell / agent-browser : **non couverts en CI**
+
+Les suites `e2e/hex/*.ps1` (PowerShell + `agent-browser`) ne tournent dans
+aucun workflow GitHub Actions. Le filet PR / nightly est Playwright uniquement.
+Les scripts restent dans le dépôt pour une exécution locale
+(`npm run e2e:hex`, `npm run e2e:hex:all`, `npm run e2e:hex:<suite>`).
+Ce n'est pas un port : c'est la disposition du périmètre HEX hors CI.
+
+Inventaire des scripts sous `e2e/hex/` :
+
+- helpers / runners : `common.ps1`, `run-all.ps1`, `suites.ps1`
+- catalogue : `prices-page.ps1`, `prices-import-guided.ps1`
+- editor : `est-101-keyboard.ps1`, `est-102-inline-edit.ps1`,
+  `est-103-multiselect.ps1`, `est-104-clipboard.ps1`, `est-105-autosave.ps1`,
+  `est-106-undo-redo.ps1`, `est-030-supplier-comparison.ps1`,
+  `est-164-catalogue-suggestions.ps1`, `ti-147-editor.ps1`
+- lifecycle : `ti-140-epic.ps1`, `ti-143-navigation.ps1`, `ti-144-list.ps1`,
+  `ti-145-create.ps1`, `ti-149-duplicate.ps1`, `ti-150-status.ps1`
+- output : `ti-151-print.ps1`, `ti-152-export.ps1`
+- settings : `ti-146-parameters.ps1`, `ti-153-suggestions.ps1`,
+  `ti-142-types.ps1`, `est-027-multi-currency.ps1`
+- security : `ti-141-db-rls.ps1`
+- assemblies : `ti-182-assemblies.ps1`
+- dpgf : `dpgf-import-flow.ps1`, `dpgf-affaire-wizard-editor-flow.ps1`
+
+Domaines qu'elles couvrent encore seules (pas de port Playwright équivalent) :
+
+- **settings** — `ti-146-parameters.ps1`, `ti-153-suggestions.ps1`, `ti-142-types.ps1`
+- **security** — `ti-141-db-rls.ps1`
+- **assemblies** — `ti-182-assemblies.ps1`
+- **output** — `ti-151-print.ps1`, `ti-152-export.ps1`
+- **editor** — `est-101-keyboard.ps1` … `est-106-undo-redo.ps1`
+
+## Playwright matrix (EST-262 partial)
 
 - `e2e/estimates/full-lifecycle.spec.ts`
   - Scenario 1: creation wizard + line edition + autosave
@@ -111,17 +149,29 @@ Playwright config is in `playwright.config.ts` with:
 - automatic screenshots on failure (`screenshot: only-on-failure`),
 - HTML report output in `playwright-report/`,
 - CI retries treated as failures (`failOnFlakyTests`) and traces disabled in CI,
-- CI artifact upload from `.github/workflows/e2e-playwright-critical.yml`, excluding
-  `trace.zip` and retaining reports for three days.
+- CI artifact upload from `.github/workflows/e2e-playwright-critical.yml` and
+  `.github/workflows/e2e-playwright-nightly.yml`, excluding `trace.zip` and
+  retaining reports for three days.
 
-The remote critical workflow runs only after a push to `main`, inside the
-`e2e-staging` environment. Repository code from a pull request is never
-run with remote credentials. The environment must define the four E2E secrets and
-the non-secret `E2E_ALLOWED_SUPABASE_HOST` variable; the URL hostname must match it
-exactly. The workflow does not expose a service-role key. Pull requests are instead
-guarded by the secretless Webpack production build and HTTP smoke in `Quality Gate`.
+The remote **critical** workflow (`.github/workflows/e2e-playwright-critical.yml`)
+runs the seven `chromium-critical` specs on `pull_request` and `push` to `main`,
+inside the `e2e-staging` environment. It uses `pull_request`, never
+`pull_request_target`. Fork / untrusted PRs do not receive environment secrets;
+`npm run e2e:validate-env` then fail-closes. Same-repo PRs that can read
+`e2e-staging` run the seven specs against staging.
 
-### RLS matrix (EST-261 partial)
+The **nightly** workflow (`.github/workflows/e2e-playwright-nightly.yml`) runs
+`npm run e2e:pw` (chromium project, the full `e2e/estimates` corpus) on a
+03:15 UTC schedule, with the same environment and secret hygiene.
+
+In both workflows, `npm ci` and `npx playwright install` have no `env:` secrets.
+Secrets appear only on the "Validate required environment" and test-run steps.
+The environment must define the four E2E secrets and the non-secret
+`E2E_ALLOWED_SUPABASE_HOST` variable; the URL hostname must match it exactly.
+Neither workflow exposes a service-role key. The secretless Webpack production
+build and HTTP smoke in `Quality Gate` still guard every PR.
+
+## RLS matrix (EST-261 partial)
 
 - `src/lib/estimates/rls.e2e.test.ts` validates a CRUD matrix (`SELECT/INSERT/UPDATE/DELETE`)
   by role (`admin/engineer/viewer`) on:
@@ -150,7 +200,7 @@ guarded by the secretless Webpack production build and HTTP smoke in `Quality Ga
 - Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
   only when repository branch protection requires this check.
 
-### Runner options
+## Runner options
 
 List available suites:
 

@@ -146,77 +146,26 @@ export type {
   SuggestionLearningRuleBoost,
   SuggestionLearningState,
 } from "@/components/estimates/estimate-editor-table-types";
+import {
+  TRACKED_SUGGESTION_CORRECTION_FIELDS,
+  type AppliedSuggestionContext,
+  type EstimateQualityFilter,
+  type EstimateVirtualizationConfig,
+  type EstimateEditorItemMeta,
+  type EstimateEditorItemPatch,
+  type SuggestionAppliedValues,
+  type SuggestionCorrectionFieldName,
+  type SuggestionCorrectionValue,
+} from "@/components/estimates/estimate-editor-table-types";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
-type EstimateEditorItemMeta = {
-  _pendingCreate?: boolean;
-};
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
-type LaborSplitItemFields = {
-  h_mo_atelier?: number | null;
-  k_mo_atelier?: number | null;
-  labor_role_atelier_id?: string | null;
-  h_mo_chantier?: number | null;
-  k_mo_chantier?: number | null;
-  labor_role_chantier_id?: string | null;
-};
 
-type ItemPatch = Partial<
-  Pick<
-    EstimateItem,
-    | "title"
-    | "aid"
-    | "description"
-    | "quantity"
-    | "unit_price_ht_cents"
-    | "tax_rate_bp"
-    | "k_fo"
-    | "h_mo"
-    | "h_mo_majoration"
-    | "k_mo"
-    | "pu_ht_cents"
-    | "labor_role_id"
-    | "category_id"
-    | "supply_type_id"
-    | "selected_supplier_price_id"
-  >
-> &
-  LaborSplitItemFields;
-
-const TRACKED_SUGGESTION_CORRECTION_FIELDS = [
-  "description",
-  "category_id",
-  "k_fo",
-  "k_mo",
-  "labor_role_id",
-  "supply_type_id",
-] as const;
-
-type SuggestionCorrectionFieldName =
-  (typeof TRACKED_SUGGESTION_CORRECTION_FIELDS)[number];
-type SuggestionCorrectionValue = string | number | null;
-type SuggestionAppliedValues = Partial<
-  Record<SuggestionCorrectionFieldName, SuggestionCorrectionValue>
->;
-
-type AppliedSuggestionContext = {
-  ruleId: string;
-  suggestedValues: SuggestionAppliedValues;
-  trackedFieldDivergences: Partial<Record<SuggestionCorrectionFieldName, true>>;
-};
-
-type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFlagKey;
-type EstimateVirtualizationConfig = {
-  enabled?: boolean;
-  rowEstimate?: number;
-  overscan?: number;
-  maxHeight?: number;
-  containerHeight?: number;
-};
+type ItemPatch = EstimateEditorItemPatch;
 
 export type EstimateSectionDuplicateTarget = {
   versionId: string;

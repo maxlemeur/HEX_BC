@@ -8,8 +8,8 @@ import {
 } from "@/lib/estimate-quality";
 import {
   useEstimateEditorActions,
+  useEstimateEditorContext,
   useEstimateEditorMeta,
-  useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
 import { usePopover } from "@/hooks/usePopover";
 import { ProductionRibbonTabs } from "@/components/dashboard/ProductionRibbonTabs";
@@ -118,7 +118,7 @@ export function EstimateEditorCommandBar({
   onToggleQuickTemplatePicker,
   quickTemplatePickerNode,
 }: EstimateEditorToolbarProps) {
-  const state = useEstimateEditorState();
+  const state = useEstimateEditorContext().state;
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
   const isSimplifiedMode = uiMode === "simplified";

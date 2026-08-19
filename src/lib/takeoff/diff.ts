@@ -10,8 +10,12 @@ import type {
 } from "@/lib/takeoff/types";
 
 export const TAKEOFF_COMPARE_DEFAULT_THRESHOLD = 0.8;
-export const TAKEOFF_COMPARE_MIN_THRESHOLD = 0.5;
-export const TAKEOFF_COMPARE_MAX_THRESHOLD = 0.99;
+import {
+  TAKEOFF_COMPARE_MAX_THRESHOLD,
+  TAKEOFF_COMPARE_MIN_THRESHOLD,
+} from "@/lib/takeoff/limits";
+
+export { TAKEOFF_COMPARE_MAX_THRESHOLD, TAKEOFF_COMPARE_MIN_THRESHOLD };
 
 const EPSILON = 1e-9;
 

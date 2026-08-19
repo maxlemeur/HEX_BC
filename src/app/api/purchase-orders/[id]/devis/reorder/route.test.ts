@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: vi.fn(),
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedTenantContext: vi.fn(),
 }));
 
 vi.mock("@/lib/purchase-orders", () => ({
@@ -15,16 +15,16 @@ import {
   ORDER_ID,
   SECOND_DEVIS_ID,
   TENANT_ID,
+  buildAuthenticatedTenantContext,
   createDevisSupabaseMock,
 } from "@/app/api/purchase-orders/[id]/devis/devis.test-utils";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const params = { params: Promise.resolve({ id: ORDER_ID }) };
-const mockedCreateClient = vi.mocked(createSupabaseServerClient);
 const mockedGetOrder = vi.mocked(getAccessiblePurchaseOrderOrNull);
 const mockedCanWrite = vi.mocked(canWritePurchaseOrders);
 
@@ -32,7 +32,9 @@ function installHarness(
   options: Parameters<typeof createDevisSupabaseMock>[0] = {}
 ) {
   const harness = createDevisSupabaseMock(options);
-  mockedCreateClient.mockResolvedValue(harness.supabase as never);
+  vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
+    buildAuthenticatedTenantContext(harness.supabase)
+  );
   return harness;
 }
 

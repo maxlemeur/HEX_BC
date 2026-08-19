@@ -10,6 +10,7 @@ import {
   type EstimateAssemblyDetail,
   type EstimateAssemblySummary,
 } from "@/lib/estimates/client";
+import { formatEUR } from "@/lib/money";
 
 type AssemblyPickerProps = {
   isOpen: boolean;
@@ -25,11 +26,7 @@ function normalizedText(value: string | null | undefined) {
 }
 
 function formatCurrency(cents: number | null | undefined) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format((cents ?? 0) / 100);
+  return formatEUR(cents ?? 0);
 }
 
 function formatHours(value: number | null | undefined) {

@@ -11,6 +11,7 @@ import {
   notFound,
   type SupabaseErrorLike,
 } from "@/lib/estimates/errors";
+import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export type EstimateEmailDispatchStatus =
@@ -52,6 +53,18 @@ export type EstimateEmailDispatch = {
   lease_expires_at: string | null;
   last_error_code: string | null;
   last_error_message: string | null;
+  next_attempt_at?: string | null;
+};
+
+export const MAX_ESTIMATE_EMAIL_OUTBOX_ATTEMPTS = 5;
+
+export type EmailOutboxDrainResult = {
+  claimed: number;
+  sent: number;
+  failed: number;
+  dead: number;
+  skipped: boolean;
+  errors: string[];
 };
 
 type RpcResult = {
@@ -415,6 +428,27 @@ export async function markEstimateEmailDispatchUnknown(input: {
   );
 }
 
+export async function downloadFrozenEstimatePdf(
+  dispatch: Pick<EstimateEmailDispatch, "document_path">
+): Promise<Buffer> {
+  if (!dispatch.document_path) {
+    throw internalError("Chemin du PDF fige manquant.");
+  }
+
+  const { data, error } = await createServiceRoleClient()
+    .storage.from(ESTIMATE_DOCUMENTS_BUCKET)
+    .download(dispatch.document_path);
+
+  if (error || !data) {
+    throw internalError(
+      "Impossible de recuperer le PDF du devis pour l'email.",
+      error
+    );
+  }
+
+  return Buffer.from(await data.arrayBuffer());
+}
+
 function assertFrozenProviderPayload(dispatch: EstimateEmailDispatch) {
   if (
     !dispatch.html_body ||
@@ -627,4 +661,215 @@ export async function deliverEstimateEmailDispatch(input: {
     { dispatch_id: deferred.id },
     "ESTIMATE_EMAIL_RETRYABLE"
   );
+}
+
+export async function reconcileEstimateEmailDispatch(input: {
+  dispatchId: string;
+  resolution: "sent" | "failed";
+  actorUserId: string;
+  providerId?: string | null;
+  note?: string | null;
+}) {
+  return callDispatchRpc(
+    "reconcile_estimate_email_dispatch",
+    {
+      p_dispatch_id: input.dispatchId,
+      p_resolution: input.resolution,
+      p_actor_user_id: input.actorUserId,
+      p_provider_id: input.providerId ?? null,
+      p_note: input.note ?? null,
+    },
+    "Impossible de rapprocher le dispatch email."
+  );
+}
+
+export async function listProblematicEstimateEmailDispatches(input: {
+  versionId: string;
+  tenantId: string;
+}) {
+  const client = createServiceRoleClient();
+  const { data, error } = await client
+    .from("estimate_emails")
+    .select("*")
+    .eq("version_id", input.versionId)
+    .eq("tenant_id", input.tenantId)
+    .in("status", ["unknown", "failed"])
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les envois email en echec."
+    );
+  }
+
+  return (data ?? []).map((row) => parseDispatch(row));
+}
+
+export async function getEstimateEmailDispatchForReconciliation(
+  dispatchId: string
+): Promise<Pick<
+  EstimateEmailDispatch,
+  "id" | "tenant_id" | "version_id" | "status"
+> | null> {
+  const client = createServiceRoleClient();
+  const { data, error } = await client
+    .from("estimate_emails")
+    .select("id, tenant_id, version_id, status")
+    .eq("id", dispatchId)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger l'envoi email.");
+  }
+
+  return (data as Pick<
+    EstimateEmailDispatch,
+    "id" | "tenant_id" | "version_id" | "status"
+  > | null) ?? null;
+}
+
+const TERMINAL_ESTIMATE_EMAIL_STATUSES = new Set([
+  "sent",
+  "delivered",
+  "bounced",
+  "unknown",
+  "failed",
+]);
+
+/**
+ * Replays due dispatches. The DB contract (`assert_estimate_email_dispatch_actor`)
+ * requires a real admin/engineer actor of the tenant, so each row is replayed
+ * under its own `created_by` unless an explicit actor is provided. A system
+ * actor is not accepted by the RPCs; rows without a creator are reported, not
+ * retried silently.
+ */
+export async function drainEstimateEmailOutbox(
+  dependencies: {
+    listDue?: () => Promise<EstimateEmailDispatch[]>;
+    deliver?: typeof deliverEstimateEmailDispatch;
+    claim?: typeof claimEstimateEmailDispatch;
+    fail?: typeof failEstimateEmailDispatch;
+    loadPdfBuffer?: (dispatch: EstimateEmailDispatch) => Promise<Buffer>;
+    apiKey?: string | null;
+    maxAttempts?: number;
+    actorUserId?: string;
+    now?: Date;
+  } = {}
+): Promise<EmailOutboxDrainResult> {
+  const maxAttempts = Math.max(
+    1,
+    dependencies.maxAttempts ?? MAX_ESTIMATE_EMAIL_OUTBOX_ATTEMPTS
+  );
+  const deliver = dependencies.deliver ?? deliverEstimateEmailDispatch;
+  const claim = dependencies.claim ?? claimEstimateEmailDispatch;
+  const fail = dependencies.fail ?? failEstimateEmailDispatch;
+  const apiKey = dependencies.apiKey ?? process.env.RESEND_API_KEY ?? "";
+
+  const due = dependencies.listDue
+    ? await dependencies.listDue()
+    : await listDueEstimateEmailDispatches(dependencies.now ?? new Date());
+
+  const result: EmailOutboxDrainResult = {
+    claimed: 0,
+    sent: 0,
+    failed: 0,
+    dead: 0,
+    skipped: due.length === 0,
+    errors: [],
+  };
+
+  for (const dispatch of due) {
+    const actorUserId = dependencies.actorUserId ?? dispatch.created_by;
+    if (!actorUserId) {
+      result.failed += 1;
+      result.errors.push(
+        `Dispatch ${dispatch.id}: aucun acteur (created_by) pour rejouer l'envoi.`
+      );
+      continue;
+    }
+
+    result.claimed += 1;
+    if (dispatch.attempt_count >= maxAttempts) {
+      // `fail_estimate_email_dispatch` only accepts a lease-less failure for
+      // `preparing`; a queued/processing row must be closed under a lease we hold.
+      try {
+        const leaseToken = randomUUID();
+        const claimed = await claim({
+          dispatchId: dispatch.id,
+          tenantId: dispatch.tenant_id,
+          actorUserId,
+          leaseToken,
+        });
+        if (TERMINAL_ESTIMATE_EMAIL_STATUSES.has(claimed.status)) {
+          continue;
+        }
+        await fail({
+          dispatchId: dispatch.id,
+          tenantId: dispatch.tenant_id,
+          actorUserId,
+          leaseToken,
+          errorCode: "ESTIMATE_EMAIL_RETRY_CAP",
+          errorMessage: `Plafond de ${maxAttempts} tentatives atteint.`,
+        });
+        result.dead += 1;
+        result.failed += 1;
+      } catch (error) {
+        result.errors.push(
+          error instanceof Error ? error.message : "Echec de cloture outbox."
+        );
+      }
+      continue;
+    }
+
+    if (!apiKey && !dependencies.deliver) {
+      result.errors.push("RESEND_API_KEY manquant pour drainer l'outbox.");
+      result.failed += 1;
+      continue;
+    }
+
+    try {
+      await deliver({
+        dispatch,
+        actorUserId,
+        apiKey,
+        loadPdfBuffer: async () => {
+          if (dependencies.loadPdfBuffer) {
+            return dependencies.loadPdfBuffer(dispatch);
+          }
+          return downloadFrozenEstimatePdf(dispatch);
+        },
+        retryDelaysMs: [],
+      });
+      result.sent += 1;
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push(
+        error instanceof Error ? error.message : "Echec de replay outbox."
+      );
+    }
+  }
+
+  return result;
+}
+
+async function listDueEstimateEmailDispatches(now: Date) {
+  const client = createServiceRoleClient();
+  const { data, error } = await client
+    .from("estimate_emails")
+    .select("*")
+    .in("status", ["queued", "processing"])
+    .or(`next_attempt_at.is.null,next_attempt_at.lte.${now.toISOString()}`)
+    // A row still leased by an in-flight send (inline or another drain run)
+    // is not due: claiming it would only raise ESTIMATE_EMAIL_DISPATCH_LEASED.
+    .or(`lease_expires_at.is.null,lease_expires_at.lte.${now.toISOString()}`)
+    .order("created_at", { ascending: true })
+    .limit(25);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de lister l'outbox email.");
+  }
+
+  return (data ?? []).map((row) => parseDispatch(row));
 }

@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { isValidDateOnly } from "@/lib/date-only";
+import { ApiError } from "@/lib/estimates/errors";
+import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-cleanup-outbox";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-cleanup-outbox";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
+
+function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
 
 type PurchaseOrderStatus = Database["public"]["Tables"]["purchase_orders"]["Row"]["status"];
 
@@ -65,21 +73,18 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const userPromise = supabase.auth.getUser();
-  const payloadPromise = request.json().catch(() => null);
-
-  const [
-    {
-      data: { user },
-    },
-    payload,
-  ] = await Promise.all([userPromise, payloadPromise]);
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  let payload;
+  try {
+    [context, payload] = await Promise.all([
+      getAuthenticatedTenantContext(),
+      request.json().catch(() => null),
+    ]);
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase, userId, tenantId } = context;
 
   // Fetch existing order
   const existingOrder = await getAccessiblePurchaseOrderOrNull<{
@@ -95,7 +100,14 @@ export async function PUT(
     );
   }
 
-  if (!(await canWritePurchaseOrders(supabase, user.id, existingOrder.tenant_id))) {
+  if (existingOrder.tenant_id !== tenantId) {
+    return NextResponse.json(
+      { error: "Bon de commande introuvable." },
+      { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, userId, existingOrder.tenant_id))) {
     return NextResponse.json(
       { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
       { status: 403 }
@@ -227,15 +239,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  try {
+    context = await getAuthenticatedTenantContext();
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase, userId, tenantId } = context;
 
   // Fetch existing order
   const existingOrder = await getAccessiblePurchaseOrderOrNull<{
@@ -251,7 +262,14 @@ export async function DELETE(
     );
   }
 
-  if (!(await canWritePurchaseOrders(supabase, user.id, existingOrder.tenant_id))) {
+  if (existingOrder.tenant_id !== tenantId) {
+    return NextResponse.json(
+      { error: "Bon de commande introuvable." },
+      { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, userId, existingOrder.tenant_id))) {
     return NextResponse.json(
       { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
       { status: 403 }

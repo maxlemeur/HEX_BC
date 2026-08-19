@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { computeTotalsFromInputs } from "@/lib/order-calculations";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { isValidDateOnly } from "@/lib/date-only";
+import { ApiError } from "@/lib/estimates/errors";
+import { computeTotalsFromInputs } from "@/lib/order-calculations";
 import { canWritePurchaseOrders } from "@/lib/purchase-orders";
 import { buildPurchaseOrderReference } from "@/lib/reference";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
 
 type LinePayload = {
   designation: string;
@@ -45,22 +53,20 @@ function parseExpectedDeliveryDate(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const userPromise = supabase.auth.getUser();
-  const payloadPromise = request.json().catch(() => null);
-
-  const [
-    {
-      data: { user },
-    },
-    payload,
-  ] = await Promise.all([userPromise, payloadPromise]);
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  let payload;
+  try {
+    [context, payload] = await Promise.all([
+      getAuthenticatedTenantContext(),
+      request.json().catch(() => null),
+    ]);
+  } catch (error) {
+    return jsonApiError(error);
   }
 
-  if (!(await canWritePurchaseOrders(supabase, user.id))) {
+  const { supabase, userId, tenantId } = context;
+
+  if (!(await canWritePurchaseOrders(supabase, userId, tenantId))) {
     return NextResponse.json(
       { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
       { status: 403 }
@@ -146,7 +152,7 @@ export async function POST(request: Request) {
     .from("purchase_orders")
     .insert({
       reference: tempReference,
-      user_id: user.id,
+      user_id: userId,
       supplier_id: parsedPayload.supplierId,
       delivery_site_id: parsedPayload.deliverySiteId,
       status: "draft",

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: vi.fn(),
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedTenantContext: vi.fn(),
 }));
 
 vi.mock("@/lib/purchase-orders", () => ({
@@ -16,17 +16,17 @@ import {
   SECOND_DEVIS_ID,
   TENANT_ID,
   USER_ID,
+  buildAuthenticatedTenantContext,
   buildDevisRecord,
   createDevisSupabaseMock,
 } from "@/app/api/purchase-orders/[id]/devis/devis.test-utils";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const params = { params: Promise.resolve({ id: ORDER_ID }) };
-const mockedCreateClient = vi.mocked(createSupabaseServerClient);
 const mockedGetOrder = vi.mocked(getAccessiblePurchaseOrderOrNull);
 const mockedCanWrite = vi.mocked(canWritePurchaseOrders);
 
@@ -34,7 +34,9 @@ function installHarness(
   options: Parameters<typeof createDevisSupabaseMock>[0] = {}
 ) {
   const harness = createDevisSupabaseMock(options);
-  mockedCreateClient.mockResolvedValue(harness.supabase as never);
+  vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
+    buildAuthenticatedTenantContext(harness.supabase)
+  );
   return harness;
 }
 
@@ -134,6 +136,40 @@ describe("purchase order devis collection route", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Le fichier est vide." });
     expect(mockedGetOrder).not.toHaveBeenCalled();
+  });
+
+  it("hides an order of another tenant (404) and checks the role against the order's tenant", async () => {
+    installHarness();
+    mockedGetOrder.mockResolvedValue({
+      id: ORDER_ID,
+      tenant_id: "99999999-9999-4999-8999-999999999999",
+      status: "draft",
+    } as never);
+
+    const response = await POST(
+      uploadRequest(new File(["x"], "offre.pdf", { type: "application/pdf" })),
+      params
+    );
+
+    expect(response.status).toBe(404);
+    expect(mockedCanWrite).not.toHaveBeenCalled();
+  });
+
+  it("authorizes writes against the order's tenant, not only the caller context", async () => {
+    const harness = installHarness();
+    mockedCanWrite.mockResolvedValue(false);
+
+    const response = await POST(
+      uploadRequest(new File(["x"], "offre.pdf", { type: "application/pdf" })),
+      params
+    );
+
+    expect(response.status).toBe(403);
+    expect(mockedCanWrite).toHaveBeenCalledWith(
+      harness.supabase,
+      USER_ID,
+      TENANT_ID
+    );
   });
 
   it("normalizes upload metadata and appends the next position", async () => {

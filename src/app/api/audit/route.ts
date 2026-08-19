@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { ApiError } from "@/lib/estimates/errors";
+
+function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -34,15 +42,14 @@ function isValidUuid(value: string) {
 }
 
 export async function GET(request: Request) {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  try {
+    context = await getAuthenticatedTenantContext();
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase, tenantId } = context;
 
   const { searchParams } = new URL(request.url);
   const tableName = parseOptionalText(searchParams.get("table_name"));
@@ -70,6 +77,7 @@ export async function GET(request: Request) {
     .select(
       "id, created_at, user_id, table_name, record_id, estimate_version_id, action, before_data, after_data"
     )
+    .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
     .limit(limit);
 

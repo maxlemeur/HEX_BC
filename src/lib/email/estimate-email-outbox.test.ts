@@ -5,10 +5,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   send: vi.fn(),
+  download: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/service-role", () => ({
-  createServiceRoleClient: () => ({ rpc: mocks.rpc }),
+  createServiceRoleClient: () => ({
+    rpc: mocks.rpc,
+    storage: {
+      from: (bucket: string) => ({
+        download: (path: string) => mocks.download(bucket, path),
+      }),
+    },
+  }),
 }));
 vi.mock("resend", () => ({
   Resend: class MockResend {
@@ -19,6 +27,8 @@ vi.mock("resend", () => ({
 import {
   classifyResendFailure,
   deliverEstimateEmailDispatch,
+  drainEstimateEmailOutbox,
+  MAX_ESTIMATE_EMAIL_OUTBOX_ATTEMPTS,
   reserveEstimateEmailDispatch,
   type EstimateEmailDispatch,
 } from "@/lib/email/estimate-email-outbox";
@@ -200,6 +210,134 @@ describe("estimate email outbox provider boundary", () => {
     ).rejects.toMatchObject({
       code: "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST",
       status: 409,
+    });
+  });
+});
+
+describe("drainEstimateEmailOutbox", () => {
+  it("replays due rows with the same deliver path and marks dead after N attempts", async () => {
+    const replayable = createDispatch("queued");
+    const exhausted = {
+      ...createDispatch("processing"),
+      id: "66666666-6666-4666-8666-666666666666",
+      attempt_count: MAX_ESTIMATE_EMAIL_OUTBOX_ATTEMPTS,
+    };
+    const deliver = vi.fn().mockResolvedValue({ providerId: "email-1" });
+    const claim = vi.fn().mockResolvedValue(exhausted);
+    const fail = vi.fn().mockResolvedValue({ ...exhausted, status: "failed" });
+
+    const result = await drainEstimateEmailOutbox({
+      listDue: async () => [replayable, exhausted],
+      deliver,
+      claim,
+      fail,
+      apiKey: "test-key",
+      loadPdfBuffer: async () => PDF_BUFFER,
+    });
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatch: replayable,
+        // Replays run under the dispatch creator, never a synthetic system actor.
+        actorUserId: replayable.created_by,
+        apiKey: "test-key",
+      })
+    );
+    // A capped row is closed under a lease the drain holds: claim first, then fail.
+    expect(claim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchId: exhausted.id,
+        actorUserId: exhausted.created_by,
+        leaseToken: expect.any(String),
+      })
+    );
+    expect(fail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchId: exhausted.id,
+        leaseToken: claim.mock.calls[0]?.[0]?.leaseToken,
+        errorCode: "ESTIMATE_EMAIL_RETRY_CAP",
+      })
+    );
+    expect(result).toMatchObject({
+      claimed: 2,
+      sent: 1,
+      dead: 1,
+      failed: 1,
+      skipped: false,
+    });
+  });
+
+  it("reports rows without a creator instead of replaying them under a fake actor", async () => {
+    const orphan = { ...createDispatch("queued"), created_by: null };
+    const deliver = vi.fn();
+
+    const result = await drainEstimateEmailOutbox({
+      listDue: async () => [orphan],
+      deliver,
+      apiKey: "test-key",
+    });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ claimed: 0, sent: 0, failed: 1, dead: 0 });
+    expect(result.errors[0]).toContain(orphan.id);
+  });
+
+  it("does not mark a capped row dead when the claim reveals it already reached a terminal state", async () => {
+    const exhausted = {
+      ...createDispatch("processing"),
+      attempt_count: MAX_ESTIMATE_EMAIL_OUTBOX_ATTEMPTS,
+    };
+    const claim = vi.fn().mockResolvedValue({ ...exhausted, status: "sent" });
+    const fail = vi.fn();
+
+    const result = await drainEstimateEmailOutbox({
+      listDue: async () => [exhausted],
+      claim,
+      fail,
+      apiKey: "test-key",
+    });
+
+    expect(fail).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ claimed: 1, dead: 0, failed: 0 });
+  });
+
+  it("downloads the frozen PDF from estimate-documents on the shipped deliver path", async () => {
+    mocks.rpc.mockImplementation(async (functionName: string) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: createDispatch("processing"), error: null };
+      }
+      if (functionName === "complete_estimate_email_dispatch") {
+        return { data: createDispatch("sent"), error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+    mocks.send.mockResolvedValue({ data: { id: "email-1" }, error: null });
+    mocks.download.mockResolvedValue({
+      data: {
+        arrayBuffer: async () => Uint8Array.from(PDF_BUFFER),
+      },
+      error: null,
+    });
+
+    const result = await drainEstimateEmailOutbox({
+      listDue: async () => [createDispatch("queued")],
+      apiKey: "test-key",
+    });
+
+    expect(mocks.download).toHaveBeenCalledWith(
+      "estimate-documents",
+      "tenant/version.pdf"
+    );
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.send.mock.calls[0]?.[0]?.attachments?.[0]?.content).toEqual(
+      PDF_BUFFER
+    );
+    expect(result).toMatchObject({
+      claimed: 1,
+      sent: 1,
+      failed: 0,
+      skipped: false,
     });
   });
 });

@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
+import { formatEUR } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
@@ -25,8 +25,6 @@ const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   month: "short",
   year: "numeric",
 });
-const ESTIMATE_CURRENCY = normalizeEstimateCurrency("EUR") ?? "EUR";
-
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
   required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
   in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
@@ -59,10 +57,6 @@ const EMPTY_SELECTED_PROJECT_IDS: ReadonlySet<string> = new Set();
 
 function formatDate(iso: string): string {
   return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
-}
-
-function formatAmount(cents: number): string {
-  return formatCurrency(cents, ESTIMATE_CURRENCY);
 }
 
 function formatManagerQueueCount(count: number, label: string): string {
@@ -521,7 +515,7 @@ export function AffairesDenseTable({
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-[var(--slate-700)] whitespace-nowrap">
                       {item.currentTotalHtCents !== null
-                        ? formatAmount(item.currentTotalHtCents)
+                        ? formatEUR(item.currentTotalHtCents)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right text-[var(--slate-400)] whitespace-nowrap">
@@ -721,7 +715,7 @@ function ExpandedContent({
             <p>
               <span className="text-[var(--slate-500)]">Total HT : </span>
               <span className="font-semibold text-[var(--slate-900)]">
-                {formatAmount(cv.totalHtCents)}
+                {formatEUR(cv.totalHtCents)}
               </span>
             </p>
             <p>
@@ -742,7 +736,7 @@ function ExpandedContent({
               <p>
                 <span className="text-[var(--slate-500)]">Version acceptée : </span>
                 <span className="text-emerald-700 font-medium">
-                  V{av.versionNumber} — {formatAmount(av.totalHtCents)}
+                  V{av.versionNumber} — {formatEUR(av.totalHtCents)}
                 </span>
               </p>
             )}

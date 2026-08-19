@@ -68,6 +68,7 @@ import {
   formatEUR,
   normalizeEstimateCurrency,
 } from "@/lib/money";
+import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 import { classifyEstimatePdfStorageFailure } from "@/lib/estimates/pdf-storage-error";
 import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
 import {
@@ -202,7 +203,6 @@ type PdfIssuer = {
   email: string | null;
 };
 
-const ESTIMATE_DOCUMENTS_BUCKET = "estimate-documents";
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 const businessPdfStyles = StyleSheet.create({

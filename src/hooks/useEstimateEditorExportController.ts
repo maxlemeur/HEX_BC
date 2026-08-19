@@ -253,7 +253,7 @@ export function useEstimateEditorExportController(input: {
         versionNumber: version?.version_number,
       });
       const { exportToCSV } = await import("@/lib/export");
-      exportToCSV(
+      await exportToCSV(
         lines,
         getEstimateLineExportColumns(isLaborSplitEnabled),
         { filename }

@@ -4,11 +4,14 @@ import {
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateSchema,
+  estimateVersionEventSchema,
+  importLinkedDpgfSourceResultSchema,
   importLinkedDpgfSourceSchema,
   createEstimateItemSchema,
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
   duplicateEstimateSectionSchema,
+  importEstimateSectionsResultSchema,
   importEstimateSectionsSchema,
   instantiateEstimateFromTemplateSchema,
   listEstimateImportSourcesQuerySchema,
@@ -1301,5 +1304,48 @@ describe("patchEstimateVersionSchema — regime de TVA (EST-E27)", () => {
     expect(
       patchEstimateVersionSchema.safeParse({ contractor_role: "autre" }).success
     ).toBe(false);
+  });
+});
+
+describe("shared estimate DTO schemas", () => {
+  it("infers ImportEstimateSectionsResult, ImportLinkedDpgfSourceResult and EstimateVersionEvent", () => {
+    expect(
+      importEstimateSectionsResultSchema.parse({
+        sourceVersionId: ITEM_ID_1,
+        targetVersionId: ITEM_ID_2,
+        mode: "append",
+        importedSectionsCount: 1,
+        importedLinesCount: 2,
+        createdSectionIds: [PARENT_ID_1],
+        createdLineIds: [ITEM_ID_3],
+        versionToken: { id: ITEM_ID_2, updated_at: UPDATED_AT },
+      })
+    ).toMatchObject({ mode: "append", importedSectionsCount: 1 });
+
+    expect(
+      importLinkedDpgfSourceResultSchema.parse({
+        sourceImportId: ITEM_ID_1,
+        targetVersionId: ITEM_ID_2,
+        createdSectionId: PARENT_ID_1,
+        createdLineIds: [ITEM_ID_3],
+        importedLinesCount: 1,
+        skippedLinesCount: 0,
+        totals: { totalHtCents: 100, totalTaxCents: 20, totalTtcCents: 120 },
+        versionToken: null,
+      }).createdSectionId
+    ).toBe(PARENT_ID_1);
+
+    expect(
+      estimateVersionEventSchema.parse({
+        id: ITEM_ID_1,
+        estimateVersionId: ITEM_ID_2,
+        eventType: "sent",
+        metadata: { via: "portal" },
+        createdBy: null,
+        actorName: "Ada",
+        occurredAt: UPDATED_AT,
+        createdAt: UPDATED_AT,
+      }).eventType
+    ).toBe("sent");
   });
 });

@@ -1,0 +1,74 @@
+name: E2E Playwright Nightly
+
+on:
+  schedule:
+    - cron: "15 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-nightly-staging
+  cancel-in-progress: false
+
+jobs:
+  e2e-nightly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    environment: e2e-staging
+    env:
+      CI: "1"
+      E2E_BASE_URL: "http://localhost:3000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required environment
+        run: npm run e2e:validate-env
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          E2E_LOGIN_EMAIL: ${{ secrets.E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
+          E2E_ALLOWED_SUPABASE_HOST: ${{ vars.E2E_ALLOWED_SUPABASE_HOST }}
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full Playwright suite
+        run: npm run e2e:pw
+        env:
+          # Decision (2026-08-19): un seul projet Supabase, la production, pour
+          # tout, CI comprise. La cle service-role est transmise au seul pas
+          # d'execution (creation/duplication de devis via RPC service-role),
+          # jamais aux pas d'installation ni de validation.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          E2E_LOGIN_EMAIL: ${{ secrets.E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
+          E2E_ALLOWED_SUPABASE_HOST: ${{ vars.E2E_ALLOWED_SUPABASE_HOST }}
+          E2E_ALLOW_DEV_HUB_SCENARIOS: "1"
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report-nightly
+          path: |
+            playwright-report/
+            test-results/**/*
+            !test-results/**/trace.zip
+          retention-days: 3

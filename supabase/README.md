@@ -7,15 +7,12 @@
 
 ## 2) Initialiser le schéma
 
-> ⚠️ **N'exécutez jamais `supabase/schema.sql` sur une base contenant des données.**
-> Ce fichier commence par une quarantaine de `drop table if exists … cascade` visant
-> `estimate_items`, `estimate_versions`, `tenants`, `purchase_orders`, `audit_logs`… Il **détruit**
-> la base. C'est de plus un **snapshot partiel et périmé** : il déclare 40 tables là où les
-> migrations en créent environ 99.
+> ⚠️ **N'exécutez pas `supabase/schema.sql`.** Ce n'est plus un dump : fichier-commentaire
+> uniquement, sans instruction destructive. L'ancien dump a été retiré parce qu'il détruisait
+> notamment les tables tenant / membership. L'historique Git le conserve.
 >
-> **La source de vérité du schéma, c'est `supabase/migrations/`** (202 fichiers, de
-> `001_add_job_title_to_profiles.sql` à
-> `20260812012308_add_affaires_sending_counter.sql`).
+> **La source de vérité du schéma, c'est `supabase/migrations/`.** Le nombre de fichiers et le
+> nom du dernier fichier ne sont pas un contrat figé.
 
 Sur une base **neuve**, appliquez les migrations dans l'ordre :
 

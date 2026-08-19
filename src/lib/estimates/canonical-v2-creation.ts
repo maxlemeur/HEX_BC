@@ -6,6 +6,7 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { NEW_ESTIMATE_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
 import {
   calculateEstimateSnapshotForItems,
@@ -166,7 +167,7 @@ const DEFAULT_VERSION_SETTINGS: LatestVersionDefaults = {
   discount_mode: "simple",
   discount_steps: [],
   global_coefficient: 1,
-  tax_rate_bp: 2000,
+  tax_rate_bp: DEFAULT_TAX_RATE_BP,
   rounding_mode: "none",
   rounding_step_cents: 1,
   max_section_depth: DEFAULT_MAX_SECTION_DEPTH,

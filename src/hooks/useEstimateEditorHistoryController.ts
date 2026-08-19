@@ -122,3 +122,7 @@ export function useEstimateEditorHistoryController({
 
   return { state, actions };
 }
+
+export type EstimateEditorHistoryController = ReturnType<
+  typeof useEstimateEditorHistoryController
+>;

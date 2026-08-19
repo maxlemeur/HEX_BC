@@ -22,7 +22,9 @@ import type {
 } from "@/lib/takeoff/types";
 
 export const TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE = 50;
-export const TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE = 200;
+import { TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE } from "@/lib/takeoff/limits";
+
+export { TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE };
 
 export function hasBlockingTakeoffDpgfExceptions(
   summary: TakeoffDpgfComparisonSummary | null

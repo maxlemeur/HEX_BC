@@ -8,6 +8,7 @@ import {
   readAuthenticatedUser,
   type ActiveTenantMembership,
 } from "@/lib/auth/tenant-context";
+import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 import type { Database } from "@/types/database";
 
 import {
@@ -217,29 +218,13 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Impor
 }
 
 export function toErrorResponse(error: unknown) {
-  let apiError: ImportsApiError;
-
-  if (error instanceof ImportsApiError) {
-    apiError = error;
-  } else {
-    console.error("Unexpected imports API error", error);
-    apiError = internalError();
-  }
-
-  // K-01: Log internal details server-side only, never expose to client
-  if (apiError.details) {
-    console.error(`[imports] API error details (${apiError.code}):`, apiError.details);
-  }
-
-  const body: ApiFailureResponse = {
-    ok: false,
-    error: {
-      code: apiError.code,
-      message: apiError.message,
-    },
-  };
-
-  return NextResponse.json(body, { status: apiError.status });
+  return toSharedErrorResponse(error, {
+    isApiError: (value): value is ImportsApiError => value instanceof ImportsApiError,
+    createInternalError: () => internalError(),
+    unexpectedLogMessage: "Unexpected imports API error",
+    detailsMode: "never",
+    detailsLogScope: "imports",
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

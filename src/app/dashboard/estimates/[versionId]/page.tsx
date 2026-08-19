@@ -207,12 +207,37 @@ export default async function EstimateDetailPage({
           supabase,
         }),
   ]);
-  const [plansSummary, registerSummary] = await Promise.all([
+  const [plansSummary, registerSummary, emailDispatchProblem] = await Promise.all([
     fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
     fetchAffaireRegisterSummary({
       projectId: version.project_id,
       versionId,
     }).catch(() => null),
+    Promise.resolve(
+      supabase
+        .from("estimate_emails")
+        .select("id, status, last_error_message")
+        .eq("version_id", versionId)
+        .eq("tenant_id", version.tenant_id)
+        .eq("type", "initial")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    )
+      .then((result) => {
+        const row = result.data as
+          | { id: string; status: string; last_error_message: string | null }
+          | null;
+        if (row?.status === "unknown" || row?.status === "failed") {
+          return {
+            id: row.id,
+            status: row.status as "unknown" | "failed",
+            lastErrorMessage: row.last_error_message,
+          };
+        }
+        return null;
+      })
+      .catch(() => null),
   ]);
   const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
     new Set(
@@ -411,6 +436,7 @@ export default async function EstimateDetailPage({
                         currentStatus={version.status}
                         updatedAt={version.updated_at}
                         projectName={project?.name ?? undefined}
+                        emailDispatchProblem={emailDispatchProblem}
                       />
                     ) : null}
                   </div>

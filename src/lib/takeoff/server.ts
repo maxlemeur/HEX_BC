@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
+import { toValidationIssues } from "@/lib/takeoff/validation-issues";
 
 import { z } from "zod";
 
@@ -13,10 +16,8 @@ import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import { computeEstimateQualityFlagsByItemId } from "@/lib/estimate-quality";
 import {
-  badRequest,
   forbidden,
   mapSupabaseError,
-  notFound,
   unprocessableEntity,
 } from "@/lib/estimates/errors";
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
@@ -34,10 +35,54 @@ import {
   getTakeoffVerificationReadiness,
 } from "@/lib/takeoff/guards";
 import {
-  TakeoffMappingRuleSchema,
-  takeoffApplyRequestSchema,
+  requestTakeoffPriceSuggestionSchema,
+  reviewTakeoffPriceSuggestionSchema,
+  saveTakeoffDpgfManualLinkSchema,
+  saveTakeoffReviewDecisionSchema,
+  takeoffJobIdSchema,
   takeoffPreviewConversionResponseSchema,
+  takeoffPriceSuggestionQuerySchema,
+  updateTakeoffRiskAlertStatusSchema,
+  type CompareTakeoffJobsQuery,
+  type GetTakeoffJobDetailsQuery,
+  type ListTakeoffJobsQuery,
+  type TakeoffDpgfComparisonQuery,
+  type TakeoffLineEvidencePanelQuery,
+  type TakeoffRiskRadarQuery,
 } from "@/lib/takeoff/schemas";
+import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
+
+export {
+  compareTakeoffJobsQuerySchema,
+  getTakeoffJobDetailsQuerySchema,
+  listTakeoffJobsQuerySchema,
+  takeoffApplyPayloadSchema,
+  takeoffDpgfComparisonQuerySchema,
+  takeoffJobIdSchema,
+  takeoffLineEvidencePanelQuerySchema,
+  takeoffPriceSuggestionQuerySchema,
+  takeoffRiskRadarQuerySchema,
+  type CompareTakeoffJobsQuery,
+  type GetTakeoffJobDetailsQuery,
+  type ListTakeoffJobsQuery,
+  type RequestTakeoffPriceSuggestionPayload,
+  type ReviewTakeoffPriceSuggestionPayload,
+  type SaveTakeoffReviewDecisionPayload,
+  type TakeoffDpgfComparisonQuery,
+  type TakeoffLineEvidencePanelQuery,
+  type TakeoffPriceSuggestionQuery,
+  type TakeoffRiskRadarQuery,
+} from "@/lib/takeoff/schemas";
+export {
+  parseApplyTakeoffPayload,
+  parseCompareTakeoffJobsQuery,
+  parseGetTakeoffJobDetailsQuery,
+  parseListTakeoffJobsQuery,
+  parseTakeoffDpgfComparisonQuery,
+  parseTakeoffLineEvidencePanelQuery,
+  parseTakeoffPriceSuggestionQuery,
+  parseTakeoffRiskRadarQuery,
+} from "@/lib/takeoff/query-parsers";
 import {
   logTakeoffAuditEvent,
   takeoffAuditMetadataBuilders,
@@ -82,12 +127,9 @@ import {
 } from "@/lib/takeoff/evidence";
 import {
   TAKEOFF_APPLY_SCOPES,
-  TAKEOFF_JOB_LIST_PERIODS,
-  TAKEOFF_JOB_STATUSES,
   TAKEOFF_LEVELS,
   type TakeoffProcessingStrategy,
   type TakeoffProviderBatchState,
-  type CreateTakeoffMappingRuleInput,
   type TakeoffApplyRequest,
   type TakeoffApplyResponse,
   type TakeoffApplyScope,
@@ -132,20 +174,13 @@ import {
   type TakeoffJobSummary,
   type TakeoffJobListPeriod,
   type TakeoffLevel,
-  type TakeoffMappingRule,
-  type TakeoffMappingRuleDeleteResponse,
-  type TakeoffMappingRuleMutationResponse,
-  type TakeoffMappingRulesListResponse,
   type TakeoffRiskAlert,
   type TakeoffRiskRadarResponse,
   type UpdateTakeoffRiskAlertStatusInput,
   type UpdateTakeoffRiskAlertStatusResponse,
-  type UpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
 import {
   TAKEOFF_COMPARE_DEFAULT_THRESHOLD,
-  TAKEOFF_COMPARE_MAX_THRESHOLD,
-  TAKEOFF_COMPARE_MIN_THRESHOLD,
   buildTakeoffDiff,
   computeTakeoffSimilarityRatio,
   normalizeTakeoffCompareText,
@@ -177,20 +212,6 @@ const TAKEOFF_STRUCTURED_ALLOWED_MIME_TYPES = [
 const TAKEOFF_PDF_ALLOWED_EXTENSIONS = ["pdf"];
 const TAKEOFF_PDF_ALLOWED_MIME_TYPES = ["application/pdf"];
 const TAKEOFF_PLAN_SET_LEVEL: TakeoffLevel = "B";
-const TAKEOFF_MAPPING_RULES_SELECT = [
-  "id",
-  "tenant_id",
-  "created_at",
-  "updated_at",
-  "created_by",
-  "name",
-  "match_pattern",
-  "match_type",
-  "action",
-  "action_params",
-  "priority",
-  "is_active",
-].join(", ");
 const TAKEOFF_TENANT_ADMIN_ROLE = "admin";
 const TAKEOFF_TENANT_ENGINEER_ROLE = "engineer";
 const TAKEOFF_OPERATOR_ALLOWED_ROLES = new Set([
@@ -206,11 +227,9 @@ const TAKEOFF_PROVIDER_TERMINAL_STATES = new Set<TakeoffProviderBatchState>([
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TAKEOFF_JOBS_LIST_LIMIT = 20;
-const MAX_TAKEOFF_JOBS_LIST_LIMIT = 100;
 const DEFAULT_TAKEOFF_JOB_ITEMS_LIMIT = 50;
 const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
 const TAKEOFF_PROJECT_VERSIONS_BATCH_SIZE = 1000;
-const MAX_TAKEOFF_JOB_ITEMS_OFFSET = 10_000;
 const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<TakeoffJobListPeriod, number> = {
   "7d": 7,
   "30d": 30,
@@ -450,182 +469,6 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
   "first_detected_at",
   "last_detected_at",
 ].join(", ");
-const optionalUuidSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.string().uuid("estimate_version_id invalide.").optional()
-);
-
-const optionalProjectIdSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.string().uuid("project_id invalide.").optional()
-);
-
-const optionalStatusSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.enum(TAKEOFF_JOB_STATUSES).optional()
-);
-
-const optionalLevelSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.enum(TAKEOFF_LEVELS).optional()
-);
-
-const optionalPeriodSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.enum(TAKEOFF_JOB_LIST_PERIODS).optional()
-);
-
-const optionalLimitSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
-  z
-    .number()
-    .int("limit doit etre un entier.")
-    .min(1, "limit doit etre >= 1.")
-    .max(
-      MAX_TAKEOFF_JOBS_LIST_LIMIT,
-      `limit doit etre <= ${MAX_TAKEOFF_JOBS_LIST_LIMIT}.`
-    )
-    .optional()
-);
-
-const optionalItemsLimitSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
-  z
-    .number()
-    .int("items_limit doit etre un entier.")
-    .min(1, "items_limit doit etre >= 1.")
-    .max(
-      MAX_TAKEOFF_JOB_ITEMS_LIMIT,
-      `items_limit doit etre <= ${MAX_TAKEOFF_JOB_ITEMS_LIMIT}.`
-    )
-    .optional()
-);
-
-const requiredUuidSearchParamSchema = z.preprocess(
-  (value) => {
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.string().uuid("Parametre UUID invalide.")
-);
-
-const optionalCompareThresholdSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
-  z
-    .number()
-    .min(
-      TAKEOFF_COMPARE_MIN_THRESHOLD,
-      `threshold doit etre >= ${TAKEOFF_COMPARE_MIN_THRESHOLD}.`
-    )
-    .max(
-      TAKEOFF_COMPARE_MAX_THRESHOLD,
-      `threshold doit etre <= ${TAKEOFF_COMPARE_MAX_THRESHOLD}.`
-    )
-    .optional()
-);
-
-const optionalOffsetSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
-  z
-    .number()
-    .int("offset doit etre un entier.")
-    .min(0, "offset doit etre >= 0.")
-    .max(
-      MAX_TAKEOFF_JOB_ITEMS_OFFSET,
-      `offset doit etre <= ${MAX_TAKEOFF_JOB_ITEMS_OFFSET}.`
-    )
-    .optional()
-);
-
-const optionalCursorSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.string().max(512, "cursor trop long.").optional()
-);
-
-const optionalDpgfComparePageSizeSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
-  z
-    .number()
-    .int("page_size doit etre un entier.")
-    .min(1, "page_size doit etre >= 1.")
-    .max(
-      TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
-      `page_size doit etre <= ${TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE}.`
-    )
-    .optional()
-);
-
 const jsonRecordSchema = z.record(z.string(), z.unknown());
 
 const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
@@ -907,191 +750,6 @@ const takeoffPriceSuggestionReviewResponseSchema: z.ZodType<ReviewTakeoffPriceSu
       .nullable(),
   });
 
-export const takeoffJobIdSchema = z.string().uuid("jobId invalide.");
-
-export const listTakeoffJobsQuerySchema = z
-  .object({
-    estimate_version_id: optionalUuidSearchParamSchema,
-    project_id: optionalProjectIdSearchParamSchema,
-    status: optionalStatusSearchParamSchema,
-    level: optionalLevelSearchParamSchema,
-    period: optionalPeriodSearchParamSchema,
-    limit: optionalLimitSearchParamSchema,
-    offset: optionalOffsetSearchParamSchema,
-  })
-  .strict()
-  .refine(
-    (data) => !(data.project_id && data.estimate_version_id),
-    {
-      message:
-        "project_id et estimate_version_id sont mutuellement exclusifs.",
-      path: ["project_id"],
-    }
-  );
-
-export const getTakeoffJobDetailsQuerySchema = z
-  .object({
-    items_limit: optionalItemsLimitSearchParamSchema,
-    items_offset: optionalOffsetSearchParamSchema,
-  })
-  .strict();
-
-export const compareTakeoffJobsQuerySchema = z
-  .object({
-    with: requiredUuidSearchParamSchema,
-    threshold: optionalCompareThresholdSearchParamSchema,
-  })
-  .strict();
-
-export const takeoffDpgfComparisonQuerySchema = z
-  .object({
-    version_id: requiredUuidSearchParamSchema,
-    cursor: optionalCursorSearchParamSchema,
-    page_size: optionalDpgfComparePageSizeSearchParamSchema,
-    threshold: optionalCompareThresholdSearchParamSchema,
-    view: z.enum(["all", "exceptions_only"]).optional().default("all"),
-  })
-  .strict();
-
-export const takeoffLineEvidencePanelQuerySchema = z
-  .object({
-    version_id: requiredUuidSearchParamSchema,
-  })
-  .strict();
-
-export const takeoffPriceSuggestionQuerySchema = z
-  .object({
-    version_id: requiredUuidSearchParamSchema,
-    estimate_item_id: requiredUuidSearchParamSchema,
-  })
-  .strict();
-
-export const takeoffRiskRadarQuerySchema = z
-  .object({
-    version_id: requiredUuidSearchParamSchema,
-    severity: z.enum(["info", "warning", "critical"]).optional(),
-    status: z.enum(["to_process", "assumed", "false_positive"]).optional(),
-    scope: z.enum(["project", "lot", "line"]).optional(),
-    lot_id: z.string().uuid("lot_id invalide.").optional(),
-  })
-  .strict();
-
-export const saveTakeoffDpgfManualLinkSchema = z
-  .object({
-    version_id: z.string().uuid("version_id invalide."),
-    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
-    takeoff_item_ids: z
-      .array(z.string().uuid("takeoff_item_id invalide."))
-      .max(50, "Maximum 50 items takeoff relies par ligne.")
-      .default([]),
-  })
-  .strict();
-
-export const saveTakeoffReviewDecisionSchema = z
-  .object({
-    version_id: z.string().uuid("version_id invalide."),
-    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
-    decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
-    reason: z.string().trim().max(2000).nullable().optional(),
-  })
-  .strict();
-
-export const requestTakeoffPriceSuggestionSchema = z
-  .object({
-    version_id: z.string().uuid("version_id invalide."),
-    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
-    force_refresh: z.boolean().optional(),
-  })
-  .strict();
-
-export const reviewTakeoffPriceSuggestionSchema = z
-  .object({
-    version_id: z.string().uuid("version_id invalide."),
-    action: z.enum([
-      "apply_low",
-      "apply_target",
-      "apply_high",
-      "keep_current",
-      "reject",
-    ]),
-    review_note: z
-      .string()
-      .trim()
-      .min(1, "Une note humaine explicite est obligatoire.")
-      .max(2000, "review_note trop longue."),
-  })
-  .strict();
-
-export const updateTakeoffRiskAlertStatusSchema = z
-  .object({
-    version_id: z.string().uuid("version_id invalide."),
-    status: z.enum(["to_process", "assumed", "false_positive"]),
-    review_note: z.string().trim().max(2000).nullable().optional(),
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (
-      (value.status === "assumed" || value.status === "false_positive") &&
-      (!value.review_note || value.review_note.trim().length === 0)
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["review_note"],
-        message: "Une note humaine explicite est obligatoire pour ce statut.",
-      });
-    }
-  });
-
-export const takeoffApplyPayloadSchema = takeoffApplyRequestSchema;
-
-const takeoffApplyRpcSummarySchema = z
-  .object({
-    strategy: z.string().optional(),
-    scope: z.string().optional(),
-    created_items_count: z.number().int().nonnegative().optional(),
-    updated_items_count: z.number().int().nonnegative().optional(),
-    ignored_items_count: z.number().int().nonnegative().optional(),
-    created_item_ids: z.array(z.string()).optional(),
-    created_count: z.number().int().nonnegative().optional(),
-    updated_count: z.number().int().nonnegative().optional(),
-    ignored_count: z.number().int().nonnegative().optional(),
-    created_ids: z.array(z.string()).optional(),
-    item_links: z
-      .array(
-        z.object({
-          takeoff_item_id: z.string().uuid(),
-          estimate_item_id: z.string().uuid(),
-        })
-      )
-      .optional(),
-  })
-  .passthrough();
-
-export type ListTakeoffJobsQuery = z.infer<typeof listTakeoffJobsQuerySchema>;
-export type GetTakeoffJobDetailsQuery = z.infer<
-  typeof getTakeoffJobDetailsQuerySchema
->;
-export type CompareTakeoffJobsQuery = z.infer<typeof compareTakeoffJobsQuerySchema>;
-export type TakeoffDpgfComparisonQuery = z.infer<
-  typeof takeoffDpgfComparisonQuerySchema
->;
-export type TakeoffLineEvidencePanelQuery = z.infer<
-  typeof takeoffLineEvidencePanelQuerySchema
->;
-export type TakeoffPriceSuggestionQuery = z.infer<
-  typeof takeoffPriceSuggestionQuerySchema
->;
-export type TakeoffRiskRadarQuery = z.infer<typeof takeoffRiskRadarQuerySchema>;
-export type SaveTakeoffReviewDecisionPayload = z.infer<
-  typeof saveTakeoffReviewDecisionSchema
->;
-export type RequestTakeoffPriceSuggestionPayload = z.infer<
-  typeof requestTakeoffPriceSuggestionSchema
->;
-export type ReviewTakeoffPriceSuggestionPayload = z.infer<
-  typeof reviewTakeoffPriceSuggestionSchema
->;
-
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   id: z.string().uuid(),
   status: z.string(),
@@ -1171,21 +829,6 @@ type TakeoffItemRow = {
   verified_by: string | null;
   created_at: string;
   updated_at: string;
-};
-
-type TakeoffMappingRuleRow = {
-  id: string;
-  tenant_id: string;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-  name: string;
-  match_pattern: string;
-  match_type: string;
-  action: string;
-  action_params: unknown;
-  priority: number;
-  is_active: boolean;
 };
 
 type TakeoffPriceSuggestionRow = {
@@ -1591,44 +1234,12 @@ function parseTakeoffLevel(formData: FormData) {
   return normalized as TakeoffLevel;
 }
 
-function assertTakeoffMappingRulesAdminRole(tenantRole: string) {
-  if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
-
-  throw forbidden(
-    "Seul un administrateur peut gerer les regles de mapping takeoff."
-  );
-}
-
 function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
   if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
 
   throw forbidden(
     "Seul un administrateur peut forcer l'application des items non verifies."
   );
-}
-
-function toValidationIssues(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    code: issue.code,
-    message: issue.message,
-  }));
-}
-
-function parseWithSchema<T>(schema: z.ZodType<T>, payload: unknown, message: string): T {
-  const parsed = schema.safeParse(payload);
-
-  if (!parsed.success) {
-    throw unprocessableEntity(
-      message,
-      {
-        issues: toValidationIssues(parsed.error),
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  return parsed.data;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1932,6 +1543,29 @@ function mapApplyTakeoffRpcError(
     jobId: input.jobId,
   });
 }
+
+const takeoffApplyRpcSummarySchema = z
+  .object({
+    strategy: z.string().optional(),
+    scope: z.string().optional(),
+    created_items_count: z.number().int().nonnegative().optional(),
+    updated_items_count: z.number().int().nonnegative().optional(),
+    ignored_items_count: z.number().int().nonnegative().optional(),
+    created_item_ids: z.array(z.string()).optional(),
+    created_count: z.number().int().nonnegative().optional(),
+    updated_count: z.number().int().nonnegative().optional(),
+    ignored_count: z.number().int().nonnegative().optional(),
+    created_ids: z.array(z.string()).optional(),
+    item_links: z
+      .array(
+        z.object({
+          takeoff_item_id: z.string().uuid(),
+          estimate_item_id: z.string().uuid(),
+        })
+      )
+      .optional(),
+  })
+  .passthrough();
 
 function normalizeTakeoffApplySummary(input: {
   rpcData: unknown;
@@ -2936,155 +2570,6 @@ async function getAuthenticatedTakeoffContext(): Promise<AuthenticatedTakeoffCon
   const context = await getAuthenticatedContext();
   await assertTakeoffEnabled(context.tenantId, { supabase: context.supabase });
   return context;
-}
-
-export function parseListTakeoffJobsQuery(payload: unknown): ListTakeoffJobsQuery {
-  return parseWithSchema(
-    listTakeoffJobsQuerySchema,
-    payload,
-    "Parametres de requete invalides."
-  );
-}
-
-export function parseGetTakeoffJobDetailsQuery(
-  payload: unknown
-): GetTakeoffJobDetailsQuery {
-  return parseWithSchema(
-    getTakeoffJobDetailsQuerySchema,
-    payload,
-    "Parametres de requete invalides."
-  );
-}
-
-export function parseCompareTakeoffJobsQuery(
-  payload: unknown
-): CompareTakeoffJobsQuery {
-  return parseWithSchema(
-    compareTakeoffJobsQuerySchema,
-    payload,
-    "Parametres de comparaison invalides."
-  );
-}
-
-export function parseTakeoffDpgfComparisonQuery(
-  payload: unknown
-): TakeoffDpgfComparisonQuery {
-  return parseWithSchema(
-    takeoffDpgfComparisonQuerySchema,
-    payload,
-    "Parametres de comparaison DPGF invalides."
-  );
-}
-
-export function parseTakeoffLineEvidencePanelQuery(
-  payload: unknown
-): TakeoffLineEvidencePanelQuery {
-  return parseWithSchema(
-    takeoffLineEvidencePanelQuerySchema,
-    payload,
-    "Parametres du panneau preuves invalides."
-  );
-}
-
-export function parseTakeoffPriceSuggestionQuery(
-  payload: unknown
-): GetTakeoffPriceSuggestionQuery {
-  return parseWithSchema(
-    takeoffPriceSuggestionQuerySchema,
-    payload,
-    "Parametres de suggestion de prix invalides."
-  );
-}
-
-export function parseTakeoffRiskRadarQuery(
-  payload: unknown
-): TakeoffRiskRadarQuery {
-  return parseWithSchema(
-    takeoffRiskRadarQuerySchema,
-    payload,
-    "Parametres du radar de risque invalides."
-  );
-}
-
-export function parseApplyTakeoffPayload(payload: unknown): TakeoffApplyRequest {
-  return parseWithSchema(
-    takeoffApplyPayloadSchema,
-    payload,
-    "Payload d'application takeoff invalide."
-  );
-}
-
-function normalizeTakeoffMappingRuleRow(row: TakeoffMappingRuleRow): TakeoffMappingRule {
-  const parsed = TakeoffMappingRuleSchema.safeParse(row);
-
-  if (!parsed.success) {
-    throw unprocessableEntity(
-      "Regle de mapping takeoff invalide.",
-      {
-        issues: toValidationIssues(parsed.error),
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  return parsed.data;
-}
-
-function assertRegexMatchPatternIsValid(matchType: string, matchPattern: string) {
-  if (matchType !== "regex") return;
-
-  try {
-    new RegExp(matchPattern);
-  } catch {
-    throw unprocessableEntity(
-      "Le champ match_pattern doit etre une regex valide.",
-      {
-        match_type: matchType,
-        match_pattern: matchPattern,
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-}
-
-function buildTakeoffMappingRuleInsertPayload(input: {
-  tenantId: string;
-  userId: string;
-  rule: CreateTakeoffMappingRuleInput;
-}) {
-  const payload: Record<string, unknown> = {
-    tenant_id: input.tenantId,
-    created_by: input.userId,
-    name: input.rule.name,
-    match_pattern: input.rule.match_pattern,
-    match_type: input.rule.match_type,
-    action: input.rule.action,
-    action_params: input.rule.action_params,
-  };
-
-  if ("priority" in input.rule) {
-    payload.priority = input.rule.priority;
-  }
-
-  if ("is_active" in input.rule) {
-    payload.is_active = input.rule.is_active;
-  }
-
-  return payload;
-}
-
-function buildTakeoffMappingRuleUpdatePayload(input: UpdateTakeoffMappingRuleInput) {
-  const payload: Record<string, unknown> = {};
-
-  if ("name" in input) payload.name = input.name;
-  if ("match_pattern" in input) payload.match_pattern = input.match_pattern;
-  if ("match_type" in input) payload.match_type = input.match_type;
-  if ("action" in input) payload.action = input.action;
-  if ("action_params" in input) payload.action_params = input.action_params;
-  if ("priority" in input) payload.priority = input.priority;
-  if ("is_active" in input) payload.is_active = input.is_active;
-
-  return payload;
 }
 
 async function getTakeoffJobById(input: {
@@ -6596,34 +6081,6 @@ export async function updateTakeoffRiskAlertStatus(
   };
 }
 
-async function listActiveTakeoffMappingRules(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-}): Promise<TakeoffMappingRule[]> {
-  const { data, error } = await input.supabase
-    .from("takeoff_mapping_rules" as never)
-    .select(TAKEOFF_MAPPING_RULES_SELECT as never)
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("is_active" as never, true as never)
-    .order("priority" as never, { ascending: true })
-    .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les regles de mapping takeoff."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  return ((data ?? []) as TakeoffMappingRuleRow[]).map((row) =>
-    normalizeTakeoffMappingRuleRow(row)
-  );
-}
-
 async function buildTakeoffMappingPreviewForJob(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
@@ -8598,166 +8055,12 @@ export async function batchUpdateTakeoffItems(
   };
 }
 
-export async function listTakeoffMappingRules(): Promise<TakeoffMappingRulesListResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
-  assertTakeoffMappingRulesAdminRole(tenantRole);
-
-  const { data, error } = await supabase
-    .from("takeoff_mapping_rules" as never)
-    .select(TAKEOFF_MAPPING_RULES_SELECT as never)
-    .eq("tenant_id" as never, tenantId as never)
-    .order("priority" as never, { ascending: true })
-    .order("created_at" as never, { ascending: true });
-
-  if (error) {
-    throw mapSupabaseError(
-      error,
-      "Impossible de charger les regles de mapping takeoff."
-    );
-  }
-
-  return {
-    mapping_rules: ((data ?? []) as TakeoffMappingRuleRow[]).map((row) =>
-      normalizeTakeoffMappingRuleRow(row)
-    ),
-  };
-}
-
-export async function createTakeoffMappingRule(
-  input: CreateTakeoffMappingRuleInput
-): Promise<TakeoffMappingRuleMutationResponse> {
-  const { supabase, tenantId, tenantRole, userId } =
-    await getAuthenticatedContext();
-  assertTakeoffMappingRulesAdminRole(tenantRole);
-
-  assertRegexMatchPatternIsValid(input.match_type, input.match_pattern);
-
-  const insertPayload = buildTakeoffMappingRuleInsertPayload({
-    tenantId,
-    userId,
-    rule: input,
-  });
-
-  const { data, error } = await supabase
-    .from("takeoff_mapping_rules" as never)
-    .insert(insertPayload as never)
-    .select(TAKEOFF_MAPPING_RULES_SELECT as never)
-    .single();
-
-  if (error || !data) {
-    if (error) {
-      throw mapSupabaseError(
-        error,
-        "Impossible de creer la regle de mapping takeoff."
-      );
-    }
-
-    throw badRequest("Impossible de creer la regle de mapping takeoff.");
-  }
-
-  return {
-    mapping_rule: normalizeTakeoffMappingRuleRow(data as TakeoffMappingRuleRow),
-  };
-}
-
-export async function updateTakeoffMappingRule(
-  ruleId: string,
-  input: UpdateTakeoffMappingRuleInput
-): Promise<TakeoffMappingRuleMutationResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
-  assertTakeoffMappingRulesAdminRole(tenantRole);
-
-  const { data: existingRule, error: existingRuleError } = await supabase
-    .from("takeoff_mapping_rules" as never)
-    .select(TAKEOFF_MAPPING_RULES_SELECT as never)
-    .eq("tenant_id" as never, tenantId as never)
-    .eq("id" as never, ruleId as never)
-    .maybeSingle();
-
-  if (existingRuleError) {
-    throw mapSupabaseError(
-      existingRuleError,
-      "Impossible de charger la regle de mapping takeoff."
-    );
-  }
-
-  if (!existingRule) {
-    throw notFound("Regle de mapping takeoff introuvable.");
-  }
-
-  const existing = normalizeTakeoffMappingRuleRow(existingRule as TakeoffMappingRuleRow);
-
-  const nextMatchType = input.match_type ?? existing.match_type;
-  const nextMatchPattern = input.match_pattern ?? existing.match_pattern;
-  assertRegexMatchPatternIsValid(nextMatchType, nextMatchPattern);
-
-  const payload = buildTakeoffMappingRuleUpdatePayload(input);
-  const { data, error } = await supabase
-    .from("takeoff_mapping_rules" as never)
-    .update(payload as never)
-    .eq("tenant_id" as never, tenantId as never)
-    .eq("id" as never, ruleId as never)
-    .select(TAKEOFF_MAPPING_RULES_SELECT as never)
-    .single();
-
-  if (error || !data) {
-    if (error) {
-      throw mapSupabaseError(
-        error,
-        "Impossible de mettre a jour la regle de mapping takeoff."
-      );
-    }
-
-    throw badRequest("Impossible de mettre a jour la regle de mapping takeoff.");
-  }
-
-  return {
-    mapping_rule: normalizeTakeoffMappingRuleRow(data as TakeoffMappingRuleRow),
-  };
-}
-
-export async function deleteTakeoffMappingRule(
-  ruleId: string
-): Promise<TakeoffMappingRuleDeleteResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
-  assertTakeoffMappingRulesAdminRole(tenantRole);
-
-  const { data: existingRule, error: existingRuleError } = await supabase
-    .from("takeoff_mapping_rules" as never)
-    .select("id" as never)
-    .eq("tenant_id" as never, tenantId as never)
-    .eq("id" as never, ruleId as never)
-    .maybeSingle();
-
-  if (existingRuleError) {
-    throw mapSupabaseError(
-      existingRuleError,
-      "Impossible de charger la regle de mapping takeoff."
-    );
-  }
-
-  if (!existingRule) {
-    throw notFound("Regle de mapping takeoff introuvable.");
-  }
-
-  const { error } = await supabase
-    .from("takeoff_mapping_rules" as never)
-    .delete()
-    .eq("tenant_id" as never, tenantId as never)
-    .eq("id" as never, ruleId as never);
-
-  if (error) {
-    throw mapSupabaseError(
-      error,
-      "Impossible de supprimer la regle de mapping takeoff."
-    );
-  }
-
-  return {
-    deleted: true,
-    rule_id: ruleId,
-  };
-}
+export {
+  createTakeoffMappingRule,
+  deleteTakeoffMappingRule,
+  listTakeoffMappingRules,
+  updateTakeoffMappingRule,
+} from "@/lib/takeoff/mapping-rules-server";
 
 export async function fetchTakeoffDpgfSummaryForHub(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];

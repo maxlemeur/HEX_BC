@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
+
 export type ApiErrorCode =
   | "BAD_REQUEST"
   | "UNAUTHORIZED"
@@ -237,25 +239,10 @@ function fromZodError(error: ZodError): ApiError {
 }
 
 export function toErrorResponse(error: unknown) {
-  let apiError: ApiError;
-
-  if (error instanceof ApiError) {
-    apiError = error;
-  } else if (error instanceof ZodError) {
-    apiError = fromZodError(error);
-  } else {
-    console.error("Unexpected estimate API error", error);
-    apiError = internalError();
-  }
-
-  const body: ApiFailureResponse = {
-    ok: false,
-    error: {
-      code: apiError.code,
-      message: apiError.message,
-      details: apiError.details,
-    },
-  };
-
-  return NextResponse.json(body, { status: apiError.status });
+  return toSharedErrorResponse(error, {
+    isApiError: (value): value is ApiError => value instanceof ApiError,
+    mapZodError: fromZodError,
+    createInternalError: () => internalError(),
+    unexpectedLogMessage: "Unexpected estimate API error",
+  });
 }

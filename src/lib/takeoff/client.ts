@@ -19,7 +19,6 @@ import type {
   ReviewTakeoffPriceSuggestionResponse as SharedReviewTakeoffPriceSuggestionResponse,
   TakeoffPriceSuggestionResponse as SharedTakeoffPriceSuggestionResponse,
   TakeoffActivityCenterResponse as SharedTakeoffActivityCenterResponse,
-  TakeoffApiError as TakeoffApiErrorShape,
   TakeoffApplyRequest as SharedTakeoffApplyRequest,
   TakeoffApplyResponse as SharedTakeoffApplyResponse,
   TakeoffDpgfComparisonResponse as SharedTakeoffDpgfComparisonResponse,
@@ -47,6 +46,22 @@ import type {
   UpdateTakeoffRiskAlertStatusResponse as SharedUpdateTakeoffRiskAlertStatusResponse,
   UpdateTakeoffMappingRuleInput as SharedUpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
+import {
+  TakeoffApiError,
+  isRecord,
+  isTakeoffApiError,
+  parseJsonPayload,
+  TAKEOFF_READ_REQUEST_TIMEOUT_MS,
+  TAKEOFF_WRITE_REQUEST_TIMEOUT_MS,
+  toStringValue,
+} from "@/lib/takeoff/client-http";
+
+export {
+  TakeoffApiError,
+  isTakeoffApiError,
+  TAKEOFF_READ_REQUEST_TIMEOUT_MS,
+  TAKEOFF_WRITE_REQUEST_TIMEOUT_MS,
+};
 
 export type TakeoffLevel = SharedTakeoffLevel;
 export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
@@ -107,6 +122,12 @@ export type UpdateTakeoffRiskAlertStatusInput =
 export type UpdateTakeoffRiskAlertStatusResponse =
   SharedUpdateTakeoffRiskAlertStatusResponse;
 
+type TakeoffApiErrorMetadata = {
+  retryable?: boolean;
+  jobId?: string;
+  level?: TakeoffLevel | string;
+};
+
 type ApiEnvelope<T> = {
   ok?: boolean;
   data?: T;
@@ -119,65 +140,6 @@ type ApiEnvelope<T> = {
     level?: TakeoffLevel | string;
   };
 };
-
-type JsonRecord = Record<string, unknown>;
-type TakeoffApiErrorMetadata = Pick<
-  TakeoffApiErrorShape,
-  "retryable" | "jobId" | "level"
->;
-
-export const TAKEOFF_READ_REQUEST_TIMEOUT_MS = 10_000;
-export const TAKEOFF_WRITE_REQUEST_TIMEOUT_MS = 60_000;
-
-export class TakeoffApiError extends Error {
-  readonly status: number;
-  readonly details: unknown;
-  readonly code: string | null;
-  readonly retryable: boolean;
-  readonly jobId: string | null;
-  readonly level: TakeoffLevel | string | null;
-
-  constructor(
-    message: string,
-    status: number,
-    details: unknown,
-    code: string | null,
-    metadata: TakeoffApiErrorMetadata = {}
-  ) {
-    super(message);
-    this.name = "TakeoffApiError";
-    this.status = status;
-    this.details = details;
-    this.code = code;
-    this.retryable = metadata.retryable ?? false;
-    this.jobId = metadata.jobId ?? null;
-    this.level = metadata.level ?? null;
-  }
-}
-
-export function isTakeoffApiError(error: unknown): error is TakeoffApiError {
-  return error instanceof TakeoffApiError;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toStringValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function parseJsonPayload(value: string): unknown {
-  if (!value || value.trim().length === 0) return null;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
 
 function toErrorMessage(payload: unknown, fallbackMessage: string): string {
   if (isRecord(payload)) {

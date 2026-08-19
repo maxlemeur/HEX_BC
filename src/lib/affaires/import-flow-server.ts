@@ -7,6 +7,7 @@ import type {
   ValidImportFlowItem,
   ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 
 export type Supabase = SupabaseClient<Database>;
 export type TenantMembershipRow = Pick<
@@ -24,7 +25,7 @@ export type VersionComputationContext = {
 };
 
 export const DEFAULT_MARGIN_MULTIPLIER = 1;
-export const DEFAULT_TAX_RATE_BP = 2000;
+export { DEFAULT_TAX_RATE_BP };
 
 export type RpcImportLinesPayload = {
   item_type: "line";

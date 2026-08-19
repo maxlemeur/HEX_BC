@@ -1,12 +1,12 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { cache } from "react";
-import { ZodError } from "zod";
 
 import {
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "@/lib/auth/tenant-context";
+import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 import type { Database, Json } from "@/types/database";
 import {
   isImportReservedKey,
@@ -260,41 +260,25 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Mappi
 }
 
 export function toErrorResponse(error: unknown) {
-  let apiError: MappingsApiError;
-
-  if (error instanceof MappingsApiError) {
-    apiError = error;
-  } else if (error instanceof ZodError) {
-    apiError = badRequest(
-      "Payload invalide.",
-      {
-        issues: error.issues.map((issue) => ({
-          path: issue.path.join("."),
-          code: issue.code,
-          message: issue.message,
-        })),
-      },
-      "VALIDATION_ERROR"
-    );
-  } else {
-    console.error("Unexpected mappings API error", error);
-    apiError = internalError();
-  }
-
-  // K-01: Log internal details server-side only, never expose to client
-  if (apiError.details) {
-    console.error(`[mappings] API error details (${apiError.code}):`, apiError.details);
-  }
-
-  const body: ApiFailureResponse = {
-    ok: false,
-    error: {
-      code: apiError.code,
-      message: apiError.message,
-    },
-  };
-
-  return NextResponse.json(body, { status: apiError.status });
+  return toSharedErrorResponse(error, {
+    isApiError: (value): value is MappingsApiError => value instanceof MappingsApiError,
+    mapZodError: (zodError) =>
+      badRequest(
+        "Payload invalide.",
+        {
+          issues: zodError.issues.map((issue) => ({
+            path: issue.path.join("."),
+            code: issue.code,
+            message: issue.message,
+          })),
+        },
+        "VALIDATION_ERROR"
+      ),
+    createInternalError: () => internalError(),
+    unexpectedLogMessage: "Unexpected mappings API error",
+    detailsMode: "never",
+    detailsLogScope: "mappings",
+  });
 }
 
 function asRecord(value: unknown): JsonRecord | null {

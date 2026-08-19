@@ -1,5 +1,9 @@
 import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
 import {
+  drainEstimateEmailOutbox,
+  type EmailOutboxDrainResult,
+} from "@/lib/email/estimate-email-outbox";
+import {
   drainProcurementStorageCleanupOutbox,
   type ProcurementStorageCleanupDrainResult,
 } from "@/lib/procurement/storage-cleanup-outbox";
@@ -7,6 +11,12 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import type { DurableWorkflowRpcClient } from "@/lib/workflows/affaire-intake-lifecycle";
+
+export const MAX_DURABLE_RECOVERY_ATTEMPTS = 5;
+
+const DURABLE_RECOVERY_DEAD_ERROR_CODE = "DURABLE_RECOVERY_DEAD";
+const DURABLE_RECOVERY_DEAD_MESSAGE =
+  "La reprise durable a epuise son budget de tentatives.";
 
 type DueWorkflow = {
   workflowKind: "takeoff" | "affaire_intake";
@@ -20,12 +30,34 @@ export type DurableRecoveryResult = {
   dispatchedCount: number;
   failedCount: number;
   skippedCount: number;
+  deadCount: number;
   failures: Array<{ workId: string; message: string }>;
   procurementStorageCleanup: ProcurementStorageCleanupDrainResult;
+  emailOutbox: EmailOutboxDrainResult;
+};
+
+type DurableRecoveryTableClient = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (
+        column: string,
+        value: unknown
+      ) => {
+        maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+      };
+    };
+    update: (payload: Record<string, unknown>) => {
+      eq: (
+        column: string,
+        value: unknown
+      ) => PromiseLike<{ error: unknown }>;
+    };
+  };
 };
 
 type DurableRecoveryDependencies = {
   client?: DurableWorkflowRpcClient;
+  tableClient?: DurableRecoveryTableClient | null;
   now?: () => Date;
   limit?: number;
   maxIntakePerRun?: number;
@@ -34,6 +66,10 @@ type DurableRecoveryDependencies = {
   processIntake?: typeof processAffaireIntakeUpload;
   drainStorageCleanup?: typeof drainProcurementStorageCleanupOutbox;
   storageCleanupLimit?: number;
+  getRetryCount?: (workId: string) => Promise<number>;
+  incrementRetryCount?: (workId: string) => Promise<number>;
+  markDead?: (workId: string) => Promise<void>;
+  drainEmailOutbox?: typeof drainEstimateEmailOutbox;
 };
 
 function normalizeDueWorkflow(value: unknown): DueWorkflow | null {
@@ -64,6 +100,123 @@ function countRows(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function asTableClient(value: unknown): DurableRecoveryTableClient | null {
+  if (!value || typeof value !== "object" || !("from" in value)) {
+    return null;
+  }
+  if (typeof (value as { from: unknown }).from !== "function") {
+    return null;
+  }
+  return value as DurableRecoveryTableClient;
+}
+
+function retryTable(workflow: DueWorkflow) {
+  return workflow.workflowKind === "takeoff"
+    ? "takeoff_jobs"
+    : "affaire_intake_uploads";
+}
+
+function retryColumn(workflow: DueWorkflow) {
+  return workflow.workflowKind === "takeoff" ? "retry_count" : "attempt_count";
+}
+
+function readNonNegativeInt(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.trunc(value));
+}
+
+function readCount(data: unknown, column: string) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return 0;
+  }
+  return readNonNegativeInt((data as Record<string, unknown>)[column]);
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+async function defaultGetRetryCount(
+  tableClient: DurableRecoveryTableClient | null,
+  workflow: DueWorkflow
+) {
+  if (!tableClient) {
+    return 0;
+  }
+  const column = retryColumn(workflow);
+  const { data, error } = await tableClient
+    .from(retryTable(workflow))
+    .select(column)
+    .eq("id", workflow.workId)
+    .maybeSingle();
+  if (error) {
+    throw new Error("Impossible de lire le compteur de reprise durable.", {
+      cause: error,
+    });
+  }
+  return readCount(data, column);
+}
+
+async function defaultIncrementRetryCount(
+  tableClient: DurableRecoveryTableClient | null,
+  workflow: DueWorkflow
+) {
+  const next = (await defaultGetRetryCount(tableClient, workflow)) + 1;
+  if (!tableClient) {
+    return next;
+  }
+  const { error } = await tableClient
+    .from(retryTable(workflow))
+    .update({ [retryColumn(workflow)]: next })
+    .eq("id", workflow.workId);
+  if (error) {
+    throw new Error("Impossible d'enregistrer l'echec de reprise durable.", {
+      cause: error,
+    });
+  }
+  return next;
+}
+
+async function defaultMarkDead(
+  tableClient: DurableRecoveryTableClient | null,
+  workflow: DueWorkflow,
+  now: Date
+) {
+  if (!tableClient) {
+    return;
+  }
+  const nowIso = now.toISOString();
+  const payload =
+    workflow.workflowKind === "takeoff"
+      ? {
+          status: "failed",
+          next_retry_at: null,
+          completed_at: nowIso,
+          last_error_at: nowIso,
+          error_code: DURABLE_RECOVERY_DEAD_ERROR_CODE,
+          error_message: DURABLE_RECOVERY_DEAD_MESSAGE,
+        }
+      : {
+          status: "failed",
+          next_retry_at: null,
+          completed_at: nowIso,
+          last_error: DURABLE_RECOVERY_DEAD_MESSAGE,
+          processing_lease_token: null,
+          processing_lease_expires_at: null,
+        };
+  const { error } = await tableClient
+    .from(retryTable(workflow))
+    .update(payload)
+    .eq("id", workflow.workId);
+  if (error) {
+    throw new Error("Impossible de marquer le workflow durable comme mort.", {
+      cause: error,
+    });
+  }
+}
+
 export async function recoverDurableWorkflows(
   dependencies: DurableRecoveryDependencies = {}
 ): Promise<DurableRecoveryResult> {
@@ -82,6 +235,32 @@ export async function recoverDurableWorkflows(
   const drainStorageCleanup =
     dependencies.drainStorageCleanup ?? drainProcurementStorageCleanupOutbox;
   const maxIntakePerRun = Math.max(0, dependencies.maxIntakePerRun ?? 2);
+  const tableClient =
+    dependencies.tableClient !== undefined
+      ? dependencies.tableClient
+      : (asTableClient(serviceRoleClient) ?? asTableClient(client));
+
+  async function readRetryCount(workflow: DueWorkflow) {
+    if (dependencies.getRetryCount) {
+      return dependencies.getRetryCount(workflow.workId);
+    }
+    return defaultGetRetryCount(tableClient, workflow);
+  }
+
+  async function recordRetryFailure(workflow: DueWorkflow) {
+    if (dependencies.incrementRetryCount) {
+      return dependencies.incrementRetryCount(workflow.workId);
+    }
+    return defaultIncrementRetryCount(tableClient, workflow);
+  }
+
+  async function persistDead(workflow: DueWorkflow) {
+    if (dependencies.markDead) {
+      await dependencies.markDead(workflow.workId);
+      return;
+    }
+    await defaultMarkDead(tableClient, workflow, now());
+  }
 
   let procurementStorageCleanup: ProcurementStorageCleanupDrainResult;
   try {
@@ -102,6 +281,26 @@ export async function recoverDurableWorkflows(
         error instanceof Error
           ? error.message
           : "Erreur de reprise Storage inconnue.",
+      ],
+    };
+  }
+
+  const drainEmailOutbox =
+    dependencies.drainEmailOutbox ?? drainEstimateEmailOutbox;
+  let emailOutbox: EmailOutboxDrainResult;
+  try {
+    emailOutbox = await drainEmailOutbox();
+  } catch (error) {
+    emailOutbox = {
+      claimed: 0,
+      sent: 0,
+      failed: 0,
+      dead: 0,
+      skipped: true,
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "Erreur de reprise outbox email inconnue.",
       ],
     };
   }
@@ -140,9 +339,34 @@ export async function recoverDurableWorkflows(
   const failures: DurableRecoveryResult["failures"] = [];
   let dispatchedCount = 0;
   let skippedCount = 0;
+  let deadCount = 0;
   let intakeCount = 0;
 
   for (const workflow of due) {
+    let retryCount = 0;
+    try {
+      retryCount = await readRetryCount(workflow);
+    } catch (error) {
+      failures.push({
+        workId: workflow.workId,
+        message: errorMessage(
+          error,
+          "Impossible de lire le compteur de reprise durable."
+        ),
+      });
+      continue;
+    }
+
+    if (retryCount >= MAX_DURABLE_RECOVERY_ATTEMPTS) {
+      try {
+        await persistDead(workflow);
+      } catch {
+        // Still withhold dispatch so a poisoned item cannot loop forever.
+      }
+      deadCount += 1;
+      continue;
+    }
+
     try {
       if (workflow.workflowKind === "takeoff") {
         if (workflow.triggerKind === "process") {
@@ -176,8 +400,17 @@ export async function recoverDurableWorkflows(
     } catch (error) {
       failures.push({
         workId: workflow.workId,
-        message: error instanceof Error ? error.message : "Erreur de reprise inconnue.",
+        message: errorMessage(error, "Erreur de reprise inconnue."),
       });
+      try {
+        const nextCount = await recordRetryFailure(workflow);
+        if (nextCount >= MAX_DURABLE_RECOVERY_ATTEMPTS) {
+          await persistDead(workflow);
+          deadCount += 1;
+        }
+      } catch {
+        // The dispatch failure is already recorded; a store error must not throw.
+      }
     }
   }
 
@@ -187,7 +420,9 @@ export async function recoverDurableWorkflows(
     dispatchedCount,
     failedCount: failures.length,
     skippedCount,
+    deadCount,
     failures,
     procurementStorageCleanup,
+    emailOutbox,
   };
 }

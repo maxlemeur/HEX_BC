@@ -43,6 +43,15 @@ describe("generateOpenApiDocument", () => {
     expect(document.paths).toHaveProperty("/api/estimates/{versionId}/items/move");
     expect(document.paths).toHaveProperty("/api/estimates/{versionId}/batch");
     expect(document.paths).toHaveProperty("/api/estimates/{versionId}/export");
+    expect(document.paths).toHaveProperty(
+      "/api/estimates/{versionId}/email-dispatch/reconcile"
+    );
+    expect(document.paths["/api/estimates/{versionId}/email-dispatch/reconcile"]).toHaveProperty(
+      "post"
+    );
+    expect(document.paths).toHaveProperty("/api/products");
+    expect(document.paths).toHaveProperty("/api/suppliers");
+    expect(document.paths).toHaveProperty("/api/orders");
     expect(document.components.schemas).toHaveProperty("CreateEstimateRequest");
     expect(document.components.schemas).toHaveProperty("MoveEstimateItemRequest");
     expect(document.components.schemas).toHaveProperty("ApiFailureResponse");
@@ -233,14 +242,15 @@ describe("generateOpenApiDocument", () => {
     expect([
       ...baseAdditionalOpenApiOperationsRegistry,
       ...workflowAdditionalOpenApiOperationsRegistry,
-    ]).toHaveLength(73);
-    expect(openApiRouteExclusions).toHaveLength(5);
+    ]).toHaveLength(78);
+    expect(openApiRouteExclusions).toHaveLength(6);
     expect(openApiRouteExclusions.map((entry) => entry.path)).toEqual([
       "/api/docs",
       "/api/docs/swagger-ui/{asset}",
       "/api/internal/takeoff/process-job",
       "/api/internal/workflows/recover",
       "/api/takeoff/metrics/stats",
+      "/api/health",
     ]);
   });
 });

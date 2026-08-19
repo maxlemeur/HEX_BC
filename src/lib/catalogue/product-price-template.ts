@@ -1,7 +1,24 @@
-import * as XLSX from "xlsx";
+import {
+  TEMPLATE_VERSION,
+  type ProductPriceTemplateIssue,
+  type ProductPriceTemplateParseResult,
+  type ProductPriceTemplateSheet,
+  type ProductTemplateRow,
+  type SupplierPriceTemplateRow,
+} from "@/lib/catalogue/product-price-template-client";
 
-export const TEMPLATE_VERSION = "1.0";
-export const TEMPLATE_FILE_URL = "/templates/hex-bc-produits-tarifs-v1.xlsx";
+export {
+  TEMPLATE_FILE_URL,
+  TEMPLATE_VERSION,
+  type ProductPriceTemplateIssue,
+  type ProductPriceTemplateParseResult,
+  type ProductPriceTemplateSheet,
+  type ProductTemplateRow,
+  type SupplierPriceTemplateRow,
+} from "@/lib/catalogue/product-price-template-client";
+
+type XlsxModule = typeof import("xlsx");
+type XlsxWorkSheet = import("xlsx").WorkSheet;
 
 const INSTRUCTIONS_SHEET = "Mode d'emploi" as const;
 const PRODUCTS_SHEET = "Produits" as const;
@@ -33,56 +50,6 @@ const PRICE_HEADERS = [
   "url_source",
   "commentaire",
 ] as const;
-
-type ProductPriceTemplateSheet =
-  | typeof INSTRUCTIONS_SHEET
-  | typeof PRODUCTS_SHEET
-  | typeof PRICES_SHEET;
-
-export type ProductTemplateRow = {
-  reference: string;
-  designation: string;
-  category: string | null;
-  product_type: string | null;
-  material: string | null;
-  grade: string | null;
-  dimensions: string | null;
-  standard: string | null;
-  unit: string;
-  unit_price_cents: number;
-  tax_rate_bp: number;
-  is_active: true;
-};
-
-export type SupplierPriceTemplateRow = {
-  product_reference: string;
-  supplier_name: string;
-  supplier_sku: string | null;
-  unit_price_cents: number;
-  unit: string;
-  currency: string;
-  valid_from: string;
-  min_quantity: number;
-  source_url: string | null;
-  comment: string | null;
-};
-
-export type ProductPriceTemplateIssue = {
-  sheet: ProductPriceTemplateSheet;
-  row: number | null;
-  column: string | null;
-  code: string;
-  message: string;
-  blocking: boolean;
-};
-
-export type ProductPriceTemplateParseResult = {
-  products: ProductTemplateRow[];
-  prices: SupplierPriceTemplateRow[];
-  issues: ProductPriceTemplateIssue[];
-  hasBlockingIssues: boolean;
-  version: string | null;
-};
 
 type WorkbookCell = string | number | boolean | Date | null | undefined;
 
@@ -147,7 +114,7 @@ function isRealIsoDate(value: string): boolean {
   );
 }
 
-function parseDate(value: WorkbookCell): string | null {
+function parseDate(value: WorkbookCell, xlsx: XlsxModule): string | null {
   if (value instanceof Date) {
     if (!Number.isFinite(value.getTime())) return null;
     const formatted = formatDate(value);
@@ -155,7 +122,7 @@ function parseDate(value: WorkbookCell): string | null {
   }
 
   if (typeof value === "number") {
-    const parsed = XLSX.SSF.parse_date_code(value);
+    const parsed = xlsx.SSF.parse_date_code(value);
     if (!parsed) return null;
     const formatted = `${String(parsed.y).padStart(4, "0")}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
     return isRealIsoDate(formatted) ? formatted : null;
@@ -169,8 +136,8 @@ function normalizedReference(value: string): string {
   return value.toLocaleLowerCase("fr-FR");
 }
 
-function sheetRows(sheet: XLSX.WorkSheet): WorkbookCell[][] {
-  return XLSX.utils.sheet_to_json<WorkbookCell[]>(sheet, {
+function sheetRows(sheet: XlsxWorkSheet, xlsx: XlsxModule): WorkbookCell[][] {
+  return xlsx.utils.sheet_to_json<WorkbookCell[]>(sheet, {
     header: 1,
     defval: "",
     raw: true,
@@ -179,12 +146,13 @@ function sheetRows(sheet: XLSX.WorkSheet): WorkbookCell[][] {
 }
 
 function validateHeaders(
-  sheet: XLSX.WorkSheet,
+  sheet: XlsxWorkSheet,
   sheetName: ProductPriceTemplateSheet,
   expectedHeaders: readonly string[],
-  issues: ProductPriceTemplateIssue[]
+  issues: ProductPriceTemplateIssue[],
+  xlsx: XlsxModule
 ): WorkbookCell[][] | null {
-  const rows = sheetRows(sheet);
+  const rows = sheetRows(sheet, xlsx);
   const rawHeaders = rows[0] ?? [];
   const headers = rawHeaders.map(textValue);
   while (headers.at(-1) === "") headers.pop();
@@ -311,7 +279,8 @@ function parseProducts(
 
 function parsePrices(
   rows: WorkbookCell[][],
-  issues: ProductPriceTemplateIssue[]
+  issues: ProductPriceTemplateIssue[],
+  xlsx: XlsxModule
 ): SupplierPriceTemplateRow[] {
   const prices: SupplierPriceTemplateRow[] = [];
   const priceKeys = new Map<string, number>();
@@ -326,7 +295,7 @@ function parsePrices(
     const unit = textValue(row[4]) || "u";
     const rawCurrency = textValue(row[5]);
     const currency = (rawCurrency || "EUR").toUpperCase();
-    const validFrom = parseDate(row[6]);
+    const validFrom = parseDate(row[6], xlsx);
     const rawMinQuantity = textValue(row[7]);
     const minQuantity = rawMinQuantity === "" ? 1 : parseLocalizedNumber(row[7]);
     const rowIssuesBefore = issues.length;
@@ -449,7 +418,8 @@ function parsePrices(
 export async function parseProductPriceTemplateWorkbook(
   input: ArrayBuffer
 ): Promise<ProductPriceTemplateParseResult> {
-  const workbook = XLSX.read(new Uint8Array(input), {
+  const xlsx = await import("xlsx");
+  const workbook = xlsx.read(new Uint8Array(input), {
     type: "array",
     cellDates: true,
   });
@@ -490,7 +460,13 @@ export async function parseProductPriceTemplateWorkbook(
       message: `La feuille \"${PRODUCTS_SHEET}\" est absente.`,
     });
   } else {
-    const rows = validateHeaders(productsSheet, PRODUCTS_SHEET, PRODUCT_HEADERS, issues);
+    const rows = validateHeaders(
+      productsSheet,
+      PRODUCTS_SHEET,
+      PRODUCT_HEADERS,
+      issues,
+      xlsx
+    );
     if (rows) products = parseProducts(rows, issues);
   }
 
@@ -504,8 +480,14 @@ export async function parseProductPriceTemplateWorkbook(
       message: `La feuille \"${PRICES_SHEET}\" est absente.`,
     });
   } else {
-    const rows = validateHeaders(pricesSheet, PRICES_SHEET, PRICE_HEADERS, issues);
-    if (rows) prices = parsePrices(rows, issues);
+    const rows = validateHeaders(
+      pricesSheet,
+      PRICES_SHEET,
+      PRICE_HEADERS,
+      issues,
+      xlsx
+    );
+    if (rows) prices = parsePrices(rows, issues, xlsx);
   }
 
   return {

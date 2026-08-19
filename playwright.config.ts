@@ -83,7 +83,6 @@ export default defineConfig({
         /plan-center\.spec\.ts/,
         /team-a-hub-prod\.spec\.ts/,
       ],
-      testIgnore: /team-a-hub-dev-scenarios\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: "e2e/.auth/playwright-user.json",

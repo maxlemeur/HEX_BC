@@ -1,12 +1,20 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { ApiError } from "@/lib/estimates/errors";
 import { validateFileForUpload } from "@/lib/file-validation";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -77,15 +85,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  try {
+    context = await getAuthenticatedTenantContext();
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase } = context;
 
   const order = await getAccessiblePurchaseOrderOrNull<{ id: string }>(
     supabase,
@@ -145,21 +152,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const userPromise = supabase.auth.getUser();
-  const formDataPromise = request.formData().catch(() => null);
-
-  const [
-    {
-      data: { user },
-    },
-    formData,
-  ] = await Promise.all([userPromise, formDataPromise]);
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  let formData;
+  try {
+    [context, formData] = await Promise.all([
+      getAuthenticatedTenantContext(),
+      request.formData().catch(() => null),
+    ]);
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase, userId, tenantId } = context;
 
   if (!formData) {
     return NextResponse.json({ error: "Invalid form payload" }, { status: 400 });
@@ -191,7 +195,14 @@ export async function POST(
     );
   }
 
-  if (!(await canWritePurchaseOrders(supabase, user.id, order.tenant_id))) {
+  if (order.tenant_id !== tenantId) {
+    return NextResponse.json(
+      { error: "Bon de commande introuvable." },
+      { status: 404 }
+    );
+  }
+
+  if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
     return NextResponse.json(
       { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
       { status: 403 }
@@ -234,7 +245,7 @@ export async function POST(
     .from("purchase_order_devis")
     .insert({
       purchase_order_id: id,
-      user_id: user.id,
+      user_id: userId,
       name: displayName,
       original_filename: originalFilename,
       storage_path: storagePath,
