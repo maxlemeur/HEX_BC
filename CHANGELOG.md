@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/maxlemeur/HEX_BC/compare/v0.4.0...v0.4.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **deploy:** retirer le cron vercel.json qui bloquait tous les deploiements ([1351a52](https://github.com/maxlemeur/HEX_BC/commit/1351a52225fb444715ca5ca77501c6e372a87546))
+* **test:** unmount jsdom roots to stop React work after env teardown ([#13](https://github.com/maxlemeur/HEX_BC/issues/13)) ([bca0b05](https://github.com/maxlemeur/HEX_BC/commit/bca0b05053f309f78432ceed5277c772143f6156))
+
 ## [0.4.0](https://github.com/maxlemeur/HEX_BC/compare/v0.3.1...v0.4.0) (2026-08-19)
 
 
