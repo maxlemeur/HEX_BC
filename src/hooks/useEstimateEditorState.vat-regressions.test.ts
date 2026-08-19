@@ -46,10 +46,10 @@ describe("estimate editor VAT reverse-charge persistence", () => {
   });
 
   it("uses a zero effective line rate without erasing the nominal configured rate", () => {
-    expect(source).toMatch(
+    expect(calculationSource).toMatch(
       /const lineInput = buildLineCalculationInput\(item,[\s\S]*taxRateBp: options\.taxRateBp/
     );
-    expect(source).toMatch(
+    expect(calculationSource).toMatch(
       /taxRateBp: options\.vatReverseCharge \? 0 : options\.taxRateBp/
     );
   });

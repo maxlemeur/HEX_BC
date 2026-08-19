@@ -35,9 +35,11 @@ import {
 import { useUserContext } from "@/components/UserContext";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
+import { estimateEditorAutoSaveStatusClassName } from "@/hooks/estimate-editor-autosave-status";
+import { buildEstimateEditorTableVirtualization } from "@/hooks/estimate-editor-virtualization-runtime";
 import {
   formatEstimateEditorAuditTimestamp,
-  useEstimateEditorActivityController,
+  type EstimateEditorActivityController,
 } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorAiDialogsController } from "@/hooks/useEstimateEditorAiDialogsController";
 import {
@@ -45,10 +47,13 @@ import {
   useEstimateEditorAiImportCoordinator,
 } from "@/hooks/useEstimateEditorAiImportCoordinator";
 import { useEstimateEditorBulkController } from "@/hooks/useEstimateEditorBulkController";
-import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
+import type { EstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorImportController } from "@/hooks/useEstimateEditorImportController";
 import { useEstimateEditorItemsController } from "@/hooks/useEstimateEditorItemsController";
-import { useEstimateEditorCalculation } from "@/hooks/useEstimateEditorCalculation";
+import {
+  computeLineValuesWithLaborContext as computeLineValuesWithLaborContextFromMaps,
+  useEstimateEditorCalculation,
+} from "@/hooks/useEstimateEditorCalculation";
 import { useEstimateEditorOrderingController } from "@/hooks/useEstimateEditorOrderingController";
 import { useEstimateEditorPasteController } from "@/hooks/useEstimateEditorPasteController";
 import { useEstimateEditorQualityController } from "@/hooks/useEstimateEditorQualityController";
@@ -63,13 +68,13 @@ import {
 import { useUiMode } from "@/hooks/useUiMode";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
-  computeEstimateLineValues,
   computeInitialDiscountCents,
   computeStoredDiscountCents,
   normalizeDraftItems,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   DEFAULT_ESTIMATE_CURRENCY,
   resolveEstimateCurrency,
@@ -78,7 +83,6 @@ import {
   LABOR_SPLIT_FIELD_KEYS,
   buildEstimateItemUpdatePayload,
   buildVersionDiscountPatch,
-  readLaborSplitFields,
   resolveLaborRoleHourlyRate,
   type EditorEstimateItem,
   type EstimateItem,
@@ -87,15 +91,8 @@ import {
   type LaborRole,
 } from "@/lib/estimates/editor-items";
 import {
-  toFiniteNumber,
-} from "@/lib/estimates/editor-values";
-import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
-  isEstimateEditorVirtualizationEnabled,
-  resolveEstimateEditorVirtualizationConfig,
-  resolveEstimateEditorVirtualizationRuntimeConfig,
-  type EstimateEditorVirtualizationRuntimeConfig,
 } from "@/lib/estimate-editor-virtualization";
 import {
   acquireEstimateDraftLock,
@@ -145,21 +142,8 @@ type EstimateVersionView = EstimateVersionRow & {
 };
 
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
-type EstimateEditorVirtualizationConfig = NonNullable<
-  EstimateEditorTableProps["virtualization"]
->;
-
 
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
-const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
-  resolveEstimateEditorVirtualizationConfig({
-    enabled: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ENABLED,
-    mode: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_MODE,
-    autoThreshold: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD,
-    rowEstimate: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ROW_ESTIMATE,
-    overscan: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_OVERSCAN,
-    maxHeight: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_CONTAINER_HEIGHT,
-  });
 
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
@@ -311,12 +295,23 @@ export function useEstimateEditorState({
   autoOpenVersionZero = false,
   autoOpenStructureDraft = false,
   autoOpenSettingsSection = null,
+  historyController,
+  activityController,
+  externalActionError = null,
 }: {
   versionId: string;
   focusItemId?: string | null;
   autoOpenVersionZero?: boolean;
   autoOpenStructureDraft?: boolean;
   autoOpenSettingsSection?: SettingsSection | null;
+  historyController: EstimateEditorHistoryController;
+  activityController: EstimateEditorActivityController;
+  /**
+   * Error reported by a controller owned by the page (undo/redo). It is folded
+   * into the editor's own `actionError` so it follows the same lifecycle
+   * (cleared by the next action) instead of sticking for the page's life.
+   */
+  externalActionError?: { message: string; key: number } | null;
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
@@ -331,8 +326,6 @@ export function useEstimateEditorState({
   const isAdmin = profile?.role === "admin";
   const isViewerReadOnly = profile?.tenant_role === "viewer";
   const { isExpert } = useUiMode();
-  // EST-E26 (T6, étape 5) : l'éditeur lit le flag tenant réel au lieu du
-  // `false` codé en dur, pour être cohérent avec le document et le PDF.
   const { enabled: isLaborSplitEnabled } = useFeatureFlag("EST_031_LABOR_SPLIT");
   const {
     enabled: isVirtualizationModeFlagEnabled,
@@ -369,6 +362,15 @@ export function useEstimateEditorState({
     activeSettingsSave.operationId === settingsSaveGenerationRef.current;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const externalActionErrorKey = externalActionError?.key ?? null;
+  const externalActionErrorMessage = externalActionError?.message ?? null;
+  useEffect(() => {
+    if (externalActionErrorKey === null || externalActionErrorMessage === null) {
+      return;
+    }
+    setActionError(externalActionErrorMessage);
+  }, [externalActionErrorKey, externalActionErrorMessage]);
+  const displayedActionError = actionError;
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isSavingMarginTiers, setIsSavingMarginTiers] = useState(false);
   const [marginTiersError, setMarginTiersError] = useState<string | null>(null);
@@ -376,10 +378,6 @@ export function useEstimateEditorState({
   const [sectionDuplicateTargets, setSectionDuplicateTargets] = useState<
     EstimateSectionDuplicateTarget[]
   >([]);
-  const historyController = useEstimateEditorHistoryController({
-    scopeKey: resolvedVersionId,
-    reportError: setActionError,
-  });
   const {
     canUndo,
     canRedo,
@@ -844,41 +842,31 @@ export function useEstimateEditorState({
       settings?.tax_rate_bp,
     ]
   );
-  const editorTableVirtualization = useMemo<EstimateEditorVirtualizationConfig>(() => {
-    const runtimeConfig = resolveEstimateEditorVirtualizationRuntimeConfig({
-      baseConfig: ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG,
-      modeFlag: {
-        enabled: isVirtualizationModeFlagEnabled,
-        value: virtualizationModeFlagValue,
-      },
-      autoThresholdFlag: {
-        value: virtualizationAutoThresholdFlagValue,
-      },
-    });
-    const enabled = isEstimateEditorVirtualizationEnabled(runtimeConfig, items.length);
-
-    return {
-      enabled,
-      rowEstimate: runtimeConfig.rowEstimate,
-      overscan: runtimeConfig.overscan,
-      ...(runtimeConfig.maxHeight !== undefined
-        ? { maxHeight: runtimeConfig.maxHeight }
-        : {}),
-    };
-  }, [
-    isVirtualizationModeFlagEnabled,
-    items.length,
-    virtualizationAutoThresholdFlagValue,
-    virtualizationModeFlagValue,
-  ]);
+  const editorTableVirtualization = useMemo(
+    () =>
+      buildEstimateEditorTableVirtualization({
+        isVirtualizationModeFlagEnabled,
+        virtualizationModeFlagValue:
+          typeof virtualizationModeFlagValue === "string"
+            ? virtualizationModeFlagValue
+            : null,
+        virtualizationAutoThresholdFlagValue:
+          typeof virtualizationAutoThresholdFlagValue === "string"
+            ? virtualizationAutoThresholdFlagValue
+            : null,
+        itemCount: items.length,
+      }),
+    [
+      isVirtualizationModeFlagEnabled,
+      items.length,
+      virtualizationAutoThresholdFlagValue,
+      virtualizationModeFlagValue,
+    ]
+  );
   const handleOpenSettingsDrawer = useCallback((section?: SettingsSection) => {
     setIsSettingsDrawerOpen(true);
     setDrawerScrollTarget(section ?? null);
   }, []);
-  const activityController = useEstimateEditorActivityController({
-    routeVersionId: resolvedVersionId,
-    isAdmin,
-  });
   const {
     audit: {
       entries: auditLogs,
@@ -1072,66 +1060,12 @@ export function useEstimateEditorState({
     });
   }, [focusItemId, handleChecklistFocusItem]);
 
-  const buildLineCalculationInput = useCallback(
-    (
-      item: EstimateItem,
-      options?: {
-        taxRateBp?: number;
-        rateOverrideByRoleId?: string;
-        hourlyRateCents?: number;
-        hourlyRateAtelierCents?: number;
-        hourlyRateChantierCents?: number;
-      }
-    ) => {
-      const splitFields = readLaborSplitFields(item);
-      const taxRate = options?.taxRateBp ?? item.tax_rate_bp ?? 0;
-      const kFo = item.k_fo ?? 1;
-      const hMo = item.h_mo ?? 0;
-      const hMoMajoration = item.h_mo_majoration ?? 1;
-      const kMo = item.k_mo ?? 1;
-      const overrideRoleId = options?.rateOverrideByRoleId;
-
-      const resolveRate = (
-        roleId: string | null | undefined,
-        map: Map<string, number>,
-        overrideRate: number | undefined
-      ) => {
-        if (!roleId) return 0;
-        if (overrideRoleId && roleId === overrideRoleId) {
-          return Math.max(toFiniteNumber(overrideRate, 0), 0);
-        }
-        return map.get(roleId) ?? 0;
-      };
-
-      const hourlyRate = resolveRate(
-        item.labor_role_id,
-        laborRateById,
-        options?.hourlyRateCents
-      );
-      const hourlyRateAtelier = resolveRate(
-        splitFields.labor_role_atelier_id,
-        laborRateAtelierById,
-        options?.hourlyRateAtelierCents ?? options?.hourlyRateCents
-      );
-      const hourlyRateChantier = resolveRate(
-        splitFields.labor_role_chantier_id,
-        laborRateChantierById,
-        options?.hourlyRateChantierCents ?? options?.hourlyRateCents
-      );
-
-      return {
-        ...item,
-        tax_rate_bp: taxRate,
-        k_fo: kFo,
-        h_mo: hMo,
-        h_mo_majoration: hMoMajoration,
-        k_mo: kMo,
-        ...splitFields,
-        labor_role_hourly_rate_cents: hourlyRate,
-        labor_role_atelier_hourly_rate_cents: hourlyRateAtelier,
-        labor_role_chantier_hourly_rate_cents: hourlyRateChantier,
-      };
-    },
+  const laborRateMaps = useMemo(
+    () => ({
+      laborRateById,
+      laborRateAtelierById,
+      laborRateChantierById,
+    }),
     [laborRateAtelierById, laborRateById, laborRateChantierById]
   );
 
@@ -1147,25 +1081,12 @@ export function useEstimateEditorState({
         hourlyRateChantierCents?: number;
         vatReverseCharge?: boolean;
       }
-    ) => {
-      const lineInput = buildLineCalculationInput(item, {
-        taxRateBp: options.taxRateBp,
-        rateOverrideByRoleId: options.rateOverrideByRoleId,
-        hourlyRateCents: options.hourlyRateCents,
-        hourlyRateAtelierCents: options.hourlyRateAtelierCents,
-        hourlyRateChantierCents: options.hourlyRateChantierCents,
-      });
-      const lineComputationOptions = {
-        marginMultiplier: options.marginMultiplier,
-        taxRateBp: options.vatReverseCharge ? 0 : options.taxRateBp,
+    ) =>
+      computeLineValuesWithLaborContextFromMaps(item, laborRateMaps, {
+        ...options,
         isLaborSplitEnabled,
-      };
-      return {
-        lineInput,
-        lineValues: computeEstimateLineValues(lineInput, lineComputationOptions),
-      };
-    },
-    [buildLineCalculationInput, isLaborSplitEnabled]
+      }),
+    [isLaborSplitEnabled, laborRateMaps]
   );
 
   const {
@@ -1219,18 +1140,10 @@ export function useEstimateEditorState({
     persistedTotalsRef.current = persistedTotals;
   }, [persistedTotals]);
 
-  const autoSaveStatusClassName = useMemo(() => {
-    if (autoSaveStatus === "saving" || autoSaveStatus === "pending") {
-      return "status-badge status-sent";
-    }
-    if (autoSaveStatus === "error" || autoSaveStatus === "offline") {
-      return "status-badge status-canceled";
-    }
-    if (autoSaveStatus === "saved" || autoSaveStatus === "idle") {
-      return "status-badge status-accepted";
-    }
-    return "status-badge status-draft";
-  }, [autoSaveStatus]);
+  const autoSaveStatusClassName = useMemo(
+    () => estimateEditorAutoSaveStatusClassName(autoSaveStatus),
+    [autoSaveStatus]
+  );
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -2698,10 +2611,10 @@ export function useEstimateEditorState({
       isUndoBulkSuggestDisabled: isSaveBlocked,
       importSummaryMessage,
       actionNotice,
-      actionError,
+      actionError: displayedActionError,
     }),
     [
-      actionError,
+      displayedActionError,
       actionNotice,
       bulkSuggestAppliedCount,
       canSend,
@@ -2739,7 +2652,7 @@ export function useEstimateEditorState({
         ? {
             totals,
             currency: settings.currency ?? DEFAULT_ESTIMATE_CURRENCY,
-            taxRateBp: settings.tax_rate_bp ?? 2000,
+            taxRateBp: settings.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
             isExpert,
             onOpenSettings: handleOpenSettingsDrawer,
           }

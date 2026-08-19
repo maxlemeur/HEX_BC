@@ -9,10 +9,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/catalogue/product-price-template", () => ({
   parseProductPriceTemplateWorkbook: mocks.parseWorkbook,
-  TEMPLATE_FILE_URL: "/templates/modele-catalogue-produits-tarifs.xlsx",
 }));
 
 import { ProductPriceTemplateImport } from "./ProductPriceTemplateImport";
+import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 
 type ParsedResult = {
   version: string | null;
@@ -131,7 +131,7 @@ describe("ProductPriceTemplateImport", () => {
     render(<ProductPriceTemplateImport open onClose={vi.fn()} onImported={mocks.onImported} />);
 
     const link = screen.getByRole("link", { name: "Télécharger le modèle" });
-    expect(link).toHaveAttribute("href", "/templates/modele-catalogue-produits-tarifs.xlsx");
+    expect(link).toHaveAttribute("href", TEMPLATE_FILE_URL);
     expect(link).toHaveAttribute("download");
   });
 

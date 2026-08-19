@@ -12,7 +12,7 @@ import {
   DEFAULT_IMPORT_PLAN_SET_NAME,
   hasDefaultImportPlanSetMarker,
 } from "@/lib/takeoff/default-import-plan-set";
-import { PLAN_FILES_BUCKET } from "@/lib/takeoff/plans";
+import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;

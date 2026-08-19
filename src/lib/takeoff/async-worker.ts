@@ -1,3 +1,4 @@
+import { reportError } from "@/lib/observability/error-reporter";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
@@ -1040,6 +1041,17 @@ export async function processTakeoffJobAttempt(
       status: "failed_terminal",
       correlation_id: options.correlationId,
       error_code: current.error_code ?? mappedError.code,
+    });
+    reportError({
+      error: new Error(current.error_message ?? mappedError.message),
+      source: "takeoff.async-worker",
+      context: {
+        job_id: current.id,
+        tenant_id: current.tenant_id,
+        status: "failed_terminal",
+        correlation_id: options.correlationId,
+        error_code: current.error_code ?? mappedError.code,
+      },
     });
 
     return buildOutcome({

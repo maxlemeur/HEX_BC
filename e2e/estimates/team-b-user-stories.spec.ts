@@ -607,7 +607,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await page.getByRole("button", { name: /^(Importer|Lancer l['’]import)$/i }).first().click();
 
     const mapLink = page.getByRole("link", { name: /Mapper les colonnes/i });
-    await expect(mapLink).toBeVisible({ timeout: 60_000 });
+    await expect(mapLink).toBeVisible({ timeout: 30_000 });
     await mapLink.click();
 
     await expect(page).toHaveURL(/\/dashboard\/mappings\?import_id=/i);
@@ -643,7 +643,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await page.setInputFiles("#import-file-input", pdfFixturePath);
 
-    await expect(page.getByText(/Validation renforcee/i)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/Validation renforcee/i)).toBeVisible({ timeout: 30_000 });
     await expect(
       page.getByText(
         /Le PDF rejoint le mapping standard uniquement apres approbation explicite/i
@@ -655,7 +655,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await page.getByRole("button", { name: /Valider les tableaux et lancer l'import/i }).click();
     const mapLink = page.getByRole("link", { name: /Mapper les colonnes/i });
-    await expect(mapLink).toBeVisible({ timeout: 60_000 });
+    await expect(mapLink).toBeVisible({ timeout: 30_000 });
     await mapLink.click();
 
     await expect(page).toHaveURL(/\/dashboard\/mappings\?import_id=/i);
@@ -689,7 +689,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await page.getByRole("button", { name: "Lancer l'import" }).click();
 
     await expect(page.getByRole("button", { name: /Suivant : Apercu/i })).toBeVisible({
-      timeout: 60_000,
+      timeout: 30_000,
     });
 
     await ensureMapping(page, "hex_code", "hex_code");
@@ -705,7 +705,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await expect
       .poll(async () => fetchLatestProjectVersion(projectId), {
-        timeout: 60_000,
+        timeout: 30_000,
       })
       .toMatchObject({
         versionNumber: 2,
@@ -739,7 +739,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
     await page.getByRole("button", { name: "Lancer l'import" }).click();
     await expect(page.getByRole("button", { name: /Suivant : Apercu/i })).toBeVisible({
-      timeout: 60_000,
+      timeout: 30_000,
     });
 
     await ensureMapping(page, "column_1", "designation");
@@ -770,7 +770,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await page.getByRole("button", { name: /Créer le chiffrage/i }).click();
     await expect
       .poll(async () => fetchLatestProjectVersion(projectId), {
-        timeout: 60_000,
+        timeout: 30_000,
       })
       .toMatchObject({ versionNumber: 2 });
 

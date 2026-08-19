@@ -86,3 +86,21 @@ jobs:
           name: ${{ steps.dump.outputs.archive }}
           path: ${{ steps.dump.outputs.archive }}
           retention-days: ${{ fromJSON(env.RETENTION_DAYS) }}
+
+      - name: Notify backup failure
+        if: failure()
+        env:
+          BACKUP_ALERT_WEBHOOK: ${{ secrets.BACKUP_ALERT_WEBHOOK }}
+        run: |
+          set -euo pipefail
+          echo "::error::Supabase backup failed"
+          echo "Supabase backup failed" >> "${GITHUB_STEP_SUMMARY}"
+          if [ -n "${BACKUP_ALERT_WEBHOOK:-}" ]; then
+            curl -fsS -X POST \
+              --connect-timeout 10 \
+              --max-time 20 \
+              -H "Content-Type: application/json" \
+              --data '{"text":"Supabase backup failed"}' \
+              "${BACKUP_ALERT_WEBHOOK}" \
+              || echo "::warning::Backup alert webhook failed"
+          fi

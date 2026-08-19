@@ -3058,6 +3058,828 @@ export type Database = {
         };
         Relationships: [];
       };
+      plan_sets: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          estimate_version_id: string | null;
+          name: string;
+          description: string | null;
+          metadata: Json;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          estimate_version_id?: string | null;
+          name: string;
+          description?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          estimate_version_id?: string | null;
+          name?: string;
+          description?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Relationships: [];
+      };
+      plan_files: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          plan_set_id: string;
+          file_path: string;
+          file_name: string;
+          file_type: string;
+          file_size_bytes: number;
+          page_count: number | null;
+          file_hash: string | null;
+          metadata: Json;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          plan_set_id: string;
+          file_path: string;
+          file_name: string;
+          file_type: string;
+          file_size_bytes: number;
+          page_count?: number | null;
+          file_hash?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          plan_set_id?: string;
+          file_path?: string;
+          file_name?: string;
+          file_type?: string;
+          file_size_bytes?: number;
+          page_count?: number | null;
+          file_hash?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_jobs: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          estimate_version_id: string;
+          plan_set_id: string | null;
+          level: "A" | "B" | "C";
+          status:
+            | "pending"
+            | "processing"
+            | "completed"
+            | "failed"
+            | "canceled"
+            | "applied";
+          processing_strategy: "sync" | "batch";
+          source_file_name: string | null;
+          source_file_path: string | null;
+          source_file_type: string | null;
+          source_file_size_bytes: number | null;
+          prompt_version: string | null;
+          schema_version: string;
+          model: string | null;
+          thinking_level: string | null;
+          media_resolution: string | null;
+          retry_count: number;
+          token_count: number | null;
+          cost_cents: number | null;
+          duration_ms: number | null;
+          started_at: string | null;
+          completed_at: string | null;
+          error_code: string | null;
+          error_message: string | null;
+          next_retry_at: string | null;
+          last_error_at: string | null;
+          created_by: string | null;
+          provider_batch_id: string | null;
+          provider_batch_state:
+            | "submitted"
+            | "pending"
+            | "running"
+            | "succeeded"
+            | "failed"
+            | "cancelled"
+            | "expired"
+            | "unknown"
+            | null;
+          provider_batch_updated_at: string | null;
+          provider_reconcile_due_at: string | null;
+          provider_reconcile_attempt_count: number;
+          provider_reconcile_lease_token: string | null;
+          provider_reconcile_lease_expires_at: string | null;
+          processing_lease_token: string | null;
+          processing_lease_expires_at: string | null;
+          dispatch_status: string | null;
+          dispatch_outcome: string | null;
+          dispatch_trigger: string | null;
+          dispatch_correlation_id: string | null;
+          dispatch_status_code: number | null;
+          dispatch_updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          estimate_version_id: string;
+          plan_set_id?: string | null;
+          level: "A" | "B" | "C";
+          status?:
+            | "pending"
+            | "processing"
+            | "completed"
+            | "failed"
+            | "canceled"
+            | "applied";
+          processing_strategy?: "sync" | "batch";
+          source_file_name?: string | null;
+          source_file_path?: string | null;
+          source_file_type?: string | null;
+          source_file_size_bytes?: number | null;
+          prompt_version?: string | null;
+          schema_version?: string;
+          model?: string | null;
+          thinking_level?: string | null;
+          media_resolution?: string | null;
+          retry_count?: number;
+          token_count?: number | null;
+          cost_cents?: number | null;
+          duration_ms?: number | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          error_code?: string | null;
+          error_message?: string | null;
+          next_retry_at?: string | null;
+          last_error_at?: string | null;
+          created_by?: string | null;
+          provider_batch_id?: string | null;
+          provider_batch_state?:
+            | "submitted"
+            | "pending"
+            | "running"
+            | "succeeded"
+            | "failed"
+            | "cancelled"
+            | "expired"
+            | "unknown"
+            | null;
+          provider_batch_updated_at?: string | null;
+          provider_reconcile_due_at?: string | null;
+          provider_reconcile_attempt_count?: number;
+          provider_reconcile_lease_token?: string | null;
+          provider_reconcile_lease_expires_at?: string | null;
+          processing_lease_token?: string | null;
+          processing_lease_expires_at?: string | null;
+          dispatch_status?: string | null;
+          dispatch_outcome?: string | null;
+          dispatch_trigger?: string | null;
+          dispatch_correlation_id?: string | null;
+          dispatch_status_code?: number | null;
+          dispatch_updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          estimate_version_id?: string;
+          plan_set_id?: string | null;
+          level?: "A" | "B" | "C";
+          status?:
+            | "pending"
+            | "processing"
+            | "completed"
+            | "failed"
+            | "canceled"
+            | "applied";
+          processing_strategy?: "sync" | "batch";
+          source_file_name?: string | null;
+          source_file_path?: string | null;
+          source_file_type?: string | null;
+          source_file_size_bytes?: number | null;
+          prompt_version?: string | null;
+          schema_version?: string;
+          model?: string | null;
+          thinking_level?: string | null;
+          media_resolution?: string | null;
+          retry_count?: number;
+          token_count?: number | null;
+          cost_cents?: number | null;
+          duration_ms?: number | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          error_code?: string | null;
+          error_message?: string | null;
+          next_retry_at?: string | null;
+          last_error_at?: string | null;
+          created_by?: string | null;
+          provider_batch_id?: string | null;
+          provider_batch_state?:
+            | "submitted"
+            | "pending"
+            | "running"
+            | "succeeded"
+            | "failed"
+            | "cancelled"
+            | "expired"
+            | "unknown"
+            | null;
+          provider_batch_updated_at?: string | null;
+          provider_reconcile_due_at?: string | null;
+          provider_reconcile_attempt_count?: number;
+          provider_reconcile_lease_token?: string | null;
+          provider_reconcile_lease_expires_at?: string | null;
+          processing_lease_token?: string | null;
+          processing_lease_expires_at?: string | null;
+          dispatch_status?: string | null;
+          dispatch_outcome?: string | null;
+          dispatch_trigger?: string | null;
+          dispatch_correlation_id?: string | null;
+          dispatch_status_code?: number | null;
+          dispatch_updated_at?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_items: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          job_id: string;
+          result_id: string | null;
+          designation: string;
+          quantity: number;
+          unit: string;
+          confidence: number | null;
+          evidence: string | null;
+          source_file_name: string | null;
+          source_page: number | null;
+          metadata: Json;
+          is_excluded: boolean;
+          is_verified: boolean;
+          verified_at: string | null;
+          verified_by: string | null;
+          exclusion_reason: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          job_id: string;
+          result_id?: string | null;
+          designation: string;
+          quantity: number;
+          unit: string;
+          confidence?: number | null;
+          evidence?: string | null;
+          source_file_name?: string | null;
+          source_page?: number | null;
+          metadata?: Json;
+          is_excluded?: boolean;
+          is_verified?: boolean;
+          verified_at?: string | null;
+          verified_by?: string | null;
+          exclusion_reason?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          job_id?: string;
+          result_id?: string | null;
+          designation?: string;
+          quantity?: number;
+          unit?: string;
+          confidence?: number | null;
+          evidence?: string | null;
+          source_file_name?: string | null;
+          source_page?: number | null;
+          metadata?: Json;
+          is_excluded?: boolean;
+          is_verified?: boolean;
+          verified_at?: string | null;
+          verified_by?: string | null;
+          exclusion_reason?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_price_suggestions: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          requested_by: string | null;
+          reviewed_by: string | null;
+          snapshot_fingerprint: string;
+          status: "pending" | "applied" | "kept_current" | "rejected";
+          current_price_cents: number | null;
+          low_cents: number;
+          target_cents: number;
+          high_cents: number;
+          confidence_score: number | null;
+          confidence_label: "low" | "medium" | "high";
+          candidate_count: number;
+          outlier_count: number;
+          justification: string;
+          factors_json: Json;
+          summary_json: Json;
+          selected_action:
+            | "apply_low"
+            | "apply_target"
+            | "apply_high"
+            | "keep_current"
+            | "reject"
+            | null;
+          selected_price_cents: number | null;
+          review_note: string | null;
+          reviewed_at: string | null;
+          superseded_at: string | null;
+          superseded_by_suggestion_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          requested_by?: string | null;
+          reviewed_by?: string | null;
+          snapshot_fingerprint: string;
+          status?: "pending" | "applied" | "kept_current" | "rejected";
+          current_price_cents?: number | null;
+          low_cents: number;
+          target_cents: number;
+          high_cents: number;
+          confidence_score?: number | null;
+          confidence_label: "low" | "medium" | "high";
+          candidate_count?: number;
+          outlier_count?: number;
+          justification: string;
+          factors_json?: Json;
+          summary_json?: Json;
+          selected_action?:
+            | "apply_low"
+            | "apply_target"
+            | "apply_high"
+            | "keep_current"
+            | "reject"
+            | null;
+          selected_price_cents?: number | null;
+          review_note?: string | null;
+          reviewed_at?: string | null;
+          superseded_at?: string | null;
+          superseded_by_suggestion_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          version_id?: string;
+          takeoff_job_id?: string;
+          estimate_item_id?: string;
+          requested_by?: string | null;
+          reviewed_by?: string | null;
+          snapshot_fingerprint?: string;
+          status?: "pending" | "applied" | "kept_current" | "rejected";
+          current_price_cents?: number | null;
+          low_cents?: number;
+          target_cents?: number;
+          high_cents?: number;
+          confidence_score?: number | null;
+          confidence_label?: "low" | "medium" | "high";
+          candidate_count?: number;
+          outlier_count?: number;
+          justification?: string;
+          factors_json?: Json;
+          summary_json?: Json;
+          selected_action?:
+            | "apply_low"
+            | "apply_target"
+            | "apply_high"
+            | "keep_current"
+            | "reject"
+            | null;
+          selected_price_cents?: number | null;
+          review_note?: string | null;
+          reviewed_at?: string | null;
+          superseded_at?: string | null;
+          superseded_by_suggestion_id?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_results: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          job_id: string;
+          extracted_json: Json;
+          warnings: Json;
+          tables: Json;
+          provider_meta: Json;
+          raw_response: Json | null;
+          confidence: number | null;
+          token_count: number | null;
+          cost_cents: number | null;
+          duration_ms: number | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          job_id: string;
+          extracted_json?: Json;
+          warnings?: Json;
+          tables?: Json;
+          provider_meta?: Json;
+          raw_response?: Json | null;
+          confidence?: number | null;
+          token_count?: number | null;
+          cost_cents?: number | null;
+          duration_ms?: number | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          job_id?: string;
+          extracted_json?: Json;
+          warnings?: Json;
+          tables?: Json;
+          provider_meta?: Json;
+          raw_response?: Json | null;
+          confidence?: number | null;
+          token_count?: number | null;
+          cost_cents?: number | null;
+          duration_ms?: number | null;
+        };
+        Relationships: [];
+      };
+      takeoff_run_metrics: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          job_id: string;
+          result_id: string | null;
+          level: "A" | "B" | "C";
+          provider: string;
+          model: string;
+          chunk_index: number | null;
+          chunk_start_page: number | null;
+          chunk_end_page: number | null;
+          input_tokens: number | null;
+          reasoning_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          cost_cents: number | null;
+          duration_ms: number | null;
+          timed_out: boolean;
+          budget_exceeded: boolean;
+          metadata: Json;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          job_id: string;
+          result_id?: string | null;
+          level: "A" | "B" | "C";
+          provider?: string;
+          model: string;
+          chunk_index?: number | null;
+          chunk_start_page?: number | null;
+          chunk_end_page?: number | null;
+          input_tokens?: number | null;
+          reasoning_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+          cost_cents?: number | null;
+          duration_ms?: number | null;
+          timed_out?: boolean;
+          budget_exceeded?: boolean;
+          metadata?: Json;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          job_id?: string;
+          result_id?: string | null;
+          level?: "A" | "B" | "C";
+          provider?: string;
+          model?: string;
+          chunk_index?: number | null;
+          chunk_start_page?: number | null;
+          chunk_end_page?: number | null;
+          input_tokens?: number | null;
+          reasoning_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+          cost_cents?: number | null;
+          duration_ms?: number | null;
+          timed_out?: boolean;
+          budget_exceeded?: boolean;
+          metadata?: Json;
+        };
+        Relationships: [];
+      };
+      takeoff_mapping_rules: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          name: string;
+          match_pattern: string;
+          match_type: string;
+          action: string;
+          action_params: Json;
+          priority: number;
+          is_active: boolean;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          name: string;
+          match_pattern: string;
+          match_type: string;
+          action: string;
+          action_params?: Json;
+          priority?: number;
+          is_active?: boolean;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          name?: string;
+          match_pattern?: string;
+          match_type?: string;
+          action?: string;
+          action_params?: Json;
+          priority?: number;
+          is_active?: boolean;
+          created_by?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_dpgf_links: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          takeoff_item_id: string;
+          linked_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          takeoff_item_id: string;
+          linked_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          version_id?: string;
+          takeoff_job_id?: string;
+          estimate_item_id?: string;
+          takeoff_item_id?: string;
+          linked_by?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_dpgf_review_decisions: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          review_reference: string;
+          line_label: string;
+          line_position: number;
+          decision: string;
+          reason: string | null;
+          decided_at: string;
+          updated_at: string;
+          decided_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          review_reference: string;
+          line_label: string;
+          line_position: number;
+          decision: string;
+          reason?: string | null;
+          decided_at?: string;
+          updated_at?: string;
+          decided_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          version_id?: string;
+          takeoff_job_id?: string;
+          estimate_item_id?: string;
+          review_reference?: string;
+          line_label?: string;
+          line_position?: number;
+          decision?: string;
+          reason?: string | null;
+          decided_at?: string;
+          updated_at?: string;
+          decided_by?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_version_links: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          takeoff_job_id: string;
+          source_version_id: string;
+          target_version_id: string;
+          linked_at: string;
+          linked_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          takeoff_job_id: string;
+          source_version_id: string;
+          target_version_id: string;
+          linked_at?: string;
+          linked_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          takeoff_job_id?: string;
+          source_version_id?: string;
+          target_version_id?: string;
+          linked_at?: string;
+          linked_by?: string | null;
+        };
+        Relationships: [];
+      };
+      takeoff_price_suggestion_sources: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          project_id: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          suggestion_id: string;
+          source_kind: string;
+          kind: string;
+          label: string;
+          source_ref: string;
+          price_cents: number;
+          metadata_json: Json;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          version_id: string;
+          takeoff_job_id: string;
+          estimate_item_id: string;
+          suggestion_id: string;
+          source_kind: string;
+          kind: string;
+          label: string;
+          source_ref: string;
+          price_cents: number;
+          metadata_json?: Json;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          version_id?: string;
+          takeoff_job_id?: string;
+          estimate_item_id?: string;
+          suggestion_id?: string;
+          source_kind?: string;
+          kind?: string;
+          label?: string;
+          source_ref?: string;
+          price_cents?: number;
+          metadata_json?: Json;
+        };
+        Relationships: [];
+      };
+      takeoff_apply_authorizations: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          job_id: string;
+          estimate_version_id: string;
+          user_id: string;
+          authorization_token_hash: string | null;
+          review_summary: Json;
+          expires_at: string;
+          consumed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          job_id: string;
+          estimate_version_id: string;
+          user_id: string;
+          authorization_token_hash?: string | null;
+          review_summary?: Json;
+          expires_at: string;
+          consumed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          job_id?: string;
+          estimate_version_id?: string;
+          user_id?: string;
+          authorization_token_hash?: string | null;
+          review_summary?: Json;
+          expires_at?: string;
+          consumed_at?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -3873,6 +4695,303 @@ export type Database = {
           confidence: number;
         }[];
       };
+      acquire_takeoff_batch_reconcile_lease: {
+        Args: {
+          p_job_id: string;
+          p_tenant_id: string;
+          p_now: string;
+          p_lease_token: string;
+          p_lease_expires_at: string;
+        };
+        Returns: {
+          claimed: boolean;
+          provider_reconcile_attempt_count: number;
+        }[];
+      };
+      apply_takeoff_job_guarded_atomic: {
+        Args: {
+          p_job_id: string;
+          p_strategy: string;
+          p_target_section_id: string | null;
+          p_mapping_plan: Json;
+          p_dpgf_authorization_token?: string | null;
+        };
+        Returns: {
+          created_count: number;
+          updated_count: number;
+          ignored_count: number;
+          created_ids: string[];
+          scope: string;
+          item_links: Json;
+        }[];
+      };
+      claim_affaire_intake_upload: {
+        Args: {
+          p_upload_id: string;
+          p_lease_token: string;
+          p_now: string;
+          p_lease_expires_at: string;
+          p_max_attempts?: number;
+        };
+        Returns: {
+          claimed: boolean;
+          reason: string;
+          tenant_id: string | null;
+          project_id: string | null;
+          upload_status: string | null;
+          attempt_count: number;
+          lease_expires_at: string | null;
+        }[];
+      };
+      claim_estimate_batch_revision: {
+        Args: {
+          p_version_id: string;
+          p_expected_updated_at: string;
+        };
+        Returns: {
+          id: string;
+          updated_at: string;
+        }[];
+      };
+      claim_portal_estimate_decision: {
+        Args: {
+          p_portal_token_id: string;
+          p_decision: string;
+          p_client_ip?: string | null;
+          p_reject_reason?: string | null;
+        };
+        Returns: undefined;
+      };
+      decide_estimate_approval: {
+        Args: {
+          p_approval_id: string;
+          p_status: string;
+        };
+        Returns: Json;
+      };
+      decide_estimate_review_cycle: {
+        Args: {
+          p_cycle_id: string;
+          p_decision: string;
+          p_comments?: Json;
+        };
+        Returns: {
+          cycle_id: string;
+          cycle_number: number;
+          approval_ids: string[];
+          rule_ids: string[];
+          comment_count: number;
+        }[];
+      };
+      finish_affaire_intake_upload_attempt: {
+        Args: {
+          p_upload_id: string;
+          p_lease_token: string;
+          p_status: string;
+          p_now: string;
+          p_next_retry_at?: string | null;
+          p_last_error?: string | null;
+        };
+        Returns: boolean;
+      };
+      get_estimate_content_revision: {
+        Args: {
+          p_version_id: string;
+        };
+        Returns: number;
+      };
+      list_approval_queue: {
+        Args: {
+          p_sort_by?: string;
+        };
+        Returns: {
+          project_id: string;
+          version_id: string;
+          cycle_id: string;
+          project_name: string;
+          client_name: string | null;
+          version_number: number;
+          amount_ht_cents: number | null;
+          margin_bp: number | null;
+          requested_at: string;
+          submission_message: string | null;
+          comment_count: number;
+          reviewer_state: string | null;
+          exception_count: number;
+          max_risk_score: number | null;
+          cause_code_counts: Json;
+          latest_job_id: string | null;
+        }[];
+      };
+      list_due_durable_workflows: {
+        Args: {
+          p_now: string;
+          p_limit?: number;
+        };
+        Returns: {
+          workflow_kind: string;
+          work_id: string;
+          trigger_kind: string;
+          due_at: string | null;
+        }[];
+      };
+      patch_estimate_contractor_role: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_actor_user_id: string;
+          p_patch: Json;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
+      persist_takeoff_provider_batch_snapshot: {
+        Args: {
+          p_job_id: string;
+          p_tenant_id: string;
+          p_estimate_version_id: string;
+          p_provider: string;
+          p_processing_strategy: "sync" | "batch";
+          p_provider_batch_id?: string | null;
+          p_provider_batch_state?: string | null;
+          p_provider_batch_updated_at?: string | null;
+          p_provider_state_raw?: string | null;
+          p_message?: string | null;
+          p_metadata?: Json;
+          p_should_update_snapshot?: boolean;
+          p_should_insert_event?: boolean;
+        };
+        Returns: undefined;
+      };
+      persist_takeoff_provider_batch_snapshot_fenced: {
+        Args: {
+          p_job_id: string;
+          p_tenant_id: string;
+          p_estimate_version_id: string;
+          p_provider: string;
+          p_processing_strategy: "sync" | "batch";
+          p_provider_batch_id: string | null;
+          p_provider_batch_state: string | null;
+          p_provider_batch_updated_at: string | null;
+          p_provider_state_raw: string | null;
+          p_message: string | null;
+          p_metadata: Json;
+          p_should_update_snapshot: boolean;
+          p_should_insert_event: boolean;
+          p_processing_lease_token: string | null;
+          p_provider_reconcile_lease_token: string | null;
+          p_now: string;
+        };
+        Returns: boolean;
+      };
+      record_estimate_review_correction_action: {
+        Args: {
+          p_item_id: string;
+          p_status: string;
+          p_note?: string | null;
+        };
+        Returns: {
+          item_id: string;
+          cycle_id: string;
+          version_id: string;
+          status: string;
+          treated_at: string | null;
+        }[];
+      };
+      record_takeoff_dispatch_outcome: {
+        Args: {
+          p_job_id: string;
+          p_trigger: string;
+          p_correlation_id: string;
+          p_outcome: string;
+          p_status_code?: number | null;
+        };
+        Returns: {
+          job_id: string;
+          dispatch_status: string;
+          dispatch_updated_at: string;
+        }[];
+      };
+      recover_stale_takeoff_jobs: {
+        Args: {
+          p_now: string;
+          p_stale_after?: string;
+        };
+        Returns: {
+          job_id: string;
+          error_code: string;
+        }[];
+      };
+      renew_affaire_intake_upload_lease: {
+        Args: {
+          p_upload_id: string;
+          p_lease_token: string;
+          p_now: string;
+          p_lease_expires_at: string;
+        };
+        Returns: boolean;
+      };
+      renew_takeoff_batch_reconcile_lease: {
+        Args: {
+          p_job_id: string;
+          p_tenant_id: string;
+          p_lease_token: string;
+          p_now: string;
+          p_lease_expires_at: string;
+        };
+        Returns: boolean;
+      };
+      renew_takeoff_processing_lease: {
+        Args: {
+          p_job_id: string;
+          p_tenant_id: string;
+          p_lease_token: string;
+          p_now: string;
+          p_lease_expires_at: string;
+        };
+        Returns: boolean;
+      };
+      save_takeoff_dpgf_manual_links: {
+        Args: {
+          p_version_id: string;
+          p_takeoff_job_id: string;
+          p_estimate_item_id: string;
+          p_takeoff_item_ids: string[];
+          p_linked_by?: string | null;
+        };
+        Returns: string[];
+      };
+      set_active_tenant_membership_default: {
+        Args: {
+          p_membership_id: string;
+        };
+        Returns: string;
+      };
+      transition_estimate_version_status: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_next_status: Database["public"]["Enums"]["estimate_status"];
+          p_seal_hash: string | null;
+          p_actor_user_id: string;
+          p_event_metadata?: Json;
+          p_occurred_at?: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
+      update_affaire_register_entry_with_event: {
+        Args: {
+          p_entry_id: string;
+          p_patch: Json;
+          p_event_type: string;
+          p_reason?: string | null;
+          p_before_payload?: Json | null;
+          p_after_payload?: Json | null;
+          p_actor_user_id?: string | null;
+        };
+        Returns: Json;
+      };
     };
     Enums: {
       purchase_order_status: "draft" | "sent" | "confirmed" | "received" | "canceled";
@@ -3894,6 +5013,24 @@ export type Database = {
         | "approved"
         | "changes_requested";
       tenant_role: "admin" | "engineer" | "viewer" | "director";
+      takeoff_job_level: "A" | "B" | "C";
+      takeoff_job_status:
+        | "pending"
+        | "processing"
+        | "completed"
+        | "failed"
+        | "canceled"
+        | "applied";
+      takeoff_processing_strategy: "sync" | "batch";
+      takeoff_provider_batch_state:
+        | "submitted"
+        | "pending"
+        | "running"
+        | "succeeded"
+        | "failed"
+        | "cancelled"
+        | "expired"
+        | "unknown";
     };
     CompositeTypes: {
       [_ in never]: never;

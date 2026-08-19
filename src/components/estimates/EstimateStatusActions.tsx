@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import type { EstimateStatus } from "@/lib/estimates/status";
 
+type EstimateEmailDispatchProblem = {
+  id: string;
+  status: "unknown" | "failed";
+  lastErrorMessage: string | null;
+};
+
 type EstimateStatusActionsProps = {
   versionId: string;
   currentStatus: EstimateStatus;
@@ -13,6 +19,7 @@ type EstimateStatusActionsProps = {
   updatedAt: string;
   projectName?: string;
   clientEmail?: string;
+  emailDispatchProblem?: EstimateEmailDispatchProblem | null;
 };
 
 const STATUS_TRANSITIONS: Record<
@@ -53,6 +60,7 @@ export function EstimateStatusActions({
   updatedAt,
   projectName,
   clientEmail,
+  emailDispatchProblem = null,
 }: EstimateStatusActionsProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
@@ -108,13 +116,56 @@ export function EstimateStatusActions({
     [versionId, updatedAt, router]
   );
 
+  const [providerMessageId, setProviderMessageId] = useState("");
+  const canMarkEmailSent = emailDispatchProblem?.status === "unknown";
+
+  const handleMarkEmailSent = useCallback(async () => {
+    if (!emailDispatchProblem || emailDispatchProblem.status !== "unknown") {
+      return;
+    }
+    const providerId = providerMessageId.trim();
+    if (!providerId) {
+      setError(
+        "Indiquez l'identifiant du message chez le fournisseur avant de marquer l'envoi."
+      );
+      return;
+    }
+    setIsPending(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/estimates/${versionId}/email-dispatch/reconcile`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dispatchId: emailDispatchProblem.id,
+            resolution: "sent",
+            providerId,
+          }),
+        }
+      );
+      if (!response.ok) {
+        setError("Impossible de marquer l'email comme envoyé.");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError("Impossible de marquer l'email comme envoyé.");
+    } finally {
+      setIsPending(false);
+    }
+  }, [emailDispatchProblem, providerMessageId, router, versionId]);
+
   const transitions = STATUS_TRANSITIONS[currentStatus];
   const showEmailButton =
     currentStatus === "draft" ||
     currentStatus === "sending" ||
     currentStatus === "sent";
 
-  if (transitions.length === 0 && !showEmailButton) return null;
+  if (transitions.length === 0 && !showEmailButton && !emailDispatchProblem) {
+    return null;
+  }
 
   const defaultSubject = projectName
     ? `Devis - ${projectName}`
@@ -122,6 +173,53 @@ export function EstimateStatusActions({
 
   return (
     <>
+      {emailDispatchProblem ? (
+        <div
+          className="mt-2 rounded-md border border-[var(--warn,#b45309)]/30 bg-[var(--warn-bg,#fffbeb)] px-2.5 py-2 text-xs text-[var(--slate-700)]"
+          data-testid="estimate-email-dispatch-problem"
+        >
+          <p>
+            Envoi email{" "}
+            {emailDispatchProblem.status === "unknown"
+              ? "indéterminé"
+              : "échoué"}
+            {emailDispatchProblem.lastErrorMessage
+              ? ` : ${emailDispatchProblem.lastErrorMessage}`
+              : "."}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-[var(--brand-blue)] bg-[var(--brand-blue)] px-2 py-1 text-xs font-medium text-white"
+              disabled={isPending}
+              onClick={() => setSendModalOpen(true)}
+            >
+              Renvoyer
+            </button>
+            {canMarkEmailSent ? (
+              <>
+                <input
+                  type="text"
+                  className="w-56 rounded-md border border-[var(--slate-200)] bg-white px-2 py-1 text-xs text-[var(--slate-700)]"
+                  placeholder="Identifiant du message fournisseur"
+                  aria-label="Identifiant du message chez le fournisseur email"
+                  value={providerMessageId}
+                  disabled={isPending}
+                  onChange={(event) => setProviderMessageId(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="rounded-md border border-[var(--slate-200)] bg-white px-2 py-1 text-xs font-medium text-[var(--slate-600)] disabled:opacity-50"
+                  disabled={isPending || providerMessageId.trim().length === 0}
+                  onClick={() => void handleMarkEmailSent()}
+                >
+                  Marquer envoyé
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         {showEmailButton && (
           <button

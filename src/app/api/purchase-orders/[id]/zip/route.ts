@@ -2,8 +2,16 @@ import { ZipArchive } from "archiver";
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { ApiError } from "@/lib/estimates/errors";
 import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
 
 export const runtime = "nodejs";
 
@@ -266,15 +274,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let context;
+  try {
+    context = await getAuthenticatedTenantContext();
+  } catch (error) {
+    return jsonApiError(error);
   }
+
+  const { supabase } = context;
 
   const order = await getAccessiblePurchaseOrderOrNull<OrderRow>(
     supabase,

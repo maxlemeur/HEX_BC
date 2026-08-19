@@ -9,6 +9,21 @@ function readSql(filePath: string) {
 
 describe("schema regressions", () => {
   const schemaSql = readSql("supabase/schema.sql");
+  const bulkUpdateEstimateItemsMigrationSql = readSql(
+    "supabase/migrations/20260223113000_est033_aid_column.sql"
+  );
+  const moveEstimateItemMigrationSql = readSql(
+    "supabase/migrations/20260304212000_est125_hierarchy_depth_compat_fix.sql"
+  );
+  const tenantBootstrapMigrationSql = readSql(
+    "supabase/migrations/021_fix_bulk_update_tenant_bootstrap_and_admin_hardening_v2.sql"
+  );
+  const handleNewUserMigrationSql = readSql(
+    "supabase/migrations/20260713132306_isolate_self_signup_tenants.sql"
+  );
+  const assignTenantIdMigrationSql = readSql(
+    "supabase/migrations/20260222020000_est181_assign_tenant_id_audit_logs_guard.sql"
+  );
   const planSetsStorageCompatMigrationSql = readSql(
     "supabase/migrations/20260305134000_v3_006_plan_sets_scope_storage_compat.sql"
   );
@@ -34,58 +49,80 @@ describe("schema regressions", () => {
     "supabase/migrations/20260306200000_est382_structure_draft_atomic_apply_fix.sql"
   );
 
-  it("drops tenant and catalogue tables in schema reset block", () => {
-    expect(schemaSql).toMatch(/drop table if exists public\.tenants cascade;/);
-    expect(schemaSql).toMatch(/drop table if exists public\.tenant_memberships cascade;/);
-    expect(schemaSql).toMatch(/drop table if exists public\.supplier_pricebook cascade;/);
-    expect(schemaSql).toMatch(/drop table if exists public\.material_indices cascade;/);
-    expect(schemaSql).toMatch(/drop table if exists public\.dpgf_catalogue_links cascade;/);
+  it("does not contain drop table statements for tenants or tenant_memberships", () => {
+    expect(schemaSql).not.toMatch(/drop\s+table/i);
+    expect(schemaSql).not.toMatch(
+      /drop\s+table\s+if\s+exists\s+public\.tenants/i
+    );
+    expect(schemaSql).not.toMatch(
+      /drop\s+table\s+if\s+exists\s+public\.tenant_memberships/i
+    );
   });
 
   it("guards bulk estimate updates with a stale lock-count check before writes", () => {
-    expect(schemaSql).toMatch(/create or replace function public\.bulk_update_estimate_items\(/);
-    expect(schemaSql).toMatch(/locked_count integer := 0;/);
-    expect(schemaSql).toMatch(/expected_version_updated_at timestamptz/);
-    expect(schemaSql).toMatch(/and ev\.updated_at = expected_version_updated_at[\s\S]*for update;/);
-    expect(schemaSql).toMatch(/perform item\.id[\s\S]*for update;/);
-    expect(schemaSql).toMatch(/if locked_count <> expected_count then[\s\S]*STALE_BULK_UPDATE_ITEMS/);
+    expect(bulkUpdateEstimateItemsMigrationSql).toMatch(
+      /create or replace function public\.bulk_update_estimate_items\(/
+    );
+    expect(bulkUpdateEstimateItemsMigrationSql).toMatch(/locked_count integer := 0;/);
+    expect(bulkUpdateEstimateItemsMigrationSql).toMatch(/expected_version_updated_at timestamptz/);
+    expect(bulkUpdateEstimateItemsMigrationSql).toMatch(
+      /and ev\.updated_at = expected_version_updated_at[\s\S]*for update;/
+    );
+    expect(bulkUpdateEstimateItemsMigrationSql).toMatch(/perform item\.id[\s\S]*for update;/);
+    expect(bulkUpdateEstimateItemsMigrationSql).toMatch(
+      /if locked_count <> expected_count then[\s\S]*STALE_BULK_UPDATE_ITEMS/
+    );
   });
 
   it("defines move_estimate_item RPC with authenticated execute grant", () => {
-    expect(schemaSql).toMatch(/create or replace function public\.move_estimate_item\(/);
-    expect(schemaSql).toMatch(/ordered_source_item_ids uuid\[\]/);
-    expect(schemaSql).toMatch(/ordered_target_item_ids uuid\[\]/);
-    expect(schemaSql).toMatch(/grant execute on function public\.move_estimate_item\(/);
+    expect(moveEstimateItemMigrationSql).toMatch(
+      /create or replace function public\.move_estimate_item\(/
+    );
+    expect(moveEstimateItemMigrationSql).toMatch(/ordered_source_item_ids uuid\[\]/);
+    expect(moveEstimateItemMigrationSql).toMatch(/ordered_target_item_ids uuid\[\]/);
+    expect(moveEstimateItemMigrationSql).toMatch(
+      /grant execute on function public\.move_estimate_item\(/
+    );
   });
 
   it("supports tenant creator bootstrap for initial admin membership", () => {
-    expect(schemaSql).toMatch(/create or replace function public\.can_bootstrap_tenant_membership\(/);
-    expect(schemaSql).toMatch(
+    expect(tenantBootstrapMigrationSql).toMatch(
+      /create or replace function public\.can_bootstrap_tenant_membership\(/
+    );
+    expect(tenantBootstrapMigrationSql).toMatch(
       /create policy "Authenticated can create tenants"[\s\S]*created_by = \(select auth\.uid\(\)\)/
     );
-    expect(schemaSql).toMatch(
+    expect(tenantBootstrapMigrationSql).toMatch(
       /create policy "Tenant admins can insert memberships"[\s\S]*can_bootstrap_tenant_membership\(tenant_id, user_id, role\)/
     );
   });
 
   it("creates a default tenant membership when a user signs up", () => {
-    expect(schemaSql).toMatch(/create or replace function public\.handle_new_user\(\)/);
-    expect(schemaSql).toMatch(
-      /insert into public\.tenant_memberships[\s\S]*default_tenant_id[\s\S]*new\.id/
+    expect(handleNewUserMigrationSql).toMatch(
+      /create or replace function public\.handle_new_user\(\)/
+    );
+    expect(handleNewUserMigrationSql).toMatch(
+      /insert into public\.tenant_memberships[\s\S]*signup_tenant_id[\s\S]*new\.id/
     );
   });
 
   it("uses jwt-based admin checks and prevents authenticated profile role escalation", () => {
-    expect(schemaSql).toMatch(/create or replace function public\.is_admin_user\(\)/);
-    expect(schemaSql).toMatch(/auth\.jwt\(\) -> 'app_metadata'/);
-    expect(schemaSql).toMatch(/create or replace function public\.guard_profile_role_update\(\)/);
-    expect(schemaSql).toMatch(/create trigger guard_profile_role_update/);
+    expect(tenantBootstrapMigrationSql).toMatch(
+      /create or replace function public\.is_admin_user\(\)/
+    );
+    expect(tenantBootstrapMigrationSql).toMatch(/auth\.jwt\(\) -> 'app_metadata'/);
+    expect(tenantBootstrapMigrationSql).toMatch(
+      /create or replace function public\.guard_profile_role_update\(\)/
+    );
+    expect(tenantBootstrapMigrationSql).toMatch(/create trigger guard_profile_role_update/);
   });
 
   it("reads audit estimate version id safely in shared tenant trigger", () => {
-    expect(schemaSql).toMatch(/create or replace function public\.assign_tenant_id\(\)/);
-    expect(schemaSql).toMatch(/elsif tg_table_name = 'audit_logs' then/);
-    expect(schemaSql).toMatch(/to_jsonb\(new\)->>'estimate_version_id'/);
+    expect(assignTenantIdMigrationSql).toMatch(
+      /create or replace function public\.assign_tenant_id\(\)/
+    );
+    expect(assignTenantIdMigrationSql).toMatch(/elsif tg_table_name = 'audit_logs' then/);
+    expect(assignTenantIdMigrationSql).toMatch(/to_jsonb\(new\)->>'estimate_version_id'/);
   });
 
   it("keeps plan-files storage policies compatible with project-only plan sets", () => {

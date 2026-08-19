@@ -9,9 +9,11 @@ import type {
   EstimateTemplateSummary,
 } from "@/lib/estimates/client";
 
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+
+export { DEFAULT_TAX_RATE_BP };
 export const STORAGE_KEY = "est-wizard-draft";
 export const DEFAULT_VALIDITE_JOURS = 30;
-export const DEFAULT_TAX_RATE_BP = 2000;
 
 export const ROUNDING_OPTIONS = [
   { label: "Aucun", mode: "none" as const, step: 1 },

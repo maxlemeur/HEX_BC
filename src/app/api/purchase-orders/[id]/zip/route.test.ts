@@ -1,8 +1,8 @@
 import { inflateRawSync } from "node:zlib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: vi.fn(),
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedTenantContext: vi.fn(),
 }));
 
 vi.mock("@/lib/purchase-orders", () => ({
@@ -10,11 +10,14 @@ vi.mock("@/lib/purchase-orders", () => ({
 }));
 
 import { GET } from "@/app/api/purchase-orders/[id]/zip/route";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { unauthorized } from "@/lib/estimates/errors";
 import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const ORDER_ID = "55555555-5555-4555-8555-555555555555";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+const TENANT_ID = "66666666-6666-4666-8666-666666666666";
 
 /**
  * Lecteur ZIP minimal (sans dependance) : lit le repertoire central puis
@@ -101,13 +104,11 @@ type DevisFixture = {
 };
 
 function createSupabaseMock(options: {
-  user?: { id: string } | null;
   items?: Record<string, unknown>[];
   devis?: DevisFixture[];
   downloads?: Record<string, Blob | null | (() => never)>;
 } = {}) {
   const {
-    user = { id: USER_ID },
     items = [],
     devis = [],
     downloads = {},
@@ -132,9 +133,6 @@ function createSupabaseMock(options: {
   return {
     download,
     supabase: {
-      auth: {
-        getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
-      },
       from: vi.fn((table: string) => {
         if (table === "purchase_order_items") return selectFor(items);
         if (table === "purchase_order_devis") return selectFor(devis);
@@ -152,6 +150,25 @@ function createSupabaseMock(options: {
   };
 }
 
+function mockTenantContext(supabase: unknown) {
+  vi.mocked(getAuthenticatedTenantContext).mockResolvedValue({
+    supabase,
+    userId: USER_ID,
+    tenantId: TENANT_ID,
+    tenantRole: "engineer",
+    isTenantAdmin: false,
+    membership: {
+      id: "membership-1",
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      role: "engineer",
+      is_default: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    },
+  } as AuthenticatedTenantContext);
+}
+
 function callRoute() {
   return GET(new Request("http://localhost"), {
     params: Promise.resolve({ id: ORDER_ID }),
@@ -162,7 +179,6 @@ async function readZipResponse(response: Response) {
   return readZipEntries(Buffer.from(await response.arrayBuffer()));
 }
 
-const mockedCreateClient = vi.mocked(createSupabaseServerClient);
 const mockedGetOrder = vi.mocked(getAccessiblePurchaseOrderOrNull);
 
 describe("purchase order zip route", () => {
@@ -171,18 +187,18 @@ describe("purchase order zip route", () => {
   });
 
   it("returns 401 when the user is not authenticated", async () => {
-    const { supabase } = createSupabaseMock({ user: null });
-    mockedCreateClient.mockResolvedValue(supabase as never);
+    vi.mocked(getAuthenticatedTenantContext).mockRejectedValue(unauthorized());
 
     const response = await callRoute();
 
     expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mockedGetOrder).not.toHaveBeenCalled();
   });
 
   it("returns 404 when the order is not accessible", async () => {
     const { supabase } = createSupabaseMock();
-    mockedCreateClient.mockResolvedValue(supabase as never);
+    mockTenantContext(supabase);
     mockedGetOrder.mockResolvedValue(null);
 
     const response = await callRoute();
@@ -206,7 +222,7 @@ describe("purchase order zip route", () => {
         },
       ],
     });
-    mockedCreateClient.mockResolvedValue(supabase as never);
+    mockTenantContext(supabase);
     mockedGetOrder.mockResolvedValue(buildOrder());
 
     const response = await callRoute();
@@ -258,7 +274,7 @@ describe("purchase order zip route", () => {
         "tenant/devis-2.pdf": new Blob(["contenu-devis-2"]),
       },
     });
-    mockedCreateClient.mockResolvedValue(supabase as never);
+    mockTenantContext(supabase);
     mockedGetOrder.mockResolvedValue(buildOrder());
 
     const response = await callRoute();
@@ -311,7 +327,7 @@ describe("purchase order zip route", () => {
         "tenant/ok.pdf": new Blob(["contenu-ok"]),
       },
     });
-    mockedCreateClient.mockResolvedValue(supabase as never);
+    mockTenantContext(supabase);
     mockedGetOrder.mockResolvedValue(buildOrder());
 
     const response = await callRoute();
@@ -326,7 +342,7 @@ describe("purchase order zip route", () => {
 
   it("falls back to the order number when the reference is empty", async () => {
     const { supabase } = createSupabaseMock();
-    mockedCreateClient.mockResolvedValue(supabase as never);
+    mockTenantContext(supabase);
     mockedGetOrder.mockResolvedValue(buildOrder({ reference: "" }));
 
     const response = await callRoute();

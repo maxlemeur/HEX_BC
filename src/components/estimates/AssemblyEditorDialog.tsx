@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchApi } from "@/components/catalogue/api";
 import type { CatalogueItem } from "@/components/catalogue/types";
 import { Modal } from "@/components/ui/Modal";
+import { formatEUR } from "@/lib/money";
 import type {
   CreateEstimateAssemblyPayload,
   EstimateAssemblyDetail,
@@ -145,16 +146,8 @@ function readFiniteNumber(value: string, fallback: number) {
 }
 
 
-function formatCurrency(cents: number) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format(cents / 100);
-}
-
 function formatHourlyRate(cents: number) {
-  return `${formatCurrency(cents)}/h`;
+  return `${formatEUR(cents)}/h`;
 }
 
 function computeDraftDirectCost(
@@ -201,7 +194,7 @@ function formatCatalogueOptionLabel(item: CatalogueItem) {
     .join(" · ");
   const price =
     typeof item.unit_price_cents === "number"
-      ? formatCurrency(item.unit_price_cents)
+      ? formatEUR(item.unit_price_cents)
       : null;
   return [details, price].filter(Boolean).join(" · ");
 }
@@ -733,7 +726,7 @@ export function AssemblyEditorDialog({
                 Coût direct estimé
               </p>
               <p className="text-base font-semibold text-[var(--slate-900)]">
-                {formatCurrency(directCostCents)}
+                {formatEUR(directCostCents)}
               </p>
             </div>
             <div>
@@ -1040,7 +1033,7 @@ export function AssemblyEditorDialog({
                         Coût direct de la ligne
                       </span>
                       <output className="flex h-9 items-center justify-end whitespace-nowrap rounded-lg bg-[var(--slate-50)] px-2 text-right text-[13px] font-semibold tabular-nums text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)] lg:h-10 lg:rounded-none lg:ring-0">
-                        {formatCurrency(computeDraftDirectCost(item, laborRoles))}
+                        {formatEUR(computeDraftDirectCost(item, laborRoles))}
                       </output>
                     </div>
                     <button
@@ -1189,7 +1182,7 @@ export function AssemblyEditorDialog({
                       <div>
                         <span className="form-label">Coût intégré</span>
                         <output className="flex h-10 items-center justify-end rounded-lg bg-[var(--slate-50)] px-3 font-semibold tabular-nums text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)]">
-                          {formatCurrency(memberCost)}
+                          {formatEUR(memberCost)}
                         </output>
                       </div>
                       <button

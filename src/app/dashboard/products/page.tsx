@@ -17,10 +17,9 @@ import type {
 } from "@/components/TableFilterBar";
 import { ProductCsvImport } from "@/components/products/ProductCsvImport";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
-import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template";
+import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 import type { PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
 import { formatEUR } from "@/lib/money";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import {
   ProductFormModal,
@@ -142,7 +141,6 @@ function freshnessClass(status: ProductView["_priceStatus"]) {
 }
 
 export default function ProductsPage() {
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -367,24 +365,29 @@ export default function ProductsPage() {
     setFormError(null);
     setSuccessMessage(null);
 
-    const query = editingProduct
-      ? supabase.from("products").update(payload).eq("id", editingProduct.id)
-      : supabase.from("products").insert(payload);
-    const { error } = await query;
-
-    if (error) {
-      setFormError(error.message);
+    try {
+      await fetchApi("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          editingProduct
+            ? { action: "update", id: editingProduct.id, item: payload }
+            : { action: "create", item: payload },
+        ),
+      });
+      await mutate();
+      setIsFormOpen(false);
+      setEditingProduct(null);
+      setSuccessMessage(
+        editingProduct ? "Produit mis à jour." : "Produit ajouté à la base.",
+      );
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Enregistrement impossible.",
+      );
+    } finally {
       setIsSaving(false);
-      return;
     }
-
-    await mutate();
-    setIsSaving(false);
-    setIsFormOpen(false);
-    setEditingProduct(null);
-    setSuccessMessage(
-      editingProduct ? "Produit mis à jour." : "Produit ajouté à la base.",
-    );
   }
 
   async function toggleArchive(product: ProductRecord) {
@@ -398,19 +401,25 @@ export default function ProductsPage() {
 
     setUpdatingStatusId(product.id);
     setSuccessMessage(null);
-    const { error } = await supabase
-      .from("products")
-      .update({ is_active: nextIsActive })
-      .eq("id", product.id);
-    setUpdatingStatusId(null);
-
-    if (error) {
-      setFormError(error.message);
-      return;
+    try {
+      await fetchApi("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          id: product.id,
+          item: { is_active: nextIsActive },
+        }),
+      });
+      await mutate();
+      setSuccessMessage(nextIsActive ? "Produit restauré." : "Produit archivé.");
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Mise a jour impossible.",
+      );
+    } finally {
+      setUpdatingStatusId(null);
     }
-
-    await mutate();
-    setSuccessMessage(nextIsActive ? "Produit restauré." : "Produit archivé.");
   }
 
   return (

@@ -1,5 +1,9 @@
 name: E2E Playwright Critical
 
+# Volontairement sans declencheur pull_request : ce workflow recoit les secrets
+# de l'environnement e2e-staging (identifiants de connexion), qu'une branche
+# non relue ne doit pas pouvoir lire. La couverture avant merge passe par une
+# pile ephemere (cf. e2e-rls-matrix.yml), pas par staging.
 on:
   push:
     branches: ["main"]
@@ -50,6 +54,11 @@ jobs:
       - name: Run critical Playwright suite
         run: npm run e2e:pw:critical
         env:
+          # Decision (2026-08-19): un seul projet Supabase, la production, pour
+          # tout, CI comprise. La cle service-role est transmise au seul pas
+          # d'execution (creation/duplication de devis via RPC service-role),
+          # jamais aux pas d'installation ni de validation.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           E2E_LOGIN_EMAIL: ${{ secrets.E2E_LOGIN_EMAIL }}

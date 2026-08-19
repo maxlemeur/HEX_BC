@@ -16,7 +16,12 @@ import type {
   EstimateOutlierFlagKey,
   EstimateOutlierFlagsByItemId,
 } from "@/lib/estimates/outlier-detection";
-import type { MoveEstimateItemInput } from "@/lib/estimates/schemas";
+import type {
+  EstimateVersionEvent,
+  ImportEstimateSectionsResult,
+  ImportLinkedDpgfSourceResult,
+  MoveEstimateItemInput,
+} from "@/lib/estimates/schemas";
 import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
 import type {
   EstimatePdfLayoutConfiguration,
@@ -26,6 +31,12 @@ import {
   isEstimateStatus,
   type EstimateStatus as CanonicalEstimateStatus,
 } from "@/lib/estimates/status";
+
+export type {
+  EstimateVersionEvent,
+  ImportEstimateSectionsResult,
+  ImportLinkedDpgfSourceResult,
+};
 
 type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -198,17 +209,6 @@ export type ImportEstimateSectionsPayload = {
   mode: ImportEstimateSectionsMode;
 };
 
-export type ImportEstimateSectionsResult = {
-  sourceVersionId: string;
-  targetVersionId: string;
-  mode: ImportEstimateSectionsMode;
-  importedSectionsCount: number;
-  importedLinesCount: number;
-  createdSectionIds: string[];
-  createdLineIds: string[];
-  versionToken: EstimateVersionToken | null;
-};
-
 export type EstimateStructureDraftSourceKind =
   | "linked_dpgf"
   | "primary_cctp"
@@ -317,21 +317,6 @@ export type AffaireLinkedDpgfSource = {
 
 export type ImportLinkedDpgfSourcePayload = {
   sectionTitle?: string | null;
-};
-
-export type ImportLinkedDpgfSourceResult = {
-  sourceImportId: string;
-  targetVersionId: string;
-  createdSectionId: string;
-  createdLineIds: string[];
-  importedLinesCount: number;
-  skippedLinesCount: number;
-  totals: {
-    totalHtCents: number;
-    totalTaxCents: number;
-    totalTtcCents: number;
-  };
-  versionToken: EstimateVersionToken | null;
 };
 
 export type EstimateTemplateSummary = {
@@ -932,17 +917,6 @@ export type EstimateDraftLock = {
   expiresAt: string | null;
   isOwnedByCurrentUser: boolean | null;
   isOwnedByCurrentSession: boolean | null;
-};
-
-export type EstimateVersionEvent = {
-  id: string;
-  estimateVersionId: string;
-  eventType: EstimateVersionEventType | string;
-  metadata: Record<string, unknown>;
-  createdBy: string | null;
-  actorName: string | null;
-  occurredAt: string;
-  createdAt: string;
 };
 
 export type AcquireEstimateDraftLockResult = {

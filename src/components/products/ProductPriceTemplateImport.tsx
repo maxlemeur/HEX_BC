@@ -5,15 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import {
-  parseProductPriceTemplateWorkbook,
   TEMPLATE_FILE_URL,
-} from "@/lib/catalogue/product-price-template";
-import type {
-  ProductPriceTemplateIssue,
-  ProductPriceTemplateParseResult,
-  ProductTemplateRow,
-  SupplierPriceTemplateRow,
-} from "@/lib/catalogue/product-price-template";
+  type ProductPriceTemplateIssue,
+  type ProductPriceTemplateParseResult,
+  type ProductTemplateRow,
+  type SupplierPriceTemplateRow,
+} from "@/lib/catalogue/product-price-template-client";
 
 export type ProductPriceTemplateImportProps = {
   open: boolean;
@@ -98,6 +95,9 @@ export function ProductPriceTemplateImport({
 
     setIsReading(true);
     try {
+      const { parseProductPriceTemplateWorkbook } = await import(
+        "@/lib/catalogue/product-price-template"
+      );
       const nextResult = await parseProductPriceTemplateWorkbook(await file.arrayBuffer());
       setResult(nextResult);
     } catch (readError) {

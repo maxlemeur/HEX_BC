@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
+import { formatEUR } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
@@ -38,11 +38,6 @@ function formatDate(iso: string): string {
     month: "short",
     year: "numeric",
   });
-}
-
-function formatAmount(cents: number): string {
-  const currency = normalizeEstimateCurrency("EUR") ?? "EUR";
-  return formatCurrency(cents, currency);
 }
 
 export function AffairesCardList({
@@ -184,7 +179,7 @@ export function AffairesCardList({
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium text-[var(--slate-700)]">
                   {item.currentTotalHtCents !== null
-                    ? `${formatAmount(item.currentTotalHtCents)} HT`
+                    ? `${formatEUR(item.currentTotalHtCents)} HT`
                     : "—"}
                 </span>
                 <span className="text-[var(--slate-400)]">

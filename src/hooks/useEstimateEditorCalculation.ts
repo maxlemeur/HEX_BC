@@ -7,10 +7,13 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import type {
   EditorEstimateItem,
+  EstimateItem,
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import { readLaborSplitFields } from "@/lib/estimates/editor-items";
 
 type EstimateEditorCalculationInput = {
   items: EditorEstimateItem[];
@@ -59,6 +62,106 @@ function computeDraftBreakdown(input: {
     laborRateChantierById: input.laborRateChantierById,
     calcEngineVersion: input.calcEngineVersion,
   });
+}
+
+function toFiniteNumber(value: number | null | undefined, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function buildLineCalculationInput(
+  item: EstimateItem,
+  maps: {
+    laborRateById: Map<string, number>;
+    laborRateAtelierById: Map<string, number>;
+    laborRateChantierById: Map<string, number>;
+  },
+  options?: {
+    taxRateBp?: number;
+    rateOverrideByRoleId?: string;
+    hourlyRateCents?: number;
+    hourlyRateAtelierCents?: number;
+    hourlyRateChantierCents?: number;
+  }
+) {
+  const splitFields = readLaborSplitFields(item);
+  const taxRate = options?.taxRateBp ?? item.tax_rate_bp ?? 0;
+  const kFo = item.k_fo ?? 1;
+  const hMo = item.h_mo ?? 0;
+  const hMoMajoration = item.h_mo_majoration ?? 1;
+  const kMo = item.k_mo ?? 1;
+  const overrideRoleId = options?.rateOverrideByRoleId;
+
+  const resolveRate = (
+    roleId: string | null | undefined,
+    map: Map<string, number>,
+    overrideRate: number | undefined
+  ) => {
+    if (!roleId) return 0;
+    if (overrideRoleId && roleId === overrideRoleId) {
+      return Math.max(toFiniteNumber(overrideRate, 0), 0);
+    }
+    return map.get(roleId) ?? 0;
+  };
+
+  return {
+    ...item,
+    tax_rate_bp: taxRate,
+    k_fo: kFo,
+    h_mo: hMo,
+    h_mo_majoration: hMoMajoration,
+    k_mo: kMo,
+    ...splitFields,
+    labor_role_hourly_rate_cents: resolveRate(
+      item.labor_role_id,
+      maps.laborRateById,
+      options?.hourlyRateCents
+    ),
+    labor_role_atelier_hourly_rate_cents: resolveRate(
+      splitFields.labor_role_atelier_id,
+      maps.laborRateAtelierById,
+      options?.hourlyRateAtelierCents ?? options?.hourlyRateCents
+    ),
+    labor_role_chantier_hourly_rate_cents: resolveRate(
+      splitFields.labor_role_chantier_id,
+      maps.laborRateChantierById,
+      options?.hourlyRateChantierCents ?? options?.hourlyRateCents
+    ),
+  };
+}
+
+export function computeLineValuesWithLaborContext(
+  item: EstimateItem,
+  maps: {
+    laborRateById: Map<string, number>;
+    laborRateAtelierById: Map<string, number>;
+    laborRateChantierById: Map<string, number>;
+  },
+  options: {
+    marginMultiplier: number;
+    taxRateBp: number;
+    isLaborSplitEnabled: boolean;
+    rateOverrideByRoleId?: string;
+    hourlyRateCents?: number;
+    hourlyRateAtelierCents?: number;
+    hourlyRateChantierCents?: number;
+    vatReverseCharge?: boolean;
+  }
+) {
+  const lineInput = buildLineCalculationInput(item, maps, {
+    taxRateBp: options.taxRateBp,
+    rateOverrideByRoleId: options.rateOverrideByRoleId,
+    hourlyRateCents: options.hourlyRateCents,
+    hourlyRateAtelierCents: options.hourlyRateAtelierCents,
+    hourlyRateChantierCents: options.hourlyRateChantierCents,
+  });
+  return {
+    lineInput,
+    lineValues: computeEstimateLineValues(lineInput, {
+      marginMultiplier: options.marginMultiplier,
+      taxRateBp: options.vatReverseCharge ? 0 : options.taxRateBp,
+      isLaborSplitEnabled: options.isLaborSplitEnabled,
+    }),
+  };
 }
 
 /**

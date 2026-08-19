@@ -28,11 +28,14 @@ jobs:
       # client Supabase, mais aucun test unitaire n'atteint le reseau.
       NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-anon-key"
+      MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
+      MIGRATION_DIFF_MODE: ${{ github.event_name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
@@ -43,6 +46,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Enforce append-only migration history
+        if: ${{ !cancelled() }}
+        run: npm run supabase:migrations:git-guard
 
       - name: Audit dependencies
         run: npm run audit:dependencies

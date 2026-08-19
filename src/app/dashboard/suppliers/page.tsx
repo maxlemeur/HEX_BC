@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
 
+import { fetchApi } from "@/components/catalogue/api";
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { SortOption } from "@/components/TableFilterBar";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Supplier = {
   id: string;
@@ -62,8 +62,6 @@ const EMPTY_FORM: SupplierFormState = {
 };
 
 export default function SuppliersPage() {
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-
   // Form state
   const [formState, setFormState] = useState<SupplierFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,18 +74,9 @@ export default function SuppliersPage() {
   const [displayedSuppliers, setDisplayedSuppliers] = useState<Supplier[]>([]);
 
   const fetchSuppliers = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("suppliers")
-      .select("*")
-      .eq("is_active", true)
-      .order("name", { ascending: true });
-
-    if (error) {
-      throw error;
-    }
-
-    return (data ?? []) as Supplier[];
-  }, [supabase]);
+    const data = await fetchApi<{ items: Supplier[] }>("/api/suppliers");
+    return data.items;
+  }, []);
 
   const {
     data: suppliers = [],
@@ -181,80 +170,54 @@ export default function SuppliersPage() {
       is_active: true,
     };
 
-    const { error } = editingId
-      ? await supabase.from("suppliers").update(payload).eq("id", editingId)
-      : await supabase.from("suppliers").insert(payload);
-
-    setIsSubmitting(false);
-
-    if (error) {
-      setFormError(error.message);
-      return;
+    try {
+      await fetchApi("/api/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          editingId
+            ? { action: "update", id: editingId, item: payload }
+            : { action: "create", item: payload }
+        ),
+      });
+      await mutate();
+      closeForm();
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Enregistrement impossible."
+      );
+      setIsSubmitting(false);
     }
-
-    await mutate();
-    closeForm();
   }
 
   async function onDelete(supplierId: string) {
-    async function archiveSupplier() {
-      const { error: archiveError } = await supabase
-        .from("suppliers")
-        .update({ is_active: false })
-        .eq("id", supplierId);
+    try {
+      const usage = await fetchApi<{ linked_orders_count: number }>(
+        `/api/suppliers?view=usage&id=${encodeURIComponent(supplierId)}`
+      );
+      const linkedOrdersCount = usage.linked_orders_count;
+      const hasLinkedOrders = linkedOrdersCount > 0;
+      const isPlural = linkedOrdersCount > 1;
+      const confirmationMessage = hasLinkedOrders
+        ? `Ce fournisseur est utilise dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archive et retire de la liste active. Continuer ?`
+        : "Supprimer ce fournisseur ?";
 
-      if (archiveError) {
-        setFormError(archiveError.message);
+      if (!window.confirm(confirmationMessage)) {
         return;
       }
 
+      await fetchApi("/api/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id: supplierId }),
+      });
       await mutate();
       setFormError(null);
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Suppression impossible."
+      );
     }
-
-    const { count, error: countError } = await supabase
-      .from("purchase_orders")
-      .select("id", { count: "exact", head: true })
-      .eq("supplier_id", supplierId);
-
-    if (countError) {
-      setFormError(countError.message);
-      return;
-    }
-
-    const linkedOrdersCount = count ?? 0;
-    const hasLinkedOrders = linkedOrdersCount > 0;
-    const isPlural = linkedOrdersCount > 1;
-    const confirmationMessage = hasLinkedOrders
-      ? `Ce fournisseur est utilise dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archive et retire de la liste active. Continuer ?`
-      : "Supprimer ce fournisseur ?";
-
-    if (!window.confirm(confirmationMessage)) {
-      return;
-    }
-
-    if (hasLinkedOrders) {
-      await archiveSupplier();
-      return;
-    }
-
-    const { error } = await supabase
-      .from("suppliers")
-      .delete()
-      .eq("id", supplierId);
-
-    if (error) {
-      if (error.code === "23503") {
-        await archiveSupplier();
-        return;
-      }
-
-      setFormError(error.message);
-      return;
-    }
-
-    await mutate();
-    setFormError(null);
   }
 
   return (

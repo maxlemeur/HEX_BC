@@ -12,9 +12,8 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/estimates/errors";
-import {
-  getAuthenticatedTenantContext as getAuthenticatedContext,
-} from "@/lib/auth/tenant-context";
+import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
@@ -1788,7 +1787,7 @@ export async function materializeVersionZeroDraft(input: {
         },
         {
           marginMultiplier: version.margin_multiplier,
-          taxRateBp: version.tax_rate_bp ?? 2000,
+          taxRateBp: version.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
           // Lignes brouillon v0 : uniquement FO (h_mo = 0), jamais de split MO.
           isLaborSplitEnabled: false,
         }

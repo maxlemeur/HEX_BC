@@ -7,6 +7,7 @@ import type {
   EstimateAssemblyLaborRole,
   EstimateAssemblySummary,
 } from "@/lib/estimates/client";
+import { formatEUR } from "@/lib/money";
 
 type AssemblyLibraryTableProps = {
   assemblies: EstimateAssemblySummary[];
@@ -36,11 +37,7 @@ function formatNumber(value: number | null | undefined, fallback = "-") {
   }).format(value);
 }
 function formatCurrency(cents: number | null | undefined) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format((cents ?? 0) / 100);
+  return formatEUR(cents ?? 0);
 }
 
 function computePreviewMetrics(

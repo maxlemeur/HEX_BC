@@ -43,14 +43,14 @@ pour l'ordre complet.
 
 ## Architecture
 
-- `src/app/` — App Router : pages, layouts, server actions, `api/**` (122 route handlers)
+- `src/app/` — App Router : pages, layouts, server actions, `api/**`
 - `src/components/` — UI partagée et par domaine
-- `src/hooks/` — hooks React, dont ~19 contrôleurs de l'éditeur de devis
+- `src/hooks/` — hooks React, dont les contrôleurs de l'éditeur de devis
 - `src/lib/` — logique métier. Principaux : `estimates/`, `takeoff/`, `affaires/`, `catalogue/`,
   `imports/`, `mappings/`, `approvals/`, `direction/`, `cockpit/`
 - `src/lib/openapi/` — génération OpenAPI depuis les schémas Zod ; `openapi.json` est versionné
-- `supabase/migrations/` — **202 migrations, source de vérité du schéma** ; dernière :
-  `20260812012308_add_affaires_sending_counter.sql`
+- `supabase/migrations/` — source de vérité du schéma. Le nom du dernier fichier n'est pas un
+  contrat figé ; ne pas republier un décompte comme vérité courante.
 - `supabase/functions/` — Edge Functions Deno
 
 **Authentification** : `src/proxy.ts` rafraîchit la session Supabase (cookies et redirections de session,
@@ -68,8 +68,8 @@ côté navigateur.
 `takeoff_*` + `plan_*`, `dpgf_*`, catalogue (`products`, `suppliers`, `supplier_pricebook`),
 `purchase_order*`, `tenants` / `tenant_memberships`.
 
-⚠️ `supabase/schema.sql` est un **snapshot partiel et périmé** (40 tables) qui commence par ~40
-`drop table … cascade`. Ne jamais l'exécuter sur une base peuplée.
+⚠️ `supabase/schema.sql` n'est plus un dump exécutable : pointeur en commentaires seulement,
+sans instruction destructive. Ne pas l'exécuter. La vérité du schéma est `supabase/migrations/`.
 
 **Enums clés** :
 
@@ -95,8 +95,11 @@ Les montants sont des **entiers de centimes** (`*_cents`), les taux des **points
 vente de ligne, **TVA**). Ne pas « harmoniser » sans lire `docs/metier/regles-de-calcul.md`.
 
 ⚠️ Deux moteurs de calcul coexistent, gouvernés par `estimate_versions.calc_engine_version`.
-**La v1 est ce qui s'exécute en production** ; la v2 (réconciliée) est écrite et testée mais
-l'éditeur épingle encore `EDITOR_CALC_ENGINE_VERSION = 1`. Toute modification de
+Toute **nouvelle** version de devis reçoit `NEW_ESTIMATE_CALC_ENGINE_VERSION = 2`
+(`src/lib/estimates/calc-engine-version.ts`). La v1 n'est conservée que pour les versions
+historiques : `resolveCalcEngineVersion` y retombe si la valeur est absente ou invalide.
+`EDITOR_CALC_ENGINE_VERSION` n'existe plus. La lecture des snapshots v2 est gouvernée par
+`shouldPreserveStoredEstimateV2Snapshot` / `hasFreshEstimateV2Snapshot`. Toute modification de
 `src/lib/estimate-calculations.ts` change des montants contractuels sur des devis envoyés et
 scellés — lire `docs/metier/regles-de-calcul.md` avant d'y toucher.
 

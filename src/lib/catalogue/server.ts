@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import type {
   BulkCreateSupplierPricesAtomicInput,
@@ -308,34 +310,15 @@ function fromZodError(error: ZodError): CatalogueApiError {
 }
 
 export function toErrorResponse(error: unknown) {
-  let apiError: CatalogueApiError;
-
-  if (error instanceof CatalogueApiError) {
-    apiError = error;
-  } else if (error instanceof ZodError) {
-    apiError = fromZodError(error);
-  } else {
-    console.error("Unexpected catalogue API error", error);
-    apiError = internalError();
-  }
-
-  // K-01: Log internal details server-side only, never expose to client
-  if (apiError.details) {
-    console.error(
-      `[catalogue] API error details (${apiError.code}):`,
-      apiError.details,
-    );
-  }
-
-  const body: ApiFailureResponse = {
-    ok: false,
-    error: {
-      code: apiError.code,
-      message: apiError.message,
-    },
-  };
-
-  return NextResponse.json(body, { status: apiError.status });
+  return toSharedErrorResponse(error, {
+    isApiError: (value): value is CatalogueApiError =>
+      value instanceof CatalogueApiError,
+    mapZodError: fromZodError,
+    createInternalError: () => internalError(),
+    unexpectedLogMessage: "Unexpected catalogue API error",
+    detailsMode: "never",
+    detailsLogScope: "catalogue",
+  });
 }
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -2113,7 +2096,7 @@ export async function createMissingPriceImportEntities(
         reference: productReference,
         designation: productReference,
         unit_price_cents: 0,
-        tax_rate_bp: 2000,
+        tax_rate_bp: DEFAULT_TAX_RATE_BP,
         is_active: true,
       })
       .select("id, reference, designation")

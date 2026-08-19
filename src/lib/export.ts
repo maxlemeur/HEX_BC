@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-
 import { downloadBlob } from "@/lib/browser-download";
 
 export type ExportColumn<T> = {
@@ -18,6 +16,8 @@ export type ExportSheet<T extends Record<string, unknown>> = {
   data: T[];
   columns: ExportColumn<T>[];
 };
+
+type XlsxModule = typeof import("xlsx");
 
 function getNestedValue<T>(obj: T, path: string): unknown {
   return path.split(".").reduce((current: unknown, key: string) => {
@@ -51,11 +51,12 @@ function prepareExportData<T extends Record<string, unknown>>(
 }
 
 function buildWorksheet<T extends Record<string, unknown>>(
+  xlsx: XlsxModule,
   data: T[],
   columns: ExportColumn<T>[]
 ) {
   const exportData = prepareExportData(data, columns);
-  const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+  const worksheet = xlsx.utils.aoa_to_sheet(exportData);
 
   const colWidths = columns.map((_, index) => {
     const maxLength = Math.max(
@@ -68,46 +69,49 @@ function buildWorksheet<T extends Record<string, unknown>>(
   return worksheet;
 }
 
-export function exportToExcel<T extends Record<string, unknown>>(
+export async function exportToExcel<T extends Record<string, unknown>>(
   data: T[],
   columns: ExportColumn<T>[],
   options: ExportOptions
-): void {
-  const worksheet = buildWorksheet(data, columns);
+): Promise<void> {
+  const xlsx = await import("xlsx");
+  const worksheet = buildWorksheet(xlsx, data, columns);
 
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(
     workbook,
     worksheet,
     options.sheetName ?? "Export"
   );
 
-  XLSX.writeFile(workbook, `${options.filename}.xlsx`);
+  xlsx.writeFile(workbook, `${options.filename}.xlsx`);
 }
 
-export function exportToExcelWithSheets(
+export async function exportToExcelWithSheets(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sheets: ExportSheet<any>[],
   options: ExportOptions
-): void {
-  const workbook = XLSX.utils.book_new();
+): Promise<void> {
+  const xlsx = await import("xlsx");
+  const workbook = xlsx.utils.book_new();
 
   sheets.forEach((sheet) => {
-    const worksheet = buildWorksheet(sheet.data, sheet.columns);
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name);
+    const worksheet = buildWorksheet(xlsx, sheet.data, sheet.columns);
+    xlsx.utils.book_append_sheet(workbook, worksheet, sheet.name);
   });
 
-  XLSX.writeFile(workbook, `${options.filename}.xlsx`);
+  xlsx.writeFile(workbook, `${options.filename}.xlsx`);
 }
 
-export function exportToCSV<T extends Record<string, unknown>>(
+export async function exportToCSV<T extends Record<string, unknown>>(
   data: T[],
   columns: ExportColumn<T>[],
   options: ExportOptions
-): void {
+): Promise<void> {
+  const xlsx = await import("xlsx");
   const exportData = prepareExportData(data, columns);
-  const worksheet = XLSX.utils.aoa_to_sheet(exportData);
-  const csvContent = XLSX.utils.sheet_to_csv(worksheet, { FS: ";" });
+  const worksheet = xlsx.utils.aoa_to_sheet(exportData);
+  const csvContent = xlsx.utils.sheet_to_csv(worksheet, { FS: ";" });
 
   const blob = new Blob(["\ufeff" + csvContent], {
     type: "text/csv;charset=utf-8;",

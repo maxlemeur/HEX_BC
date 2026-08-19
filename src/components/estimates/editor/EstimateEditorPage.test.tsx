@@ -12,6 +12,32 @@ vi.mock("@/hooks/useEstimateEditorState", () => ({
   useEstimateEditorState: useEstimateEditorStateMock,
 }));
 
+vi.mock("@/components/UserContext", () => ({
+  useUserContext: () => ({ profile: { role: "engineer" } }),
+}));
+
+vi.mock("@/hooks/useEstimateEditorHistoryController", () => ({
+  useEstimateEditorHistoryController: () => ({
+    state: { canUndo: false, canRedo: false, isExecuting: false },
+    actions: {
+      push: vi.fn(),
+      clear: vi.fn(),
+      undo: vi.fn(),
+      redo: vi.fn(),
+    },
+  }),
+}));
+
+vi.mock("@/hooks/useEstimateEditorActivityController", () => ({
+  useEstimateEditorActivityController: () => ({
+    state: {
+      audit: { entries: [], error: null, isLoading: false },
+      timeline: { events: [], error: null, isLoading: false },
+    },
+    actions: { refreshAudit: vi.fn(), refreshTimeline: vi.fn() },
+  }),
+}));
+
 vi.mock("next/dynamic", () => ({
   default: () =>
     function MockVersionZeroDraftDialog({ versionId }: { versionId?: string }) {
@@ -193,6 +219,9 @@ describe("EstimateEditorPage", () => {
       autoOpenVersionZero: false,
       autoOpenStructureDraft: false,
       autoOpenSettingsSection: null,
+      historyController: expect.any(Object),
+      activityController: expect.any(Object),
+      externalActionError: null,
     });
   });
 
@@ -277,6 +306,9 @@ describe("EstimateEditorPage", () => {
       autoOpenVersionZero: true,
       autoOpenStructureDraft: true,
       autoOpenSettingsSection: null,
+      historyController: expect.any(Object),
+      activityController: expect.any(Object),
+      externalActionError: null,
     });
   });
 

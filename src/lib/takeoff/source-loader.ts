@@ -9,6 +9,7 @@ import {
 } from "@/lib/takeoff/feature-flags";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
+import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import {
   inspectPlanSetResourceBudget,
   PLAN_SET_MAX_FILES,
@@ -33,7 +34,6 @@ export type DownloadedTakeoffFile = {
 };
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
-const PLAN_FILES_BUCKET = "plan-files";
 
 function normalizeNullableText(value: string | null | undefined) {
   if (typeof value !== "string") return null;

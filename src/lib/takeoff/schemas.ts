@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+import {
+  TAKEOFF_JOB_LIST_PERIODS,
+  TAKEOFF_JOB_STATUSES,
+  TAKEOFF_LEVELS,
+} from "@/lib/takeoff/enums";
+import {
+  TAKEOFF_COMPARE_MAX_THRESHOLD,
+  TAKEOFF_COMPARE_MIN_THRESHOLD,
+  TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+} from "@/lib/takeoff/limits";
+
 const requiredTextSchema = z
   .string()
   .trim()
@@ -28,7 +39,7 @@ const nonNegativeIntegerSchema = z
   .int("Entier attendu.")
   .min(0, "Doit etre >= 0.");
 
-export const takeoffLevelSchema = z.enum(["A", "B", "C"]);
+export const takeoffLevelSchema = z.enum(TAKEOFF_LEVELS);
 
 export const takeoffWarningSeveritySchema = z.enum(["info", "warning", "error"]);
 
@@ -712,3 +723,346 @@ export function zodToGeminiJsonSchema(
 
   return sanitizeGeminiJsonSchema(jsonSchema) as Record<string, unknown>;
 }
+
+
+export const MAX_TAKEOFF_JOBS_LIST_LIMIT = 100;
+export const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
+export const MAX_TAKEOFF_JOB_ITEMS_OFFSET = 10_000;
+
+const optionalUuidSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().uuid("estimate_version_id invalide.").optional()
+);
+
+const optionalProjectIdSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().uuid("project_id invalide.").optional()
+);
+
+const optionalStatusSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.enum(TAKEOFF_JOB_STATUSES).optional()
+);
+
+const optionalLevelSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.enum(TAKEOFF_LEVELS).optional()
+);
+
+const optionalPeriodSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.enum(TAKEOFF_JOB_LIST_PERIODS).optional()
+);
+
+const optionalLimitSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .int("limit doit etre un entier.")
+    .min(1, "limit doit etre >= 1.")
+    .max(
+      MAX_TAKEOFF_JOBS_LIST_LIMIT,
+      `limit doit etre <= ${MAX_TAKEOFF_JOBS_LIST_LIMIT}.`
+    )
+    .optional()
+);
+
+const optionalItemsLimitSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .int("items_limit doit etre un entier.")
+    .min(1, "items_limit doit etre >= 1.")
+    .max(
+      MAX_TAKEOFF_JOB_ITEMS_LIMIT,
+      `items_limit doit etre <= ${MAX_TAKEOFF_JOB_ITEMS_LIMIT}.`
+    )
+    .optional()
+);
+
+const requiredUuidSearchParamSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().uuid("Parametre UUID invalide.")
+);
+
+const optionalCompareThresholdSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .min(
+      TAKEOFF_COMPARE_MIN_THRESHOLD,
+      `threshold doit etre >= ${TAKEOFF_COMPARE_MIN_THRESHOLD}.`
+    )
+    .max(
+      TAKEOFF_COMPARE_MAX_THRESHOLD,
+      `threshold doit etre <= ${TAKEOFF_COMPARE_MAX_THRESHOLD}.`
+    )
+    .optional()
+);
+
+const optionalOffsetSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .int("offset doit etre un entier.")
+    .min(0, "offset doit etre >= 0.")
+    .max(
+      MAX_TAKEOFF_JOB_ITEMS_OFFSET,
+      `offset doit etre <= ${MAX_TAKEOFF_JOB_ITEMS_OFFSET}.`
+    )
+    .optional()
+);
+
+const optionalCursorSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().max(512, "cursor trop long.").optional()
+);
+
+const optionalDpgfComparePageSizeSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .int("page_size doit etre un entier.")
+    .min(1, "page_size doit etre >= 1.")
+    .max(
+      TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+      `page_size doit etre <= ${TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE}.`
+    )
+    .optional()
+);
+
+export const takeoffJobIdSchema = z.string().uuid("jobId invalide.");
+
+export const listTakeoffJobsQuerySchema = z
+  .object({
+    estimate_version_id: optionalUuidSearchParamSchema,
+    project_id: optionalProjectIdSearchParamSchema,
+    status: optionalStatusSearchParamSchema,
+    level: optionalLevelSearchParamSchema,
+    period: optionalPeriodSearchParamSchema,
+    limit: optionalLimitSearchParamSchema,
+    offset: optionalOffsetSearchParamSchema,
+  })
+  .strict()
+  .refine(
+    (data) => !(data.project_id && data.estimate_version_id),
+    {
+      message:
+        "project_id et estimate_version_id sont mutuellement exclusifs.",
+      path: ["project_id"],
+    }
+  );
+
+export const getTakeoffJobDetailsQuerySchema = z
+  .object({
+    items_limit: optionalItemsLimitSearchParamSchema,
+    items_offset: optionalOffsetSearchParamSchema,
+  })
+  .strict();
+
+export const compareTakeoffJobsQuerySchema = z
+  .object({
+    with: requiredUuidSearchParamSchema,
+    threshold: optionalCompareThresholdSearchParamSchema,
+  })
+  .strict();
+
+export const takeoffDpgfComparisonQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+    cursor: optionalCursorSearchParamSchema,
+    page_size: optionalDpgfComparePageSizeSearchParamSchema,
+    threshold: optionalCompareThresholdSearchParamSchema,
+    view: z.enum(["all", "exceptions_only"]).optional().default("all"),
+  })
+  .strict();
+
+export const takeoffLineEvidencePanelQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+  })
+  .strict();
+
+export const takeoffPriceSuggestionQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+    estimate_item_id: requiredUuidSearchParamSchema,
+  })
+  .strict();
+
+export const takeoffRiskRadarQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+    severity: z.enum(["info", "warning", "critical"]).optional(),
+    status: z.enum(["to_process", "assumed", "false_positive"]).optional(),
+    scope: z.enum(["project", "lot", "line"]).optional(),
+    lot_id: z.string().uuid("lot_id invalide.").optional(),
+  })
+  .strict();
+
+export const saveTakeoffDpgfManualLinkSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
+    takeoff_item_ids: z
+      .array(z.string().uuid("takeoff_item_id invalide."))
+      .max(50, "Maximum 50 items takeoff relies par ligne.")
+      .default([]),
+  })
+  .strict();
+
+export const saveTakeoffReviewDecisionSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
+    decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
+    reason: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict();
+
+export const requestTakeoffPriceSuggestionSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
+    force_refresh: z.boolean().optional(),
+  })
+  .strict();
+
+export const reviewTakeoffPriceSuggestionSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    action: z.enum([
+      "apply_low",
+      "apply_target",
+      "apply_high",
+      "keep_current",
+      "reject",
+    ]),
+    review_note: z
+      .string()
+      .trim()
+      .min(1, "Une note humaine explicite est obligatoire.")
+      .max(2000, "review_note trop longue."),
+  })
+  .strict();
+
+export const updateTakeoffRiskAlertStatusSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    status: z.enum(["to_process", "assumed", "false_positive"]),
+    review_note: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      (value.status === "assumed" || value.status === "false_positive") &&
+      (!value.review_note || value.review_note.trim().length === 0)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["review_note"],
+        message: "Une note humaine explicite est obligatoire pour ce statut.",
+      });
+    }
+  });
+
+export const takeoffApplyPayloadSchema = takeoffApplyRequestSchema;
+
+export type ListTakeoffJobsQuery = z.infer<typeof listTakeoffJobsQuerySchema>;
+export type GetTakeoffJobDetailsQuery = z.infer<
+  typeof getTakeoffJobDetailsQuerySchema
+>;
+export type CompareTakeoffJobsQuery = z.infer<typeof compareTakeoffJobsQuerySchema>;
+export type TakeoffDpgfComparisonQuery = z.infer<
+  typeof takeoffDpgfComparisonQuerySchema
+>;
+export type TakeoffLineEvidencePanelQuery = z.infer<
+  typeof takeoffLineEvidencePanelQuerySchema
+>;
+export type TakeoffPriceSuggestionQuery = z.infer<
+  typeof takeoffPriceSuggestionQuerySchema
+>;
+export type TakeoffRiskRadarQuery = z.infer<typeof takeoffRiskRadarQuerySchema>;
+export type SaveTakeoffReviewDecisionPayload = z.infer<
+  typeof saveTakeoffReviewDecisionSchema
+>;
+export type RequestTakeoffPriceSuggestionPayload = z.infer<
+  typeof requestTakeoffPriceSuggestionSchema
+>;
+export type ReviewTakeoffPriceSuggestionPayload = z.infer<
+  typeof reviewTakeoffPriceSuggestionSchema
+>;

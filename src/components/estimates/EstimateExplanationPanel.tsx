@@ -10,6 +10,7 @@ import {
   fetchEstimateDeltaExplanation,
   fetchEstimateLineExplanation,
 } from "@/lib/estimates/explanations-client";
+import { formatEUR } from "@/lib/money";
 import type {
   EstimateExplanationKind,
   EstimateExplanationRiskSignal,
@@ -67,13 +68,6 @@ const RISK_VARIANTS: Record<
   high: "error",
 };
 
-function formatCurrency(cents: number) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(cents / 100);
-}
-
 function formatConfidenceScore(score: number | null | undefined) {
   if (typeof score !== "number") {
     return "Score non renseigne";
@@ -90,11 +84,11 @@ function formatImpactLabel(input: {
   if (typeof input.deltaHt === "number" || typeof input.deltaTtc === "number") {
     const parts = [];
     if (typeof input.deltaHt === "number") {
-      parts.push(`HT ${input.deltaHt >= 0 ? "+" : ""}${formatCurrency(input.deltaHt)}`);
+      parts.push(`HT ${input.deltaHt >= 0 ? "+" : ""}${formatEUR(input.deltaHt)}`);
     }
     if (typeof input.deltaTtc === "number") {
       parts.push(
-        `TTC ${input.deltaTtc >= 0 ? "+" : ""}${formatCurrency(input.deltaTtc)}`
+        `TTC ${input.deltaTtc >= 0 ? "+" : ""}${formatEUR(input.deltaTtc)}`
       );
     }
     return parts.join(" · ");
@@ -102,10 +96,10 @@ function formatImpactLabel(input: {
 
   const parts = [];
   if (typeof input.currentAmountHt === "number") {
-    parts.push(`HT ${formatCurrency(input.currentAmountHt)}`);
+    parts.push(`HT ${formatEUR(input.currentAmountHt)}`);
   }
   if (typeof input.currentAmountTtc === "number") {
-    parts.push(`TTC ${formatCurrency(input.currentAmountTtc)}`);
+    parts.push(`TTC ${formatEUR(input.currentAmountTtc)}`);
   }
   return parts.length > 0 ? parts.join(" · ") : "Impact montant non renseigne";
 }

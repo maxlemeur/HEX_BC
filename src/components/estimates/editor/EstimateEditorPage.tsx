@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
@@ -18,6 +18,9 @@ import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPrese
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
+import { useUserContext } from "@/components/UserContext";
+import { useEstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
+import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
 
 type EstimateEditorPageProps = {
@@ -49,12 +52,37 @@ export function EstimateEditorPage({
   autoOpenStructureDraft = false,
   autoOpenSettingsSection = null,
 }: EstimateEditorPageProps) {
+  const { profile } = useUserContext();
+  const [historyError, setHistoryError] = useState<{
+    message: string;
+    key: number;
+  } | null>(null);
+  const historyErrorSequenceRef = useRef(0);
+  const reportHistoryError = useCallback((message: string | null) => {
+    if (message === null) {
+      setHistoryError(null);
+      return;
+    }
+    historyErrorSequenceRef.current += 1;
+    setHistoryError({ message, key: historyErrorSequenceRef.current });
+  }, []);
+  const historyController = useEstimateEditorHistoryController({
+    scopeKey: versionId,
+    reportError: reportHistoryError,
+  });
+  const activityController = useEstimateEditorActivityController({
+    routeVersionId: versionId,
+    isAdmin: profile?.role === "admin",
+  });
   const model = useEstimateEditorState({
     versionId,
     focusItemId,
     autoOpenVersionZero,
     autoOpenStructureDraft,
     autoOpenSettingsSection,
+    historyController,
+    activityController,
+    externalActionError: historyError,
   });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsProps = readyMeta?.alertsProps ?? null;

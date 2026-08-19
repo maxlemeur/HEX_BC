@@ -1,6 +1,10 @@
 import { z, type ZodTypeAny } from "zod";
 
 import {
+  productActionSchema,
+  supplierActionSchema,
+} from "@/lib/catalogue/directory-schemas";
+import {
   catalogueActionSchema,
   indicesActionSchema,
 } from "@/lib/catalogue/schemas";
@@ -810,7 +814,96 @@ const importAndMembershipContracts: RouteContract[] = [
   },
 ];
 
+const directoryAndOrdersContracts: RouteContract[] = [
+  {
+    id: "mutate-products",
+    method: "post",
+    path: "/api/products",
+    summary: "Creer ou mettre a jour un produit",
+    description:
+      "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage.",
+    tags: ["Catalogue"],
+    body: { schema: productActionSchema, description: "Action produit discriminee." },
+    success: [
+      { status: "200", description: "Produit mis a jour." },
+      { status: "201", description: "Produit cree." },
+    ],
+  },
+  {
+    id: "list-suppliers",
+    method: "get",
+    path: "/api/suppliers",
+    summary: "Lister les fournisseurs",
+    description:
+      "Retourne les fournisseurs actifs ou le nombre de bons de commande lies.",
+    tags: ["Catalogue"],
+    queryParameters: [
+      { name: "view", schema: z.enum(["list", "usage"]), description: "Vue liste ou usage." },
+      { name: "id", schema: uuidSchema, description: "Identifiant fournisseur pour la vue usage." },
+    ],
+  },
+  {
+    id: "mutate-suppliers",
+    method: "post",
+    path: "/api/suppliers",
+    summary: "Creer, modifier ou supprimer un fournisseur",
+    description:
+      "Cree ou met a jour un fournisseur, ou le supprime / archive selon les commandes liees.",
+    tags: ["Catalogue"],
+    body: { schema: supplierActionSchema, description: "Action fournisseur discriminee." },
+    success: [
+      { status: "200", description: "Fournisseur mis a jour ou retire." },
+      { status: "201", description: "Fournisseur cree." },
+    ],
+  },
+  {
+    id: "list-orders",
+    method: "get",
+    path: "/api/orders",
+    summary: "Lister les bons de commande",
+    description:
+      "Assemble cote serveur les commandes, leurs relations et, en option, les lignes.",
+    tags: ["Achats"],
+    queryParameters: [
+      { name: "view", schema: z.enum(["list", "items"]), description: "Vue liste ou lignes." },
+      {
+        name: "order_id",
+        schema: z.array(uuidSchema),
+        description: "Identifiants de commande pour la vue lignes.",
+      },
+    ],
+  },
+];
+
+const estimateEmailDispatchContracts: RouteContract[] = [
+  {
+    id: "reconcile-estimate-email-dispatch",
+    method: "post",
+    path: "/api/estimates/{versionId}/email-dispatch/reconcile",
+    summary: "Rapprocher un envoi email de devis",
+    description:
+      "Marque un dispatch email inconnu ou en echec comme envoye ou echoue apres rapprochement manuel.",
+    tags: ["Estimate Versions"],
+    pathParameters: [
+      {
+        name: "versionId",
+        schema: uuidSchema,
+        description: "Identifiant de la version de devis.",
+      },
+    ],
+    body: {
+      schema: z.object({
+        dispatchId: uuidSchema,
+        resolution: z.enum(["sent", "failed"]),
+      }),
+      description: "Identifiant du dispatch et resolution manuelle.",
+    },
+  },
+];
+
 export const baseAdditionalOpenApiOperationsRegistry: OpenApiOperationDefinition[] = [
   ...administrationContracts,
   ...importAndMembershipContracts,
+  ...directoryAndOrdersContracts,
+  ...estimateEmailDispatchContracts,
 ].map(buildOpenApiRouteOperation);

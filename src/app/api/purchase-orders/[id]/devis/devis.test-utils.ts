@@ -1,5 +1,7 @@
 import { vi } from "vitest";
 
+import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+
 export const USER_ID = "11111111-1111-4111-8111-111111111111";
 export const ORDER_ID = "22222222-2222-4222-8222-222222222222";
 export const TENANT_ID = "33333333-3333-4333-8333-333333333333";
@@ -63,8 +65,30 @@ export function buildDevisRecord(
   };
 }
 
+export function buildAuthenticatedTenantContext(
+  supabase: unknown,
+  overrides: Partial<AuthenticatedTenantContext> = {}
+): AuthenticatedTenantContext {
+  return {
+    supabase: supabase as AuthenticatedTenantContext["supabase"],
+    userId: USER_ID,
+    tenantId: TENANT_ID,
+    tenantRole: "engineer",
+    isTenantAdmin: false,
+    membership: {
+      id: "membership-1",
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      role: "engineer",
+      is_default: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    },
+    ...overrides,
+  };
+}
+
 type SupabaseMockOptions = {
-  user?: { id: string } | null;
   listData?: DevisRecord[] | null;
   listError?: ErrorLike | null;
   lastPosition?: number | null;
@@ -184,12 +208,7 @@ export function createDevisSupabaseMock(options: SupabaseMockOptions = {}) {
         : options.rpcUpdatedCount,
     error: options.rpcError ?? null,
   });
-  const user = options.user === undefined ? { id: USER_ID } : options.user;
-
   const supabase = {
-    auth: {
-      getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
-    },
     from,
     rpc,
     storage: { from: storageFrom },

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
+import { fetchApi } from "@/components/catalogue/api";
 import { DevisPreviewModal, isPreviewableType } from "@/components/DevisPreviewModal";
 import { DevisUploader } from "@/components/DevisUploader";
 import { ExportDropdown } from "@/components/ExportDropdown";
@@ -14,13 +15,8 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { EmptyState } from "@/components/ui/EmptyState";
-import {
-  exportToCSV,
-  exportToExcelWithSheets,
-  type ExportColumn,
-} from "@/lib/export";
+import type { ExportColumn } from "@/lib/export";
 import { formatEUR } from "@/lib/money";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type PurchaseOrderStatus =
   | "draft"
@@ -64,10 +60,6 @@ type DevisItemRow = {
 
 type DevisCache = Record<string, DevisItemRow[] | "loading" | "error">;
 
-type OrderItemExportRow = OrderItemRow & {
-  purchase_order_id: string;
-};
-
 type ItemExportRow = {
   order_reference: string;
   order_created_at: string;
@@ -84,6 +76,14 @@ type ItemExportRow = {
 };
 
 type ItemsCache = Record<string, OrderItemRow[] | "loading" | "error">;
+
+type OrdersPageResponse = {
+  items: PurchaseOrderListRow[];
+  suppliers: { id: string; name: string }[];
+  delivery_sites: { id: string; name: string }[];
+};
+
+const EMPTY_ORDER_LOOKUPS: { id: string; name: string }[] = [];
 
 function statusLabel(status: PurchaseOrderStatus) {
   switch (status) {
@@ -287,8 +287,6 @@ function buildItemsExportRows(
 }
 
 export default function OrdersPage() {
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-
   // Filtered data state
   const [displayedOrders, setDisplayedOrders] = useState<PurchaseOrderListRow[]>([]);
   const [isExporting, setIsExporting] = useState(false);
@@ -309,87 +307,18 @@ export default function OrdersPage() {
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
-  const fetchOrders = useCallback(async () => {
-    // Fetch orders
-    const { data: ordersData, error: ordersError } = await supabase
-      .from("purchase_orders")
-      .select(
-        "id, reference, created_at, status, expected_delivery_date, total_ht_cents, suppliers ( id, name ), delivery_sites ( id, name )"
-      )
-      .order("created_at", { ascending: false });
-
-    if (ordersError) {
-      throw ordersError;
-    }
-
-    const orders = ordersData ?? [];
-
-    // Fetch devis counts for all orders
-    const orderIds = orders.map((o) => o.id);
-    const { data: devisData } = await supabase
-      .from("purchase_order_devis")
-      .select("purchase_order_id")
-      .in("purchase_order_id", orderIds);
-
-    // Count devis per order
-    const devisCountMap: Record<string, number> = {};
-    (devisData ?? []).forEach((d) => {
-      const orderId = d.purchase_order_id;
-      devisCountMap[orderId] = (devisCountMap[orderId] ?? 0) + 1;
-    });
-
-    // Transform to include devis_count and has_devis
-    const transformed = orders.map((order) => {
-      const devisCount = devisCountMap[order.id] ?? 0;
-      return {
-        ...order,
-        devis_count: devisCount,
-        has_devis: devisCount > 0 ? "with" : "without",
-      } as unknown as PurchaseOrderListRow;
-    });
-
-    return transformed;
-  }, [supabase]);
-
-  // Fetch suppliers for filter dropdown
-  const fetchSuppliers = useCallback(async () => {
-    const { data } = await supabase
-      .from("suppliers")
-      .select("id, name")
-      .order("name");
-    return (data ?? []) as { id: string; name: string }[];
-  }, [supabase]);
-
-  // Fetch sites for filter dropdown
-  const fetchSites = useCallback(async () => {
-    const { data } = await supabase
-      .from("delivery_sites")
-      .select("id, name")
-      .order("name");
-    return (data ?? []) as { id: string; name: string }[];
-  }, [supabase]);
-
-  // Fetch order items on-demand for accordion
   const fetchOrderItems = useCallback(async (orderId: string) => {
     setItemsCache((prev) => ({ ...prev, [orderId]: "loading" }));
 
     try {
-      const { data, error } = await supabase
-        .from("purchase_order_items")
-        .select("id, designation, reference, quantity, unit_price_ht_cents, line_total_ht_cents")
-        .eq("purchase_order_id", orderId)
-        .order("position", { ascending: true });
-
-      if (error) throw error;
-
-      setItemsCache((prev) => ({
-        ...prev,
-        [orderId]: (data ?? []) as OrderItemRow[],
-      }));
+      const data = await fetchApi<{ items: OrderItemRow[] }>(
+        `/api/orders?view=items&order_id=${encodeURIComponent(orderId)}`
+      );
+      setItemsCache((prev) => ({ ...prev, [orderId]: data.items }));
     } catch {
       setItemsCache((prev) => ({ ...prev, [orderId]: "error" }));
     }
-  }, [supabase]);
+  }, []);
 
   // Fetch order devis on-demand for accordion
   const fetchOrderDevis = useCallback(async (orderId: string, force = false) => {
@@ -418,39 +347,13 @@ export default function OrdersPage() {
       return {};
     }
 
-    const { data, error } = await supabase
-      .from("purchase_order_items")
-      .select(
-        "id, purchase_order_id, designation, reference, quantity, unit_price_ht_cents, line_total_ht_cents"
-      )
-      .in("purchase_order_id", orderIds)
-      .order("purchase_order_id", { ascending: true })
-      .order("position", { ascending: true });
-
-    if (error) {
-      throw error;
-    }
-
-    const itemsByOrderId: Record<string, OrderItemRow[]> = {};
-    (data ?? []).forEach((item) => {
-      const typedItem = item as OrderItemExportRow;
-      const orderId = typedItem.purchase_order_id;
-      const rest: OrderItemRow = {
-        id: typedItem.id,
-        designation: typedItem.designation,
-        reference: typedItem.reference,
-        quantity: typedItem.quantity,
-        unit_price_ht_cents: typedItem.unit_price_ht_cents,
-        line_total_ht_cents: typedItem.line_total_ht_cents,
-      };
-      if (!itemsByOrderId[orderId]) {
-        itemsByOrderId[orderId] = [];
-      }
-      itemsByOrderId[orderId].push(rest);
-    });
-
-    return itemsByOrderId;
-  }, [supabase]);
+    const query = new URLSearchParams({ view: "items" });
+    orderIds.forEach((orderId) => query.append("order_id", orderId));
+    const data = await fetchApi<{ itemsByOrderId: Record<string, OrderItemRow[]> }>(
+      `/api/orders?${query.toString()}`
+    );
+    return data.itemsByOrderId ?? {};
+  }, []);
 
   // Toggle accordion expansion
   const handleToggleExpand = useCallback((orderId: string) => {
@@ -474,19 +377,19 @@ export default function OrdersPage() {
   }, [itemsCache, devisCache, fetchOrderItems, fetchOrderDevis]);
 
   const {
-    data: orders = [],
+    data,
     error: loadError,
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<PurchaseOrderListRow[]>("purchase-orders", fetchOrders, {
+  } = useSWR<OrdersPageResponse>("/api/orders", fetchApi, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
   });
-
-  const { data: suppliers = [] } = useSWR("suppliers-filter-options", fetchSuppliers);
-  const { data: sites = [] } = useSWR("sites-filter-options", fetchSites);
+  const orders = data?.items ?? [];
+  const suppliers = data?.suppliers ?? EMPTY_ORDER_LOOKUPS;
+  const sites = data?.delivery_sites ?? EMPTY_ORDER_LOOKUPS;
 
   // Export handlers
   const handleExportExcel = useCallback(async () => {
@@ -502,7 +405,8 @@ export default function OrdersPage() {
       const itemsByOrderId = await fetchOrderItemsForExport(orderIds);
       const itemsRows = buildItemsExportRows(displayedOrders, itemsByOrderId);
 
-      exportToExcelWithSheets([
+      const { exportToExcelWithSheets } = await import("@/lib/export");
+      await exportToExcelWithSheets([
         {
           name: "Commandes",
           data: displayedOrders,
@@ -533,7 +437,8 @@ export default function OrdersPage() {
       const orderIds = displayedOrders.map((order) => order.id);
       const itemsByOrderId = await fetchOrderItemsForExport(orderIds);
       const itemsRows = buildItemsExportRows(displayedOrders, itemsByOrderId);
-      exportToCSV(itemsRows, ITEM_EXPORT_COLUMNS, { filename });
+      const { exportToCSV } = await import("@/lib/export");
+      await exportToCSV(itemsRows, ITEM_EXPORT_COLUMNS, { filename });
     } catch (error) {
       console.error("Erreur lors de l'export CSV.", error);
     } finally {

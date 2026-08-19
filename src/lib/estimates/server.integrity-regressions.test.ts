@@ -7,6 +7,10 @@ const serverSource = readFileSync(
   join(process.cwd(), "src/lib/estimates/server.ts"),
   "utf8"
 );
+const serverContextSource = readFileSync(
+  join(process.cwd(), "src/lib/estimates/server-context.ts"),
+  "utf8"
+);
 const versionTotalsSource = readFileSync(
   join(process.cwd(), "src/lib/estimates/version-totals.ts"),
   "utf8"
@@ -35,8 +39,8 @@ const calcEngineGovernanceMigration = readFileSync(
 
 describe("estimate version integrity regressions", () => {
   it("loads every governed rule input before send gating", () => {
-    const accessSource = serverSource.match(
-      /async function getVersionAccessOrThrow[\s\S]*?\n}\n\nasync function assertDraftLockOwnedByCurrentUser/
+    const accessSource = serverContextSource.match(
+      /export async function getVersionAccessOrThrow[\s\S]*?\n}\n\n(?=(?:export )?(?:async )?function )/
     )?.[0];
 
     expect(accessSource).toBeDefined();
@@ -54,7 +58,7 @@ describe("estimate version integrity regressions", () => {
 
   it("loads the contractor role and delegates reverse-charge VAT during authoritative recalculation", () => {
     const recalculateSource = serverSource.match(
-      /async function recalculateEstimateVersionTotals[\s\S]*?\n}\n\nfunction resolveEmbeddedOne/
+      /async function recalculateEstimateVersionTotals[\s\S]*?\n}\n\n(?=(?:export )?(?:async )?function )/
     )?.[0];
 
     expect(recalculateSource).toBeDefined();

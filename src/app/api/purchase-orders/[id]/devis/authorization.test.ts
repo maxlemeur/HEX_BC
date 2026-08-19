@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: vi.fn(),
+vi.mock("@/lib/auth/tenant-context", () => ({
+  getAuthenticatedTenantContext: vi.fn(),
 }));
 
 vi.mock("@/lib/purchase-orders", () => ({
@@ -18,13 +18,15 @@ import {
   SECOND_DEVIS_ID,
   TENANT_ID,
   USER_ID,
+  buildAuthenticatedTenantContext,
   createDevisSupabaseMock,
 } from "@/app/api/purchase-orders/[id]/devis/devis.test-utils";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { unauthorized } from "@/lib/estimates/errors";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const orderParams = { params: Promise.resolve({ id: ORDER_ID }) };
 const devisParams = {
@@ -89,7 +91,6 @@ const mutations = [
   },
 ] as const;
 
-const mockedCreateClient = vi.mocked(createSupabaseServerClient);
 const mockedGetOrder = vi.mocked(getAccessiblePurchaseOrderOrNull);
 const mockedCanWrite = vi.mocked(canWritePurchaseOrders);
 
@@ -99,12 +100,13 @@ describe("purchase order devis mutation authorization", () => {
   });
 
   it.each(mutations)("requires authentication for $label", async ({ call }) => {
-    const harness = createDevisSupabaseMock({ user: null });
-    mockedCreateClient.mockResolvedValue(harness.supabase as never);
+    const harness = createDevisSupabaseMock();
+    vi.mocked(getAuthenticatedTenantContext).mockRejectedValue(unauthorized());
 
     const response = await call();
 
     expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mockedGetOrder).not.toHaveBeenCalled();
     expect(harness.from).not.toHaveBeenCalled();
     expect(harness.storageFrom).not.toHaveBeenCalled();
@@ -112,7 +114,9 @@ describe("purchase order devis mutation authorization", () => {
 
   it.each(mutations)("rejects a read-only member for $label", async ({ call }) => {
     const harness = createDevisSupabaseMock();
-    mockedCreateClient.mockResolvedValue(harness.supabase as never);
+    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
+      buildAuthenticatedTenantContext(harness.supabase)
+    );
     mockedGetOrder.mockResolvedValue({
       id: ORDER_ID,
       tenant_id: TENANT_ID,
@@ -134,7 +138,9 @@ describe("purchase order devis mutation authorization", () => {
 
   it.each(mutations)("blocks a canceled order for $label", async ({ call }) => {
     const harness = createDevisSupabaseMock();
-    mockedCreateClient.mockResolvedValue(harness.supabase as never);
+    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
+      buildAuthenticatedTenantContext(harness.supabase)
+    );
     mockedGetOrder.mockResolvedValue({
       id: ORDER_ID,
       tenant_id: TENANT_ID,

@@ -36,4 +36,10 @@ export const openApiRouteExclusions = [
     reason:
       "Alias de compatibilite qui reexporte exactement GET /api/takeoff/stats, route canonique documentee.",
   },
+  {
+    path: "/api/health",
+    methods: ["GET"],
+    reason:
+      "Sonde d'exploitation anonyme renvoyant { ok, version, db }, hors contrat metier.",
+  },
 ] as const satisfies readonly OpenApiRouteExclusion[];

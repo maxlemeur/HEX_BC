@@ -39,12 +39,21 @@ describe("GET /api/internal/workflows/recover", () => {
       dispatchedCount: 2,
       failedCount: 0,
       skippedCount: 0,
+      deadCount: 0,
       failures: [],
       procurementStorageCleanup: {
         claimed: 1,
         removed: 1,
         failed: 0,
         skipped: false,
+        errors: [],
+      },
+      emailOutbox: {
+        claimed: 0,
+        sent: 0,
+        failed: 0,
+        dead: 0,
+        skipped: true,
         errors: [],
       },
     });

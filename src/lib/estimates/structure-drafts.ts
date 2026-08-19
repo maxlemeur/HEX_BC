@@ -12,9 +12,8 @@ import {
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
-import {
-  getAuthenticatedTenantContext as getAuthenticatedContext,
-} from "@/lib/auth/tenant-context";
+import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -1619,7 +1618,7 @@ async function loadStructureDraftSourceBundle(input: {
           ? version.margin_multiplier
           : 1,
       defaultTaxRateBp:
-        typeof version.tax_rate_bp === "number" ? version.tax_rate_bp : 2000,
+        typeof version.tax_rate_bp === "number" ? version.tax_rate_bp : DEFAULT_TAX_RATE_BP,
     });
     const validLines = sortValidImportFlowLines(normalized.validLines).slice(0, 40);
 
