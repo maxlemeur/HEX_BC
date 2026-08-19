@@ -1,9 +1,8 @@
 name: Quality Gate
 
-# Garde-fou sans secret : dependances, architecture, OpenAPI, qualite statique,
-# tests bornes, couverture des frontieres critiques et artefact Webpack reel.
-# Le smoke lance l'artefact avec `next start`; Playwright garde la validation
-# fonctionnelle distante dans un workflow separe et serialise.
+# Garde-fou sans secret, decoupe en trois jobs paralleles : le retour arrive en
+# ~3 min au lieu de ~6, et le nom du job en echec dit deja ou chercher.
+# Le check requis reste « quality-gate », agrege a la fin.
 
 on:
   pull_request:
@@ -18,19 +17,21 @@ concurrency:
   group: quality-gate-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  CI: "1"
+  # Valeurs factices : les modules importes a la compilation instancient un
+  # client Supabase, mais aucun test unitaire n'atteint le reseau.
+  NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-anon-key"
+
 jobs:
-  quality-gate:
+  static:
+    name: Statique
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 15
     env:
-      CI: "1"
-      # Valeurs factices : les modules importes a la compilation instancient un
-      # client Supabase, mais aucun test unitaire n'atteint le reseau.
-      NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-anon-key"
       MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
       MIGRATION_DIFF_MODE: ${{ github.event_name }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,11 +48,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Les etapes tournent meme si une precedente echoue : une PR voit ainsi
+      # tous ses problemes en une passe au lieu d'un par aller-retour.
       - name: Enforce append-only migration history
-        if: ${{ !cancelled() }}
         run: npm run supabase:migrations:git-guard
 
       - name: Audit dependencies
+        if: ${{ !cancelled() }}
         run: npm run audit:dependencies
 
       - name: Verify dependency signatures
@@ -62,41 +65,90 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:architecture
 
-      # Les etapes tournent meme si une precedente echoue : une PR voit
-      # ainsi tous ses problemes en une passe au lieu d'un par aller-retour.
       - name: Validate OpenAPI
-        id: openapi
+        if: ${{ !cancelled() }}
         run: npm run validate-openapi
 
       - name: Typecheck
-        id: typecheck
         if: ${{ !cancelled() }}
         run: npm run typecheck
 
       - name: Lint
-        id: lint
         if: ${{ !cancelled() }}
         run: npm run lint
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
 
       # Les deux projets Vitest ont des environnements incompatibles. Les
       # isoler empeche un test React/jsdom d'etre execute sous Node et rend le
       # diagnostic CI explicite pour chaque perimetre.
       - name: Unit tests (Node)
-        id: tests-node
-        if: ${{ !cancelled() }}
         run: npm run test:ci:node
 
       - name: Unit tests (jsdom)
-        id: tests-jsdom
         if: ${{ !cancelled() }}
         run: npm run test:ci:jsdom
 
       - name: Critical boundary coverage
-        id: critical-coverage
         if: ${{ !cancelled() }}
         run: npm run test:critical-coverage
 
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Production Webpack build and smoke
-        id: production-smoke
-        if: ${{ !cancelled() }}
         run: npm run verify:production
+
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [static, tests, build]
+    if: ${{ always() }}
+    steps:
+      - name: Aggregate results
+        run: |
+          set -euo pipefail
+          echo "statique : ${{ needs.static.result }}"
+          echo "tests    : ${{ needs.tests.result }}"
+          echo "build    : ${{ needs.build.result }}"
+          if [ "${{ needs.static.result }}" != "success" ] \
+            || [ "${{ needs.tests.result }}" != "success" ] \
+            || [ "${{ needs.build.result }}" != "success" ]; then
+            echo "Quality Gate en echec : voir le job ci-dessus qui n'est pas 'success'."
+            exit 1
+          fi
+          echo "Quality Gate au vert."
