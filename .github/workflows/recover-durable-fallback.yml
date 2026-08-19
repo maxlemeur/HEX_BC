@@ -1,4 +1,7 @@
-# Hobby-plan fallback for vercel.json cron GET /api/internal/workflows/recover.
+# Planificateur unique de la reprise durable : GET /api/internal/workflows/recover.
+# Le cron a ete retire de vercel.json car le plan Vercel de l'equipe est Hobby,
+# qui n'autorise qu'une execution quotidienne : Vercel refusait alors de creer
+# le moindre deploiement (production figee du 09/08 au 19/08/2026).
 # Production origin: secrets.HEX_APP_URL, else vars.APP_URL. Fail closed if both
 # are missing. Do not log CRON_SECRET.
 

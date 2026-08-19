@@ -530,6 +530,25 @@ Leçon : un test vert contre un `fetch` mocké ne dit rien du contrat réel du
 fournisseur. Les sondes d'infrastructure doivent être exercées au moins une fois
 contre le vrai service.
 
+### Le cron `vercel.json` bloquait tous les déploiements (découvert le 19/08)
+
+Le check « Vercel » rouge sur toutes les PR n'était pas un build en échec : Vercel
+**refusait de créer le déploiement**. `vercel.json` déclarait un cron `*/5 * * * *`
+alors que l'équipe propriétaire est au plan **Hobby**, limité à une exécution
+quotidienne ; le lien du check pointait vers la page de tarification des crons.
+
+Conséquence : le dernier déploiement de production date du **09/08/2026 20:53**.
+Tout ce qui a été fusionné depuis — métré, gouvernance du moteur v2, travaux
+devis du 18/08, l'intégralité de la remédiation de dette et les montées de
+dépendances du 19/08 — n'était jamais parti en production. Dix jours de dérive
+entre `main` et la production, invisibles parce que le check n'était pas requis.
+
+Correctif : le cron est retiré de `vercel.json`. La reprise durable est planifiée
+par `.github/workflows/recover-durable-fallback.yml` (toutes les 5 minutes), qui
+devient l'unique planificateur. Ce workflow échoue tant que `CRON_SECRET` et
+`HEX_APP_URL` (ou la variable `APP_URL`) ne sont pas configurés dans le dépôt :
+la couche de reprise reste donc inerte jusque-là.
+
 ### Reste ouvert après la revue
 
 - **Outbox, lignes empoisonnées** : un dispatch dont `created_by` n'est plus admin/ingénieur, ou dont le tenant est suspendu, ne peut être ni rejoué ni clos (seule la transition `preparing → failed` accepte l'absence de bail). Il faut une migration (branche acteur-système dans `assert_estimate_email_dispatch_actor`, ou RPC de report avec backoff). D'ici là ces lignes sont listées mais comptées en erreur à chaque run.
