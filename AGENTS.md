@@ -73,6 +73,27 @@ Use strict TypeScript for exported APIs, 2-space indentation, semicolons, double
 
 For an explicitly authorized commit or push: re-run status, review the full scoped diff, stage only task-owned files, run `git diff --cached --check`, confirm validation, and reconcile with `origin/main` without force or loss of concurrent work. Use Conventional Commits with a ticket when available, for example `fix(EST-243): remove unused portal test imports`. An authorized PR must summarize the change, link the issue/story, list validation, include UI screenshots, and call out migrations, RLS, OpenAPI, environment changes, and limitations.
 
+## Cursor Cloud specific instructions
+
+Durable, non-obvious notes for running this app in a Cursor Cloud VM. Standard commands live in `package.json`, `README.md`, and the sections above — reference those, this only captures gotchas.
+
+- **Node 24 vs the daemon node shim.** The base image injects a Node 22 shim at `/exec-daemon/node` that shadows nvm on `PATH`. Node 24 (per `.nvmrc`, required by `engines`) is installed via nvm and made to win through a `~/.bashrc` block that prepends `nvm which 24`. New shells get Node 24 automatically; if `node -v` ever shows v22, run `. "$HOME/.nvm/nvm.sh" && nvm use 24` (or re-`source ~/.bashrc`). The startup update script also refreshes this.
+- **The app needs a Supabase backend; local dev uses the Supabase CLI stack, which needs Docker.** Neither Docker nor Supabase is started by the update script — start them per session:
+  - Docker daemon: `sudo dockerd >/tmp/dockerd.log 2>&1 &` then `sudo chmod 666 /var/run/docker.sock`. Docker 29 must keep `containerd-snapshotter=false` so the `fuse-overlayfs` storage driver (set in `/etc/docker/daemon.json`) works.
+  - Supabase: `npx supabase start` (pinned CLI `2.109.1`; applies all migrations on first boot). It prints the API URL and keys.
+- **`.env.local` (gitignored) wires the app to the local stack.** Minimum working set: `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321`, plus the `ANON_KEY` and `SERVICE_ROLE_KEY` from `supabase start`/`supabase status`. See `.env.example` for the rest (all optional for basic dev).
+- **CRITICAL: grant table privileges after `supabase start` / `supabase db reset`.** The local stack does not auto-expose new tables (`config.toml` leaves `auto_expose_new_tables` unset), but migrations only grant a subset of tables explicitly and rely on legacy auto-expose for the rest. Without the grants below, authenticated reads on tables like `affaire_briefs`, `feature_flags`, `supply_types`, `dpgf_imports` fail with Postgres `42501 permission denied`, so the dashboard and every list render "Impossible de charger" / "Accès refusé" while writes still succeed. RLS is still the row-level boundary, so replicating legacy auto-expose is safe:
+  ```bash
+  CID=$(docker ps --format '{{.Names}}' | grep -i supabase_db | head -1)
+  docker exec -e PGPASSWORD=postgres "$CID" psql -U postgres -d postgres \
+    -c "grant usage on schema public to anon, authenticated;" \
+    -c "grant select, insert, update, delete on all tables in schema public to anon, authenticated;" \
+    -c "grant usage, select on all sequences in schema public to anon, authenticated;" \
+    -c "grant execute on all functions in schema public to anon, authenticated;"
+  ```
+- **No test users are committed.** Email confirmation is disabled locally (`config.toml` `enable_confirmations = false`), so a fresh signup at `/signup` returns a session immediately, and the `handle_new_user` trigger provisions a profile + a fresh isolated tenant + an `admin` membership. A brand-new signup is therefore a fully working admin of its own empty tenant — the simplest way to exercise the app end to end (e.g. create an Affaire at `/dashboard/affaires/new`).
+- **Dev server:** `npm run dev` (Turbopack) on port 3000; `.next/dev/lock` prevents two dev servers in the same folder. `GET /api/health` returns `{"db":"up"}` once Supabase is reachable.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
