@@ -1,14 +1,20 @@
 name: Quality Gate
 
-# Garde-fou sans secret, decoupe en trois jobs paralleles : le retour arrive en
-# ~3 min au lieu de ~6, et le nom du job en echec dit deja ou chercher.
-# Le check requis reste « quality-gate », agrege a la fin.
+# Garde-fou sans secret, decoupe en jobs paralleles : le retour arrive en ~3 min
+# et le nom du job en echec dit deja ou chercher.
+#
+# Sur une PR, seuls « Statique » et « Tests » tournent : c'est le retour utile,
+# pour deux runners. Le build de production ne tourne que sur main (la branche
+# qui deploie) et en nocturne : il ne protege rien de plus sur une PR, puisque
+# rien ne part en production depuis une branche.
 
 on:
   pull_request:
     branches: ["main"]
   push:
     branches: ["main"]
+  schedule:
+    - cron: "30 3 * * *"
 
 permissions:
   contents: read
@@ -114,6 +120,7 @@ jobs:
     name: Build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    if: ${{ github.event_name != 'pull_request' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -145,10 +152,11 @@ jobs:
           echo "statique : ${{ needs.static.result }}"
           echo "tests    : ${{ needs.tests.result }}"
           echo "build    : ${{ needs.build.result }}"
-          if [ "${{ needs.static.result }}" != "success" ] \
-            || [ "${{ needs.tests.result }}" != "success" ] \
-            || [ "${{ needs.build.result }}" != "success" ]; then
-            echo "Quality Gate en echec : voir le job ci-dessus qui n'est pas 'success'."
-            exit 1
-          fi
+          for result in "${{ needs.static.result }}" "${{ needs.tests.result }}" "${{ needs.build.result }}"; do
+            # « skipped » est attendu : le build ne tourne pas sur une PR.
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "Quality Gate en echec : voir le job ci-dessus qui n'est pas 'success'."
+              exit 1
+            fi
+          done
           echo "Quality Gate au vert."

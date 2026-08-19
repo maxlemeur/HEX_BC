@@ -1,10 +1,21 @@
 name: E2E RLS Matrix
 
+# Cette matrice monte une pile Supabase Docker complete : ~3 min de machine.
+# Elle ne se declenche donc que quand la base peut reellement avoir bouge
+# (migrations, tests pgTAP, outillage de garde), plus une passe nocturne qui
+# couvre les derives indirectes.
 on:
   pull_request:
     branches: ["main"]
-  push:
-    branches: ["main"]
+    paths:
+      - "supabase/**"
+      - "src/lib/estimates/rls.e2e.test.ts"
+      - "src/test/supabase-migration*"
+      - "src/test/local-supabase-ci*"
+      - "scripts/*supabase*"
+      - ".github/workflows/e2e-rls-matrix.yml"
+  schedule:
+    - cron: "45 3 * * *"
 
 permissions:
   contents: read
@@ -20,7 +31,7 @@ jobs:
     env:
       CI: "1"
       DO_NOT_TRACK: "1"
-      MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
       MIGRATION_DIFF_MODE: ${{ github.event_name }}
       SUPABASE_TELEMETRY_DISABLED: "1"
 
