@@ -9,6 +9,8 @@ const jsdomTestFiles = [
   "src/components/**/*.test.tsx",
   "src/hooks/**/*.test.ts",
   "src/hooks/**/*.test.tsx",
+  // Shared test-harness checks that need the jsdom setup file.
+  "src/test/**/*.test.tsx",
 ];
 
 export default defineConfig({
