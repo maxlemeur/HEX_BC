@@ -64,7 +64,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@react-email/components": "^1.0.8",
     "@react-pdf/renderer": "^4.3.2",
-    "@supabase/ssr": "^0.12.3",
+    "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.90.1",
     "@tanstack/react-virtual": "^3.13.18",
     "archiver": "^8.0.0",
