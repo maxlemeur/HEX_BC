@@ -11,7 +11,9 @@ loadEnvConfig(path.resolve(__dirname, "../.."));
 import {
   buildEstimateName,
   duplicateEstimateViaApi,
+  estimateDraftLockSessionHeaders,
   loginWithUi,
+  resolveEstimateDraftLockSessionId,
 } from "./helpers";
 
 type SeededEstimateLine = {
@@ -608,8 +610,14 @@ async function readLatestAppliedPriceSuggestion(input: {
 }
 
 async function acquireDraftLockViaApi(page: Page, versionId: string) {
+  const sessionId = await resolveEstimateDraftLockSessionId(page, versionId);
+  const headers = estimateDraftLockSessionHeaders(sessionId);
+  // Price-suggestion PATCH goes through takeoff/client, not estimates/client.ts.
+  // Keep the same UUID on later page fetches so assertDraftLock does not 409.
+  await page.setExtraHTTPHeaders(headers);
   const response = await page.request.post(`/api/estimates/${versionId}/lock`, {
     failOnStatusCode: false,
+    headers,
   });
   const body = await response.text();
 

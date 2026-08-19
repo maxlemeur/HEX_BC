@@ -2,11 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { expect, type Locator, type Page } from "@playwright/test";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "../../src/lib/estimates/lock-session";
 import { requireE2ELoginCredentials } from "../../src/test/required-environment";
 
 const ESTIMATE_EDIT_URL_PATTERN =
   /\/dashboard\/estimates\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/edit(?:[/?#].*)?$/i;
 const NO_ACTIVE_TENANT_PATTERN = /Aucun tenant actif pour cet utilisateur/i;
+// Must stay aligned with `ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY` in
+// `src/lib/estimates/client.ts`. Playwright `page.request` does not go through
+// that client, so e2e helpers mint or reuse the same UUID the editor page uses.
+const ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY =
+  "__miaouffrageEstimateDraftLockSessions";
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -407,6 +413,38 @@ export async function createEstimateViaWizard(
   return { projectName, title, versionId };
 }
 
+export function estimateDraftLockSessionHeaders(sessionId: string) {
+  return {
+    [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: sessionId,
+  };
+}
+
+export async function resolveEstimateDraftLockSessionId(
+  page: Page,
+  versionId: string
+) {
+  const mintedSessionId = crypto.randomUUID();
+  return page.evaluate(
+    ({ storeKey, targetVersionId, fallbackSessionId }) => {
+      const scope = globalThis as unknown as Record<
+        string,
+        Map<string, string> | undefined
+      >;
+      const store = scope[storeKey] ?? new Map<string, string>();
+      scope[storeKey] = store;
+      const existingSessionId = store.get(targetVersionId);
+      if (existingSessionId) return existingSessionId;
+      store.set(targetVersionId, fallbackSessionId);
+      return fallbackSessionId;
+    },
+    {
+      storeKey: ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY,
+      targetVersionId: versionId,
+      fallbackSessionId: mintedSessionId,
+    }
+  );
+}
+
 export async function duplicateEstimateViaApi(page: Page, versionId: string) {
   const response = await page.request.post(`/api/estimates/${versionId}/duplicate`, {
     failOnStatusCode: false,
@@ -451,6 +489,9 @@ export async function createLineViaApi(
 ) {
   const itemsEndpoint = `/api/estimates/${versionId}/items`;
   const lockEndpoint = `/api/estimates/${versionId}/lock`;
+  const draftLockHeaders = estimateDraftLockSessionHeaders(
+    await resolveEstimateDraftLockSessionId(page, versionId)
+  );
   const linePayload = {
     item_type: "line" as const,
     title: lineTitle,
@@ -466,6 +507,7 @@ export async function createLineViaApi(
   async function postJson(url: string, payload?: Record<string, unknown>) {
     const response = await page.request.post(url, {
       failOnStatusCode: false,
+      headers: draftLockHeaders,
       ...(payload ? { data: payload } : {}),
     });
 
