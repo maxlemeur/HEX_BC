@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/maxlemeur/HEX_BC/compare/v0.4.1...v0.4.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* **ci:** mapper le mode de diff des migrations pour les passes planifiees ([2b6f961](https://github.com/maxlemeur/HEX_BC/commit/2b6f961bd99ba4fc917cc6c199beddb19fcd4731))
+
 ## [0.4.1](https://github.com/maxlemeur/HEX_BC/compare/v0.4.0...v0.4.1) (2026-08-19)
 
 
