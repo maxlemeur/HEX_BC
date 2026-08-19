@@ -87,11 +87,6 @@ const STATUS_OPTIONS = [
 
 const PRODUCT_PAGE_SIZES = [25, 50, 100] as const;
 
-function taxLabelFromBp(taxRateBp: number) {
-  if (taxRateBp % 100 === 0) return `${taxRateBp / 100} %`;
-  return `${(taxRateBp / 100).toFixed(1).replace(".", ",")} %`;
-}
-
 function formatDateOnly(value: string | null) {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return value ?? "";
@@ -768,9 +763,6 @@ export default function ProductsPage() {
                 </th>
                 <th scope="col">Meilleur prix fournisseur</th>
                 <th scope="col">État du prix</th>
-                <th scope="col" className="text-center">
-                  TVA
-                </th>
                 <th scope="col" className="text-right">
                   Actions
                 </th>
@@ -780,7 +772,7 @@ export default function ProductsPage() {
               {isLoading && !data ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={7}
                     className="py-12 text-center text-[var(--slate-500)]"
                   >
                     Chargement de la base produits...
@@ -788,7 +780,7 @@ export default function ProductsPage() {
                 </tr>
               ) : globalTotal === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-14 text-center">
+                  <td colSpan={7} className="py-14 text-center">
                     <div className="mx-auto max-w-lg">
                       <p className="text-lg font-semibold text-[var(--slate-800)]">
                         Construisez votre première base articles
@@ -826,7 +818,7 @@ export default function ProductsPage() {
               ) : totalItems === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={7}
                     className="py-12 text-center text-[var(--slate-500)]"
                   >
                     Aucun produit ne correspond aux filtres.
@@ -885,7 +877,7 @@ export default function ProductsPage() {
                       <div className="mt-1 text-xs text-[var(--slate-500)]">
                         {referencePriceSourceLabel(product)}
                       </div>
-                    </td>{" "}
+                    </td>
                     <td>
                       {product._bestSupplierPriceCents !== null ? (
                         <>
@@ -909,9 +901,6 @@ export default function ProductsPage() {
                       >
                         {freshnessLabel(product._priceStatus)}
                       </span>
-                    </td>
-                    <td className="text-center text-sm font-medium text-[var(--slate-700)]">
-                      {taxLabelFromBp(product.tax_rate_bp)}
                     </td>
                     <td>
                       <div className="flex flex-wrap justify-end gap-2">
@@ -1010,6 +999,8 @@ export default function ProductsPage() {
         product={editingProduct}
         isSaving={isSaving}
         error={formError}
+        categorySuggestions={data?.facets.categories}
+        materialSuggestions={data?.facets.materials}
         onOpenChange={handleFormOpenChange}
         onSubmit={saveProduct}
       />
