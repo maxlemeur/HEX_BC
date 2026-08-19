@@ -37,7 +37,9 @@ jobs:
     timeout-minutes: 15
     env:
       MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
-      MIGRATION_DIFF_MODE: ${{ github.event_name }}
+      # Le garde n'accepte que local | pull_request | push : on mappe
+      # explicitement, sinon un declenchement planifie le ferait echouer.
+      MIGRATION_DIFF_MODE: ${{ github.event_name == 'pull_request' && 'pull_request' || (github.event_name == 'push' && 'push') || 'local' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

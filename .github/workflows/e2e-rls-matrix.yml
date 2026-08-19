@@ -32,7 +32,9 @@ jobs:
       CI: "1"
       DO_NOT_TRACK: "1"
       MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
-      MIGRATION_DIFF_MODE: ${{ github.event_name }}
+      # Le garde n'accepte que local | pull_request | push : on mappe
+      # explicitement, sinon la passe nocturne le ferait echouer.
+      MIGRATION_DIFF_MODE: ${{ github.event_name == 'pull_request' && 'pull_request' || 'local' }}
       SUPABASE_TELEMETRY_DISABLED: "1"
 
     steps:

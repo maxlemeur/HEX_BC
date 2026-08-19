@@ -234,7 +234,13 @@ describe("local Supabase CI", () => {
     expect(workflow).toContain("fetch-depth: 0");
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toContain("github.event.pull_request.base.sha");
-    expect(workflow).toContain("github.event.before");
+    // Hors pull request (passe nocturne), aucune base de diff n'est imposee :
+    // le garde resout lui-meme origin/main en mode local.
+    expect(workflow).toContain("github.event.pull_request.base.sha || ''");
+    expect(workflow).toContain(
+      "github.event_name == 'pull_request' && 'pull_request' || 'local'"
+    );
+    expect(workflow).not.toContain("github.event.before");
     expect(workflow).toContain("github.ref || github.run_id");
     expect(workflow).toContain(
       "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
