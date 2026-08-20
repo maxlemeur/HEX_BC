@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useTransition } from "react";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import type {
   AffaireIntakeDocumentKind,
   AffaireIntakeDocumentPriority,

@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
-vi.mock("@/components/ui/Toast", () => ({
+vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => mockToast,
 }));
 

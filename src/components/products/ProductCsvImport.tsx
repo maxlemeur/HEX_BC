@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui-legacy/Button";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { parseProductCsv } from "./product-csv";
@@ -51,11 +51,11 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
 
     setFileName(file.name);
     if (!file.name.toLowerCase().endsWith(".csv")) {
-      setError("Sélectionnez un fichier au format CSV.");
+      setError("SÃ©lectionnez un fichier au format CSV.");
       return;
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      setError("Le fichier dépasse la taille maximale de 5 Mo.");
+      setError("Le fichier dÃ©passe la taille maximale de 5 Mo.");
       return;
     }
 
@@ -89,7 +89,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
 
     try {
       await onImported();
-      setSuccess(`${result.acceptedRows.length} produit(s) importé(s) avec succès.`);
+      setSuccess(`${result.acceptedRows.length} produit(s) importÃ©(s) avec succÃ¨s.`);
     } catch (refreshError) {
       setError(
         refreshError instanceof Error
@@ -118,7 +118,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
             <div>
               <Modal.Title>Importer des produits</Modal.Title>
               <p className="mt-1 text-sm text-slate-500">
-                Chargez un CSV séparé par une virgule ou un point-virgule.
+                Chargez un CSV sÃ©parÃ© par une virgule ou un point-virgule.
               </p>
             </div>
             <Modal.Close disabled={isImporting} />
@@ -131,8 +131,8 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               Fichier CSV
             </label>
             <p id="product-csv-help" className="mb-3 mt-1 text-xs text-slate-500">
-              La désignation est obligatoire. Colonnes reconnues : référence, famille, type,
-              matière, nuance, dimensions, norme, unité, prix unitaire HT et TVA.
+              La dÃ©signation est obligatoire. Colonnes reconnues : rÃ©fÃ©rence, famille, type,
+              matiÃ¨re, nuance, dimensions, norme, unitÃ©, prix unitaire HT et TVA.
             </p>
             <input
               ref={fileInputRef}
@@ -157,13 +157,13 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
             <>
               <div className="grid gap-3 sm:grid-cols-3">
                 <SummaryCard label="Lignes valides" value={result.acceptedRows.length} tone="success" />
-                <SummaryCard label="Lignes rejetées" value={result.rejectedRows.length} tone="danger" />
-                <SummaryCard label="Séparateur détecté" value={result.delimiter === ";" ? "Point-virgule" : "Virgule"} />
+                <SummaryCard label="Lignes rejetÃ©es" value={result.rejectedRows.length} tone="danger" />
+                <SummaryCard label="SÃ©parateur dÃ©tectÃ©" value={result.delimiter === ";" ? "Point-virgule" : "Virgule"} />
               </div>
 
               {result.ignoredColumns.length > 0 ? (
                 <p className="text-xs text-slate-500">
-                  Colonnes ignorées : {result.ignoredColumns.join(", ")}.
+                  Colonnes ignorÃ©es : {result.ignoredColumns.join(", ")}.
                 </p>
               ) : null}
 
@@ -171,18 +171,18 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                 <section aria-labelledby="product-csv-preview-title">
                   <div className="mb-2 flex items-baseline justify-between gap-3">
                     <h3 id="product-csv-preview-title" className="text-sm font-semibold text-slate-800">
-                      Aperçu des lignes valides
+                      AperÃ§u des lignes valides
                     </h3>
-                    <span className="text-xs text-slate-500">10 premières lignes</span>
+                    <span className="text-xs text-slate-500">10 premiÃ¨res lignes</span>
                   </div>
                   <div className="overflow-x-auto rounded-xl border border-slate-200">
                     <table className="w-full min-w-[760px] text-left text-sm">
                       <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                         <tr>
-                          <th className="px-3 py-2 font-semibold">Référence</th>
-                          <th className="px-3 py-2 font-semibold">Désignation</th>
+                          <th className="px-3 py-2 font-semibold">RÃ©fÃ©rence</th>
+                          <th className="px-3 py-2 font-semibold">DÃ©signation</th>
                           <th className="px-3 py-2 font-semibold">Famille</th>
-                          <th className="px-3 py-2 font-semibold">Matière / nuance</th>
+                          <th className="px-3 py-2 font-semibold">MatiÃ¨re / nuance</th>
                           <th className="px-3 py-2 text-right font-semibold">Prix HT</th>
                           <th className="px-3 py-2 text-right font-semibold">TVA</th>
                         </tr>
@@ -190,14 +190,14 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                       <tbody className="divide-y divide-slate-100">
                         {result.acceptedRows.slice(0, 10).map((row, index) => (
                           <tr key={`${row.reference ?? row.designation}-${index}`}>
-                            <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.reference ?? "—"}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.reference ?? "â€”"}</td>
                             <td className="px-3 py-2 font-medium text-slate-800">{row.designation}</td>
-                            <td className="px-3 py-2 text-slate-600">{row.category ?? "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{row.category ?? "â€”"}</td>
                             <td className="px-3 py-2 text-slate-600">
-                              {[row.material, row.grade].filter(Boolean).join(" · ") || "—"}
+                              {[row.material, row.grade].filter(Boolean).join(" Â· ") || "â€”"}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-slate-700">
-                              {(row.unit_price_cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
+                              {(row.unit_price_cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} â‚¬
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-slate-700">
                               {(row.tax_rate_bp / 100).toLocaleString("fr-FR")} %
@@ -213,14 +213,14 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               {result.rejectedRows.length > 0 ? (
                 <section aria-labelledby="product-csv-rejected-title">
                   <h3 id="product-csv-rejected-title" className="mb-2 text-sm font-semibold text-red-800">
-                    Lignes rejetées
+                    Lignes rejetÃ©es
                   </h3>
                   <div className="max-h-40 overflow-auto rounded-xl border border-red-200">
                     <table className="w-full text-left text-sm">
                       <thead className="sticky top-0 bg-red-50 text-xs uppercase tracking-wide text-red-700">
                         <tr>
                           <th className="px-3 py-2 font-semibold">Ligne</th>
-                          <th className="px-3 py-2 font-semibold">Désignation</th>
+                          <th className="px-3 py-2 font-semibold">DÃ©signation</th>
                           <th className="px-3 py-2 font-semibold">Motif</th>
                         </tr>
                       </thead>
@@ -228,7 +228,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                         {result.rejectedRows.map((row) => (
                           <tr key={row.line}>
                             <td className="px-3 py-2 tabular-nums text-slate-600">{row.line}</td>
-                            <td className="px-3 py-2 text-slate-700">{row.designation || "—"}</td>
+                            <td className="px-3 py-2 text-slate-700">{row.designation || "â€”"}</td>
                             <td className="px-3 py-2 text-red-700">{row.reasons.join(" ; ")}</td>
                           </tr>
                         ))}

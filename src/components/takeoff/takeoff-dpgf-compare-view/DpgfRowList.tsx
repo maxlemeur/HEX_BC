@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import type { TakeoffDpgfComparisonRow } from "@/lib/takeoff/types";
 
 import {

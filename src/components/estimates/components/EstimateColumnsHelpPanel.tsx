@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/ColumnHeaderHelp";
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 
 type HelpTone = "general" | "supply" | "labor" | "sale" | "analysis";
 

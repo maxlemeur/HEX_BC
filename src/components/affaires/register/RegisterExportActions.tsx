@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { fetchAffaireRegisterReviewExportAction } from "@/app/dashboard/affaires/_actions/register";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 function downloadBlob(content: string, filename: string, type: string) {
   const blob = new Blob([content], { type });

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Select } from "@/components/ui/Select";
+import { Select } from "@/components/ui-legacy/Select";
 
 describe("ui/Select", () => {
   afterEach(() => {

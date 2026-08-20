@@ -2,8 +2,8 @@
 
 import { useCallback, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui-legacy/Button";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { SignaturePad } from "@/components/portal/SignaturePad";
 
 type AcceptEstimateModalProps = {

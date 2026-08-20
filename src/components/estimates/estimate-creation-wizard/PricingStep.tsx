@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import { NumberInput, parseLocalizedNumberInput } from "@/components/ui/NumberInput";
+import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import {
   PROJECT_FAMILY_OPTIONS,
   ROUNDING_OPTIONS,

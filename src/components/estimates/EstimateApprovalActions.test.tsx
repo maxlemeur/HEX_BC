@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-vi.mock("@/components/ui/Toast", () => ({
+vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => mockToast,
 }));
 

@@ -41,7 +41,7 @@ vi.mock("next/link", () => ({
   },
 }));
 
-vi.mock("@/components/ui/ConfirmModal", () => ({
+vi.mock("@/components/ui-legacy/ConfirmModal", () => ({
   ConfirmModal: () => null,
 }));
 

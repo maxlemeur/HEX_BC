@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import type { AffaireHubMarginAnalysisResult } from "@/lib/affaires/server";
 import { formatEUR } from "@/lib/money";
 

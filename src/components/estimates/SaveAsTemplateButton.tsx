@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui-legacy/Button";
+import { Input } from "@/components/ui-legacy/Input";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { createEstimateTemplate } from "@/lib/estimates/client";
 
 type SaveAsTemplateButtonProps = {

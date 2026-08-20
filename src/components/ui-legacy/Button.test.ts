@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui-legacy/Button";
 
 describe("ui/Button", () => {
   afterEach(() => {

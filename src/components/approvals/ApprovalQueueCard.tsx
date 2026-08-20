@@ -5,7 +5,7 @@ import Link from "next/link";
 import { formatEUR } from "@/lib/money";
 import type { ApprovalQueueItem, ExceptionGroupKey, ReviewerState } from "@/lib/approvals/server";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import { ApprovalQueueStateActions } from "./ApprovalQueueStateActions";
 
 // ---------------------------------------------------------------------------

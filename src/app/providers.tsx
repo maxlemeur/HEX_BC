@@ -1,6 +1,6 @@
 "use client";
 
-import { ToastProvider } from "@/components/ui/Toast";
+import { ToastProvider } from "@/components/ui-legacy/Toast";
 
 export default function AppProviders({
   children,

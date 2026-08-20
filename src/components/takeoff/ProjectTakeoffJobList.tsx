@@ -31,7 +31,7 @@ import {
   resolveTakeoffJobsRefreshInterval,
   resolveTakeoffMaxNavigablePagesByOffset,
 } from "@/components/takeoff/takeoff-job-list-shared";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import TakeoffExceptionsTab from "@/components/takeoff/TakeoffExceptionsTab";
 
 type Props = {

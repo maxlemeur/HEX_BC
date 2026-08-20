@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { fetchApi } from "@/components/catalogue/api";
-import { NumberInput } from "@/components/ui/NumberInput";
+import { NumberInput } from "@/components/ui-legacy/NumberInput";
 import type { CatalogueItem } from "@/components/catalogue/types";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 

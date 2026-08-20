@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import type { CatalogueItem } from "@/components/catalogue/types";
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { formatEUR } from "@/lib/money";
 import type {
   CreateEstimateAssemblyPayload,

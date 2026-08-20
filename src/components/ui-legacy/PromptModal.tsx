@@ -2,7 +2,7 @@
 
 import { useCallback, useId, useState } from "react";
 
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 
 type PromptModalProps = {
   open: boolean;

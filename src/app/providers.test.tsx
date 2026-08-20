@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import AppProviders from "@/app/providers";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 type ToastApi = ReturnType<typeof useToast>;
 

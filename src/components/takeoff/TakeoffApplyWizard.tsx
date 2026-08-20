@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
 import type {
   TakeoffMappingOverride,

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
 import { formatEUR } from "@/lib/money";
 import {
   fetchTakeoffPriceSuggestion,

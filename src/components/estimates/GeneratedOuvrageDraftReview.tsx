@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 
 import { GeneratedOuvrageCandidateCard } from "./GeneratedOuvrageCandidateCard";
 import type {

@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ToastProvider } from "@/components/ui/Toast";
+import { ToastProvider } from "@/components/ui-legacy/Toast";
 import { EstimateApiError } from "@/lib/estimates/client";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 

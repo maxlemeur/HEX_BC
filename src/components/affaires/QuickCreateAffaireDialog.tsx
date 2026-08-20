@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import { quickCreateAffaire } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui-legacy/Button";
+import { Input } from "@/components/ui-legacy/Input";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { useImportFlow } from "@/hooks/useImportFlow";
 
 

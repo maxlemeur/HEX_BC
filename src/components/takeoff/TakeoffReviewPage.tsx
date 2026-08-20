@@ -12,10 +12,10 @@ import {
 } from "react";
 
 import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { EvidencePanel } from "@/components/takeoff/EvidencePanel";

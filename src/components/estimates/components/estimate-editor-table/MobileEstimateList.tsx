@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import type { ColumnPreset } from "@/hooks/useColumnVisibility";
 import type { EstimateQualityFlagKey } from "@/lib/estimate-quality";
 import {

@@ -108,9 +108,9 @@ test.describe("V3-006 — Plan Center affaire", () => {
     await fileDeleteBtn.click();
 
     // Confirm deletion in the modal
-    const confirmDialog = page
-      .locator("div.fixed.inset-0.z-50")
-      .filter({ has: page.getByRole("heading", { name: /Supprimer le fichier/i }) });
+    const confirmDialog = page.getByRole("dialog", {
+      name: /Supprimer le fichier/i,
+    });
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole("button", { name: /^Supprimer$/i }).click();
     await expect(confirmDialog).toBeHidden({ timeout: 10_000 });
@@ -125,9 +125,9 @@ test.describe("V3-006 — Plan Center affaire", () => {
     });
     await setDeleteButton.click();
 
-    const setConfirmDialog = page
-      .locator("div.fixed.inset-0.z-50")
-      .filter({ has: page.getByRole("heading", { name: /Supprimer le jeu de plans/i }) });
+    const setConfirmDialog = page.getByRole("dialog", {
+      name: /Supprimer le jeu de plans/i,
+    });
     await expect(setConfirmDialog).toBeVisible();
     await setConfirmDialog.getByRole("button", { name: /^Supprimer$/i }).click();
     await expect(setConfirmDialog).toBeHidden({ timeout: 10_000 });

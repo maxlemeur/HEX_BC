@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-import { Badge } from "@/components/ui/Badge";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import type {
   AffaireHubDpgfSourceResult,
   AffaireHubFinishLineSummaryResult,

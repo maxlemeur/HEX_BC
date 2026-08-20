@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { formatEUR } from "@/lib/money";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
 import { useDeleteAffaire } from "./useDeleteAffaire";

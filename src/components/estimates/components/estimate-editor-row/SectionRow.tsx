@@ -5,7 +5,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui-legacy/Popover";
 
 import { type SectionTotals, UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-calculations";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";

@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { fetchApi } from "@/components/catalogue/api";
 import type { SupplierCatalogItem } from "@/components/catalogue/types";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
-import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 type SupplierCatalogItemModalProps = {
   item: EnrichedPrice | null;

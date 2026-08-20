@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 import {
   fetchGeneratedOuvrageSubdetailDraft,

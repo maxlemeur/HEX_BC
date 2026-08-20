@@ -1,4 +1,4 @@
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 
 export default function DashboardNotFound() {
   return (

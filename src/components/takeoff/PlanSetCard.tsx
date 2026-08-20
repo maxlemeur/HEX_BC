@@ -6,8 +6,8 @@ import useSWR from "swr";
 
 import { PlanFileCard, formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { Button } from "@/components/ui-legacy/Button";
 import {
   deletePlanFile as apiDeletePlanFile,
   deletePlanSet as apiDeletePlanSet,

@@ -6,9 +6,9 @@ import { fetchApi } from "@/components/catalogue/api";
 import type { SupplierPrice } from "@/components/catalogue/types";
 import type { EnrichedPrice, SupplierPriceFormState } from "@/components/catalogue/prices-manager/types";
 import { EMPTY_FORM, toEuroInput } from "@/components/catalogue/prices-manager/utils";
-import { Modal } from "@/components/ui/Modal";
-import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/SearchableSelect";
-import { useToast } from "@/components/ui/Toast";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/ui-legacy/SearchableSelect";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { parseEuroToCents } from "@/lib/money";
 
 type PriceFormModalProps = {

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Sparkline } from "@/components/ui/Sparkline";
+import { Sparkline } from "@/components/ui-legacy/Sparkline";
 
 type KPICardProps = {
   label: string;

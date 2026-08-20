@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PromptModal } from "@/components/ui/PromptModal";
+import { PromptModal } from "@/components/ui-legacy/PromptModal";
 
 describe("ui/PromptModal", () => {
   afterEach(() => {

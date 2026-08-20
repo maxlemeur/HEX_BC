@@ -9,7 +9,7 @@ import {
   requestAffaireRegisterRevalidationAction,
   updateAffaireRegisterEntryStatusAction,
 } from "@/app/dashboard/affaires/_actions/register";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
   type AffaireRegisterRevalidationImpactedStage,

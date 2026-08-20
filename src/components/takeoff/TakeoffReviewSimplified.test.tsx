@@ -10,7 +10,7 @@ const mockToast = {
   info: vi.fn(),
 };
 
-vi.mock("@/components/ui/Toast", () => ({
+vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => mockToast,
 }));
 

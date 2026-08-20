@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui-legacy/Button";
+import { Modal } from "@/components/ui-legacy/Modal";
 
 import { RISK_STATUS_LABELS } from "@/components/takeoff/takeoff-dpgf-compare-view/constants";
 

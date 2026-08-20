@@ -5,8 +5,8 @@ import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { TemplateLibraryTable } from "@/components/estimates/TemplateLibraryTable";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { PromptModal } from "@/components/ui/PromptModal";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { PromptModal } from "@/components/ui-legacy/PromptModal";
 import {
   deleteEstimateTemplate,
   duplicateEstimateTemplate,

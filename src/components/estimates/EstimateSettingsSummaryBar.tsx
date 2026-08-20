@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui-legacy/Popover";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 

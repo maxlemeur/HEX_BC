@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { startAffaireFromImport } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
 import type { AffaireProjectDetailsValues } from "@/components/affaires/AffaireProjectDetailsCard";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Button } from "@/components/ui-legacy/Button";
+import { Input } from "@/components/ui-legacy/Input";
 import { useImportFlow } from "@/hooks/useImportFlow";
 
 const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);

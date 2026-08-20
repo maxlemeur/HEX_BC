@@ -12,8 +12,8 @@ import {
 
 import { useUiMode } from "@/hooks/useUiMode";
 import { useIsWideViewport } from "@/hooks/useIsTablet";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { useToast } from "@/components/ui/Toast";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";

@@ -47,7 +47,7 @@ vi.mock("@/components/UserContext", () => ({
   }),
 }));
 
-vi.mock("@/components/ui/KeyboardShortcutsModal", () => ({
+vi.mock("@/components/ui-legacy/KeyboardShortcutsModal", () => ({
   KeyboardShortcutsModal: () => null,
 }));
 

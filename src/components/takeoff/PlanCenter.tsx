@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui-legacy/Button";
 import {
   createPlanSet,
   fetchPlanSets,

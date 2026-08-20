@@ -114,8 +114,10 @@ describe("estimate editor responsive grid", () => {
   });
 
   it("keeps the stylesheet contract that activates tablet and sticky tracks", () => {
+    // Les regles .estimate-* ont ete extraites de globals.css vers cette
+    // feuille dediee, qui reste hors @layer pour preserver la cascade.
     const css = readFileSync(
-      join(process.cwd(), "src/app/globals.css"),
+      join(process.cwd(), "src/styles/estimate-frozen.css"),
       "utf8",
     );
 
@@ -216,8 +218,10 @@ describe("estimate editor responsive grid", () => {
     expect(resolveSectionContextMenuTop(220, 295, 792)).toBe(220);
     expect(resolveSectionContextMenuTop(-20, 295, 792)).toBe(8);
 
+    // Les regles .estimate-* ont ete extraites de globals.css vers cette
+    // feuille dediee, qui reste hors @layer pour preserver la cascade.
     const css = readFileSync(
-      join(process.cwd(), "src/app/globals.css"),
+      join(process.cwd(), "src/styles/estimate-frozen.css"),
       "utf8",
     );
 

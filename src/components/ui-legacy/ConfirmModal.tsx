@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 
 type ConfirmModalProps = {
   open: boolean;

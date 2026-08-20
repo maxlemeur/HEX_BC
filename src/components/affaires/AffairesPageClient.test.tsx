@@ -54,7 +54,7 @@ vi.mock("@/hooks/useIsTablet", () => ({
   useIsWideViewport: () => isWideViewportValue,
 }));
 
-vi.mock("@/components/ui/Toast", () => ({
+vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => ({
     error: vi.fn(),
   }),

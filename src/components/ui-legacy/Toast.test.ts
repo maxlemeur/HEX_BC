@@ -8,7 +8,7 @@ import {
 import { createElement, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ToastProvider, useToast } from "@/components/ui/Toast";
+import { ToastProvider, useToast } from "@/components/ui-legacy/Toast";
 
 type ToastApi = ReturnType<typeof useToast>;
 

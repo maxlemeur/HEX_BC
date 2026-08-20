@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import { formatCurrency } from "@/lib/money";
 
 import type {

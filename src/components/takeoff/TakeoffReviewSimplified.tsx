@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui-legacy/Button";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { ReviewItemCard } from "@/components/takeoff/ReviewItemCard";
 import { ReviewProgressBar } from "@/components/takeoff/ReviewProgressBar";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";

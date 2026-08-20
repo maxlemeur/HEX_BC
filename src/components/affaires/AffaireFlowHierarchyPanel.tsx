@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
-import { Badge } from "@/components/ui/Badge";
-import { Popover } from "@/components/ui/Popover";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Popover } from "@/components/ui-legacy/Popover";
 import {
   AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
   isAffaireIntakePrimaryEligibleKind,

@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { assignDirectionProjectOwnerAction } from "@/app/dashboard/_actions/direction";
 import { ApprovalQueueStateActions } from "@/components/approvals/ApprovalQueueStateActions";
-import { Badge } from "@/components/ui/Badge";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import type {
   DirectionOwnerOption,
   DirectionWeeklyQueueItem,

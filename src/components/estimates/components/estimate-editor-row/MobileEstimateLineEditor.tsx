@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
   formatLaborRoleOptionLabel,

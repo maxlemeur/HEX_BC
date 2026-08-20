@@ -2,7 +2,7 @@ import { cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui-legacy/Skeleton";
 
 describe("ui/Skeleton", () => {
   afterEach(() => {

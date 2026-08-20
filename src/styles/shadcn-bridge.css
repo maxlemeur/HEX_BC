@@ -1,0 +1,103 @@
+/* ==========================================================================
+   Pont de tokens shadcn -> design system maison
+   ==========================================================================
+   Les composants shadcn consomment des tokens semantiques que ce depot n'avait
+   pas. En Tailwind v4, un utilitaire dont le token n'existe pas n'emet AUCUNE
+   regle : pas d'erreur, pas de warning, juste un popover transparent. Ce
+   fichier comble exactement ces trous, en pointant sur les valeurs deja
+   definies dans tokens.css. Aucune couleur nouvelle n'est introduite.
+
+   Ne rien ajouter ici qui ne soit un alias : la source de verite des couleurs
+   reste src/styles/tokens.css.
+   ========================================================================== */
+
+:root {
+  /* Surfaces. Le depot appelle "surface" ce que shadcn appelle "card"/"popover". */
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+
+  /* shadcn dit "destructive", le depot dit "danger". Meme role, meme valeur. */
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-foreground);
+
+  /* ATTENTION. Chez shadcn, --accent est le SURVOL NEUTRE des items de menu
+     (DropdownMenu, Select, Command, Tabs), pas une couleur d'accentuation de
+     marque. Le mapper sur --brand-orange rendrait orange tous les survols.
+     On reprend donc la valeur deja utilisee par .btn-ghost:hover. */
+  --accent: var(--slate-100);
+  --accent-foreground: var(--slate-900);
+
+  /* Bordure des champs de formulaire. */
+  --input: var(--slate-200);
+
+  /* Ancre de rayon. Uniquement consommee par les calc() internes de shadcn
+     (ex. input-group : calc(var(--radius) - 3px)). 10px = le border-radius
+     deja code en dur sur .btn et .form-input dans legacy.css.
+     On NE redefinit PAS l'echelle --radius-sm/md/lg (tokens.css la fixe deja)
+     ni --radius-xl : y toucher deplacerait des centaines de sites existants. */
+  --radius: 0.625rem;
+
+  /* Palette de graphiques : dérivée de la marque, pas de la palette neutre de
+     shadcn, pour rester coherente avec Sparkline/KPICard. */
+  --chart-1: var(--brand-blue);
+  --chart-2: var(--success);
+  --chart-3: var(--warning);
+  --chart-4: var(--brand-orange);
+  --chart-5: var(--info);
+
+  /* La sidebar reelle est un degrade pilote par .dashboard-sidebar dans
+     legacy.css ; ces tokens n'existent que pour les composants shadcn qui les
+     referencent, afin qu'ils ne rendent pas transparent. */
+  --sidebar: var(--brand-blue);
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: var(--brand-orange);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--brand-blue-light);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: var(--brand-blue-dark);
+  --sidebar-ring: var(--ring);
+}
+
+/* Expose les alias ci-dessus comme utilitaires Tailwind (bg-card, text-popover-
+   foreground, border-input, ...). tokens.css fait deja ce travail pour
+   background/foreground/primary/secondary/muted/border/ring/surface. */
+@theme inline {
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-input: var(--input);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Le preflight Tailwind pose `border: 0 solid currentColor`. Sans ce defaut,
+   les separateurs des composants shadcn qui ecrivent `border` / `border-t`
+   sans couleur (Table, Card, Separator... 15 des 25 composants) sortiraient en
+   #0f172a : des traits noirs. Le selecteur `*` a une specificite (0,0,0) et vit
+   dans @layer base ; les regles de legacy.css sont hors couche et toutes
+   scopees par classe, donc elles continuent de gagner. */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+}

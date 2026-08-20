@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
 import { EstimateApprovalDecisionJournalCard } from "@/components/estimates/EstimateApprovalDecisionJournalCard";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
@@ -29,7 +29,7 @@ import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-d
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type {
   AffaireRegisterPageResult,

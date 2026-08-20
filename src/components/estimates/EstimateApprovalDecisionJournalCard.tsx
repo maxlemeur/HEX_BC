@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 import {
   downloadEstimateApprovalDecisionJournalCsv,
   fetchEstimateApprovalDecisionJournal,

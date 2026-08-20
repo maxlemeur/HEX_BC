@@ -9,8 +9,8 @@ import { exportEstimate } from "@/lib/estimates/client";
 import type { EstimateStatus } from "@/lib/estimates/status";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
-import { Badge } from "@/components/ui/Badge";
-import { useToast } from "@/components/ui/Toast";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 import {
   describeSubmissionReadinessGroup,

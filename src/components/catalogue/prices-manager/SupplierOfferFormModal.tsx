@@ -9,12 +9,12 @@ import type {
 } from "@/components/catalogue/types";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { toEuroInput } from "@/components/catalogue/prices-manager/utils";
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import {
   SearchableSelect,
   type SearchableSelectOption,
-} from "@/components/ui/SearchableSelect";
-import { useToast } from "@/components/ui/Toast";
+} from "@/components/ui-legacy/SearchableSelect";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { parseEuroToCents } from "@/lib/money";
 
 type EntityMode = "existing" | "new";
@@ -261,7 +261,7 @@ export function SupplierOfferFormModal({
         setFormError(
           error instanceof Error
             ? error.message
-            : "Impossible de vérifier la fiche fournisseur.",
+            : "Impossible de vÃ©rifier la fiche fournisseur.",
         );
       })
       .finally(() => {
@@ -313,7 +313,7 @@ export function SupplierOfferFormModal({
       return;
     }
     if (!Number.isFinite(minQuantity) || minQuantity <= 0) {
-      setFormError("La quantité minimale doit être supérieure à zéro.");
+      setFormError("La quantitÃ© minimale doit Ãªtre supÃ©rieure Ã  zÃ©ro.");
       return;
     }
     if (!isHttpUrl(priceDraft.product_url)) {
@@ -322,7 +322,7 @@ export function SupplierOfferFormModal({
     }
     if (supplierMode === "existing" && !priceDraft.supplier_id) {
       setFormError(
-        "Sélectionnez un fournisseur existant ou créez-en un nouveau.",
+        "SÃ©lectionnez un fournisseur existant ou crÃ©ez-en un nouveau.",
       );
       return;
     }
@@ -331,11 +331,11 @@ export function SupplierOfferFormModal({
       return;
     }
     if (productMode === "existing" && !priceDraft.product_id) {
-      setFormError("Sélectionnez un article existant ou créez-en un nouveau.");
+      setFormError("SÃ©lectionnez un article existant ou crÃ©ez-en un nouveau.");
       return;
     }
     if (productMode === "new" && !productDraft.designation.trim()) {
-      setFormError("La désignation du nouvel article est obligatoire.");
+      setFormError("La dÃ©signation du nouvel article est obligatoire.");
       return;
     }
 
@@ -364,7 +364,7 @@ export function SupplierOfferFormModal({
             item: price,
           }),
         });
-        toast.success({ title: "Prix fournisseur mis à jour." });
+        toast.success({ title: "Prix fournisseur mis Ã  jour." });
       } else {
         const newProductPrice = parseEuroToCents(productDraft.unit_price_euros);
         if (productMode === "new" && newProductPrice === null) {
@@ -418,7 +418,7 @@ export function SupplierOfferFormModal({
             },
           }),
         });
-        toast.success({ title: "Fournisseur et tarif ajoutés à l'article." });
+        toast.success({ title: "Fournisseur et tarif ajoutÃ©s Ã  l'article." });
       }
 
       handleClose();
@@ -448,7 +448,7 @@ export function SupplierOfferFormModal({
                 : "Ajouter un fournisseur / tarif"}
             </Modal.Title>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              L&apos;article porte les caractéristiques communes ; la référence
+              L&apos;article porte les caractÃ©ristiques communes ; la rÃ©fÃ©rence
               et l&apos;URL appartiennent au fournisseur.
             </p>
           </div>
@@ -464,7 +464,7 @@ export function SupplierOfferFormModal({
                     1. Article commun
                   </h3>
                   <p className="text-xs text-[var(--slate-500)]">
-                    Désignation et caractéristiques partagées par tous les
+                    DÃ©signation et caractÃ©ristiques partagÃ©es par tous les
                     fournisseurs.
                   </p>
                 </div>
@@ -486,7 +486,7 @@ export function SupplierOfferFormModal({
                     }}
                   >
                     {productMode === "existing"
-                      ? "Créer un nouvel article"
+                      ? "CrÃ©er un nouvel article"
                       : "Choisir un article existant"}
                   </button>
                 ) : null}
@@ -499,7 +499,7 @@ export function SupplierOfferFormModal({
                     value={priceDraft.product_id}
                     label="Article *"
                     options={productOptions}
-                    placeholder="Rechercher une désignation ou une référence..."
+                    placeholder="Rechercher une dÃ©signation ou une rÃ©fÃ©rence..."
                     isLoading={isProductLoading}
                     disabled={isEditing || Boolean(defaultProductId)}
                     onQueryChange={(query) => {
@@ -520,13 +520,13 @@ export function SupplierOfferFormModal({
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <TextField
-                    label="Référence interne"
+                    label="RÃ©fÃ©rence interne"
                     value={productDraft.reference}
                     onChange={(value) => updateProduct("reference", value)}
                   />
                   <TextField
                     className="lg:col-span-3"
-                    label="Désignation *"
+                    label="DÃ©signation *"
                     value={productDraft.designation}
                     onChange={(value) => updateProduct("designation", value)}
                   />
@@ -541,7 +541,7 @@ export function SupplierOfferFormModal({
                     onChange={(value) => updateProduct("product_type", value)}
                   />
                   <TextField
-                    label="Matière"
+                    label="MatiÃ¨re"
                     value={productDraft.material}
                     onChange={(value) => updateProduct("material", value)}
                   />
@@ -561,7 +561,7 @@ export function SupplierOfferFormModal({
                     onChange={(value) => updateProduct("standard", value)}
                   />
                   <SelectField
-                    label="Unité"
+                    label="UnitÃ©"
                     value={productDraft.unit}
                     onChange={(value) => updateProduct("unit", value)}
                   />
@@ -598,7 +598,7 @@ export function SupplierOfferFormModal({
                     2. Fournisseur
                   </h3>
                   <p className="text-xs text-[var(--slate-500)]">
-                    Un seul fournisseur et une seule référence pour cet article.
+                    Un seul fournisseur et une seule rÃ©fÃ©rence pour cet article.
                   </p>
                 </div>
                 {!isEditing ? (
@@ -619,7 +619,7 @@ export function SupplierOfferFormModal({
                     }}
                   >
                     {supplierMode === "existing"
-                      ? "Créer un nouveau fournisseur"
+                      ? "CrÃ©er un nouveau fournisseur"
                       : "Choisir un fournisseur existant"}
                   </button>
                 ) : null}
@@ -657,7 +657,7 @@ export function SupplierOfferFormModal({
                     onChange={(value) => updateSupplier("contact_name", value)}
                   />
                   <TextField
-                    label="Téléphone"
+                    label="TÃ©lÃ©phone"
                     value={supplierDraft.phone}
                     onChange={(value) => updateSupplier("phone", value)}
                   />
@@ -708,7 +708,7 @@ export function SupplierOfferFormModal({
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <TextField
-                  label="Référence fournisseur"
+                  label="RÃ©fÃ©rence fournisseur"
                   value={priceDraft.supplier_sku}
                   disabled={Boolean(catalogItem) || isEditing}
                   onChange={(value) => updatePrice("supplier_sku", value)}
@@ -723,13 +723,13 @@ export function SupplierOfferFormModal({
               </div>
               {isCatalogItemLoading ? (
                 <p className="mt-2 text-xs text-[var(--slate-500)]">
-                  Vérification de la fiche existante...
+                  VÃ©rification de la fiche existante...
                 </p>
               ) : null}
               {catalogItem ? (
                 <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
-                  Cette fiche article–fournisseur existe déjà. Sa référence et
-                  son URL seront réutilisées ; elles se modifient séparément
+                  Cette fiche articleâ€“fournisseur existe dÃ©jÃ . Sa rÃ©fÃ©rence et
+                  son URL seront rÃ©utilisÃ©es ; elles se modifient sÃ©parÃ©ment
                   depuis la liste.
                 </p>
               ) : null}
@@ -746,12 +746,12 @@ export function SupplierOfferFormModal({
                   onChange={(value) => updatePrice("unit_price_euros", value)}
                 />
                 <SelectField
-                  label="Unité"
+                  label="UnitÃ©"
                   value={priceDraft.unit}
                   onChange={(value) => updatePrice("unit", value)}
                 />
                 <TextField
-                  label="Quantité minimale"
+                  label="QuantitÃ© minimale"
                   value={priceDraft.min_quantity}
                   onChange={(value) => updatePrice("min_quantity", value)}
                 />
@@ -818,7 +818,7 @@ export function SupplierOfferFormModal({
               {isSaving
                 ? "Enregistrement..."
                 : isEditing
-                  ? "Mettre à jour le tarif"
+                  ? "Mettre Ã  jour le tarif"
                   : "Ajouter le fournisseur / tarif"}
             </button>
           </Modal.Footer>
@@ -876,9 +876,9 @@ function SelectField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        <option value="u">Unité (u)</option>
-        <option value="ml">Mètre linéaire (ml)</option>
-        <option value="m2">Mètre carré (m²)</option>
+        <option value="u">UnitÃ© (u)</option>
+        <option value="ml">MÃ¨tre linÃ©aire (ml)</option>
+        <option value="m2">MÃ¨tre carrÃ© (mÂ²)</option>
         <option value="kg">Kilogramme (kg)</option>
         <option value="h">Heure (h)</option>
       </select>

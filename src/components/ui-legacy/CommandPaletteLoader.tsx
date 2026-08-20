@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 
 const CommandPalette = dynamic(
   () =>
-    import("@/components/ui/CommandPalette").then((m) => m.CommandPalette),
+    import("@/components/ui-legacy/CommandPalette").then((m) => m.CommandPalette),
   { ssr: false }
 );
 

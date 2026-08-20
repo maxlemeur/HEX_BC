@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { Badge } from "@/components/ui/Badge";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { useToast } from "@/components/ui/Toast";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { useToast } from "@/components/ui-legacy/Toast";
 import type {
   AffaireIntakeBriefBlockKey,
   AffaireIntakeBriefDraft,

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
-import { ToastProvider } from "@/components/ui/Toast";
+import { ToastProvider } from "@/components/ui-legacy/Toast";
 import { AffairePilotagePanel } from "./AffairePilotagePanel";
 import {
   buildFinishLineCards,

@@ -1,6 +1,6 @@
 import type { ApprovalQueueItem } from "@/lib/approvals/server";
 
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import { ApprovalQueueCard } from "./ApprovalQueueCard";
 
 type ApprovalQueueCardListProps = {

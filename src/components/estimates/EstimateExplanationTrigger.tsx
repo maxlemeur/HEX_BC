@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui-legacy/Button";
 import type { EstimateExplanationKind } from "@/lib/estimates/explanation-schemas";
 
 const EstimateExplanationPanel = dynamic(

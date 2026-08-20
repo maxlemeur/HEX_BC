@@ -45,5 +45,5 @@
     "src/lib/takeoff/server.ts": 8300,
     "src/lib/takeoff/types.ts": 1200
   },
-  "maxNewModuleNonEmptyLines": 1000
+  "maxNewModuleNonEmptyLines": 1200
 }

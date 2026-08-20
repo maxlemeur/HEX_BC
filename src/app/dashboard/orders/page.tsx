@@ -13,8 +13,8 @@ import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import type { ExportColumn } from "@/lib/export";
 import { formatEUR } from "@/lib/money";
 

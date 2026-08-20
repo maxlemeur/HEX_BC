@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui-legacy/Skeleton";
 import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 
 function TableRowSkeleton({ index }: { index: number }) {

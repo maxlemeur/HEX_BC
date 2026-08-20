@@ -7,7 +7,7 @@ import {
   EstimateCreationWizard,
   type EstimateCreationResult,
 } from "@/components/estimates/EstimateCreationWizard";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 export default function NewEstimatePage() {
   const router = useRouter();

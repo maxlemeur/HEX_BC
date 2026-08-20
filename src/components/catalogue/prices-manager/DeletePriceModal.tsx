@@ -4,8 +4,8 @@ import { useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
-import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { formatEUR } from "@/lib/money";
 
 type DeletePriceModalProps = {

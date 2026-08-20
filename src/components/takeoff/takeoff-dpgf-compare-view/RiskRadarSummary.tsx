@@ -1,7 +1,7 @@
 "use client";
 
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
 import type { TakeoffApiError } from "@/lib/takeoff/client";
 import { isTakeoffApiError } from "@/lib/takeoff/client";
 import type { TakeoffRiskAlert, TakeoffRiskRadarResponse } from "@/lib/takeoff/types";

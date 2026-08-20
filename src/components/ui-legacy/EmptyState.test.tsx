@@ -20,7 +20,7 @@ vi.mock("next/link", () => ({
   },
 }));
 
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 
 describe("ui/EmptyState", () => {
   afterEach(() => {

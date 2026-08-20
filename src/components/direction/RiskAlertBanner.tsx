@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { updateDirectionAlertStatusAction } from "@/app/dashboard/_actions/direction";
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import type { TakeoffRiskStatus } from "@/lib/takeoff/types";
 

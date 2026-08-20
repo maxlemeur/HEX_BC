@@ -8,9 +8,9 @@ import {
   launchTakeoffFromPlanSet,
   launchTakeoffFromSourceVersionPlanSet,
 } from "@/app/dashboard/affaires/_actions/takeoff";
-import { Badge } from "@/components/ui/Badge";
-import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { useToast } from "@/components/ui-legacy/Toast";
 import {
   TAKEOFF_LEVEL_BUSINESS_LABELS,
   getTakeoffSelectionWarning,

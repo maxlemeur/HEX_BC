@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 type BulkJsonPanelProps = {
   onCompleted: () => Promise<void> | void;

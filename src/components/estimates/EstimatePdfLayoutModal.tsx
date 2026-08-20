@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useOptionalUserContext } from "@/components/UserContext";
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { fetchEstimatePdfLayoutConfiguration } from "@/lib/estimates/client";
 import {
   applyEstimateTermsPolicy,

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 import { parseEuroToCents } from "@/lib/money";
 
 export type ProductRecord = {
@@ -59,9 +59,9 @@ type ProductFormModalProps = {
   product: ProductRecord | null;
   isSaving: boolean;
   error: string | null;
-  /** Familles déjà utilisées dans le référentiel, proposées en autocomplétion. */
+  /** Familles dÃ©jÃ  utilisÃ©es dans le rÃ©fÃ©rentiel, proposÃ©es en autocomplÃ©tion. */
   categorySuggestions?: readonly string[];
-  /** Matières déjà utilisées dans le référentiel, proposées en autocomplétion. */
+  /** MatiÃ¨res dÃ©jÃ  utilisÃ©es dans le rÃ©fÃ©rentiel, proposÃ©es en autocomplÃ©tion. */
   materialSuggestions?: readonly string[];
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: ProductPayload) => Promise<void> | void;
@@ -150,7 +150,7 @@ export function ProductFormModal({
 
     const designation = form.designation.trim();
     if (!designation) {
-      setLocalError("La désignation est obligatoire.");
+      setLocalError("La dÃ©signation est obligatoire.");
       return;
     }
 
@@ -158,7 +158,7 @@ export function ProductFormModal({
     const unitPriceCents =
       rawPrice.length === 0 ? 0 : parseEuroToCents(rawPrice);
     if (unitPriceCents === null || unitPriceCents < 0) {
-      setLocalError("Le prix de référence doit être un montant positif ou nul.");
+      setLocalError("Le prix de rÃ©fÃ©rence doit Ãªtre un montant positif ou nul.");
       return;
     }
 
@@ -189,8 +189,8 @@ export function ProductFormModal({
             <div>
               <Modal.Title>{title}</Modal.Title>
               <p className="mt-1 text-sm text-[var(--slate-500)]">
-                Une désignation suffit pour créer l’article. Tout le reste peut
-                être complété plus tard.
+                Une dÃ©signation suffit pour crÃ©er lâ€™article. Tout le reste peut
+                Ãªtre complÃ©tÃ© plus tard.
               </p>
             </div>
             <Modal.Close
@@ -211,7 +211,7 @@ export function ProductFormModal({
 
               <div>
                 <label className="form-label" htmlFor="product-reference">
-                  Référence
+                  RÃ©fÃ©rence
                 </label>
                 <input
                   id="product-reference"
@@ -234,7 +234,7 @@ export function ProductFormModal({
 
               <div>
                 <label className="form-label" htmlFor="product-designation">
-                  Désignation *
+                  DÃ©signation *
                 </label>
                 <input
                   id="product-designation"
@@ -258,7 +258,7 @@ export function ProductFormModal({
                 Classement
               </legend>
               <p className="col-span-full -mt-1 mb-1 text-xs text-[var(--slate-500)]">
-                Ces trois champs pilotent les filtres du référentiel.
+                Ces trois champs pilotent les filtres du rÃ©fÃ©rentiel.
               </p>
 
               <div>
@@ -293,7 +293,7 @@ export function ProductFormModal({
 
               <div>
                 <label className="form-label" htmlFor="product-material">
-                  Matière
+                  MatiÃ¨re
                 </label>
                 <input
                   id="product-material"
@@ -323,7 +323,7 @@ export function ProductFormModal({
 
               <div>
                 <label className="form-label" htmlFor="product-unit">
-                  Unité
+                  UnitÃ©
                 </label>
                 <select
                   id="product-unit"
@@ -336,9 +336,9 @@ export function ProductFormModal({
                     }))
                   }
                 >
-                  <option value="u">Unité (u)</option>
-                  <option value="ml">Mètre linéaire (ml)</option>
-                  <option value="m2">Mètre carré (m²)</option>
+                  <option value="u">UnitÃ© (u)</option>
+                  <option value="ml">MÃ¨tre linÃ©aire (ml)</option>
+                  <option value="m2">MÃ¨tre carrÃ© (mÂ²)</option>
                   <option value="kg">Kilogramme (kg)</option>
                   <option value="h">Heure (h)</option>
                 </select>
@@ -347,12 +347,12 @@ export function ProductFormModal({
 
             <fieldset className="mt-6">
               <legend className="mb-1 text-sm font-semibold text-[var(--slate-800)]">
-                Prix de référence
+                Prix de rÃ©fÃ©rence
               </legend>
 
               <div className="sm:max-w-sm">
                 <label className="form-label" htmlFor="product-price">
-                  Prix de référence HT
+                  Prix de rÃ©fÃ©rence HT
                 </label>
                 <div className="relative">
                   <input
@@ -374,8 +374,8 @@ export function ProductFormModal({
                 </div>
                 <p className="mt-1 text-xs text-[var(--slate-500)]">
                   {product?._referencePriceSourceOrderId
-                    ? "Ce montant vient du dernier achat confirmé. Le modifier le remplace par une saisie interne."
-                    : "Laissez vide si vous ne le connaissez pas : le dernier achat confirmé prendra le relais."}
+                    ? "Ce montant vient du dernier achat confirmÃ©. Le modifier le remplace par une saisie interne."
+                    : "Laissez vide si vous ne le connaissez pas : le dernier achat confirmÃ© prendra le relais."}
                 </p>
               </div>
             </fieldset>
@@ -390,10 +390,10 @@ export function ProductFormModal({
               <summary className="grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-[var(--slate-50)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-blue)] [&::-webkit-details-marker]:hidden">
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-[var(--slate-800)]">
-                    Détails techniques (optionnel)
+                    DÃ©tails techniques (optionnel)
                   </span>
                   <span className="mt-0.5 block text-xs text-[var(--slate-500)]">
-                    Améliorent la recherche et les suggestions de tarifs.
+                    AmÃ©liorent la recherche et les suggestions de tarifs.
                   </span>
                 </span>
                 <svg
@@ -414,12 +414,12 @@ export function ProductFormModal({
               <div className="grid gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="form-label" htmlFor="product-type">
-                    Type d’article
+                    Type dâ€™article
                   </label>
                   <input
                     id="product-type"
                     className="form-input"
-                    placeholder="Ex. Tube, coude, té"
+                    placeholder="Ex. Tube, coude, tÃ©"
                     value={form.product_type}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -455,7 +455,7 @@ export function ProductFormModal({
                   <input
                     id="product-dimensions"
                     className="form-input"
-                    placeholder="Ex. DN50 · 60,3 × 2"
+                    placeholder="Ex. DN50 Â· 60,3 Ã— 2"
                     value={form.dimensions}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -498,7 +498,7 @@ export function ProductFormModal({
                     }))
                   }
                 />
-                Produit actif et proposé dans les recherches et chiffrages
+                Produit actif et proposÃ© dans les recherches et chiffrages
               </label>
             ) : null}
 

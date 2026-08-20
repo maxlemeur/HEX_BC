@@ -1,7 +1,7 @@
 import packageMetadata from "../../../package.json";
 
 import { DashboardShell } from "@/components/DashboardShell";
-import { CommandPaletteLoader } from "@/components/ui/CommandPaletteLoader";
+import { CommandPaletteLoader } from "@/components/ui-legacy/CommandPaletteLoader";
 import { UserProvider } from "@/components/UserContext";
 import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
 import { getUserContext } from "@/lib/auth/server";

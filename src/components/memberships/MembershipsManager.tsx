@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useUserContext } from "@/components/UserContext";
-import { Badge } from "@/components/ui/Badge";
-import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { SearchableSelect } from "@/components/ui-legacy/SearchableSelect";
 import type { Database } from "@/types/database";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];

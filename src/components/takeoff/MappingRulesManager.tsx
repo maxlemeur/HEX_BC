@@ -7,7 +7,7 @@ import {
   MappingRuleEditor,
   type MappingRuleEditorSubmitPayload,
 } from "@/components/takeoff/MappingRuleEditor";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
 import {
   fetchEstimateAssemblies,
   type EstimateAssemblySummary,

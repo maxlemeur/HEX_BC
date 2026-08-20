@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import {
   detectAnomalies,
 } from "@/components/takeoff/TakeoffReviewTable";

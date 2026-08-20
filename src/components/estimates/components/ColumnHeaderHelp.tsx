@@ -1,6 +1,6 @@
 "use client";
 
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui-legacy/Popover";
 
 export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "Désignation": "Désignation de l'article ou de la prestation",

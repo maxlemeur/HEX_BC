@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
-import { Select } from "@/components/ui/Select";
+import { Button } from "@/components/ui-legacy/Button";
+import { Input } from "@/components/ui-legacy/Input";
+import { Modal } from "@/components/ui-legacy/Modal";
+import { Select } from "@/components/ui-legacy/Select";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type SupplierCreateResult = {

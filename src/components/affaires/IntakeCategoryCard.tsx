@@ -7,7 +7,7 @@ import {
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
   isAffaireIntakePrimaryEligibleKind,
 } from "@/lib/affaires/intake";
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import { IntakeDocumentCard, type IntakeDocumentData } from "./IntakeDocumentCard";
 
 type IntakeCategoryCardProps = {

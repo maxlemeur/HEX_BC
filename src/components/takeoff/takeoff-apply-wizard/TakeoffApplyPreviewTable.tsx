@@ -1,6 +1,6 @@
 "use client";
 
-import { NumberInput } from "@/components/ui/NumberInput";
+import { NumberInput } from "@/components/ui-legacy/NumberInput";
 import type {
   TakeoffMappingOverride,
   TakeoffPreviewConversionResponse,

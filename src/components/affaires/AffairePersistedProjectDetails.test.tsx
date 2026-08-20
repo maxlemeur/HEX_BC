@@ -11,7 +11,7 @@ vi.mock("@/app/dashboard/affaires/_actions/project", () => ({
   updateAffaireProjectMetadataAction: updateActionMock,
 }));
 
-vi.mock("@/components/ui/Toast", () => ({
+vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => ({
     success: toastSuccessMock,
     error: vi.fn(),

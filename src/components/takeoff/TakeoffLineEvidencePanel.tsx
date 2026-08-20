@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
+import { Modal } from "@/components/ui-legacy/Modal";
 import {
   fetchTakeoffLineEvidencePanel,
   isTakeoffApiError,

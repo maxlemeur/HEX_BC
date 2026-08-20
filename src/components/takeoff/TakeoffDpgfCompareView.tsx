@@ -11,8 +11,8 @@ import {
   useTransition,
 } from "react";
 
-import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui-legacy/Button";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { DpgfRowList } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfRowList";
 import { ManualLinkModal } from "@/components/takeoff/takeoff-dpgf-compare-view/ManualLinkModal";
 import { RiskRadarSummary } from "@/components/takeoff/takeoff-dpgf-compare-view/RiskRadarSummary";

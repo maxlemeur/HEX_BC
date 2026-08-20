@@ -14,7 +14,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchTakeoffFromSourceVersionPlanSet: launchTakeoffFromSourceVersionPlanSetMock,
 }));
 
-vi.mock("@/components/ui/Toast", () => ({
+vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => ({
     success: toastSuccessMock,
     warning: toastWarningMock,

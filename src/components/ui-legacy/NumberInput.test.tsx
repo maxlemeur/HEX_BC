@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { NumberInput } from "@/components/ui/NumberInput";
+import { NumberInput } from "@/components/ui-legacy/NumberInput";
 
 function ControlledNumberInput({
   initialValue,

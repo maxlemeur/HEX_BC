@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { NumberInput, parseLocalizedNumberInput } from "@/components/ui/NumberInput";
+import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import {
   SUPPORTED_ESTIMATE_CURRENCIES,
   formatCurrency,

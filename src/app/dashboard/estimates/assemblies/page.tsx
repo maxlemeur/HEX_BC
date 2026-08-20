@@ -9,8 +9,8 @@ import {
   type AssemblyEditorInput,
 } from "@/components/estimates/AssemblyEditorDialog";
 import { AssemblyLibraryTable } from "@/components/estimates/AssemblyLibraryTable";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { PromptModal } from "@/components/ui/PromptModal";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { PromptModal } from "@/components/ui-legacy/PromptModal";
 import {
   createEstimateAssembly,
   deleteEstimateAssembly,

@@ -16,7 +16,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { useUserContext } from "@/components/UserContext";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
 import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
-import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
+import { KeyboardShortcutsModal } from "@/components/ui-legacy/KeyboardShortcutsModal";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { setLastAffaire, useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Modal } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui-legacy/Modal";
 
 function TestModal({
   open = true,

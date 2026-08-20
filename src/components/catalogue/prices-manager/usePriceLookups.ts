@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
-import type { SearchableSelectOption } from "@/components/ui/SearchableSelect";
+import type { SearchableSelectOption } from "@/components/ui-legacy/SearchableSelect";
 import type { PriceBookLookups } from "@/lib/catalogue/csv-import";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 

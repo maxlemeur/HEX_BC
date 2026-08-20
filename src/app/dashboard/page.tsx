@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { buildDashboardShortcuts } from "@/app/dashboard/dashboard-shortcuts";
 import { DashboardHomeResumeLink } from "@/components/dashboard/DashboardHomeResumeLink";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import {
   fetchAffaireDashboardOverview,
   type AffaireListItem,

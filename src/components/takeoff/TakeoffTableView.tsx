@@ -6,8 +6,8 @@ import {
   useState,
 } from "react";
 
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
 import { EditableCell } from "@/components/estimates/EditableCell";
 import {
   useSpreadsheetNavigation,

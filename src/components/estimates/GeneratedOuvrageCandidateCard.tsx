@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { Fragment, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
 import { cn } from "@/lib/utils";
 
 import {

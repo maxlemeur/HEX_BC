@@ -2,8 +2,8 @@
 
 import { useMemo } from "react";
 
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui-legacy/Badge";
+import { Button } from "@/components/ui-legacy/Button";
 import {
   detectAnomalies,
   ANOMALY_LABELS,

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import useSWR from "swr";
 
-import { Badge } from "@/components/ui/Badge";
-import type { BadgeProps } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui-legacy/Badge";
+import type { BadgeProps } from "@/components/ui-legacy/Badge";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { fetchTakeoffActivityCenter } from "@/lib/takeoff/client";
 import {

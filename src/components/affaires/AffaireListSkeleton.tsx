@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui-legacy/Skeleton";
 
 function CardSkeleton({ index }: { index: number }) {
   return (
