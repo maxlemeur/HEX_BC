@@ -9,7 +9,6 @@ type EstimateEditorAlertsProps = {
   lockHolderLabel: string;
   isAdmin: boolean;
   isForcingDraftUnlock: boolean;
-  isDraftLockAcquiring: boolean;
   onForceUnlockDraftLock: () => void;
   draftLockError: string | null;
   conflictMessage: string | null;
@@ -41,7 +40,6 @@ export function EstimateEditorAlerts({
   lockHolderLabel,
   isAdmin,
   isForcingDraftUnlock,
-  isDraftLockAcquiring,
   onForceUnlockDraftLock,
   draftLockError,
   conflictMessage,
@@ -105,7 +103,10 @@ export function EstimateEditorAlerts({
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={onForceUnlockDraftLock}
-              disabled={isForcingDraftUnlock || isDraftLockAcquiring}
+              // Une tentative de reprise automatique du verrou tourne toutes
+              // les 5 s tant qu'il est detenu ailleurs : elle ne doit pas
+              // rendre le bouton de deverrouillage force intermittent.
+              disabled={isForcingDraftUnlock}
               data-testid="estimate-editor-alert-force-unlock-button"
             >
               {isForcingDraftUnlock ? "Deverrouillage..." : "Forcer le deverrouillage"}

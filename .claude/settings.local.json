@@ -40,7 +40,10 @@
       "WebFetch(domain:engineer-construction.blogspot.com)",
       "WebFetch(domain:calculatemanhours.com)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npx tsc *)",
+      "Bash(python -)",
+      "Bash(npx vitest *)"
     ],
     "deny": [
       "Bash(sudo:*)",

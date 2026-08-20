@@ -578,14 +578,17 @@ export type EstimateAssemblyMemberInsert =
   Database["public"]["Tables"]["estimate_assembly_members"]["Insert"];
 
 const DEFAULT_MARGIN_MULTIPLIER = 1;
-import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import {
+  DEFAULT_TAX_RATE_BP,
+  ESTIMATE_VERSION_CONFLICT_MESSAGE,
+} from "@/lib/estimates/constants";
 const MAX_SUPPLIER_COMPARISON_ITEMS = 200;
 const DEFAULT_CURRENCY = "EUR";
 const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
 const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
-const VERSION_CONFLICT_ERROR_MESSAGE = "Version modifiee par un autre utilisateur";
+const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
 const ESTIMATE_STATUS_TRANSITIONS: Readonly<
   Record<EstimateStatus, readonly EstimateStatus[]>
 > = {

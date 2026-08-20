@@ -21,7 +21,6 @@ const PRODUCT_HEADERS = [
   "norme",
   "unite",
   "prix_reference_ht",
-  "tva",
 ];
 
 const PRICE_HEADERS = [
@@ -89,13 +88,13 @@ function createWorkbook(options: WorkbookOptions = {}): ArrayBuffer {
 
 describe("parseProductPriceTemplateWorkbook", () => {
   it("exports the stable template contract", () => {
-    expect(TEMPLATE_VERSION).toBe("1.0");
-    expect(TEMPLATE_FILE_URL).toBe("/templates/hex-bc-produits-tarifs-v1.xlsx");
+    expect(TEMPLATE_VERSION).toBe("2.0");
+    expect(TEMPLATE_FILE_URL).toBe("/templates/hex-bc-produits-tarifs-v2.xlsx");
   });
 
   it("accepts the official workbook distributed by the application", async () => {
     const file = await readFile(
-      path.join(process.cwd(), "public/templates/hex-bc-produits-tarifs-v1.xlsx")
+      path.join(process.cwd(), "public/templates/hex-bc-produits-tarifs-v2.xlsx")
     );
     const input = file.buffer.slice(
       file.byteOffset,
@@ -113,6 +112,51 @@ describe("parseProductPriceTemplateWorkbook", () => {
     });
   });
 
+  it("still accepts the v1 workbook and ignores its trailing tva column", async () => {
+    const file = await readFile(
+      path.join(process.cwd(), "public/templates/hex-bc-produits-tarifs-v1.xlsx")
+    );
+    const input = file.buffer.slice(
+      file.byteOffset,
+      file.byteOffset + file.byteLength
+    ) as ArrayBuffer;
+
+    const result = await parseProductPriceTemplateWorkbook(input);
+
+    expect(result.version).toBe("1.0");
+    expect(result.issues).toEqual([]);
+    expect(result.hasBlockingIssues).toBe(false);
+  });
+
+  it("parses v1 product rows while dropping their tva column", async () => {
+    const workbook = createWorkbook({
+      version: "1.0",
+      productHeaders: [...PRODUCT_HEADERS, "tva"],
+      productRows: [
+        ["INOX-003", "Te inox", "", "", "", "", "", "", "u", "10", "5,5"],
+      ],
+    });
+
+    const result = await parseProductPriceTemplateWorkbook(workbook);
+
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.products).toEqual([
+      {
+        reference: "INOX-003",
+        designation: "Te inox",
+        category: null,
+        product_type: null,
+        material: null,
+        grade: null,
+        dimensions: null,
+        standard: null,
+        unit: "u",
+        unit_price_cents: 1000,
+        is_active: true,
+      },
+    ]);
+  });
+
   it("parses products and supplier prices into API-ready values", async () => {
     const workbook = createWorkbook({
       productRows: [
@@ -127,7 +171,6 @@ describe("parseProductPriceTemplateWorkbook", () => {
           "EN 10217",
           "m",
           "1 234,56 €",
-          "20%",
         ],
         [],
         ["INOX-002", "Coude inox"],
@@ -163,7 +206,7 @@ describe("parseProductPriceTemplateWorkbook", () => {
 
     const result = await parseProductPriceTemplateWorkbook(workbook);
 
-    expect(result.version).toBe("1.0");
+    expect(result.version).toBe("2.0");
     expect(result.issues).toEqual([]);
     expect(result.hasBlockingIssues).toBe(false);
     expect(result.products).toEqual([
@@ -178,7 +221,6 @@ describe("parseProductPriceTemplateWorkbook", () => {
         standard: "EN 10217",
         unit: "m",
         unit_price_cents: 123456,
-        tax_rate_bp: 2000,
         is_active: true,
       },
       {
@@ -192,7 +234,6 @@ describe("parseProductPriceTemplateWorkbook", () => {
         standard: null,
         unit: "u",
         unit_price_cents: 0,
-        tax_rate_bp: 2000,
         is_active: true,
       },
     ]);
@@ -227,9 +268,9 @@ describe("parseProductPriceTemplateWorkbook", () => {
   it("reports required values, invalid numbers, dates and case-insensitive collisions", async () => {
     const workbook = createWorkbook({
       productRows: [
-        ["Tube-A", "Tube A", "", "", "", "", "", "", "m", 10, 20],
-        ["tube-a", "Collision", "", "", "", "", "", "", "m", 11, 20],
-        ["", "", "", "", "", "", "", "", "m", -1, 120],
+        ["Tube-A", "Tube A", "", "", "", "", "", "", "m", 10],
+        ["tube-a", "Collision", "", "", "", "", "", "", "m", 11],
+        ["", "", "", "", "", "", "", "", "m", -1],
       ],
       priceRows: [
         ["Tube-A", "Fournisseur A", "REF-1", 12, "m", "EUR", "2026-07-01", 1],
@@ -248,7 +289,6 @@ describe("parseProductPriceTemplateWorkbook", () => {
         "PRODUCT_REFERENCE_REQUIRED",
         "PRODUCT_DESIGNATION_REQUIRED",
         "PRODUCT_PRICE_INVALID",
-        "PRODUCT_TAX_INVALID",
         "SUPPLIER_PRICE_DUPLICATE",
         "PRICE_PRODUCT_REFERENCE_REQUIRED",
         "PRICE_SUPPLIER_REQUIRED",
@@ -266,13 +306,13 @@ describe("parseProductPriceTemplateWorkbook", () => {
   it("requires the exact sheets, version cell and ordered headers", async () => {
     const wrongHeaders = await parseProductPriceTemplateWorkbook(
       createWorkbook({
-        version: "2.0",
+        version: "9.9",
         productHeaders: ["designation", "reference", ...PRODUCT_HEADERS.slice(2)],
         priceHeaders: [...PRICE_HEADERS, "colonne_en_trop"],
       })
     );
 
-    expect(wrongHeaders.version).toBe("2.0");
+    expect(wrongHeaders.version).toBe("9.9");
     expect(wrongHeaders.products).toEqual([]);
     expect(wrongHeaders.prices).toEqual([]);
     expect(wrongHeaders.issues.map((issue) => issue.code)).toEqual([

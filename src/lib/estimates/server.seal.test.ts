@@ -766,7 +766,7 @@ describe("estimate status seal flow", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "VERSION_CONFLICT",
-      message: "Version modifiee par un autre utilisateur",
+      message: "Version modifiée ailleurs (autre onglet, autre session ou autre utilisateur)",
       details: {
         updated_at: UPDATED_AT,
       },

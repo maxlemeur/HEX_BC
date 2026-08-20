@@ -27,6 +27,7 @@ import {
   fetchEstimateOutlierDismissedFlags,
   toggleEstimateOutlierDismissedFlag,
 } from "@/lib/estimates/client";
+import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type { EstimateItem } from "@/lib/estimates/editor-items";
 import {
   DEFAULT_ESTIMATE_OUTLIER_CONFIG,
@@ -323,7 +324,7 @@ export function useEstimateEditorQualityController({
       }
       if (isConflictLocked) {
         reportError(
-          conflictMessage ?? "Version modifiee par un autre utilisateur"
+          conflictMessage ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
         );
         return;
       }

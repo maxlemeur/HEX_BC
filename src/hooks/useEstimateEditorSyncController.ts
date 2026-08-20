@@ -49,6 +49,7 @@ import {
 import {
   AUTOSAVE_DEBOUNCE_MS,
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
+  AUTOSAVE_MAX_WAIT_MS,
   type EstimateEditorConflictDraft,
   type EstimateEditorConflictState,
   type RestoredDraftApplication,
@@ -181,6 +182,25 @@ function isVersionConflictError(error: unknown) {
 function isDraftLockRequiredError(error: unknown) {
   return isEstimateApiError(error) && error.code === "LOCK_REQUIRED";
 }
+
+/**
+ * Vrai quand la charge utile ne change rien par rapport a l'etat deja
+ * synchronise de la ligne. Les cellules de l'editeur valident au blur, meme
+ * lorsque l'utilisateur n'a fait que traverser le champ : sans ce filtre, un
+ * simple passage dans une ligne declencherait une sauvegarde automatique.
+ */
+function matchesSyncedItemPayload(
+  syncedPayload: EstimateItemUpdatePayload | undefined,
+  payload: EstimateItemUpdatePayload
+) {
+  if (!syncedPayload) return false;
+
+  const syncedRecord = syncedPayload as Record<string, unknown>;
+  return Object.entries(payload as Record<string, unknown>).every(
+    ([key, value]) =>
+      key in syncedRecord && Object.is(syncedRecord[key] ?? null, value ?? null)
+  );
+}
 export function useEstimateEditorSyncController({
   routeVersionId,
   activeVersion,
@@ -228,6 +248,12 @@ export function useEstimateEditorSyncController({
   const routeGenerationRef = useRef(0);
   const itemsRef = useRef(items);
   const isSaveBlockedRef = useRef(false);
+  /** Vrai tant que cette page a detenu le verrou pour la version courante. */
+  const hadDraftLockOwnershipRef = useRef(false);
+  /** Dernier etat connu du serveur pour chaque ligne, par identifiant. */
+  const syncedItemPayloadsRef = useRef(
+    new Map<string, EstimateItemUpdatePayload>()
+  );
   const draftSnapshotsByVersionRef = useRef(
     new Map<
       string,
@@ -250,6 +276,8 @@ export function useEstimateEditorSyncController({
     routeGenerationRef.current += 1;
     activeFlushIdRef.current += 1;
     isFlushingBufferedUpdatesRef.current = false;
+    syncedItemPayloadsRef.current.clear();
+    hadDraftLockOwnershipRef.current = false;
 
     return () => {
       routeGenerationRef.current += 1;
@@ -310,6 +338,7 @@ export function useEstimateEditorSyncController({
   const clearBufferedItemUpdates = useCallback(
     (options?: { clearPersisted?: boolean }) => {
       pendingItemUpdatesRef.current.clear();
+      syncedItemPayloadsRef.current.clear();
       pendingBufferedUpdateCountRef.current = 0;
       setHasPendingBufferedUpdates(false);
       updateHasPendingTotalsSave(false);
@@ -320,14 +349,34 @@ export function useEstimateEditorSyncController({
     [routeVersionId, updateHasPendingTotalsSave]
   );
 
-  const overlayPendingUpdates = useCallback(
-    (sourceItems: EditorEstimateItem[]) =>
-      applyBufferedUpdatesToItems(
-        sourceItems,
-        serializeBufferedUpdates(pendingItemUpdatesRef.current)
-      ),
+  const mergeSyncedItemPayload = useCallback(
+    (itemId: string, payload: EstimateItemUpdatePayload) => {
+      const syncedPayload = syncedItemPayloadsRef.current.get(itemId);
+      syncedItemPayloadsRef.current.set(
+        itemId,
+        syncedPayload ? { ...syncedPayload, ...payload } : { ...payload }
+      );
+    },
     []
   );
+
+  /**
+   * Les lignes recues ici sortent du serveur : elles constituent la reference
+   * a partir de laquelle une modification locale est reconnue comme telle.
+   */
+  const overlayPendingUpdates = useCallback((sourceItems: EditorEstimateItem[]) => {
+    syncedItemPayloadsRef.current = new Map(
+      sourceItems.map((item) => [
+        item.id,
+        buildEstimateItemUpdatePayload(item),
+      ])
+    );
+
+    return applyBufferedUpdatesToItems(
+      sourceItems,
+      serializeBufferedUpdates(pendingItemUpdatesRef.current)
+    );
+  }, []);
 
   useEffect(() => {
     if (!routeVersionId) return;
@@ -557,6 +606,29 @@ export function useEstimateEditorSyncController({
     triggerVersionReload,
   ]);
 
+  /**
+   * Reprise du verrou par une autre page : la version a tres probablement change
+   * sous nos pieds. On recharge immediatement depuis le serveur au lieu
+   * d'attendre l'echec de la prochaine ecriture, qui afficherait un conflit de
+   * version alors que l'utilisateur n'a rien fait de mal. Les modifications
+   * locales non synchronisees restent dans le tampon et sont reappliquees par
+   * `overlayPendingUpdates` apres le rechargement.
+   */
+  useEffect(() => {
+    if (isDraftLockOwnedByCurrentUser) {
+      hadDraftLockOwnershipRef.current = true;
+      return;
+    }
+
+    if (!hadDraftLockOwnershipRef.current) return;
+    hadDraftLockOwnershipRef.current = false;
+
+    if (!isDraftVersion) return;
+
+    setConflict(null);
+    triggerVersionReload();
+  }, [isDraftLockOwnedByCurrentUser, isDraftVersion, triggerVersionReload]);
+
   useEffect(() => {
     if (!hasPendingSettingsChanges && !isSavingSettings) return;
 
@@ -662,6 +734,9 @@ export function useEstimateEditorSyncController({
 
       updateHasPendingTotalsSave(false);
       setTotalsOutOfSync(false);
+      bufferedEntries.forEach((entry) => {
+        mergeSyncedItemPayload(entry.id, entry.updates);
+      });
       applyVersionFlushResult({
         versionId: flushVersionId,
         totalsPatch: versionTotalsPatch,
@@ -692,6 +767,9 @@ export function useEstimateEditorSyncController({
       }
 
       if (lineBatchCommitted && committedLineVersionToken) {
+        bufferedEntries.forEach((entry) => {
+          mergeSyncedItemPayload(entry.id, entry.updates);
+        });
         applyVersionFlushResult({
           versionId: flushVersionId,
           totalsPatch: undefined,
@@ -743,6 +821,7 @@ export function useEstimateEditorSyncController({
     getPersistedTotals,
     getVersionSnapshot,
     handleVersionConflict,
+    mergeSyncedItemPayload,
     persistBufferedItemUpdatesToLocal,
     reportError,
     resolveErrorMessage,
@@ -769,9 +848,40 @@ export function useEstimateEditorSyncController({
     automaticEnabled: isAutoSaveEnabled,
     hasPendingChanges: hasPendingAutoSaveChanges,
     debounceMs: AUTOSAVE_DEBOUNCE_MS,
+    maxWaitMs: AUTOSAVE_MAX_WAIT_MS,
     enableShortcut: !hasPendingSettingsChanges,
     onSave: flushBufferedItemUpdates,
   });
+
+  // La cadence automatique est d'une minute : une modification en attente ne
+  // doit pas suivre l'utilisateur qui quitte l'onglet ou la page.
+  useEffect(() => {
+    if (!routeVersionId) return;
+
+    const flushBeforeLeaving = () => {
+      if (isSaveBlockedRef.current) return;
+      if (
+        pendingItemUpdatesRef.current.size === 0 &&
+        !hasPendingTotalsSaveRef.current
+      ) {
+        return;
+      }
+      void flushAutoSaveNow();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") return;
+      flushBeforeLeaving();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", flushBeforeLeaving);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", flushBeforeLeaving);
+    };
+  }, [flushAutoSaveNow, routeVersionId]);
 
   useEffect(() => {
     if (!routeVersionId || !hasPendingSettingsChanges) return;
@@ -844,6 +954,15 @@ export function useEstimateEditorSyncController({
 
   const enqueueItemUpdate = useCallback(
     (itemId: string, payload: EstimateItemUpdatePayload) => {
+      if (
+        matchesSyncedItemPayload(
+          syncedItemPayloadsRef.current.get(itemId),
+          payload
+        )
+      ) {
+        return;
+      }
+
       upsertBufferedUpdate(pendingItemUpdatesRef.current, itemId, payload);
       setHasPendingBufferedUpdates(true);
       persistBufferedItemUpdatesToLocal();

@@ -4,7 +4,11 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useDraftLock } from "@/hooks/useDraftLock";
+import {
+  DRAFT_LOCK_ACQUIRE_RETRY_INTERVAL_MS,
+  DRAFT_LOCK_HEARTBEAT_INTERVAL_MS,
+  useDraftLock,
+} from "@/hooks/useDraftLock";
 import type { EstimateDraftLock } from "@/lib/estimates/client";
 
 const mocks = vi.hoisted(() => ({
@@ -21,18 +25,20 @@ vi.mock("@/lib/estimates/client", () => ({
   isEstimateApiError: mocks.isEstimateApiError,
 }));
 
-const HEARTBEAT_INTERVAL_MS = 30 * 1000;
-const ACQUIRE_RETRY_INTERVAL_MS = 5 * 1000;
+const HEARTBEAT_INTERVAL_MS = DRAFT_LOCK_HEARTBEAT_INTERVAL_MS;
+const ACQUIRE_RETRY_INTERVAL_MS = DRAFT_LOCK_ACQUIRE_RETRY_INTERVAL_MS;
 
 type ApiLikeError = {
   __estimateApiError: true;
   message: string;
+  status?: number;
 };
 
-function createApiError(message: string): ApiLikeError {
+function createApiError(message: string, status?: number): ApiLikeError {
   return {
     __estimateApiError: true,
     message,
+    ...(status === undefined ? {} : { status }),
   };
 }
 
@@ -311,6 +317,48 @@ describe("useDraftLock", () => {
     expect(result.current.lock).toEqual(otherLock);
     expect(result.current.isOwnedByCurrentUser).toBe(false);
     expect(result.current.isLockedByOther).toBe(true);
+  });
+
+  it("drops ownership when the heartbeat finds the lock force-released", async () => {
+    vi.useFakeTimers();
+    mocks.renewDraftLock.mockRejectedValue(
+      createApiError("Aucun verrou actif pour cette version.", 404)
+    );
+    mocks.acquireDraftLock
+      .mockResolvedValueOnce({ acquired: true, lock: createLock() })
+      .mockResolvedValue({
+        acquired: false,
+        lock: createLock({
+          userId: "user-other",
+          holderName: "Bob Dupont",
+          isOwnedByCurrentUser: false,
+          isOwnedByCurrentSession: false,
+        }),
+      });
+
+    const { result } = renderHook(() =>
+      useDraftLock({
+        versionId: "version-1",
+        currentUserId: "user-1",
+      })
+    );
+
+    await flushAsyncWork();
+    expect(result.current.isOwnedByCurrentUser).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+    });
+
+    expect(result.current.isOwnedByCurrentUser).toBe(false);
+    expect(result.current.error).toContain("lecture seule");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACQUIRE_RETRY_INTERVAL_MS);
+    });
+
+    expect(result.current.isLockedByOther).toBe(true);
+    expect(result.current.holderName).toBe("Bob Dupont");
   });
 
   it("releases the previous lock with keepalive when the version changes", async () => {

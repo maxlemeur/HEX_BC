@@ -9,7 +9,6 @@ export type ProductCsvRow = {
   standard: string | null;
   unit: string;
   unit_price_cents: number;
-  tax_rate_bp: number;
   is_active: true;
 };
 
@@ -36,8 +35,7 @@ type ProductField =
   | "dimensions"
   | "standard"
   | "unit"
-  | "unit_price"
-  | "tax_rate";
+  | "unit_price";
 
 const HEADER_ALIASES: Record<string, ProductField> = {
   reference: "reference",
@@ -70,11 +68,6 @@ const HEADER_ALIASES: Record<string, ProductField> = {
   prix_unitaire: "unit_price",
   prix_unitaire_ht: "unit_price",
   prix_ht: "unit_price",
-  tax_rate: "tax_rate",
-  tax_rate_percent: "tax_rate",
-  tva: "tax_rate",
-  taux_tva: "tax_rate",
-  taux_de_tva: "tax_rate",
 };
 
 function normalizeHeader(value: string): string {
@@ -222,7 +215,6 @@ export function parseProductCsv(text: string): ProductCsvParseResult {
     const designation = getValue("designation").trim();
     const reference = optionalValue(getValue("reference"));
     const unitPriceRaw = getValue("unit_price").trim();
-    const taxRateRaw = getValue("tax_rate").trim();
     const reasons: string[] = [];
 
     if (!designation) reasons.push("Désignation obligatoire");
@@ -237,12 +229,7 @@ export function parseProductCsv(text: string): ProductCsvParseResult {
       reasons.push("Prix unitaire HT invalide");
     }
 
-    const parsedTaxRate = taxRateRaw ? parseLocalizedNumber(taxRateRaw) : 20;
-    if (parsedTaxRate === null || parsedTaxRate < 0 || parsedTaxRate > 100) {
-      reasons.push("TVA invalide (valeur attendue entre 0 et 100)");
-    }
-
-    if (reasons.length > 0 || parsedPrice === null || parsedTaxRate === null) {
+    if (reasons.length > 0 || parsedPrice === null) {
       rejectedRows.push({ line, designation, reasons });
       return;
     }
@@ -259,7 +246,6 @@ export function parseProductCsv(text: string): ProductCsvParseResult {
       standard: optionalValue(getValue("standard")),
       unit: optionalValue(getValue("unit")) ?? "u",
       unit_price_cents: Math.round(parsedPrice * 100),
-      tax_rate_bp: Math.round(parsedTaxRate * 100),
       is_active: true,
     });
   });

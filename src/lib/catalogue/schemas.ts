@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { isValidDateOnly } from "@/lib/date-only";
-import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
@@ -259,7 +258,6 @@ const newProductSchema = z.object({
   standard: optionalTextSchema,
   unit: optionalTextSchema,
   unit_price_cents: nonNegativeIntegerSchema.optional().default(0),
-  tax_rate_bp: nonNegativeIntegerSchema.max(10000).optional().default(DEFAULT_TAX_RATE_BP),
 });
 
 const supplierPriceWriteFieldsSchema = z.object({

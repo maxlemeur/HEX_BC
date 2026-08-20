@@ -16,7 +16,6 @@ function createProps(overrides: Partial<AlertsProps> = {}): AlertsProps {
     lockHolderLabel: "",
     isAdmin: false,
     isForcingDraftUnlock: false,
-    isDraftLockAcquiring: false,
     onForceUnlockDraftLock: vi.fn(),
     draftLockError: null,
     conflictMessage: null,
@@ -43,6 +42,39 @@ function createProps(overrides: Partial<AlertsProps> = {}): AlertsProps {
 afterEach(cleanup);
 
 describe("EstimateEditorAlerts", () => {
+  it("keeps the force-unlock button clickable while the lock is held elsewhere", () => {
+    render(
+      <EstimateEditorAlerts
+        {...createProps({
+          isDraftLockedByOther: true,
+          isAdmin: true,
+          lockHolderLabel: "vous dans un autre onglet ou appareil",
+        })}
+      />
+    );
+
+    expect(
+      screen.getByTestId("estimate-editor-alert-force-unlock-button")
+    ).toBeEnabled();
+  });
+
+  it("disables the force-unlock button only while the unlock runs", () => {
+    render(
+      <EstimateEditorAlerts
+        {...createProps({
+          isDraftLockedByOther: true,
+          isAdmin: true,
+          isForcingDraftUnlock: true,
+          lockHolderLabel: "Bob Dupont",
+        })}
+      />
+    );
+
+    expect(
+      screen.getByTestId("estimate-editor-alert-force-unlock-button")
+    ).toBeDisabled();
+  });
+
   it("renders a restored-draft confirmation once as an accessible notice", () => {
     const message =
       "Modifications locales restaurées. Les lignes sont resynchronisées automatiquement.";

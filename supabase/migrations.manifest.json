@@ -208,6 +208,8 @@
     "20260812174449_estimate_line_nature_and_approval_default.sql": "26233a032eb9ab2480ea63136670539e86b95f861e7bde5e5b2202a4bba87246",
     "20260812223050_separate_commercial_rounding_and_harden_approval.sql": "2b5d94a144cc0a726efa8b9d81de4edf3e74b0f78b536f4b4c4162d0c2aaf11b",
     "20260813030000_require_localized_takeoff_proofs.sql": "67402ceeed536bb07c1d362a74fb044a140ee1d1ce149e5c3868e9e69e5297d3",
-    "20260813201300_atomic_takeoff_apply_mapping.sql": "1a6714c678fa8f3b4e875196a23d201e945d73c2f6e94c3cf7edf5c1bcbd082d"
+    "20260813201300_atomic_takeoff_apply_mapping.sql": "1a6714c678fa8f3b4e875196a23d201e945d73c2f6e94c3cf7edf5c1bcbd082d",
+    "20260819205115_case_insensitive_product_reference.sql": "484b21b57172924ce82af7befe4efe2514dd6370a56eea99492ae49b9ec4e2cb",
+    "20260819230500_drop_product_tax_rate.sql": "f14a7671e3fedf7f0deb0f3206959e23600c39c627e080b5c996a2417440be2c"
   }
 }

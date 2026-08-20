@@ -22,7 +22,6 @@ const productTemplateRowSchema = z.object({
   standard: nullableTextSchema(255),
   unit: z.string().trim().min(1).max(50),
   unit_price_cents: z.number().int().min(0),
-  tax_rate_bp: z.number().int().min(0).max(10000),
   is_active: z.literal(true),
 });
 
@@ -266,7 +265,6 @@ export async function importProductPriceTemplate(
         standard: product.standard,
         unit: product.unit,
         unit_price_cents: product.unit_price_cents,
-        tax_rate_bp: product.tax_rate_bp,
         is_active: true,
       };
 

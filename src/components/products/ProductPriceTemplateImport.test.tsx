@@ -27,7 +27,6 @@ type ParsedResult = {
     standard: string | null;
     unit: string;
     unit_price_cents: number;
-    tax_rate_bp: number;
     is_active: true;
   }>;
   prices: Array<{
@@ -68,7 +67,6 @@ function buildResult(overrides: Partial<ParsedResult> = {}): ParsedResult {
         standard: "EN 10217",
         unit: "ml",
         unit_price_cents: 1250,
-        tax_rate_bp: 2000,
         is_active: true,
       },
     ],

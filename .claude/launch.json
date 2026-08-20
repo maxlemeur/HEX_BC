@@ -10,7 +10,8 @@
       "name": "miaouffrage-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }

@@ -30,6 +30,12 @@ export type UseAutoSaveOptions = {
   automaticEnabled?: boolean;
   hasPendingChanges: boolean;
   debounceMs?: number;
+  /**
+   * Delai maximal entre la premiere modification non sauvegardee et son envoi.
+   * Sans lui, une saisie continue repousse indefiniment le debounce : la
+   * sauvegarde n'arrive jamais tant que l'utilisateur tape.
+   */
+  maxWaitMs?: number;
   retryDelayMs?: number;
   maxAutomaticRetries?: number;
   enableShortcut?: boolean;
@@ -125,6 +131,7 @@ export function useAutoSave({
   automaticEnabled = true,
   hasPendingChanges,
   debounceMs = DEFAULT_AUTOSAVE_DEBOUNCE_MS,
+  maxWaitMs,
   retryDelayMs = DEFAULT_AUTOSAVE_RETRY_DELAY_MS,
   maxAutomaticRetries = DEFAULT_AUTOSAVE_MAX_RETRIES,
   enableShortcut = true,
@@ -144,6 +151,7 @@ export function useAutoSave({
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSinceRef = useRef<number | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queuedSaveAfterCurrentRef = useRef(false);
   const automaticRetryCountRef = useRef(0);
@@ -158,6 +166,7 @@ export function useAutoSave({
   const hasPendingRef = useRef(hasPendingChanges);
   const isOnlineRef = useRef(isOnline);
   const debounceMsRef = useRef(debounceMs);
+  const maxWaitMsRef = useRef(maxWaitMs);
   const retryDelayMsRef = useRef(retryDelayMs);
   const maxAutomaticRetriesRef = useRef(maxAutomaticRetries);
   const onSaveRef = useRef(onSave);
@@ -195,6 +204,10 @@ export function useAutoSave({
   useEffect(() => {
     debounceMsRef.current = debounceMs;
   }, [debounceMs]);
+
+  useEffect(() => {
+    maxWaitMsRef.current = maxWaitMs;
+  }, [maxWaitMs]);
 
   useEffect(() => {
     retryDelayMsRef.current = retryDelayMs;
@@ -238,18 +251,38 @@ export function useAutoSave({
     []
   );
 
+  const resolveDebounceDelay = useCallback(() => {
+    const now = Date.now();
+    if (pendingSinceRef.current === null) {
+      pendingSinceRef.current = now;
+    }
+
+    const maxWaitMsValue = maxWaitMsRef.current;
+    if (typeof maxWaitMsValue !== "number" || maxWaitMsValue <= 0) {
+      return debounceMsRef.current;
+    }
+
+    const elapsedSinceFirstChange = now - pendingSinceRef.current;
+    return Math.max(
+      0,
+      Math.min(debounceMsRef.current, maxWaitMsValue - elapsedSinceFirstChange)
+    );
+  }, []);
+
   const scheduleDebouncedSave = useCallback(() => {
     if (!isMountedRef.current) return;
     if (!enabledRef.current || !automaticEnabledRef.current) return;
     if (!isOnlineRef.current || !hasPendingRef.current) return;
+
+    const delay = resolveDebounceDelay();
 
     setStatus("pending");
     clearDebounceTimer();
     debounceTimeoutRef.current = setTimeout(() => {
       debounceTimeoutRef.current = null;
       void executeSaveRef.current?.("debounce");
-    }, debounceMsRef.current);
-  }, [clearDebounceTimer]);
+    }, delay);
+  }, [clearDebounceTimer, resolveDebounceDelay]);
 
   const scheduleRetry = useCallback((force = false) => {
     if (!isMountedRef.current) return;
@@ -294,6 +327,7 @@ export function useAutoSave({
       }
 
       clearDebounceTimer();
+      pendingSinceRef.current = null;
       if (reason === "manual" || reason === "reconnect") {
         clearRetryTimer();
         automaticRetryCountRef.current = 0;
@@ -408,6 +442,7 @@ export function useAutoSave({
 
     if (!hasPendingChanges) {
       clearTimers();
+      pendingSinceRef.current = null;
       automaticRetryCountRef.current = 0;
       if (!isSavingRef.current) {
         setStatus((current) => (current === "saved" ? current : "idle"));

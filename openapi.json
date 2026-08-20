@@ -20016,11 +20016,6 @@
                   "minimum": 0,
                   "maximum": 9007199254740991
                 },
-                "tax_rate_bp": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 10000
-                },
                 "is_active": {
                   "type": "boolean",
                   "const": true
@@ -20037,7 +20032,6 @@
                 "standard",
                 "unit",
                 "unit_price_cents",
-                "tax_rate_bp",
                 "is_active"
               ]
             }
@@ -34182,12 +34176,6 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "tax_rate_bp": {
-                        "default": 2000,
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 10000
                       }
                     },
                     "required": [
@@ -35052,12 +35040,6 @@
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "tax_rate_bp": {
-                    "default": 2000,
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 10000
-                  },
                   "is_active": {
                     "default": true,
                     "type": "boolean"
@@ -35179,11 +35161,6 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
-                  },
-                  "tax_rate_bp": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 10000
                   },
                   "is_active": {
                     "type": "boolean"

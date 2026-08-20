@@ -17,6 +17,7 @@ import {
   type EstimateStatus,
   type ReleaseEstimateDraftLockOptions,
 } from "@/lib/estimates/client";
+import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 
 export type EstimateEditorSendWorkflowPhase =
@@ -419,7 +420,7 @@ export function useEstimateEditorStatusController({
       if (isConflictLocked) {
         reportScopedError(
           scope,
-          conflictMessage ?? "Version modifiee par un autre utilisateur."
+          conflictMessage ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
         );
         return null;
       }

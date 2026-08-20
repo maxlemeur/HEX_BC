@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
-
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
 const requiredTextSchema = z
@@ -43,10 +41,6 @@ const productWriteFieldsSchema = z.object({
   standard: optionalTextSchema,
   unit: z.string().trim().min(1).max(50).optional().default("u"),
   unit_price_cents: nonNegativeIntegerSchema.optional().default(0),
-  tax_rate_bp: nonNegativeIntegerSchema
-    .max(10000)
-    .optional()
-    .default(DEFAULT_TAX_RATE_BP),
   is_active: z.boolean().optional().default(true),
 });
 
@@ -62,7 +56,6 @@ const productUpdateFieldsSchema = z
     standard: optionalTextUpdateSchema,
     unit: z.string().trim().min(1).max(50).optional(),
     unit_price_cents: nonNegativeIntegerSchema.optional(),
-    tax_rate_bp: nonNegativeIntegerSchema.max(10000).optional(),
     is_active: z.boolean().optional(),
   })
   .partial()

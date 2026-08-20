@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
-import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import type {
@@ -1074,17 +1073,22 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
     (mappedRows ?? []) as Array<{ id: string; payload: unknown }>,
   );
 
+  // products.reference_normalized et products.designation_normalized sont les
+  // formes trim + minuscules generees en base (migration 20260819205115).
+  // Filtrer dessus, et non sur les valeurs brutes, evite que le pre-filtre SQL
+  // rate les variantes de casse que indexCatalogueRows() considere ensuite comme
+  // identiques.
   const uniqueReferences = Array.from(
     new Set(
       candidates
-        .map((x) => x.reference.trim())
+        .map((x) => normalizeToken(x.reference))
         .filter((value) => value.length > 0),
     ),
   );
   const uniqueDesignations = Array.from(
     new Set(
       candidates
-        .map((x) => x.designation.trim())
+        .map((x) => normalizeToken(x.designation))
         .filter((value) => value.length > 0),
     ),
   );
@@ -1094,13 +1098,13 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
       ? supabase
           .from(CATALOGUE_TABLE)
           .select("*")
-          .in("reference", uniqueReferences)
+          .in("reference_normalized", uniqueReferences)
       : Promise.resolve({ data: [], error: null }),
     uniqueDesignations.length > 0
       ? supabase
           .from(CATALOGUE_TABLE)
           .select("*")
-          .in("designation", uniqueDesignations)
+          .in("designation_normalized", uniqueDesignations)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
@@ -2096,7 +2100,6 @@ export async function createMissingPriceImportEntities(
         reference: productReference,
         designation: productReference,
         unit_price_cents: 0,
-        tax_rate_bp: DEFAULT_TAX_RATE_BP,
         is_active: true,
       })
       .select("id, reference, designation")
