@@ -79,7 +79,7 @@
     "postal-mime": "^3.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "resend": "^6.9.3",
+    "resend": "^6.21.0",
     "swagger-ui-dist": "^5.31.2",
     "swr": "^2.3.8",
     "tailwind-merge": "^3.3.1",
