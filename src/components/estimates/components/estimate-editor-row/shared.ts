@@ -3,6 +3,10 @@
 import { type KeyboardEvent } from "react";
 
 import { type EstimateEditorRowItemPatch } from "@/components/estimates/context/EstimateEditorRowActionsContext";
+import type {
+  CataloguePriceSuggestion,
+  SupplierAlternativeKind,
+} from "@/lib/estimates/catalogue-suggestions";
 import { type EstimateQualityFlagKey } from "@/lib/estimate-quality";
 import {
   normalizeEstimateCurrency,
@@ -81,55 +85,11 @@ export type ItemPatch = EstimateEditorRowItemPatch & LaborSplitItemFields;
  */
 export type ColumnVisibilitySet = ReadonlySet<ColumnKey>;
 
-export type SupplierAlternativeKind =
-  | "best_price"
-  | "most_recent"
-  | "preferred_supplier";
-
-export type SupplierAlternative = {
-  kind: SupplierAlternativeKind;
-  supplier_price_id: string;
-  supplier_id: string;
-  supplier_name: string;
-  unit_price_cents: number;
-  adjusted_unit_price_cents: number;
-  currency: string | null;
-  supplier_reference: string | null;
-  unit: string | null;
-  updated_at: string | null;
-  is_stale: boolean;
-  catalogue_url: string | null;
-};
-
-export type CataloguePriceSuggestion = {
-  supplier_price_id: string;
-  product_id: string;
-  product_designation: string;
-  product_reference: string | null;
-  product_category?: string | null;
-  product_type?: string | null;
-  product_material?: string | null;
-  product_grade?: string | null;
-  product_dimensions?: string | null;
-  product_standard?: string | null;
-  supplier_id: string;
-  supplier_name: string;
-  supplier_reference: string | null;
-  unit: string | null;
-  unit_price_cents: number;
-  adjusted_unit_price_cents: number;
-  currency: string | null;
-  updated_at: string | null;
-  is_stale: boolean;
-  stale_days: number;
-  relevance_score: number;
-  has_material_index_adjustment: boolean;
-  material_index_code: string | null;
-  material_index_value: number | null;
-  catalogue_url: string | null;
-  supplier_offer_count?: number;
-  alternatives: SupplierAlternative[];
-};
+export type {
+  CataloguePriceSuggestion,
+  SupplierAlternative,
+  SupplierAlternativeKind,
+} from "@/lib/estimates/catalogue-suggestions";
 
 type SuggestPricesResponse = {
   query: string;

@@ -217,13 +217,8 @@ export function EstimateEditorTableSectionDialogs({
             className="estimate-supplier-comparison-context-menu__action estimate-supplier-comparison-context-menu__action--danger"
             role="menuitem"
             onClick={() => {
-              const confirmed = window.confirm(
-                "Êtes-vous sûr de vouloir supprimer ce chapitre et toutes ses lignes ?"
-              );
               onCloseSectionContextMenu();
-              if (confirmed) {
-                onDeleteSection(sectionContextMenu.sectionId);
-              }
+              onDeleteSection(sectionContextMenu.sectionId);
             }}
             disabled={isReadOnly}
             data-testid="estimate-section-context-delete-button"

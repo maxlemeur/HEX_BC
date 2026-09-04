@@ -9,7 +9,9 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   SortableContext,
@@ -32,7 +34,9 @@ import {
   type MobileEstimateListRow,
 } from "@/components/estimates/components/estimate-editor-table/MobileEstimateList";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
+import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
+import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
   EstimateEditorRowActionsProvider,
@@ -74,6 +78,11 @@ import {
   useColumnVisibility,
   type ColumnKey,
 } from "@/hooks/useColumnVisibility";
+import {
+  type EstimateColumnId,
+  type EstimateColumnWidths,
+  useEstimateColumnWidths,
+} from "@/hooks/useEstimateColumnWidths";
 import { useIsMobileViewport } from "@/hooks/useIsTablet";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
@@ -99,6 +108,7 @@ import {
 import {
   type TreeConnectorMeta,
 } from "@/lib/estimates/tree-connectors";
+import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import {
   type SuggestionCorrectionPayload,
   type SuggestionLearningState,
@@ -140,6 +150,11 @@ const SupplierComparisonPanel = dynamic(() =>
     (module) => module.SupplierComparisonPanel
   )
 );
+const EstimateArticleSheet = dynamic(() =>
+  import("@/components/estimates/EstimateArticleSheet").then(
+    (module) => module.EstimateArticleSheet
+  )
+);
 
 export type {
   SuggestionCorrectionPayload,
@@ -159,6 +174,17 @@ import {
 } from "@/components/estimates/estimate-editor-table-types";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+
+type DeleteConfirmationState =
+  | {
+      kind: "item";
+      itemId: string;
+      message: string;
+    }
+  | {
+      kind: "bulk";
+      message: string;
+    };
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -684,34 +710,52 @@ export function resolveEstimateTableShortcutScope(scope: EstimateTableShortcutSc
 
 export function resolveEstimateEditorGridStyle(
   visibleColumns: ReadonlySet<ColumnKey>,
-  isLaborSplitEnabled: boolean
+  isLaborSplitEnabled: boolean,
+  customWidths: Readonly<EstimateColumnWidths> = {},
 ): CSSProperties | undefined {
+  const desktopColumns: string[] = [];
+  const tabletColumns: string[] = [];
+  let desktopMinWidth = 0;
+  let tabletMinWidth = 0;
+
+  const pushColumn = (
+    columnId: EstimateColumnId,
+    desktopWidth: number,
+    tabletWidth: number,
+    desktopTrack = `${desktopWidth}px`,
+    tabletTrack = `${tabletWidth}px`,
+  ) => {
+    const customWidth = customWidths[columnId];
+    desktopColumns.push(customWidth ? `${customWidth}px` : desktopTrack);
+    tabletColumns.push(customWidth ? `${customWidth}px` : tabletTrack);
+    desktopMinWidth += customWidth ?? desktopWidth;
+    tabletMinWidth += customWidth ?? tabletWidth;
+  };
+
   // Designation, Qte, U, PR. FO — toujours presentes.
-  const desktopColumns = ["minmax(300px, 3fr)", "64px", "54px", "88px"];
-  const tabletColumns = ["minmax(260px, 3fr)", "58px", "50px", "80px"];
-  let desktopMinWidth = 300 + 64 + 54 + 88;
-  let tabletMinWidth = 260 + 58 + 50 + 80;
+  pushColumn("designation", 300, 260, "minmax(300px, 3fr)", "minmax(260px, 3fr)");
+  pushColumn("quantity", 64, 58);
+  pushColumn("unit", 54, 50);
+  pushColumn("supply_price", 88, 80);
 
   const addOptionalColumn = (
     column: ColumnKey,
     desktopWidth: number,
-    tabletWidth: number
+    tabletWidth: number,
   ) => {
     if (!visibleColumns.has(column)) {
       return;
     }
 
-    desktopColumns.push(`${desktopWidth}px`);
-    tabletColumns.push(`${tabletWidth}px`);
-    desktopMinWidth += desktopWidth;
-    tabletMinWidth += tabletWidth;
+    pushColumn(column, desktopWidth, tabletWidth);
   };
 
-  const pushFixed = (desktopWidth: number, tabletWidth: number) => {
-    desktopColumns.push(`${desktopWidth}px`);
-    tabletColumns.push(`${tabletWidth}px`);
-    desktopMinWidth += desktopWidth;
-    tabletMinWidth += tabletWidth;
+  const pushFixed = (
+    columnId: EstimateColumnId,
+    desktopWidth: number,
+    tabletWidth: number,
+  ) => {
+    pushColumn(columnId, desktopWidth, tabletWidth);
   };
 
   if (isLaborSplitEnabled) {
@@ -721,19 +765,19 @@ export function resolveEstimateEditorGridStyle(
     // dans globals.css, qui servait jusqu'ici de second regime de mise en page :
     // la fonction retournait `undefined` et laissait le CSS statique decider.
     // Ce second regime empechait toute colonne optionnelle en mode split.
-    pushFixed(112, 100); // Type FO
-    pushFixed(60, 56); // K FO
-    pushFixed(96, 88); // Majoration MO
-    pushFixed(72, 68); // h MO atelier
-    pushFixed(104, 96); // Type MO atelier
-    pushFixed(60, 56); // K MO atelier
-    pushFixed(72, 68); // h MO chantier
-    pushFixed(104, 96); // Type MO chantier
-    pushFixed(60, 56); // K MO chantier
+    pushFixed("supply_type", 112, 100); // Type FO
+    pushFixed("k_fo", 60, 56); // K FO
+    pushFixed("h_mo_majoration", 96, 88); // Majoration MO
+    pushFixed("labor_hours_workshop", 72, 68); // h MO atelier
+    pushFixed("labor_role_workshop", 104, 96); // Type MO atelier
+    pushFixed("k_mo_workshop", 60, 56); // K MO atelier
+    pushFixed("labor_hours_site", 72, 68); // h MO chantier
+    pushFixed("labor_role_site", 104, 96); // Type MO chantier
+    pushFixed("k_mo_site", 60, 56); // K MO chantier
   } else {
     addOptionalColumn("supply_type", 112, 100);
     addOptionalColumn("k_fo", 56, 56);
-    pushFixed(56, 56); // h MO
+    pushFixed("labor_hours", 56, 56); // h MO
     addOptionalColumn("h_mo_majoration", 104, 96);
     addOptionalColumn("labor_role", 112, 100);
     addOptionalColumn("k_mo", 56, 56);
@@ -744,10 +788,13 @@ export function resolveEstimateEditorGridStyle(
   addOptionalColumn("marge", 100, 94);
   addOptionalColumn("marque", 78, 72);
 
-  pushFixed(88, 82); // P.U.
-  pushFixed(100, 94); // Prix total
+  pushFixed("unit_price", 88, 82); // P.U.
+  pushFixed("total_price", 100, 94); // Prix total
 
-  pushFixed(42, 40); // Actions
+  desktopColumns.push("42px");
+  tabletColumns.push("40px");
+  desktopMinWidth += 42;
+  tabletMinWidth += 40;
 
   return {
     "--estimate-grid-desktop": desktopColumns.join(" "),
@@ -839,6 +886,11 @@ export function EstimateEditorTable({
   onOpenSettings,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
+  const {
+    widths: customColumnWidths,
+    setColumnWidth,
+    resetColumnWidth,
+  } = useEstimateColumnWidths();
   const columnPreset = columnVisibility.preset;
   const setColumnPresetAuto = columnVisibility.setPresetAuto;
   const { mode: uiMode, isSimplified } = useUiMode();
@@ -855,11 +907,19 @@ export function EstimateEditorTable({
   const [searchTerm, setSearchTerm] = useState("");
   const [mobileEditorItemId, setMobileEditorItemId] = useState<string | null>(null);
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<DeleteConfirmationState | null>(null);
+  const [isDeletePending, setIsDeletePending] = useState(false);
+  const [articleSheet, setArticleSheet] = useState<{
+    itemId: string;
+    mode: "view" | "associate";
+  } | null>(null);
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
     () => new Set()
   );
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const columnResizeCleanupRef = useRef<(() => void) | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
   const appliedSuggestionContextByItemIdRef = useRef<
     Record<string, AppliedSuggestionContext>
@@ -867,6 +927,13 @@ export function EstimateEditorTable({
   const normalizedSearchTerm = useMemo(
     () => normalizeQuickFilterTerm(searchTerm),
     [searchTerm]
+  );
+  const itemByClientKey = useMemo(
+    () =>
+      new Map(
+        items.map((item) => [getEstimateEditorItemClientKey(item), item]),
+      ),
+    [items],
   );
   const resolvedMaxSectionDepth = useMemo(
     () => clampMaxSectionDepth(maxSectionDepth, DEFAULT_MAX_SECTION_DEPTH),
@@ -959,10 +1026,62 @@ export function EstimateEditorTable({
     () =>
       resolveEstimateEditorGridStyle(
         viewportVisibleColumns,
-        isLaborSplitEnabled
+        isLaborSplitEnabled,
+        customColumnWidths,
       ),
-    [viewportVisibleColumns, isLaborSplitEnabled]
+    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled],
   );
+
+  const handleColumnResizeStart = useCallback(
+    (
+      columnId: EstimateColumnId,
+      event: ReactPointerEvent<HTMLButtonElement>,
+    ) => {
+      event.preventDefault();
+      columnResizeCleanupRef.current?.();
+
+      const startX = event.clientX;
+      const startWidth =
+        event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0;
+
+      const handlePointerMove = (pointerEvent: PointerEvent) => {
+        setColumnWidth(
+          columnId,
+          startWidth + pointerEvent.clientX - startX,
+        );
+      };
+      const cleanup = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", cleanup);
+        window.removeEventListener("pointercancel", cleanup);
+        columnResizeCleanupRef.current = null;
+      };
+
+      columnResizeCleanupRef.current = cleanup;
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", cleanup, { once: true });
+      window.addEventListener("pointercancel", cleanup, { once: true });
+    },
+    [setColumnWidth],
+  );
+
+  const handleColumnResizeKeyDown = useCallback(
+    (
+      columnId: EstimateColumnId,
+      event: ReactKeyboardEvent<HTMLButtonElement>,
+    ) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const currentWidth =
+        event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0;
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const step = event.shiftKey ? 24 : 8;
+      setColumnWidth(columnId, currentWidth + direction * step);
+    },
+    [setColumnWidth],
+  );
+
+  useEffect(() => () => columnResizeCleanupRef.current?.(), []);
 
   const hasInitializedPresetRef = useRef(false);
   const previousSimplifiedRef = useRef<boolean | null>(null);
@@ -1306,19 +1425,71 @@ export function EstimateEditorTable({
     onBulkSetLaborRole,
   });
 
-  // Confirmation avant suppression groupée : la touche Suppr comme le bouton
-  // « Supprimer » effaçaient les lignes sélectionnées sans aucune confirmation,
-  // exposant à une perte de travail par une manipulation banale.
-  const confirmAndBulkDeleteSelection = useCallback(async () => {
+  const requestBulkDeleteSelection = useCallback(async () => {
     if (selectedLineCount === 0) return;
-    const confirmed = window.confirm(
-      selectedLineCount > 1
-        ? `Supprimer ${selectedLineCount} lignes sélectionnées ? Cette action est irréversible.`
-        : "Supprimer la ligne sélectionnée ? Cette action est irréversible."
-    );
-    if (!confirmed) return;
-    await handleBulkDeleteSelection();
-  }, [selectedLineCount, handleBulkDeleteSelection]);
+    setDeleteConfirmation({
+      kind: "bulk",
+      message:
+        selectedLineCount > 1
+          ? `Supprimer les ${selectedLineCount} lignes sélectionnées ?`
+          : "Supprimer la ligne sélectionnée ?",
+    });
+  }, [selectedLineCount]);
+
+  const requestDeleteItem = useCallback(
+    (itemId: string) => {
+      const item = items.find((candidate) => candidate.id === itemId);
+      if (!item) return;
+
+      const childrenByParentId = new Map<string, EstimateItem[]>();
+      items.forEach((candidate) => {
+        if (!candidate.parent_id) return;
+        const children = childrenByParentId.get(candidate.parent_id) ?? [];
+        children.push(candidate);
+        childrenByParentId.set(candidate.parent_id, children);
+      });
+
+      let impactedCount = 0;
+      const pendingIds = [itemId];
+      const visitedIds = new Set<string>();
+      while (pendingIds.length > 0) {
+        const currentId = pendingIds.pop();
+        if (!currentId || visitedIds.has(currentId)) continue;
+        visitedIds.add(currentId);
+        impactedCount += 1;
+        (childrenByParentId.get(currentId) ?? []).forEach((child) => {
+          pendingIds.push(child.id);
+        });
+      }
+
+      const title = item.title.trim() || (item.item_type === "section" ? "Sans titre" : "Nouvelle ligne");
+      const message =
+        item.item_type === "section"
+          ? impactedCount > 1
+            ? `Supprimer la section « ${title} » et ses ${impactedCount - 1} élément${impactedCount - 1 > 1 ? "s" : ""} ?`
+            : `Supprimer la section « ${title} » ?`
+          : `Supprimer la ligne « ${title} » ?`;
+
+      setDeleteConfirmation({ kind: "item", itemId, message });
+    },
+    [items]
+  );
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteConfirmation || isDeletePending) return;
+
+    setIsDeletePending(true);
+    try {
+      if (deleteConfirmation.kind === "item") {
+        await Promise.resolve(onDeleteItem(deleteConfirmation.itemId));
+      } else {
+        await handleBulkDeleteSelection();
+      }
+      setDeleteConfirmation(null);
+    } finally {
+      setIsDeletePending(false);
+    }
+  }, [deleteConfirmation, handleBulkDeleteSelection, isDeletePending, onDeleteItem]);
 
   const {
     isPastePreviewOpen,
@@ -1373,6 +1544,58 @@ export function EstimateEditorTable({
     fetchSupplierComparison: fetchSupplierComparisons,
     onPatchItemWithSuggestionTracking: patchItemWithSuggestionTracking,
   });
+
+  const activeArticleItem = articleSheet
+    ? itemById.get(articleSheet.itemId) ?? null
+    : null;
+
+  const openArticleSheet = useCallback(
+    (itemId: string, mode: "view" | "associate") => {
+      const item = itemById.get(itemId);
+      if (!item || item.item_type !== "line") return;
+      if (mode === "view" && !item.product_id) return;
+      if (mode === "associate" && isReadOnly) return;
+      setArticleSheet({ itemId, mode });
+      closeSupplierComparisonContextMenu();
+    },
+    [closeSupplierComparisonContextMenu, isReadOnly, itemById]
+  );
+
+  const handleAssociateArticle = useCallback(
+    (suggestion: CataloguePriceSuggestion) => {
+      if (!articleSheet || isReadOnly) return;
+      const designation = suggestion.product_designation.trim();
+      patchItemWithSuggestionTracking(
+        articleSheet.itemId,
+        {
+          product_id: suggestion.product_id,
+          title: designation || "Nouvelle ligne",
+          description: designation || null,
+          unit_price_ht_cents: suggestion.adjusted_unit_price_cents,
+          selected_supplier_price_id: suggestion.supplier_price_id,
+        },
+        { persist: true }
+      );
+      setArticleSheet(null);
+    },
+    [articleSheet, isReadOnly, patchItemWithSuggestionTracking]
+  );
+
+  const handleDetachArticle = useCallback(() => {
+    if (!articleSheet || isReadOnly) return;
+    patchItemWithSuggestionTracking(
+      articleSheet.itemId,
+      { product_id: null },
+      { persist: true }
+    );
+    setArticleSheet(null);
+  }, [articleSheet, isReadOnly, patchItemWithSuggestionTracking]);
+
+  useEffect(() => {
+    if (!articleSheet) return;
+    const item = itemById.get(articleSheet.itemId);
+    if (!item || item.item_type !== "line") setArticleSheet(null);
+  }, [articleSheet, itemById]);
 
   const {
     sectionContextMenu,
@@ -1542,7 +1765,7 @@ export function EstimateEditorTable({
     onResolveShortcutScope: resolveEstimateTableShortcutScope,
     selectAllVisibleLines,
     clearLineSelection,
-    onBulkDeleteSelection: confirmAndBulkDeleteSelection,
+    onBulkDeleteSelection: requestBulkDeleteSelection,
     onCopySelectedRowsToClipboard: copySelectedRowsToClipboard,
     onUndo,
     onRedo,
@@ -1714,10 +1937,13 @@ export function EstimateEditorTable({
     return visibleItemsInOrderForRender.map((item) => {
       const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled);
       if (hiddenSpreadsheetColumnKeys.size === 0) {
-        return { rowId: item.id, columnKeys: allKeys };
+        return {
+          rowId: getEstimateEditorItemClientKey(item),
+          columnKeys: allKeys,
+        };
       }
       return {
-        rowId: item.id,
+        rowId: getEstimateEditorItemClientKey(item),
         columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key)),
       };
     });
@@ -1735,7 +1961,10 @@ export function EstimateEditorTable({
       ? handleNavigationCellNotMounted
       : undefined,
   });
-  const insertionAnchorItemId = spreadsheetNavigation.activeCell?.rowId ?? null;
+  const activeClientKey = spreadsheetNavigation.activeCell?.rowId ?? null;
+  const insertionAnchorItemId = activeClientKey
+    ? (itemByClientKey.get(activeClientKey)?.id ?? null)
+    : null;
 
   useEffect(() => {
     insertionAnchorItemIdRef.current = insertionAnchorItemId;
@@ -1766,10 +1995,9 @@ export function EstimateEditorTable({
   }, [items]);
 
   const activeLineBreadcrumb = useMemo(() => {
-    const activeRowId = spreadsheetNavigation.activeCell?.rowId;
-    if (!activeRowId) return null;
+    if (!activeClientKey) return null;
 
-    const activeItem = itemById.get(activeRowId);
+    const activeItem = itemByClientKey.get(activeClientKey);
     if (!activeItem || activeItem.item_type !== "line") {
       return null;
     }
@@ -1793,7 +2021,7 @@ export function EstimateEditorTable({
     }
 
     return labels.reverse().join(" > ");
-  }, [itemById, spreadsheetNavigation.activeCell?.rowId]);
+  }, [activeClientKey, itemByClientKey, itemById]);
 
   const openSectionContextMenuForRow = useCallback(
     (sectionId: string, position: { x: number; y: number }) => {
@@ -1805,7 +2033,9 @@ export function EstimateEditorTable({
 
   const rowActionsContextValue = useMemo<EstimateEditorRowActionsContextValue>(
     () => ({
-      onDeleteItem,
+      onDeleteItem: requestDeleteItem,
+      onOpenArticle: (itemId) => openArticleSheet(itemId, "view"),
+      onAssociateArticle: (itemId) => openArticleSheet(itemId, "associate"),
       onOpenSupplierComparisonPanel: openSupplierComparisonPanel,
       onOpenSupplierComparisonContextMenu: handleOpenSupplierComparisonContextMenu,
       onOpenSectionContextMenu: openSectionContextMenuForRow,
@@ -1830,8 +2060,9 @@ export function EstimateEditorTable({
       handleUnitDraftChange,
       onAddLine,
       onAddSection,
-      onDeleteItem,
+      requestDeleteItem,
       onToggleOutlierDismiss,
+      openArticleSheet,
       openSectionContextMenuForRow,
       openSupplierComparisonPanel,
       patchItemWithSuggestionTracking,
@@ -1991,7 +2222,7 @@ export function EstimateEditorTable({
               hasVisibleChildren,
             };
             return (
-              <Fragment key={item.id}>
+              <Fragment key={getEstimateEditorItemClientKey(item)}>
                 {renderSortableRow(
                   item,
                   rowDepth,
@@ -2232,7 +2463,7 @@ export function EstimateEditorTable({
                 onUndo={onUndo}
                 onRedo={onRedo}
                 onApplyBulkMajoration={handleApplyBulkMajoration}
-                onBulkDeleteSelection={confirmAndBulkDeleteSelection}
+                onBulkDeleteSelection={requestBulkDeleteSelection}
                 onApplyBulkMove={handleApplyBulkMove}
                 onApplyBulkCategory={handleApplyBulkCategory}
                 onApplyBulkLaborRole={handleApplyBulkLaborRole}
@@ -2286,6 +2517,9 @@ export function EstimateEditorTable({
             scrollContainerRef={scrollContainerRef}
             isLaborSplitEnabled={isLaborSplitEnabled}
             dynamicGridStyle={dynamicGridStyle}
+            onColumnResizeStart={handleColumnResizeStart}
+            onColumnResizeKeyDown={handleColumnResizeKeyDown}
+            onColumnResizeReset={resetColumnWidth}
             superHeaderSpans={superHeaderSpans}
             visibleColumns={viewportVisibleColumns}
             allVisibleSelected={allVisibleSelected}
@@ -2354,7 +2588,7 @@ export function EstimateEditorTable({
               onDuplicateSectionInPlace={handleDuplicateSectionInPlace}
               onOpenDuplicateSectionDialog={handleOpenDuplicateSectionDialog}
               onOpenSaveAsAssemblyDialog={handleOpenSaveAsAssemblyDialog}
-              onDeleteSection={onDeleteItem}
+              onDeleteSection={requestDeleteItem}
               onDuplicateSection={onDuplicateSection}
               onDuplicateSectionToVersion={onDuplicateSectionToVersion}
               availableSectionDuplicateTargets={availableSectionDuplicateTargets}
@@ -2382,6 +2616,9 @@ export function EstimateEditorTable({
         <EstimateEditorTableLineContextMenu
           itemId={supplierComparisonMenu.itemId}
           aid={itemById.get(supplierComparisonMenu.itemId)?.aid ?? null}
+          hasAssociatedProduct={Boolean(
+            itemById.get(supplierComparisonMenu.itemId)?.product_id
+          )}
           x={supplierComparisonMenu.x}
           y={supplierComparisonMenu.y}
           isReadOnly={isReadOnly}
@@ -2394,12 +2631,41 @@ export function EstimateEditorTable({
             openSupplierComparisonPanel(itemId);
             closeSupplierComparisonContextMenu();
           }}
+          onOpenArticle={(itemId) => openArticleSheet(itemId, "view")}
+          onAssociateArticle={(itemId) => openArticleSheet(itemId, "associate")}
           onConvertToSection={(itemId) => {
             closeSupplierComparisonContextMenu();
             void handleConvertLineToSection(itemId);
           }}
         />
       ) : null}
+
+      {articleSheet && activeArticleItem?.item_type === "line" ? (
+        <EstimateArticleSheet
+          isOpen
+          mode={articleSheet.mode}
+          versionId={versionId}
+          lineTitle={activeArticleItem.title}
+          productId={activeArticleItem.product_id ?? null}
+          currency={currency}
+          isReadOnly={isReadOnly}
+          onClose={() => setArticleSheet(null)}
+          onAssociate={handleAssociateArticle}
+          onDetach={handleDetachArticle}
+        />
+      ) : null}
+
+      <ConfirmModal
+        open={deleteConfirmation !== null}
+        title="Confirmer la suppression"
+        message={deleteConfirmation?.message ?? ""}
+        confirmLabel={isDeletePending ? "Suppression..." : "Supprimer"}
+        variant="danger"
+        confirmDisabled={isDeletePending}
+        cancelDisabled={isDeletePending}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleteConfirmation(null)}
+      />
 
       {activeSupplierComparisonItem ? (
         <SupplierComparisonPanel

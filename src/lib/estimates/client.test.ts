@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 
@@ -21,6 +21,7 @@ import {
   fetchEstimateEditorData,
   fetchEstimatePdfStatus,
   fetchEstimatePdfLayoutConfiguration,
+  getEstimateDraftLockSessionId,
   insertAssemblyIntoVersion,
   importEstimateSections,
   importLinkedDpgfSource,
@@ -31,6 +32,7 @@ import {
   renewEstimateDraftLock,
   saveEstimateVersion,
   sendEstimateSuggestionRuleFeedback,
+  takeoverEstimateDraftLock,
   exportEstimate,
   updateEstimateAssembly,
   updateEstimateStatus,
@@ -50,6 +52,56 @@ const TEMPLATE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2026-02-20T10:30:00.000Z";
+const DRAFT_LOCK_SESSION_GLOBAL_KEY =
+  "__miaouffrageEstimateDraftLockSessions";
+
+class MemoryStorage implements Storage {
+  private readonly values: Map<string, string>;
+
+  constructor(entries: Iterable<readonly [string, string]> = []) {
+    this.values = new Map(entries);
+  }
+
+  get length() {
+    return this.values.size;
+  }
+
+  clear() {
+    this.values.clear();
+  }
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number) {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+
+  entries() {
+    return this.values.entries();
+  }
+}
+
+function resetInMemoryDraftLockSessions() {
+  delete (globalThis as Record<string, unknown>)[
+    DRAFT_LOCK_SESSION_GLOBAL_KEY
+  ];
+}
+
+function stubNavigationType(type: NavigationTimingType) {
+  vi.stubGlobal("performance", {
+    getEntriesByType: vi.fn().mockReturnValue([{ type }]),
+  });
+}
 
 describe("estimate client optimistic concurrency", () => {
   afterEach(() => {
@@ -346,6 +398,55 @@ describe("estimate client optimistic concurrency", () => {
         source_page: 3,
       })
     );
+  });
+
+  it("omits a null product link and exposes the refreshed version token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            item: {
+              id: ITEM_ID,
+              item_type: "line",
+            },
+            version: {
+              id: VERSION_ID,
+              updated_at: "2026-09-03T21:00:00.000Z",
+            },
+          },
+        }),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const onVersionToken = vi.fn();
+
+    await createEstimateItem(
+      VERSION_ID,
+      {
+        version_id: VERSION_ID,
+        item_type: "line",
+        parent_id: null,
+        position: 1,
+        title: "Ligne sans produit",
+        product_id: null,
+      } as Parameters<typeof createEstimateItem>[1],
+      { onVersionToken }
+    );
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("product_id");
+    expect(onVersionToken).toHaveBeenCalledWith({
+      id: VERSION_ID,
+      updated_at: "2026-09-03T21:00:00.000Z",
+    });
   });
 
   it("parses supply_types from editor payload into supplyTypes", async () => {
@@ -719,6 +820,60 @@ describe("estimate client list parsing", () => {
   });
 });
 
+describe("estimate draft lock page identity", () => {
+  beforeEach(() => {
+    resetInMemoryDraftLockSessions();
+  });
+
+  afterEach(() => {
+    resetInMemoryDraftLockSessions();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("reuses the same page identity after a full reload", () => {
+    const storage = new MemoryStorage();
+    vi.stubGlobal("sessionStorage", storage);
+    stubNavigationType("reload");
+
+    const beforeReload = getEstimateDraftLockSessionId(VERSION_ID);
+    expect([...storage.entries()][0]?.[1]).toBe(beforeReload);
+    resetInMemoryDraftLockSessions();
+    const afterReload = getEstimateDraftLockSessionId(VERSION_ID);
+
+    expect(afterReload).toBe(beforeReload);
+  });
+
+  it("persists an existing in-memory identity after hot reload", () => {
+    const existingSessionId = "12345678-1234-4123-8123-123456789abc";
+    const storage = new MemoryStorage();
+    vi.stubGlobal("sessionStorage", storage);
+    stubNavigationType("navigate");
+    (globalThis as Record<string, unknown>)[DRAFT_LOCK_SESSION_GLOBAL_KEY] =
+      new Map([[VERSION_ID, existingSessionId]]);
+
+    const resolvedSessionId = getEstimateDraftLockSessionId(VERSION_ID);
+
+    expect(resolvedSessionId).toBe(existingSessionId);
+    expect([...storage.entries()][0]?.[1]).toBe(existingSessionId);
+  });
+
+  it("rotates a copied page identity in a duplicated tab", () => {
+    const originalStorage = new MemoryStorage();
+    vi.stubGlobal("sessionStorage", originalStorage);
+    stubNavigationType("navigate");
+    const originalTabId = getEstimateDraftLockSessionId(VERSION_ID);
+
+    const duplicatedTabStorage = new MemoryStorage(originalStorage.entries());
+    resetInMemoryDraftLockSessions();
+    vi.stubGlobal("sessionStorage", duplicatedTabStorage);
+    stubNavigationType("navigate");
+    const duplicatedTabId = getEstimateDraftLockSessionId(VERSION_ID);
+
+    expect(duplicatedTabId).not.toBe(originalTabId);
+  });
+});
+
 describe("estimate client draft lock wrappers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -858,6 +1013,45 @@ describe("estimate client draft lock wrappers", () => {
     );
     expect(result.renewed).toBe(true);
     expect(result.lock?.isOwnedByCurrentUser).toBe(true);
+  });
+
+  it("takes over draft locks atomically with force PATCH", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            lock: {
+              version_id: VERSION_ID,
+              user_id: LOCK_USER_ID,
+              holder_name: "Alice Martin",
+              expires_at: LOCK_EXPIRES_AT,
+              is_current_user: true,
+              is_current_session: true,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await takeoverEstimateDraftLock(VERSION_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/lock?force=1`,
+      expect.objectContaining({
+        method: "PATCH",
+        credentials: "same-origin",
+      })
+    );
+    expect(result.acquired).toBe(true);
+    expect(result.lock?.isOwnedByCurrentSession).toBe(true);
   });
 
   it("releases draft locks with force query + keepalive", async () => {

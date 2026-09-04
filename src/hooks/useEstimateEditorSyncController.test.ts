@@ -692,6 +692,33 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(mocks.scheduleAutoSave).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves the stable client key when server items are reloaded", async () => {
+    const currentItem = {
+      ...createItem("line-real"),
+      _clientKey: "tmp:line-client",
+    };
+    const input = createInput({ items: [currentItem] });
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    const reloadedItem = createItem("line-real", {
+      title: "Titre confirme par le serveur",
+    });
+
+    expect(
+      result.current.actions.overlayPendingUpdates([reloadedItem])
+    ).toEqual([
+      expect.objectContaining({
+        id: "line-real",
+        title: "Titre confirme par le serveur",
+        _clientKey: "tmp:line-client",
+      }),
+    ]);
+  });
+
   it("stops re-saving a value the server already acknowledged", async () => {
     const serverItem = createItem();
     const version = createVersion();
@@ -774,6 +801,15 @@ describe("useEstimateEditorSyncController buffered updates", () => {
       });
     });
 
+    const navigationGuardInput =
+      mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    act(() => {
+      navigationGuardInput?.onBlockedNavigation();
+    });
+    expect(input.reportError).toHaveBeenLastCalledWith(
+      "Des modifications ne sont pas encore synchronisées. Utilisez « Sauvegarder maintenant » ou Ctrl+S, puis réessayez."
+    );
+
     let flushResult: string | undefined;
     await act(async () => {
       flushResult =
@@ -815,6 +851,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
       updatedAt: "token-totals",
     });
     expect(input.setTotalsOutOfSync).toHaveBeenCalledWith(false);
+    expect(input.reportError).toHaveBeenLastCalledWith(null);
     expect(input.clearHistory).toHaveBeenCalledTimes(1);
     expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
     expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
@@ -1181,7 +1218,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     ).toBeNull();
   });
 
-  it("restores a conflict draft but retains its session snapshot until save", async () => {
+  it("clears a restored conflict snapshot after its lines are synchronized", async () => {
     const draft = {
       settings: createSettings({ title: "Brouillon restaure" }),
       items: [createItem("line-restored", { title: "Ligne restauree" })],
@@ -1227,6 +1264,14 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
         },
       ],
     });
+
+    await act(async () => {
+      await result.current.actions.flushBufferedItemUpdates();
+    });
+
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(result.current.state.hasRestorableDraft).toBe(false);
+    expect(input.reportNotice).toHaveBeenLastCalledWith(null);
   });
 
   it("warns when a locally restored line no longer exists on the server", async () => {
@@ -1452,6 +1497,29 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     await act(async () => {
       rerender();
     });
+    expect(result.current.meta.reloadToken).toBe(1);
+  });
+
+  it("clears obsolete synchronization feedback after a successful takeover", async () => {
+    const input = createInput();
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+    vi.mocked(input.reportError).mockClear();
+    vi.mocked(input.reportNotice).mockClear();
+    vi.mocked(input.setTotalsOutOfSync).mockClear();
+
+    await act(async () => {
+      await result.current.actions.forceUnlockDraftLock();
+    });
+
+    expect(mocks.forceUnlockAndAcquireDraftLock).toHaveBeenCalledTimes(1);
+    expect(input.reportError).toHaveBeenLastCalledWith(null);
+    expect(input.reportNotice).toHaveBeenLastCalledWith(null);
+    expect(input.setTotalsOutOfSync).toHaveBeenLastCalledWith(false);
+    expect(result.current.state.conflict).toBeNull();
     expect(result.current.meta.reloadToken).toBe(1);
   });
 

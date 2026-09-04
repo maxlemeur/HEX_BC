@@ -25,6 +25,7 @@ type ServerTableFilterBarProps = {
   filteredCount: number;
   totalCount: number;
   resultCountLabel: string;
+  compact?: boolean;
   isPending?: boolean;
   onSearchChange: (value: string) => void;
   onFilterChange: (key: string, value: FilterValue) => void;
@@ -48,6 +49,7 @@ export function ServerTableFilterBar({
   filteredCount,
   totalCount,
   resultCountLabel,
+  compact = false,
   isPending = false,
   onSearchChange,
   onFilterChange,
@@ -60,7 +62,9 @@ export function ServerTableFilterBar({
   );
 
   return (
-    <div className={`table-filter-bar ${filters.length > 0 ? "table-filter-bar--has-filters" : ""}`}>
+    <div
+      className={`table-filter-bar ${filters.length > 0 ? "table-filter-bar--has-filters" : ""} ${compact ? "table-filter-bar--compact" : ""}`}
+    >
       <div className="table-filter-bar__primary">
         <FilterSearch
           value={searchValue}

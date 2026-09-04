@@ -50,6 +50,7 @@ import {
 import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
+import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import {
   type TreeConnectorMeta,
 } from "@/lib/estimates/tree-connectors";
@@ -272,6 +273,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   const navigation = useEstimateSpreadsheetNavigation();
   const {
     onDeleteItem,
+    onOpenArticle,
+    onAssociateArticle,
     onOpenSupplierComparisonPanel,
     onOpenSupplierComparisonContextMenu,
     onOpenSectionContextMenu,
@@ -322,8 +325,9 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   const [isAidEditorRequested, setIsAidEditorRequested] = useState(false);
   const aidInputRef = useRef<HTMLInputElement | null>(null);
   const isAidEditorVisible = normalizedAidValue.length > 0 || isAidEditorRequested;
+  const clientKey = getEstimateEditorItemClientKey(item);
   const titleCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.title,
   };
   const titleCellProps = navigation.getCellProps(titleCell);
@@ -453,39 +457,39 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   const sourceMetadata = (item as Record<string, unknown>).source_metadata ?? null;
 
   const quantityCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.quantity,
   };
   const unitCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.unit,
   };
   const unitCellProps = navigation.getCellProps(unitCell);
   const unitEditorProps = navigation.getEditorProps<HTMLInputElement>(unitCell);
   const unitPriceCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.unitPrice,
   };
   const supplyTypeCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.supplyType,
   };
   const supplyTypeCellProps = navigation.getCellProps(supplyTypeCell);
   const supplyTypeEditorProps = navigation.getEditorProps<HTMLInputElement>(supplyTypeCell);
   const kFoCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.kFo,
   };
   const kFoCellProps = navigation.getCellProps(kFoCell);
   const kFoEditorProps = navigation.getEditorProps<HTMLInputElement>(kFoCell);
   const hMoCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.hMo,
   };
   const hMoCellProps = navigation.getCellProps(hMoCell);
   const hMoEditorProps = navigation.getEditorProps<HTMLInputElement>(hMoCell);
   const hMoMajorationCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.hMoMajoration,
   };
   const hMoMajorationCellProps = navigation.getCellProps(hMoMajorationCell);
@@ -493,7 +497,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     hMoMajorationCell
   );
   const laborRoleCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.laborRole,
   };
   const laborRoleCellProps = navigation.getCellProps(laborRoleCell);
@@ -501,13 +505,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     laborRoleCell
   );
   const kMoCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.kMo,
   };
   const kMoCellProps = navigation.getCellProps(kMoCell);
   const kMoEditorProps = navigation.getEditorProps<HTMLInputElement>(kMoCell);
   const hMoAtelierCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.hMoAtelier,
   };
   const hMoAtelierCellProps = navigation.getCellProps(hMoAtelierCell);
@@ -515,7 +519,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     hMoAtelierCell
   );
   const laborRoleAtelierCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.laborRoleAtelier,
   };
   const laborRoleAtelierCellProps = navigation.getCellProps(laborRoleAtelierCell);
@@ -523,7 +527,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     laborRoleAtelierCell
   );
   const kMoAtelierCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.kMoAtelier,
   };
   const kMoAtelierCellProps = navigation.getCellProps(kMoAtelierCell);
@@ -531,7 +535,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     kMoAtelierCell
   );
   const hMoChantierCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.hMoChantier,
   };
   const hMoChantierCellProps = navigation.getCellProps(hMoChantierCell);
@@ -539,7 +543,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     hMoChantierCell
   );
   const laborRoleChantierCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.laborRoleChantier,
   };
   const laborRoleChantierCellProps = navigation.getCellProps(laborRoleChantierCell);
@@ -547,7 +551,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     laborRoleChantierCell
   );
   const kMoChantierCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.kMoChantier,
   };
   const kMoChantierCellProps = navigation.getCellProps(kMoChantierCell);
@@ -555,12 +559,12 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     kMoChantierCell
   );
   const puCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.pu,
   };
   const puCellProps = navigation.getCellProps(puCell, { editable: false });
   const totalCell: SpreadsheetCell = {
-    rowId: item.id,
+    rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.total,
   };
   const totalCellProps = navigation.getCellProps(totalCell, { editable: false });
@@ -665,6 +669,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       onSupplyTypeChange={onSupplyTypeChange}
       onSupplyTypeCommit={onSupplyTypeCommit}
       onDeleteItem={onDeleteItem}
+      onOpenArticle={onOpenArticle}
+      onAssociateArticle={onAssociateArticle}
       onOpenSupplierComparisonPanel={onOpenSupplierComparisonPanel}
       onOpenSupplierComparisonContextMenu={onOpenSupplierComparisonContextMenu}
       onConvertLineToSection={onConvertLineToSection}

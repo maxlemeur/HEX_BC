@@ -19,11 +19,21 @@ describe("ProductsPage responsive list contract", () => {
     expect(source).toContain("keepPreviousData: true");
   });
 
-  it("uses cards on compact viewports and the dense table on desktop", () => {
+  it("keeps the product list primary on every viewport", () => {
+    expect(source).toContain("<ServerTableFilterBar");
+    expect(source).toContain("compact");
     expect(source).toContain(
-      'className="divide-y divide-[var(--slate-200)] xl:hidden"',
+      'className="data-table product-catalogue-table table-fixed md:table-auto"',
     );
-    expect(source).toContain('className="hidden overflow-x-auto xl:block"');
+    expect(source).toContain('className="hidden min-[700px]:table-cell"');
+  });
+
+  it("moves catalogue context and secondary actions into the overflow menu", () => {
+    expect(source).toContain("Ouvrir les actions du catalogue");
+    expect(source).toContain("État du catalogue");
+    expect(source).toContain("Règle de prix actuelle");
+    expect(source).toContain("Importer produits et tarifs");
+    expect(source).not.toContain("Indicateurs du catalogue");
   });
 
   it("shows where the effective reference price comes from", () => {

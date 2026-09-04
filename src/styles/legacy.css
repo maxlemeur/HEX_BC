@@ -1437,6 +1437,65 @@ body {
   font-weight: 400;
 }
 
+/* Compact catalogue variant: keep search and filtering ahead of secondary context. */
+.table-filter-bar--compact {
+  margin-bottom: 12px;
+  box-shadow: none;
+}
+
+.product-catalogue-header {
+  margin-bottom: 16px;
+}
+
+.table-filter-bar--compact .table-filter-bar__primary {
+  padding: 10px 12px;
+}
+
+.table-filter-bar--compact .table-filter-bar__search-icon {
+  width: 40px;
+  height: 40px;
+}
+
+.table-filter-bar--compact .table-filter-bar__search-input {
+  height: 44px;
+}
+
+.table-filter-bar--compact .table-filter-bar__filters {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.table-filter-bar--compact .table-filter-bar__status {
+  padding: 8px 12px;
+}
+
+.product-catalogue-table thead th {
+  padding: 10px 12px;
+}
+
+.product-catalogue-table tbody td {
+  padding: 11px 12px;
+  vertical-align: top;
+}
+
+@media (max-width: 640px) {
+  .product-catalogue-table thead th,
+  .product-catalogue-table tbody td {
+    padding-inline: 8px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+  .table-filter-bar--compact .table-filter-bar__primary {
+    flex-direction: row;
+  }
+
+  .table-filter-bar--compact .sort-control,
+  .table-filter-bar--compact .sort-button {
+    width: auto;
+  }
+}
+
 /* ---------- universal dashboard navigation ---------- */
 
 .dashboard-global-topbar {

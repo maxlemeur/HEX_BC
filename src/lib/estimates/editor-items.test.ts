@@ -9,6 +9,7 @@ import {
   createOptimisticLineItem,
   createOptimisticSectionItem,
   createTempEstimateItemId,
+  getEstimateEditorItemClientKey,
   hasLaborSplitFields,
   isPendingCreateEstimateItem,
   isTempEstimateItemId,
@@ -28,6 +29,7 @@ function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
     version_id: "version-1",
     parent_id: "section-1",
     item_type: "line",
+    line_nature: "supply_and_labor",
     position: 2,
     title: "Tube acier",
     aid: "A.1",
@@ -49,6 +51,7 @@ function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
     labor_role_id: "role-default",
     category_id: "category-1",
     supply_type_id: "supply-1",
+    product_id: "product-1",
     selected_supplier_price_id: "supplier-price-1",
     source_provider: null,
     source_job_id: null,
@@ -112,6 +115,7 @@ describe("estimate editor item payloads", () => {
     expect(updatePayload).toEqual({
       title: "Tube acier",
       aid: "A.1",
+      line_nature: "supply_and_labor",
       description: "Fourniture et pose",
       quantity: 3,
       unit_price_ht_cents: 1250,
@@ -130,6 +134,7 @@ describe("estimate editor item payloads", () => {
       labor_role_id: "role-default",
       category_id: "category-1",
       supply_type_id: "supply-1",
+      product_id: "product-1",
       selected_supplier_price_id: "supplier-price-1",
       line_total_ht_cents: 15600,
       line_tax_cents: 3120,
@@ -243,6 +248,13 @@ describe("estimate editor optimistic items", () => {
     expect(tempId).toBe("tmp:11111111-2222-4333-8444-555555555555");
     expect(isTempEstimateItemId(tempId)).toBe(true);
     expect(isTempEstimateItemId("item-1")).toBe(false);
+    expect(getEstimateEditorItemClientKey({ id: "item-1" })).toBe("item-1");
+    expect(
+      getEstimateEditorItemClientKey({
+        id: "item-real",
+        _clientKey: "tmp:item-client",
+      }),
+    ).toBe("tmp:item-client");
     expect(
       isPendingCreateEstimateItem(
         createItem({ _pendingCreate: true } as Partial<EstimateItem>)
@@ -276,6 +288,7 @@ describe("estimate editor optimistic items", () => {
       quantity: null,
       h_mo_majoration: 1,
       source_metadata: {},
+      _clientKey: "tmp:section",
       _optimistic: true,
       _pendingCreate: true,
       _tempId: "tmp:section",
@@ -306,10 +319,12 @@ describe("estimate editor optimistic items", () => {
     expect(createLine(true)).toMatchObject({
       created_at: FIXED_NOW,
       updated_at: FIXED_NOW,
+      line_nature: "supply_only",
       h_mo_atelier: null,
       k_mo_atelier: null,
       h_mo_chantier: null,
       k_mo_chantier: null,
+      _clientKey: "tmp:split",
       _optimistic: true,
       _pendingCreate: true,
     });

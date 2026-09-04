@@ -87,6 +87,7 @@ type EstimateItemPatchKeys =
   | "labor_role_id"
   | "category_id"
   | "supply_type_id"
+  | "product_id"
   | "selected_supplier_price_id";
 
 export type EstimateEditorItemPatch = Partial<

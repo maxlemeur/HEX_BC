@@ -1,7 +1,11 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
   type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
@@ -168,6 +172,8 @@ type LineRowProps = {
   onSupplyTypeChange: (itemId: string, value: string) => void;
   onSupplyTypeCommit: (itemId: string) => void;
   onDeleteItem: (itemId: string) => void;
+  onOpenArticle?: (itemId: string) => void;
+  onAssociateArticle?: (itemId: string) => void;
   onOpenSupplierComparisonPanel: (itemId: string) => void;
   onOpenSupplierComparisonContextMenu: (
     itemId: string,
@@ -287,6 +293,8 @@ export function LineRow({
   onSupplyTypeChange,
   onSupplyTypeCommit,
   onDeleteItem,
+  onOpenArticle = () => undefined,
+  onAssociateArticle = () => undefined,
   onOpenSupplierComparisonPanel,
   onOpenSupplierComparisonContextMenu,
   onConvertLineToSection,
@@ -294,6 +302,30 @@ export function LineRow({
   onLineSelectionInteraction,
   onOpenMobileEditor,
 }: LineRowProps) {
+  const [catalogueSuggestionsAnchor, setCatalogueSuggestionsAnchor] =
+    useState<HTMLDivElement | null>(null);
+  const actionsMenuRef = useRef<HTMLDetailsElement>(null);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isActionsMenuOpen) return;
+
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const menu = actionsMenuRef.current;
+      if (!menu || (event.target instanceof Node && menu.contains(event.target))) {
+        return;
+      }
+
+      menu.open = false;
+      setIsActionsMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isActionsMenuOpen]);
+
   const treeConnectorSegments = buildTreeConnectorSegments(treeConnectorMeta);
   const hasTreeConnectors =
     treeConnectorSegments.verticalSegments.length > 0 ||
@@ -340,39 +372,51 @@ export function LineRow({
   const isLaborRoleVisible =
     isLaborSplitEnabled || !visibleColumns || visibleColumns.has("labor_role");
 
-  const handleLineSelectionCheckboxClick = (
-    event: ReactMouseEvent<HTMLInputElement>,
+  const dispatchLineSelection = (
+    modifiers: Pick<
+      ReactMouseEvent<HTMLInputElement>,
+      "shiftKey" | "ctrlKey" | "metaKey"
+    >,
   ) => {
     if (isReadOnly) {
       return;
     }
 
-    event.preventDefault();
     onLineSelectionInteraction({
       id: item.id,
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey || event.metaKey || !event.shiftKey,
-      metaKey: event.metaKey,
+      shiftKey: modifiers.shiftKey,
+      ctrlKey:
+        modifiers.ctrlKey || modifiers.metaKey || !modifiers.shiftKey,
+      metaKey: modifiers.metaKey,
     });
   };
 
-  // La case est en lecture seule + onClick (pour capter Shift/Ctrl), donc la
-  // barre d'espace ne la bascule pas nativement : on ajoute un équivalent
-  // clavier pour rendre la sélection de ligne accessible.
+  const handleLineSelectionCheckboxChange = (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const nativeEvent = event.nativeEvent as MouseEvent;
+    dispatchLineSelection({
+      shiftKey: nativeEvent.shiftKey ?? false,
+      ctrlKey: nativeEvent.ctrlKey ?? false,
+      metaKey: nativeEvent.metaKey ?? false,
+    });
+  };
+
+  // La barre d'espace suit le comportement natif de la case. Entrée reste un
+  // raccourci explicite pour préserver le contrat clavier historique.
   const handleLineSelectionCheckboxKeyDown = (
     event: KeyboardEvent<HTMLInputElement>,
   ) => {
     if (isReadOnly) {
       return;
     }
-    if (event.key !== " " && event.key !== "Enter") {
+    if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    onLineSelectionInteraction({
-      id: item.id,
+    dispatchLineSelection({
       shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey || event.metaKey || !event.shiftKey,
+      ctrlKey: event.ctrlKey,
       metaKey: event.metaKey,
     });
   };
@@ -417,7 +461,12 @@ export function LineRow({
   // ne peuvent donc pas pousser la ligne sur un second rang.
   const lineStateNodes = (
     <>
-      <EstimateLineNatureSelect item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
+      <EstimateLineNatureSelect
+        item={item}
+        navigationRowId={titleCell.rowId}
+        isReadOnly={isReadOnly}
+        onPatchItem={onPatchItem}
+      />
       <EstimateLineTruthBadges item={item} />
       {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
         <div className="estimate-quality-dots">
@@ -432,7 +481,7 @@ export function LineRow({
                 return;
               }
 
-              const cellId = `${item.id}::${targetColumn}`;
+              const cellId = `${titleCell.rowId}::${targetColumn}`;
               const el = document.querySelector<HTMLElement>(
                 `[data-cell-id="${cellId}"]`,
               );
@@ -602,16 +651,18 @@ export function LineRow({
             type="checkbox"
             className="estimate-line-checkbox"
             checked={isLineSelected}
-            onClick={handleLineSelectionCheckboxClick}
+            onChange={handleLineSelectionCheckboxChange}
             onKeyDown={handleLineSelectionCheckboxKeyDown}
-            readOnly
             disabled={isReadOnly}
             aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
             data-testid="estimate-line-checkbox"
           />
           {!hideEditingActions ? dragHandle : null}
           <div className="estimate-line-designation">
-            <div className="estimate-line-designation__primary">
+            <div
+              ref={setCatalogueSuggestionsAnchor}
+              className="estimate-line-designation__primary"
+            >
               <input
                 className="estimate-input estimate-input--title"
                 ref={titleEditorProps.ref}
@@ -654,8 +705,9 @@ export function LineRow({
                     : undefined
                 }
               />
-              {showCatalogueSuggestions ? (
+              {showCatalogueSuggestions && catalogueSuggestionsAnchor ? (
                 <CatalogueSuggestionsPopover
+                  anchor={catalogueSuggestionsAnchor}
                   itemId={item.id}
                   query={item.title}
                   estimateCurrency={estimateCurrency}
@@ -1046,20 +1098,20 @@ export function LineRow({
         <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
       </div>
       <div className="estimate-cell estimate-cell--actions">
-        {hideEditingActions ? (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onOpenSupplierComparisonPanel(item.id)}
-            title="Comparer fournisseurs"
+          <details
+            ref={actionsMenuRef}
+            className="relative"
+            onToggle={(event) => {
+              setIsActionsMenuOpen(event.currentTarget.open);
+            }}
           >
-            Comparer
-          </button>
-        ) : (
-          <details className="relative">
             <summary
               className="btn btn-ghost btn-sm cursor-pointer list-none select-none"
               title="Plus d'actions"
+              aria-label={`Plus d'actions pour ${item.title || "la ligne"}`}
+              onClick={() => {
+                setIsActionsMenuOpen(!actionsMenuRef.current?.open);
+              }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -1079,34 +1131,71 @@ export function LineRow({
             </summary>
             <div
               className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl"
-              style={{ minWidth: "140px" }}
+              style={{ minWidth: "230px" }}
             >
               <button
                 className="btn btn-ghost btn-sm w-full justify-start"
                 type="button"
-                onClick={() => onOpenSupplierComparisonPanel(item.id)}
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  onOpenArticle(item.id);
+                }}
+                disabled={!item.product_id}
               >
-                Comparer
+                Fiche article
               </button>
+              {!hideEditingActions ? (
+                <button
+                  className="btn btn-ghost btn-sm w-full justify-start"
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    onAssociateArticle(item.id);
+                  }}
+                  disabled={isReadOnly || isPendingCreate}
+                >
+                  Associer ou remplacer l’article
+                </button>
+              ) : null}
               <button
                 className="btn btn-ghost btn-sm w-full justify-start"
                 type="button"
-                onClick={() => onConvertLineToSection(item.id)}
-                disabled={isReadOnly || isPendingCreate}
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  onOpenSupplierComparisonPanel(item.id);
+                }}
               >
-                Convertir en section
+                Comparer les fournisseurs
               </button>
-              <button
-                className="btn btn-danger btn-sm w-full justify-start"
-                type="button"
-                onClick={() => onDeleteItem(item.id)}
-                disabled={isReadOnly}
-              >
-                Supprimer
-              </button>
+              {!hideEditingActions ? (
+                <>
+                  <div className="my-1 border-t border-[var(--slate-200)]" />
+                  <button
+                    className="btn btn-ghost btn-sm w-full justify-start"
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      onConvertLineToSection(item.id);
+                    }}
+                    disabled={isReadOnly || isPendingCreate}
+                  >
+                    Convertir en section
+                  </button>
+                  <button
+                    className="btn btn-danger btn-sm w-full justify-start"
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      onDeleteItem(item.id);
+                    }}
+                    disabled={isReadOnly}
+                  >
+                    Supprimer
+                  </button>
+                </>
+              ) : null}
             </div>
           </details>
-        )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GET, resetHealthProbeCacheForTests } from "@/app/api/health/route";
+import { GET } from "@/app/api/health/route";
+import { resetHealthProbeCacheForTests } from "@/lib/health-probe";
 
 describe("GET /api/health", () => {
   const originalFetch = globalThis.fetch;

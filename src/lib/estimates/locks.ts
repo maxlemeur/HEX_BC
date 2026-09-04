@@ -280,6 +280,38 @@ async function renewLockInternal(
     await assertVersionAccessOrThrow(context, versionId, { requireDraft: true });
   }
 
+  if (options.force) {
+    const { data, error } = await context.supabase.rpc(
+      "takeover_estimate_draft_lock",
+      {
+        p_version_id: versionId,
+        p_session_id: options.sessionId,
+      }
+    );
+
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible de reprendre le verrou de brouillon."
+      );
+    }
+
+    const takeoverData = Array.isArray(data) ? data[0] : data;
+    const lockRow = takeoverData as DraftLockRow | null;
+    if (!lockRow) {
+      throw notFound("Aucun verrou actif pour cette version.");
+    }
+
+    return {
+      lock: await toDraftLock({
+        supabase: context.supabase,
+        row: lockRow,
+        currentUserId: context.userId,
+        currentSessionId: options.sessionId,
+      }),
+    };
+  }
+
   let query = context.supabase
     .from("draft_locks")
     .update({
@@ -288,11 +320,9 @@ async function renewLockInternal(
     .eq("version_id", versionId)
     .eq("tenant_id", context.tenantId);
 
-  if (!options.force) {
-    query = query
-      .eq("user_id", context.userId)
-      .eq("session_id", options.sessionId);
-  }
+  query = query
+    .eq("user_id", context.userId)
+    .eq("session_id", options.sessionId);
 
   const { data, error } = await query
     .select("id, version_id, user_id, session_id, tenant_id, locked_at, expires_at, created_at")
@@ -323,7 +353,7 @@ async function renewLockInternal(
     sessionId: options.sessionId,
   });
 
-  if (existingLock && !options.force) {
+  if (existingLock) {
     const message = existingLock.is_current_user
       ? "Cette version est déjà verrouillée dans une autre page d'édition."
       : "Cette version est déjà verrouillée par un autre utilisateur.";

@@ -1,6 +1,7 @@
 import { downloadBlob } from "@/lib/browser-download";
 import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
 import type { Database } from "@/types/database";
 import {
@@ -82,6 +83,8 @@ const ESTIMATE_VERSION_API_PATH_PATTERN =
   /^\/api\/estimates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?]|$)/i;
 const ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY =
   "__miaouffrageEstimateDraftLockSessions";
+const ESTIMATE_DRAFT_LOCK_SESSION_STORAGE_PREFIX =
+  "__miaouffrageEstimateDraftLockSession:";
 
 type EstimateDraftLockSessionGlobal = typeof globalThis & {
   __miaouffrageEstimateDraftLockSessions?: Map<string, string>;
@@ -99,6 +102,38 @@ function createEstimateDraftLockSessionId() {
   );
 }
 
+function getReloadedEstimateDraftLockSessionId(versionId: string) {
+  try {
+    const navigationEntry = globalThis.performance
+      ?.getEntriesByType?.("navigation")
+      .at(0) as PerformanceNavigationTiming | undefined;
+    if (navigationEntry?.type !== "reload") return null;
+
+    return normalizeEstimateDraftLockSessionId(
+      globalThis.sessionStorage?.getItem(
+        `${ESTIMATE_DRAFT_LOCK_SESSION_STORAGE_PREFIX}${versionId}`
+      )
+    );
+  } catch {
+    return null;
+  }
+}
+
+function persistEstimateDraftLockSessionId(
+  versionId: string,
+  sessionId: string
+) {
+  try {
+    globalThis.sessionStorage?.setItem(
+      `${ESTIMATE_DRAFT_LOCK_SESSION_STORAGE_PREFIX}${versionId}`,
+      sessionId
+    );
+  } catch {
+    // Private browsing and hardened policies can deny session storage. The
+    // in-memory identity still keeps the current document internally stable.
+  }
+}
+
 export function getEstimateDraftLockSessionId(versionId: string) {
   const scope = globalThis as EstimateDraftLockSessionGlobal;
   const store =
@@ -107,10 +142,16 @@ export function getEstimateDraftLockSessionId(versionId: string) {
   scope[ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY] = store;
 
   const existingSessionId = store.get(versionId);
-  if (existingSessionId) return existingSessionId;
+  if (existingSessionId) {
+    persistEstimateDraftLockSessionId(versionId, existingSessionId);
+    return existingSessionId;
+  }
 
-  const sessionId = createEstimateDraftLockSessionId();
+  const sessionId =
+    getReloadedEstimateDraftLockSessionId(versionId) ??
+    createEstimateDraftLockSessionId();
   store.set(versionId, sessionId);
+  persistEstimateDraftLockSessionId(versionId, sessionId);
   return sessionId;
 }
 
@@ -610,6 +651,10 @@ export type CreateEstimatePayload = {
 };
 
 export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">;
+
+type EstimateMutationVersionTokenOptions = {
+  onVersionToken?: (versionToken: EstimateVersionToken) => void;
+};
 
 export type BulkUpdateEstimateItemsResult = {
   updatedCount: number;
@@ -4289,6 +4334,7 @@ function toCreateEstimateItemBody(
   const itemWithSource = item as typeof item & {
     h_mo_majoration?: number | null;
     supply_type_id?: string | null;
+    product_id?: string | null;
     selected_supplier_price_id?: string | null;
     source_provider?: string | null;
     source_job_id?: string | null;
@@ -4326,6 +4372,9 @@ function toCreateEstimateItemBody(
         labor_role_id: item.labor_role_id ?? null,
         category_id: item.category_id ?? null,
         supply_type_id: itemWithSource.supply_type_id ?? null,
+        ...(itemWithSource.product_id
+          ? { product_id: itemWithSource.product_id }
+          : {}),
         selected_supplier_price_id: itemWithSource.selected_supplier_price_id ?? null,
         source_provider: itemWithSource.source_provider ?? null,
         source_job_id: itemWithSource.source_job_id ?? null,
@@ -4336,7 +4385,8 @@ function toCreateEstimateItemBody(
 
 export async function createEstimateItem(
   versionId: string,
-  item: Database["public"]["Tables"]["estimate_items"]["Insert"]
+  item: Database["public"]["Tables"]["estimate_items"]["Insert"],
+  options: EstimateMutationVersionTokenOptions = {}
 ): Promise<EstimateItem> {
   const body = toCreateEstimateItemBody(item);
 
@@ -4355,6 +4405,14 @@ export async function createEstimateItem(
   const entity = extractEntity(payload, ["item", "estimateItem"]);
   if (!entity) {
     throw new Error("Impossible d'ajouter la ligne.");
+  }
+
+  if (options.onVersionToken) {
+    const versionToken = parseVersionToken(payload);
+    if (!versionToken) {
+      throw new Error("Impossible de recuperer le jeton de version.");
+    }
+    options.onVersionToken(versionToken);
   }
 
   return entity as EstimateItem;
@@ -4892,6 +4950,24 @@ export async function renewEstimateDraftLock(
     }
     throw error;
   }
+}
+
+export async function takeoverEstimateDraftLock(
+  versionId: string
+): Promise<AcquireEstimateDraftLockResult> {
+  const payload = await requestJson<unknown>(
+    buildEstimateDraftLockPath(versionId, { force: true }),
+    {
+      method: "PATCH",
+    },
+    "Impossible de reprendre le verrou de brouillon."
+  );
+
+  const lock = parseEstimateDraftLock(payload, versionId);
+  return {
+    acquired: lock?.isOwnedByCurrentSession ?? true,
+    lock,
+  };
 }
 
 export async function releaseEstimateDraftLock(

@@ -26,6 +26,7 @@ import {
 import {
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
+import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -121,6 +122,7 @@ export function useEstimateDndVirtualization({
     const walk = (parentId: string | null, ancestorLastChildFlags: boolean[] = []) => {
       const list = getVisibleItems(parentId);
       list.forEach((item, index) => {
+        const clientKey = getEstimateEditorItemClientKey(item);
         const isLast = index === list.length - 1;
         const rowDepth = depthMap.get(item.id) ?? ancestorLastChildFlags.length;
         const hasVisibleChildren =
@@ -132,7 +134,7 @@ export function useEstimateDndVirtualization({
           hasVisibleChildren,
         };
         rows.push({
-          key: `item:${item.id}`,
+          key: `item:${clientKey}`,
           kind: "item",
           item,
           depth: rowDepth,
@@ -145,7 +147,7 @@ export function useEstimateDndVirtualization({
         const suggestions = suggestionsByItemId.get(item.id);
         if (suggestions && suggestions.length > 0) {
           rows.push({
-            key: `suggestion:${item.id}`,
+            key: `suggestion:${clientKey}`,
             kind: "suggestion",
             item,
             suggestions,
@@ -388,6 +390,7 @@ export function useEstimateDndVirtualization({
     flattenedRows.forEach((row, index) => {
       if (row.kind === "item") {
         map.set(row.item.id, index);
+        map.set(getEstimateEditorItemClientKey(row.item), index);
       }
     });
     return map;

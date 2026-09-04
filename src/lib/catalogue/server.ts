@@ -719,6 +719,10 @@ export async function listCatalogueItems(input: CatalogueListQueryInput) {
       query = query.eq("is_active", true);
     }
 
+    if (input.id) {
+      query = query.eq("id", input.id);
+    }
+
     if (safeSearch) {
       query = query.or(
         `reference.ilike.%${safeSearch}%,designation.ilike.%${safeSearch}%`,

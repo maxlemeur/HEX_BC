@@ -4,6 +4,7 @@ import {
   toNullableFiniteNumber,
   toNonEmptyString,
 } from "@/lib/estimates/editor-values";
+import { resolveEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { Database } from "@/types/database";
 
 export type EstimateVersionRow =
@@ -11,6 +12,7 @@ export type EstimateVersionRow =
 export type EstimateItem =
   Database["public"]["Tables"]["estimate_items"]["Row"];
 export type EditorEstimateItem = EstimateItem & {
+  _clientKey?: string;
   _optimistic?: boolean;
   _pendingCreate?: boolean;
   _tempId?: string;
@@ -65,6 +67,13 @@ export function isTempEstimateItemId(itemId: string): boolean {
 
 export function isPendingCreateEstimateItem(item: EditorEstimateItem): boolean {
   return item._pendingCreate === true;
+}
+
+export function getEstimateEditorItemClientKey(item: {
+  id: string;
+  _clientKey?: string;
+}): string {
+  return item._clientKey ?? item.id;
 }
 
 export function readLaborSplitFields(
@@ -194,6 +203,7 @@ export function buildEstimateItemUpdatePayload(
     const payload: EstimateItemUpdatePayload = {
       title: item.title,
       aid: item.aid ?? null,
+      line_nature: resolveEstimateLineNature(item),
       description: item.description ?? null,
       quantity: item.quantity,
       unit_price_ht_cents: item.unit_price_ht_cents,
@@ -206,6 +216,7 @@ export function buildEstimateItemUpdatePayload(
       labor_role_id: item.labor_role_id,
       category_id: item.category_id,
       supply_type_id: item.supply_type_id,
+      product_id: item.product_id ?? null,
       selected_supplier_price_id: item.selected_supplier_price_id,
       line_total_ht_cents: item.line_total_ht_cents,
       line_tax_cents: item.line_tax_cents,
@@ -253,6 +264,7 @@ export function buildEstimateItemInsertPayload(
     version_id: versionId,
     parent_id: parentId,
     item_type: "line",
+    line_nature: resolveEstimateLineNature(item),
     position,
     title,
     aid: item.aid ?? null,
@@ -268,6 +280,7 @@ export function buildEstimateItemInsertPayload(
     labor_role_id: item.labor_role_id,
     category_id: item.category_id,
     supply_type_id: item.supply_type_id,
+    product_id: item.product_id ?? null,
     selected_supplier_price_id: item.selected_supplier_price_id,
     line_total_ht_cents: item.line_total_ht_cents,
     line_tax_cents: item.line_tax_cents,
@@ -316,6 +329,7 @@ export function createOptimisticSectionItem(input: {
     labor_role_id: null,
     category_id: null,
     supply_type_id: null,
+    product_id: null,
     selected_supplier_price_id: null,
     source_provider: null,
     source_job_id: null,
@@ -330,6 +344,7 @@ export function createOptimisticSectionItem(input: {
     line_total_ht_cents: null,
     line_tax_cents: null,
     line_total_ttc_cents: null,
+    _clientKey: input.tempId,
     _optimistic: true,
     _pendingCreate: true,
     _tempId: input.tempId,
@@ -360,6 +375,7 @@ export function createOptimisticLineItem(input: {
     version_id: input.versionId,
     parent_id: input.parentId,
     item_type: "line",
+    line_nature: "supply_only",
     position: input.position,
     title: input.title,
     aid: null,
@@ -381,6 +397,7 @@ export function createOptimisticLineItem(input: {
     labor_role_id: null,
     category_id: null,
     supply_type_id: null,
+    product_id: null,
     selected_supplier_price_id: null,
     source_provider: null,
     source_job_id: null,
@@ -395,6 +412,7 @@ export function createOptimisticLineItem(input: {
     line_total_ht_cents: input.lineTotalHtCents,
     line_tax_cents: input.lineTaxCents,
     line_total_ttc_cents: input.lineTotalTtcCents,
+    _clientKey: input.tempId,
     _optimistic: true,
     _pendingCreate: true,
     _tempId: input.tempId,

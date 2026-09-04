@@ -34,6 +34,7 @@ export type EstimateEditorRowItemPatch = Partial<
     | "labor_role_id"
     | "category_id"
     | "supply_type_id"
+    | "product_id"
     | "selected_supplier_price_id"
   >
 > &
@@ -42,6 +43,8 @@ export type EstimateEditorRowItemPatch = Partial<
 export type EstimateEditorRowActionsContextValue = {
   onDeleteItem: (itemId: string) => void;
   onOpenSupplierComparisonPanel: (itemId: string) => void;
+  onOpenArticle: (itemId: string) => void;
+  onAssociateArticle: (itemId: string) => void;
   onOpenSupplierComparisonContextMenu: (
     itemId: string,
     position: { x: number; y: number }

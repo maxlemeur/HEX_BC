@@ -9,6 +9,13 @@ const migrationSql = fs.readFileSync(
   ),
   "utf8"
 );
+const takeoverMigrationSql = fs.readFileSync(
+  path.resolve(
+    process.cwd(),
+    "supabase/migrations/20260820194939_atomic_estimate_draft_lock_takeover.sql"
+  ),
+  "utf8"
+);
 
 describe("estimate draft lock page lease migration", () => {
   it("backfills and requires a page session identity", () => {
@@ -39,6 +46,25 @@ describe("estimate draft lock page lease migration", () => {
     );
     expect(migrationSql).toMatch(
       /revoke all on function public\.assign_draft_lock_tenant_id\(\) from authenticated/i
+    );
+  });
+
+  it("moves forced takeover into one serialized database transaction", () => {
+    expect(takeoverMigrationSql).toMatch(
+      /create or replace function public\.takeover_estimate_draft_lock\(/i
+    );
+    expect(takeoverMigrationSql).toMatch(/pg_advisory_xact_lock/i);
+    expect(takeoverMigrationSql).toMatch(
+      /delete from public\.draft_locks[\s\S]*insert into public\.draft_locks/i
+    );
+    expect(takeoverMigrationSql).toMatch(
+      /has_tenant_role\([\s\S]*'admin'::public\.tenant_role/i
+    );
+    expect(takeoverMigrationSql).toMatch(
+      /revoke all on function public\.takeover_estimate_draft_lock\(uuid, uuid\)[\s\S]*from public/i
+    );
+    expect(takeoverMigrationSql).toMatch(
+      /grant execute on function public\.takeover_estimate_draft_lock\(uuid, uuid\)[\s\S]*to authenticated/i
     );
   });
 });

@@ -239,6 +239,8 @@ Côté serveur : maximum `5000` lignes par feuille (`src/lib/catalogue/product-p
 
 `estimate_items.selected_supplier_price_id` référence `supplier_pricebook(id)` en `on delete set null` (`supabase/migrations/20260222001500_est164_catalog_suggestions.sql:508-518`), et doit rester `null` sur les sections (`:548`). L'URL catalogue affichée vient de `supplier_catalog_items.product_url`, à défaut de la première URL `http(s)` trouvée dans les `notes` du prix (`src/lib/estimates/server.ts:1175`, `:3549-3554`).
 
+`estimate_items.product_id` référence séparément `products(id)` en `on delete set null` (`supabase/migrations/20260825200420_link_estimate_items_to_products.sql`). Le trigger refuse une association inter-tenant et toute association sur une section. Le lien est conservé par les sauvegardes atomiques et la duplication d’une version. Dans l’éditeur, le menu `⋮` d’une ligne expose dans cet ordre `Fiche article`, `Associer ou remplacer l’article`, `Comparer les fournisseurs`, puis, après séparation, `Convertir en section`. La fiche s’ouvre dans un panneau latéral pour conserver le contexte et les modifications en cours du devis. L’article et son tarif fournisseur sont deux références distinctes ; les valeurs de la ligne restent un instantané et ne sont pas resynchronisées automatiquement quand l’article change.
+
 ---
 
 ## 12. Scraper Sofinther
@@ -253,7 +255,7 @@ Les identifiants sont lus dans `SOFINTHER_EMAIL` / `SOFINTHER_PASSWORD` en prior
 
 | Route | Méthodes | Contenu | Fichier |
 | --- | --- | --- | --- |
-| `/api/catalogue` | `GET`, `POST` | `GET` : liste (défaut 100, max 500) ou `?view=page` paginée ; `POST` : `create`, `update`, `delete`, `link-mapped-rows` | `src/app/api/catalogue/route.ts:46`, `:80` |
+| `/api/catalogue` | `GET`, `POST` | `GET` : liste (défaut 100, max 500), lecture exacte par `?id=…`, ou `?view=page` paginée ; `POST` : `create`, `update`, `delete`, `link-mapped-rows` | `src/app/api/catalogue/route.ts:46`, `:80` |
 | `/api/catalogue/template-import` | `POST` | Import du classeur produits + tarifs | `src/app/api/catalogue/template-import/route.ts:7` |
 | `/api/prices` | `GET`, `POST` | `GET` : liste (défaut 200, max 1000), `?view=page`, `?view=supplier-item` ; `POST` : `create`, `update`, `delete`, `update-supplier-item`, `bulk-create`, `bulk-create-atomic` | `src/app/api/prices/route.ts:40`, `:84` |
 | `/api/prices/lookups` | `GET` | Options fournisseur/produit, max 50 | `src/app/api/prices/lookups/route.ts:10` |

@@ -27,7 +27,7 @@ describe("EstimateEditorTable supplier comparison regressions", () => {
 
   it("keeps row context action and fallback button for supplier comparison", () => {
     expect(tableSource).toContain("<EstimateEditorTableLineContextMenu");
-    expect(lineContextMenuSource).toContain("Comparer fournisseurs");
+    expect(lineContextMenuSource).toContain("Comparer les fournisseurs");
     expect(lineRowSource).toContain("onContextMenu={handleLineContextMenu}");
     expect(lineRowSource).toContain("onOpenSupplierComparisonPanel(item.id)");
   });

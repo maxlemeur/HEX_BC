@@ -109,6 +109,7 @@ function createItem(
     version_id: "version-1",
     parent_id: null,
     item_type: "line",
+    line_nature: "supply_only",
     position: 1,
     title: "Ligne initiale",
     aid: null,
@@ -167,6 +168,7 @@ function createDependencies() {
     reportError: vi.fn(),
     resolveErrorMessage: vi.fn((message: string) => `public:${message}`),
     normalizePatchedItem: vi.fn((item: EditorEstimateItem) => item),
+    applyVersionToken: vi.fn(),
     enqueueItemUpdate: vi.fn(),
     pushHistoryCommand: vi.fn(),
     reloadItems: vi.fn().mockResolvedValue(undefined),
@@ -228,6 +230,7 @@ function useItemsControllerHarness(
     reportError: dependencies.reportError,
     resolveErrorMessage: dependencies.resolveErrorMessage,
     normalizePatchedItem: dependencies.normalizePatchedItem,
+    applyVersionToken: dependencies.applyVersionToken,
     enqueueItemUpdate: dependencies.enqueueItemUpdate,
     pushHistoryCommand: dependencies.pushHistoryCommand,
     reloadItems,
@@ -293,6 +296,8 @@ describe("useEstimateEditorItemsController", () => {
       });
     });
     const optimisticSection = findTempItem(result.current.items);
+    const optimisticSectionClientKey = optimisticSection?._clientKey;
+    expect(optimisticSectionClientKey).toBe(optimisticSection?.id);
     expect(mocks.createEstimateItem).toHaveBeenNthCalledWith(
       1,
       version.id,
@@ -301,7 +306,8 @@ describe("useEstimateEditorItemsController", () => {
         item_type: "section",
         position: 1,
         title: "Nouveau lot",
-      })
+      }),
+      expect.objectContaining({ onVersionToken: expect.any(Function) })
     );
 
     await act(async () => {
@@ -315,6 +321,7 @@ describe("useEstimateEditorItemsController", () => {
     expect(result.current.items).toEqual([
       expect.objectContaining({
         id: "section-real",
+        _clientKey: optimisticSectionClientKey,
         _optimistic: false,
         _pendingCreate: false,
       }),
@@ -334,6 +341,8 @@ describe("useEstimateEditorItemsController", () => {
         _pendingCreate: true,
       });
     });
+    const optimisticLineClientKey = findTempItem(result.current.items)?._clientKey;
+    expect(optimisticLineClientKey).toBe(findTempItem(result.current.items)?.id);
 
     await act(async () => {
       lineDeferred.resolve(
@@ -345,8 +354,67 @@ describe("useEstimateEditorItemsController", () => {
       "section-real",
       "line-real",
     ]);
+    expect(result.current.items.map((item) => item._clientKey)).toEqual([
+      optimisticSectionClientKey,
+      optimisticLineClientKey,
+    ]);
     expect(dependencies.pushHistoryCommand.mock.calls.map(([command]) => command.label))
       .toEqual(["add-section", "add-line"]);
+  });
+
+  it("applies the refreshed version token before persisting edits queued during creation", async () => {
+    const deferred = createDeferred<EstimateItem>();
+    mocks.createEstimateItem.mockImplementationOnce(
+      async (
+        _versionId: string,
+        _payload: unknown,
+        options?: {
+          onVersionToken?: (token: { id: string; updated_at: string }) => void;
+        }
+      ) => {
+        const created = await deferred.promise;
+        options?.onVersionToken?.({
+          id: "version-1",
+          updated_at: "token-after-create",
+        });
+        return created;
+      }
+    );
+    const { result, dependencies } = renderController({
+      version: createVersion(),
+      initialItems: [],
+    });
+
+    let createRequest!: Promise<void>;
+    act(() => {
+      createRequest = result.current.actions.addLine(null);
+    });
+    const tempId = findTempItem(result.current.items)?.id;
+    expect(tempId).toBeTruthy();
+
+    act(() => {
+      void result.current.actions.patchItem(
+        tempId!,
+        { title: "Titre saisi pendant la creation" },
+        { persist: true }
+      );
+    });
+
+    await act(async () => {
+      deferred.resolve(createItem("line-created"));
+      await createRequest;
+    });
+
+    expect(dependencies.applyVersionToken).toHaveBeenCalledWith(
+      "token-after-create"
+    );
+    expect(dependencies.enqueueItemUpdate).toHaveBeenCalledWith(
+      "line-created",
+      expect.objectContaining({ title: "Titre saisi pendant la creation" })
+    );
+    expect(
+      dependencies.applyVersionToken.mock.invocationCallOrder[0]
+    ).toBeLessThan(dependencies.enqueueItemUpdate.mock.invocationCallOrder[0]!);
   });
 
   it("keeps a non-persistent patch local only", async () => {
@@ -372,6 +440,63 @@ describe("useEstimateEditorItemsController", () => {
     expect(dependencies.enqueueItemUpdate).not.toHaveBeenCalled();
     expect(dependencies.pushHistoryCommand).not.toHaveBeenCalled();
     expect(dependencies.setTotalsOutOfSync).not.toHaveBeenCalled();
+  });
+
+  it("promotes and persists a supply-only line when labor is entered", async () => {
+    const initialItem = createItem("line-supply", {
+      line_nature: "supply_only",
+      unit_price_ht_cents: 1000,
+      h_mo: 0,
+    });
+    const { result, dependencies } = renderController({
+      version: createVersion(),
+      initialItems: [initialItem],
+    });
+
+    await act(async () => {
+      await result.current.actions.patchItem(
+        initialItem.id,
+        { h_mo: 0.5 },
+        { persist: true },
+      );
+    });
+
+    expect(result.current.items[0]).toMatchObject({
+      h_mo: 0.5,
+      line_nature: "supply_and_labor",
+    });
+    expect(dependencies.enqueueItemUpdate).toHaveBeenCalledWith(
+      initialItem.id,
+      expect.objectContaining({
+        h_mo: 0.5,
+        line_nature: "supply_and_labor",
+      }),
+    );
+  });
+
+  it("does not auto-demote a mixed line when labor is cleared", async () => {
+    const initialItem = createItem("line-mixed", {
+      line_nature: "supply_and_labor",
+      unit_price_ht_cents: 1000,
+      h_mo: 1,
+    });
+    const { result } = renderController({
+      version: createVersion(),
+      initialItems: [initialItem],
+    });
+
+    await act(async () => {
+      await result.current.actions.patchItem(
+        initialItem.id,
+        { h_mo: 0, labor_role_id: null },
+        { persist: false },
+      );
+    });
+
+    expect(result.current.items[0]).toMatchObject({
+      h_mo: 0,
+      line_nature: "supply_and_labor",
+    });
   });
 
   it("merges a persistent temp patch into create and enqueues it under the real id", async () => {
@@ -413,6 +538,7 @@ describe("useEstimateEditorItemsController", () => {
     expect(result.current.items).toEqual([
       expect.objectContaining({
         id: "line-real",
+        _clientKey: tempId,
         title: "Ligne modifiee",
         aid: "A-42",
         _optimistic: false,
@@ -573,7 +699,8 @@ describe("useEstimateEditorItemsController", () => {
         item_type: "section",
         parent_id: null,
         position: 1,
-      })
+      }),
+      expect.objectContaining({ onVersionToken: expect.any(Function) })
     );
     expect(mocks.createEstimateItem).toHaveBeenNthCalledWith(
       2,
@@ -582,7 +709,8 @@ describe("useEstimateEditorItemsController", () => {
         item_type: "line",
         parent_id: "section-new",
         position: 1,
-      })
+      }),
+      expect.objectContaining({ onVersionToken: expect.any(Function) })
     );
     expect(mocks.reorderEstimateItems).toHaveBeenNthCalledWith(
       1,
@@ -687,7 +815,8 @@ describe("useEstimateEditorItemsController", () => {
 
     expect(mocks.createEstimateItem).toHaveBeenCalledWith(
       versionOne.id,
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ onVersionToken: expect.any(Function) })
     );
     expect(result.current.items.map((item) => item.id)).toEqual([
       "version-2-line",

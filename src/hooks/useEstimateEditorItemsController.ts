@@ -32,6 +32,7 @@ import {
   type EstimateVersionRow,
   type LaborSplitItemFields,
 } from "@/lib/estimates/editor-items";
+import { resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import {
   markTempItemsRemoved,
   reconcileCreatedItemWithLocalDraft,
@@ -49,6 +50,7 @@ export type EstimateEditorItemPatch = Partial<
     EstimateItem,
     | "title"
     | "aid"
+    | "line_nature"
     | "description"
     | "quantity"
     | "unit_price_ht_cents"
@@ -61,6 +63,7 @@ export type EstimateEditorItemPatch = Partial<
     | "labor_role_id"
     | "category_id"
     | "supply_type_id"
+    | "product_id"
     | "selected_supplier_price_id"
   >
 > &
@@ -82,6 +85,7 @@ type EstimateEditorItemsControllerInput = {
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   normalizePatchedItem: (item: EditorEstimateItem) => EditorEstimateItem;
+  applyVersionToken: (updatedAt: string) => void;
   enqueueItemUpdate: (
     itemId: string,
     payload: EstimateItemUpdatePayload
@@ -103,6 +107,7 @@ export function useEstimateEditorItemsController({
   reportError,
   resolveErrorMessage,
   normalizePatchedItem,
+  applyVersionToken,
   enqueueItemUpdate,
   pushHistoryCommand,
   reloadItems,
@@ -123,6 +128,26 @@ export function useEstimateEditorItemsController({
   const isCurrentVersion = useCallback(
     (versionId: string) => activeVersionIdRef.current === versionId,
     []
+  );
+
+  const applyCreatedItemVersionToken = useCallback(
+    (versionToken: Pick<EstimateVersionRow, "id" | "updated_at">) => {
+      if (!isCurrentVersion(versionToken.id)) return;
+      const currentUpdatedAt = getVersionSnapshot()?.updated_at ?? null;
+      const currentTimestamp = currentUpdatedAt
+        ? Date.parse(currentUpdatedAt)
+        : Number.NaN;
+      const nextTimestamp = Date.parse(versionToken.updated_at);
+      if (
+        Number.isFinite(currentTimestamp) &&
+        Number.isFinite(nextTimestamp) &&
+        nextTimestamp < currentTimestamp
+      ) {
+        return;
+      }
+      applyVersionToken(versionToken.updated_at);
+    },
+    [applyVersionToken, getVersionSnapshot, isCurrentVersion]
   );
 
   const getNextPosition = useCallback(
@@ -178,14 +203,16 @@ export function useEstimateEditorItemsController({
           position: snapshotItem.position,
           title: snapshotItem.title,
         });
-        const created = await createEstimateItem(versionId, payload);
+        const created = await createEstimateItem(versionId, payload, {
+          onVersionToken: applyCreatedItemVersionToken,
+        });
         idMap.set(snapshotItem.id, created.id);
         createdItems.push(created);
       }
 
       return { idMap, createdItems };
     },
-    []
+    [applyCreatedItemVersionToken]
   );
 
   const applySiblingOrder = useCallback(
@@ -261,13 +288,17 @@ export function useEstimateEditorItemsController({
       setItems((previous) => [...previous, optimisticSection]);
 
       try {
-        const created = await createEstimateItem(targetVersion.id, {
-          version_id: targetVersion.id,
-          parent_id: parentId,
-          item_type: "section",
-          position,
-          title: optimisticSection.title,
-        });
+        const created = await createEstimateItem(
+          targetVersion.id,
+          {
+            version_id: targetVersion.id,
+            parent_id: parentId,
+            item_type: "section",
+            position,
+            title: optimisticSection.title,
+          },
+          { onVersionToken: applyCreatedItemVersionToken }
+        );
 
         if (!isCurrentVersion(targetVersion.id)) {
           queuedPatchesByTempIdRef.current.delete(tempId);
@@ -294,7 +325,8 @@ export function useEstimateEditorItemsController({
               ? (reconcileCreatedItemWithLocalDraft(
                   created,
                   buildEstimateItemUpdatePayload(item),
-                  queuedPatch
+                  queuedPatch,
+                  item._clientKey ?? tempId
                 ) as EditorEstimateItem)
               : item
           )
@@ -339,7 +371,8 @@ export function useEstimateEditorItemsController({
             );
             const recreated = await createEstimateItem(
               versionSnapshot.id,
-              payload
+              payload,
+              { onVersionToken: applyCreatedItemVersionToken }
             );
             if (context && !context.isCurrentScope()) return;
             currentSectionId = recreated.id;
@@ -363,6 +396,7 @@ export function useEstimateEditorItemsController({
       }
     },
     [
+      applyCreatedItemVersionToken,
       enqueueItemUpdate,
       getItemsSnapshot,
       getNextPosition,
@@ -457,6 +491,7 @@ export function useEstimateEditorItemsController({
         labor_role_id: null,
         category_id: null,
         supply_type_id: null,
+        product_id: null,
         selected_supplier_price_id: null,
         line_total_ht_cents: lineValues.saleLineCents,
         line_tax_cents: lineValues.taxLineCents,
@@ -474,7 +509,8 @@ export function useEstimateEditorItemsController({
       try {
         const created = await createEstimateItem(
           targetVersion.id,
-          createPayload
+          createPayload,
+          { onVersionToken: applyCreatedItemVersionToken }
         );
         if (!isCurrentVersion(targetVersion.id)) {
           queuedPatchesByTempIdRef.current.delete(tempId);
@@ -501,7 +537,8 @@ export function useEstimateEditorItemsController({
               ? (reconcileCreatedItemWithLocalDraft(
                   created,
                   buildEstimateItemUpdatePayload(item),
-                  queuedPatch
+                  queuedPatch,
+                  item._clientKey ?? tempId
                 ) as EditorEstimateItem)
               : item
           )
@@ -542,7 +579,8 @@ export function useEstimateEditorItemsController({
             );
             const recreated = await createEstimateItem(
               versionSnapshot.id,
-              payload
+              payload,
+              { onVersionToken: applyCreatedItemVersionToken }
             );
             if (context && !context.isCurrentScope()) return;
             currentLineId = recreated.id;
@@ -566,6 +604,7 @@ export function useEstimateEditorItemsController({
       }
     },
     [
+      applyCreatedItemVersionToken,
       enqueueItemUpdate,
       getItemsSnapshot,
       getNextPosition,
@@ -593,14 +632,6 @@ export function useEstimateEditorItemsController({
 
       const snapshot = getItemsSnapshot();
       const idsToRemove = collectSubtreeItemIds(snapshot, itemId);
-      const impactedCount = idsToRemove.size;
-      const impactedLabel =
-        impactedCount > 1
-          ? `${impactedCount} éléments (cet élément + ${impactedCount - 1} enfant${
-              impactedCount - 1 > 1 ? "s" : ""
-            })`
-          : "cet élément";
-      if (!window.confirm(`Supprimer ${impactedLabel} ?`)) return;
       reportError(null);
 
       const deletedSnapshots = snapshot.filter((item) =>
@@ -766,6 +797,7 @@ export function useEstimateEditorItemsController({
       const previousItem = current;
       let updated: EditorEstimateItem = { ...current, ...patch };
       if (updated.item_type === "line") {
+        updated.line_nature = resolvePromotedEstimateLineNature(current, patch);
         updated = normalizePatchedItem(updated);
       }
 

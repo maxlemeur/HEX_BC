@@ -65,6 +65,7 @@ export async function GET(request: Request) {
     }
 
     const query = catalogueListQuerySchema.parse({
+      id: searchParams.get("id"),
       search: searchParams.get("search"),
       limit: parsePositiveInt(searchParams.get("limit")) ?? 100,
       include_inactive: parseBoolean(searchParams.get("include_inactive")) ?? false,

@@ -7,18 +7,23 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   EstimateEditorRow,
   getSpreadsheetColumnKeys,
 } from "@/components/estimates/components/EstimateEditorRow";
+import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EditorEstimateItem = EstimateItem & { _clientKey?: string };
 
 const rowActionSpies = {
   onDeleteItem: vi.fn(),
+  onOpenArticle: vi.fn(),
+  onAssociateArticle: vi.fn(),
   onOpenSupplierComparisonPanel: vi.fn(),
   onOpenSupplierComparisonContextMenu: vi.fn(),
   onOpenSectionContextMenu: vi.fn(),
@@ -107,7 +112,7 @@ vi.mock("@/components/estimates/context/EstimateEditorRowActionsContext", () => 
   useEstimateEditorRowActions: () => rowActionSpies,
 }));
 
-function createItem(partial: Partial<EstimateItem>): EstimateItem {
+function createItem(partial: Partial<EditorEstimateItem>): EditorEstimateItem {
   return {
     id: "line-1",
     version_id: "version-1",
@@ -140,12 +145,13 @@ function createItem(partial: Partial<EstimateItem>): EstimateItem {
   } as EstimateItem;
 }
 
-function renderRow(
-  item: EstimateItem,
+function createRowNode(
+  item: EditorEstimateItem,
   overrides?: Partial<ComponentProps<typeof EstimateEditorRow>>
 ) {
-  return render(
+  return (
     <EstimateEditorRow
+      key={getEstimateEditorItemClientKey(item)}
       versionId="version-1"
       estimateCurrency="EUR"
       item={item}
@@ -180,6 +186,13 @@ function renderRow(
       {...overrides}
     />
   );
+}
+
+function renderRow(
+  item: EditorEstimateItem,
+  overrides?: Partial<ComponentProps<typeof EstimateEditorRow>>
+) {
+  return render(createRowNode(item, overrides));
 }
 
 describe("EstimateEditorRow behavior", () => {
@@ -228,11 +241,139 @@ describe("EstimateEditorRow behavior", () => {
     ]);
   });
 
-  it("permet de sélectionner la ligne au clavier (barre d'espace)", () => {
-    renderRow(createItem({ id: "line-1" }));
-    fireEvent.keyDown(screen.getByTestId("estimate-line-checkbox"), {
-      key: " ",
+  it("keeps the title editor mounted and focused when the server id replaces the temp id", () => {
+    const clientKey = "tmp:line-client";
+    const optimisticItem = createItem({
+      id: clientKey,
+      _clientKey: clientKey,
+      title: "Nouvelle ligne",
     });
+    const { rerender } = renderRow(optimisticItem);
+    const titleInput = screen.getByTestId(
+      "estimate-line-title-input",
+    ) as HTMLInputElement;
+
+    titleInput.focus();
+    expect(titleInput).toHaveFocus();
+
+    rerender(
+      createRowNode(
+        createItem({
+          id: "line-real",
+          _clientKey: clientKey,
+          title: "Nouvelle ligne",
+        }),
+      ),
+    );
+
+    expect(screen.getByTestId("estimate-line-title-input")).toBe(titleInput);
+    expect(titleInput).toHaveFocus();
+    expect(titleInput.closest("[data-estimate-item-id]")).toHaveAttribute(
+      "data-estimate-item-id",
+      "line-real",
+    );
+    expect(titleInput.closest("[data-cell-id]")).toHaveAttribute(
+      "data-cell-id",
+      `${clientKey}::title`,
+    );
+  });
+
+  it("exposes article actions from the visible three-dot menu", () => {
+    renderRow(
+      createItem({
+        id: "line-article",
+        title: "Plateau",
+        product_id: "33333333-3333-4333-8333-333333333333",
+      }),
+    );
+
+    const actions = screen
+      .getByLabelText("Plus d'actions pour Plateau")
+      .closest("details");
+    expect(actions).not.toBeNull();
+    if (!actions) return;
+
+    const actionButtons = within(actions).getAllByRole("button");
+    expect(actionButtons.map((button) => button.textContent?.trim())).toEqual([
+      "Fiche article",
+      "Associer ou remplacer l’article",
+      "Comparer les fournisseurs",
+      "Convertir en section",
+      "Supprimer",
+    ]);
+
+    fireEvent.click(within(actions).getByRole("button", { name: "Fiche article" }));
+    fireEvent.click(
+      within(actions).getByRole("button", {
+        name: "Associer ou remplacer l’article",
+      }),
+    );
+
+    expect(rowActionSpies.onOpenArticle).toHaveBeenCalledWith("line-article");
+    expect(rowActionSpies.onAssociateArticle).toHaveBeenCalledWith("line-article");
+  });
+
+  it("closes the visible three-dot menu when clicking outside", () => {
+    renderRow(
+      createItem({
+        id: "line-actions-outside-click",
+        title: "Plateau",
+      }),
+    );
+
+    const trigger = screen.getByLabelText("Plus d'actions pour Plateau");
+    const actions = trigger.closest("details");
+    expect(actions).not.toBeNull();
+    if (!actions) return;
+
+    fireEvent.click(trigger);
+    expect(actions).toHaveAttribute("open");
+
+    fireEvent.pointerDown(document.body);
+
+    expect(actions).not.toHaveAttribute("open");
+  });
+
+  it("affiche immédiatement la sélection sans annuler le clic natif", () => {
+    const item = createItem({ id: "line-native-selection" });
+    let isSelected = false;
+    const { rerender } = renderRow(item);
+    rowActionSpies.onLineSelectionInteraction.mockImplementation(() => {
+      isSelected = !isSelected;
+      rerender(createRowNode(item, { isLineSelected: isSelected }));
+    });
+
+    const checkbox = screen.getByTestId(
+      "estimate-line-checkbox",
+    ) as HTMLInputElement;
+
+    expect(fireEvent.click(checkbox)).toBe(true);
+    expect(checkbox).toBeChecked();
+
+    expect(fireEvent.click(checkbox)).toBe(true);
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it("préserve les modificateurs de sélection sur le clic natif", () => {
+    renderRow(createItem({ id: "line-modifier-selection" }));
+    const checkbox = screen.getByTestId("estimate-line-checkbox");
+
+    fireEvent.click(checkbox, { shiftKey: true });
+
+    expect(rowActionSpies.onLineSelectionInteraction).toHaveBeenCalledWith({
+      id: "line-modifier-selection",
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+    });
+  });
+
+  it("permet de sélectionner la ligne au clavier (barre d'espace)", async () => {
+    const user = userEvent.setup();
+    renderRow(createItem({ id: "line-1" }));
+    const checkbox = screen.getByTestId("estimate-line-checkbox");
+    checkbox.focus();
+    await user.keyboard("[Space]");
     expect(rowActionSpies.onLineSelectionInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ id: "line-1" })
     );
@@ -512,6 +653,7 @@ describe("EstimateEditorRow behavior", () => {
         data: {
           suggestions: [
             {
+              price_source: "supplier",
               supplier_price_id: "price-1",
               product_id: "product-1",
               product_designation: "Produit catalogue",
@@ -531,6 +673,7 @@ describe("EstimateEditorRow behavior", () => {
               material_index_code: null,
               material_index_value: null,
               catalogue_url: null,
+              supplier_offer_count: 1,
               alternatives: [],
             },
           ],
@@ -565,6 +708,7 @@ describe("EstimateEditorRow behavior", () => {
       expect(rowActionSpies.onPatchItem).toHaveBeenCalledWith(
         "line-catalogue",
         expect.objectContaining({
+          product_id: "product-1",
           description: "Produit catalogue",
           unit_price_ht_cents: 1234,
           selected_supplier_price_id: "price-1",

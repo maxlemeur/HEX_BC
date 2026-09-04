@@ -11,6 +11,7 @@ import { type SpreadsheetCell } from "@/hooks/useSpreadsheetNavigation";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EditorEstimateItem = EstimateItem & { _clientKey?: string };
 
 const mockUseVirtualList = vi.fn();
 
@@ -18,7 +19,7 @@ vi.mock("@/hooks/useVirtualList", () => ({
   useVirtualList: (input: unknown) => mockUseVirtualList(input),
 }));
 
-function createItem(partial: Partial<EstimateItem>): EstimateItem {
+function createItem(partial: Partial<EditorEstimateItem>): EditorEstimateItem {
   return {
     id: "",
     version_id: "version-1",
@@ -105,6 +106,7 @@ describe("useEstimateDndVirtualization", () => {
     const section = createItem({ id: "section-1", item_type: "section", title: "Chapitre" });
     const line = createItem({
       id: "line-1",
+      _clientKey: "tmp:line-client",
       item_type: "line",
       parent_id: "section-1",
       title: "Tube acier",
@@ -172,8 +174,8 @@ describe("useEstimateDndVirtualization", () => {
 
     expect(result.current.flattenedRows.map((row) => row.key)).toEqual([
       "item:section-1",
-      "item:line-1",
-      "suggestion:line-1",
+      "item:tmp:line-client",
+      "suggestion:tmp:line-client",
       "item:line-2",
     ]);
     const sectionRow = result.current.flattenedRows[0];
@@ -680,7 +682,11 @@ describe("useEstimateDndVirtualization", () => {
   });
 
   it("scrolls to target row in virtual mode and handles keyboard navigation fallback", async () => {
-    const line1 = createItem({ id: "line-1", item_type: "line" });
+    const line1 = createItem({
+      id: "line-1",
+      _clientKey: "tmp:line-client",
+      item_type: "line",
+    });
     const line2 = createItem({ id: "line-2", item_type: "line" });
 
     const itemsByParent = new Map<string, EstimateItem[]>([["root", [line1, line2]]]);
@@ -747,7 +753,7 @@ describe("useEstimateDndVirtualization", () => {
     expect(onScrollToItemHandled).toHaveBeenCalledTimes(1);
 
     const missingCell: SpreadsheetCell = {
-      rowId: "line-1",
+      rowId: "tmp:line-client",
       columnKey: "title",
     };
 

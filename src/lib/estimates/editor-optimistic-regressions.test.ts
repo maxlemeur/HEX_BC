@@ -26,12 +26,14 @@ describe("estimate editor optimistic regressions", () => {
     const reconciled = reconcileCreatedItemWithLocalDraft(
       created,
       localDraftPatch,
-      queuedPatch
+      queuedPatch,
+      "tmp:item-client"
     );
 
     expect(reconciled.title).toBe("Draft title");
     expect(reconciled.description).toBe("Typing before create resolves");
     expect(reconciled.aid).toBe("A-42");
+    expect(reconciled._clientKey).toBe("tmp:item-client");
     expect(reconciled._optimistic).toBe(false);
     expect(reconciled._pendingCreate).toBe(false);
   });

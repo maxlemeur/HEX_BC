@@ -472,12 +472,19 @@ const suggestedSupplierAlternativeSchema = z.object({
 });
 
 const suggestedCataloguePriceSchema = z.object({
-  supplier_price_id: uuidSchema,
+  price_source: z.enum(["supplier", "reference", "none"]),
+  supplier_price_id: uuidSchema.nullable(),
   product_id: uuidSchema,
   product_designation: z.string(),
   product_reference: z.string().nullable(),
-  supplier_id: uuidSchema,
-  supplier_name: z.string(),
+  product_category: z.string().nullable(),
+  product_type: z.string().nullable(),
+  product_material: z.string().nullable(),
+  product_grade: z.string().nullable(),
+  product_dimensions: z.string().nullable(),
+  product_standard: z.string().nullable(),
+  supplier_id: uuidSchema.nullable(),
+  supplier_name: z.string().nullable(),
   supplier_reference: z.string().nullable(),
   unit: z.string().nullable(),
   unit_price_cents: z.number().int(),
@@ -491,6 +498,7 @@ const suggestedCataloguePriceSchema = z.object({
   material_index_code: z.string().nullable(),
   material_index_value: z.number().nullable(),
   catalogue_url: z.string().nullable(),
+  supplier_offer_count: z.number().int(),
   alternatives: z.array(suggestedSupplierAlternativeSchema),
 });
 
@@ -936,6 +944,10 @@ const estimateItemsDataSchema = z.object({
 
 const estimateItemDataSchema = z.object({
   item: estimateItemSchema,
+});
+
+const estimateItemCreatedDataSchema = estimateItemDataSchema.extend({
+  version: estimateVersionTokenSchema,
 });
 
 const estimateItemsReorderDataSchema = z.object({
@@ -2255,6 +2267,10 @@ const apiEstimateItemsSchemaDefinition = successResponseSchemaDefinition(
 const apiEstimateItemSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemResponse",
   estimateItemDataSchema
+);
+const apiEstimateItemCreatedSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemCreatedResponse",
+  estimateItemCreatedDataSchema
 );
 const apiEstimateItemsReorderSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemsReorderResponse",
@@ -4194,7 +4210,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Item cree avec succes.",
-        apiEstimateItemSchemaDefinition
+        apiEstimateItemCreatedSchemaDefinition
       ),
     },
   },

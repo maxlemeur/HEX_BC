@@ -7,6 +7,7 @@ import {
   isEstimateApiError,
   releaseEstimateDraftLock,
   renewEstimateDraftLock,
+  takeoverEstimateDraftLock,
   type EstimateDraftLock,
   type ReleaseEstimateDraftLockOptions,
 } from "@/lib/estimates/client";
@@ -106,10 +107,13 @@ export function useDraftLock({
   const [isLockedByOther, setIsLockedByOther] = useState(false);
   const [isAcquiring, setIsAcquiring] = useState(false);
   const [isForcingUnlock, setIsForcingUnlock] = useState(false);
+  const [isAutomaticAcquireSuppressed, setIsAutomaticAcquireSuppressed] =
+    useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const currentUserIdRef = useRef<string | null | undefined>(currentUserId);
   const isOwnedByCurrentUserRef = useRef(false);
+  const hasOwnedActiveTargetRef = useRef(false);
   const targetGenerationRef = useRef(0);
   const activeTargetRef = useRef<DraftLockTarget | null>(null);
   const acquisitionInFlightRef = useRef(new Set<number>());
@@ -272,6 +276,12 @@ export function useDraftLock({
       setLock(result.lock);
       updateOwnershipState(ownsLock);
       setIsLockedByOther(lockedByOther);
+      if (ownsLock) {
+        hasOwnedActiveTargetRef.current = true;
+        setIsAutomaticAcquireSuppressed(false);
+      } else if (lockedByOther && hasOwnedActiveTargetRef.current) {
+        setIsAutomaticAcquireSuppressed(true);
+      }
 
       return ownsLock;
     } catch (acquireError) {
@@ -332,7 +342,13 @@ export function useDraftLock({
       setIsLockedByOther(lockedByOther);
 
       if (ownsLock) {
+        hasOwnedActiveTargetRef.current = true;
         setError(null);
+      } else {
+        // Cette page détenait le verrou avant ce renouvellement. Si une autre
+        // page l'a repris, elle ne doit pas entrer dans la boucle de tentative
+        // automatique et voler le verrou à son tour.
+        setIsAutomaticAcquireSuppressed(true);
       }
 
       return ownsLock;
@@ -343,6 +359,7 @@ export function useDraftLock({
         setLock(null);
         updateOwnershipState(false);
         setIsLockedByOther(false);
+        setIsAutomaticAcquireSuppressed(true);
         setError(DRAFT_LOCK_LOST_MESSAGE);
         return false;
       }
@@ -374,22 +391,50 @@ export function useDraftLock({
     setError(null);
 
     try {
-      const released = await releaseForVersion(
-        versionId,
-        { force: true },
-        target
+      const result = await takeoverEstimateDraftLock(versionId);
+      const ownership = resolveLockOwnership(
+        result.lock,
+        currentUserIdRef.current
       );
-      if (!released || !isCurrentTarget(target)) {
+      const ownsLock = result.acquired && ownership !== false;
+
+      if (!isCurrentTarget(target)) {
+        if (ownsLock) {
+          releaseStaleOwnedTarget(target);
+        }
         return false;
       }
 
-      return await acquireForTarget(target);
+      setLock(result.lock);
+      updateOwnershipState(ownsLock);
+      setIsLockedByOther(!ownsLock);
+      setIsAutomaticAcquireSuppressed(false);
+      if (ownsLock) {
+        hasOwnedActiveTargetRef.current = true;
+      }
+
+      return ownsLock;
+    } catch (takeoverError) {
+      if (isCurrentTarget(target)) {
+        setError(
+          resolveDraftLockErrorMessage(
+            takeoverError,
+            "Impossible de reprendre le verrou de brouillon."
+          )
+        );
+      }
+      return false;
     } finally {
       if (isCurrentTarget(target)) {
         setIsForcingUnlock(false);
       }
     }
-  }, [acquireForTarget, isCurrentTarget, releaseForVersion, versionId]);
+  }, [
+    isCurrentTarget,
+    releaseStaleOwnedTarget,
+    updateOwnershipState,
+    versionId,
+  ]);
 
   useEffect(() => {
     const target = enabled && versionId
@@ -402,6 +447,8 @@ export function useDraftLock({
     activeTargetRef.current = target;
 
     setIsForcingUnlock(false);
+    setIsAutomaticAcquireSuppressed(false);
+    hasOwnedActiveTargetRef.current = false;
 
     if (!target) {
       setLock(null);
@@ -447,7 +494,14 @@ export function useDraftLock({
   }, [enabled, isOwnedByCurrentUser, renewForTarget, versionId]);
 
   useEffect(() => {
-    if (!enabled || !versionId || isOwnedByCurrentUser) return;
+    if (
+      !enabled ||
+      !versionId ||
+      isOwnedByCurrentUser ||
+      isAutomaticAcquireSuppressed
+    ) {
+      return;
+    }
     const target = activeTargetRef.current;
     if (!target || target.versionId !== versionId) return;
 
@@ -458,7 +512,13 @@ export function useDraftLock({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [acquireForTarget, enabled, isOwnedByCurrentUser, versionId]);
+  }, [
+    acquireForTarget,
+    enabled,
+    isAutomaticAcquireSuppressed,
+    isOwnedByCurrentUser,
+    versionId,
+  ]);
 
   useEffect(() => {
     if (!enabled || !versionId) return;
@@ -473,6 +533,7 @@ export function useDraftLock({
         return;
       }
 
+      if (isAutomaticAcquireSuppressed) return;
       void acquireForTarget(target);
     };
 
@@ -483,7 +544,13 @@ export function useDraftLock({
       window.removeEventListener("focus", refreshLease);
       document.removeEventListener("visibilitychange", refreshLease);
     };
-  }, [acquireForTarget, enabled, renewForTarget, versionId]);
+  }, [
+    acquireForTarget,
+    enabled,
+    isAutomaticAcquireSuppressed,
+    renewForTarget,
+    versionId,
+  ]);
 
   useEffect(() => {
     if (!enabled || !versionId) return;

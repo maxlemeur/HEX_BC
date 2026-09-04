@@ -12,12 +12,15 @@ type EstimateEditorTableLineContextMenuProps = {
   isReadOnly: boolean;
   isViewerMode: boolean;
   isItemConversionPending: boolean;
+  hasAssociatedProduct: boolean;
   onPatchAid: (
     itemId: string,
     aid: string | null,
     options: { persist: boolean },
   ) => void;
   onCompareSuppliers: (itemId: string) => void;
+  onOpenArticle: (itemId: string) => void;
+  onAssociateArticle: (itemId: string) => void;
   onConvertToSection: (itemId: string) => void;
 };
 
@@ -29,8 +32,11 @@ export function EstimateEditorTableLineContextMenu({
   isReadOnly,
   isViewerMode,
   isItemConversionPending,
+  hasAssociatedProduct,
   onPatchAid,
   onCompareSuppliers,
+  onOpenArticle,
+  onAssociateArticle,
   onConvertToSection,
 }: EstimateEditorTableLineContextMenuProps) {
   const [aidDraft, setAidDraft] = useState(aid ?? "");
@@ -84,21 +90,42 @@ export function EstimateEditorTableLineContextMenu({
         type="button"
         className="estimate-supplier-comparison-context-menu__action"
         role="menuitem"
+        onClick={() => onOpenArticle(itemId)}
+        disabled={!hasAssociatedProduct}
+      >
+        Fiche article
+      </button>
+      <button
+        type="button"
+        className="estimate-supplier-comparison-context-menu__action"
+        role="menuitem"
+        onClick={() => onAssociateArticle(itemId)}
+        disabled={isReadOnly}
+      >
+        Associer ou remplacer l’article
+      </button>
+      <button
+        type="button"
+        className="estimate-supplier-comparison-context-menu__action"
+        role="menuitem"
         onClick={() => onCompareSuppliers(itemId)}
         disabled={isItemConversionPending}
       >
-        Comparer fournisseurs
+        Comparer les fournisseurs
       </button>
       {!isViewerMode ? (
-        <button
-          type="button"
-          className="estimate-supplier-comparison-context-menu__action"
-          role="menuitem"
-          onClick={() => onConvertToSection(itemId)}
-          disabled={isReadOnly || isItemConversionPending}
-        >
-          Convertir en section
-        </button>
+        <>
+          <div className="estimate-line-context-menu__separator" />
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={() => onConvertToSection(itemId)}
+            disabled={isReadOnly || isItemConversionPending}
+          >
+            Convertir en section
+          </button>
+        </>
       ) : null}
     </div>
   );

@@ -39,6 +39,7 @@ import {
 import {
   buildEstimateItemUpdatePayload,
   buildVersionTotalsPatch,
+  getEstimateEditorItemClientKey,
   type EditorEstimateItem,
   type EstimateItem,
   type EstimateItemUpdatePayload,
@@ -365,15 +366,28 @@ export function useEstimateEditorSyncController({
    * a partir de laquelle une modification locale est reconnue comme telle.
    */
   const overlayPendingUpdates = useCallback((sourceItems: EditorEstimateItem[]) => {
+    const existingClientKeyByItemId = new Map(
+      itemsRef.current.map((item) => [
+        item.id,
+        getEstimateEditorItemClientKey(item),
+      ])
+    );
+    const sourceItemsWithStableClientKeys = sourceItems.map((item) => ({
+      ...item,
+      _clientKey:
+        existingClientKeyByItemId.get(item.id) ??
+        getEstimateEditorItemClientKey(item),
+    }));
+
     syncedItemPayloadsRef.current = new Map(
-      sourceItems.map((item) => [
+      sourceItemsWithStableClientKeys.map((item) => [
         item.id,
         buildEstimateItemUpdatePayload(item),
       ])
     );
 
     return applyBufferedUpdatesToItems(
-      sourceItems,
+      sourceItemsWithStableClientKeys,
       serializeBufferedUpdates(pendingItemUpdatesRef.current)
     );
   }, []);
@@ -597,12 +611,22 @@ export function useEstimateEditorSyncController({
     }
 
     setConflict(null);
+    reportError(null);
+    reportNotice(null);
+    if (
+      pendingItemUpdatesRef.current.size === 0 &&
+      !hasPendingTotalsSaveRef.current
+    ) {
+      setTotalsOutOfSync(false);
+    }
     triggerVersionReload();
   }, [
     draftLockError,
     forceUnlockAndAcquireDraftLock,
     isDraftVersion,
     reportError,
+    reportNotice,
+    setTotalsOutOfSync,
     triggerVersionReload,
   ]);
 
@@ -742,8 +766,20 @@ export function useEstimateEditorSyncController({
         totalsPatch: versionTotalsPatch,
         updatedAt: nextVersionToken,
       });
+      // Une sauvegarde réussie invalide les anciens messages de navigation ou
+      // de synchronisation. Sans ce reset, le ruban peut afficher « Sauvegardé »
+      // tout en conservant une alerte rouge devenue fausse.
+      reportError(null);
       persistBufferedItemUpdatesToLocal();
       setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+      if (
+        pendingItemUpdatesRef.current.size === 0 &&
+        !hasPendingSettingsChanges
+      ) {
+        clearConflictDraftFromSession(flushVersionId);
+        setRestorableDraft(null);
+        reportNotice(null);
+      }
       if (lineBatchCommitted) clearHistory();
       return "saved";
     } catch (error) {
@@ -820,10 +856,12 @@ export function useEstimateEditorSyncController({
     clearHistory,
     getPersistedTotals,
     getVersionSnapshot,
+    hasPendingSettingsChanges,
     handleVersionConflict,
     mergeSyncedItemPayload,
     persistBufferedItemUpdatesToLocal,
     reportError,
+    reportNotice,
     resolveErrorMessage,
     runWithDraftLockRecovery,
     routeVersionId,

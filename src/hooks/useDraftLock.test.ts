@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   acquireDraftLock: vi.fn(),
   renewDraftLock: vi.fn(),
   releaseDraftLock: vi.fn(),
+  takeoverDraftLock: vi.fn(),
   isEstimateApiError: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("@/lib/estimates/client", () => ({
   acquireEstimateDraftLock: mocks.acquireDraftLock,
   renewEstimateDraftLock: mocks.renewDraftLock,
   releaseEstimateDraftLock: mocks.releaseDraftLock,
+  takeoverEstimateDraftLock: mocks.takeoverDraftLock,
   isEstimateApiError: mocks.isEstimateApiError,
 }));
 
@@ -92,6 +94,10 @@ describe("useDraftLock", () => {
       lock: createLock(),
     });
     mocks.releaseDraftLock.mockResolvedValue({ released: true });
+    mocks.takeoverDraftLock.mockResolvedValue({
+      acquired: true,
+      lock: createLock(),
+    });
   });
 
   afterEach(() => {
@@ -248,6 +254,39 @@ describe("useDraftLock", () => {
     expect(result.current.isLockedByOther).toBe(false);
   });
 
+  it("does not auto-reacquire after a previously owned page discovers takeover", async () => {
+    vi.useFakeTimers();
+    const otherPageLock = createLock({
+      isOwnedByCurrentUser: true,
+      isOwnedByCurrentSession: false,
+    });
+    mocks.acquireDraftLock
+      .mockResolvedValueOnce({ acquired: true, lock: createLock() })
+      .mockResolvedValue({ acquired: false, lock: otherPageLock });
+
+    const { result } = renderHook(() =>
+      useDraftLock({
+        versionId: "version-1",
+        currentUserId: "user-1",
+      })
+    );
+
+    await flushAsyncWork();
+    expect(result.current.isOwnedByCurrentUser).toBe(true);
+
+    await act(async () => {
+      await result.current.acquire();
+    });
+    expect(result.current.isLockedByOther).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACQUIRE_RETRY_INTERVAL_MS * 2);
+    });
+
+    expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(2);
+    expect(result.current.isOwnedByCurrentUser).toBe(false);
+  });
+
   it("surfaces acquisition errors and clears them after a successful retry", async () => {
     mocks.acquireDraftLock.mockRejectedValueOnce(
       createApiError("Verrou temporairement indisponible.")
@@ -319,7 +358,7 @@ describe("useDraftLock", () => {
     expect(result.current.isLockedByOther).toBe(true);
   });
 
-  it("drops ownership when the heartbeat finds the lock force-released", async () => {
+  it("stays evicted when the heartbeat finds the lock force-released", async () => {
     vi.useFakeTimers();
     mocks.renewDraftLock.mockRejectedValue(
       createApiError("Aucun verrou actif pour cette version.", 404)
@@ -357,8 +396,9 @@ describe("useDraftLock", () => {
       await vi.advanceTimersByTimeAsync(ACQUIRE_RETRY_INTERVAL_MS);
     });
 
-    expect(result.current.isLockedByOther).toBe(true);
-    expect(result.current.holderName).toBe("Bob Dupont");
+    expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(1);
+    expect(result.current.isLockedByOther).toBe(false);
+    expect(result.current.error).toContain("lecture seule");
   });
 
   it("releases the previous lock with keepalive when the version changes", async () => {
@@ -730,7 +770,7 @@ describe("useDraftLock", () => {
     });
   });
 
-  it("forces release and reacquires the lock successfully", async () => {
+  it("takes over the lock atomically", async () => {
     const { result } = renderHook(() =>
       useDraftLock({
         versionId: "version-1",
@@ -743,6 +783,7 @@ describe("useDraftLock", () => {
     });
     mocks.acquireDraftLock.mockClear();
     mocks.releaseDraftLock.mockClear();
+    mocks.takeoverDraftLock.mockClear();
 
     let acquired = false;
     await act(async () => {
@@ -750,15 +791,14 @@ describe("useDraftLock", () => {
     });
 
     expect(acquired).toBe(true);
-    expect(mocks.releaseDraftLock).toHaveBeenCalledWith("version-1", {
-      force: true,
-    });
-    expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(1);
+    expect(mocks.takeoverDraftLock).toHaveBeenCalledWith("version-1");
+    expect(mocks.releaseDraftLock).not.toHaveBeenCalled();
+    expect(mocks.acquireDraftLock).not.toHaveBeenCalled();
     expect(result.current.isForcingUnlock).toBe(false);
     expect(result.current.isOwnedByCurrentUser).toBe(true);
   });
 
-  it("stops force unlock when the forced release fails", async () => {
+  it("reports a failed atomic takeover", async () => {
     const { result } = renderHook(() =>
       useDraftLock({
         versionId: "version-1",
@@ -770,7 +810,9 @@ describe("useDraftLock", () => {
       expect(result.current.isOwnedByCurrentUser).toBe(true);
     });
     mocks.acquireDraftLock.mockClear();
-    mocks.releaseDraftLock.mockResolvedValueOnce({ released: false });
+    mocks.takeoverDraftLock.mockRejectedValueOnce(
+      createApiError("Reprise impossible.")
+    );
 
     let acquired = true;
     await act(async () => {
@@ -778,12 +820,10 @@ describe("useDraftLock", () => {
     });
 
     expect(acquired).toBe(false);
-    expect(mocks.releaseDraftLock).toHaveBeenCalledWith("version-1", {
-      force: true,
-    });
+    expect(mocks.takeoverDraftLock).toHaveBeenCalledWith("version-1");
     expect(mocks.acquireDraftLock).not.toHaveBeenCalled();
     expect(result.current.isForcingUnlock).toBe(false);
-    expect(result.current.isOwnedByCurrentUser).toBe(true);
+    expect(result.current.error).toBe("Reprise impossible.");
   });
 
   it("keeps keepalive release errors silent but reports manual failures", async () => {

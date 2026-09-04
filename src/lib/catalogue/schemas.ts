@@ -95,6 +95,7 @@ const optionalDateUpdateSchema = z
   });
 
 export const catalogueListQuerySchema = z.object({
+  id: optionalUuidSchema,
   search: z.union([z.string(), z.null()]).optional(),
   limit: positiveIntegerSchema.max(500).optional().default(100),
   include_inactive: z.boolean().optional().default(false),

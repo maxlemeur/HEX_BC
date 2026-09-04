@@ -2192,16 +2192,19 @@ function createCreateItemSupabaseMock() {
     }),
   };
 
-  const estimateItemsInsert = vi.fn(() => ({
-    select: vi.fn(() => ({
-      single: vi.fn().mockResolvedValue({
-        data: {
-          id: ITEM_ID_1,
-        },
-        error: null,
-      }),
-    })),
-  }));
+  const estimateItemsInsert = vi.fn((payload: Record<string, unknown>) => {
+    void payload;
+    return {
+      select: vi.fn(() => ({
+        single: vi.fn().mockResolvedValue({
+          data: {
+            id: ITEM_ID_1,
+          },
+          error: null,
+        }),
+      })),
+    };
+  });
   const estimateItemsParentBuilder = {
     eq: vi.fn(),
     single: vi.fn().mockResolvedValue({
@@ -2619,6 +2622,32 @@ describe("estimate item source provenance", () => {
         source_page: 12,
       })
     );
+  });
+
+  it("creates an unlinked line without querying a missing product_id column", async () => {
+    const { supabase, estimateItemsInsert } = createCreateItemSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await createEstimateItem(VERSION_ID, {
+      item_type: "line",
+      parent_id: PARENT_ID_1,
+      position: 1,
+      title: "Ligne sans produit",
+      product_id: null,
+    });
+
+    const insertPayload = estimateItemsInsert.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(insertPayload).not.toHaveProperty("product_id");
+    expect(result).toMatchObject({
+      item: { id: ITEM_ID_1 },
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    });
   });
 
   it("hydrates source level and extraction date from takeoff jobs", async () => {

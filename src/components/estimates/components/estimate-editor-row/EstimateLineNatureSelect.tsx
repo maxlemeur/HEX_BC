@@ -13,6 +13,7 @@ import type {
 
 type EstimateLineNatureSelectProps = {
   item: EstimateItem;
+  navigationRowId?: string;
   isReadOnly: boolean;
   onPatchItem: (
     itemId: string,
@@ -29,6 +30,7 @@ const COMPACT_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
 
 export function EstimateLineNatureSelect({
   item,
+  navigationRowId = item.id,
   isReadOnly,
   onPatchItem,
 }: EstimateLineNatureSelectProps) {
@@ -43,7 +45,7 @@ export function EstimateLineNatureSelect({
       <span
         className="estimate-line-nature-picker estimate-line-nature-picker--readonly"
         title={`${fullLabel} — nature de ligne en lecture seule.`}
-        data-cell-id={`${item.id}::line_nature`}
+        data-cell-id={`${navigationRowId}::line_nature`}
         tabIndex={-1}
         onFocus={(event) => event.stopPropagation()}
         onBlur={(event) => event.stopPropagation()}
@@ -72,7 +74,7 @@ export function EstimateLineNatureSelect({
         value={selectedNature}
         aria-label={`${compactLabel} — nature de ligne pour ${lineLabel}`}
         aria-describedby={descriptionId}
-        data-cell-id={`${item.id}::line_nature`}
+        data-cell-id={`${navigationRowId}::line_nature`}
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}

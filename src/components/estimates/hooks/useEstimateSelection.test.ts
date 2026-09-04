@@ -69,9 +69,8 @@ describe("useEstimateSelection", () => {
     expect(onBulkSetLaborRole).toHaveBeenCalledWith(["line-2"], "role-1");
   });
 
-  it("confirms before deleting selected lines", async () => {
+  it("deletes selected lines after confirmation is handled by the caller", async () => {
     const onBulkDeleteLines = vi.fn().mockResolvedValue(undefined);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const { result } = renderHook(() =>
       useEstimateSelection({
@@ -93,8 +92,6 @@ describe("useEstimateSelection", () => {
       await result.current.handleBulkDeleteSelection();
     });
 
-    expect(confirmSpy).toHaveBeenCalled();
     expect(onBulkDeleteLines).toHaveBeenCalledWith(["line-1"]);
-    confirmSpy.mockRestore();
   });
 });

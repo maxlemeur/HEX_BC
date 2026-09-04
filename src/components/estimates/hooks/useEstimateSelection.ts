@@ -86,11 +86,6 @@ export function useEstimateSelection({
   const handleBulkDeleteSelection = useCallback(async () => {
     if (isReadOnly || !hasSelectedLines) return;
 
-    const lineLabel =
-      selectedLineCount > 1 ? "lignes selectionnees" : "ligne selectionnee";
-    const confirmed = window.confirm(`Supprimer ${selectedLineCount} ${lineLabel} ?`);
-    if (!confirmed) return;
-
     await onBulkDeleteLines(selectedLineIdList);
     clearLineSelection();
   }, [
@@ -98,7 +93,6 @@ export function useEstimateSelection({
     hasSelectedLines,
     isReadOnly,
     onBulkDeleteLines,
-    selectedLineCount,
     selectedLineIdList,
   ]);
 

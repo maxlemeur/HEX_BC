@@ -25,8 +25,51 @@ type LineNatureSource = {
   labor_role_chantier_id?: string | null;
 };
 
+type LineNaturePatch = Partial<LineNatureSource>;
+
+const SUPPLY_COMPONENT_KEYS = [
+  "unit_price_ht_cents",
+  "supply_type_id",
+  "selected_supplier_price_id",
+] as const;
+
+const LABOR_COMPONENT_KEYS = [
+  "h_mo",
+  "h_mo_atelier",
+  "h_mo_chantier",
+  "labor_role_id",
+  "labor_role_atelier_id",
+  "labor_role_chantier_id",
+] as const;
+
 function isEstimateLineNature(value: unknown): value is EstimateLineNature {
   return ESTIMATE_LINE_NATURES.includes(value as EstimateLineNature);
+}
+
+function hasSupplyComponent(item: LineNatureSource) {
+  return (
+    (item.unit_price_ht_cents ?? 0) > 0 ||
+    Boolean(item.supply_type_id) ||
+    Boolean(item.selected_supplier_price_id)
+  );
+}
+
+function hasLaborComponent(item: LineNatureSource) {
+  return (
+    (item.h_mo ?? 0) > 0 ||
+    (item.h_mo_atelier ?? 0) > 0 ||
+    (item.h_mo_chantier ?? 0) > 0 ||
+    Boolean(item.labor_role_id) ||
+    Boolean(item.labor_role_atelier_id) ||
+    Boolean(item.labor_role_chantier_id)
+  );
+}
+
+function patchTouchesAny(
+  patch: LineNaturePatch,
+  keys: readonly (keyof LineNatureSource)[],
+) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(patch, key));
 }
 
 export function resolveEstimateLineNature(
@@ -36,17 +79,8 @@ export function resolveEstimateLineNature(
     return item.line_nature;
   }
 
-  const hasSupply =
-    (item.unit_price_ht_cents ?? 0) > 0 ||
-    Boolean(item.supply_type_id) ||
-    Boolean(item.selected_supplier_price_id);
-  const hasLabor =
-    (item.h_mo ?? 0) > 0 ||
-    (item.h_mo_atelier ?? 0) > 0 ||
-    (item.h_mo_chantier ?? 0) > 0 ||
-    Boolean(item.labor_role_id) ||
-    Boolean(item.labor_role_atelier_id) ||
-    Boolean(item.labor_role_chantier_id);
+  const hasSupply = hasSupplyComponent(item);
+  const hasLabor = hasLaborComponent(item);
 
   if (hasLabor && !hasSupply) {
     return "labor_only";
@@ -55,6 +89,44 @@ export function resolveEstimateLineNature(
     return "supply_and_labor";
   }
   return "supply_only";
+}
+
+/**
+ * Promotes a line when an edit introduces the component excluded by its
+ * current nature. It deliberately never demotes a line: a missing value can
+ * be temporary and the explicit nature remains the validation intent.
+ */
+export function resolvePromotedEstimateLineNature(
+  current: LineNatureSource,
+  patch: LineNaturePatch,
+): EstimateLineNature {
+  if (isEstimateLineNature(patch.line_nature)) {
+    return patch.line_nature;
+  }
+
+  const currentNature = resolveEstimateLineNature(current);
+  if (currentNature === "supply_and_labor") {
+    return currentNature;
+  }
+
+  const next = { ...current, ...patch };
+  if (
+    currentNature === "supply_only" &&
+    patchTouchesAny(patch, LABOR_COMPONENT_KEYS) &&
+    hasLaborComponent(next)
+  ) {
+    return "supply_and_labor";
+  }
+
+  if (
+    currentNature === "labor_only" &&
+    patchTouchesAny(patch, SUPPLY_COMPONENT_KEYS) &&
+    hasSupplyComponent(next)
+  ) {
+    return "supply_and_labor";
+  }
+
+  return currentNature;
 }
 
 export function lineNatureExpectsSupply(nature: EstimateLineNature) {

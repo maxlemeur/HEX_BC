@@ -210,6 +210,9 @@
     "20260813030000_require_localized_takeoff_proofs.sql": "67402ceeed536bb07c1d362a74fb044a140ee1d1ce149e5c3868e9e69e5297d3",
     "20260813201300_atomic_takeoff_apply_mapping.sql": "1a6714c678fa8f3b4e875196a23d201e945d73c2f6e94c3cf7edf5c1bcbd082d",
     "20260819205115_case_insensitive_product_reference.sql": "484b21b57172924ce82af7befe4efe2514dd6370a56eea99492ae49b9ec4e2cb",
-    "20260819230500_drop_product_tax_rate.sql": "f14a7671e3fedf7f0deb0f3206959e23600c39c627e080b5c996a2417440be2c"
+    "20260819230500_drop_product_tax_rate.sql": "f14a7671e3fedf7f0deb0f3206959e23600c39c627e080b5c996a2417440be2c",
+    "20260820194939_atomic_estimate_draft_lock_takeover.sql": "86f7501b8b280b1e0e19655ca9ecc5e44bb4ce8dfb8e4e7c40b166e805d2014f",
+    "20260823195011_promote_inconsistent_estimate_line_natures.sql": "152582480d0726f1acf98cd8d9e48e1fe63921873f3ce69887514cf3f3955b99",
+    "20260825200420_link_estimate_items_to_products.sql": "e745e78ee82ff10f6434c098bda0bc8134030835479033fa2eaa8c31dd2e447e"
   }
 }

@@ -30,6 +30,15 @@ import {
   type CalculatedEstimateTotals,
 } from "@/lib/estimates/version-totals";
 import {
+  computeCatalogueSearchRelevance,
+  isSupplierBackedCatalogueSuggestion,
+  mergeCatalogueProductSuggestions,
+  type CataloguePriceSuggestion,
+  type CatalogueProductSuggestionRecord,
+  type SupplierAlternative,
+  type SupplierAlternativeKind,
+} from "@/lib/estimates/catalogue-suggestions";
+import {
   resolveCalcEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
@@ -129,7 +138,10 @@ import {
   resolveSectionLevelFromParent,
 } from "./estimate-placement-helpers";
 import { ensureCategoryIsValid } from "./estimate-reference-helpers";
-import { resolveEstimateLineNature } from "./line-nature";
+import {
+  resolveEstimateLineNature,
+  resolvePromotedEstimateLineNature,
+} from "./line-nature";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -624,55 +636,12 @@ type EstimateTotalsInvariantViolation = {
   message: string;
 };
 
-type SupplierAlternativeKind = "best_price" | "most_recent" | "preferred_supplier";
 export type SupplierComparisonAlternativeKind =
   | SupplierAlternativeKind
   | "selected_current";
 
-type SuggestedSupplierAlternative = {
-  kind: SupplierAlternativeKind;
-  supplier_price_id: string;
-  supplier_id: string;
-  supplier_name: string;
-  unit_price_cents: number;
-  adjusted_unit_price_cents: number;
-  currency: string | null;
-  supplier_reference: string | null;
-  unit: string | null;
-  updated_at: string | null;
-  is_stale: boolean;
-  catalogue_url: string | null;
-};
-
-type SuggestedCataloguePrice = {
-  supplier_price_id: string;
-  product_id: string;
-  product_designation: string;
-  product_reference: string | null;
-  product_category: string | null;
-  product_type: string | null;
-  product_material: string | null;
-  product_grade: string | null;
-  product_dimensions: string | null;
-  product_standard: string | null;
-  supplier_id: string;
-  supplier_name: string;
-  supplier_reference: string | null;
-  unit: string | null;
-  unit_price_cents: number;
-  adjusted_unit_price_cents: number;
-  currency: string | null;
-  updated_at: string | null;
-  is_stale: boolean;
-  stale_days: number;
-  relevance_score: number;
-  has_material_index_adjustment: boolean;
-  material_index_code: string | null;
-  material_index_value: number | null;
-  catalogue_url: string | null;
-  supplier_offer_count: number;
-  alternatives: SuggestedSupplierAlternative[];
-};
+type SuggestedSupplierAlternative = SupplierAlternative;
+type SuggestedCataloguePrice = CataloguePriceSuggestion;
 
 type SupplierPricebookRow = {
   id: string;
@@ -719,18 +688,11 @@ function normalizeSupplierPricebookRow(row: SupplierPricebookRow): SupplierPrice
 type HydratedSuggestedCatalogueCandidate = Omit<
   SuggestedCataloguePrice,
   "alternatives" | "supplier_offer_count"
->;
-
-type CatalogueProductSuggestionRecord = {
-  id: string;
-  designation: string;
-  reference: string | null;
-  category: string | null;
-  product_type: string | null;
-  material: string | null;
-  grade: string | null;
-  dimensions: string | null;
-  standard: string | null;
+> & {
+  price_source: "supplier";
+  supplier_price_id: string;
+  supplier_id: string;
+  supplier_name: string;
 };
 
 type EstimateSupplierComparisonSourceAlternative = {
@@ -863,7 +825,9 @@ async function hydrateSuggestedCatalogueCandidates(input: {
   if (productIds.length > 0) {
     const { data: productsData, error: productsError } = await input.supabase
       .from("products")
-      .select("id, designation, reference, category, product_type, material, grade, dimensions, standard")
+      .select(
+        "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at"
+      )
       .eq("tenant_id", input.tenantId)
       .in("id", productIds);
 
@@ -982,7 +946,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
         : row.unit_price_cents;
       const updatedAt = row.updated_at ?? row.created_at ?? null;
-      const relevanceScore = computeSearchRelevance({
+      const relevanceScore = computeCatalogueSearchRelevance({
         query: input.query,
         designation: product?.designation ?? "",
         supplierName: supplier?.name ?? "",
@@ -997,6 +961,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
       });
 
       return {
+        price_source: "supplier",
         supplier_price_id: row.id,
         product_id: row.product_id,
         product_designation: product?.designation ?? "Produit",
@@ -3155,73 +3120,6 @@ function getMostRecentRecord<T extends { updated_at: string | null }>(rows: T[])
   })[0];
 }
 
-function computeSearchRelevance(input: {
-  query: string;
-  designation: string;
-  supplierName: string;
-  supplierSku: string | null;
-  productReference: string | null;
-  category?: string | null;
-  productType?: string | null;
-  material?: string | null;
-  grade?: string | null;
-  dimensions?: string | null;
-  standard?: string | null;
-}) {
-  const query = input.query.toLowerCase();
-  const designation = input.designation.toLowerCase();
-  const supplierName = input.supplierName.toLowerCase();
-  const supplierSku = (input.supplierSku ?? "").toLowerCase();
-  const productReference = (input.productReference ?? "").toLowerCase();
-  const technicalDetails = [
-    input.category,
-    input.productType,
-    input.material,
-    input.grade,
-    input.dimensions,
-    input.standard,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .map((value) => value.toLowerCase());
-
-  let score = 0;
-
-  if (designation === query) {
-    score += 100;
-  } else if (designation.startsWith(query)) {
-    score += 80;
-  } else if (designation.includes(query)) {
-    score += 60;
-  }
-
-  if (productReference === query) {
-    score += 50;
-  } else if (productReference.includes(query)) {
-    score += 30;
-  }
-
-  if (supplierName === query) {
-    score += 35;
-  } else if (supplierName.includes(query)) {
-    score += 20;
-  }
-
-  if (supplierSku === query) {
-    score += 25;
-  } else if (supplierSku.includes(query)) {
-    score += 12;
-  }
-  technicalDetails.forEach((detail) => {
-    if (detail === query) {
-      score += 28;
-    } else if (detail.includes(query)) {
-      score += 14;
-    }
-  });
-
-  return score;
-}
-
 function normalizePositiveInteger(input: {
   value: number | undefined;
   fallback: number;
@@ -3309,6 +3207,25 @@ async function ensureSupplierPriceIsValid(
 
   if (error || !data) {
     throw badRequest("selected_supplier_price_id invalide.");
+  }
+}
+
+async function ensureProductIsValid(
+  supabase: Supabase,
+  productId: string | null,
+  context: Pick<AuthenticatedContext, "tenantId">
+) {
+  if (productId === null) return;
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, tenant_id")
+    .eq("id", productId)
+    .eq("tenant_id", context.tenantId)
+    .single();
+
+  if (error || !data) {
+    throw badRequest("product_id invalide.");
   }
 }
 
@@ -5084,13 +5001,28 @@ export async function suggestEstimateCataloguePrices(
     throw badRequest("Le paramètre q contient uniquement des caractères non supportés.");
   }
 
-  const [productResult, supplierResult] = await Promise.all([
+  const productColumns =
+    "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at";
+  const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
+  const productPrefixFilter = `designation.ilike.${safeSearch}%,reference.ilike.${safeSearch}%`;
+
+  const [prefixProductResult, productResult, supplierResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id, designation, reference")
+      .select(productColumns)
       .eq("tenant_id", tenantId)
-      .or(`designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`)
+      .eq("is_active", true)
+      .or(productPrefixFilter)
+      .order("designation", { ascending: true })
       .limit(40),
+    supabase
+      .from("products")
+      .select(productColumns)
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .or(productContainsFilter)
+      .order("designation", { ascending: true })
+      .limit(80),
     supabase
       .from("suppliers")
       .select("id, name")
@@ -5099,8 +5031,12 @@ export async function suggestEstimateCataloguePrices(
       .limit(40),
   ]);
 
-  if (productResult.error) {
-    throw mapSupabaseError(productResult.error, "Impossible de charger les produits catalogue.");
+  const productError = prefixProductResult.error ?? productResult.error;
+  if (productError) {
+    throw mapSupabaseError(
+      productError,
+      "Impossible de charger les produits catalogue."
+    );
   }
   if (supplierResult.error) {
     throw mapSupabaseError(
@@ -5109,11 +5045,13 @@ export async function suggestEstimateCataloguePrices(
     );
   }
 
-  const products = (productResult.data ?? []) as Array<{
-    id: string;
-    designation: string;
-    reference: string | null;
-  }>;
+  const matchingProducts = [
+    ...(prefixProductResult.data ?? []),
+    ...(productResult.data ?? []),
+  ] as unknown as CatalogueProductSuggestionRecord[];
+  const products = Array.from(
+    new Map(matchingProducts.map((product) => [product.id, product])).values()
+  );
   const suppliers = (supplierResult.data ?? []) as Array<{
     id: string;
     name: string;
@@ -5166,27 +5104,25 @@ export async function suggestEstimateCataloguePrices(
     normalizeSupplierPricebookRow
   );
 
-  if (supplierPrices.length === 0) {
-    return {
-      query: normalizedQuery,
-      stale_price_days: stalePriceDays,
-      suggestions: [] as SuggestedCataloguePrice[],
-    };
-  }
-
-  const preferredSupplierId = await resolvePreferredSupplierIdForCandidates({
-    supabase,
-    tenantId,
-    supplierPrices,
-  });
-  const candidates = await hydrateSuggestedCatalogueCandidates({
-    supabase,
-    tenantId,
-    supplierPrices,
-    stalePriceDays,
-    query: normalizedQuery,
-    filterByRelevance: true,
-  });
+  const preferredSupplierId =
+    supplierPrices.length > 0
+      ? await resolvePreferredSupplierIdForCandidates({
+          supabase,
+          tenantId,
+          supplierPrices,
+        })
+      : null;
+  const candidates =
+    supplierPrices.length > 0
+      ? await hydrateSuggestedCatalogueCandidates({
+          supabase,
+          tenantId,
+          supplierPrices,
+          stalePriceDays,
+          query: normalizedQuery,
+          filterByRelevance: true,
+        })
+      : [];
 
   const candidatesByProductId = new Map<string, typeof candidates>();
   candidates.forEach((candidate) => {
@@ -5195,9 +5131,8 @@ export async function suggestEstimateCataloguePrices(
     candidatesByProductId.set(candidate.product_id, productCandidates);
   });
 
-  const suggestions = Array.from(candidatesByProductId.values())
-    .slice(0, 10)
-    .map((productCandidates) => {
+  const supplierSuggestions = Array.from(candidatesByProductId.values()).map(
+    (productCandidates) => {
       const candidate = productCandidates[0]!;
       return {
         ...candidate,
@@ -5207,7 +5142,14 @@ export async function suggestEstimateCataloguePrices(
           preferredSupplierId,
         }),
       };
-    }) satisfies SuggestedCataloguePrice[];
+    }
+  ) satisfies SuggestedCataloguePrice[];
+  const suggestions = mergeCatalogueProductSuggestions({
+    query: normalizedQuery,
+    stalePriceDays,
+    products,
+    supplierSuggestions,
+  });
 
   return {
     query: normalizedQuery,
@@ -5350,7 +5292,9 @@ export async function getEstimateSupplierComparisons(
     }
 
     const normalizedKey = normalizedKeyByItemId.get(itemId) ?? "";
-    const suggestions = suggestionsByNormalizedQuery.get(normalizedKey)?.suggestions ?? [];
+    const suggestions = (
+      suggestionsByNormalizedQuery.get(normalizedKey)?.suggestions ?? []
+    ).filter(isSupplierBackedCatalogueSuggestion);
 
     const selectedSupplierPriceId = item.selected_supplier_price_id ?? null;
     const selectedSuggestion = selectedSupplierPriceId
@@ -6026,8 +5970,15 @@ export async function createEstimateItem(
       throw badRequest("Impossible de créer le chapitre.");
     }
 
+    const versionToken = await fetchEstimateVersionToken({
+      supabase,
+      tenantId,
+      versionId,
+    });
+
     return {
       item: data,
+      version: versionToken,
     };
   }
 
@@ -6049,6 +6000,7 @@ export async function createEstimateItem(
   const laborRoleId = input.labor_role_id ?? null;
   const categoryId = input.category_id ?? null;
   const supplyTypeId = input.supply_type_id ?? null;
+  const productId = input.product_id ?? null;
   const selectedSupplierPriceId = input.selected_supplier_price_id ?? null;
   const lineNature =
     input.line_nature ??
@@ -6085,6 +6037,7 @@ export async function createEstimateItem(
       await Promise.all([
         ensureCategoryIsValid(supabase, categoryId, context, project.user_id),
         ensureSupplyTypeIsValid(supabase, supplyTypeId, context),
+        ensureProductIsValid(supabase, productId, context),
         ensureSupplierPriceIsValid(supabase, selectedSupplierPriceId, context),
       ]);
 
@@ -6160,6 +6113,7 @@ export async function createEstimateItem(
       labor_role_id: laborRoleId,
       category_id: categoryId,
       supply_type_id: supplyTypeId,
+      ...(productId ? { product_id: productId } : {}),
       selected_supplier_price_id: selectedSupplierPriceId,
       source_provider: sourceProvider,
       source_job_id: sourceJobId,
@@ -6179,8 +6133,15 @@ export async function createEstimateItem(
     throw badRequest("Impossible de créer la ligne.");
   }
 
+  const versionToken = await fetchEstimateVersionToken({
+    supabase,
+    tenantId,
+    versionId,
+  });
+
   return {
     item: data,
+    version: versionToken,
   };
 }
 
@@ -6207,6 +6168,7 @@ const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
   "labor_role_id",
   "category_id",
   "supply_type_id",
+  "product_id",
   "selected_supplier_price_id",
 ];
 
@@ -6365,6 +6327,7 @@ export async function updateEstimateItem(
           labor_role_id: null,
           category_id: null,
           supply_type_id: null,
+          product_id: null,
           selected_supplier_price_id: null,
           line_total_ht_cents: null,
           line_tax_cents: null,
@@ -6429,6 +6392,7 @@ export async function updateEstimateItem(
           labor_role_id: null,
           category_id: null,
           supply_type_id: null,
+          product_id: null,
           selected_supplier_price_id: null,
           description: null,
           pu_ht_cents: 0,
@@ -6497,6 +6461,10 @@ export async function updateEstimateItem(
     "supply_type_id" in input
       ? (input.supply_type_id ?? null)
       : (currentLineDefaults.supply_type_id ?? null);
+  const nextProductId =
+    "product_id" in input
+      ? (input.product_id ?? null)
+      : (currentLineDefaults.product_id ?? null);
   const nextSelectedSupplierPriceId =
     "selected_supplier_price_id" in input
       ? (input.selected_supplier_price_id ?? null)
@@ -6504,18 +6472,7 @@ export async function updateEstimateItem(
   const nextLineNature =
     "line_nature" in input
       ? input.line_nature
-      : resolveEstimateLineNature({
-          line_nature: currentLineDefaults.line_nature,
-          unit_price_ht_cents: nextUnitPriceHtCents,
-          supply_type_id: nextSupplyTypeId,
-          selected_supplier_price_id: nextSelectedSupplierPriceId,
-          h_mo: nextHMo,
-          h_mo_atelier: nextHMoAtelier,
-          h_mo_chantier: nextHMoChantier,
-          labor_role_id: nextLaborRoleId,
-          labor_role_atelier_id: nextLaborRoleAtelierId,
-          labor_role_chantier_id: nextLaborRoleChantierId,
-        });
+      : resolvePromotedEstimateLineNature(currentLineDefaults, input);
   const nextPosition =
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
@@ -6566,6 +6523,7 @@ export async function updateEstimateItem(
       await Promise.all([
         ensureCategoryIsValid(supabase, nextCategoryId, context, project.user_id),
         ensureSupplyTypeIsValid(supabase, nextSupplyTypeId, context),
+        ensureProductIsValid(supabase, nextProductId, context),
         ensureSupplierPriceIsValid(supabase, nextSelectedSupplierPriceId, context),
       ]);
       return resolveLaborRateCents(
@@ -6641,6 +6599,7 @@ export async function updateEstimateItem(
     labor_role_id: nextLaborRoleId,
     category_id: nextCategoryId,
     supply_type_id: nextSupplyTypeId,
+    product_id: nextProductId,
     selected_supplier_price_id: nextSelectedSupplierPriceId,
     line_total_ht_cents: lineValues.saleLineCents,
     line_tax_cents: lineValues.taxLineCents,
@@ -6735,7 +6694,12 @@ export async function bulkUpdateEstimateItems(
   }
 
   const supplierPriceIdsToValidate = new Set<string | null>();
+  const productIdsToValidate = new Set<string | null>();
   updatesPayload.forEach((item) => {
+    if (Object.prototype.hasOwnProperty.call(item, "product_id")) {
+      productIdsToValidate.add(item.product_id ?? null);
+    }
+
     if (!Object.prototype.hasOwnProperty.call(item, "selected_supplier_price_id")) {
       return;
     }
@@ -6744,9 +6708,14 @@ export async function bulkUpdateEstimateItems(
   });
 
   await Promise.all(
-    Array.from(supplierPriceIdsToValidate).map((supplierPriceId) =>
-      ensureSupplierPriceIsValid(supabase, supplierPriceId, context)
-    )
+    [
+      ...Array.from(productIdsToValidate).map((productId) =>
+        ensureProductIsValid(supabase, productId, context)
+      ),
+      ...Array.from(supplierPriceIdsToValidate).map((supplierPriceId) =>
+        ensureSupplierPriceIsValid(supabase, supplierPriceId, context)
+      ),
+    ]
   );
 
   const { data: rpcUpdatedCount, error: bulkUpdateError } = await supabase.rpc(

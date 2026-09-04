@@ -1722,6 +1722,17 @@ export function useEstimateEditorState({
     ]
   );
 
+  const applyItemCreationVersionToken = useCallback(
+    (updatedAt: string) => {
+      applyVersionFlushResult({
+        versionId: resolvedVersionId,
+        totalsPatch: undefined,
+        updatedAt,
+      });
+    },
+    [applyVersionFlushResult, resolvedVersionId]
+  );
+
   const itemsController = useEstimateEditorItemsController({
     version,
     settings,
@@ -1737,6 +1748,7 @@ export function useEstimateEditorState({
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
     normalizePatchedItem,
+    applyVersionToken: applyItemCreationVersionToken,
     enqueueItemUpdate: enqueueBufferedItemUpdate,
     pushHistoryCommand,
     reloadItems,

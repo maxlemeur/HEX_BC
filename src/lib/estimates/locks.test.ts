@@ -61,6 +61,7 @@ type SupabaseMockConfig = {
   deleteLockResult?: QueryResult<LockRow | null>;
   ownerProfileResults?: QueryResult<ProfileRow | null>[];
   cleanupError?: SupabaseError | null;
+  takeoverLockResult?: QueryResult<LockRow | null>;
 };
 
 function createSupabaseError(code: string, message: string): SupabaseError {
@@ -220,6 +221,26 @@ function createSupabaseMock(config: SupabaseMockConfig = {}) {
 
   profileBuilder.eq.mockReturnValue(profileBuilder);
 
+  const rpc = vi.fn((name: string) => {
+    if (name === "cleanup_expired_draft_locks") {
+      return Promise.resolve({
+        data: 0,
+        error: config.cleanupError ?? null,
+      });
+    }
+
+    if (name === "takeover_estimate_draft_lock") {
+      return Promise.resolve(
+        config.takeoverLockResult ?? {
+          data: createLockRow(USER_ID),
+          error: null,
+        }
+      );
+    }
+
+    throw new Error(`Unexpected RPC: ${name}`);
+  });
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -231,10 +252,7 @@ function createSupabaseMock(config: SupabaseMockConfig = {}) {
         error: null,
       }),
     },
-    rpc: vi.fn().mockResolvedValue({
-      data: 0,
-      error: config.cleanupError ?? null,
-    }),
+    rpc,
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
@@ -390,6 +408,53 @@ describe("estimate draft locks", () => {
     expect(result.lock.user_id).toBe(USER_ID);
     expect(result.lock.owner?.id).toBe(USER_ID);
     expect(supabase.__mocks.draftLockUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes over a lock atomically for admins", async () => {
+    const takeoverRow = createLockRow(USER_ID, {
+      session_id: SESSION_ID,
+      locked_at: "2026-08-20T19:45:00.000Z",
+      expires_at: "2026-08-20T19:47:00.000Z",
+    });
+    const supabase = createSupabaseMock({
+      role: "admin",
+      takeoverLockResult: {
+        data: takeoverRow,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await renewLock(VERSION_ID, SESSION_ID, { force: true });
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "takeover_estimate_draft_lock",
+      {
+        p_version_id: VERSION_ID,
+        p_session_id: SESSION_ID,
+      }
+    );
+    expect(supabase.__mocks.draftLockUpdate).not.toHaveBeenCalled();
+    expect(supabase.__mocks.draftLockDelete).not.toHaveBeenCalled();
+    expect(result.lock.is_current_session).toBe(true);
+  });
+
+  it("rejects atomic takeover for non-admin users", async () => {
+    const supabase = createSupabaseMock({ role: "engineer" });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      renewLock(VERSION_ID, SESSION_ID, { force: true })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+      message: "Seuls les admins peuvent forcer le verrou de brouillon.",
+    });
+    expect(supabase.rpc).not.toHaveBeenCalledWith(
+      "takeover_estimate_draft_lock",
+      expect.anything()
+    );
   });
 
   it("returns 409 when release is requested by a non-owner", async () => {

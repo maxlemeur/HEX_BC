@@ -22,3 +22,10 @@ Montant contractuel final : total HT + TVA comptable + arrondi commercial.
 Montant HT à partir duquel une validation interne est exigée. Le défaut produit
 est de 5 000 € HT, seuil inclus, et l’administrateur peut le modifier dans les
 règles d’approbation.
+
+## Article associé
+
+Lien optionnel entre une ligne de devis et un article du catalogue. La ligne
+conserve sa désignation et ses montants comme un instantané : une modification
+ultérieure de l’article ne réécrit pas automatiquement le devis. Le prix
+fournisseur sélectionné reste une décision distincte.

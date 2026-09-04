@@ -3,6 +3,8 @@
 import {
   type ComponentProps,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -12,6 +14,7 @@ import { EstimateColumnsHelpPanel } from "@/components/estimates/components/Esti
 import { ProductionRibbon } from "@/components/dashboard/ProductionRibbon";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { type ColumnKey } from "@/hooks/useColumnVisibility";
+import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -32,6 +35,66 @@ function ColumnHeaderLabel({
   );
 }
 
+type ColumnResizeHandlers = {
+  onColumnResizeStart: (
+    columnId: EstimateColumnId,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => void;
+  onColumnResizeKeyDown: (
+    columnId: EstimateColumnId,
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => void;
+  onColumnResizeReset: (columnId: EstimateColumnId) => void;
+};
+
+function ColumnResizeHandle({
+  columnId,
+  label,
+  onColumnResizeStart,
+  onColumnResizeKeyDown,
+  onColumnResizeReset,
+}: Readonly<
+  {
+    columnId: EstimateColumnId;
+    label: string;
+  } & ColumnResizeHandlers
+>) {
+  return (
+    <button
+      type="button"
+      className="estimate-column-resize-handle"
+      aria-label={`Ajuster la largeur de la colonne ${label}`}
+      title="Faire glisser pour ajuster · Double-cliquer pour réinitialiser"
+      onPointerDown={(event) => onColumnResizeStart(columnId, event)}
+      onKeyDown={(event) => onColumnResizeKeyDown(columnId, event)}
+      onDoubleClick={() => onColumnResizeReset(columnId)}
+      data-testid={`estimate-column-resize-${columnId}`}
+    />
+  );
+}
+
+function ResizableColumnHeader({
+  columnId,
+  label,
+  allowWrap = false,
+  className = "",
+  ...handlers
+}: Readonly<
+  {
+    columnId: EstimateColumnId;
+    label: string;
+    allowWrap?: boolean;
+    className?: string;
+  } & ColumnResizeHandlers
+>) {
+  return (
+    <div className={`relative ${className}`}>
+      <ColumnHeaderLabel label={label} allowWrap={allowWrap} />
+      <ColumnResizeHandle columnId={columnId} label={label} {...handlers} />
+    </div>
+  );
+}
+
 type EstimateEditorTableChromeProps = {
   tableCardRef: RefObject<HTMLDivElement | null>;
   headerRight?: ReactNode;
@@ -45,6 +108,9 @@ type EstimateEditorTableChromeProps = {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   isLaborSplitEnabled?: boolean;
   dynamicGridStyle?: CSSProperties;
+  onColumnResizeStart: ColumnResizeHandlers["onColumnResizeStart"];
+  onColumnResizeKeyDown: ColumnResizeHandlers["onColumnResizeKeyDown"];
+  onColumnResizeReset: ColumnResizeHandlers["onColumnResizeReset"];
   superHeaderSpans: {
     foStart: number;
     foSpan: number;
@@ -98,6 +164,9 @@ export function EstimateEditorTableChrome({
   scrollContainerRef,
   isLaborSplitEnabled,
   dynamicGridStyle,
+  onColumnResizeStart,
+  onColumnResizeKeyDown,
+  onColumnResizeReset,
   superHeaderSpans,
   visibleColumns,
   allVisibleSelected,
@@ -127,6 +196,11 @@ export function EstimateEditorTableChrome({
   grandTotals,
   currency = "EUR",
 }: EstimateEditorTableChromeProps) {
+  const columnResizeHandlers = {
+    onColumnResizeStart,
+    onColumnResizeKeyDown,
+    onColumnResizeReset,
+  };
   const priceBreakdownSpan =
     (visibleColumns.has("ds") ? 1 : 0) +
     (visibleColumns.has("marge") ? 1 : 0) +
@@ -294,100 +368,181 @@ export function EstimateEditorTableChrome({
                   data-testid="estimate-editor-select-all-visible-lines-checkbox"
                 />
                 <ColumnHeaderLabel label="Désignation" />
+                <ColumnResizeHandle
+                  columnId="designation"
+                  label="Désignation"
+                  {...columnResizeHandlers}
+                />
               </div>
-              <div className="relative">
-                <ColumnHeaderLabel label="Qté" />
-              </div>
-              <div className="relative">
-                <ColumnHeaderLabel label="U" />
-              </div>
-              <div className="relative estimate-col--fo">
-                <ColumnHeaderLabel label="PR FO" />
-              </div>
+              <ResizableColumnHeader
+                columnId="quantity"
+                label="Qté"
+                {...columnResizeHandlers}
+              />
+              <ResizableColumnHeader
+                columnId="unit"
+                label="U"
+                {...columnResizeHandlers}
+              />
+              <ResizableColumnHeader
+                columnId="supply_price"
+                label="PR FO"
+                className="estimate-col--fo"
+                {...columnResizeHandlers}
+              />
               {isLaborSplitEnabled ? (
                 <>
-                  <div className="relative estimate-col--fo">
-                    <ColumnHeaderLabel label="Type FO" />
-                  </div>
-                  <div className="relative estimate-col--fo">
-                    <ColumnHeaderLabel label="K FO" />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="Majoration MO (%)" allowWrap />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="h MO atelier" allowWrap />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="Type MO atelier" allowWrap />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="K MO atelier" allowWrap />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="h MO chantier" allowWrap />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="Type MO chantier" allowWrap />
-                  </div>
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="K MO chantier" allowWrap />
-                  </div>
+                  <ResizableColumnHeader
+                    columnId="supply_type"
+                    label="Type FO"
+                    className="estimate-col--fo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="k_fo"
+                    label="K FO"
+                    className="estimate-col--fo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="h_mo_majoration"
+                    label="Majoration MO (%)"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="labor_hours_workshop"
+                    label="h MO atelier"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="labor_role_workshop"
+                    label="Type MO atelier"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="k_mo_workshop"
+                    label="K MO atelier"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="labor_hours_site"
+                    label="h MO chantier"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="labor_role_site"
+                    label="Type MO chantier"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
+                  <ResizableColumnHeader
+                    columnId="k_mo_site"
+                    label="K MO chantier"
+                    allowWrap
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
                 </>
               ) : (
                 <>
                   {visibleColumns.has("supply_type") ? (
-                    <div className="relative estimate-col--fo">
-                      <ColumnHeaderLabel label="Type FO" />
-                    </div>
+                    <ResizableColumnHeader
+                      columnId="supply_type"
+                      label="Type FO"
+                      className="estimate-col--fo"
+                      {...columnResizeHandlers}
+                    />
                   ) : null}
                   {visibleColumns.has("k_fo") ? (
-                    <div className="relative estimate-col--fo">
-                      <ColumnHeaderLabel label="K FO" />
-                    </div>
+                    <ResizableColumnHeader
+                      columnId="k_fo"
+                      label="K FO"
+                      className="estimate-col--fo"
+                      {...columnResizeHandlers}
+                    />
                   ) : null}
-                  <div className="relative estimate-col--mo">
-                    <ColumnHeaderLabel label="h MO" />
-                  </div>
+                  <ResizableColumnHeader
+                    columnId="labor_hours"
+                    label="h MO"
+                    className="estimate-col--mo"
+                    {...columnResizeHandlers}
+                  />
                   {visibleColumns.has("h_mo_majoration") ? (
-                    <div className="relative estimate-col--mo">
-                      <ColumnHeaderLabel label="Majoration MO (%)" allowWrap />
-                    </div>
+                    <ResizableColumnHeader
+                      columnId="h_mo_majoration"
+                      label="Majoration MO (%)"
+                      allowWrap
+                      className="estimate-col--mo"
+                      {...columnResizeHandlers}
+                    />
                   ) : null}
                   {visibleColumns.has("labor_role") ? (
-                    <div className="relative estimate-col--mo">
-                      <ColumnHeaderLabel label="Type MO" />
-                    </div>
+                    <ResizableColumnHeader
+                      columnId="labor_role"
+                      label="Type MO"
+                      className="estimate-col--mo"
+                      {...columnResizeHandlers}
+                    />
                   ) : null}
                   {visibleColumns.has("k_mo") ? (
-                    <div className="relative estimate-col--mo">
-                      <ColumnHeaderLabel label="K MO" />
-                    </div>
+                    <ResizableColumnHeader
+                      columnId="k_mo"
+                      label="K MO"
+                      className="estimate-col--mo"
+                      {...columnResizeHandlers}
+                    />
                   ) : null}
                 </>
               )}
               {/* EST-E15 increment 1 — sous-detail de prix, en lecture seule. */}
               {visibleColumns.has("ds") ? (
-                <div className="relative estimate-col--margin">
-                  <ColumnHeaderLabel label="Deboursé sec" allowWrap />
-                </div>
+                <ResizableColumnHeader
+                  columnId="ds"
+                  label="Deboursé sec"
+                  allowWrap
+                  className="estimate-col--margin"
+                  {...columnResizeHandlers}
+                />
               ) : null}
               {visibleColumns.has("marge") ? (
-                <div className="relative estimate-col--margin">
-                  <ColumnHeaderLabel label="Marge €" />
-                </div>
+                <ResizableColumnHeader
+                  columnId="marge"
+                  label="Marge €"
+                  className="estimate-col--margin"
+                  {...columnResizeHandlers}
+                />
               ) : null}
               {visibleColumns.has("marque") ? (
-                <div className="relative estimate-col--margin">
-                  <ColumnHeaderLabel label="Marque %" />
-                </div>
+                <ResizableColumnHeader
+                  columnId="marque"
+                  label="Marque %"
+                  className="estimate-col--margin"
+                  {...columnResizeHandlers}
+                />
               ) : null}
-              <div className="relative estimate-cell--pu-separator estimate-col--sale">
-                <ColumnHeaderLabel label="PU" />
-              </div>
-              <div className="relative estimate-col--sale">
-                <ColumnHeaderLabel label="Prix total" />
-              </div>
+              <ResizableColumnHeader
+                columnId="unit_price"
+                label="PU"
+                className="estimate-cell--pu-separator estimate-col--sale"
+                {...columnResizeHandlers}
+              />
+              <ResizableColumnHeader
+                columnId="total_price"
+                label="Prix total"
+                className="estimate-col--sale"
+                {...columnResizeHandlers}
+              />
               <div></div>
             </div>
 

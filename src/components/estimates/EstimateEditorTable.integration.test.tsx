@@ -15,6 +15,7 @@ import { useEstimateEditorRowActions } from "@/components/estimates/context/Esti
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EditorEstimateItem = EstimateItem & { _clientKey?: string };
 
 vi.mock("@/components/estimates/PastePreviewDialog", () => ({
   PastePreviewDialog: () => null,
@@ -86,7 +87,7 @@ function MockRow({
     hasVisibleChildren: boolean;
   };
 }) {
-  const { onPatchItem, onLineSelectionInteraction } =
+  const { onDeleteItem, onPatchItem, onLineSelectionInteraction } =
     useEstimateEditorRowActions();
 
   return (
@@ -107,6 +108,7 @@ function MockRow({
       }
     >
       <span>Currency {estimateCurrency}</span>
+      <input aria-label={`Title ${item.id}`} value={item.title} readOnly />
       <button
         type="button"
         onClick={() =>
@@ -114,6 +116,9 @@ function MockRow({
         }
       >
         Patch {item.id}
+      </button>
+      <button type="button" onClick={() => onDeleteItem(item.id)}>
+        Delete {item.id}
       </button>
       {item.item_type === "line" ? (
         <button
@@ -153,7 +158,7 @@ vi.mock("@/components/estimates/hooks/useEstimateDndVirtualization", () => ({
   }),
 }));
 
-function createItem(partial: Partial<EstimateItem>): EstimateItem {
+function createItem(partial: Partial<EditorEstimateItem>): EditorEstimateItem {
   return {
     id: "",
     version_id: "version-1",
@@ -197,6 +202,7 @@ function renderEstimateEditorTable(options?: {
   const onBulkDeleteLines = vi.fn().mockResolvedValue(undefined);
   const onAddSection = vi.fn();
   const onAddLine = vi.fn();
+  const onDeleteItem = vi.fn();
   const items = options?.items ?? [
     createItem({
       id: "line-1",
@@ -208,10 +214,10 @@ function renderEstimateEditorTable(options?: {
       line_total_ht_cents: 1900,
     }),
   ];
-  const lineCount = items.filter((item) => item.item_type === "line").length;
-
-  render(
-    <UserProvider
+  const createNode = (nextItems: EstimateItem[]) => {
+    const lineCount = nextItems.filter((item) => item.item_type === "line").length;
+    return (
+      <UserProvider
       initialUserEmail="integration@test.local"
       initialProfile={{
         id: "user-1",
@@ -228,7 +234,7 @@ function renderEstimateEditorTable(options?: {
       <EstimateEditorTable
         versionId="version-1"
         currency={options?.currency ?? "EUR"}
-        items={items}
+        items={nextItems}
         categories={[]}
         supplyTypes={[]}
         laborRoles={[]}
@@ -277,7 +283,7 @@ function renderEstimateEditorTable(options?: {
         onToggleOutlierDismiss={vi.fn()}
         onAddSection={onAddSection}
         onAddLine={onAddLine}
-        onDeleteItem={vi.fn()}
+        onDeleteItem={onDeleteItem}
         onPatchItem={onPatchItem}
         onApplyBulkMajoration={onApplyBulkMajoration}
         onBulkDeleteLines={onBulkDeleteLines}
@@ -299,8 +305,10 @@ function renderEstimateEditorTable(options?: {
         onReorder={vi.fn()}
         onMoveItem={vi.fn()}
       />
-    </UserProvider>,
-  );
+      </UserProvider>
+    );
+  };
+  const renderResult = render(createNode(items));
 
   return {
     onPatchItem,
@@ -308,6 +316,9 @@ function renderEstimateEditorTable(options?: {
     onBulkDeleteLines,
     onAddSection,
     onAddLine,
+    onDeleteItem,
+    rerenderItems: (nextItems: EstimateItem[]) =>
+      renderResult.rerender(createNode(nextItems)),
   };
 }
 
@@ -330,6 +341,7 @@ describe("EstimateEditorTable integration", () => {
   });
 
   it("demande confirmation avant la suppression groupée de lignes", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
     const { onBulkDeleteLines } = renderEstimateEditorTable();
 
     fireEvent.click(
@@ -342,14 +354,37 @@ describe("EstimateEditorTable integration", () => {
       "estimate-editor-bulk-delete-selection-button",
     );
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(deleteButton);
+    expect(
+      screen.getByRole("dialog", { name: "Confirmer la suppression" }),
+    ).toBeInTheDocument();
     expect(onBulkDeleteLines).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Annuler" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Confirmer la suppression" }),
+    ).not.toBeInTheDocument();
 
-    confirmSpy.mockReturnValue(true);
     fireEvent.click(deleteButton);
+    fireEvent.click(screen.getByRole("button", { name: "Supprimer" }));
     await waitFor(() => expect(onBulkDeleteLines).toHaveBeenCalledTimes(1));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
 
+  it("confirme une suppression individuelle sans dialogue natif", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const { onDeleteItem } = renderEstimateEditorTable();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete line-1" }));
+
+    expect(onDeleteItem).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Supprimer la ligne « Tube acier » ?"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Supprimer" }));
+
+    await waitFor(() => expect(onDeleteItem).toHaveBeenCalledWith("line-1"));
+    expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 
@@ -383,6 +418,37 @@ describe("EstimateEditorTable integration", () => {
       { title: "Edited line" },
       { persist: true },
     );
+  });
+
+  it("keeps the focused row mounted when an optimistic id is reconciled", () => {
+    const clientKey = "tmp:line-client";
+    const optimisticItem = createItem({
+      id: clientKey,
+      _clientKey: clientKey,
+      title: "Nouvelle ligne",
+    });
+    const { rerenderItems } = renderEstimateEditorTable({
+      items: [optimisticItem],
+    });
+    const titleInput = screen.getByRole("textbox", {
+      name: `Title ${clientKey}`,
+    });
+
+    titleInput.focus();
+    expect(titleInput).toHaveFocus();
+
+    rerenderItems([
+      createItem({
+        id: "line-real",
+        _clientKey: clientKey,
+        title: "Nouvelle ligne",
+      }),
+    ]);
+
+    expect(
+      screen.getByRole("textbox", { name: "Title line-real" }),
+    ).toBe(titleInput);
+    expect(titleInput).toHaveFocus();
   });
 
   it("applies bulk majoration on selected rows", async () => {

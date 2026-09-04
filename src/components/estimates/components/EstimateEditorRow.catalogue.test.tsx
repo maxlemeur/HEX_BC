@@ -128,6 +128,7 @@ describe("EstimateEditorRow catalogue suggestions", () => {
             stale_price_days: 30,
             suggestions: [
               {
+                price_source: "supplier",
                 supplier_price_id: "price-1",
                 product_id: "product-1",
                 product_designation: "Tube acier galvanise",
@@ -147,6 +148,7 @@ describe("EstimateEditorRow catalogue suggestions", () => {
                 material_index_code: null,
                 material_index_value: null,
                 catalogue_url: null,
+                supplier_offer_count: 1,
                 alternatives: [],
               },
             ],
@@ -204,6 +206,93 @@ describe("EstimateEditorRow catalogue suggestions", () => {
         unit_price_ht_cents: 1234,
       }),
       { persist: true }
+    );
+  }, 10000);
+
+  it("applies a product reference price without keeping an old supplier", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          data: {
+            query: "Rouge",
+            stale_price_days: 30,
+            suggestions: [
+              {
+                price_source: "reference",
+                supplier_price_id: null,
+                product_id: "product-red",
+                product_designation: "Rouge",
+                product_reference: null,
+                supplier_id: null,
+                supplier_name: null,
+                supplier_reference: null,
+                unit: "u",
+                unit_price_cents: 2000,
+                adjusted_unit_price_cents: 2000,
+                currency: null,
+                updated_at: "2026-08-20T19:34:27.442333Z",
+                is_stale: false,
+                stale_days: 30,
+                relevance_score: 100,
+                has_material_index_adjustment: false,
+                material_index_code: null,
+                material_index_value: null,
+                catalogue_url: null,
+                supplier_offer_count: 0,
+                alternatives: [],
+              },
+            ],
+          },
+        }),
+      }),
+    );
+
+    render(
+      <EstimateEditorRow
+        versionId="version-1"
+        estimateCurrency="EUR"
+        item={
+          createItem({
+            title: "Rouge",
+            selected_supplier_price_id: "old-price",
+          })
+        }
+        depth={1}
+        unitValue="u"
+        supplyTypeValue=""
+        qualityFlags={[]}
+        detectedOutlierFlags={[]}
+        dismissedOutlierFlags={[]}
+        supplyTypeById={new Map()}
+        laborRoles={[]}
+        isLineSelected={false}
+        hasSupplierComparisonMismatch={false}
+        sectionTotals={null}
+        isDragDisabled
+        isOutlierActionPending={false}
+        isReadOnly={false}
+        hideEditingActions
+        isLaborSplitEnabled={false}
+      />
+    );
+
+    const titleInput = screen.getByTestId("estimate-line-title-input");
+    fireEvent.focus(titleInput);
+    expect(await screen.findByText("Sans offre fournisseur")).toBeInTheDocument();
+
+    fireEvent.keyDown(titleInput, { key: "Enter" });
+
+    expect(onPatchItem).toHaveBeenCalledWith(
+      "line-1",
+      expect.objectContaining({
+        description: "Rouge",
+        selected_supplier_price_id: null,
+        unit_price_ht_cents: 2000,
+      }),
+      { persist: true },
     );
   }, 10000);
 });

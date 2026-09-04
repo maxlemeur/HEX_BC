@@ -414,6 +414,7 @@ const createLineItemSchema = z.object({
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
+  product_id: nullableUuidSchema.optional(),
   selected_supplier_price_id: nullableUuidSchema.optional(),
   source_provider: optionalNullableTextSchema.optional(),
   source_job_id: nullableUuidSchema.optional(),
@@ -445,6 +446,7 @@ const updateEstimateItemFields = {
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
+  product_id: nullableUuidSchema.optional(),
   selected_supplier_price_id: nullableUuidSchema.optional(),
 } as const;
 

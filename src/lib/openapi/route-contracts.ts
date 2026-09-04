@@ -516,6 +516,7 @@ const administrationContracts: RouteContract[] = [
     tags: ["Catalogue"],
     queryParameters: [
       { name: "view", schema: z.literal("page"), description: "Active la vue paginee." },
+      { name: "id", schema: z.string().uuid(), description: "Identifiant exact de l'article." },
       { name: "search", schema: z.string(), description: "Recherche de la liste simple." },
       { name: "limit", schema: z.number().int().positive().max(500), description: "Limite de la liste simple." },
       { name: "include_inactive", schema: z.boolean(), description: "Inclut les articles inactifs." },

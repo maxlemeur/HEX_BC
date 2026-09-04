@@ -7,15 +7,25 @@ export function reconcileCreatedItemWithLocalDraft<
 >(
   created: TCreated,
   localDraftPatch: TPatch,
-  queuedPatch?: Partial<TPatch>
-): Merge<TCreated, TPatch> & { _optimistic: false; _pendingCreate: false } {
+  queuedPatch?: Partial<TPatch>,
+  clientKey?: string
+): Merge<TCreated, TPatch> & {
+  _clientKey?: string;
+  _optimistic: false;
+  _pendingCreate: false;
+} {
   return {
     ...created,
     ...(queuedPatch ?? {}),
     ...localDraftPatch,
+    ...(clientKey ? { _clientKey: clientKey } : {}),
     _optimistic: false,
     _pendingCreate: false,
-  } as Merge<TCreated, TPatch> & { _optimistic: false; _pendingCreate: false };
+  } as Merge<TCreated, TPatch> & {
+    _clientKey?: string;
+    _optimistic: false;
+    _pendingCreate: false;
+  };
 }
 
 export function markTempItemsRemoved<TPatch>(

@@ -673,7 +673,7 @@ export type Database = {
           tenant_id: string;
           import_id: string;
           mapped_row_id: string;
-          product_id: string | null;
+          product_id?: string | null;
           supplier_price_id: string | null;
           material_index_id: string | null;
           status: string;
@@ -2774,6 +2774,7 @@ export type Database = {
           labor_role_id: string | null;
           category_id: string | null;
           supply_type_id: string | null;
+          product_id?: string | null;
           selected_supplier_price_id: string | null;
           source_provider: string | null;
           source_job_id: string | null;
@@ -2823,6 +2824,7 @@ export type Database = {
           labor_role_id?: string | null;
           category_id?: string | null;
           supply_type_id?: string | null;
+          product_id?: string | null;
           selected_supplier_price_id?: string | null;
           source_provider?: string | null;
           source_job_id?: string | null;
@@ -2872,6 +2874,7 @@ export type Database = {
           labor_role_id?: string | null;
           category_id?: string | null;
           supply_type_id?: string | null;
+          product_id?: string | null;
           selected_supplier_price_id?: string | null;
           source_provider?: string | null;
           source_job_id?: string | null;
@@ -4198,6 +4201,22 @@ export type Database = {
           target_tenant_id?: string;
         };
         Returns: number;
+      };
+      takeover_estimate_draft_lock: {
+        Args: {
+          p_version_id: string;
+          p_session_id: string;
+        };
+        Returns: {
+          id: string;
+          version_id: string;
+          user_id: string;
+          session_id: string;
+          tenant_id: string;
+          locked_at: string;
+          expires_at: string;
+          created_at: string;
+        };
       };
       get_affaires_counters: {
         Args: {

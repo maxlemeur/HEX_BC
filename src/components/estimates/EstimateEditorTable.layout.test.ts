@@ -67,6 +67,25 @@ describe("estimate editor responsive grid", () => {
     });
   });
 
+  it("applies user widths to every grid track and updates the minimum width", () => {
+    const style = toCustomProperties(
+      resolveEstimateEditorGridStyle(new Set<ColumnKey>(), false, {
+        designation: 420,
+        quantity: 96,
+        total_price: 140,
+      }),
+    );
+
+    expect(style).toMatchObject({
+      "--estimate-grid-desktop":
+        "420px 96px 54px 88px 56px 88px 140px 42px",
+      "--estimate-grid-tablet":
+        "420px 96px 50px 80px 56px 82px 140px 40px",
+      "--estimate-desktop-min-width": "984px",
+      "--estimate-tablet-min-width": "964px",
+    });
+  });
+
   it("construit aussi la grille du mode MO éclatée, à l'identique du CSS qu'elle remplace", () => {
     // Le mode split retournait `undefined` et laissait `.estimate-table--labor-split`
     // décider. Ce second régime interdisait toute colonne optionnelle en mode
@@ -123,6 +142,8 @@ describe("estimate editor responsive grid", () => {
 
     expect(css).toContain("--estimate-grid: var(--estimate-grid-desktop);");
     expect(css).toContain("--density-row-h: 30px;");
+    expect(css).toContain(".estimate-column-resize-handle {");
+    expect(css).toContain("cursor: col-resize;");
     expect(css).toContain("--density-cell-px: 6px;");
     expect(css).toContain("--density-cell-py: 2px;");
     expect(css).not.toMatch(
@@ -170,7 +191,7 @@ describe("estimate editor responsive grid", () => {
       /@media \(max-width: 1440px\)[\s\S]*?\.estimate-line-truth__badge \{[\s\S]*?padding-inline: 5px;[\s\S]*?font-size: 10px;/,
     );
     expect(css).toMatch(
-      /\.estimate-catalogue-suggestions \{[\s\S]*?position: absolute;[\s\S]*?top: calc\(100% \+ 6px\);[\s\S]*?z-index: 30;/,
+      /\.estimate-catalogue-suggestions \{[\s\S]*?position: fixed;[\s\S]*?z-index: 60;[\s\S]*?display: flex;[\s\S]*?flex-direction: column;/,
     );
   });
 
