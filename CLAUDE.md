@@ -38,8 +38,9 @@ npm run check:release # check:quality + build Webpack et smoke next start
 npm run e2e:pw:critical
 ```
 
-Validation minimale attendue : test focalisé → `typecheck` → `lint`. Voir `AGENTS.md` § Test Strategy
-pour l'ordre complet.
+Appliquer la validation proportionnée décrite dans [AGENTS.md](AGENTS.md). Pour une modification
+exclusivement documentaire, vérifier les liens, les commandes citées et le diff. Conserver les
+contrôles métier et sécurité requis lorsque le comportement change.
 
 ## Architecture
 
