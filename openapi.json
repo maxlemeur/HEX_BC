@@ -3970,6 +3970,15 @@
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
             }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence optimistic lock (updated_at), prioritaire sur le body.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchHeaderParameter"
+            }
           }
         ],
         "requestBody": {
@@ -4070,6 +4079,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence optimistic lock (updated_at), prioritaire sur le body.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchHeaderParameter"
             }
           }
         ],
@@ -4172,6 +4190,15 @@
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
             }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence optimistic lock (updated_at), prioritaire sur le body.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchHeaderParameter"
+            }
           }
         ],
         "requestBody": {
@@ -4191,7 +4218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiDeletedIdResponse"
+                  "$ref": "#/components/schemas/ApiEstimateItemDeletedResponse"
                 }
               }
             }
@@ -4387,6 +4414,15 @@
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
             }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence optimistic lock (updated_at), prioritaire sur le body.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchHeaderParameter"
+            }
           }
         ],
         "requestBody": {
@@ -4489,6 +4525,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence optimistic lock (updated_at), prioritaire sur le body.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchHeaderParameter"
             }
           }
         ],
@@ -25382,6 +25427,24 @@
           "data": {
             "type": "object",
             "properties": {
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
               "item": {
                 "type": "object",
                 "properties": {
@@ -25665,29 +25728,11 @@
                   "title"
                 ],
                 "additionalProperties": {}
-              },
-              "version": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "updated_at"
-                ],
-                "additionalProperties": false
               }
             },
             "required": [
-              "item",
-              "version"
+              "version",
+              "item"
             ],
             "additionalProperties": false
           }
@@ -25957,6 +26002,24 @@
           "data": {
             "type": "object",
             "properties": {
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
               "item": {
                 "type": "object",
                 "properties": {
@@ -26243,6 +26306,7 @@
               }
             },
             "required": [
+              "version",
               "item"
             ],
             "additionalProperties": false
@@ -26267,7 +26331,7 @@
           "id"
         ]
       },
-      "ApiDeletedIdResponse": {
+      "ApiEstimateItemDeletedResponse": {
         "type": "object",
         "properties": {
           "ok": {
@@ -26281,10 +26345,38 @@
                 "type": "string",
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
-              "deleted_id"
+              "deleted_id",
+              "deleted_ids",
+              "version"
             ],
             "additionalProperties": false
           }
@@ -26687,6 +26779,24 @@
           "data": {
             "type": "object",
             "properties": {
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
               "item_id": {
                 "type": "string",
                 "format": "uuid",
@@ -26739,6 +26849,7 @@
               }
             },
             "required": [
+              "version",
               "item_id",
               "from_parent_id",
               "to_parent_id",
@@ -26794,6 +26905,24 @@
           "data": {
             "type": "object",
             "properties": {
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
               "parent_id": {
                 "anyOf": [
                   {
@@ -26821,6 +26950,7 @@
               }
             },
             "required": [
+              "version",
               "parent_id",
               "ordered_ids",
               "updated_count"
@@ -32262,6 +32392,34 @@
             }
           }
         }
+      },
+      "ApiDeletedIdResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "deleted_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "deleted_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "InsertAssemblyVersionIdQueryParameter": {
         "type": "string",

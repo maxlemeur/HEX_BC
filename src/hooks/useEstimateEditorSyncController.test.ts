@@ -10,6 +10,7 @@ import {
   AUTOSAVE_MAX_WAIT_MS,
 } from "@/hooks/useEstimateEditorSyncController.types";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
+import { runEstimateEditorMutation } from "@/lib/estimates/editor-mutations";
 import type {
   EstimateItem,
   EstimateVersionRow,
@@ -36,6 +37,7 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 vi.mock("@/hooks/useAutoSave", () => ({
+  resolveAutoSaveStatusLabel: (status: string) => status,
   isSaveShortcutKey: (event: KeyboardEvent) =>
     event.key.toLowerCase() === "s" && (event.ctrlKey || event.metaKey),
   useAutoSave: mocks.useAutoSave,
@@ -570,6 +572,78 @@ describe("useEstimateEditorSyncController contract", () => {
 });
 
 describe("useEstimateEditorSyncController buffered updates", () => {
+  it("waits for deletion and excludes deleted descendants from the next autosave", async () => {
+    const version = createVersion();
+    const input = createInput({
+      items: [createItem("child"), createItem("kept")],
+      getVersionSnapshot: () => version,
+      applyVersionFlushResult: ({ updatedAt }) => { version.updated_at = updatedAt; },
+    });
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    const deletion = createDeferred<void>();
+    let removed!: Promise<void>;
+    let saved!: Promise<unknown>;
+    act(() => {
+      result.current.actions.enqueueItemUpdate("child", { quantity: 2 });
+      result.current.actions.enqueueItemUpdate("kept", { quantity: 3 });
+      removed = runEstimateEditorMutation("version-1", undefined, async () => {
+        await deletion.promise;
+        return { value: undefined, version: { id: "version-1", updated_at: "token-delete" }, deletedIds: ["section", "child"], structural: true };
+      });
+      saved = result.current.actions.flushBufferedItemUpdates();
+    });
+    expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();
+    await act(async () => {
+      deletion.resolve();
+      await Promise.all([removed, saved]);
+    });
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledWith("version-1", "token-delete", [
+      { op: "update", id: "kept", data: { quantity: 3 } },
+    ]);
+    expect(result.current.state.conflict).toBeNull();
+  });
+
+  it("keeps buffered edits when a deletion fails", async () => {
+    const { result } = renderHook(() => useEstimateEditorSyncController(createInput()));
+    await settleDeferredEffects();
+    act(() => result.current.actions.enqueueItemUpdate("line-1", { quantity: 2 }));
+    await act(async () => {
+      await expect(runEstimateEditorMutation("version-1", undefined, async () => {
+        throw new Error("Suppression refusée");
+      })).rejects.toThrow("Suppression refusée");
+      await result.current.actions.flushBufferedItemUpdates();
+    });
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledWith("version-1", "token-initial", [
+      { op: "update", id: "line-1", data: { quantity: 2 } },
+    ]);
+  });
+
+  it("schedules fresh totals if a structural write commits during autosave", async () => {
+    const totals = { saleTotalCents: 100, adjustedTaxCents: 20, roundedTtcCents: 120 } as EstimateTotals;
+    const input = createInput({ getPersistedTotals: () => totals });
+    const batch = createDeferred<ReturnType<typeof createBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(batch.promise);
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    let saved!: Promise<unknown>;
+    act(() => {
+      result.current.actions.enqueueItemUpdate("line-1", { quantity: 2 });
+      saved = result.current.actions.flushBufferedItemUpdates();
+    });
+    await act(async () => {
+      await runEstimateEditorMutation("version-1", undefined, async () => ({
+        value: undefined, version: { id: "version-1", updated_at: "token-delete" }, structural: true,
+      }));
+      batch.resolve(createBatchResult("version-1", "token-batch"));
+      await saved;
+    });
+    expect(input.setTotalsOutOfSync).toHaveBeenLastCalledWith(true);
+    expect(result.current.state.hasPendingChanges).toBe(true);
+    await act(async () => { await result.current.actions.flushBufferedItemUpdates(); });
+    expect(input.setTotalsOutOfSync).toHaveBeenLastCalledWith(false);
+  });
+
   it("rehydrates buffered updates from localStorage and overlays the current items", async () => {
     const storageKey = `${AUTO_SAVE_STORAGE_PREFIX}version-1`;
     window.localStorage.setItem(
@@ -1125,6 +1199,32 @@ describe("useEstimateEditorSyncController buffered updates", () => {
 });
 
 describe("useEstimateEditorSyncController conflicts and route changes", () => {
+  it("preserves an unrestored session draft during unrelated saves and exposes its status", async () => {
+    const key = `${CONFLICT_STORAGE_PREFIX}version-1`;
+    const draft = JSON.stringify({ settings: createSettings(), items: [createItem()], saved_at: "2026-07-15T09:30:00.000Z" });
+    window.sessionStorage.setItem(key, draft);
+    const input = createInput();
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    expect(result.current.state.autoSaveStatusLabel).toBe("Brouillon à restaurer");
+    // The recovery draft is already persisted; it must not trap navigation.
+    expect(result.current.state.hasPendingChanges).toBe(false);
+    act(() => result.current.actions.enqueueItemUpdate("line-1", { quantity: 2 }));
+    await act(async () => { await result.current.actions.flushBufferedItemUpdates(); });
+    act(() => result.current.actions.clearConflictDraft({ onlyIfRestored: true }));
+    expect(window.sessionStorage.getItem(key)).toBe(draft);
+    expect(result.current.state.hasRestorableDraft).toBe(true);
+  });
+
+  it("clears the obsolete conflict alert after a successful reload", async () => {
+    const input = createInput();
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => result.current.actions.registerVersionConflict(createApiConflict()));
+    act(() => result.current.actions.clearConflictState());
+    expect(result.current.state.conflict).toBeNull();
+    expect(input.reportError).toHaveBeenLastCalledWith(null);
+  });
   it("snapshots a VERSION_CONFLICT in sessionStorage, clears local data and reloads", async () => {
     const conflict = createApiConflict();
     mocks.batchEstimateOperations.mockRejectedValueOnce(conflict);

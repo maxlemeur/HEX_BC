@@ -5886,7 +5886,8 @@ export async function verifyEstimateSeal(versionId: string) {
 
 export async function createEstimateItem(
   versionId: string,
-  input: CreateEstimateItemInput
+  input: CreateEstimateItemInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -5897,6 +5898,9 @@ export async function createEstimateItem(
   );
 
   assertDraftStatus(version.status);
+  if (concurrencyToken !== undefined) {
+    assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  }
   await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
@@ -6174,7 +6178,8 @@ const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
 
 export async function updateEstimateItem(
   versionId: string,
-  input: UpdateEstimateItemInput
+  input: UpdateEstimateItemInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -6185,6 +6190,9 @@ export async function updateEstimateItem(
   );
 
   assertDraftStatus(version.status);
+  if (concurrencyToken !== undefined) {
+    assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  }
   await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
@@ -6354,6 +6362,7 @@ export async function updateEstimateItem(
 
     return {
       item: data,
+      version: await fetchEstimateVersionToken({ supabase, tenantId, versionId }),
       ...(isConvertingLineToSection
         ? { converted_from_item_type: "line" as const }
         : {}),
@@ -6623,6 +6632,7 @@ export async function updateEstimateItem(
 
   return {
     item: data,
+    version: await fetchEstimateVersionToken({ supabase, tenantId, versionId }),
     ...(isConvertingSectionToLine
       ? { converted_from_item_type: "section" as const }
       : {}),
@@ -6808,13 +6818,17 @@ export async function claimEstimateBatchRevision(
 
 export async function deleteEstimateItem(
   versionId: string,
-  input: DeleteEstimateItemInput
+  input: DeleteEstimateItemInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  if (concurrencyToken !== undefined) {
+    assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  }
   await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
@@ -6822,16 +6836,38 @@ export async function deleteEstimateItem(
     userId,
   });
 
-  const { data: currentItem, error: currentItemError } = await supabase
-    .from("estimate_items")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("id", input.id)
-    .eq("version_id", versionId)
-    .single();
-
-  if (currentItemError || !currentItem) {
+  const versionItems: { id: string; parent_id: string | null }[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("estimate_items")
+      .select("id, parent_id")
+      .eq("tenant_id", tenantId)
+      .eq("version_id", versionId)
+      .order("id")
+      .range(offset, offset + pageSize - 1);
+    if (error) throw mapSupabaseError(error, "Impossible de charger les éléments à supprimer.");
+    versionItems.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  if (!versionItems.some((item) => item.id === input.id)) {
     throw notFound("Élément de chiffrage introuvable.");
+  }
+
+  const children = new Map<string, string[]>();
+  for (const item of versionItems) {
+    if (!item.parent_id) continue;
+    const siblings = children.get(item.parent_id) ?? [];
+    siblings.push(item.id);
+    children.set(item.parent_id, siblings);
+  }
+  const deletedIds = new Set<string>();
+  const stack = [input.id];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (deletedIds.has(id)) continue;
+    deletedIds.add(id);
+    stack.push(...(children.get(id) ?? []));
   }
 
   const { error } = await supabase
@@ -6847,18 +6883,24 @@ export async function deleteEstimateItem(
 
   return {
     deleted_id: input.id,
+    deleted_ids: [...deletedIds],
+    version: await fetchEstimateVersionToken({ supabase, tenantId, versionId }),
   };
 }
 
 export async function reorderEstimateItems(
   versionId: string,
-  input: ReorderEstimateItemsInput
+  input: ReorderEstimateItemsInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  if (concurrencyToken !== undefined) {
+    assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  }
   await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
@@ -6941,18 +6983,23 @@ export async function reorderEstimateItems(
     parent_id: parentId,
     ordered_ids: input.ordered_ids,
     updated_count: normalizedUpdatedCount,
+    version: await fetchEstimateVersionToken({ supabase, tenantId, versionId }),
   };
 }
 
 export async function moveEstimateItem(
   versionId: string,
-  input: MoveEstimateItemInput
+  input: MoveEstimateItemInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  if (concurrencyToken !== undefined) {
+    assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  }
   await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
@@ -7167,5 +7214,6 @@ export async function moveEstimateItem(
     ordered_source_ids: input.ordered_source_ids,
     ordered_target_ids: input.ordered_target_ids,
     updated_count: normalizedUpdatedCount,
+    version: await fetchEstimateVersionToken({ supabase, tenantId, versionId }),
   };
 }

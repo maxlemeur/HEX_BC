@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { useToast } from "@/components/ui-legacy/Toast";
+import { runEstimateEditorExternalMutation } from "@/lib/estimates/client";
 
 import {
   fetchGeneratedOuvrageSubdetailDraft,
@@ -287,7 +288,7 @@ export function GeneratedOuvrageDialog({
         return;
       }
 
-      const insertResult = await insertGeneratedOuvrages({
+      const insertResult = await runEstimateEditorExternalMutation(targetVersionId, () => insertGeneratedOuvrages({
         versionId: targetVersionId,
         draftId,
         acceptedCandidates: selected.map((c) => ({
@@ -297,7 +298,7 @@ export function GeneratedOuvrageDialog({
           quantity: c.editedQuantity,
           lotId: c.editedLotId,
         })),
-      });
+      }));
 
       totalInsertedRef.current += insertResult.insertedCount;
 

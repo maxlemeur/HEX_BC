@@ -943,6 +943,7 @@ const estimateItemsDataSchema = z.object({
 });
 
 const estimateItemDataSchema = z.object({
+  version: estimateVersionTokenSchema,
   item: estimateItemSchema,
 });
 
@@ -951,12 +952,14 @@ const estimateItemCreatedDataSchema = estimateItemDataSchema.extend({
 });
 
 const estimateItemsReorderDataSchema = z.object({
+  version: estimateVersionTokenSchema,
   parent_id: uuidSchema.nullable(),
   ordered_ids: z.array(uuidSchema),
   updated_count: z.number().int(),
 });
 
 const estimateItemsMoveDataSchema = z.object({
+  version: estimateVersionTokenSchema,
   item_id: uuidSchema,
   from_parent_id: uuidSchema.nullable(),
   to_parent_id: uuidSchema.nullable(),
@@ -2255,6 +2258,13 @@ const apiEstimateSendSchemaDefinition = successResponseSchemaDefinition(
 const apiDeletedIdSchemaDefinition = successResponseSchemaDefinition(
   "ApiDeletedIdResponse",
   deletedIdDataSchema
+);
+const apiEstimateItemDeletedSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemDeletedResponse",
+  deletedIdDataSchema.extend({
+    deleted_ids: z.array(uuidSchema),
+    version: estimateVersionTokenSchema,
+  })
 );
 const apiEstimateVerifySealSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateVerifySealResponse",
@@ -4205,7 +4215,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Ajouter un item",
     description: "Ajoute une section ou une ligne dans la version.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: createEstimateItemBody,
     responses: {
       "201": jsonResponse(
@@ -4220,7 +4230,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Modifier un item",
     description: "Met a jour une ligne ou section existante.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: updateEstimateItemBody,
     responses: {
       "200": jsonResponse("Item mis a jour.", apiEstimateItemSchemaDefinition),
@@ -4232,10 +4242,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Supprimer un item",
     description: "Supprime une ligne ou section de la version.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: deleteEstimateItemBody,
     responses: {
-      "200": jsonResponse("Item supprime.", apiDeletedIdSchemaDefinition),
+      "200": jsonResponse("Item supprime.", apiEstimateItemDeletedSchemaDefinition),
     },
   },
   {
@@ -4245,7 +4255,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     description:
       "Deplace un item d'un parent source vers un parent cible avec reordonnancement atomique.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: moveEstimateItemBody,
     responses: {
       "200": jsonResponse(
@@ -4260,7 +4270,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Reordonner les items",
     description: "Reordonne les items d'un meme parent dans la version.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: reorderEstimateItemsBody,
     responses: {
       "200": jsonResponse(

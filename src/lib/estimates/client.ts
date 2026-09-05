@@ -1,5 +1,9 @@
 import { downloadBlob } from "@/lib/browser-download";
 import {
+  hasEstimateEditorMutationSession,
+  runEstimateEditorMutation,
+} from "@/lib/estimates/editor-mutations";
+import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
@@ -166,7 +170,7 @@ function withEstimateDraftLockSessionHeader(
     init.headers instanceof Headers || Array.isArray(init.headers)
       ? Object.fromEntries(new Headers(init.headers).entries())
       : { ...(init.headers ?? {}) };
-  headers[ESTIMATE_DRAFT_LOCK_SESSION_HEADER] =
+  headers[ESTIMATE_DRAFT_LOCK_SESSION_HEADER] ??=
     getEstimateDraftLockSessionId(versionId);
 
   return {
@@ -2065,7 +2069,7 @@ function unwrapSuccessfulEnvelopePayload(
   return payload;
 }
 
-async function requestJson<T>(
+async function requestJsonUncoordinated<T>(
   path: string,
   init: RequestInit,
   fallbackMessage: string
@@ -2088,6 +2092,109 @@ async function requestJson<T>(
 
   const root = unwrapSuccessfulEnvelopePayload(payload, fallbackMessage);
   return root as T;
+}
+
+function getEditorMutationTarget(path: string, init: RequestInit) {
+  if (["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase())) return null;
+  const url = new URL(path, "http://localhost");
+  const versionId = path.match(ESTIMATE_VERSION_API_PATH_PATTERN)?.[1];
+  if (versionId) {
+    const suffix = url.pathname.slice(`/api/estimates/${versionId}`.length);
+    if (
+      suffix === "" || suffix === "/status" || suffix === "/batch" ||
+      /^\/items(?:\/|$)/.test(suffix) ||
+      /^\/import-(?:sections|linked-dpgf)$/.test(suffix) ||
+      /^\/structure-drafts\/[^/]+\/apply$/.test(suffix) ||
+      /^\/sections\/[^/]+\/duplicate$/.test(suffix) ||
+      /^\/version-zero-drafts\/[^/]+\/materialize$/.test(suffix)
+    ) {
+      const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+      return {
+        versionId: (isRecord(body) && typeof body.targetVersionId === "string")
+          ? body.targetVersionId : versionId,
+        structural: suffix === "/batch"
+          ? isRecord(body) && body.dry_run !== true && Array.isArray(body.operations) &&
+            body.operations.some((operation) => isRecord(operation) && operation.op !== "update")
+          : suffix !== "" && suffix !== "/status" && suffix !== "/items/bulk",
+      };
+    }
+  }
+  if (/^\/api\/estimates\/(?:assemblies|templates)\/[^/]+\/insert$/.test(url.pathname)) {
+    const targetVersionId = url.searchParams.get("versionId");
+    if (targetVersionId) return { versionId: targetVersionId, structural: true };
+  }
+  return null;
+}
+
+async function requestJson<T>(
+  path: string,
+  init: RequestInit,
+  fallbackMessage: string
+): Promise<T> {
+  const target = getEditorMutationTarget(path, init);
+  if (!target || !hasEstimateEditorMutationSession(target.versionId)) {
+    return requestJsonUncoordinated<T>(path, init, fallbackMessage);
+  }
+  const initialHeaders = new Headers(init.headers);
+  return runEstimateEditorMutation(
+    target.versionId,
+    initialHeaders.get("If-Match") ?? undefined,
+    async (token) => {
+      const headers = new Headers(initialHeaders);
+      headers.set(ESTIMATE_DRAFT_LOCK_SESSION_HEADER, getEstimateDraftLockSessionId(target.versionId));
+      let body = init.body;
+      if (token) {
+        headers.set("If-Match", token);
+        if (typeof body === "string") {
+          const parsed: unknown = JSON.parse(body);
+          if (isRecord(parsed)) {
+            if ("updated_at" in parsed) parsed.updated_at = token;
+            if ("concurrency_token" in parsed) parsed.concurrency_token = token;
+            body = JSON.stringify(parsed);
+          }
+        }
+      }
+      const value = await requestJsonUncoordinated<T>(path, { ...init, headers, body }, fallbackMessage);
+      // Older import/assembly endpoints return items only. Refresh inside the
+      // same queue, before an autosave or another action can reuse its token.
+      const version = parseVersionToken(value) ?? parseVersionToken(
+        await requestJsonUncoordinated<unknown>(
+          `/api/estimates/${target.versionId}`, { method: "GET" },
+          "Impossible de récupérer la version après l'action."
+        )
+      );
+      if (!version) throw new Error("Impossible de récupérer le jeton de version.");
+      const deletedIds = isRecord(value) && Array.isArray(value.deleted_ids)
+        ? value.deleted_ids
+        : isRecord(value) && value.committed === true && Array.isArray(value.results)
+          ? value.results.flatMap((result) => isRecord(result) && isRecord(result.data) &&
+              Array.isArray(result.data.deleted_ids) ? result.data.deleted_ids : [])
+          : [];
+      return {
+        value,
+        version,
+        structural: target.structural,
+        deletedIds: deletedIds.filter((id): id is string => typeof id === "string"),
+      };
+    }
+  );
+}
+
+/** Server actions used by the editor share the HTTP mutation queue. */
+export async function runEstimateEditorExternalMutation<T>(
+  versionId: string,
+  action: () => Promise<T>
+): Promise<T> {
+  if (!hasEstimateEditorMutationSession(versionId)) return action();
+  return runEstimateEditorMutation(versionId, undefined, async () => {
+    const value = await action();
+    const version = parseVersionToken(await requestJsonUncoordinated<unknown>(
+      `/api/estimates/${versionId}`, { method: "GET" },
+      "Impossible de récupérer la version après l'action."
+    ));
+    if (!version) throw new Error("Impossible de récupérer le jeton de version.");
+    return { value, version, structural: true };
+  });
 }
 
 function extractFilenameFromContentDisposition(

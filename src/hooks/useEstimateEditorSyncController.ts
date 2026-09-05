@@ -37,6 +37,11 @@ import {
   writeConflictDraftToSession,
 } from "@/lib/estimates/editor-drafts";
 import {
+  hasEstimateEditorMutations,
+  registerEstimateEditorMutations,
+  waitForEstimateEditorMutations,
+} from "@/lib/estimates/editor-mutations";
+import {
   buildEstimateItemUpdatePayload,
   buildVersionTotalsPatch,
   getEstimateEditorItemClientKey,
@@ -133,7 +138,7 @@ export type EstimateEditorSyncController = {
       options?: { persistDraft?: boolean }
     ) => boolean;
     clearConflictState: () => void;
-    clearConflictDraft: () => void;
+    clearConflictDraft: (options?: { onlyIfRestored?: boolean }) => void;
     triggerVersionReload: () => void;
     markVersionReloadFinished: () => void;
     reloadAfterConflict: () => void;
@@ -226,6 +231,7 @@ export function useEstimateEditorSyncController({
   const [hasPendingBufferedUpdates, setHasPendingBufferedUpdates] =
     useState(false);
   const [hasPendingTotalsSave, setHasPendingTotalsSave] = useState(false);
+  const [hasPendingMutations, setHasPendingMutations] = useState(false);
   const [isAutoSaveEnabled, setIsAutoSaveEnabledState] = useState(() =>
     readAutoSaveEnabledPreferenceFromLocal(currentUserId)
   );
@@ -247,6 +253,9 @@ export function useEstimateEditorSyncController({
   const activeFlushIdRef = useRef(0);
   const routeVersionIdRef = useRef(routeVersionId);
   const routeGenerationRef = useRef(0);
+  const structuralGenerationRef = useRef(0);
+  const restoredConflictDraftRef = useRef(false);
+  const pendingSettingsRef = useRef(hasPendingSettingsChanges);
   const itemsRef = useRef(items);
   const isSaveBlockedRef = useRef(false);
   /** Vrai tant que cette page a detenu le verrou pour la version courante. */
@@ -285,7 +294,7 @@ export function useEstimateEditorSyncController({
       activeFlushIdRef.current += 1;
       isFlushingBufferedUpdatesRef.current = false;
     };
-  }, [routeVersionId]);
+  }, [currentUserId, routeVersionId]);
 
   useLayoutEffect(() => {
     isAutoSaveEnabledRef.current = isAutoSaveEnabled;
@@ -335,6 +344,48 @@ export function useEstimateEditorSyncController({
       }))
     );
   }, [routeVersionId]);
+
+  const mutationObserverRef = useRef({
+    getVersionSnapshot, applyVersionFlushResult,
+    persistBufferedItemUpdatesToLocal, setTotalsOutOfSync,
+  });
+  useLayoutEffect(() => {
+    pendingSettingsRef.current = hasPendingSettingsChanges;
+    mutationObserverRef.current = {
+      getVersionSnapshot, applyVersionFlushResult,
+      persistBufferedItemUpdatesToLocal, setTotalsOutOfSync,
+    };
+  });
+  useLayoutEffect(() => {
+    restoredConflictDraftRef.current = false;
+    setHasPendingMutations(false);
+    return registerEstimateEditorMutations(routeVersionId, {
+      getToken: () => {
+        const version = mutationObserverRef.current.getVersionSnapshot();
+        return version?.id === routeVersionId ? version.updated_at : null;
+      },
+      onPendingChange: setHasPendingMutations,
+      onCommit: ({ version, deletedIds, structural }) => {
+        mutationObserverRef.current.applyVersionFlushResult({
+          versionId: version.id, updatedAt: version.updated_at, totalsPatch: undefined,
+        });
+        if (deletedIds?.length) {
+          deletedIds.forEach((id) => {
+            pendingItemUpdatesRef.current.delete(id);
+            syncedItemPayloadsRef.current.delete(id);
+          });
+          pendingBufferedUpdateCountRef.current = pendingItemUpdatesRef.current.size;
+          setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+          mutationObserverRef.current.persistBufferedItemUpdatesToLocal();
+        }
+        if (structural) {
+          structuralGenerationRef.current += 1;
+          updateHasPendingTotalsSave(true);
+          mutationObserverRef.current.setTotalsOutOfSync(true);
+        }
+      },
+    });
+  }, [currentUserId, routeVersionId, updateHasPendingTotalsSave]);
 
   const clearBufferedItemUpdates = useCallback(
     (options?: { clearPersisted?: boolean }) => {
@@ -463,6 +514,7 @@ export function useEstimateEditorSyncController({
     };
 
     writeConflictDraftToSession(routeVersionId, draft);
+    restoredConflictDraftRef.current = false;
     setRestorableDraft(draft);
   }, [routeVersionId]);
 
@@ -500,10 +552,15 @@ export function useEstimateEditorSyncController({
 
   const clearConflictState = useCallback(() => {
     setConflict(null);
-  }, []);
+    reportError(null);
+  }, [reportError]);
 
-  const clearConflictDraft = useCallback(() => {
+  const clearConflictDraft = useCallback((options?: { onlyIfRestored?: boolean }) => {
+    // Saving unrelated work must not discard an unrestored recovery draft.
+    if (options?.onlyIfRestored &&
+        (!restoredConflictDraftRef.current || pendingItemUpdatesRef.current.size > 0)) return;
     clearConflictDraftFromSession(routeVersionId);
+    restoredConflictDraftRef.current = false;
     setRestorableDraft(null);
     reportNotice(null);
   }, [reportNotice, routeVersionId]);
@@ -669,6 +726,13 @@ export function useEstimateEditorSyncController({
 
   const flushBufferedItemUpdates = useCallback(async (): Promise<AutoSaveResult> => {
     if (isFlushingBufferedUpdatesRef.current) return "noop";
+    if (hasEstimateEditorMutations(routeVersionId)) {
+      const generation = routeGenerationRef.current;
+      await waitForEstimateEditorMutations(routeVersionId);
+      if (generation !== routeGenerationRef.current) return "blocked";
+      // Read the buffer only after successful deletions have removed their IDs.
+      return flushBufferedItemUpdates();
+    }
 
     const hasPendingAutoSaveWork =
       pendingItemUpdatesRef.current.size > 0 ||
@@ -700,6 +764,7 @@ export function useEstimateEditorSyncController({
     isFlushingBufferedUpdatesRef.current = true;
 
     const versionTotalsPatch = buildVersionTotalsPatch(getPersistedTotals());
+    const structuralGeneration = structuralGenerationRef.current;
     const batchOperations = bufferedEntries.map((entry) => ({
       op: "update" as const,
       id: entry.id,
@@ -756,8 +821,9 @@ export function useEstimateEditorSyncController({
         return "saved";
       }
 
-      updateHasPendingTotalsSave(false);
-      setTotalsOutOfSync(false);
+      const structureChanged = structuralGeneration !== structuralGenerationRef.current;
+      updateHasPendingTotalsSave(structureChanged);
+      setTotalsOutOfSync(structureChanged);
       bufferedEntries.forEach((entry) => {
         mergeSyncedItemPayload(entry.id, entry.updates);
       });
@@ -774,9 +840,11 @@ export function useEstimateEditorSyncController({
       setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
       if (
         pendingItemUpdatesRef.current.size === 0 &&
-        !hasPendingSettingsChanges
+        !pendingSettingsRef.current &&
+        restoredConflictDraftRef.current
       ) {
         clearConflictDraftFromSession(flushVersionId);
+        restoredConflictDraftRef.current = false;
         setRestorableDraft(null);
         reportNotice(null);
       }
@@ -856,7 +924,6 @@ export function useEstimateEditorSyncController({
     clearHistory,
     getPersistedTotals,
     getVersionSnapshot,
-    hasPendingSettingsChanges,
     handleVersionConflict,
     mergeSyncedItemPayload,
     persistBufferedItemUpdatesToLocal,
@@ -938,16 +1005,18 @@ export function useEstimateEditorSyncController({
   }, [hasPendingSettingsChanges, isSavingSettings, routeVersionId]);
 
   const hasPendingChanges =
-    hasPendingAutoSaveChanges || hasPendingSettingsChanges;
+    hasPendingAutoSaveChanges || hasPendingSettingsChanges || hasPendingMutations;
   const autoSaveStatus = useMemo<AutoSaveStatus>(() => {
     if (isSaveBlocked) return "blocked";
     if (!isOnline && hasPendingChanges) return "offline";
-    if (isAutoSaveSaving || isSavingSettings) return "saving";
-    if (hasPendingSettingsChanges) return "pending";
+    if (isAutoSaveSaving || isSavingSettings || hasPendingMutations) return "saving";
+    if (hasPendingSettingsChanges || restorableDraft) return "pending";
     return rawAutoSaveStatus;
   }, [
     hasPendingChanges,
     hasPendingSettingsChanges,
+    hasPendingMutations,
+    restorableDraft,
     isAutoSaveSaving,
     isOnline,
     isSaveBlocked,
@@ -961,6 +1030,7 @@ export function useEstimateEditorSyncController({
       if (isDraftLockPending) return "Connexion…";
       return "Lecture seule";
     }
+    if (autoSaveStatus === "pending" && restorableDraft) return "Brouillon à restaurer";
     if (autoSaveStatus === "pending" && hasPendingSettingsChanges) {
       return "Non sauvegardé";
     }
@@ -970,6 +1040,7 @@ export function useEstimateEditorSyncController({
   }, [
     autoSaveStatus,
     hasPendingSettingsChanges,
+    restorableDraft,
     isConflictLocked,
     isDraftLockPending,
     isDraftLockedByOther,
@@ -1024,6 +1095,7 @@ export function useEstimateEditorSyncController({
 
   const restoreConflictDraft = useCallback(() => {
     if (!restorableDraft) return;
+    restoredConflictDraftRef.current = true;
 
     const { restoredItems, skippedItemCount } =
       applyRestoredDraft(restorableDraft);

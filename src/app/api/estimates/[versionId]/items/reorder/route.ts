@@ -28,7 +28,7 @@ export async function POST(
   try {
     const versionId = await getVersionId(params);
     const body = reorderEstimateItemsSchema.parse(await parseJsonBody(request));
-    const data = await reorderEstimateItems(versionId, body);
+    const data = await reorderEstimateItems(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);

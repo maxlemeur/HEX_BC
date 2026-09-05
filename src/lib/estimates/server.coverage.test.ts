@@ -25,6 +25,7 @@ vi.mock("@/lib/feature-flags", () => ({
 import {
   buildEstimateSupplierPreselectionReview,
   createEstimate,
+  createEstimateItem,
   createEstimateTemplateFromVersion,
   createMarginTier,
   deleteEstimateItem,
@@ -212,6 +213,25 @@ function createDraftLockBuilder(userId: string | null = USER_ID) {
 }
 
 describe("estimate server coverage additions", () => {
+  it.each([
+    ["create", () => createEstimateItem(VERSION_ID, { item_type: "section", title: "Lot" }, "2026-02-22T11:00:00.000Z")],
+    ["update", () => updateEstimateItem(VERSION_ID, { id: "item-1", title: "Lot" }, "2026-02-22T11:00:00.000Z")],
+    ["delete", () => deleteEstimateItem(VERSION_ID, { id: "item-1" }, "2026-02-22T11:00:00.000Z")],
+    ["reorder", () => reorderEstimateItems(VERSION_ID, { ordered_ids: ["item-1"] }, "2026-02-22T11:00:00.000Z")],
+    ["move", () => moveEstimateItem(VERSION_ID, { item_id: "item-1", from_parent_id: null, to_parent_id: "lot", ordered_source_ids: [], ordered_target_ids: ["item-1"] }, "2026-02-22T11:00:00.000Z")],
+  ] as const)("rejects stale %s before any item write", async (_name, run) => {
+    const base = createAuth("engineer");
+    const access = createVersionAccessBuilder();
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") return { select: () => base.__membershipBuilder };
+      if (table === "estimate_versions") return { select: () => access };
+      throw new Error(`Unexpected write or lock lookup: ${table}`);
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({ ...base, from } as never);
+    await expect(run()).rejects.toMatchObject({ status: 409, code: "VERSION_CONFLICT" });
+    expect(from).not.toHaveBeenCalledWith("estimate_items");
+  });
+
   beforeEach(() => {
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     vi.clearAllMocks();
@@ -2587,7 +2607,7 @@ describe("estimate server coverage additions", () => {
     const versionAccessBuilder = createVersionAccessBuilder();
     const draftLockBuilder = createDraftLockBuilder();
     const currentItemBuilder = chainResult({
-      data: { id: "item-1" },
+      data: [{ id: "item-1", parent_id: null }, { id: "child", parent_id: "item-1" }, { id: "grandchild", parent_id: "child" }, { id: "other", parent_id: null }],
       error: null,
     });
     const deleteBuilder = chainResult({
@@ -2631,6 +2651,8 @@ describe("estimate server coverage additions", () => {
 
     expect(result).toEqual({
       deleted_id: "item-1",
+      deleted_ids: ["item-1", "child", "grandchild"],
+      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
     });
     expect(deleteBuilder.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
     expect(deleteBuilder.eq).toHaveBeenCalledWith("id", "item-1");
@@ -2642,13 +2664,8 @@ describe("estimate server coverage additions", () => {
     const versionAccessBuilder = createVersionAccessBuilder();
     const draftLockBuilder = createDraftLockBuilder();
     const currentItemBuilder = chainResult({
-      data: null,
-      error: {
-        code: "PGRST116",
-        message: "No rows",
-        details: null,
-        hint: null,
-      },
+      data: [],
+      error: null,
     });
 
     const supabase = {
@@ -2962,6 +2979,7 @@ describe("estimate server coverage additions", () => {
     });
 
     expect(result).toEqual({
+      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
       parent_id: null,
       ordered_ids: ["a", "b"],
       updated_count: 2,
@@ -3199,6 +3217,7 @@ describe("estimate server coverage additions", () => {
     });
 
     expect(result).toEqual({
+      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
       item_id: "item-1",
       from_parent_id: "parent-source",
       to_parent_id: "parent-target",
@@ -3341,6 +3360,7 @@ describe("estimate server coverage additions", () => {
     });
 
     expect(result).toEqual({
+      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
       item_id: "item-1",
       from_parent_id: "parent-source",
       to_parent_id: "parent-target",

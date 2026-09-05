@@ -60,7 +60,7 @@ describe("POST /api/estimates/[versionId]/items/move", () => {
       to_parent_id: TARGET_PARENT_ID,
       ordered_source_ids: [],
       ordered_target_ids: [ITEM_ID],
-    });
+    }, undefined);
   });
 
   it("returns 400 VALIDATION_ERROR for invalid move payload", async () => {

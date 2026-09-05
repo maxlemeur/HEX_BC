@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { isOlderEstimateVersionToken } from "@/lib/estimates/editor-mutations";
 import {
   useCallback,
   useDeferredValue,
@@ -466,7 +467,8 @@ export function useEstimateEditorState({
       updatedAt: string;
     }) => {
       setVersion((previous) =>
-        previous?.id === versionId
+        previous?.id === versionId &&
+        !isOlderEstimateVersionToken(updatedAt, previous.updated_at)
           ? {
               ...previous,
               ...(totalsPatch ?? {}),
@@ -474,7 +476,8 @@ export function useEstimateEditorState({
             }
           : previous
       );
-      if (versionRef.current?.id === versionId) {
+      if (versionRef.current?.id === versionId &&
+          !isOlderEstimateVersionToken(updatedAt, versionRef.current.updated_at)) {
         versionRef.current = {
           ...versionRef.current,
           ...(totalsPatch ?? {}),
@@ -617,6 +620,8 @@ export function useEstimateEditorState({
         if (!active) return;
 
         const versionRow = data.version as EstimateVersionView;
+        if (versionRef.current?.id === versionRow.id &&
+            isOlderEstimateVersionToken(versionRow.updated_at, versionRef.current.updated_at)) return;
         const itemsRows = data.items ?? [];
         const rolesData = data.laborRoles ?? [];
 
@@ -697,6 +702,7 @@ export function useEstimateEditorState({
           rounding_step_cents: versionRow.rounding_step_cents,
         };
 
+        versionRef.current = versionRow;
         setVersion(versionRow);
         hydrateAiVersionZeroSummaryRef.current(
           versionRow.id,
@@ -1354,6 +1360,10 @@ export function useEstimateEditorState({
         ...payload,
         ...updatedVersion,
       } as EstimateVersionView;
+      if (versionRef.current?.id === targetVersionId &&
+          isOlderEstimateVersionToken(mergedVersion.updated_at, versionRef.current.updated_at)) {
+        mergedVersion.updated_at = versionRef.current.updated_at;
+      }
       versionRef.current = mergedVersion;
       setVersion((previous) =>
         previous?.id === targetVersionId ? mergedVersion : previous
@@ -1423,14 +1433,16 @@ export function useEstimateEditorState({
           if (!isCurrentSettingsSave()) return;
 
           const latestVersionToken = bulkResult.versionToken.updated_at;
-          if (versionRef.current?.id === targetVersionId) {
+          if (versionRef.current?.id === targetVersionId &&
+              !isOlderEstimateVersionToken(latestVersionToken, versionRef.current.updated_at)) {
             versionRef.current = {
               ...versionRef.current,
               updated_at: latestVersionToken,
             };
           }
           setVersion((previous) =>
-            previous?.id === targetVersionId
+            previous?.id === targetVersionId &&
+            !isOlderEstimateVersionToken(latestVersionToken, previous.updated_at)
               ? { ...previous, updated_at: latestVersionToken }
               : previous
           );
@@ -1444,7 +1456,7 @@ export function useEstimateEditorState({
       }
 
       if (isCurrentSettingsSave()) {
-        clearConflictDraft();
+        clearConflictDraft({ onlyIfRestored: true });
       }
     } finally {
       if (isCurrentSettingsSave()) {
@@ -1780,22 +1792,7 @@ export function useEstimateEditorState({
     move: handleMoveItem,
   } = orderingController.actions;
 
-  const applyVersionToken = useCallback((updatedAt: string) => {
-    setVersion((previous) =>
-      previous
-        ? {
-            ...previous,
-            updated_at: updatedAt,
-          }
-        : previous
-    );
-    if (versionRef.current) {
-      versionRef.current = {
-        ...versionRef.current,
-        updated_at: updatedAt,
-      };
-    }
-  }, []);
+  const applyVersionToken = applyItemCreationVersionToken;
 
   const importController = useEstimateEditorImportController({
     routeVersionId: resolvedVersionId,

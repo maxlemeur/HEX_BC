@@ -50,7 +50,7 @@ export async function POST(
   try {
     const versionId = await getVersionId(params);
     const body = createEstimateItemSchema.parse(await parseJsonBody(request));
-    const data = await createEstimateItem(versionId, body);
+    const data = await createEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(data, 201);
   } catch (error) {
     return toErrorResponse(error);
@@ -64,7 +64,7 @@ export async function PATCH(
   try {
     const versionId = await getVersionId(params);
     const body = updateEstimateItemSchema.parse(await parseJsonBody(request));
-    const data = await updateEstimateItem(versionId, body);
+    const data = await updateEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);
@@ -78,7 +78,7 @@ export async function DELETE(
   try {
     const versionId = await getVersionId(params);
     const body = deleteEstimateItemSchema.parse(await parseJsonBody(request));
-    const data = await deleteEstimateItem(versionId, body);
+    const data = await deleteEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);
