@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0](https://github.com/maxlemeur/HEX_BC/compare/v0.4.2...v0.5.0) (2026-09-05)
+
+
+### Features
+
+* harden catalogue and estimate editing ([0fac84e](https://github.com/maxlemeur/HEX_BC/commit/0fac84e67fb392ac213f900ddaa8de60d81d68fa))
+* improve estimate editing and catalogue integration ([b09ac57](https://github.com/maxlemeur/HEX_BC/commit/b09ac57a4b1bbc28eef2e22b1e8284f1350b5f5c))
+* **ui:** integrer shadcn/ui sur Base UI, socle uniquement ([b4f18f8](https://github.com/maxlemeur/HEX_BC/commit/b4f18f83ca79256d34b5584263b2752592a0c396))
+
 ## [0.4.2](https://github.com/maxlemeur/HEX_BC/compare/v0.4.1...v0.4.2) (2026-08-19)
 
 
