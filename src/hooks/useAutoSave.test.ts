@@ -141,6 +141,37 @@ describe("useAutoSave behavior", () => {
     expect(onSave).toHaveBeenCalledWith("debounce");
   });
 
+  it("saves at the max wait even when changes keep restarting the debounce", async () => {
+    const onSave = vi.fn().mockResolvedValue("saved" satisfies AutoSaveResult);
+    const { result } = renderHook(() =>
+      useAutoSave({
+        enabled: true,
+        hasPendingChanges: true,
+        debounceMs: 60_000,
+        maxWaitMs: 60_000,
+        onSave,
+      })
+    );
+
+    for (let index = 0; index < 5; index += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      act(() => {
+        result.current.scheduleSave();
+      });
+    }
+
+    expect(onSave).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith("debounce");
+  });
+
   it("exposes saving and saved states before returning to pending when changes remain", async () => {
     const deferredSave = createDeferred<AutoSaveResult>();
     const onSave = vi.fn().mockReturnValue(deferredSave.promise);

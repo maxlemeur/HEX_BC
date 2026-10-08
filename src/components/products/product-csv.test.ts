@@ -23,10 +23,10 @@ describe("parseProductCsv", () => {
         standard: "EN 10217",
         unit: "m",
         unit_price_cents: 123456,
-        tax_rate_bp: 2000,
         is_active: true,
       },
     ]);
+    expect(result.ignoredColumns).toContain("TVA");
   });
 
   it("supports comma-delimited English headers and quoted cells", () => {
@@ -41,7 +41,6 @@ describe("parseProductCsv", () => {
       category: "Fittings",
       material: "Stainless steel",
       unit_price_cents: 1250,
-      tax_rate_bp: 550,
     });
   });
 
@@ -55,13 +54,13 @@ describe("parseProductCsv", () => {
     ].join("\n"));
 
     expect(result.acceptedRows).toHaveLength(1);
-    expect(result.acceptedRows[0]).toMatchObject({ unit_price_cents: 0, tax_rate_bp: 2000 });
+    expect(result.acceptedRows[0]).toMatchObject({ unit_price_cents: 0 });
     expect(result.rejectedRows).toEqual([
       expect.objectContaining({ line: 3, reasons: ["Désignation obligatoire"] }),
       expect.objectContaining({ line: 4, reasons: ["Prix unitaire HT invalide"] }),
       expect.objectContaining({
         line: 5,
-        reasons: ["Référence en double dans le fichier", "TVA invalide (valeur attendue entre 0 et 100)"],
+        reasons: ["Référence en double dans le fichier"],
       }),
     ]);
   });

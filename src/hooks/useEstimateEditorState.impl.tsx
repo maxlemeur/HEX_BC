@@ -74,7 +74,10 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import {
+  DEFAULT_TAX_RATE_BP,
+  ESTIMATE_VERSION_CONFLICT_MESSAGE,
+} from "@/lib/estimates/constants";
 import {
   DEFAULT_ESTIMATE_CURRENCY,
   resolveEstimateCurrency,
@@ -564,7 +567,7 @@ export function useEstimateEditorState({
   const settingsSaveGuardRef = useRef({
     isBlocked: isReadOnly || isConflictLocked,
     message: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
   });
 
@@ -572,7 +575,7 @@ export function useEstimateEditorState({
     settingsSaveGuardRef.current = {
       isBlocked: isReadOnly || isConflictLocked,
       message: isConflictLocked
-        ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+        ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
         : readOnlyActionErrorMessage,
     };
   }, [
@@ -1220,7 +1223,7 @@ export function useEstimateEditorState({
     }
     if (isConflictLocked) {
       setActionError(
-        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
       );
       return;
     }
@@ -1461,7 +1464,7 @@ export function useEstimateEditorState({
       }
       if (isConflictLocked) {
         setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+          conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
         );
         return;
       }
@@ -1517,7 +1520,7 @@ export function useEstimateEditorState({
       }
       if (isConflictLocked) {
         setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+          conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
         );
         return;
       }
@@ -1725,7 +1728,7 @@ export function useEstimateEditorState({
     isLaborSplitEnabled,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -1750,7 +1753,7 @@ export function useEstimateEditorState({
   const orderingController = useEstimateEditorOrderingController({
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -1788,7 +1791,7 @@ export function useEstimateEditorState({
     autoOpenStructureDraft: shouldAutoOpenStructureDraft,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     getVersionSnapshot,
     ensureGroupedActionCanProceed,
@@ -1941,7 +1944,7 @@ export function useEstimateEditorState({
     items,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     ensureMutationCanProceed: ensureGroupedActionCanProceed,
     reportError: setActionError,
@@ -2001,7 +2004,7 @@ export function useEstimateEditorState({
     categories,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -2128,7 +2131,7 @@ export function useEstimateEditorState({
     items,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -2163,7 +2166,7 @@ export function useEstimateEditorState({
   const bulkController = useEstimateEditorBulkController({
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     isLaborSplitEnabled,
     getItemsSnapshot,
@@ -2195,7 +2198,7 @@ export function useEstimateEditorState({
     isLaborSplitEnabled,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     supplyTypeIdByLowerName,
     getItemsSnapshot,
@@ -2218,7 +2221,7 @@ export function useEstimateEditorState({
     routeVersionId: resolvedVersionId,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
-      ? (conflictState?.message ?? "Version modifiee par un autre utilisateur")
+      ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -2249,7 +2252,7 @@ export function useEstimateEditorState({
       }
       if (isConflictLocked) {
         setActionError(
-          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+          conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
         );
         return;
       }
@@ -2592,7 +2595,6 @@ export function useEstimateEditorState({
       lockHolderLabel,
       isAdmin,
       isForcingDraftUnlock,
-      isDraftLockAcquiring,
       onForceUnlockDraftLock: handleForceUnlockDraftLock,
       draftLockError,
       conflictMessage: conflictState?.message ?? null,
@@ -2626,7 +2628,6 @@ export function useEstimateEditorState({
       handleUndoBulkSuggest,
       importSummaryMessage,
       isAdmin,
-      isDraftLockAcquiring,
       isDraftLockedByOther,
       isForcingDraftUnlock,
       hasRestorableDraft,

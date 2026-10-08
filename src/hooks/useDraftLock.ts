@@ -11,8 +11,19 @@ import {
   type ReleaseEstimateDraftLockOptions,
 } from "@/lib/estimates/client";
 
-const HEARTBEAT_INTERVAL_MS = 30 * 1000;
-const ACQUIRE_RETRY_INTERVAL_MS = 5 * 1000;
+/**
+ * Battement de coeur du verrou de brouillon. Il sert aussi de detection de
+ * perte : c'est au renouvellement qu'une page apprend qu'un admin a force le
+ * deverrouillage, donc l'intervalle borne la duree pendant laquelle la page
+ * evincee croit encore pouvoir editer.
+ */
+export const DRAFT_LOCK_HEARTBEAT_INTERVAL_MS = 15 * 1000;
+export const DRAFT_LOCK_ACQUIRE_RETRY_INTERVAL_MS = 5 * 1000;
+
+const HEARTBEAT_INTERVAL_MS = DRAFT_LOCK_HEARTBEAT_INTERVAL_MS;
+const ACQUIRE_RETRY_INTERVAL_MS = DRAFT_LOCK_ACQUIRE_RETRY_INTERVAL_MS;
+const DRAFT_LOCK_LOST_MESSAGE =
+  "Votre verrou d'edition a ete libere. Cette page est repassee en lecture seule le temps de le reprendre.";
 
 type UseDraftLockOptions = {
   versionId: string;
@@ -57,6 +68,17 @@ function resolveLockOwnership(
   }
 
   return null;
+}
+
+/**
+ * Vrai lorsque le serveur indique que le verrou renouvele n'existe plus : il a
+ * ete supprime par un deverrouillage force. Les erreurs reseau ou serveur
+ * generiques ne doivent surtout pas retirer le verrou a la page qui le detient.
+ */
+function isDraftLockLostError(error: unknown) {
+  return (
+    isEstimateApiError(error) && (error.status === 404 || error.status === 403)
+  );
 }
 
 function resolveDraftLockErrorMessage(error: unknown, fallback: string) {
@@ -316,6 +338,14 @@ export function useDraftLock({
       return ownsLock;
     } catch (renewError) {
       if (!isCurrentTarget(target)) return false;
+
+      if (isDraftLockLostError(renewError)) {
+        setLock(null);
+        updateOwnershipState(false);
+        setIsLockedByOther(false);
+        setError(DRAFT_LOCK_LOST_MESSAGE);
+        return false;
+      }
 
       setError(
         resolveDraftLockErrorMessage(

@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { useEstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
+import {
+  AUTOSAVE_DEBOUNCE_MS,
+  AUTOSAVE_MAX_WAIT_MS,
+} from "@/hooks/useEstimateEditorSyncController.types";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import type {
   EstimateItem,
@@ -402,7 +406,8 @@ describe("useEstimateEditorSyncController contract", () => {
         enabled: true,
         automaticEnabled: true,
         hasPendingChanges: false,
-        debounceMs: 2000,
+        debounceMs: AUTOSAVE_DEBOUNCE_MS,
+        maxWaitMs: AUTOSAVE_MAX_WAIT_MS,
       })
     );
   });
@@ -644,6 +649,109 @@ describe("useEstimateEditorSyncController buffered updates", () => {
       ],
     });
     expect(mocks.scheduleAutoSave).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a cell commit that repeats the server value, keeps a real edit", async () => {
+    const serverItem = createItem();
+    const input = createInput({ items: [serverItem] });
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    // Les lignes serveur passent par overlayPendingUpdates au chargement.
+    act(() => {
+      result.current.actions.overlayPendingUpdates([serverItem]);
+    });
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate(serverItem.id, {
+        title: serverItem.title,
+        quantity: serverItem.quantity,
+      });
+    });
+
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
+    expect(mocks.scheduleAutoSave).not.toHaveBeenCalled();
+    expect(
+      readStoragePayload(
+        window.localStorage,
+        `${AUTO_SAVE_STORAGE_PREFIX}version-1`
+      )
+    ).toBeNull();
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate(serverItem.id, {
+        title: "Titre saisi",
+        quantity: serverItem.quantity,
+      });
+    });
+
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
+    expect(mocks.scheduleAutoSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops re-saving a value the server already acknowledged", async () => {
+    const serverItem = createItem();
+    const version = createVersion();
+    const input = createInput({
+      items: [serverItem],
+      activeVersion: version,
+      getVersionSnapshot: vi.fn(() => version),
+    });
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    act(() => {
+      result.current.actions.overlayPendingUpdates([serverItem]);
+      result.current.actions.enqueueItemUpdate(serverItem.id, {
+        title: "Titre saisi",
+      });
+    });
+
+    await act(async () => {
+      await result.current.actions.flushBufferedItemUpdates();
+    });
+
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate(serverItem.id, {
+        title: "Titre saisi",
+      });
+    });
+
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
+    expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
+  });
+
+  it("flushes pending edits when the page is hidden, never when nothing changed", async () => {
+    const input = createInput();
+    const { result } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(mocks.flushAutoSaveNow).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate("line-1", {
+        title: "Titre modifie",
+      });
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(mocks.flushAutoSaveNow).toHaveBeenCalledTimes(1);
   });
 
   it("flushes item operations before totals and applies the final version token", async () => {
@@ -1296,6 +1404,55 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     ).toBeNull();
     expect(result.current.state.conflict).toBeNull();
     expect(result.current.meta.reloadToken).toBe(0);
+  });
+
+  it("reloads from the server when another page takes over the draft lock", async () => {
+    const version = createVersion();
+    const input = createInput({
+      activeVersion: version,
+      getVersionSnapshot: vi.fn(() => version),
+    });
+    const { result, rerender } = renderHook(() =>
+      useEstimateEditorSyncController(input)
+    );
+
+    await settleDeferredEffects();
+    expect(result.current.meta.reloadToken).toBe(0);
+
+    act(() => {
+      result.current.actions.enqueueItemUpdate("line-1", {
+        title: "Saisie non synchronisee",
+      });
+    });
+
+    // Un admin force le deverrouillage depuis une autre page.
+    mocks.useDraftLock.mockReturnValue({
+      holderName: "Bob Dupont",
+      isOwnedByCurrentUser: false,
+      isLockedByOther: true,
+      isAcquiring: false,
+      isForcingUnlock: false,
+      error: null,
+      release: mocks.releaseDraftLock,
+      forceUnlockAndAcquire: mocks.forceUnlockAndAcquireDraftLock,
+      acquire: mocks.acquireDraftLock,
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    expect(result.current.meta.reloadToken).toBe(1);
+    expect(result.current.state.conflict).toBeNull();
+    expect(result.current.state.isReloadingVersion).toBe(true);
+    // Les modifications locales restent en attente, bloquees mais pas perdues.
+    expect(result.current.actions.hasPendingUpdatesNow()).toBe(true);
+    expect(result.current.meta.isSaveBlocked).toBe(true);
+
+    await act(async () => {
+      rerender();
+    });
+    expect(result.current.meta.reloadToken).toBe(1);
   });
 
   it("refuses force unlock while the active version does not match the route", async () => {

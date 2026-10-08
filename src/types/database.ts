@@ -214,7 +214,9 @@ export type Database = {
           updated_at: string;
           tenant_id: string;
           reference: string | null;
+          reference_normalized: string | null;
           designation: string;
+          designation_normalized: string | null;
           category: string | null;
           product_type: string | null;
           material: string | null;
@@ -223,7 +225,6 @@ export type Database = {
           standard: string | null;
           unit: string;
           unit_price_cents: number;
-          tax_rate_bp: number;
           is_active: boolean;
         };
         Insert: {
@@ -241,7 +242,6 @@ export type Database = {
           standard?: string | null;
           unit?: string;
           unit_price_cents: number;
-          tax_rate_bp?: number;
           is_active?: boolean;
         };
         Update: {
@@ -259,7 +259,6 @@ export type Database = {
           standard?: string | null;
           unit?: string;
           unit_price_cents?: number;
-          tax_rate_bp?: number;
           is_active?: boolean;
         };
         Relationships: [];

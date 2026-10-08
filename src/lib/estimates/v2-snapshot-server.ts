@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeEstimateQualityFlagsForItem } from "@/lib/estimate-quality";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import {
   calculateEstimateSnapshotForItems,
   type EstimateTotalsVersionConfig,
@@ -36,8 +37,7 @@ type FreezeEstimateV2SnapshotInput = {
   purpose: EstimateV2SnapshotPurpose;
 };
 
-const VERSION_CONFLICT_ERROR_MESSAGE =
-  "Version modifiee par un autre utilisateur";
+const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
 
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (!value) return null;

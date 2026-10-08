@@ -428,6 +428,35 @@ describe("EstimateEditorRow behavior", () => {
     expect(container.querySelectorAll('input[placeholder="0.0"]')).toHaveLength(2);
   });
 
+  it("ne propose le menu de details que lorsque la ligne en porte", () => {
+    const plainLine = renderRow(
+      createItem({ id: "line-sans-details", title: "Ligne sans details" })
+    );
+
+    expect(
+      plainLine.container.querySelector(".estimate-line-more--available")
+    ).toBeNull();
+
+    plainLine.unmount();
+
+    const sourcedLine = renderRow(
+      createItem({
+        id: "line-avec-source",
+        title: "Ligne issue du metre",
+        source_provider: "takeoff",
+      })
+    );
+
+    expect(
+      sourcedLine.container.querySelector(".estimate-line-more--available")
+    ).not.toBeNull();
+    // Le declencheur reste rendu dans tous les cas : la requete de conteneur
+    // l'affiche aussi quand la colonne devient trop etroite pour les pastilles.
+    expect(
+      screen.getAllByTestId("estimate-line-more-trigger").length
+    ).toBeGreaterThan(0);
+  });
+
   it("keeps line metadata compact and exposes the context menu from the title", () => {
     const { container } = renderRow(
       createItem({

@@ -21,7 +21,6 @@ const VALID_PRODUCT = {
   standard: "EN 10217-7",
   unit: "ml",
   unit_price_cents: 350,
-  tax_rate_bp: 2000,
   is_active: true,
 };
 
@@ -225,7 +224,6 @@ describe("POST /api/products", () => {
         standard: "EN 10217-7",
         unit: "ml",
         unit_price_cents: 350,
-        tax_rate_bp: 2000,
         is_active: true,
       },
     ]);
@@ -262,7 +260,6 @@ describe("POST /api/products", () => {
           standard: "EN 10217-7",
           unit: "ml",
           unit_price_cents: 350,
-          tax_rate_bp: 2000,
           is_active: true,
         },
       },

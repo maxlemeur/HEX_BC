@@ -59,9 +59,9 @@ type ProductFormModalProps = {
   product: ProductRecord | null;
   isSaving: boolean;
   error: string | null;
-  /** Familles dÃ©jÃ  utilisÃ©es dans le rÃ©fÃ©rentiel, proposÃ©es en autocomplÃ©tion. */
+  /** Familles déjà utilisées dans le référentiel, proposées en autocomplétion. */
   categorySuggestions?: readonly string[];
-  /** MatiÃ¨res dÃ©jÃ  utilisÃ©es dans le rÃ©fÃ©rentiel, proposÃ©es en autocomplÃ©tion. */
+  /** Matières déjà utilisées dans le référentiel, proposées en autocomplétion. */
   materialSuggestions?: readonly string[];
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: ProductPayload) => Promise<void> | void;
@@ -150,7 +150,7 @@ export function ProductFormModal({
 
     const designation = form.designation.trim();
     if (!designation) {
-      setLocalError("La dÃ©signation est obligatoire.");
+      setLocalError("La désignation est obligatoire.");
       return;
     }
 
@@ -158,7 +158,7 @@ export function ProductFormModal({
     const unitPriceCents =
       rawPrice.length === 0 ? 0 : parseEuroToCents(rawPrice);
     if (unitPriceCents === null || unitPriceCents < 0) {
-      setLocalError("Le prix de rÃ©fÃ©rence doit Ãªtre un montant positif ou nul.");
+      setLocalError("Le prix de référence doit être un montant positif ou nul.");
       return;
     }
 
@@ -189,8 +189,8 @@ export function ProductFormModal({
             <div>
               <Modal.Title>{title}</Modal.Title>
               <p className="mt-1 text-sm text-[var(--slate-500)]">
-                Une dÃ©signation suffit pour crÃ©er lâ€™article. Tout le reste peut
-                Ãªtre complÃ©tÃ© plus tard.
+                Une désignation suffit pour créer l’article. Tout le reste peut
+                être complété plus tard.
               </p>
             </div>
             <Modal.Close
@@ -204,201 +204,210 @@ export function ProductFormModal({
 
         <form onSubmit={handleSubmit}>
           <Modal.Body className="max-h-[calc(92vh-10rem)] overflow-y-auto px-6 py-5">
-            <fieldset className="grid gap-4 md:grid-cols-2">
-              <legend className="col-span-full mb-1 text-sm font-semibold text-[var(--slate-800)]">
+            <fieldset>
+              <legend className="text-sm font-semibold text-[var(--slate-800)]">
                 Identification
               </legend>
 
-              <div>
-                <label className="form-label" htmlFor="product-reference">
-                  RÃ©fÃ©rence
-                </label>
-                <input
-                  id="product-reference"
-                  className="form-input"
-                  autoComplete="off"
-                  placeholder="Ex. Tub.I4S.50"
-                  value={form.reference}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      reference: event.target.value,
-                    }))
-                  }
-                />
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
-                  Sert au rapprochement automatique avec les DPGF et les imports
-                  fournisseurs.
-                </p>
-              </div>
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="form-label" htmlFor="product-reference">
+                    Référence
+                  </label>
+                  <input
+                    id="product-reference"
+                    className="form-input"
+                    autoComplete="off"
+                    placeholder="Ex. Tub.I4S.50"
+                    value={form.reference}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        reference: event.target.value,
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--slate-500)]">
+                    Sert au rapprochement automatique avec les DPGF et les
+                    imports fournisseurs.
+                  </p>
+                </div>
 
-              <div>
-                <label className="form-label" htmlFor="product-designation">
-                  DÃ©signation *
-                </label>
-                <input
-                  id="product-designation"
-                  className="form-input"
-                  autoComplete="off"
-                  placeholder="Ex. Tube inox 304L DN50"
-                  required
-                  value={form.designation}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      designation: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </fieldset>
-
-            <fieldset className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <legend className="col-span-full mb-1 text-sm font-semibold text-[var(--slate-800)]">
-                Classement
-              </legend>
-              <p className="col-span-full -mt-1 mb-1 text-xs text-[var(--slate-500)]">
-                Ces trois champs pilotent les filtres du rÃ©fÃ©rentiel.
-              </p>
-
-              <div>
-                <label className="form-label" htmlFor="product-category">
-                  Famille
-                </label>
-                <input
-                  id="product-category"
-                  className="form-input"
-                  list={
-                    categoryOptions.length > 0
-                      ? "product-category-options"
-                      : undefined
-                  }
-                  placeholder="Ex. Tuyauterie"
-                  value={form.category}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      category: event.target.value,
-                    }))
-                  }
-                />
-                {categoryOptions.length > 0 ? (
-                  <datalist id="product-category-options">
-                    {categoryOptions.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-material">
-                  MatiÃ¨re
-                </label>
-                <input
-                  id="product-material"
-                  className="form-input"
-                  list={
-                    materialOptions.length > 0
-                      ? "product-material-options"
-                      : undefined
-                  }
-                  placeholder="Ex. Inox"
-                  value={form.material}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      material: event.target.value,
-                    }))
-                  }
-                />
-                {materialOptions.length > 0 ? (
-                  <datalist id="product-material-options">
-                    {materialOptions.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="product-unit">
-                  UnitÃ©
-                </label>
-                <select
-                  id="product-unit"
-                  className="form-input form-select"
-                  value={form.unit}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      unit: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="u">UnitÃ© (u)</option>
-                  <option value="ml">MÃ¨tre linÃ©aire (ml)</option>
-                  <option value="m2">MÃ¨tre carrÃ© (mÂ²)</option>
-                  <option value="kg">Kilogramme (kg)</option>
-                  <option value="h">Heure (h)</option>
-                </select>
+                <div>
+                  <label className="form-label" htmlFor="product-designation">
+                    Désignation *
+                  </label>
+                  <input
+                    id="product-designation"
+                    className="form-input"
+                    autoComplete="off"
+                    placeholder="Ex. Tube inox 304L DN50"
+                    required
+                    value={form.designation}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        designation: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
               </div>
             </fieldset>
 
             <fieldset className="mt-6">
-              <legend className="mb-1 text-sm font-semibold text-[var(--slate-800)]">
-                Prix de rÃ©fÃ©rence
+              <legend className="text-sm font-semibold text-[var(--slate-800)]">
+                Classement
               </legend>
+              <p className="mt-1 text-xs text-[var(--slate-500)]">
+                Ces deux champs pilotent les filtres du référentiel.
+              </p>
 
-              <div className="sm:max-w-sm">
-                <label className="form-label" htmlFor="product-price">
-                  Prix de rÃ©fÃ©rence HT
-                </label>
-                <div className="relative">
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="form-label" htmlFor="product-category">
+                    Famille
+                  </label>
                   <input
-                    id="product-price"
-                    className="form-input pr-12"
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={form.unit_price_euros}
+                    id="product-category"
+                    className="form-input"
+                    list={
+                      categoryOptions.length > 0
+                        ? "product-category-options"
+                        : undefined
+                    }
+                    placeholder="Ex. Tuyauterie"
+                    value={form.category}
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
-                        unit_price_euros: event.target.value,
+                        category: event.target.value,
                       }))
                     }
                   />
-                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[var(--slate-400)]">
-                    EUR
-                  </span>
+                  {categoryOptions.length > 0 ? (
+                    <datalist id="product-category-options">
+                      {categoryOptions.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                  ) : null}
                 </div>
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
-                  {product?._referencePriceSourceOrderId
-                    ? "Ce montant vient du dernier achat confirmÃ©. Le modifier le remplace par une saisie interne."
-                    : "Laissez vide si vous ne le connaissez pas : le dernier achat confirmÃ© prendra le relais."}
-                </p>
+
+                <div>
+                  <label className="form-label" htmlFor="product-material">
+                    Matière
+                  </label>
+                  <input
+                    id="product-material"
+                    className="form-input"
+                    list={
+                      materialOptions.length > 0
+                        ? "product-material-options"
+                        : undefined
+                    }
+                    placeholder="Ex. Inox"
+                    value={form.material}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        material: event.target.value,
+                      }))
+                    }
+                  />
+                  {materialOptions.length > 0 ? (
+                    <datalist id="product-material-options">
+                      {materialOptions.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                  ) : null}
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset className="mt-6">
+              <legend className="text-sm font-semibold text-[var(--slate-800)]">
+                Unité et prix de référence
+              </legend>
+
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="form-label" htmlFor="product-unit">
+                    Unité
+                  </label>
+                  <select
+                    id="product-unit"
+                    className="form-input form-select"
+                    value={form.unit}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        unit: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="u">Unité (u)</option>
+                    <option value="ml">Mètre linéaire (ml)</option>
+                    <option value="m2">Mètre carré (m²)</option>
+                    <option value="kg">Kilogramme (kg)</option>
+                    <option value="h">Heure (h)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" htmlFor="product-price">
+                    Prix de référence HT
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="product-price"
+                      className="form-input"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      // `.form-input` impose padding:0 16px : la reserve pour le
+                      // suffixe ne peut pas passer par une utilitaire Tailwind.
+                      style={{ paddingRight: "3rem" }}
+                      value={form.unit_price_euros}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          unit_price_euros: event.target.value,
+                        }))
+                      }
+                    />
+                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[var(--slate-400)]">
+                      EUR
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-xs text-[var(--slate-500)]">
+                    {product?._referencePriceSourceOrderId
+                      ? "Ce montant vient du dernier achat confirmé. Le modifier le remplace par une saisie interne."
+                      : "Laissez vide : le dernier achat confirmé prendra le relais."}
+                  </p>
+                </div>
               </div>
             </fieldset>
 
             <details
-              className="group mt-6 overflow-hidden rounded-xl border border-[var(--slate-200)]"
+              className="group mt-6 border-t border-[var(--slate-200)] pt-4"
               open={showTechnicalDetails}
               onToggle={(event) =>
                 setShowTechnicalDetails(event.currentTarget.open)
               }
             >
-              <summary className="grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-[var(--slate-50)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-blue)] [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] [&::-webkit-details-marker]:hidden">
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-[var(--slate-800)]">
-                    DÃ©tails techniques (optionnel)
+                    Détails techniques (optionnel)
                   </span>
-                  <span className="mt-0.5 block text-xs text-[var(--slate-500)]">
-                    AmÃ©liorent la recherche et les suggestions de tarifs.
+                  <span className="mt-1 block text-xs text-[var(--slate-500)]">
+                    Améliorent la recherche et les suggestions de tarifs.
                   </span>
                 </span>
                 <svg
                   aria-hidden="true"
-                  className="h-4 w-4 shrink-0 text-[var(--slate-500)] transition-transform duration-200 group-open:rotate-180"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-[var(--slate-500)] transition-transform duration-200 group-open:rotate-180"
                   fill="none"
                   stroke="currentColor"
                   strokeLinecap="round"
@@ -411,15 +420,15 @@ export function ProductFormModal({
                 </svg>
               </summary>
 
-              <div className="grid gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="form-label" htmlFor="product-type">
-                    Type dâ€™article
+                    Type d’article
                   </label>
                   <input
                     id="product-type"
                     className="form-input"
-                    placeholder="Ex. Tube, coude, tÃ©"
+                    placeholder="Ex. Tube, coude, té"
                     value={form.product_type}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -455,7 +464,7 @@ export function ProductFormModal({
                   <input
                     id="product-dimensions"
                     className="form-input"
-                    placeholder="Ex. DN50 Â· 60,3 Ã— 2"
+                    placeholder="Ex. DN50 · 60,3 × 2"
                     value={form.dimensions}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -498,7 +507,7 @@ export function ProductFormModal({
                     }))
                   }
                 />
-                Produit actif et proposÃ© dans les recherches et chiffrages
+                Produit actif et proposé dans les recherches et chiffrages
               </label>
             ) : null}
 

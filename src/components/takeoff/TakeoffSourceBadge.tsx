@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { EstimateExplanationPanel } from "@/components/estimates/EstimateExplanationPanel";
 import { usePopover } from "@/hooks/usePopover";
+import { SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS } from "@/lib/takeoff/source-badge";
 
 const TakeoffLineEvidencePanel = dynamic(
   () => import("@/components/takeoff/TakeoffLineEvidencePanel"),
@@ -16,13 +17,7 @@ const TakeoffLineEvidencePanel = dynamic(
 );
 
 const NOT_AVAILABLE_LABEL = "Non disponible";
-const SUPPORTED_BADGE_PROVIDERS = new Set([
-  "takeoff",
-  "takeoff_gemini",
-  "ai_structure",
-  "generated_ouvrage",
-  "version_zero_draft",
-]);
+const SUPPORTED_BADGE_PROVIDERS = SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS;
 
 type TakeoffSourceBadgeProps = {
   versionId: string;

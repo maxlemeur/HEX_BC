@@ -46,7 +46,6 @@ export async function createProduct(input: CreateProductInput) {
     standard: input.standard,
     unit: input.unit,
     unit_price_cents: input.unit_price_cents,
-    tax_rate_bp: input.tax_rate_bp,
     is_active: input.is_active,
   });
 

@@ -1,5 +1,10 @@
-export const TEMPLATE_VERSION = "1.0";
-export const TEMPLATE_FILE_URL = "/templates/hex-bc-produits-tarifs-v1.xlsx";
+export const TEMPLATE_VERSION = "2.0";
+/**
+ * Le gabarit v1 portait une colonne "tva" par produit, aujourd'hui sans usage.
+ * Il reste accepte a l'import pour ne pas invalider les fichiers deja remplis.
+ */
+export const SUPPORTED_TEMPLATE_VERSIONS = ["1.0", "2.0"] as const;
+export const TEMPLATE_FILE_URL = "/templates/hex-bc-produits-tarifs-v2.xlsx";
 
 export type ProductPriceTemplateSheet =
   | "Mode d'emploi"
@@ -17,7 +22,6 @@ export type ProductTemplateRow = {
   standard: string | null;
   unit: string;
   unit_price_cents: number;
-  tax_rate_bp: number;
   is_active: true;
 };
 

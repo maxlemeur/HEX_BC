@@ -986,7 +986,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "VERSION_CONFLICT",
-      message: "Version modifiee par un autre utilisateur",
+      message: "Version modifiée ailleurs (autre onglet, autre session ou autre utilisateur)",
       details: {
         updated_at: VERSION_UPDATED_AT,
       },
@@ -1083,7 +1083,7 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "VERSION_CONFLICT",
-      message: "Version modifiee par un autre utilisateur",
+      message: "Version modifiée ailleurs (autre onglet, autre session ou autre utilisateur)",
       details: {
         updated_at: VERSION_UPDATED_AT,
       },
@@ -1489,7 +1489,7 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "VERSION_CONFLICT",
-      message: "Version modifiee par un autre utilisateur",
+      message: "Version modifiée ailleurs (autre onglet, autre session ou autre utilisateur)",
       details: {
         updated_at: VERSION_UPDATED_AT,
       },

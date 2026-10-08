@@ -383,6 +383,94 @@ describe("catalogue server regressions", () => {
     expect(result.linked_count).toBe(2);
   });
 
+  it("matches an existing product whose reference differs only by case", async () => {
+    const referenceFilters: Array<{ column: string; values: unknown }> = [];
+    const insertedPayloads: unknown[] = [];
+
+    const supabase = {
+      ...createAuthenticatedSupabaseBase(),
+      from: vi.fn((table: string) => {
+        if (table === "dpgf_rows_mapped") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                order: vi.fn(() => ({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [
+                      {
+                        id: "row-1",
+                        payload: {
+                          reference: "  BOU.M8.40 ",
+                          designation: " Boulon M8x40 ",
+                        },
+                      },
+                    ],
+                    error: null,
+                  }),
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "products") {
+          return {
+            select: vi.fn(() => ({
+              in: vi.fn((column: string, values: unknown) => {
+                referenceFilters.push({ column, values });
+                return Promise.resolve({
+                  data:
+                    column === "reference_normalized"
+                      ? [
+                          {
+                            id: PRODUCT_ID,
+                            reference: "bou.M8.40",
+                            designation: "Boulon M8x40 inox",
+                          },
+                        ]
+                      : [],
+                  error: null,
+                });
+              }),
+            })),
+            insert: vi.fn((rows: unknown) => {
+              insertedPayloads.push(rows);
+              return {
+                select: vi.fn().mockResolvedValue({ data: [], error: null }),
+              };
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await linkMappedRowsToCatalogue({
+      action: "link-mapped-rows",
+      import_id: IMPORT_ID,
+      limit: 1000,
+      create_missing: true,
+      update_payload: false,
+      dry_run: false,
+    });
+
+    expect(referenceFilters).toContainEqual({
+      column: "reference_normalized",
+      values: ["bou.m8.40"],
+    });
+    expect(referenceFilters).toContainEqual({
+      column: "designation_normalized",
+      values: ["boulon m8x40"],
+    });
+    expect(insertedPayloads).toEqual([]);
+    expect(result.created_catalogue_count).toBe(0);
+    expect(result.linked_count).toBe(1);
+  });
+
   it("uses tenant-scoped conflict target in fallback material index bulk upsert", async () => {
     const onConflictTargets: string[] = [];
 
@@ -494,7 +582,6 @@ describe("catalogue server regressions", () => {
               designation: "Tube acier",
               reference: "TUBE-01",
               unit_price_cents: 1200,
-              tax_rate_bp: 2000,
               is_active: true,
               price_status: "fresh",
               supplier_price_count: "2",

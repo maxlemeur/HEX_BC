@@ -1,5 +1,5 @@
 import {
-  TEMPLATE_VERSION,
+  SUPPORTED_TEMPLATE_VERSIONS,
   type ProductPriceTemplateIssue,
   type ProductPriceTemplateParseResult,
   type ProductPriceTemplateSheet,
@@ -35,8 +35,13 @@ const PRODUCT_HEADERS = [
   "norme",
   "unite",
   "prix_reference_ht",
-  "tva",
 ] as const;
+
+/**
+ * Gabarit v1 : meme feuille "Produits" suivie d'une colonne "tva" desormais ignoree.
+ * Accepte a l'import pour ne pas rejeter les fichiers deja distribues.
+ */
+const LEGACY_PRODUCT_HEADERS_V1 = [...PRODUCT_HEADERS, "tva"] as const;
 
 const PRICE_HEADERS = [
   "reference_produit",
@@ -133,7 +138,7 @@ function parseDate(value: WorkbookCell, xlsx: XlsxModule): string | null {
 }
 
 function normalizedReference(value: string): string {
-  return value.toLocaleLowerCase("fr-FR");
+  return value.trim().toLocaleLowerCase("fr-FR");
 }
 
 function sheetRows(sheet: XlsxWorkSheet, xlsx: XlsxModule): WorkbookCell[][] {
@@ -145,10 +150,17 @@ function sheetRows(sheet: XlsxWorkSheet, xlsx: XlsxModule): WorkbookCell[][] {
   });
 }
 
+function matchesHeaders(headers: readonly string[], expected: readonly string[]) {
+  return (
+    headers.length === expected.length &&
+    expected.every((value, index) => headers[index] === value)
+  );
+}
+
 function validateHeaders(
   sheet: XlsxWorkSheet,
   sheetName: ProductPriceTemplateSheet,
-  expectedHeaders: readonly string[],
+  acceptedHeaders: readonly (readonly string[])[],
   issues: ProductPriceTemplateIssue[],
   xlsx: XlsxModule
 ): WorkbookCell[][] | null {
@@ -157,9 +169,8 @@ function validateHeaders(
   const headers = rawHeaders.map(textValue);
   while (headers.at(-1) === "") headers.pop();
 
-  const areExact =
-    headers.length === expectedHeaders.length &&
-    expectedHeaders.every((expected, index) => headers[index] === expected);
+  const [expectedHeaders] = acceptedHeaders;
+  const areExact = acceptedHeaders.some((accepted) => matchesHeaders(headers, accepted));
 
   if (!areExact) {
     const mismatchIndex = expectedHeaders.findIndex((expected, index) => headers[index] !== expected);
@@ -197,9 +208,7 @@ function parseProducts(
     const designation = textValue(row[1]);
     const unit = textValue(row[8]) || "u";
     const priceCell = row[9];
-    const taxCell = row[10];
     const unitPrice = textValue(priceCell) === "" ? 0 : parseLocalizedNumber(priceCell);
-    const taxRate = textValue(taxCell) === "" ? 20 : parseLocalizedNumber(taxCell);
     const rowIssuesBefore = issues.length;
 
     if (!reference) {
@@ -246,17 +255,7 @@ function parseProducts(
       });
     }
 
-    if (taxRate === null || taxRate < 0 || taxRate > 100) {
-      addBlockingIssue(issues, {
-        sheet: PRODUCTS_SHEET,
-        row: rowNumber,
-        column: "tva",
-        code: "PRODUCT_TAX_INVALID",
-        message: "La TVA doit etre un nombre compris entre 0 et 100.",
-      });
-    }
-
-    if (issues.length !== rowIssuesBefore || unitPrice === null || taxRate === null) return;
+    if (issues.length !== rowIssuesBefore || unitPrice === null) return;
 
     products.push({
       reference,
@@ -269,7 +268,6 @@ function parseProducts(
       standard: optionalText(row[7]),
       unit,
       unit_price_cents: Math.round(unitPrice * 100),
-      tax_rate_bp: Math.round(taxRate * 100),
       is_active: true,
     });
   });
@@ -439,13 +437,16 @@ export async function parseProductPriceTemplateWorkbook(
     });
   } else {
     version = textValue(instructionsSheet.B2?.v as WorkbookCell) || null;
-    if (version !== TEMPLATE_VERSION) {
+    const isSupportedVersion =
+      version !== null &&
+      (SUPPORTED_TEMPLATE_VERSIONS as readonly string[]).includes(version);
+    if (!isSupportedVersion) {
       addBlockingIssue(issues, {
         sheet: INSTRUCTIONS_SHEET,
         row: 2,
         column: "B",
         code: "TEMPLATE_VERSION_INVALID",
-        message: `Version de template invalide : ${version ?? "absente"}. Version attendue : ${TEMPLATE_VERSION}.`,
+        message: `Version de template invalide : ${version ?? "absente"}. Versions acceptees : ${SUPPORTED_TEMPLATE_VERSIONS.join(", ")}.`,
       });
     }
   }
@@ -463,7 +464,7 @@ export async function parseProductPriceTemplateWorkbook(
     const rows = validateHeaders(
       productsSheet,
       PRODUCTS_SHEET,
-      PRODUCT_HEADERS,
+      [PRODUCT_HEADERS, LEGACY_PRODUCT_HEADERS_V1],
       issues,
       xlsx
     );
@@ -483,7 +484,7 @@ export async function parseProductPriceTemplateWorkbook(
     const rows = validateHeaders(
       pricesSheet,
       PRICES_SHEET,
-      PRICE_HEADERS,
+      [PRICE_HEADERS],
       issues,
       xlsx
     );

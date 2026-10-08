@@ -62,7 +62,6 @@ describe("ProductCsvImport", () => {
         expect.objectContaining({
           designation: "Tube inox",
           unit_price_cents: 2550,
-          tax_rate_bp: 2000,
           is_active: true,
         }),
       ]);

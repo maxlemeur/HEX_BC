@@ -262,7 +262,6 @@ const productTemplateRowSchema = z.object({
   standard: z.string().trim().max(255).nullable(),
   unit: z.string().trim().min(1).max(50),
   unit_price_cents: z.number().int().min(0),
-  tax_rate_bp: z.number().int().min(0).max(10000),
   is_active: z.literal(true),
 });
 const supplierPriceTemplateRowSchema = z.object({

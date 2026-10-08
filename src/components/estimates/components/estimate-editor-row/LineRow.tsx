@@ -16,6 +16,8 @@ import {
 } from "@/lib/estimates/line-margin";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
+import { hasTakeoffSourceBadge } from "@/lib/takeoff/source-badge";
+import { Popover } from "@/components/ui-legacy/Popover";
 import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
 import {
   ESTIMATE_QUALITY_FLAG_META,
@@ -411,6 +413,137 @@ export function LineRow({
     });
   };
 
+  // Pastilles courtes montrees a cote du titre : leur largeur est bornee, elles
+  // ne peuvent donc pas pousser la ligne sur un second rang.
+  const lineStateNodes = (
+    <>
+      <EstimateLineNatureSelect item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
+      <EstimateLineTruthBadges item={item} />
+      {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
+        <div className="estimate-quality-dots">
+          {qualityFlags.slice(0, 3).map((flag) => {
+            const targetColumn = getQualityFlagCellTarget(flag, {
+              isLaborSplitEnabled,
+              isLaborRoleVisible,
+            });
+            const isClickable = Boolean(targetColumn);
+            const focusTargetCell = () => {
+              if (!targetColumn) {
+                return;
+              }
+
+              const cellId = `${item.id}::${targetColumn}`;
+              const el = document.querySelector<HTMLElement>(
+                `[data-cell-id="${cellId}"]`,
+              );
+              el?.focus();
+            };
+
+            if (isClickable) {
+              return (
+                <span
+                  key={flag}
+                  className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
+                  title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} — Cliquer pour aller au champ`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={focusTargetCell}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      focusTargetCell();
+                    }
+                  }}
+                />
+              );
+            }
+
+            return (
+              <span
+                key={flag}
+                className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
+                title={ESTIMATE_QUALITY_FLAG_META[flag].label}
+              />
+            );
+          })}
+          {qualityFlags.length > 3 ? (
+            <span
+              className="estimate-quality-overflow"
+              title={qualityFlags
+                .slice(3)
+                .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
+                .join(", ")}
+            >
+              +{qualityFlags.length - 3}
+            </span>
+          ) : null}
+          {dismissedOutlierBadges.map((flag) => (
+            <span
+              key={`dismissed:${flag}`}
+              className="estimate-quality-dot estimate-quality-dot--dismissed"
+              title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} (accepté)`}
+            />
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+
+  // Contenus longs ou rares : ils vivent dans le menu « … » de la ligne au lieu
+  // d'ajouter un rang de badges et de messages sous le titre.
+  const hasLineDetails =
+    hasTakeoffSourceBadge(item.source_provider) ||
+    hasSupplierComparisonMismatch ||
+    actionableOutlierFlags.length > 0;
+  const lineDetailNodes = (
+    <>
+      <TakeoffSourceBadge
+        versionId={versionId}
+        estimateItemId={item.id}
+        lineLabel={item.title}
+        sourceProvider={item.source_provider}
+        sourceJobId={item.source_job_id}
+        sourceFileName={item.source_file_name}
+        sourcePage={item.source_page}
+        sourceLevel={sourceLevel}
+        extractedAt={sourceExtractedAt}
+        sourceVersionNumber={item.source_version_number}
+        sourceMetadata={sourceMetadata}
+        cacheToken={item.updated_at}
+      />
+      {hasSupplierComparisonMismatch ? (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="estimate-supplier-comparison-row-badge">
+            Meilleur prix fournisseur disponible
+          </span>
+        </div>
+      ) : null}
+      {actionableOutlierFlags.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1">
+          {actionableOutlierFlags.map((flag) => {
+            const isDismissed = dismissedOutlierSet.has(flag);
+            return (
+              <button
+                key={`toggle:${flag}`}
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() =>
+                  onToggleOutlierDismiss(item.id, flag, !isDismissed)
+                }
+                disabled={isReadOnly || isOutlierActionPending}
+                title={ESTIMATE_QUALITY_FLAG_META[flag].description}
+              >
+                {isDismissed
+                  ? `Réactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
+                  : `Accepter ${ESTIMATE_QUALITY_FLAG_META[flag].label}`}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </>
+  );
+
   return (
     <div
       ref={setNodeRef}
@@ -557,120 +690,32 @@ export function LineRow({
               ) : null}
             </div>
             <div className="estimate-line-designation__support">
-              <EstimateLineNatureSelect item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
-              <EstimateLineTruthBadges item={item} />
-              <TakeoffSourceBadge
-                versionId={versionId}
-                estimateItemId={item.id}
-                lineLabel={item.title}
-                sourceProvider={item.source_provider}
-                sourceJobId={item.source_job_id}
-                sourceFileName={item.source_file_name}
-                sourcePage={item.source_page}
-                sourceLevel={sourceLevel}
-                extractedAt={sourceExtractedAt}
-                sourceVersionNumber={item.source_version_number}
-                sourceMetadata={sourceMetadata}
-                cacheToken={item.updated_at}
-              />
-              {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
-                <div className="estimate-quality-dots">
-                  {qualityFlags.slice(0, 3).map((flag) => {
-                    const targetColumn = getQualityFlagCellTarget(flag, {
-                      isLaborSplitEnabled,
-                      isLaborRoleVisible,
-                    });
-                    const isClickable = Boolean(targetColumn);
-                    const focusTargetCell = () => {
-                      if (!targetColumn) {
-                        return;
-                      }
-
-                      const cellId = `${item.id}::${targetColumn}`;
-                      const el = document.querySelector<HTMLElement>(
-                        `[data-cell-id="${cellId}"]`,
-                      );
-                      el?.focus();
-                    };
-
-                    if (isClickable) {
-                      return (
-                        <span
-                          key={flag}
-                          className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
-                          title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} — Cliquer pour aller au champ`}
-                          role="button"
-                          tabIndex={0}
-                          onClick={focusTargetCell}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              focusTargetCell();
-                            }
-                          }}
-                        />
-                      );
-                    }
-
-                    return (
-                      <span
-                        key={flag}
-                        className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
-                        title={ESTIMATE_QUALITY_FLAG_META[flag].label}
-                      />
-                    );
-                  })}
-                  {qualityFlags.length > 3 ? (
-                    <span
-                      className="estimate-quality-overflow"
-                      title={qualityFlags
-                        .slice(3)
-                        .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
-                        .join(", ")}
-                    >
-                      +{qualityFlags.length - 3}
-                    </span>
-                  ) : null}
-                  {dismissedOutlierBadges.map((flag) => (
-                    <span
-                      key={`dismissed:${flag}`}
-                      className="estimate-quality-dot estimate-quality-dot--dismissed"
-                      title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} (accepté)`}
-                    />
-                  ))}
-                </div>
-              ) : null}
+              {lineStateNodes}
             </div>
-            {hasSupplierComparisonMismatch ? (
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="estimate-supplier-comparison-row-badge">
-                  Meilleur prix fournisseur disponible
-                </span>
+            <Popover
+              placement="bottom"
+              portal
+              className={`estimate-line-more${
+                hasLineDetails ? " estimate-line-more--available" : ""
+              }`}
+              contentClassName="estimate-line-more__menu"
+              trigger={
+                <button
+                  className="estimate-line-more__trigger"
+                  type="button"
+                  aria-label={`Details de la ligne ${item.title || "sans titre"}`}
+                  title="Details de la ligne"
+                  data-testid="estimate-line-more-trigger"
+                >
+                  …
+                </button>
+              }
+            >
+              <div className="estimate-line-more__items">
+                <div className="estimate-line-more__state">{lineStateNodes}</div>
+                {lineDetailNodes}
               </div>
-            ) : null}
-            {actionableOutlierFlags.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1">
-                {actionableOutlierFlags.map((flag) => {
-                  const isDismissed = dismissedOutlierSet.has(flag);
-                  return (
-                    <button
-                      key={`toggle:${flag}`}
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() =>
-                        onToggleOutlierDismiss(item.id, flag, !isDismissed)
-                      }
-                      disabled={isReadOnly || isOutlierActionPending}
-                      title={ESTIMATE_QUALITY_FLAG_META[flag].description}
-                    >
-                      {isDismissed
-                        ? `Réactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
-                        : `Accepter ${ESTIMATE_QUALITY_FLAG_META[flag].label}`}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
+            </Popover>
           </div>
         </div>
       </div>
