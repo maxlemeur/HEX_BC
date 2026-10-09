@@ -150,25 +150,25 @@ export default function LoginPipeNetwork() {
           />
         ))}
 
-        {/* Fluid packets (hidden when user prefers reduced motion) */}
-        {!prefersReduced &&
-          PACKETS.map(({ pipe, duration, delay, color, mobileHidden }, i) => (
-            <path
-              key={`packet-${i}`}
-              className={`pipe-packet${mobileHidden ? " pipe-packet-mobile-hide" : ""}`}
-              d={PIPES[pipe]}
-              pathLength={1}
-              fill="none"
-              stroke={`url(#${color === "blue" ? "bluePacket" : "orangePacket"})`}
-              strokeWidth={3}
-              strokeLinecap="round"
-              strokeDasharray="0.08 0.92"
-              filter="url(#pipeGlow)"
-              style={{
-                animation: `pipeFlow ${duration}s linear ${delay}s infinite`,
-              }}
-            />
-          ))}
+        {/* Fluid packets: always rendered so server and client markup match; the
+            prefers-reduced-motion rule in legacy.css hides them. */}
+        {PACKETS.map(({ pipe, duration, delay, color, mobileHidden }, i) => (
+          <path
+            key={`packet-${i}`}
+            className={`pipe-packet${mobileHidden ? " pipe-packet-mobile-hide" : ""}`}
+            d={PIPES[pipe]}
+            pathLength={1}
+            fill="none"
+            stroke={`url(#${color === "blue" ? "bluePacket" : "orangePacket"})`}
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeDasharray="0.08 0.92"
+            filter="url(#pipeGlow)"
+            style={{
+              animation: `pipeFlow ${duration}s linear ${delay}s infinite`,
+            }}
+          />
+        ))}
       </svg>
     </div>
   );
