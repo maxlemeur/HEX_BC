@@ -299,17 +299,19 @@ export function extractVersionIdFromUrl(url: string) {
 }
 
 export async function loginWithUi(page: Page) {
-  const { email, password } = requireE2ELoginCredentials();
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await page.goto("/login", { waitUntil: "domcontentloaded" });
 
+    // An existing session (stored state) is redirected to the dashboard: credentials are
+    // only needed when the login form is actually shown.
     if (/\/dashboard(?:$|[/?#])/.test(page.url())) {
       await bootstrapTenantMembershipIfMissing(page);
       return;
     }
 
+    const { email, password } = requireE2ELoginCredentials();
     await expect(page.getByRole("heading", { name: /Connexion/i })).toBeVisible();
 
     await page.getByLabel("Email").fill(email);
@@ -760,9 +762,16 @@ export async function addLine(page: Page, lineTitle: string) {
 export async function setLineCoreValues(
   page: Page,
   lineTitle: string,
-  values: { quantity: string; unitPriceHt: string }
+  values: { quantity: string; unitPriceHt: string; unit?: string }
 ) {
   const escapedTitle = escapeRegExp(lineTitle);
+
+  // The unit is required: a line without one stays invalid and autosave keeps waiting.
+  const unitInput = page.getByLabel(new RegExp(`Unité pour ${escapedTitle}`, "i"));
+  if ((await unitInput.inputValue()).trim() === "") {
+    await unitInput.fill(values.unit ?? "u");
+    await unitInput.press("Tab");
+  }
 
   const quantityInput = page.getByLabel(
     new RegExp(`Quantité pour ${escapedTitle}`, "i")
@@ -770,21 +779,23 @@ export async function setLineCoreValues(
   await quantityInput.fill(values.quantity);
   await quantityInput.press("Tab");
 
+  // The editable unit price is the purchase price ("Prix d’achat unitaire HT pour …"); the
+  // sale price next to it is read-only.
   const priceInput = page.getByLabel(
-    new RegExp(`Prix unitaire pour ${escapedTitle}`, "i")
+    new RegExp(`Prix (d.achat )?unitaire( HT)? pour ${escapedTitle}`, "i")
   );
   await priceInput.fill(values.unitPriceHt);
   await priceInput.press("Tab");
 }
 
 export async function waitForAutoSave(page: Page) {
-  await expect(
-    page.getByText(/Sauvegard[ée]|Sauvegarde en cours/i).first()
-  ).toBeVisible({ timeout: 25_000 });
-
-  await expect(
-    page.getByText(/Sauvegard[ée]/i).first()
-  ).toBeVisible({ timeout: 25_000 });
+  // The automatic cadence is one minute (AUTOSAVE_DEBOUNCE_MS): save now with the editor
+  // shortcut, then wait for the toolbar status to confirm.
+  await page.keyboard.press("Control+s");
+  await expect(page.getByTestId("estimate-page-toolbar-autosave-status")).toContainText(
+    /Sauvegard[ée]/i,
+    { timeout: 30_000 }
+  );
 }
 
 export async function changeEstimateStatus(

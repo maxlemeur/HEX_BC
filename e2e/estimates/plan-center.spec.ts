@@ -71,7 +71,9 @@ test.describe("V3-006 — Plan Center affaire", () => {
     ).toBe("plans");
 
     // 3. Verify breadcrumb 3 levels
-    const breadcrumb = page.locator("nav[aria-label=\"Fil d'Ariane\"]");
+    // Role locator: after a client navigation Next keeps the previous route mounted but
+    // hidden, with its own breadcrumb.
+    const breadcrumb = page.getByRole("navigation", { name: "Fil d'Ariane" });
     await expect(breadcrumb).toBeVisible();
     await expect(breadcrumb.getByText("Affaires")).toBeVisible();
     await expect(breadcrumb.getByRole("link", { name: projectName })).toBeVisible();
@@ -89,17 +91,23 @@ test.describe("V3-006 — Plan Center affaire", () => {
     await expect(dialog).toBeHidden({ timeout: 10_000 });
 
     // Verify the set card appeared
-    await expect(page.getByText("Jeu de test E2E")).toBeVisible();
-    await expect(page.getByText("0 plans")).toBeVisible();
+    // The heading, not the sr-only "created" announcement that also contains the name.
+    await expect(page.getByRole("heading", { name: "Jeu de test E2E" })).toBeVisible();
+    // The card renders the count twice (compact and wide layouts): check the visible one.
+    await expect(page.getByText("0 plans").filter({ visible: true })).toBeVisible();
 
     // 6. Expand the set and upload a PDF
-    await page.getByText("Jeu de test E2E").click();
+    await page.getByRole("heading", { name: "Jeu de test E2E" }).click();
 
     const dropZone = page.locator("input[type='file'][accept*='pdf']").first();
     await dropZone.setInputFiles(SAMPLE_PDF);
 
     // 7. Verify file appears (name, size)
-    await expect(page.getByText("sample-plan.pdf")).toBeVisible({ timeout: 15_000 });
+    // The file card is identified by its own delete button (the name also appears in the
+    // upload progress list and in the sr-only announcement).
+    await expect(
+      page.getByRole("button", { name: /^Supprimer sample-plan.pdf$/i })
+    ).toBeVisible({ timeout: 15_000 });
 
     // 8. Delete the file
     const fileDeleteBtn = page.getByRole("button", {
@@ -116,7 +124,9 @@ test.describe("V3-006 — Plan Center affaire", () => {
     await expect(confirmDialog).toBeHidden({ timeout: 10_000 });
 
     // Verify file is gone
-    await expect(page.getByText("sample-plan.pdf")).toBeHidden({ timeout: 10_000 });
+    await expect(
+      page.getByRole("button", { name: /^Supprimer sample-plan.pdf$/i })
+    ).toBeHidden({ timeout: 10_000 });
 
     // 9. Delete the plan set
     // The set header has a delete button (trash icon)
