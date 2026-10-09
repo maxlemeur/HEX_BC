@@ -14,6 +14,7 @@
 /coverage
 /playwright-report/
 /test-results/
+/.e2e/
 /tmp/
 
 # next.js
@@ -68,3 +69,4 @@ outputs/
 
 # artefacts de scan securite (volumineux, non versionnes)
 .codex-security-work/
+.codex-tmp/
