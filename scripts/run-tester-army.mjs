@@ -7,12 +7,16 @@ import nextEnv from "@next/env";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const mode = process.argv[2] ?? "smoke";
-if (!["smoke", "agent", "list", "critical", "critical-list"].includes(mode)) {
-  throw new Error("Usage: node scripts/run-tester-army.mjs [smoke|agent|list|critical|critical-list] [runner flags]");
+if (!["smoke", "agent", "list", "critical", "critical-list", "performance", "performance-list", "performance-grid", "performance-navigation", "performance-navigation-live"].includes(mode)) {
+  throw new Error("Usage: node scripts/run-tester-army.mjs [smoke|agent|list|critical|critical-list|performance|performance-list|performance-grid|performance-navigation|performance-navigation-live] [runner flags]");
 }
 const critical = mode.startsWith("critical");
-const discoveryOnly = mode === "list" || mode === "critical-list";
-const output = path.join(root, ".e2e", "army", ...(critical ? ["critical"] : []));
+const performance = mode.startsWith("performance");
+const navigation = mode.startsWith("performance-navigation");
+const live = mode === "performance-navigation-live";
+const authenticated = critical || performance;
+const discoveryOnly = mode === "list" || mode.endsWith("-list");
+const output = path.join(root, ".e2e", "army", ...(critical ? ["critical"] : performance ? ["performance"] : []));
 const reportPath = path.join(output, "report.json");
 
 const extraArgs = process.argv.slice(3).filter((arg) => arg !== "--");
@@ -23,7 +27,8 @@ for (let index = 0; index < extraArgs.length; index += 1) {
     if (!value || value.split(",").some((target) => !["chromium-desktop", "chromium-mobile"].includes(target))) {
       throw new Error("Choose chromium-desktop or chromium-mobile with --target.");
     }
-  } else if (critical && (arg === "--grep" || arg.startsWith("--grep="))) {
+    if (navigation && value !== "chromium-desktop") throw new Error("Navigation diagnosis currently requires chromium-desktop.");
+  } else if (authenticated && (arg === "--grep" || arg.startsWith("--grep="))) {
     const value = arg === "--grep" ? extraArgs[++index] : arg.slice("--grep=".length);
     if (!value) throw new Error("--grep requires a test-title pattern.");
   } else if (!["--headed", "--no-cache", "--debug"].includes(arg) || discoveryOnly) {
@@ -37,10 +42,10 @@ const args = [
   "--config",
   "e2e.config.ts",
   "--tag",
-  critical ? "critical" : mode === "agent" ? "agent" : "smoke",
+  critical ? "critical" : navigation ? "navigation-performance" : mode === "performance-grid" ? "grid-performance" : performance ? "performance" : mode === "agent" ? "agent" : "smoke",
   "--exclude-tag",
   mode === "agent" ? "smoke" : "agent",
-  ...((mode === "agent" || critical) && !hasTarget ? ["--target", "chromium-desktop"] : []),
+  ...((mode === "agent" || critical || navigation) && !hasTarget ? ["--target", "chromium-desktop"] : []),
   ...(discoveryOnly ? ["--reporter", "json"] : []),
   ...extraArgs,
 ];
@@ -96,15 +101,15 @@ const manifest = {
   runtime: { node: process.version, platform: process.platform, arch: process.arch },
   source: {},
   fixtures: {
-    account: critical ? "configured E2E account, ordinary login UI" : "anonymous fresh browser context",
-    paths: critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
-    submittedForms: critical,
-    credentials: critical ? "opaque password; no JWT extraction or service role" : "none",
+    account: authenticated ? "configured E2E account, ordinary login UI" : "anonymous fresh browser context",
+    paths: navigation ? ["/login", "/dashboard/affaires", "/dashboard/orders", "/dashboard/referentiel", "/dashboard/products"] : mode === "performance-grid" ? ["/login", "/dashboard/affaires", "existing ARMY editor; browser-only synthetic read-only payload"] : performance ? ["/login", "/signup", "/dashboard/affaires", "/dashboard/products", "/dashboard/orders"] : critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
+    submittedForms: authenticated,
+    credentials: authenticated ? "opaque password; no JWT extraction or service role" : "none",
     appOrigin: null,
-    ...(critical ? { mutationScope: "new ARMY drafts/imports only; retain evidence; no email or existing business mutations" } : {}),
+    ...(performance ? { mutationScope: "ordinary login; read-only page visits and local input/scroll interactions" } : critical ? { mutationScope: "new ARMY drafts/imports only; retain evidence; no email or existing business mutations" } : {}),
   },
   telemetry: "disabled in child environment",
-  tracePolicy: critical ? "anonymous access only; authenticated traces off because generated tokens are not SDK secrets" : "all anonymous attempts",
+  tracePolicy: performance ? "off; authenticated metrics contain no cookies, headers or response bodies" : critical ? "anonymous access only; authenticated traces off because generated tokens are not SDK secrets" : "all anonymous attempts",
   result: { status: "running", exitCode: null },
 };
 const manifestPath = path.join(output, "manifest.json");
@@ -114,7 +119,7 @@ await save();
 let collectedOutput = "";
 let childExitCode;
 try {
-  if (critical) {
+  if (authenticated) {
     nextEnv.loadEnvConfig(root, true, { info() {}, error() {} });
     if (!discoveryOnly) {
       const required = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST"];
@@ -131,11 +136,12 @@ try {
     }
   }
   // Capture failures must replace an earlier manifest before any runner starts.
-  const normalizedOrigin = new URL(process.env.E2E_ARMY_BASE_URL ?? "http://localhost:3107");
+  const normalizedOrigin = new URL(process.env.E2E_ARMY_BASE_URL ?? (live ? "http://localhost:3000" : "http://localhost:3107"));
   if (["localhost", "127.0.0.1", "[::1]"].includes(normalizedOrigin.hostname)) {
     normalizedOrigin.hostname = "localhost";
   }
   manifest.fixtures.appOrigin = normalizedOrigin.origin;
+  manifest.environment = live ? "existing loopback development server; attached without process ownership" : performance ? "owned isolated production server" : "owned loopback server";
   // Keep Next's generated config updates separate from another active dev server.
   await writeFile(path.join(root, ".e2e", "army", "tsconfig.json"), `${JSON.stringify({
     extends: "../../tsconfig.json",
@@ -158,6 +164,19 @@ try {
     pilotInputs: await fingerprint(inputs),
     untrackedRuntimeInputs: await fingerprint(untrackedRuntimeFiles()),
   };
+  if (performance && !live && !discoveryOnly) {
+    const buildDirectory = path.join(root, ".e2e", "army", "next");
+    const buildIdPath = path.join(buildDirectory, "BUILD_ID");
+    manifest.productionBuild = {
+      directory: relative(buildDirectory),
+      id: (await readFile(buildIdPath, "utf8")).trim(),
+      inputs: await fingerprint([
+        buildIdPath,
+        path.join(buildDirectory, "required-server-files.json"),
+        path.join(buildDirectory, "build-manifest.json"),
+      ]),
+    };
+  }
   await save();
   childExitCode = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
@@ -170,7 +189,8 @@ try {
         E2E_TELEMETRY_DISABLED: "1",
         DO_NOT_TRACK: "1",
         NEXT_TELEMETRY_DISABLED: "1",
-        E2E_ARMY_SUITE: critical ? "critical" : "anonymous",
+        E2E_ARMY_SUITE: critical ? "critical" : performance ? "performance" : mode === "agent" ? "agent" : "anonymous",
+        ...(performance ? { E2E_ARMY_SERVER_MODE: live ? "live" : "production", E2E_ARMY_BASE_URL: normalizedOrigin.origin } : {}),
       },
     });
     child.stdout?.on("data", (chunk) => {
@@ -212,7 +232,7 @@ try {
     }
     const results = report.run.results ?? [];
     const successful = results.filter((result) => result.status === "passed");
-    if (critical) {
+    if (authenticated) {
       const auth = results.find((result) => result.file.endsWith("auth.setup.e2e.ts") && result.status !== "skipped");
       manifest.fixtures.authentication = { attempted: Boolean(auth), result: auth?.status ?? "not-selected" };
       if (!auth) {
@@ -235,7 +255,7 @@ try {
     manifest.report = { path: relative(reportPath), sha256: digest(bytes) };
     manifest.artifacts = await fingerprint(await filesIn(path.join(output, "artifacts")));
     manifest.tracePaths = manifest.artifacts.filter((file) => file.path.endsWith(".zip")).map((file) => file.path);
-    const expectedTraces = critical
+    const expectedTraces = performance ? 0 : critical
       ? successful.filter((result) => result.file.endsWith("access-boundaries.e2e.ts")).length
       : successful.length;
     if (evidenceExitCode === 0 && manifest.tracePaths.length < expectedTraces) {
@@ -265,6 +285,11 @@ try {
       manifest.source.workingDiffAfterSha256 !== manifest.source.workingDiffSha256 ||
       JSON.stringify(manifest.source.pilotInputsAfter) !== JSON.stringify(manifest.source.pilotInputs) ||
       JSON.stringify(manifest.source.untrackedRuntimeInputsAfter) !== JSON.stringify(manifest.source.untrackedRuntimeInputs);
+    if (manifest.productionBuild) {
+      const after = await fingerprint(manifest.productionBuild.inputs.map((file) => path.join(root, file.path)));
+      manifest.productionBuild.changedDuringRun = JSON.stringify(after) !== JSON.stringify(manifest.productionBuild.inputs);
+      if (manifest.productionBuild.changedDuringRun) throw new Error("Production build changed during performance measurement.");
+    }
   }
 } catch (error) {
   manifest.result.status = "evidence_unavailable";
@@ -274,7 +299,7 @@ try {
 }
 await save();
 const appLog = path.join(output, "logs", "app.log");
-try {
+if (!live) try {
   // The SDK appends this owned log. Redact old query secrets after account changes.
   let log = await readFile(appLog, "utf8");
   const password = process.env.E2E_LOGIN_PASSWORD;

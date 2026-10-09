@@ -1,6 +1,6 @@
 # Tester Army pilot
 
-This pilot adds [Tester Army e2e](https://github.com/tester-army/e2e) beside the existing Playwright suites. Exact browser assertions remain the pass criteria. Agent navigation is useful for exercising visible user intent, but an agent verdict alone is insufficient proof, and this anonymous pilot does not replace authenticated estimate/import/RLS coverage.
+[Tester Army e2e](https://github.com/tester-army/e2e) is the primary E2E runner under the mixed testing policy. Exact browser assertions remain the pass criteria; bounded agent navigation exercises visible user intent. Retained Playwright suites cover journeys without an equivalent executed Army replacement. This anonymous smoke does not establish authenticated estimate/import/RLS coverage. See [production performance](tester-army-performance.md) for measured page loading and interaction evidence.
 
 ## Failure modes recorded before implementation
 
@@ -32,6 +32,8 @@ The smoke requires the public Supabase variables documented in `.env.example`; N
 `E2E_ARMY_BASE_URL` can choose a local port. The config rejects non-loopback URLs, URL credentials and non-root paths, and normalizes a loopback hostname to `localhost` to preserve Next dev hydration. Shared or hosted environments need a separate reviewed configuration and explicit fixture/mutation scope.
 
 ## Optional subscription agent
+
+Verified action recordings use a read/write replay cache only in the opt-in agent command. Smoke, critical and performance runs keep replay off. Exact assertions still execute after each goal.
 
 Sign in yourself using the runner's supported OAuth command:
 

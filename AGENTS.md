@@ -27,7 +27,8 @@ Use current code, `package.json`, configuration, migrations, and focused documen
 ## Testing Policy
 
 - Never write unit tests after you write code.
-- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
+- Use TesterArmy (`e2e` + `@e2e-dev/web`) as the primary E2E runner. Mix bounded agent goals for navigation/exploration with exact assertions for business values, persistence, authorization and exports. Deterministic journeys need no model; an agent verdict alone does not establish correctness. Preserve a verifiable and repeatable artifact for every run.
+- Keep existing Playwright journeys until a TesterArmy replacement has equivalent executed assertions and evidence. Keep justified specialist isolation coverage for failures E2E cannot adequately reproduce.
 - If you must test a system in isolation, first write down all the ways it could fail, then write the code.
 - Before implementing a change, define its observable failures and the E2E scenarios that expose them. Isolation is an exception: document the concrete failure that existing E2E assertions miss and why an E2E scenario cannot adequately reproduce it, then write the isolated regression before the implementation.
 - Keep isolation tests only when they detect a real uncovered failure, such as an authorization bypass, race, recovery failure, parser edge case, or data-integrity error. Do not add tests for trivial getters, static source text, mocked forwarding, or behavior already asserted by E2E.
@@ -38,7 +39,7 @@ Use current code, `package.json`, configuration, migrations, and focused documen
 - `src/app/`: Next.js 16 App Router pages, layouts, server actions, and `api/**` handlers.
 - `src/components/`, `src/hooks/`: shared UI and reusable hooks.
 - `src/lib/`, `src/workers/`, `src/test/`: domain/integration logic, background work, and shared test support.
-- `e2e/`: Playwright plus legacy PowerShell/agent-browser coverage.
+- `e2e/`: TesterArmy journeys, retained Playwright coverage and legacy PowerShell/agent-browser suites.
 - `supabase/migrations/`, `supabase/functions/`: ordered database changes and Edge Functions.
 - `src/lib/openapi/`, `openapi.json`: OpenAPI source generation and its tracked artifact.
 - `docs/`, `maquette/`: focused records and design references.
@@ -53,9 +54,10 @@ Use Node.js 24 LTS as pinned by `.nvmrc` and used by CI/Vercel.
 - Run: `npm run dev`, `npm run dev:webpack` to isolate Turbopack behavior, or `npm run start` for an existing build.
 - Check: `npx eslint <touched-files>`, `npm run lint`, `npm run typecheck`, `npm test`.
 - Focus tests: `npm test -- path/to/file.test.ts`; add `--project=node` for server/domain tests or `--project=jsdom` for components/hooks.
-- E2E: choose `npm run e2e:pw:critical`, `npm run e2e:pw:ux`, or `npm run e2e:pw:takeoff-matrix` for the affected workflow.
+- E2E: `npm run e2e` runs the TesterArmy anonymous smoke; choose `npm run e2e:army:critical` for covered business journeys and `npm run e2e:army:agent` for opt-in agent navigation. Use the retained `e2e:pw:*` suites where replacement coverage is incomplete.
 - TesterArmy pilot: `npm run e2e:army` runs anonymous desktop/mobile browser checks with `.e2e/army/manifest.json`, `report.json`, screenshots and traces. Read `docs/testing/tester-army.md` and the installed `node_modules/e2e/skills/e2e/` guides before extending it. `npm run e2e:army:agent` requires the runner's separate subscription login; the anonymous pilot does not prove authenticated workflows or replace the existing Playwright suites.
 - TesterArmy business cases: `npm run e2e:army:critical` uses the dedicated local test-account configuration and an explicitly authorized Supabase host. Read `docs/testing/tester-army-critical.md`; create only new ARMY drafts/imports and retain their identities and exact result artifacts. Authenticated traces stay off; a prepared SQL fix still requires separate authorization before application to shared Supabase.
+- Performance: read `docs/testing/tester-army-performance.md` before `npm run e2e:army:performance`. Measure an isolated production build, retain raw samples and source/build identity, and compare identical scenarios before/after optimization. Local timing and viewport evidence do not qualify field Web Vitals or native mobile performance.
 - RLS: use `npm run db:ci:local` after checking prerequisites in `e2e/README.md`. It creates and destroys its own ephemeral local stack. `e2e:rls` is internal to that runner; never provide remote secrets or bypass its local-runner checks.
 - OpenAPI/build: `npm run generate-openapi`, `npm run validate-openapi`, `npm run build`.
 

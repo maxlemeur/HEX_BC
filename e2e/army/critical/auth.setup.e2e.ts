@@ -5,7 +5,7 @@ import { recordEvidence, restrictCriticalBrowser } from "./fixtures";
 
 test.setup(
   "authenticate the existing E2E account without provisioning memberships",
-  { sessions: ["army"], tags: ["critical"], timeout: 90_000 },
+  { sessions: ["army"], tags: ["critical", "performance"], timeout: 90_000 },
   async ({ app, browser, screen, session }) => {
     await restrictCriticalBrowser(browser, app);
     const account = credentials.user("army");

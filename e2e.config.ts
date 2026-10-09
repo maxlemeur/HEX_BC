@@ -5,7 +5,10 @@ import type { E2EConfig } from "e2e";
 import { chatgpt } from "e2e/oauth/chatgpt";
 
 const critical = process.env.E2E_ARMY_SUITE === "critical";
-const output = critical ? ".e2e/army/critical" : ".e2e/army";
+const performance = process.env.E2E_ARMY_SUITE === "performance";
+const live = performance && process.env.E2E_ARMY_SERVER_MODE === "live";
+const production = performance || process.env.E2E_ARMY_SERVER_MODE === "production";
+const output = critical ? ".e2e/army/critical" : performance ? ".e2e/army/performance" : ".e2e/army";
 const baseUrl = new URL(
   process.env.E2E_ARMY_BASE_URL ?? "http://localhost:3107"
 );
@@ -28,12 +31,11 @@ const app = {
   url: baseUrl.origin,
   readyUrl: `${baseUrl.origin}/login`,
   environment: "test" as const,
-  command: {
+  ...(!live ? { command: {
     executable: process.execPath,
     args: [
       path.resolve("node_modules/next/dist/bin/next"),
-      "dev",
-      "--webpack",
+      ...(production ? ["start"] : ["dev", "--webpack"]),
       "--hostname",
       "localhost",
       "--port",
@@ -43,17 +45,21 @@ const app = {
     env: {
       E2E_ARMY: "1",
       NEXT_TELEMETRY_DISABLED: "1",
+      ...(process.env.NEXT_PUBLIC_SUPABASE_URL ? { NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL } : {}),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? { NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } : {}),
     },
     startupTimeout: 180_000,
     shutdownTimeout: 15_000,
     log: `${output}/logs/app.log`,
     reuseExisting: false,
-  },
+  } } : {}),
 };
 
 export default {
-  projectId: critical ? "miaouffrage-critical-journeys" : "miaouffrage-anonymous-pilot",
-  tests: critical ? "e2e/army/critical/**/*.e2e.ts" : "e2e/army/*.e2e.ts",
+  projectId: critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
+  tests: critical ? "e2e/army/critical/**/*.e2e.ts" : performance
+    ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/performance/**/*.e2e.ts"]
+    : "e2e/army/*.e2e.ts",
   targets: [
     {
       name: "chromium-desktop",
@@ -75,9 +81,9 @@ export default {
   output,
   // Generated Supabase tokens are not known to the SDK's password ledger.
   // Authenticated proof uses assertion steps and explicit business artifacts.
-  trace: critical ? "off" : "on",
-  cache: "off",
-  ...(critical ? {
+  trace: critical || performance ? "off" : "on",
+  cache: process.env.E2E_ARMY_SUITE === "agent" ? "read-write" : "off",
+  ...(critical || performance ? {
     credentials: {
       prehydration: {
         username: "army-prehydration@example.invalid",

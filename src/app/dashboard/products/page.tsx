@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -19,8 +20,6 @@ import type {
   SortOption,
 } from "@/components/TableFilterBar";
 import { ProductCatalogueMenu } from "@/components/products/ProductCatalogueMenu";
-import { ProductCsvImport } from "@/components/products/ProductCsvImport";
-import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
 import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
 import { ProductsPagination } from "@/components/products/ProductsPagination";
 import { ProductsTable } from "@/components/products/ProductsTable";
@@ -32,11 +31,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 
-import {
-  ProductFormModal,
-  type ProductPayload,
-  type ProductRecord,
+import type {
+  ProductPayload,
+  ProductRecord,
 } from "./ProductFormModal";
+
+const ProductFormModal = dynamic(
+  () => import("./ProductFormModal").then((module) => module.ProductFormModal),
+  { ssr: false }
+);
+const ProductCsvImport = dynamic(
+  () => import("@/components/products/ProductCsvImport").then((module) => module.ProductCsvImport),
+  { ssr: false }
+);
+const ProductPriceTemplateImport = dynamic(
+  () => import("@/components/products/ProductPriceTemplateImport").then((module) => module.ProductPriceTemplateImport),
+  { ssr: false }
+);
 
 type ProductPageResponse = {
   items: ProductView[];
@@ -577,33 +588,39 @@ export default function ProductsPage() {
           ) : null}
         </DialogContent>
       </Dialog>
-      <ProductFormModal
-        key={`${editingProduct?.id ?? "new"}:${isFormOpen ? "open" : "closed"}`}
-        open={isFormOpen}
-        product={editingProduct}
-        isSaving={isSaving}
-        error={formError}
-        categorySuggestions={data?.facets.categories}
-        materialSuggestions={data?.facets.materials}
-        onOpenChange={handleFormOpenChange}
-        onSubmit={saveProduct}
-      />
-      <ProductCsvImport
-        open={isImportOpen}
-        onClose={() => setIsImportOpen(false)}
-        onImported={async () => {
-          await mutate();
-          setSuccessMessage("Base produits importée et actualisée.");
-        }}
-      />
-      <ProductPriceTemplateImport
-        open={isTemplateImportOpen}
-        onClose={() => setIsTemplateImportOpen(false)}
-        onImported={async () => {
-          await mutate();
-          setSuccessMessage("Produits et tarifs importés, puis actualisés.");
-        }}
-      />
+      {isFormOpen ? (
+        <ProductFormModal
+          key={editingProduct?.id ?? "new"}
+          open={isFormOpen}
+          product={editingProduct}
+          isSaving={isSaving}
+          error={formError}
+          categorySuggestions={data?.facets.categories}
+          materialSuggestions={data?.facets.materials}
+          onOpenChange={handleFormOpenChange}
+          onSubmit={saveProduct}
+        />
+      ) : null}
+      {isImportOpen ? (
+        <ProductCsvImport
+          open={isImportOpen}
+          onClose={() => setIsImportOpen(false)}
+          onImported={async () => {
+            await mutate();
+            setSuccessMessage("Base produits importée et actualisée.");
+          }}
+        />
+      ) : null}
+      {isTemplateImportOpen ? (
+        <ProductPriceTemplateImport
+          open={isTemplateImportOpen}
+          onClose={() => setIsTemplateImportOpen(false)}
+          onImported={async () => {
+            await mutate();
+            setSuccessMessage("Produits et tarifs importés, puis actualisés.");
+          }}
+        />
+      ) : null}
     </div>
   );
 }
