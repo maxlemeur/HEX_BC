@@ -151,8 +151,10 @@ JSON.stringify((() => {
   }
 
   const badge = String(dialog.querySelector('.status-badge')?.textContent ?? '').trim();
-  const invalidReasonCount = dialog.querySelectorAll('p.text-rose-600').length;
-  const duplicateWarning = String(dialog.textContent ?? '').includes('Plusieurs colonnes pointent vers le meme champ cible');
+  const invalidReasonCount = dialog.querySelectorAll('[data-testid="paste-preview-row-invalid-reason"]').length;
+  const duplicateWarning =
+    Boolean(dialog.querySelector('[data-testid="paste-preview-dialog-duplicate-mapping-error"]')) ||
+    String(dialog.textContent ?? '').includes('Plusieurs colonnes pointent vers le m\u00eame champ cible');
 
   return {
     isOpen: true,
@@ -233,7 +235,7 @@ try {
     dialog.querySelectorAll('[data-testid="paste-preview-rows-table"] table tbody tr, section table tbody tr')
   );
   previewRows.forEach((row) => {
-    const invalid = row.querySelector('p.text-rose-600');
+    const invalid = row.querySelector('[data-testid="paste-preview-row-invalid-reason"]');
     if (!invalid) return;
     const includeToggle = row.querySelector('[data-testid="paste-preview-row-include-checkbox"], input[type="checkbox"]');
     if (includeToggle instanceof HTMLInputElement && includeToggle.checked) {
@@ -243,7 +245,7 @@ try {
 
   const confirmButton = dialog.querySelector('[data-testid="paste-preview-dialog-confirm-button"]') ??
     Array.from(dialog.querySelectorAll('button')).find((button) =>
-      String(button.textContent ?? '').trim() === 'Confirmer import'
+      String(button.textContent ?? '').trim() === "Confirmer l'import"
     );
   if (!confirmButton) throw new Error('Confirm import button missing.');
   if (confirmButton.disabled) {
@@ -269,7 +271,7 @@ try {
   if (!dialog) return true;
   const closeButton = dialog.querySelector('[data-testid="paste-preview-dialog-close-button"]') ??
     Array.from(dialog.querySelectorAll('button')).find((button) =>
-      String(button.textContent ?? '').trim() === 'Fermer'
+      String(button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Fermer'
     );
   if (closeButton) {
     closeButton.click();

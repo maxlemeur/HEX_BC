@@ -20,8 +20,8 @@ try {
   New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-153" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-ParamsTab -Session $Session
 
-  Invoke-AB $Session "find" "label" "Nom du rôle" "fill" "Ouvrier"
-  Invoke-AB $Session "find" "label" "Taux horaire (EUR)" "fill" "45"
+  Invoke-AB $Session "find" "label" "Nom du rôle" "fill" "Ouvrier" "--exact"
+  Invoke-AB $Session "find" "label" "Taux horaire (EUR)" "fill" "45" "--exact"
   Invoke-AB $Session "eval" @"
 (() => {
   const input = document.querySelector('#new-role-name');
@@ -37,9 +37,10 @@ try {
 })();
 "@ | Out-Null
 
-  Invoke-AB $Session "find" "label" "Nom de règle" "fill" "Bois"
-  Invoke-AB $Session "find" "label" "Mots-cles (virgules)" "fill" "bois"
-  Invoke-AB $Session "find" "label" "Unité" "fill" "m2"
+  Invoke-AB $Session "find" "label" "Nom de règle" "fill" "Bois" "--exact"
+  # Labels are matched exactly: existing rule rows expose "Unite/K FO/K MO/Priorite de la regle ..." aria-labels.
+  Invoke-AB $Session "find" "label" "Mots-cl$([char]0x00E9)s (virgules)" "fill" "bois" "--exact"
+  Invoke-AB $Session "find" "label" "Unité" "fill" "m2" "--exact"
 
   $js = @"
 (() => {
@@ -56,8 +57,8 @@ try {
 "@
   Invoke-AB $Session "eval" $js
 
-  Invoke-AB $Session "find" "label" "K FO" "fill" "1.2"
-  Invoke-AB $Session "find" "label" "K MO" "fill" "0.5"
+  Invoke-AB $Session "find" "label" "K FO" "fill" "1.2" "--exact"
+  Invoke-AB $Session "find" "label" "K MO" "fill" "0.5" "--exact"
 
   $js = @"
 (() => {
@@ -72,7 +73,7 @@ try {
 "@
   Invoke-AB $Session "eval" $js
 
-  Invoke-AB $Session "find" "label" "Priorité" "fill" "1"
+  Invoke-AB $Session "find" "label" "Priorité" "fill" "1" "--exact"
   Invoke-AB $Session "eval" @"
 (() => {
   const input = document.querySelector('#rule-name');

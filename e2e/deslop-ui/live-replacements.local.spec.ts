@@ -166,9 +166,9 @@ test("la revue assistée vivante confirme acceptation et rejet puis déclenche a
   const applyButton = page.getByRole("button", { name: "Appliquer au chiffrage", exact: true });
   await expect(applyButton).toBeDisabled();
   await page.getByRole("button", { name: "Accepter", exact: true }).nth(0).click();
-  await expect(page.getByRole("button", { name: "Accepte", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Accepté", exact: true })).toHaveCount(1);
   await page.getByRole("button", { name: "Rejeter", exact: true }).nth(2).click();
-  await expect(page.getByRole("button", { name: "Rejete", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Rejeté", exact: true })).toHaveCount(1);
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
   await expect(applyButton).toBeEnabled();
   await applyButton.click();
@@ -185,17 +185,17 @@ test("la revue assistée vivante confirme acceptation et rejet puis déclenche a
 test("tout accepter réintègre la ligne exclue et conserve le marquage à revoir", async ({ page }) => {
   await page.goto(`${baseUrl}?scenario=review`);
   await expect(page.getByRole("heading", { name: "Revue assistée — fixture locale", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "A revoir", exact: true }).nth(0).click();
-  await expect(page.getByRole("button", { name: "Marque", exact: true })).toHaveCount(1);
+  await page.getByRole("button", { name: "À revoir", exact: true }).nth(0).click();
+  await expect(page.getByRole("button", { name: "Marqué à revoir", exact: true })).toHaveCount(1);
   await expect(page.getByText("Tube PVC", { exact: true })).not.toHaveCSS("text-decoration-line", "line-through");
-  await expect(page.getByRole("button", { name: "Rejete", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rejeté", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Tout accepter (2 items)", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Accepte", exact: true })).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Marque", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Accepté", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Marqué à revoir", exact: true })).toHaveCount(1);
   await expect(page.getByText("Tube PVC", { exact: true })).not.toHaveCSS("text-decoration-line", "line-through");
-  await expect(page.getByRole("button", { name: "Rejete", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rejeté", exact: true })).toHaveCount(0);
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "3");
-  await expect(page.getByRole("status").filter({ hasText: "2 items acceptes" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "2 items acceptés" })).toBeVisible();
   await page.getByRole("button", { name: "Appliquer au chiffrage", exact: true }).click();
   await expect(page.getByRole("status", { name: "", exact: true }).filter({ hasText: "Application demandée localement" })).toBeVisible();
   expect(events).toEqual([

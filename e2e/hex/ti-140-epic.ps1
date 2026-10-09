@@ -28,12 +28,13 @@ try {
   Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Matériaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
 
   Go-ParamsTab -Session $Session
-  Invoke-AB $Session "find" "label" "Marge (multiplicateur)" "fill" "1.2"
+  Invoke-AB $Session "find" "label" "Marge" "fill" "1.2" "--exact"
   Invoke-AB $Session "find" "label" "Remise (EUR HT)" "fill" "10"
   Invoke-AB $Session "find" "label" "TVA unique" "fill" "20"
 
   $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "Total TTC" -Message "Totals visible"
+  # Settings summary total is "TTC a payer" (accented; "?" wildcard keeps this script ASCII).
+  Assert-Contains -Text $text -Expected "TTC ? payer" -Message "Totals visible"
 
   $versionIdJson = ConvertTo-Json $versionId -Compress
 $dupResult = Invoke-AB $Session "eval" @"

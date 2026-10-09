@@ -20,7 +20,7 @@ try {
   New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-146" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-ParamsTab -Session $Session
 
-  Invoke-AB $Session "find" "label" "Marge (multiplicateur)" "fill" "1.2"
+  Invoke-AB $Session "find" "label" "Marge" "fill" "1.2" "--exact"
   Invoke-AB $Session "find" "label" "Remise (EUR HT)" "fill" "10"
   Invoke-AB $Session "find" "label" "TVA unique" "fill" "20"
   $js = @"

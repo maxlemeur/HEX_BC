@@ -11,6 +11,31 @@ $Session = $config.Session
 
 Require-AgentBrowser
 
+# Dialogs are portaled [role="dialog"] elements outside <main>, so Get-PageText cannot see them.
+function Get-DialogText {
+  param(
+    [string]$Session,
+    [int]$TimeoutSeconds = 8
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $text = ""
+  while ((Get-Date) -lt $deadline) {
+    $raw = Invoke-AB $Session "eval" "JSON.stringify(document.querySelector('[role=`"dialog`"]')?.innerText || '')"
+    try {
+      $text = [string](ConvertFrom-AgentBrowserJson -RawOutput $raw)
+    } catch {
+      $text = [string]$raw
+    }
+    if (-not [string]::IsNullOrWhiteSpace($text)) {
+      return $text
+    }
+    Start-Sleep -Milliseconds 250
+  }
+
+  return $text
+}
+
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
@@ -23,7 +48,7 @@ try {
 
   # --- P0-2: Page header ---
   Assert-Contains -Text $text -Expected "Prix fournisseurs" -Message "Page title present"
-  Assert-Contains -Text $text -Expected "Ajouter un prix" -Message "Add price CTA present"
+  Assert-Contains -Text $text -Expected "Ajouter un fournisseur / tarif" -Message "Add price CTA present"
   Write-Host "PASS: Page header with title and CTA"
 
   # --- P0-1: CSV import section collapsed by default ---
@@ -65,11 +90,9 @@ try {
     Write-Host "INFO: Stats cards not visible (may be expected if no data)"
   }
 
-  # --- Table headers ---
-  Assert-Contains -Text $text -Expected "Fournisseur" -Message "Table header: Fournisseur"
-  Assert-Contains -Text $text -Expected "Produit" -Message "Table header: Produit"
-  Assert-Contains -Text $text -Expected "Prix HT" -Message "Table header: Prix HT"
-  Write-Host "PASS: Table headers present"
+  # --- Price list (now a card list, PricesTable.tsx: no table headers) ---
+  Assert-Contains -Text $text -Expected "Liste des prix fournisseurs" -Message "Price list heading"
+  Write-Host "PASS: Price list present"
 
   # --- P2-2: Freshness column ---
   $hasFreshness = $text -like "*Fraîcheur*" -or $text -like "*fraicheur*"
@@ -78,13 +101,13 @@ try {
   }
 
   # --- P1-1: Open create modal ---
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Ajouter un prix" | Out-Null
-  Start-Sleep -Milliseconds 500
-  $modalText = Get-PageText -Session $Session
+  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Ajouter un fournisseur / tarif" -ScopeSelector "main"
+  $modalText = Get-DialogText -Session $Session
 
-  Assert-Contains -Text $modalText -Expected "Ajouter un prix fournisseur" -Message "Create modal title"
+  # SupplierOfferFormModal.tsx: title "Ajouter un fournisseur / tarif", fields "Article *", "Fournisseur *", "Prix unitaire HT *".
+  Assert-Contains -Text $modalText -Expected "Ajouter un fournisseur / tarif" -Message "Create modal title"
   Assert-Contains -Text $modalText -Expected "Fournisseur" -Message "Modal has supplier field"
-  Assert-Contains -Text $modalText -Expected "Produit" -Message "Modal has product field"
+  Assert-Contains -Text $modalText -Expected "Article" -Message "Modal has article field"
   Assert-Contains -Text $modalText -Expected "Prix unitaire" -Message "Modal has price field"
   Write-Host "PASS: Create modal opens with correct fields"
 
@@ -93,14 +116,23 @@ try {
   Start-Sleep -Milliseconds 300
 
   # --- P1-1: Open edit modal (if data rows exist) ---
-  $hasModifier = $text -like "*Modifier*"
-  if ($hasModifier) {
-    Invoke-AB $Session "find" "role" "button" "click" "--name" "Modifier" | Out-Null
-    Start-Sleep -Milliseconds 500
-    $editText = Get-PageText -Session $Session
+  # Row action is now "Voir / modifier l'offre" (typographic apostrophe) in the "Offres fournisseurs" list.
+  $openedEdit = Invoke-AB $Session "eval" @"
+(() => {
+  const button = Array.from(document.querySelectorAll('main ul[aria-label="Offres fournisseurs"] button')).find((candidate) =>
+    String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim().startsWith('Voir / modifier')
+  );
+  if (!button) return false;
+  button.click();
+  return true;
+})()
+"@
+  if ($openedEdit -eq $true -or "$openedEdit" -eq "true") {
+    $editText = Get-DialogText -Session $Session
 
-    Assert-Contains -Text $editText -Expected "Modifier un prix fournisseur" -Message "Edit modal title"
-    Assert-Contains -Text $editText -Expected "Mettre à jour" -Message "Edit modal submit button"
+    # "?" matches the typographic apostrophe of "Modifier l'offre fournisseur" / "Enregistrer l'offre".
+    Assert-Contains -Text $editText -Expected "Modifier l?offre fournisseur" -Message "Edit modal title"
+    Assert-Contains -Text $editText -Expected "Enregistrer l?offre" -Message "Edit modal submit button"
     Write-Host "PASS: Edit modal opens with correct title"
 
     # Close

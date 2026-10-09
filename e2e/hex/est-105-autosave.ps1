@@ -153,8 +153,10 @@ function Install-AutosaveProbe {
   const key = '__est105AutoSaveProbe';
   const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
   const findAutoSaveBadge = () => {
+    const stableBadge = document.querySelector('[data-testid="estimate-page-toolbar-autosave-status"]');
+    if (stableBadge) return stableBadge;
     const badges = Array.from(document.querySelectorAll('span.status-badge'));
-    return badges.find((badge) => /Sauvegarde|Sauvegard|Erreur de sauvegarde/i.test(normalize(badge.textContent))) ?? null;
+    return badges.find((badge) => /Sauvegarde|Sauvegard|Synchronisation|Erreur de sauvegarde/i.test(normalize(badge.textContent))) ?? null;
   };
 
   const previousState = window[key];
@@ -223,8 +225,8 @@ function Get-AutosaveBadgeSnapshot {
 JSON.stringify((() => {
   const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
   const badges = Array.from(document.querySelectorAll('span.status-badge'));
-  const badge = badges.find((candidate) =>
-    /Sauvegarde|Sauvegard|Erreur de sauvegarde/i.test(normalize(candidate.textContent))
+  const badge = document.querySelector('[data-testid="estimate-page-toolbar-autosave-status"]') ?? badges.find((candidate) =>
+    /Sauvegarde|Sauvegard|Synchronisation|Erreur de sauvegarde/i.test(normalize(candidate.textContent))
   ) ?? null;
 
   if (!badge) {
@@ -275,7 +277,7 @@ function Get-StatusErrorAlertText {
 
   $raw = [string](Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
-  const alert = document.querySelector('.alert.alert-error');
+  const alert = document.querySelector('[data-testid="estimate-editor-alert-status-error"]');
   if (!alert) return '';
   return String(alert.textContent ?? '').replace(/\s+/g, ' ').trim();
 })())
@@ -378,7 +380,8 @@ try {
         $eventText = [string]$event.text
         $eventClass = [string]$event.className
 
-        if ($eventClass -like "*status-sent*" -and $eventText -like "*Sauvegarde en cours*") {
+        # useAutoSave labels: saving = "Synchronisation..." (status-sent), saved = "Sauvegarde" + accent (status-accepted).
+        if ($eventClass -like "*status-sent*" -and ($eventText -like "*Synchronisation*" -or $eventText -like "*Sauvegarde en cours*")) {
           $sawSaving = $true
         }
 
@@ -413,21 +416,33 @@ try {
     Write-Host "EST-105 WARN: saved autosave badge state not observed before leaving editor."
   }
 
-  Invoke-AB $Session "find" "role" "link" "click" "--name" "Retour" | Out-Null
+  # The editor no longer has a "Retour" link: leave through the last breadcrumb link of the
+  # production ribbon (affaire, or "Chiffrages" when the version has no affaire).
+  $clickedBreadcrumb = Invoke-AB $Session "eval" @"
+(() => {
+  const links = Array.from(document.querySelectorAll('[data-testid="estimate-page-toolbar"] a.production-ribbon__breadcrumb-link'));
+  const target = links[links.length - 1];
+  if (!(target instanceof HTMLAnchorElement)) return false;
+  target.click();
+  return true;
+})()
+"@
+  if (-not ($clickedBreadcrumb -eq $true -or "$clickedBreadcrumb" -eq "true")) {
+    throw "Editor breadcrumb link not found."
+  }
   $leftEditor = $false
-  try {
-    Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/$versionId" -TimeoutSeconds 20 | Out-Null
-    $leftEditor = $true
-  } catch {
-    try {
-      Wait-ForUrlContains -Session $Session -Needle "/dashboard/affaires" -TimeoutSeconds 20 | Out-Null
+  $leaveDeadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $leaveDeadline) {
+    $currentUrl = Get-CurrentUrl -Session $Session
+    if ($currentUrl -notlike "*/dashboard/estimates/$versionId/edit*" -and
+      ($currentUrl -like "*/dashboard/affaires*" -or $currentUrl -like "*/dashboard/estimates*")) {
       $leftEditor = $true
-    } catch {
-      $leftEditor = $false
+      break
     }
+    Start-Sleep -Milliseconds 300
   }
   if (-not $leftEditor) {
-    throw "Retour navigation target not reached after autosave."
+    throw "Breadcrumb navigation away from the editor not reached after autosave."
   }
 
   Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId

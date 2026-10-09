@@ -452,7 +452,8 @@ function Test-EditorSurfaceVisible {
 (() => {
   const root = document.querySelector('main') ?? document;
   const mainText = String(root.innerText ?? '');
-  if (mainText.includes('Chargement du chiffrage...')) return false;
+  // Skeleton copy: "Chargement du chiffrage" title + "Chargement du chiffrage\u2026" status (legacy: "...").
+  if (mainText.includes('Chargement du chiffrage')) return false;
   if (root.querySelector('[data-testid=\"estimate-editor-page\"]')) return true;
   if (root.querySelector('[data-testid=\"estimate-editor-table\"]')) return true;
   if (root.querySelector('[data-testid=\"estimate-editor-body\"]')) return true;

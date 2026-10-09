@@ -329,7 +329,7 @@ try {
 
   await sleep(200);
 
-  let compareOpened = clickByText(['Comparer fournisseurs', 'Compare suppliers']);
+  let compareOpened = clickByText(['Comparer les fournisseurs', 'Comparer fournisseurs', 'Compare suppliers']);
   if (!compareOpened) {
     compareOpened = clickByText(['Comparaison fournisseurs', 'Supplier comparison']);
   }
@@ -356,12 +356,32 @@ try {
       }, 6000, 150)
     : false;
 
+  let retainedFromPanel = false;
   const clickAlternativeCandidate = () => {
     const normalizedTargetId = nonOptimalAlternative.supplier_price_id.toLowerCase();
     const normalizedSupplierName = nonOptimalAlternative.supplier_name.toLowerCase();
     const normalizedReference = (nonOptimalAlternative.supplier_reference || '').toLowerCase();
     const supplierLabel = normalizedSupplierName.length > 0 ? normalizedSupplierName : null;
     const referenceLabel = normalizedReference.length > 0 ? normalizedReference : null;
+
+    // SupplierComparisonPanel: one <article> per offer (h3 = supplier name) with a
+    // "Retenir cette offre" / "Actualiser cette offre" button.
+    const panel = document.querySelector('[data-testid="supplier-comparison-panel"]');
+    if (panel && supplierLabel) {
+      const offer = Array.from(panel.querySelectorAll('article')).find((article) => {
+        const heading = String(article.querySelector('h3')?.textContent ?? '').trim().toLowerCase();
+        const text = String(article.textContent ?? '').toLowerCase();
+        return heading === supplierLabel && (!referenceLabel || text.includes(referenceLabel));
+      });
+      const retainButton = offer
+        ? Array.from(offer.querySelectorAll('button')).find((button) => !button.disabled)
+        : null;
+      if (retainButton) {
+        retainButton.click();
+        retainedFromPanel = true;
+        return true;
+      }
+    }
 
     const clickable = Array.from(
       document.querySelectorAll('button, [role="button"], [data-supplier-price-id], [data-price-id]')
@@ -401,7 +421,7 @@ try {
   let selectedViaUi = false;
   if (panelOpened) {
     selectedViaUi = clickAlternativeCandidate();
-    if (selectedViaUi) {
+    if (selectedViaUi && !retainedFromPanel) {
       await sleep(200);
       clickByText(['Appliquer', 'Selectionner', 'Valider', 'Choisir']);
     }
@@ -477,6 +497,7 @@ try {
     '.estimate-supplier-warning',
     '.estimate-line-supplier-warning',
     '.supplier-comparison-warning',
+    '.estimate-supplier-comparison-row-badge',
   ];
   const hasSignalElement = signalSelectors.some((selector) => document.querySelector(selector));
 

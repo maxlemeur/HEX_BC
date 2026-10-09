@@ -16,10 +16,15 @@ try {
   Invoke-AgentBrowser -Session $Session "open" $BaseUrl
   Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
 
+  # Landing header link is "Connexion" (src/app/page.tsx); older builds used "Se connecter".
   try {
-    Invoke-AgentBrowser -Session $Session "find" "role" "link" "click" "--name" "Se connecter"
+    Invoke-AgentBrowser -Session $Session "find" "role" "link" "click" "--name" "Connexion" "--exact"
   } catch {
-    Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
+    try {
+      Invoke-AgentBrowser -Session $Session "find" "role" "link" "click" "--name" "Se connecter"
+    } catch {
+      Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
+    }
   }
   Wait-ForUrlContains -Session $Session -Needle "/login" | Out-Null
 

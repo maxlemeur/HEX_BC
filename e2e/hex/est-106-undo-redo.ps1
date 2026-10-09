@@ -107,9 +107,7 @@ JSON.stringify((() => {
     const titleInput = row.querySelector('input.estimate-input--title');
     const quantityInput = row.querySelector('[data-cell-id$="::quantity"] input');
     const majorationInput = row.querySelector('[data-cell-id$="::h_mo_majoration"] input');
-    const deleteButton = Array.from(row.querySelectorAll('button')).find((button) =>
-      String(button.textContent ?? '').replace(/\s+/g, ' ').trim() === 'Supprimer'
-    );
+    const deleteButton = row.querySelector('.estimate-cell--actions button');
 
     return {
       index,
@@ -208,25 +206,35 @@ function Click-DeleteLineByIndex {
     [int]$Index
   )
 
+  # "Supprimer" now lives in the row "Plus d'actions pour ..." menu (LineRow.tsx) and opens
+  # a "Confirmer la suppression" dialog (ConfirmModal in EstimateEditorTable.tsx).
   $indexLiteral = [string]$Index
-  Invoke-AB $Session "eval" @"
+  Invoke-AB $Session "find" "nth" $indexLiteral "[data-testid='estimate-line-row'] .estimate-cell--actions button" "click" | Out-Null
+  Invoke-AB $Session "find" "role" "menuitem" "click" "--name" "Supprimer" "--exact" | Out-Null
+
+  $deadline = (Get-Date).AddSeconds(6)
+  while ((Get-Date) -lt $deadline) {
+    $confirmed = Invoke-AB $Session "eval" @"
 (() => {
-  const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
-    return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-input--title'));
-  });
-  const row = lineRows[$indexLiteral];
-  if (!row) throw new Error('Line row not found at index ' + $indexLiteral);
-  const button = Array.from(row.querySelectorAll('button')).find((candidate) =>
-    String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim() === 'Supprimer'
+  const dialog = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).find((node) =>
+    String(node.textContent ?? '').includes('Confirmer la suppression')
   );
-  if (!(button instanceof HTMLButtonElement)) {
-    throw new Error('Delete button not found for line index ' + $indexLiteral);
-  }
+  if (!dialog) return false;
+  const button = Array.from(dialog.querySelectorAll('button')).find((candidate) =>
+    String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim() === 'Supprimer' && !candidate.disabled
+  );
+  if (!(button instanceof HTMLButtonElement)) return false;
   button.click();
   return true;
 })()
-"@ | Out-Null
+"@
+    if ($confirmed -eq $true -or "$confirmed" -eq "true") {
+      return
+    }
+    Start-Sleep -Milliseconds 200
+  }
+
+  throw "Delete confirmation dialog not found for line index $indexLiteral."
 }
 
 function Set-LineSelection {
@@ -342,9 +350,9 @@ function Apply-BulkMajoration {
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 
-  const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
-    String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim() === 'Appliquer majoration'
-  );
+  const button =
+    document.querySelector('[data-testid="estimate-editor-bulk-majoration-apply-button"]') ??
+    document.querySelector('button[aria-label="Appliquer majoration"]');
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error('Bulk majoration button not found.');
   }
@@ -354,16 +362,42 @@ function Apply-BulkMajoration {
 "@ | Out-Null
 }
 
+function Click-EnabledButtonByTestId {
+  param(
+    [string]$Session,
+    [string]$TestId,
+    [int]$TimeoutSeconds = 6
+  )
+
+  $testIdJson = ConvertTo-Json $TestId -Compress
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $clicked = Invoke-AB $Session "eval" @"
+(() => {
+  const button = document.querySelector('[data-testid="' + $testIdJson + '"]');
+  if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
+  button.click();
+  return true;
+})()
+"@
+    if ($clicked -eq $true -or "$clicked" -eq "true") {
+      return
+    }
+    Start-Sleep -Milliseconds 250
+  }
+
+  throw "Timeout waiting enabled button '$TestId'"
+}
+
+# Undo/Redo are the ribbon buttons "Annuler" / "Retablir" (EstimateEditorCommandBar.tsx).
 function Click-UndoButton {
   param([string]$Session)
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Undo" -ScopeSelector "main" -TimeoutSeconds 6
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Undo" -ScopeSelector "main"
+  Click-EnabledButtonByTestId -Session $Session -TestId "estimate-editor-undo-button"
 }
 
 function Click-RedoButton {
   param([string]$Session)
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Redo" -ScopeSelector "main" -TimeoutSeconds 6
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Redo" -ScopeSelector "main"
+  Click-EnabledButtonByTestId -Session $Session -TestId "estimate-editor-redo-button"
 }
 
 function Try-ReorderFirstLineDown {
@@ -401,6 +435,7 @@ try {
   $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-106" -Date "2026-02-02" -Validité "30"
   Go-EditorTab -Session $Session
 
+  # Kept for older builds; line deletion now confirms through an in-app dialog (see Click-DeleteLineByIndex).
   Invoke-AB $Session "eval" "window.confirm = () => true;" | Out-Null
 
   Add-Chapter -Session $Session -Title "Chapitre Undo"

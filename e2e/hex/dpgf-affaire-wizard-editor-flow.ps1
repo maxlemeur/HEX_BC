@@ -282,8 +282,9 @@ try {
     "nouvelle affaire"
   ) -ScopeSelector "" -TimeoutSeconds 25 -FailureMessage "Unable to open quick create affaire dialog." | Out-Null
 
-  Wait-ForSelector -Session $Session -Selector "input[placeholder='Ex: Residence Les Jardins']" -TimeoutSeconds 20
-  Invoke-AB $Session "fill" "input[placeholder='Ex: Residence Les Jardins']" $projectName | Out-Null
+  # "Nouvelle affaire" now opens /dashboard/affaires/new (AffaireOnboardingClient + AffaireProjectDetailsCard).
+  Wait-ForSelector -Session $Session -Selector "#details-project-name" -TimeoutSeconds 20
+  Invoke-AB $Session "fill" "#details-project-name" $projectName | Out-Null
 
   Wait-ForButtonEnabledByText -Session $Session -ButtonText "Créer l'affaire" -ScopeSelector "main" -TimeoutSeconds 20
   Click-FirstEnabledButtonByText -Session $Session -ButtonText "Créer l'affaire" -ScopeSelector "main"
@@ -343,10 +344,12 @@ try {
   # ------------------------------------------------------------------
   # Step 3: Hub -> wizard -> assert step 3 UX
   # ------------------------------------------------------------------
+  # Hub action for an affaire without version (AffaireHubFirstVersionActionBar).
+  # UI label is "Creer un premier devis manuel" with accents: the eval path compares without
+  # diacritics, and the "find text" fallback matches the ASCII-only substring.
   Click-ActionContainsWithRetry -Session $Session -Labels @(
-    "Creer une premiere version",
-    "Créer une premiere version",
-    "creer une premiere version"
+    "Creer un premier devis manuel",
+    "premier devis manuel"
   ) -ScopeSelector "main" -TimeoutSeconds 25 -FailureMessage "Unable to open estimate creation wizard from affaire hub." | Out-Null
 
   $wizardUrl = Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/new" -TimeoutSeconds 45
@@ -370,7 +373,8 @@ try {
   $step3Deadline = (Get-Date).AddSeconds(40)
   while ((Get-Date) -lt $step3Deadline) {
     $step3Text = Get-PageText -Session $Session
-    if ($step3Text -like "*Source detectee:*" -and $step3Text -like "*DPGF source à importer*") {
+    # "?" wildcards stand for accented letters ("Source detectee", "DPGF source a importer").
+    if ($step3Text -like "*Source d?tect?e*" -and $step3Text -like "*DPGF source ? importer*") {
       $step3Ready = $true
       break
     }
@@ -381,11 +385,11 @@ try {
     throw "Wizard step 3 did not show linked DPGF source state. Text: $step3Text"
   }
 
-  if ($step3Text -notlike "*La version sera créée avec les lignes du DPGF source lie.*") {
+  if ($step3Text -notlike "*La version sera cr??e avec les lignes du DPGF source li?.*") {
     throw "Wizard step 3 did not announce source import. Text: $step3Text"
   }
 
-  if ($step3Text -like "*Aucun modele disponible actuellement*") {
+  if ($step3Text -like "*Aucun mod?le disponible actuellement*") {
     if ($step3Text -notlike "*Nouveau (vide)*") {
       throw "Template unavailable fallback should keep blank mode selected. Text: $step3Text"
     }
@@ -412,7 +416,7 @@ try {
     ) -ScopeSelector "main" | Out-Null
 
     $creationText = Get-PageText -Session $Session
-    if ($creationText -like "*Veuillez selectionner un template*") {
+    if ($creationText -like "*Veuillez s?lectionner un template*") {
       throw "Wizard blocked by template selection error: $creationText"
     }
     if ($creationText -like "*Impossible d'importer la source DPGF liée.*") {
@@ -433,9 +437,20 @@ try {
     throw "Expected editor prefill from linked DPGF source, but line count is 0."
   }
 
-  $editorText = Get-PageText -Session $Session
-  if ($editorText -notlike "*Importer le DPGF source*") {
-    throw "Editor should expose 'Importer le DPGF source' action. Text: $editorText"
+  # "Importer le DPGF source" is a menu item of the toolbar "Plus d'actions" menu (EstimateEditorToolbar.tsx).
+  Invoke-AB $Session "click" "[data-testid='estimate-page-toolbar-more-actions-button']" | Out-Null
+  $importActionText = ""
+  $importActionDeadline = (Get-Date).AddSeconds(10)
+  while ((Get-Date) -lt $importActionDeadline) {
+    $importActionText = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "String(document.querySelector('[data-testid=`"estimate-page-toolbar-import-dpgf-source-button`"]')?.textContent ?? '').trim()"))
+    if ($importActionText) {
+      break
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  Invoke-AB $Session "press" "Escape" | Out-Null
+  if ($importActionText -notlike "*DPGF source*") {
+    throw "Editor should expose 'Importer le DPGF source' action in the more-actions menu. Found: '$importActionText'"
   }
 
   Write-Host "DPGF-AFFAIRE-WIZARD-EDITOR PASS ($lineCount lignes importees)"

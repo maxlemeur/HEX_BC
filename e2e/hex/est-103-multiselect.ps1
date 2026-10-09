@@ -101,7 +101,8 @@ JSON.stringify((() => {
     const nodes = Array.from(document.querySelectorAll('span, div, p, strong'));
     for (const node of nodes) {
       const text = String(node.textContent ?? '').trim();
-      if (/^\d+\s+(?:selection|sélection)\(s\)$/i.test(text)) {
+      // Bulk bar badge: "2 lignes selectionnees" with accents (legacy: "2 selection(s)").
+      if (/^\d+\s+(?:s.lection\(s\)|lignes?\s+s.lectionn.es?)$/i.test(text)) {
         return text;
       }
     }
@@ -357,10 +358,13 @@ function Invoke-BulkMoveSectionAction {
   $json = Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
   const selectionNode = Array.from(document.querySelectorAll('span,div,p,strong')).find((node) => {
-    return /^\d+\s+(?:selection|sélection)\(s\)$/i.test(String(node.textContent ?? '').trim());
+    return /^\d+\s+(?:s.lection\(s\)|lignes?\s+s.lectionn.es?)$/i.test(String(node.textContent ?? '').trim());
   });
 
-  const toolbarRoot = selectionNode?.closest('div')?.parentElement ?? document;
+  const toolbarRoot =
+    document.querySelector('[data-testid="estimate-editor-bulk-selection-bar"]') ??
+    selectionNode?.closest('div')?.parentElement ??
+    document;
 
   const describeControl = (el) => {
     const labelText =
@@ -373,6 +377,7 @@ JSON.stringify((() => {
       String(el.getAttribute('name') ?? ''),
       String(el.getAttribute('id') ?? ''),
       String(el.getAttribute('placeholder') ?? ''),
+      String(el.getAttribute('title') ?? ''),
       labelText
     ]
       .join(' ')
@@ -415,10 +420,11 @@ JSON.stringify((() => {
   }
 
   const actionScope = sectionControl.closest('div') ?? toolbarRoot;
-  const applyButton = Array.from(actionScope.querySelectorAll('button')).find((button) => {
-    const text = String(button.textContent ?? '').trim();
-    return /(deplac|move|appliqu|valider|confirmer)/i.test(text);
-  });
+  const applyButton = document.querySelector('[data-testid="estimate-editor-bulk-move-apply-button"]') ??
+    Array.from(actionScope.querySelectorAll('button')).find((button) => {
+      const text = String(button.textContent ?? '').trim();
+      return /(d.plac|move|appliqu|valider|confirmer)/i.test(text);
+    });
 
   if (applyButton) {
     applyButton.click();
@@ -441,10 +447,13 @@ function Invoke-BulkCategoryAction {
   $json = Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
   const selectionNode = Array.from(document.querySelectorAll('span,div,p,strong')).find((node) => {
-    return /^\d+\s+(?:selection|sélection)\(s\)$/i.test(String(node.textContent ?? '').trim());
+    return /^\d+\s+(?:s.lection\(s\)|lignes?\s+s.lectionn.es?)$/i.test(String(node.textContent ?? '').trim());
   });
 
-  const toolbarRoot = selectionNode?.closest('div')?.parentElement ?? document;
+  const toolbarRoot =
+    document.querySelector('[data-testid="estimate-editor-bulk-selection-bar"]') ??
+    selectionNode?.closest('div')?.parentElement ??
+    document;
 
   const describeControl = (el) => {
     const labelText =
@@ -457,6 +466,7 @@ JSON.stringify((() => {
       String(el.getAttribute('name') ?? ''),
       String(el.getAttribute('id') ?? ''),
       String(el.getAttribute('placeholder') ?? ''),
+      String(el.getAttribute('title') ?? ''),
       labelText
     ]
       .join(' ')
@@ -496,10 +506,11 @@ JSON.stringify((() => {
   }
 
   const actionScope = categoryControl.closest('div') ?? toolbarRoot;
-  const applyButton = Array.from(actionScope.querySelectorAll('button')).find((button) => {
-    const text = String(button.textContent ?? '').trim();
-    return /(categor|type\s*fo|appliqu|modifier|valider)/i.test(text);
-  });
+  const applyButton = document.querySelector('[data-testid="estimate-editor-bulk-category-apply-button"]') ??
+    Array.from(actionScope.querySelectorAll('button')).find((button) => {
+      const text = String(button.textContent ?? '').trim();
+      return /(categor|type\s*fo|appliqu|modifier|valider)/i.test(text);
+    });
 
   if (applyButton) {
     applyButton.click();
@@ -522,10 +533,13 @@ function Invoke-BulkRoleAction {
   $json = Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
   const selectionNode = Array.from(document.querySelectorAll('span,div,p,strong')).find((node) => {
-    return /^\d+\s+(?:selection|sélection)\(s\)$/i.test(String(node.textContent ?? '').trim());
+    return /^\d+\s+(?:s.lection\(s\)|lignes?\s+s.lectionn.es?)$/i.test(String(node.textContent ?? '').trim());
   });
 
-  const toolbarRoot = selectionNode?.closest('div')?.parentElement ?? document;
+  const toolbarRoot =
+    document.querySelector('[data-testid="estimate-editor-bulk-selection-bar"]') ??
+    selectionNode?.closest('div')?.parentElement ??
+    document;
 
   const describeControl = (el) => {
     const labelText =
@@ -538,6 +552,7 @@ JSON.stringify((() => {
       String(el.getAttribute('name') ?? ''),
       String(el.getAttribute('id') ?? ''),
       String(el.getAttribute('placeholder') ?? ''),
+      String(el.getAttribute('title') ?? ''),
       labelText
     ]
       .join(' ')
@@ -578,10 +593,11 @@ JSON.stringify((() => {
   }
 
   const actionScope = roleControl.closest('div') ?? toolbarRoot;
-  const applyButton = Array.from(actionScope.querySelectorAll('button')).find((button) => {
-    const text = String(button.textContent ?? '').trim();
-    return /(role|mo|appliqu|modifier|valider)/i.test(text);
-  });
+  const applyButton = document.querySelector('[data-testid="estimate-editor-bulk-labor-role-apply-button"]') ??
+    Array.from(actionScope.querySelectorAll('button')).find((button) => {
+      const text = String(button.textContent ?? '').trim();
+      return /(role|mo|appliqu|modifier|valider)/i.test(text);
+    });
 
   if (applyButton) {
     applyButton.click();
@@ -596,6 +612,41 @@ JSON.stringify((() => {
 "@
 
   return Convert-AgentBrowserJson -Raw $json
+}
+
+# Bulk/line deletion confirms through the editor's "Confirmer la suppression" dialog
+# (ConfirmModal in EstimateEditorTable.tsx), not window.confirm.
+function Confirm-EditorDeleteDialog {
+  param(
+    [string]$Session,
+    [int]$TimeoutSeconds = 6
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $confirmed = Invoke-AB $Session "eval" @"
+(() => {
+  const dialog = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).find((node) =>
+    String(node.textContent ?? '').includes('Confirmer la suppression')
+  );
+  if (!dialog) return false;
+  const button = Array.from(dialog.querySelectorAll('button')).find((candidate) =>
+    String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim() === 'Supprimer' && !candidate.disabled
+  );
+  if (!button) return false;
+  window.__est103ConfirmMessages = Array.isArray(window.__est103ConfirmMessages) ? window.__est103ConfirmMessages : [];
+  window.__est103ConfirmMessages.push(String(dialog.textContent ?? '').replace(/\s+/g, ' ').trim());
+  button.click();
+  return true;
+})()
+"@
+    if ($confirmed -eq $true -or "$confirmed" -eq "true") {
+      return $true
+    }
+    Start-Sleep -Milliseconds 200
+  }
+
+  return $false
 }
 
 try {
@@ -781,6 +832,7 @@ try {
 "@ | Out-Null
 
     Invoke-AB $Session "press" "Delete" | Out-Null
+    Confirm-EditorDeleteDialog -Session $Session | Out-Null
 
     $expectedAfterDelete = [Math]::Max(0, $deleteLineCount - $deleteSelectionCount)
     $afterDelete = $null
@@ -796,6 +848,7 @@ try {
         Invoke-AB $Session "press" "Escape" | Out-Null
         Invoke-LineModifierClick -Session $Session -Index 0 -Modifier "ctrl"
         Invoke-AB $Session "press" "Delete" | Out-Null
+        Confirm-EditorDeleteDialog -Session $Session | Out-Null
         Start-Sleep -Milliseconds 500
         $afterDelete = Get-MultiSelectSnapshot -Session $Session
       }

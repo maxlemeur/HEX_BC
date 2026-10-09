@@ -39,6 +39,69 @@ function Wait-ForPageTextContains {
   throw "Missing expected content after timeout: $Expected"
 }
 
+# The settings drawer no longer shows a "Parametrage enregistre" message: poll the persisted version instead.
+function Wait-ForVersionCurrency {
+  param(
+    [string]$Session,
+    [string]$VersionId,
+    [string]$Currency,
+    [int]$TimeoutSeconds = 30
+  )
+
+  $versionIdJson = ConvertTo-Json $VersionId -Compress
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $lastCurrency = ""
+  while ((Get-Date) -lt $deadline) {
+    $raw = [string](Invoke-AB $Session "eval" @"
+(async () => {
+  const response = await fetch('/api/estimates/' + $versionIdJson, { cache: 'no-store' });
+  const payload = await response.json().catch(() => null);
+  return String(payload?.data?.version?.currency ?? '');
+})()
+"@)
+    $lastCurrency = Normalize-AgentString -Raw $raw
+    if ($lastCurrency -eq $Currency) {
+      return
+    }
+    Start-Sleep -Milliseconds 500
+  }
+
+  throw "Version currency should be $Currency after saving the settings (last: '$lastCurrency')."
+}
+
+# Delete confirmations use the in-app alert dialog (useConfirm) instead of window.confirm.
+function Confirm-AlertDialog {
+  param(
+    [string]$Session,
+    [string]$ConfirmLabel,
+    [int]$TimeoutSeconds = 10
+  )
+
+  $labelJson = ConvertTo-Json $ConfirmLabel -Compress
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $clicked = Invoke-AB $Session "eval" @"
+(() => {
+  const label = $labelJson;
+  const dialog = document.querySelector('[role="alertdialog"]');
+  if (!dialog) return false;
+  const button = Array.from(dialog.querySelectorAll('button')).find((candidate) =>
+    String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim() === label && !candidate.disabled
+  );
+  if (!button) return false;
+  button.click();
+  return true;
+})()
+"@
+    if ($clicked -eq $true -or "$clicked" -eq "true") {
+      return
+    }
+    Start-Sleep -Milliseconds 250
+  }
+
+  throw "Confirmation dialog button '$ConfirmLabel' not found."
+}
+
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
@@ -62,40 +125,25 @@ try {
 
   Go-ParamsTab -Session $Session
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Enregistrer le paramétrage" | Out-Null
-  Wait-ForPageTextContains -Session $Session -Expected "Parametrage enregistre" -TimeoutSeconds 30 | Out-Null
+  Wait-ForVersionCurrency -Session $Session -VersionId $versionId -Currency "USD" -TimeoutSeconds 30
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/admin/currencies" | Out-Null
   Wait-ForUrlContains -Session $Session -Needle "/dashboard/admin/currencies" | Out-Null
-  $adminText = Get-PageText -Session $Session
+  $adminText = Wait-ForPageTextContains -Session $Session -Expected "Nouveau taux" -TimeoutSeconds 20
   Assert-Contains -Text $adminText -Expected "Taux de change" -Message "admin currencies title"
   Assert-Contains -Text $adminText -Expected "Inclure inactifs" -Message "include inactive filter"
   Assert-Contains -Text $adminText -Expected "Nouveau taux" -Message "create currency rate block"
 
-  Invoke-AB $Session "eval" @"
-(() => {
-  const card = Array.from(document.querySelectorAll('.dashboard-card')).find((node) =>
-    String(node.textContent ?? '').includes('Nouveau taux')
-  );
-  if (!card) throw new Error('Create currency rate card not found');
-  const inputs = card.querySelectorAll('input');
-  if (inputs.length < 6) throw new Error('Create form inputs missing');
-
-  const fill = (el, value) => {
-    el.focus();
-    el.value = String(value);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-
-  fill(inputs[0], '$rateFrom');
-  fill(inputs[1], '$rateTo');
-  fill(inputs[2], '$createdRate');
-  fill(inputs[3], '$rateDate');
-  fill(inputs[4], 'manual');
-})();
-"@ | Out-Null
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Creer" | Out-Null
-  Wait-ForPageTextContains -Session $Session -Expected "cree avec succes" -TimeoutSeconds 30 | Out-Null
+  # "Nouveau taux" is a PageSection (no .dashboard-card); its fields have useId-based ids ending in -create-*.
+  Invoke-AB $Session "fill" "[id$='-create-from']" $rateFrom | Out-Null
+  Invoke-AB $Session "fill" "[id$='-create-to']" $rateTo | Out-Null
+  Invoke-AB $Session "fill" "[id$='-create-rate']" $createdRate | Out-Null
+  Invoke-AB $Session "fill" "[id$='-create-date']" $rateDate | Out-Null
+  Invoke-AB $Session "fill" "[id$='-create-source']" "manual" | Out-Null
+  # "Cr$([char]0x00E9)er" = "Creer" with its accent, kept ASCII in this BOM-less script.
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Cr$([char]0x00E9)er" "--exact" | Out-Null
+  # "?" wildcards stand for accented letters in the success messages.
+  Wait-ForPageTextContains -Session $Session -Expected "Taux $rateFrom/$rateTo cr??." -TimeoutSeconds 30 | Out-Null
 
   Invoke-AB $Session "eval" @"
 (() => {
@@ -127,11 +175,38 @@ try {
   saveButton.click();
 })();
 "@ | Out-Null
-  Wait-ForPageTextContains -Session $Session -Expected "mis a jour" -TimeoutSeconds 30 | Out-Null
+  Wait-ForPageTextContains -Session $Session -Expected "Taux $rateFrom/$rateTo mis ? jour" -TimeoutSeconds 30 | Out-Null
+
+  # The rate was just deactivated and the list hides inactive rates by default: show them again.
+  Invoke-AB $Session "eval" @"
+(() => {
+  const label = Array.from(document.querySelectorAll('label')).find((node) =>
+    String(node.textContent ?? '').replace(/\s+/g, ' ').trim() === 'Inclure inactifs'
+  );
+  const checkbox = label?.querySelector('input[type="checkbox"]');
+  if (!(checkbox instanceof HTMLInputElement)) throw new Error('Include inactive filter not found');
+  if (!checkbox.checked) checkbox.click();
+  return true;
+})();
+"@ | Out-Null
+
+  $rowDeadline = (Get-Date).AddSeconds(20)
+  $rowVisible = $false
+  while ((Get-Date) -lt $rowDeadline -and -not $rowVisible) {
+    $rowProbe = Invoke-AB $Session "eval" @"
+(() => Array.from(document.querySelectorAll('table tbody tr')).some((row) => {
+  const values = Array.from(row.querySelectorAll('input')).map((input) => String(input.value ?? '').trim().toUpperCase());
+  return values.includes('$rateFrom') && values.includes('$rateTo') && values.includes('$rateDate');
+}))()
+"@
+    $rowVisible = ($rowProbe -eq $true -or "$rowProbe" -eq "true")
+    if (-not $rowVisible) {
+      Start-Sleep -Milliseconds 400
+    }
+  }
 
   Invoke-AB $Session "eval" @"
 (() => {
-  window.confirm = () => true;
   const rows = Array.from(document.querySelectorAll('table tbody tr'));
   const target = rows.find((row) => {
     const values = Array.from(row.querySelectorAll('input')).map((input) => String(input.value ?? '').trim().toUpperCase());
@@ -146,7 +221,8 @@ try {
   deleteButton.click();
 })();
 "@ | Out-Null
-  Wait-ForPageTextContains -Session $Session -Expected "supprime" -TimeoutSeconds 30 | Out-Null
+  Confirm-AlertDialog -Session $Session -ConfirmLabel "Supprimer"
+  Wait-ForPageTextContains -Session $Session -Expected "Taux $rateFrom/$rateTo supprim?." -TimeoutSeconds 30 | Out-Null
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates" | Out-Null
   Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates" | Out-Null
@@ -158,14 +234,17 @@ try {
   }
 
   Open-EstimatePrint -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
+  # PrintCurrencySelect is now a disabled, single-option select showing the version currency.
   Invoke-AB $Session "eval" @"
 (() => {
-  const select = Array.from(document.querySelectorAll('select')).find((node) =>
-    ['EUR', 'USD', 'GBP'].includes(String(node.value ?? '').trim())
-  );
+  const select = document.querySelector('select[aria-label="Devise"]') ??
+    Array.from(document.querySelectorAll('select')).find((node) =>
+      ['EUR', 'USD', 'GBP'].includes(String(node.value ?? '').trim())
+    );
   if (!select) throw new Error('Print currency select not found');
-  select.value = 'USD';
-  select.dispatchEvent(new Event('change', { bubbles: true }));
+  if (String(select.value ?? '').trim() !== 'USD') {
+    throw new Error('Print currency should be USD, got ' + select.value);
+  }
 })();
 "@ | Out-Null
   Start-Sleep -Seconds 1

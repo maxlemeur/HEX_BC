@@ -24,7 +24,7 @@ try {
   Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Matériaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
 
   Go-ParamsTab -Session $Session
-  Invoke-AB $Session "find" "label" "Marge (multiplicateur)" "fill" "1.2"
+  Invoke-AB $Session "find" "label" "Marge" "fill" "1.2" "--exact"
   Invoke-AB $Session "find" "label" "Remise (EUR HT)" "fill" "10"
   Invoke-AB $Session "find" "label" "TVA unique" "fill" "20"
 

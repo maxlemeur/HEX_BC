@@ -25,6 +25,8 @@ try {
   $deadline = (Get-Date).AddSeconds(20)
   $text = ""
   while ((Get-Date) -lt $deadline) {
+    # Row actions "Dupliquer" / "Imprimer" sit in a closed <details> menu, absent from innerText until opened.
+    Invoke-AB $Session "eval" "document.querySelectorAll('main details').forEach((node) => { node.open = true; })" | Out-Null
     $text = Get-PageText -Session $Session
     if ($text -like "*$projectA*" -and $text -like "*$projectB*") {
       break
@@ -34,7 +36,7 @@ try {
 
   Assert-Contains -Text $text -Expected $projectA -Message "List contains project A"
   Assert-Contains -Text $text -Expected $projectB -Message "List contains project B"
-  Assert-Contains -Text $text -Expected "Ouvrir" -Message "Open action"
+  Assert-Contains -Text $text -Expected "Voir" -Message "Open action"
   Assert-Contains -Text $text -Expected "Dupliquer" -Message "Duplicate action"
   if ($text -notlike "*Print*" -and $text -notlike "*Imprimer*") {
     throw "Missing expected content: Print action"
