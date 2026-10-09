@@ -1,13 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { startAffaireFromImport } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
 import type { AffaireProjectDetailsValues } from "@/components/affaires/AffaireProjectDetailsCard";
-import { Button } from "@/components/ui-legacy/Button";
-import { Input } from "@/components/ui-legacy/Input";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useImportFlow } from "@/hooks/useImportFlow";
+import { cn } from "@/lib/utils";
 import { UploadIcon } from "lucide-react";
 
 const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);
@@ -67,10 +72,10 @@ function getFileExtension(name: string): string | null {
 
 const PHASE_MESSAGES: Record<DialogPhase, string> = {
   idle: "",
-  uploading: "Upload en cours...",
-  parsing: "Analyse du fichier...",
-  fetching_suggestions: "Vérification du mapping...",
-  creating: "Création de l'affaire...",
+  uploading: "Envoi du fichier…",
+  parsing: "Analyse du fichier…",
+  fetching_suggestions: "Vérification du mapping…",
+  creating: "Création de l’affaire…",
 };
 
 function MiniDropZone({
@@ -105,16 +110,16 @@ function MiniDropZone({
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-subtle px-3 py-2.5">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-slate-800">
+          <p className="truncate text-sm font-medium text-foreground">
             {selectedFile.name}
           </p>
           <p className="text-xs text-muted-foreground">
             {(selectedFile.size / 1024).toFixed(1)} Ko
           </p>
         </div>
-        <button
-          type="button"
-          className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground-secondary"
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => {
             onFileClear();
             if (fileInputRef.current) {
@@ -124,7 +129,7 @@ function MiniDropZone({
           disabled={disabled}
         >
           Retirer
-        </button>
+        </Button>
       </div>
     );
   }
@@ -138,23 +143,25 @@ function MiniDropZone({
           setIsDragOver(true);
         }}
         onDragLeave={() => setIsDragOver(false)}
-        className={`relative rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors ${
+        className={cn(
+          "relative rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/15",
           isDragOver
             ? "border-primary bg-primary/5"
-            : "border-border-strong bg-surface-subtle hover:border-slate-400"
-        }`}
+            : "border-border-strong bg-surface-subtle hover:border-primary/40"
+        )}
       >
         <div className="flex flex-col items-center gap-1.5">
-          <UploadIcon stroke="var(--slate-400)" strokeWidth="1.5" aria-hidden="true" size={20} />
-          <p className="text-xs font-medium text-slate-600">
+          <UploadIcon className="size-5 text-subtle-foreground" strokeWidth={1.5} aria-hidden="true" />
+          <p className="text-xs font-medium text-foreground-secondary">
             Déposez un fichier DPGF
           </p>
-          <p className="text-[10px] text-subtle-foreground">CSV, XLSX ou XLS</p>
+          <p className="text-micro text-muted-foreground">CSV, XLSX ou XLS</p>
         </div>
         <input
           ref={fileInputRef}
           type="file"
           accept={ACCEPTED_FILE_TYPES}
+          aria-label="Fichier DPGF (CSV, XLSX ou XLS)"
           className="absolute inset-0 cursor-pointer opacity-0"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -165,21 +172,24 @@ function MiniDropZone({
           disabled={disabled}
         />
       </div>
-      {fileError ? <p className="text-xs text-danger">{fileError}</p> : null}
+      {fileError ? <p role="alert" className="text-xs text-danger">{fileError}</p> : null}
     </div>
   );
 }
 
 function PhaseOverlay({ phase }: { phase: DialogPhase }) {
   return (
-    <div className="flex flex-col items-center gap-4 py-10" aria-live="polite">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-border border-t-primary" />
+    <div role="status" className="flex flex-col items-center gap-4 py-10" aria-live="polite">
+      <div
+        aria-hidden="true"
+        className="size-8 animate-spin rounded-full border-[3px] border-border border-t-primary motion-reduce:animate-none"
+      />
       <p className="text-sm font-medium text-foreground-secondary">
         {PHASE_MESSAGES[phase]}
       </p>
-      <div className="h-1.5 w-48 overflow-hidden rounded-full bg-slate-200">
+      <div aria-hidden="true" className="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-primary"
+          className="h-full rounded-full bg-primary motion-reduce:animate-none"
           style={{
             width: "100%",
             animation: "affaire-bootstrap-indeterminate 1.5s ease-in-out infinite",
@@ -201,6 +211,7 @@ export function AffaireImportBootstrapSection({
   onProjectNameRequired,
 }: Readonly<AffaireImportBootstrapSectionProps>) {
   const router = useRouter();
+  const fieldId = useId();
   const [isPending, startTransition] = useTransition();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -448,7 +459,7 @@ export function AffaireImportBootstrapSection({
     const ext = getFileExtension(file.name);
     if (!ext || !VALID_EXTENSIONS.has(ext)) {
       setFileError(
-        `Le format .${ext ?? "inconnu"} n'est pas supporte. Utilisez CSV, XLSX ou XLS.`
+        `Le format .${ext ?? "inconnu"} n’est pas pris en charge. Utilisez CSV, XLSX ou XLS.`
       );
       setSelectedFile(null);
       return;
@@ -543,17 +554,23 @@ export function AffaireImportBootstrapSection({
     setServerError("Sélectionnez un import existant ou déposez un fichier DPGF.");
   }
 
+  const tabClass = (active: boolean) =>
+    cn(
+      "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      active
+        ? "bg-surface text-foreground shadow-sm"
+        : "text-muted-foreground hover:text-foreground-secondary"
+    );
+
   return (
-    <section className="dashboard-card p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            Démarrer depuis un DPGF ou un import existant
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Parcours expert pour amorcer directement la structure du devis.
-          </p>
-        </div>
+    <Card className="p-5">
+      <div>
+        <CardTitle className="text-sm">
+          Démarrer depuis un DPGF ou un import existant
+        </CardTitle>
+        <CardDescription className="mt-1 text-sm">
+          Parcours expert pour amorcer directement la structure du devis.
+        </CardDescription>
       </div>
 
       {phase !== "idle" ? (
@@ -569,22 +586,16 @@ export function AffaireImportBootstrapSection({
               <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
                 <button
                   type="button"
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    importTab === "upload"
-                      ? "bg-surface text-slate-800 shadow-sm"
-                      : "text-muted-foreground hover:text-foreground-secondary"
-                  }`}
+                  aria-pressed={importTab === "upload"}
+                  className={tabClass(importTab === "upload")}
                   onClick={() => setImportTab("upload")}
                 >
                   Nouveau fichier
                 </button>
                 <button
                   type="button"
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    importTab === "existing"
-                      ? "bg-surface text-slate-800 shadow-sm"
-                      : "text-muted-foreground hover:text-foreground-secondary"
-                  }`}
+                  aria-pressed={importTab === "existing"}
+                  className={tabClass(importTab === "existing")}
                   onClick={() => setImportTab("existing")}
                 >
                   Import existant
@@ -593,23 +604,20 @@ export function AffaireImportBootstrapSection({
 
               {importTab === "existing" ? (
                 <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="affaire-bootstrap-import-select"
-                      className="block text-xs font-semibold text-foreground-secondary"
-                    >
+                  <Field>
+                    <FieldLabel htmlFor="affaire-bootstrap-import-select">
                       Import disponible
-                    </label>
+                    </FieldLabel>
                     {isLoadingImports ? (
-                      <p className="text-xs text-muted-foreground">Chargement...</p>
+                      <p role="status" className="text-xs text-muted-foreground">Chargement…</p>
                     ) : expertImports.length === 0 ? (
                       <p className="text-xs text-muted-foreground">
-                        Aucun import termine et mappe disponible.
+                        Aucun import terminé et mappé disponible.
                       </p>
                     ) : (
-                      <select
+                      <NativeSelect
                         id="affaire-bootstrap-import-select"
-                        className="form-input form-select text-sm"
+                        size="sm"
                         value={selectedImportId ?? ""}
                         onChange={(event) =>
                           setSelectedImportId(event.target.value || null)
@@ -622,24 +630,30 @@ export function AffaireImportBootstrapSection({
                             {item.rowsCount !== null ? ` (${item.rowsCount} lignes)` : ""}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     )}
-                  </div>
+                  </Field>
 
                   {selectedImportId ? (
                     <>
-                      <Input
-                        label="Titre de la version"
-                        placeholder="V1 (optionnel)"
-                        value={versionTitle}
-                        onChange={(event) => setVersionTitle(event.target.value)}
-                      />
-                      <Input
-                        label="Titre de la section"
-                        placeholder="Section principale (optionnel)"
-                        value={sectionTitle}
-                        onChange={(event) => setSectionTitle(event.target.value)}
-                      />
+                      <Field>
+                        <FieldLabel htmlFor={`${fieldId}-version-title`}>Titre de la version</FieldLabel>
+                        <Input
+                          id={`${fieldId}-version-title`}
+                          placeholder="V1 (optionnel)"
+                          value={versionTitle}
+                          onChange={(event) => setVersionTitle(event.target.value)}
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor={`${fieldId}-section-title`}>Titre de la section</FieldLabel>
+                        <Input
+                          id={`${fieldId}-section-title`}
+                          placeholder="Section principale (optionnel)"
+                          value={sectionTitle}
+                          onChange={(event) => setSectionTitle(event.target.value)}
+                        />
+                      </Field>
                     </>
                   ) : null}
                 </div>
@@ -655,16 +669,10 @@ export function AffaireImportBootstrapSection({
             </div>
           </details>
 
-          {serverError ? (
-            <div role="alert" className="alert alert-error text-sm">
-              {serverError}
-            </div>
-          ) : null}
+          {serverError ? <Alert variant="danger">{serverError}</Alert> : null}
 
           <div className="flex justify-end">
             <Button
-              type="button"
-              size="sm"
               onClick={handleSubmit}
               disabled={isBusy}
               loading={isBusy}
@@ -674,6 +682,6 @@ export function AffaireImportBootstrapSection({
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }

@@ -2,13 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { quickCreateAffaire } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
-import { Button } from "@/components/ui-legacy/Button";
-import { Input } from "@/components/ui-legacy/Input";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useImportFlow } from "@/hooks/useImportFlow";
+import { cn } from "@/lib/utils";
 import { InfoIcon, UploadIcon } from "lucide-react";
 
 
@@ -120,7 +131,7 @@ function extractRedirectUrl(error: RedirectErrorLike): string | null {
 
 const PHASE_MESSAGES: Record<DialogPhase, string> = {
   idle: "",
-  uploading: "Upload en cours\u2026",
+  uploading: "Envoi du fichier\u2026",
   parsing: "Analyse du fichier\u2026",
   fetching_suggestions: "Vérification du mapping\u2026",
   creating: "Création de l\u2019affaire\u2026",
@@ -160,16 +171,16 @@ function MiniDropZone({
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-subtle px-3 py-2.5">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-slate-800">
+          <p className="truncate text-sm font-medium text-foreground">
             {selectedFile.name}
           </p>
           <p className="text-xs text-muted-foreground">
             {(selectedFile.size / 1024).toFixed(1)} Ko
           </p>
         </div>
-        <button
-          type="button"
-          className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground-secondary"
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => {
             onFileClear();
             if (fileInputRef.current) fileInputRef.current.value = "";
@@ -177,7 +188,7 @@ function MiniDropZone({
           disabled={disabled}
         >
           Retirer
-        </button>
+        </Button>
       </div>
     );
   }
@@ -191,18 +202,19 @@ function MiniDropZone({
           setIsDragOver(true);
         }}
         onDragLeave={() => setIsDragOver(false)}
-        className={`relative rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors ${
+        className={cn(
+          "relative rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/15",
           isDragOver
             ? "border-primary bg-primary/5"
-            : "border-border-strong bg-surface-subtle hover:border-slate-400"
-        }`}
+            : "border-border-strong bg-surface-subtle hover:border-primary/40",
+        )}
       >
         <div className="flex flex-col items-center gap-1.5">
-          <UploadIcon stroke="var(--slate-400)" strokeWidth="1.5" aria-hidden="true" size={20} />
-          <p className="text-xs font-medium text-slate-600">
+          <UploadIcon className="size-5 text-subtle-foreground" strokeWidth={1.5} aria-hidden="true" />
+          <p className="text-xs font-medium text-foreground-secondary">
             Déposez un fichier DPGF (optionnel)
           </p>
-          <p className="text-[10px] text-subtle-foreground">
+          <p className="text-micro text-muted-foreground">
             CSV, XLSX ou XLS
           </p>
         </div>
@@ -210,6 +222,7 @@ function MiniDropZone({
           ref={fileInputRef}
           type="file"
           accept={ACCEPTED_FILE_TYPES}
+          aria-label="Fichier DPGF (CSV, XLSX ou XLS)"
           className="absolute inset-0 cursor-pointer opacity-0"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -219,7 +232,7 @@ function MiniDropZone({
         />
       </div>
       {fileError && (
-        <p className="text-xs text-danger">{fileError}</p>
+        <p role="alert" className="text-xs text-danger">{fileError}</p>
       )}
     </div>
   );
@@ -231,14 +244,17 @@ function MiniDropZone({
 
 function PhaseOverlay({ phase }: { phase: DialogPhase }) {
   return (
-    <div className="flex flex-col items-center gap-4 py-10" aria-live="polite">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-border border-t-primary" />
+    <div role="status" className="flex flex-col items-center gap-4 py-10" aria-live="polite">
+      <div
+        aria-hidden="true"
+        className="size-8 animate-spin rounded-full border-[3px] border-border border-t-primary motion-reduce:animate-none"
+      />
       <p className="text-sm font-medium text-foreground-secondary">
         {PHASE_MESSAGES[phase]}
       </p>
-      <div className="h-1.5 w-48 overflow-hidden rounded-full bg-slate-200">
+      <div aria-hidden="true" className="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-primary"
+          className="h-full rounded-full bg-primary motion-reduce:animate-none"
           style={{
             width: "100%",
             animation: "qcd-indeterminate 1.5s ease-in-out infinite",
@@ -260,6 +276,8 @@ export function QuickCreateAffaireDialog({
 }: Readonly<QuickCreateAffaireDialogProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const fieldId = useId();
+  const projectNameRef = useRef<HTMLInputElement>(null);
 
   // Form state
   const [projectName, setProjectName] = useState("");
@@ -447,7 +465,7 @@ export function QuickCreateAffaireDialog({
     const ext = getFileExtension(file.name);
     if (!ext || !VALID_EXTENSIONS.has(ext)) {
       setFileError(
-        `Le format .${ext ?? "inconnu"} n\u2019est pas supporte. Utilisez CSV, XLSX ou XLS.`,
+        `Le format .${ext ?? "inconnu"} n\u2019est pas pris en charge. Utilisez CSV, XLSX ou XLS.`,
       );
       setSelectedFile(null);
       return;
@@ -657,56 +675,77 @@ export function QuickCreateAffaireDialog({
   const isBusy = phase !== "idle" || isPending;
   const canSubmit = projectName.trim().length > 0 && !isBusy;
 
-  return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content
-        className="max-w-lg"
-        closeOnOverlayClick={!isBusy}
-        closeOnEscapeKey={!isBusy}
-      >
-        <Modal.Header>
-          <Modal.Title>Nouvelle affaire</Modal.Title>
-        </Modal.Header>
+  const nameInputId = `${fieldId}-name`;
+  const nameErrorId = `${fieldId}-name-error`;
+  const importTabClass = (active: boolean) =>
+    cn(
+      "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      active
+        ? "bg-surface text-foreground shadow-sm"
+        : "text-muted-foreground hover:text-foreground-secondary",
+    );
 
-        <Modal.Body>
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      disablePointerDismissal={isBusy}
+    >
+      <DialogContent size="md" initialFocus={projectNameRef} showCloseButton={!isBusy}>
+        <DialogHeader>
+          <DialogTitle>Nouvelle affaire</DialogTitle>
+        </DialogHeader>
+
+        <DialogBody>
           {phase !== "idle" ? (
             <PhaseOverlay phase={phase} />
           ) : (
-            <div className="space-y-4">
+            <>
               {/* Project name — always visible */}
-              <Input
-                label="Nom du projet *"
-                placeholder="Ex: Residence Les Jardins"
-                value={projectName}
-                onChange={(e) => {
-                  setProjectName(e.target.value);
-                  if (clientError) setClientError(null);
-                }}
-                error={clientError ?? undefined}
-                aria-required="true"
-                autoFocus
-              />
+              <Field data-invalid={clientError ? true : undefined}>
+                <FieldLabel htmlFor={nameInputId}>Nom du projet *</FieldLabel>
+                <Input
+                  ref={projectNameRef}
+                  id={nameInputId}
+                  placeholder="Ex: Residence Les Jardins"
+                  value={projectName}
+                  onChange={(e) => {
+                    setProjectName(e.target.value);
+                    if (clientError) setClientError(null);
+                  }}
+                  aria-invalid={clientError ? true : undefined}
+                  aria-describedby={clientError ? nameErrorId : undefined}
+                  aria-required="true"
+                />
+                {clientError ? <FieldError id={nameErrorId}>{clientError}</FieldError> : null}
+              </Field>
 
               {/* Client & Reference — always visible */}
-              <Input
-                label="Client"
-                placeholder="Nom du client (optionnel)"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-              />
-              <Input
-                label="Référence"
-                placeholder="Ref. projet (optionnel)"
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-              />
+              <Field>
+                <FieldLabel htmlFor={`${fieldId}-client`}>Client</FieldLabel>
+                <Input
+                  id={`${fieldId}-client`}
+                  placeholder="Nom du client (optionnel)"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${fieldId}-reference`}>Référence</FieldLabel>
+                <Input
+                  id={`${fieldId}-reference`}
+                  placeholder="Réf. projet (optionnel)"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                />
+              </Field>
 
               {/* Import DPGF section — shared by both modes */}
               <details open className="rounded-lg border border-border p-3">
                 <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
                   Import DPGF{" "}
                   <span className="ml-0.5 inline-flex cursor-help align-middle" title="Décomposition du Prix Global et Forfaitaire — fichier Excel décrivant les postes à chiffrer">
-                    <InfoIcon aria-hidden="true" className="text-subtle-foreground" size={14} />
+                    <InfoIcon aria-hidden="true" className="size-3.5 text-subtle-foreground" />
                   </span>{" "}
                   (optionnel)
                 </summary>
@@ -716,22 +755,16 @@ export function QuickCreateAffaireDialog({
                   <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
                     <button
                       type="button"
-                      className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                        importTab === "upload"
-                          ? "bg-surface text-slate-800 shadow-sm"
-                          : "text-muted-foreground hover:text-foreground-secondary"
-                      }`}
+                      aria-pressed={importTab === "upload"}
+                      className={importTabClass(importTab === "upload")}
                       onClick={() => setImportTab("upload")}
                     >
                       Nouveau fichier
                     </button>
                     <button
                       type="button"
-                      className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                        importTab === "existing"
-                          ? "bg-surface text-slate-800 shadow-sm"
-                          : "text-muted-foreground hover:text-foreground-secondary"
-                      }`}
+                      aria-pressed={importTab === "existing"}
+                      className={importTabClass(importTab === "existing")}
                       onClick={() => setImportTab("existing")}
                     >
                       Import existant
@@ -741,25 +774,22 @@ export function QuickCreateAffaireDialog({
                   {/* Existing import select */}
                   {importTab === "existing" && (
                     <div className="space-y-3">
-                      <div className="space-y-1.5">
-                        <label
-                          htmlFor="qc-import-select"
-                          className="block text-xs font-semibold text-foreground-secondary"
-                        >
+                      <Field>
+                        <FieldLabel htmlFor="qc-import-select">
                           Import disponible
-                        </label>
+                        </FieldLabel>
                         {isLoadingImports ? (
-                          <p className="text-xs text-muted-foreground">
-                            Chargement...
+                          <p role="status" className="text-xs text-muted-foreground">
+                            Chargement…
                           </p>
                         ) : expertImports.length === 0 ? (
                           <p className="text-xs text-muted-foreground">
-                            Aucun import termine et mappe disponible.
+                            Aucun import terminé et mappé disponible.
                           </p>
                         ) : (
-                          <select
+                          <NativeSelect
                             id="qc-import-select"
-                            className="form-input form-select text-sm"
+                            size="sm"
                             value={selectedImportId ?? ""}
                             onChange={(e) =>
                               setSelectedImportId(e.target.value || null)
@@ -774,28 +804,38 @@ export function QuickCreateAffaireDialog({
                                   : ""}
                               </option>
                             ))}
-                          </select>
+                          </NativeSelect>
                         )}
-                      </div>
+                      </Field>
 
                       {selectedImportId && (
                         <>
-                          <Input
-                            label="Titre de la version"
-                            placeholder="V1 (optionnel)"
-                            value={versionTitle}
-                            onChange={(e) =>
-                              setVersionTitle(e.target.value)
-                            }
-                          />
-                          <Input
-                            label="Titre de la section"
-                            placeholder="Section principale (optionnel)"
-                            value={sectionTitle}
-                            onChange={(e) =>
-                              setSectionTitle(e.target.value)
-                            }
-                          />
+                          <Field>
+                            <FieldLabel htmlFor={`${fieldId}-version-title`}>
+                              Titre de la version
+                            </FieldLabel>
+                            <Input
+                              id={`${fieldId}-version-title`}
+                              placeholder="V1 (optionnel)"
+                              value={versionTitle}
+                              onChange={(e) =>
+                                setVersionTitle(e.target.value)
+                              }
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel htmlFor={`${fieldId}-section-title`}>
+                              Titre de la section
+                            </FieldLabel>
+                            <Input
+                              id={`${fieldId}-section-title`}
+                              placeholder="Section principale (optionnel)"
+                              value={sectionTitle}
+                              onChange={(e) =>
+                                setSectionTitle(e.target.value)
+                              }
+                            />
+                          </Field>
                         </>
                       )}
                     </div>
@@ -815,36 +855,37 @@ export function QuickCreateAffaireDialog({
               </details>
 
               {/* Server error */}
-              {serverError && (
-                <div role="alert" className="alert alert-error text-sm">
-                  {serverError}
-                </div>
-              )}
-            </div>
+              {serverError && <Alert variant="danger">{serverError}</Alert>}
+            </>
           )}
-        </Modal.Body>
+        </DialogBody>
 
-        <Modal.Footer>
+        <DialogFooter>
           {phase === "idle" && (
             <Link
               href="/dashboard/estimates/new"
-              className="mr-auto text-xs text-muted-foreground hover:underline"
+              className="text-center text-xs text-muted-foreground hover:underline sm:mr-auto sm:text-left"
             >
               Création avancée
             </Link>
           )}
-          <Modal.Close disabled={isBusy}>Annuler</Modal.Close>
+          <Button
+            variant="outline"
+            disabled={isBusy}
+            onClick={() => handleOpenChange(false)}
+          >
+            Annuler
+          </Button>
           <Button
             variant="primary"
-            size="sm"
             loading={isBusy}
             disabled={!canSubmit}
             onClick={handleSubmit}
           >
             Créer l&apos;affaire
           </Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

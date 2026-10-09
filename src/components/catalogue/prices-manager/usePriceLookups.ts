@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
-import type { SearchableSelectOption } from "@/components/ui-legacy/SearchableSelect";
+import type { ComboboxOption } from "@/components/ui/combobox";
 import type { PriceBookLookups } from "@/lib/catalogue/csv-import";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -45,8 +45,8 @@ export function usePriceLookups({
 }) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [lookups, setLookups] = useState<PriceBookLookups>({ suppliers: [], products: [] });
-  const [supplierOptions, setSupplierOptions] = useState<SearchableSelectOption[]>([]);
-  const [productOptions, setProductOptions] = useState<SearchableSelectOption[]>([]);
+  const [supplierOptions, setSupplierOptions] = useState<ComboboxOption[]>([]);
+  const [productOptions, setProductOptions] = useState<ComboboxOption[]>([]);
   const [isSupplierLoading, setIsSupplierLoading] = useState(false);
   const [isProductLoading, setIsProductLoading] = useState(false);
   const [isImportLookupsLoading, setIsImportLookupsLoading] = useState(false);

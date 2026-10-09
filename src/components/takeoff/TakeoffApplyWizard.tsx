@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Modal } from "@/components/ui-legacy/Modal";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
 import type {
   TakeoffMappingOverride,
@@ -31,8 +39,9 @@ import {
   type WizardStep,
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 export type {
   TakeoffApplyStrategy,
@@ -298,25 +307,20 @@ export function TakeoffApplyWizard({
   };
 
   return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content
-        containerClassName="sm:max-w-4xl"
-        closeOnOverlayClick={!isSubmitting}
-      >
-        <Modal.Header>
-          <div>
-            <Modal.Title>Appliquer au devis</Modal.Title>
-            <p
-              aria-live="polite"
-              className="mt-1 text-sm text-muted-foreground"
-            >
-              Étape {displayStep} / {totalSteps}
-            </p>
-          </div>
-          <Modal.Close disabled={isSubmitting} />
-        </Modal.Header>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => handleOpenChange(nextOpen)}
+      disablePointerDismissal={isSubmitting}
+    >
+      <DialogContent size="xl" showCloseButton={!isSubmitting}>
+        <DialogHeader>
+          <DialogTitle>Appliquer au devis</DialogTitle>
+          <DialogDescription aria-live="polite">
+            Étape {displayStep} / {totalSteps}
+          </DialogDescription>
+        </DialogHeader>
 
-        <Modal.Body>
+        <DialogBody>
           <div
             ref={bodyScrollRef}
             data-testid="takeoff-apply-wizard-body"
@@ -326,7 +330,8 @@ export function TakeoffApplyWizard({
             className="max-h-[calc(100dvh-15rem)] space-y-4 overflow-y-auto overscroll-contain pr-1"
           >
             <div
-              aria-label="Progression de l'application"
+              role="group"
+              aria-label="Progression de l’application"
               className="mb-2 flex items-center gap-2"
             >
               {Array.from({ length: totalSteps }, (_, index) => index + 1).map((value) => {
@@ -336,13 +341,14 @@ export function TakeoffApplyWizard({
                   <span
                     key={value}
                     aria-current={active ? "step" : undefined}
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
+                    className={cn(
+                      "inline-flex size-8 items-center justify-center rounded-full text-xs font-semibold",
                       active
-                        ? "bg-info text-white"
+                        ? "bg-info text-info-foreground"
                         : done
-                          ? "bg-success text-white"
+                          ? "bg-success text-success-foreground"
                           : "bg-muted text-muted-foreground"
-                    }`}
+                    )}
                   >
                     {value}
                   </span>
@@ -425,33 +431,29 @@ export function TakeoffApplyWizard({
               {submitError}
             </Alert>
           )}
-        </Modal.Body>
+        </DialogBody>
 
-        <Modal.Footer>
-          <button
-            type="button"
-            className={buttonVariants({ variant: "outline" })}
+        <DialogFooter>
+          <Button
+            variant="outline"
             onClick={() => handleOpenChange(false)}
             disabled={isSubmitting}
           >
             Annuler
-          </button>
+          </Button>
 
           {canGoBack && (
-            <button
-              type="button"
-              className={buttonVariants({ variant: "outline" })}
+            <Button
+              variant="outline"
               onClick={() => setStep(isPreset ? 1 : ((step - 1) as WizardStep))}
               disabled={isSubmitting}
             >
               Retour
-            </button>
+            </Button>
           )}
 
           {canProceed ? (
-            <button
-              type="button"
-              className={buttonVariants({ variant: "primary" })}
+            <Button
               onClick={() => setStep(isPreset ? 4 : ((step + 1) as WizardStep))}
               disabled={
                 isSubmitting ||
@@ -460,19 +462,17 @@ export function TakeoffApplyWizard({
               }
             >
               Suivant
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
-              className={buttonVariants({ variant: "primary" })}
+            <Button
               onClick={() => void handleConfirm()}
               disabled={!canConfirm}
             >
               {isSubmitting ? "Application…" : "Confirmer l'application"}
-            </button>
+            </Button>
           )}
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

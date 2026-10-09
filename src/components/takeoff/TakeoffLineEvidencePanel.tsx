@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
   fetchTakeoffLineEvidencePanel,
   isTakeoffApiError,
@@ -117,7 +118,7 @@ function EvidenceCard({
   evidence: TakeoffLineEvidence;
 }) {
   return (
-    <article className="rounded-3xl border border-border bg-surface p-4 shadow-sm">
+    <article className="rounded-xl border border-border bg-surface p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -139,7 +140,7 @@ function EvidenceCard({
             {evidence.source_page ? ` · page ${evidence.source_page}` : ""}
           </p>
         </div>
-        <div className="min-w-[12rem] text-right text-xs text-muted-foreground">
+        <div className="text-xs text-muted-foreground sm:min-w-[12rem] sm:text-right">
           <p>{formatEvidenceDate(evidence.created_at)}</p>
           <p>{evidence.author_name ? `Par ${evidence.author_name}` : "Auteur non renseigné"}</p>
         </div>
@@ -158,7 +159,7 @@ function EvidenceCard({
           ) : null}
           {evidence.replaced_by_evidence_id ? (
             <span className="rounded-full bg-muted px-2.5 py-1">
-              Remplacee par {evidence.replaced_by_evidence_id.slice(0, 8)}
+              Remplacée par {evidence.replaced_by_evidence_id.slice(0, 8)}
             </span>
           ) : null}
         </div>
@@ -255,7 +256,7 @@ export function TakeoffLineEvidencePanel({
         setError(
           isTakeoffApiError(nextError)
             ? nextError.message
-            : "Impossible de charger les preuves detaillees."
+            : "Impossible de charger les preuves détaillées."
         );
       } finally {
         if (!abortController.signal.aborted) {
@@ -304,78 +305,74 @@ export function TakeoffLineEvidencePanel({
     panelData.history.length === 0;
 
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content
-        className="ml-auto flex h-full max-h-[calc(100vh-2rem)] max-w-3xl flex-col overflow-hidden rounded-[28px] p-0 sm:rounded-l-[28px] sm:rounded-r-none"
+    <Sheet open={open} onOpenChange={(nextOpen) => onOpenChange(nextOpen)}>
+      <SheetContent
+        side="right"
+        className="gap-0 overflow-hidden bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
         data-testid="takeoff-line-evidence-panel"
       >
         <div
-          className="border-b border-border bg-[linear-gradient(135deg,rgba(241,245,249,0.9),rgba(255,255,255,0.98))] px-5 py-5 sm:px-6"
+          className="border-b border-border bg-surface-subtle px-5 py-5 pr-14 sm:px-6 sm:pr-14"
           data-testid="takeoff-line-evidence-panel-header"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            <div className="min-w-0">
+              <p className="text-xs tracking-[0.14em] text-muted-foreground uppercase">
                 {surfaceLabel}
               </p>
-              <Modal.Title className="mt-2 text-xl text-foreground">
+              <SheetTitle className="mt-2 text-xl font-semibold break-words">
                 {lineLabel}
-              </Modal.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
+              </SheetTitle>
+              <SheetDescription className="mt-1">
                 {buildLineContextLabel({ sourceFileName, sourcePage })}
-              </p>
+              </SheetDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => void loadPanel(true)}
-                disabled={isLoading}
-              >
-                {isLoading ? "Actualisation…" : "Actualiser"}
-              </Button>
-              <Modal.Close />
-            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void loadPanel(true)}
+              disabled={isLoading}
+            >
+              {isLoading ? "Actualisation…" : "Actualiser"}
+            </Button>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
-              <p className="text-xs text-muted-foreground">Actives</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">
+          <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border-subtle bg-surface p-3">
+              <dt className="text-xs text-muted-foreground">Actives</dt>
+              <dd className="mt-1 text-lg font-semibold text-foreground">
                 {panelData?.evidences.length ?? 0}
-              </p>
+              </dd>
             </div>
-            <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
-              <p className="text-xs text-muted-foreground">Historique</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">
+            <div className="rounded-lg border border-border-subtle bg-surface p-3">
+              <dt className="text-xs text-muted-foreground">Historique</dt>
+              <dd className="mt-1 text-lg font-semibold text-foreground">
                 {panelData?.history.length ?? 0}
-              </p>
+              </dd>
             </div>
-            <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
-              <p className="text-xs text-muted-foreground">Job</p>
-              <p className="mt-1 text-sm font-semibold text-foreground">
+            <div className="rounded-lg border border-border-subtle bg-surface p-3">
+              <dt className="text-xs text-muted-foreground">Analyse</dt>
+              <dd className="mt-1 font-mono text-sm font-semibold text-foreground">
                 {jobId.slice(0, 8)}
-              </p>
+              </dd>
             </div>
-          </div>
+          </dl>
         </div>
 
-        <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-surface-subtle px-5 py-5 sm:px-6">
           {isLoading && panelData === null ? (
-            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
-              Chargement des preuves detaillees...
+            <div
+              role="status"
+              className="rounded-xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground"
+            >
+              Chargement des preuves détaillées…
             </div>
           ) : null}
 
-          {error ? (
-            <div className="rounded-3xl border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
-              {error}
-            </div>
-          ) : null}
+          {error ? <Alert variant="danger">{error}</Alert> : null}
 
           {hasNoEvidence ? (
-            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
               Aucune preuve détaillée n&apos;est disponible pour cette ligne.
             </div>
           ) : null}
@@ -383,12 +380,12 @@ export function TakeoffLineEvidencePanel({
           {panelData !== null ? (
             <>
               <section className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                   <h3 className="text-base font-semibold text-foreground">
                     Preuves actives
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Les faits, hypothèses et inferences encore validés pour la ligne.
+                    Les faits, hypothèses et inférences encore validés pour la ligne.
                   </p>
                 </div>
                 <div className="space-y-5">
@@ -402,7 +399,7 @@ export function TakeoffLineEvidencePanel({
                     ) : null
                   )}
                   {panelData.evidences.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
+                    <div className="rounded-xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
                       Aucune preuve active.
                     </div>
                   ) : null}
@@ -410,16 +407,16 @@ export function TakeoffLineEvidencePanel({
               </section>
 
               <section className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                   <h3 className="text-base font-semibold text-foreground">
                     Historique
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Preuves remplacees ou invalidees, pour conserver la trace explicable.
+                    Preuves remplacées ou invalidées, pour conserver la trace explicable.
                   </p>
                 </div>
                 {panelData.history.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
+                  <div className="rounded-xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
                     Aucun historique sur cette ligne.
                   </div>
                 ) : (
@@ -432,9 +429,9 @@ export function TakeoffLineEvidencePanel({
               </section>
             </>
           ) : null}
-        </Modal.Body>
-      </Modal.Content>
-    </Modal.Root>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { SearchableSelect } from "@/components/ui-legacy/SearchableSelect";
+import { Combobox } from "@/components/ui/combobox";
 import { useToast } from "@/components/ui-legacy/Toast";
 
 type MembershipRecord = {
@@ -351,7 +351,7 @@ export function MembershipsManager() {
 
           <div className="flex min-w-0 flex-col gap-1.5">
             <FieldLabel htmlFor="membership-user">Utilisateur</FieldLabel>
-            <SearchableSelect
+            <Combobox
               id="membership-user"
               name="membership-user"
               placeholder="Sélectionner…"
@@ -361,6 +361,7 @@ export function MembershipsManager() {
               onValueChange={setSelectedUserId}
               isLoading={isRefreshing}
               required
+              size="lg"
             />
           </div>
 

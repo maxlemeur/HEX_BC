@@ -915,7 +915,7 @@ test.describe("V3-010 — DPGF review page", () => {
     await expect(page.getByText("Inférences")).toBeVisible();
 
     await page.getByRole("button", { name: "Recomposer les liens" }).click();
-    const modal = page.getByRole("dialog", { name: /Lier manuellement des items takeoff/i });
+    const modal = page.getByRole("dialog", { name: /Lier manuellement des éléments de métré/i });
     await expect(modal).toBeVisible();
 
     await modal.locator("label").filter({ hasText: "Zone A separatif" }).click();

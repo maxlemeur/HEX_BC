@@ -20,12 +20,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import {
-  SearchableSelect,
-  type SearchableSelectOption,
-} from "@/components/ui-legacy/SearchableSelect";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { parseEuroToCents } from "@/lib/money";
 import { maxPriceValidTo, resolvePriceValidity } from "@/lib/catalogue/price-validity";
@@ -80,8 +78,8 @@ type PriceDraft = {
 type SupplierOfferFormModalProps = {
   open: boolean;
   item: EnrichedPrice | null;
-  supplierOptions: SearchableSelectOption[];
-  productOptions: SearchableSelectOption[];
+  supplierOptions: ComboboxOption[];
+  productOptions: ComboboxOption[];
   isSupplierLoading?: boolean;
   isProductLoading?: boolean;
   defaultProductId?: string | null;
@@ -533,11 +531,16 @@ export function SupplierOfferFormModal({
               </div>
 
               {productMode === "existing" ? (
-                <div>
-                  <SearchableSelect
+                <Field className="gap-1.5">
+                  <FieldLabel
+                    htmlFor="offer-product-id"
+                    className="text-xs font-semibold text-foreground-secondary"
+                  >
+                    Article *
+                  </FieldLabel>
+                  <Combobox
                     id="offer-product-id"
                     value={priceDraft.product_id}
-                    label="Article *"
                     options={productOptions}
                     placeholder="Rechercher une désignation ou une référence…"
                     isLoading={isProductLoading}
@@ -552,11 +555,11 @@ export function SupplierOfferFormModal({
                     }}
                   />
                   {selectedProductLabel ? (
-                    <p className="mt-2 text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Article retenu : {selectedProductLabel}
                     </p>
                   ) : null}
-                </div>
+                </Field>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <TextField
@@ -658,23 +661,30 @@ export function SupplierOfferFormModal({
               </div>
 
               {supplierMode === "existing" ? (
-                <SearchableSelect
-                  id="offer-supplier-id"
-                  value={priceDraft.supplier_id}
-                  label="Fournisseur *"
-                  options={supplierOptions}
-                  placeholder="Rechercher un fournisseur…"
-                  isLoading={isSupplierLoading}
-                  disabled={isEditing}
-                  onQueryChange={(query) => {
-                    setSupplierQuery(query);
-                    onSupplierQueryChange?.(query);
-                  }}
-                  onValueChange={(value) => {
-                    updatePrice("supplier_id", value);
-                    setCatalogItem(null);
-                  }}
-                />
+                <Field className="gap-1.5">
+                  <FieldLabel
+                    htmlFor="offer-supplier-id"
+                    className="text-xs font-semibold text-foreground-secondary"
+                  >
+                    Fournisseur *
+                  </FieldLabel>
+                  <Combobox
+                    id="offer-supplier-id"
+                    value={priceDraft.supplier_id}
+                    options={supplierOptions}
+                    placeholder="Rechercher un fournisseur…"
+                    isLoading={isSupplierLoading}
+                    disabled={isEditing}
+                    onQueryChange={(query) => {
+                      setSupplierQuery(query);
+                      onSupplierQueryChange?.(query);
+                    }}
+                    onValueChange={(value) => {
+                      updatePrice("supplier_id", value);
+                      setCatalogItem(null);
+                    }}
+                  />
+                </Field>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   <TextField

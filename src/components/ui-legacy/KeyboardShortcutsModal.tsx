@@ -3,8 +3,18 @@
 import { useState } from "react";
 
 import { cn } from "@/lib/utils";
-import { Modal } from "@/components/ui-legacy/Modal";
-import { CalculatorIcon, KeyboardIcon, SearchIcon, SquareDashedIcon, XIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CalculatorIcon, KeyboardIcon, SearchIcon, SquareDashedIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,7 +48,7 @@ function useIsMac() {
 }
 
 function modKey(isMac: boolean) {
-  return isMac ? "\u2318" : "Ctrl";
+  return isMac ? "⌘" : "Ctrl";
 }
 
 // ---------------------------------------------------------------------------
@@ -52,43 +62,37 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
     {
       id: "navigation",
       title: "Navigation",
-      icon: (
-        <SearchIcon aria-hidden="true" size={16} />
-      ),
+      icon: <SearchIcon aria-hidden="true" className="size-3.5" />,
       shortcuts: [
         { keys: [mod, "K"], label: "Recherche rapide" },
-        { keys: ["Esc"], label: "Fermer panneau / modale" },
+        { keys: ["Échap"], label: "Fermer le panneau ou la fenêtre" },
         { keys: ["?"], label: "Raccourcis clavier" },
       ],
     },
     {
       id: "editor",
       title: "Éditeur de chiffrage",
-      icon: (
-        <CalculatorIcon aria-hidden="true" size={16} />
-      ),
+      icon: <CalculatorIcon aria-hidden="true" className="size-3.5" />,
       shortcuts: [
-        { keys: [mod, "S"], label: "Sauvegarder" },
+        { keys: [mod, "S"], label: "Enregistrer" },
         { keys: [mod, "Z"], label: "Annuler" },
         { keys: [mod, "Y"], label: "Rétablir" },
         { keys: ["Tab"], label: "Cellule suivante" },
-        { keys: ["Entrée"], label: "Éditer la cellule" },
+        { keys: ["Entrée"], label: "Modifier la cellule" },
         { keys: ["Suppr"], label: "Supprimer la sélection" },
         { keys: [mod, "C"], label: "Copier les lignes" },
-        { keys: [mod, "Shift", "A"], label: "Insérer un ouvrage" },
+        { keys: [mod, "Maj", "A"], label: "Insérer un ouvrage" },
       ],
     },
     {
       id: "selection",
       title: "Sélection",
-      icon: (
-        <SquareDashedIcon aria-hidden="true" size={16} />
-      ),
+      icon: <SquareDashedIcon aria-hidden="true" className="size-3.5" />,
       shortcuts: [
         { keys: [mod, "A"], label: "Tout sélectionner" },
-        { keys: ["Shift", "Clic"], label: "Sélection de plage" },
+        { keys: ["Maj", "Clic"], label: "Sélectionner une plage" },
         { keys: [mod, "Clic"], label: "Basculer une ligne" },
-        { keys: ["Esc"], label: "Désélectionner tout" },
+        { keys: ["Échap"], label: "Tout désélectionner" },
       ],
     },
   ];
@@ -104,7 +108,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
       className={cn(
         "inline-flex h-6 min-w-6 items-center justify-center rounded-md",
         "border border-border bg-muted",
-        "px-1.5 font-mono text-[11px] font-medium text-muted-foreground",
+        "px-1.5 font-mono text-micro font-medium text-foreground-secondary",
         "shadow-[0_1px_0_1px_var(--border)]"
       )}
     >
@@ -133,39 +137,32 @@ export function KeyboardShortcutsModal({
   const groups = buildShortcutGroups(isMac);
 
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content className="max-w-xl p-0 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <KeyboardIcon aria-hidden="true" size={16} />
-            </div>
-            <div>
-              <Modal.Title className="text-base font-semibold text-foreground">
-                Raccourcis clavier
-              </Modal.Title>
-              <p className="text-xs text-muted-foreground">
-                Accélérez votre travail dans l&apos;éditeur
-              </p>
-            </div>
-          </div>
-          <Modal.Close
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            aria-label="Fermer"
+    <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
+      <DialogContent size="lg" className="gap-0 overflow-hidden p-0 sm:max-w-xl sm:p-0">
+        <DialogHeader className="flex-row items-center gap-2.5 border-b border-border px-5 py-4 pr-14">
+          <span
+            aria-hidden="true"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
           >
-            <XIcon aria-hidden="true" size={16} />
-          </Modal.Close>
-        </div>
+            <KeyboardIcon className="size-4" />
+          </span>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <DialogTitle className="text-base font-semibold">Raccourcis clavier</DialogTitle>
+            <DialogDescription className="text-xs">
+              Accélérez votre travail dans l’éditeur.
+            </DialogDescription>
+          </div>
+        </DialogHeader>
 
-        {/* Shortcut groups */}
-        <div className="max-h-[60vh] overflow-y-auto overscroll-contain px-5 py-4 space-y-5">
+        <div className="max-h-[60vh] space-y-5 overflow-y-auto overscroll-contain px-5 py-4">
           {groups.map((group) => {
             const isHighlighted = group.id === activeContext;
+            const headingId = `keyboard-shortcuts-${group.id}`;
 
             return (
               <section
                 key={group.id}
+                aria-labelledby={headingId}
                 className={cn(
                   "rounded-xl border p-4 transition-colors",
                   isHighlighted
@@ -175,71 +172,66 @@ export function KeyboardShortcutsModal({
               >
                 <div className="mb-3 flex items-center gap-2">
                   <span
+                    aria-hidden="true"
                     className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-md",
+                      "flex size-6 items-center justify-center rounded-md",
                       isHighlighted
-                        ? "bg-brand-orange/10 text-brand-orange"
+                        ? "bg-brand-orange/10 text-brand-orange-dark"
                         : "bg-muted text-muted-foreground"
                     )}
                   >
                     {group.icon}
                   </span>
                   <h3
+                    id={headingId}
                     className={cn(
                       "text-xs font-semibold uppercase tracking-wider",
-                      isHighlighted
-                        ? "text-brand-orange"
-                        : "text-muted-foreground"
+                      isHighlighted ? "text-brand-orange-dark" : "text-muted-foreground"
                     )}
                   >
                     {group.title}
                   </h3>
                   {isHighlighted ? (
-                    <span className="ml-auto rounded-full bg-brand-orange/10 px-2 py-0.5 text-[10px] font-semibold text-brand-orange">
+                    <Badge variant="accent" size="sm" className="ml-auto">
                       Contexte actif
-                    </span>
+                    </Badge>
                   ) : null}
                 </div>
 
-                <div className="space-y-1.5">
+                <dl className="space-y-1.5">
                   {group.shortcuts.map((shortcut) => (
                     <div
                       key={shortcut.label}
-                      className="flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50"
+                      className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50"
                     >
-                      <span className="text-sm text-foreground">
-                        {shortcut.label}
-                      </span>
-                      <span className="flex items-center gap-1">
+                      <dt className="text-sm text-foreground">{shortcut.label}</dt>
+                      <dd className="flex shrink-0 items-center gap-1">
                         {shortcut.keys.map((key, i) => (
                           <span key={`${shortcut.label}-${key}-${i}`} className="flex items-center gap-1">
                             {i > 0 ? (
-                              <span className="text-[10px] text-muted-foreground">
+                              <span aria-hidden="true" className="text-micro text-muted-foreground">
                                 +
                               </span>
                             ) : null}
                             <Kbd>{key}</Kbd>
                           </span>
                         ))}
-                      </span>
+                      </dd>
                     </div>
                   ))}
-                </div>
+                </dl>
               </section>
             );
           })}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-5 py-3">
-          <p className="text-[11px] text-muted-foreground">
+        <DialogFooter className="mt-0 flex-row items-center justify-between gap-3 border-t border-border px-5 py-3 sm:justify-between">
+          <p className="text-micro text-muted-foreground">
             Appuyez sur <Kbd>?</Kbd> pour ouvrir ce panneau
           </p>
-          <Modal.Close className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-            Fermer
-          </Modal.Close>
-        </div>
-      </Modal.Content>
-    </Modal.Root>
+          <DialogClose render={<Button variant="ghost" size="sm" />}>Fermer</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

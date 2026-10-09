@@ -4,7 +4,16 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import type {
   TakeoffDpgfComparisonRow,
   TakeoffDpgfComparisonUnusedTakeoffItem,
@@ -52,15 +61,27 @@ export function ManualLinkModal({
     });
   }, [manualLinkCandidates, row, rows]);
 
+  const modeClass = (active: boolean) =>
+    cn(
+      "flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      active
+        ? "bg-surface text-foreground shadow-sm"
+        : "text-muted-foreground hover:text-foreground-secondary"
+    );
+
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content className="max-w-3xl">
-        <Modal.Header>
-          <Modal.Title>Lier manuellement des items takeoff</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <div className="rounded-2xl border border-border bg-surface-subtle p-4">
-            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => onOpenChange(next)}
+      disablePointerDismissal={saving}
+    >
+      <DialogContent size="xl" className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Lier manuellement des éléments de métré</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <div className="rounded-xl border border-border bg-surface-subtle p-4">
+            <p className="text-xs tracking-[0.14em] text-muted-foreground uppercase">
               Ligne DPGF
             </p>
             <p className="mt-1 text-sm font-semibold text-foreground">
@@ -74,22 +95,16 @@ export function ManualLinkModal({
           <div className="flex gap-1 rounded-xl bg-muted p-1">
             <button
               type="button"
-              className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                mode === "takeoff_items"
-                  ? "bg-surface text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground-secondary"
-              }`}
+              aria-pressed={mode === "takeoff_items"}
+              className={modeClass(mode === "takeoff_items")}
               onClick={() => setMode("takeoff_items")}
             >
-              Items takeoff
+              Éléments de métré
             </button>
             <button
               type="button"
-              className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                mode === "hypothesis"
-                  ? "bg-surface text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground-secondary"
-              }`}
+              aria-pressed={mode === "hypothesis"}
+              className={modeClass(mode === "hypothesis")}
               onClick={() => setMode("hypothesis")}
             >
               Hypothèse manuelle
@@ -97,10 +112,14 @@ export function ManualLinkModal({
           </div>
 
           {mode === "takeoff_items" ? (
-            <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+            <div
+              role="group"
+              aria-label="Éléments de métré à lier"
+              className="max-h-[420px] space-y-3 overflow-y-auto pr-1"
+            >
               {candidates.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-6 text-sm text-muted-foreground">
-                  Aucun item takeoff disponible pour un lien manuel.
+                <div className="rounded-xl border border-dashed border-border bg-surface-subtle p-6 text-sm text-muted-foreground">
+                  Aucun élément de métré disponible pour un lien manuel.
                 </div>
               ) : (
                 candidates.map((candidate) => {
@@ -109,15 +128,16 @@ export function ManualLinkModal({
                   return (
                     <label
                       key={candidate.item_id}
-                      className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
+                      className={cn(
+                        "flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition has-focus-visible:ring-2 has-focus-visible:ring-ring",
                         checked
                           ? "border-info-border bg-info-subtle"
                           : "border-border bg-surface hover:bg-surface-subtle"
-                      }`}
+                      )}
                     >
                       <input
                         type="checkbox"
-                        className="mt-1"
+                        className="mt-0.5 size-4 shrink-0 accent-primary"
                         checked={checked}
                         onChange={() => {
                           setSelectedIds((current) =>
@@ -146,7 +166,7 @@ export function ManualLinkModal({
                         <p className="mt-1 text-xs text-muted-foreground">
                           {formatNumber(candidate.quantity)} {candidate.unit} ·{" "}
                           {candidate.source_file_name ?? "Source inconnue"}
-                          {candidate.source_page ? ` · p.${candidate.source_page}` : ""}
+                          {candidate.source_page ? ` · p. ${candidate.source_page}` : ""}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {formatProofConfidence(candidate.confidence_score)}
@@ -164,12 +184,14 @@ export function ManualLinkModal({
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
+              <p id="manual-link-hypothesis-hint" className="text-sm text-muted-foreground">
                 Décrivez votre hypothèse de quantité ou de périmètre pour cette ligne. Elle sera
                 enregistrée comme décision « corriger manuellement » et apparaîtra dans le panneau
-                de preuves sous forme d&apos;hypothèse après rafraîchissement.
+                de preuves sous forme d’hypothèse après rafraîchissement.
               </p>
               <Textarea
+                aria-label="Hypothèse manuelle"
+                aria-describedby="manual-link-hypothesis-hint manual-link-hypothesis-count"
                 autoComplete="off"
                 className="min-h-[160px] py-3"
                 value={hypothesisText}
@@ -177,26 +199,26 @@ export function ManualLinkModal({
                 onChange={(event) => setHypothesisText(event.target.value)}
                 maxLength={2000}
               />
-              <p className="text-xs text-muted-foreground">
+              <p id="manual-link-hypothesis-count" className="text-xs text-muted-foreground">
                 {hypothesisText.length} / 2 000 caractères
               </p>
             </div>
           )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Modal.Close>Annuler</Modal.Close>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />} disabled={saving}>
+            Annuler
+          </DialogClose>
           {mode === "takeoff_items" ? (
             <>
               <Button
                 variant="secondary"
-                size="sm"
                 onClick={() => void onSave([])}
                 disabled={saving || !row}
               >
                 Retirer le lien manuel
               </Button>
               <Button
-                size="sm"
                 loading={saving}
                 disabled={!row}
                 onClick={() => void onSave(selectedIds)}
@@ -206,16 +228,15 @@ export function ManualLinkModal({
             </>
           ) : (
             <Button
-              size="sm"
               loading={saving}
               disabled={!row || hypothesisText.trim().length === 0}
               onClick={() => void onSaveHypothesis(hypothesisText.trim())}
             >
-              Enregistrer l&apos;hypothèse
+              Enregistrer l’hypothèse
             </Button>
           )}
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
