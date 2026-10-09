@@ -22,6 +22,7 @@ type SupplierComparisonPatch = {
 
 export type SupplierComparisonResult = {
   item_id: string;
+  stale_price_days?: number | null;
   best_supplier_price_id: string | null;
   selected_supplier_price_id: string | null;
   alternatives: SupplierComparisonAlternative[];

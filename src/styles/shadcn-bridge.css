@@ -94,8 +94,8 @@
    les separateurs des composants shadcn qui ecrivent `border` / `border-t`
    sans couleur (Table, Card, Separator... 15 des 25 composants) sortiraient en
    #0f172a : des traits noirs. Le selecteur `*` a une specificite (0,0,0) et vit
-   dans @layer base ; les regles de legacy.css sont hors couche et toutes
-   scopees par classe, donc elles continuent de gagner. */
+   dans @layer base ; les regles de legacy.css sont dans la couche legacy,
+   declaree apres base, donc elles continuent de gagner. */
 @layer base {
   * {
     @apply border-border outline-ring/50;

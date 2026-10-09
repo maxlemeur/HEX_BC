@@ -3,11 +3,11 @@
    ==========================================================================
    Extrait de src/app/globals.css le 2026-08-20.
 
-   Ce fichier est charge APRES globals.css (voir src/app/layout.tsx) et doit
+   Ce fichier est importe APRES legacy.css dans globals.css et doit
    le rester : l'ordre de source y decide des egalites de specificite.
 
-   INVARIANT : ne JAMAIS envelopper ce fichier dans une @layer. globals.css
-   sera place dans `@layer legacy` ; ces regles-ci doivent rester hors couche
+   INVARIANT : ne JAMAIS envelopper ce fichier dans une @layer. legacy.css
+   est place dans `@layer legacy` ; ces regles-ci doivent rester hors couche
    pour continuer a battre les utilitaires Tailwind, faute de quoi la mise en
    page du tableau de chiffrage change (ex. .estimate-line-truth__badge, dont
    le padding/font-size sous 1440px serait ecrase par px-2 / text-[11px]).
@@ -1509,13 +1509,13 @@
 
 .estimate-super-head__group--fo {
   background: rgba(59, 130, 246, 0.10);
-  color: rgba(59, 130, 246, 0.8);
+  color: var(--info);
   border-bottom: 2px solid rgba(59, 130, 246, 0.35);
 }
 
 .estimate-super-head__group--mo {
   background: rgba(245, 158, 11, 0.10);
-  color: rgba(180, 120, 10, 0.9);
+  color: var(--warning);
   border-bottom: 2px solid rgba(245, 158, 11, 0.35);
 }
 

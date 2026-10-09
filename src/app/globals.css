@@ -1,3 +1,5 @@
+@layer theme, base, legacy, components, utilities;
+
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../styles/shadcn-utilities.css";

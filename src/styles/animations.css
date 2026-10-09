@@ -72,12 +72,6 @@
   animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* toast-progress — toast auto-dismiss countdown */
-@keyframes toast-progress {
-  from { width: 100%; }
-  to { width: 0%; }
-}
-
 /* onboarding-pulse — subtle border glow for onboarding CTA */
 @keyframes onboarding-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(var(--brand-blue-rgb, 37 99 235), 0.15); }

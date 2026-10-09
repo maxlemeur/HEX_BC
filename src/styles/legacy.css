@@ -1,15 +1,16 @@
 /* ==========================================================================
    Feuille historique — CSS global ecrit a la main (pre-shadcn)
    ==========================================================================
-   Extrait de src/app/globals.css le 2026-08-20. Contenu inchange.
+   Extrait de src/app/globals.css le 2026-08-20.
 
-   Charge par globals.css, AVANT estimate-frozen.css : cet ordre reproduit
-   exactement la cascade d'origine, ou les regles de la zone gelee suivaient
-   celles-ci dans le meme fichier.
+   Charge par globals.css, AVANT estimate-frozen.css. La zone gelee reste
+   hors couche. Les utilitaires Tailwind peuvent
+   surcharger les classes historiques sur les interfaces migrees.
 
-   C'est ce fichier — et lui seul — qui passera dans `@layer legacy` au lot 1.
+   Ordre des couches defini dans globals.css : base, legacy, components, utilities.
    ========================================================================== */
 
+@layer legacy {
 html {
   background: var(--background);
 }
@@ -1688,3 +1689,5 @@ button, a, [role="button"] {
     height: 44px;
   }
 }
+
+} /* @layer legacy */

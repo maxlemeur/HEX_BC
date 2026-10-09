@@ -455,7 +455,16 @@ export function parseSupplierComparisonResult(payload: unknown, fallbackItemId: 
     .map((entry) => toSupplierComparisonAlternative(entry))
     .filter((entry): entry is SupplierComparisonAlternative => entry !== null);
 
+  const stalePriceDays = toFiniteNumber(
+    dataRecord?.stale_price_days,
+    toFiniteNumber(envelopeRecord?.stale_price_days, Number.NaN)
+  );
+
   return {
+    stale_price_days:
+      Number.isInteger(stalePriceDays) && stalePriceDays > 0 && stalePriceDays <= 3650
+        ? stalePriceDays
+        : null,
     item_id:
       toNonEmptyString(comparisonRecord.item_id) ??
       toNonEmptyString(comparisonRecord.itemId) ??
@@ -2675,6 +2684,7 @@ export function EstimateEditorTable({
           quantity={activeSupplierComparisonItem.quantity}
           itemUnit={activeSupplierComparisonItem.description}
           currentUnitPriceCents={activeSupplierComparisonItem.unit_price_ht_cents}
+          stalePriceDays={activeSupplierComparison?.stale_price_days ?? null}
           alternatives={activeSupplierComparison?.alternatives ?? []}
           bestSupplierPriceId={
             activeSupplierComparison?.best_supplier_price_id ?? null

@@ -184,6 +184,11 @@ export function SupplierComparisonPanel({
           <p className="text-xs text-muted-foreground">
             Coûts de fourniture HT avant coefficients FO et marge.
           </p>
+          {!isLoading && !error && typeof stalePriceDays === "number" && stalePriceDays > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Prix ancien au-delà du {staleThresholdLabel}.
+            </p>
+          ) : null}
         </DialogHeader>
 
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-5 py-4 sm:px-6">

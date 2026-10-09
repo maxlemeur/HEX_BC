@@ -988,7 +988,9 @@ const estimateItemsBulkDataSchema = z.object({
 });
 
 const estimateSupplierComparisonsDataSchema = z.object({
-  stale_price_days: z.number().int(),
+  stale_price_days: z.number().int().min(1).max(3650).describe(
+    "Seuil de fraîcheur configuré pour le tenant, en jours. Un prix est ancien au-delà de ce seuil."
+  ),
   coverage_summary: estimateSupplierComparisonCoverageSummarySchema,
   comparisons: z.array(estimateSupplierComparisonSchema),
   bulk_preselection: estimateSupplierPreselectionReviewSchema,

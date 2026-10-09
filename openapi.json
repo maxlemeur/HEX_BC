@@ -31380,8 +31380,9 @@
             "properties": {
               "stale_price_days": {
                 "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
+                "minimum": 1,
+                "maximum": 3650,
+                "description": "Seuil de fraîcheur configuré pour le tenant, en jours. Un prix est ancien au-delà de ce seuil."
               },
               "coverage_summary": {
                 "type": "object",
