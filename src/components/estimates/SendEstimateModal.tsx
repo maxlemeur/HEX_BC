@@ -288,7 +288,7 @@ export function SendEstimateModal({
     <Dialog
       open={open}
       onOpenChange={handleOpenChange}
-      disablePointerDismissal={isSubmitting}
+      disablePointerDismissal
     >
       <DialogContent size="lg">
         <DialogHeader>

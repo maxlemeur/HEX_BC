@@ -84,7 +84,7 @@ export function SupplierPreselectionDialog({
   return (
     <Dialog
       open={isOpen}
-      disablePointerDismissal={isApplying}
+      disablePointerDismissal
       onOpenChange={(open) => {
         if (!open && !isApplying) onClose();
       }}

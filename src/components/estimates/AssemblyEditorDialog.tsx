@@ -671,7 +671,7 @@ export function AssemblyEditorDialog({
   return (
     <Dialog
       open
-      disablePointerDismissal={isSubmitting}
+      disablePointerDismissal
       onOpenChange={(open) => {
         if (!open && !isSubmitting) onClose();
       }}

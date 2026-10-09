@@ -689,7 +689,7 @@ export function QuickCreateAffaireDialog({
     <Dialog
       open={open}
       onOpenChange={handleOpenChange}
-      disablePointerDismissal={isBusy}
+      disablePointerDismissal
     >
       <DialogContent size="md" initialFocus={projectNameRef} showCloseButton={!isBusy}>
         <DialogHeader>

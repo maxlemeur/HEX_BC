@@ -43,7 +43,7 @@ export function ExclusionReasonDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog disablePointerDismissal open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>

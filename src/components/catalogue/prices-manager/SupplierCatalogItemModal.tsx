@@ -94,6 +94,7 @@ export function SupplierCatalogItemModal({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={item !== null}
       onOpenChange={(open) => {
         if (!open && !isSaving) onClose();

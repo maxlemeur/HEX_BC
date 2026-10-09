@@ -41,9 +41,9 @@ export function RiskStatusModal({
 }: Readonly<RiskStatusModalProps>) {
   return (
     <Dialog
+      disablePointerDismissal
       open={riskActionTarget !== null}
       onOpenChange={(open) => onOpenChange(open)}
-      disablePointerDismissal={riskStatusSaving}
     >
       <DialogContent size="lg">
         <DialogHeader>

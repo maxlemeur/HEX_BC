@@ -201,7 +201,7 @@ export function ProductFormModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog disablePointerDismissal open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" showCloseButton={false} className="gap-0 p-0 sm:p-0">
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4 sm:px-6 sm:py-5">
           <DialogHeader className="pr-0">

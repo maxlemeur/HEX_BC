@@ -167,6 +167,7 @@ export function PastePreviewDialog({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) onClose();

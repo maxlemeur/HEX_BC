@@ -115,6 +115,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
 
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isImporting) onClose();

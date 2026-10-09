@@ -175,6 +175,7 @@ export function ProductPriceTemplateImport({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isBusy) onClose();

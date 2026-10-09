@@ -58,6 +58,7 @@ export function RegisterTransitionDialog({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={pendingTransition !== null}
       onOpenChange={(open) => {
         if (!open && !isMutationPending) {

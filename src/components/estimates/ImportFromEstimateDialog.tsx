@@ -218,7 +218,7 @@ export function ImportFromEstimateDialog({
   return (
     <Dialog
       open={isOpen}
-      disablePointerDismissal={isSubmitting}
+      disablePointerDismissal
       onOpenChange={(open) => {
         if (!open && !isSubmitting) onClose();
       }}

@@ -139,6 +139,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
 
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isSubmitting) {

@@ -466,7 +466,7 @@ function LaunchMetreDialogContent({
   ]);
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog disablePointerDismissal open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="md" showCloseButton={!isSubmitting}>
         <DialogHeader>
           <DialogTitle>Analyser les plans</DialogTitle>

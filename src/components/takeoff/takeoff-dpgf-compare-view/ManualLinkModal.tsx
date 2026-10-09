@@ -71,9 +71,9 @@ export function ManualLinkModal({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(next) => onOpenChange(next)}
-      disablePointerDismissal={saving}
     >
       <DialogContent size="xl" className="sm:max-w-3xl">
         <DialogHeader>

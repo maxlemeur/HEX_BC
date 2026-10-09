@@ -123,7 +123,7 @@ export function ToastViewport({
 }) {
   return (
     <div
-      className={cn("pointer-events-none fixed bottom-4 right-4 z-70 flex flex-col gap-2", className)}
+      className={cn("pointer-events-none fixed bottom-4 right-4 z-(--z-toast) flex flex-col gap-2", className)}
       aria-live="polite"
       aria-relevant="additions removals"
     >

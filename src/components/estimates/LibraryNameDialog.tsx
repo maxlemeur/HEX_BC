@@ -38,6 +38,7 @@ export function LibraryNameDialog({
 }: Readonly<LibraryNameDialogProps>) {
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) onCancel();

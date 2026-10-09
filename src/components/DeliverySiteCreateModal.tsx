@@ -125,6 +125,7 @@ export function DeliverySiteCreateModal({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isSubmitting) {

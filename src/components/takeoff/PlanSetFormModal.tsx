@@ -55,7 +55,7 @@ export function PlanSetFormModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
+    <Dialog disablePointerDismissal open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <DialogContent size="md" showCloseButton={false} initialFocus={nameInputRef}>
         <DialogHeader>
           <DialogTitle>Nouveau jeu de plans</DialogTitle>

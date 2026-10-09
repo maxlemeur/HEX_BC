@@ -472,6 +472,7 @@ export function SupplierOfferFormModal({
 
   return (
     <Dialog
+      disablePointerDismissal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isSaving) handleClose();

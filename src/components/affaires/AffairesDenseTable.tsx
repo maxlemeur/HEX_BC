@@ -250,6 +250,9 @@ export function AffairesDenseTable({
   const handleRowClick = useCallback(
     (event: MouseEvent<HTMLTableRowElement>, href: string) => {
       if (event.defaultPrevented || event.button !== 0) return;
+      // React bubbles clicks from portalled popups (row actions menu, tooltips) to the row:
+      // only clicks that start inside the row's own DOM navigate.
+      if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
       const target = event.target as HTMLElement;
       if (target.closest(INTERACTIVE_ROW_TARGET)) return;
       if (window.getSelection?.()?.toString()) return;

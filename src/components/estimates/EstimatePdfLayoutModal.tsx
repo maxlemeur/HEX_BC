@@ -227,7 +227,7 @@ export function EstimatePdfLayoutModal({
   return (
     <Dialog
       open={open}
-      disablePointerDismissal={isSubmitting}
+      disablePointerDismissal
       onOpenChange={(nextOpen) => {
         if (!nextOpen && isSubmitting) return;
         onOpenChange(nextOpen);

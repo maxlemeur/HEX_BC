@@ -82,7 +82,7 @@ export function RejectEstimateModal({
   );
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog disablePointerDismissal open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Refuser le devis</DialogTitle>

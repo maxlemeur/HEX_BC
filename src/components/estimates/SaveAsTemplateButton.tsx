@@ -107,7 +107,7 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
 
       <Dialog
         open={isOpen}
-        disablePointerDismissal={isSubmitting}
+        disablePointerDismissal
         onOpenChange={(open) => {
           if (!open) closeModal();
         }}

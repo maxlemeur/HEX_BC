@@ -275,6 +275,7 @@ export default function SitesPage() {
       ) : null}
 
       <Dialog
+        disablePointerDismissal
         open={isFormOpen}
         onOpenChange={(open) => {
           if (!open && !isSubmitting) closeForm();

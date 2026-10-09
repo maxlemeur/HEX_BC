@@ -94,7 +94,7 @@ export function AcceptEstimateModal({
   );
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog disablePointerDismissal open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Accepter le devis</DialogTitle>
