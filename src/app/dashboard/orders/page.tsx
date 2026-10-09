@@ -17,6 +17,7 @@ import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
 import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import type { ExportColumn } from "@/lib/export";
 import { formatEUR } from "@/lib/money";
+import { ChevronRightIcon, CircleXIcon, DownloadIcon, EllipsisVerticalIcon, ExternalLinkIcon, EyeIcon, FileTextIcon, PlusIcon, RotateCwIcon, SearchIcon, ShoppingBagIcon, ShoppingCartIcon, TrashIcon } from "lucide-react";
 
 type PurchaseOrderStatus =
   | "draft"
@@ -643,20 +644,7 @@ export default function OrdersPage() {
           </p>
         </div>
         <Link href="/dashboard/orders/new" className="btn btn-accent btn-lg w-full shrink-0 sm:w-auto">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
+          <PlusIcon aria-hidden="true" size={20} />
           Nouveau bon
         </Link>
       </div>
@@ -664,19 +652,7 @@ export default function OrdersPage() {
       {/* Error alert */}
       {loadError ? (
         <div className="alert alert-error mb-6">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={20} />
           {loadError.message}
         </div>
       ) : null}
@@ -719,21 +695,7 @@ export default function OrdersPage() {
               onClick={() => void mutate()}
               type="button"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={isValidating ? "animate-spin" : ""}
-              >
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-              </svg>
+              <RotateCwIcon aria-hidden="true" className={isValidating ? "animate-spin" : ""} size={16} />
               {isValidating ? "Chargement..." : "Actualiser"}
             </button>
           </div>
@@ -751,22 +713,7 @@ export default function OrdersPage() {
               ) : orders.length === 0 ? (
                 <EmptyState
                   icon={
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="26"
-                      height="26"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="8" cy="20" r="1" />
-                      <circle cx="19" cy="20" r="1" />
-                      <path d="M2 3h3l2.6 11.3a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H7" />
-                    </svg>
+                    <ShoppingCartIcon strokeWidth="1.5" aria-hidden="true" size={26} />
                   }
                   title="Aucune commande"
                   description="Les commandes sont générées depuis un chiffrage accepté."
@@ -777,21 +724,7 @@ export default function OrdersPage() {
               ) : (
                 <EmptyState
                   icon={
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="26"
-                      height="26"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="11" cy="11" r="8" />
-                      <path d="m21 21-4.3-4.3" />
-                    </svg>
+                    <SearchIcon strokeWidth="1.5" aria-hidden="true" size={26} />
                   }
                   title="Aucun résultat"
                   description="Modifiez vos filtres pour voir plus de résultats."
@@ -898,22 +831,7 @@ export default function OrdersPage() {
                     ) : orders.length === 0 ? (
                       <EmptyState
                         icon={
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="26"
-                            height="26"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <circle cx="8" cy="20" r="1" />
-                            <circle cx="19" cy="20" r="1" />
-                            <path d="M2 3h3l2.6 11.3a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H7" />
-                          </svg>
+                          <ShoppingCartIcon strokeWidth="1.5" aria-hidden="true" size={26} />
                         }
                         title="Aucune commande"
                         description="Les commandes sont generees depuis un chiffrage accepte."
@@ -924,21 +842,7 @@ export default function OrdersPage() {
                     ) : (
                       <EmptyState
                         icon={
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="26"
-                            height="26"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="m21 21-4.3-4.3" />
-                          </svg>
+                          <SearchIcon strokeWidth="1.5" aria-hidden="true" size={26} />
                         }
                         title="Aucun résultat"
                         description="Modifiez vos filtres pour voir plus de résultats."
@@ -970,18 +874,7 @@ export default function OrdersPage() {
                         onClick={() => handleDownloadZip(order.id, order.reference)}
                         disabled={downloadingOrderId === order.id}
                       >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="7 10 12 15 17 10" />
-                          <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
+                        <DownloadIcon aria-hidden="true" size={16} />
                         {downloadingOrderId === order.id
                           ? "Telechargement..."
                           : "Telecharger ZIP"}
@@ -1009,20 +902,7 @@ export default function OrdersPage() {
                               setConfirmDeleteOrder({ id: order.id, reference: order.reference });
                             }}
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M3 6h18" />
-                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                            </svg>
+                            <TrashIcon aria-hidden="true" size={16} />
                             Supprimer
                           </button>
                         </>
@@ -1044,18 +924,7 @@ export default function OrdersPage() {
                             aria-expanded={isExpanded}
                             aria-label={isExpanded ? "Replier" : "Développer"}
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="m9 18 6-6-6-6" />
-                            </svg>
+                            <ChevronRightIcon aria-hidden="true" size={16} />
                           </button>
                         </td>
                         <td>
@@ -1092,17 +961,7 @@ export default function OrdersPage() {
                               aria-expanded={isMenuOpen}
                               onClick={() => setOpenMenuId(isMenuOpen ? null : order.id)}
                             >
-                              <svg
-                                width="18"
-                                height="18"
-                                viewBox="0 0 24 24"
-                                fill="currentColor"
-                                aria-hidden="true"
-                              >
-                                <circle cx="12" cy="5" r="1.8" />
-                                <circle cx="12" cy="12" r="1.8" />
-                                <circle cx="12" cy="19" r="1.8" />
-                              </svg>
+                              <EllipsisVerticalIcon aria-hidden="true" size={18} />
                               <span className="sr-only">Actions</span>
                             </button>
                           </div>
@@ -1118,9 +977,7 @@ export default function OrdersPage() {
                               <div className="mb-2">
                                 <div className="mb-4 flex items-center gap-4">
                                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-orange/10">
-                                    <svg className="h-4 w-4 text-brand-orange" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M6 5v1H4.667a1.75 1.75 0 00-1.743 1.598l-.826 9.5A1.75 1.75 0 003.84 19H16.16a1.75 1.75 0 001.743-1.902l-.826-9.5A1.75 1.75 0 0015.333 6H14V5a4 4 0 00-8 0zm4-2.5A2.5 2.5 0 007.5 5v1h5V5A2.5 2.5 0 0010 2.5zM7.5 10a2.5 2.5 0 005 0V8.75a.75.75 0 011.5 0V10a4 4 0 01-8 0V8.75a.75.75 0 011.5 0V10z" clipRule="evenodd" />
-                                    </svg>
+                                    <ShoppingBagIcon aria-hidden="true" className="h-4 w-4 text-brand-orange" />
                                   </div>
                                   <h4 className="text-sm font-semibold text-slate-800">
                                     Articles commandes
@@ -1186,9 +1043,7 @@ export default function OrdersPage() {
                               ) : (
                                 <div className="rounded-xl border-2 border-dashed border-border bg-surface-subtle/50 px-6 py-8 text-center">
                                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-                                    <svg className="h-6 w-6 text-subtle-foreground" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M6 5v1H4.667a1.75 1.75 0 00-1.743 1.598l-.826 9.5A1.75 1.75 0 003.84 19H16.16a1.75 1.75 0 001.743-1.902l-.826-9.5A1.75 1.75 0 0015.333 6H14V5a4 4 0 00-8 0zm4-2.5A2.5 2.5 0 007.5 5v1h5V5A2.5 2.5 0 0010 2.5z" clipRule="evenodd" />
-                                    </svg>
+                                    <ShoppingBagIcon aria-hidden="true" className="h-6 w-6 text-subtle-foreground" />
                                   </div>
                                   <p className="mt-3 text-sm font-medium text-slate-600">
                                     Aucun article
@@ -1204,9 +1059,7 @@ export default function OrdersPage() {
                                 <div className="mb-4 flex items-center justify-between">
                                   <div className="flex items-center gap-4">
                                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                                      <svg className="h-4 w-4 text-primary" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z" clipRule="evenodd" />
-                                      </svg>
+                                      <FileTextIcon aria-hidden="true" className="h-4 w-4 text-primary" />
                                     </div>
                                     <h4 className="text-sm font-semibold text-slate-800">
                                       Documents joints
@@ -1221,10 +1074,7 @@ export default function OrdersPage() {
                                     href={`/dashboard/orders/${order.id}`}
                                     className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
                                   >
-                                    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                      <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
-                                      <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
-                                    </svg>
+                                    <ExternalLinkIcon aria-hidden="true" className="h-3.5 w-3.5" />
                                     Gerer
                                   </Link>
                                 </div>
@@ -1269,9 +1119,7 @@ export default function OrdersPage() {
                                         className="inline-flex items-center gap-2 rounded-lg border border-dashed border-border-strong px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:border-brand-orange hover:bg-brand-orange/5 hover:text-brand-orange"
                                         type="button"
                                       >
-                                        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                          <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-                                        </svg>
+                                        <PlusIcon aria-hidden="true" className="h-4 w-4" />
                                         Ajouter un document
                                       </button>
                                     )}
@@ -1317,10 +1165,7 @@ export default function OrdersPage() {
                                               type="button"
                                               disabled={!item.downloadUrl}
                                             >
-                                              <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                                                <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                              </svg>
+                                              <EyeIcon aria-hidden="true" className="h-3.5 w-3.5" />
                                               Apercu
                                             </button>
                                           )}
@@ -1334,10 +1179,7 @@ export default function OrdersPage() {
                                             type="button"
                                             disabled={!item.downloadUrl}
                                           >
-                                            <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                              <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
-                                              <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
-                                            </svg>
+                                            <DownloadIcon aria-hidden="true" className="h-3.5 w-3.5" />
                                             Telecharger
                                           </button>
                                         </div>
@@ -1347,12 +1189,7 @@ export default function OrdersPage() {
                                 ) : (
                                   <div className="rounded-xl border-2 border-dashed border-border bg-surface-subtle/50 px-6 py-8 text-center">
                                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-                                      <svg className="h-6 w-6 text-subtle-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                        <polyline points="14 2 14 8 20 8" />
-                                        <line x1="16" y1="13" x2="8" y2="13" />
-                                        <line x1="16" y1="17" x2="8" y2="17" />
-                                      </svg>
+                                      <FileTextIcon aria-hidden="true" className="h-6 w-6 text-subtle-foreground" strokeWidth="1.5" />
                                     </div>
                                     <p className="mt-3 text-sm font-medium text-slate-600">
                                       Aucun document joint

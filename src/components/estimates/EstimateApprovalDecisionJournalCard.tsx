@@ -15,6 +15,7 @@ import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
   APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
 } from "@/lib/estimates/approval-decision-journal";
+import { CircleXIcon } from "lucide-react";
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -321,19 +322,7 @@ export function EstimateApprovalDecisionJournalCard({
 
       {error ? (
         <div className="alert alert-error mt-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={20} />
           {error}
         </div>
       ) : null}

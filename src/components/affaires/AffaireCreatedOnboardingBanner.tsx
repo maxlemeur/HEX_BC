@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArrowRightIcon, XIcon } from "lucide-react";
 
 type AffaireCreatedOnboardingBannerProps = {
   onDismiss: () => void;
@@ -25,20 +26,7 @@ export function AffaireCreatedOnboardingBanner({
           className="shrink-0 rounded-md p-1 text-primary/60 transition-colors hover:bg-primary/10 hover:text-primary"
           aria-label="Fermer"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
+          <XIcon aria-hidden="true" size={16} />
         </button>
       </div>
 
@@ -57,20 +45,7 @@ export function AffaireCreatedOnboardingBanner({
             className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Deposer
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRightIcon aria-hidden="true" size={14} />
           </button>
         </div>
 
@@ -87,20 +62,7 @@ export function AffaireCreatedOnboardingBanner({
             className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Ouvrir le devis
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRightIcon aria-hidden="true" size={14} />
           </Link>
         </div>
 
@@ -118,20 +80,7 @@ export function AffaireCreatedOnboardingBanner({
             className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Importer la DPGF
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRightIcon aria-hidden="true" size={14} />
           </button>
         </div>
       </div>

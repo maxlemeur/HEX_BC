@@ -12,6 +12,7 @@ import {
 } from "@/components/imports/importWizardHistory";
 import { useImportWizardFileStage } from "@/components/imports/useImportWizardFileStage";
 import { useImportFlow } from "@/hooks/useImportFlow";
+import { ChevronDownIcon, ClockIcon } from "lucide-react";
 
 export function ImportWizard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,16 +131,11 @@ export function ImportWizard() {
             onClick={() => setShowHistory(true)}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
+            <ClockIcon aria-hidden="true" strokeWidth="1.5" size={14} />
             {imports.length > 0
               ? `Voir l&apos;historique (${imports.length} import${imports.length > 1 ? "s" : ""})`
               : "Voir l&apos;historique"}
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
+            <ChevronDownIcon aria-hidden="true" strokeWidth="2.5" size={12} />
           </button>
         </div>
       ) : null}

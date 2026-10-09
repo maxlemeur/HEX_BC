@@ -18,6 +18,7 @@ import {
   type ExistingSection,
   type UiGeneratedOuvrageCandidate,
 } from "./generated-ouvrage-types";
+import { CheckIcon, ChevronRightIcon } from "lucide-react";
 
 const GeneratedOuvrageSubdetailEditor = dynamic(
   () =>
@@ -100,14 +101,7 @@ function ReadinessStepper({
       {steps.map((step, i) => (
         <Fragment key={i}>
           {i > 0 && (
-            <svg
-              className="h-3 w-3 text-slate-300 shrink-0"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06-1.06L9.44 8.5 6.22 5.28a.75.75 0 0 1 0-1.06Z" />
-            </svg>
+            <ChevronRightIcon className="h-3 w-3 text-slate-300 shrink-0" aria-hidden="true" />
           )}
           <span
             className={cn(
@@ -120,14 +114,7 @@ function ReadinessStepper({
             )}
           >
             {step.done ? (
-              <svg
-                className="h-3 w-3 shrink-0"
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
-              </svg>
+              <CheckIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
             ) : (
               <span
                 className="h-3 w-3 flex items-center justify-center text-[10px] font-bold shrink-0"

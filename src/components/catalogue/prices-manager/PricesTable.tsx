@@ -3,6 +3,7 @@
 import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { FreshnessBadge, formatDate } from "@/components/catalogue/prices-manager/utils";
+import { CircleXIcon, RotateCwIcon } from "lucide-react";
 
 function formatPrice(item: EnrichedPrice) {
   const currency = normalizeEstimateCurrency(item.currency);
@@ -74,38 +75,14 @@ export function PricesTable({
           onClick={onRefresh}
           type="button"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className={isValidating ? "animate-spin" : ""}
-          >
-            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-            <path d="M21 3v5h-5" />
-          </svg>
+          <RotateCwIcon aria-hidden="true" className={isValidating ? "animate-spin" : ""} size={16} />
           {isValidating ? "Chargement..." : "Actualiser"}
         </button>
       </div>
 
       {loadError ? (
         <div className="alert alert-error m-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={18} />
           {loadError instanceof Error ? loadError.message : "Impossible de charger les prix fournisseur."}
         </div>
       ) : null}

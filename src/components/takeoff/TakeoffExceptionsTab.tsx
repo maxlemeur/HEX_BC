@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui-legacy/Badge";
 import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import { JobsTableSkeleton } from "./takeoff-job-list-shared";
+import { CircleAlertIcon } from "lucide-react";
 
 type Props = {
   projectId: string;
@@ -146,21 +147,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
     return (
       <EmptyState
         icon={
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
+          <CircleAlertIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
         title="Aucune exception"
         description="Aucun signal de risque ne remonte pour cette version."

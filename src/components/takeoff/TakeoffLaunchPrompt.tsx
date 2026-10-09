@@ -15,6 +15,7 @@ import {
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
+import { CheckIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
 
 type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
 
@@ -305,26 +306,7 @@ export function TakeoffLaunchPrompt({
       <div aria-live="polite">
         {state === "launching" && (
           <div className="flex items-center gap-2">
-            <svg
-              className="h-4 w-4 animate-spin text-primary"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
+            <LoaderCircleIcon className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
             <span className="text-xs font-medium text-primary">
               {launchMode === "create_draft_from_current"
                 ? "Création du brouillon et lancement de l'analyse..."
@@ -336,20 +318,7 @@ export function TakeoffLaunchPrompt({
         {state === "success" && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 text-success"
-                aria-hidden="true"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <CheckIcon strokeWidth="2.5" className="shrink-0 text-success" aria-hidden="true" size={14} />
               <span className="text-xs font-medium text-success">
                 {recoveryUnconfirmed
                   ? "Analyse créée, reprise à vérifier"
@@ -400,24 +369,7 @@ export function TakeoffLaunchPrompt({
       {state === "idle" && (
         <>
           <div className="flex items-center gap-2">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0 text-primary"
-              aria-hidden="true"
-            >
-              <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
+            <FileTextIcon className="shrink-0 text-primary" aria-hidden="true" size={16} />
             <span className="text-sm font-semibold text-slate-800">
               {promptTitle}
             </span>

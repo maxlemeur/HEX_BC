@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SortDirection, SortOption, SortState } from "./types";
+import { ArrowDownUpIcon, ChevronUpIcon } from "lucide-react";
 
 type SortControlProps = {
   options: SortOption[];
@@ -64,35 +65,9 @@ export function SortControl({ options, value, onSortChange, onDirectionToggle }:
         aria-haspopup="listbox"
         aria-label={`Trier par ${displayLabel}, ordre ${value?.direction === "asc" ? "croissant" : "décroissant"}`}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m3 16 4 4 4-4" />
-          <path d="M7 20V4" />
-          <path d="m21 8-4-4-4 4" />
-          <path d="M17 4v16" />
-        </svg>
+        <ArrowDownUpIcon aria-hidden="true" size={16} />
         <span className="sort-button__label">{displayLabel}</span>
-        <svg
-          className="sort-button__arrow"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m18 15-6-6-6 6" />
-        </svg>
+        <ChevronUpIcon aria-hidden="true" className="sort-button__arrow" size={14} />
       </button>
 
       {isOpen && (
@@ -110,19 +85,7 @@ export function SortControl({ options, value, onSortChange, onDirectionToggle }:
               >
                 <span>{option.label}</span>
                 {isSelected && (
-                  <svg
-                    className={value?.direction === "desc" ? "rotate-180" : ""}
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="m18 15-6-6-6 6" />
-                  </svg>
+                  <ChevronUpIcon aria-hidden="true" className={value?.direction === "desc" ? "rotate-180" : ""} size={14} />
                 )}
               </button>
             );

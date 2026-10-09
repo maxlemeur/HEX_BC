@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronLeftIcon } from "lucide-react";
 
 type AffaireBreadcrumbProps = {
   projectId: string;
@@ -25,19 +26,7 @@ export function AffaireBreadcrumb({
         className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:hidden"
         aria-label="Retour au projet"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m15 18-6-6 6-6" />
-        </svg>
+        <ChevronLeftIcon aria-hidden="true" size={14} />
       </Link>
 
       {/* Desktop: full breadcrumb */}
@@ -45,19 +34,7 @@ export function AffaireBreadcrumb({
         href={hubHref}
         className="hidden items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:inline-flex"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m15 18-6-6 6-6" />
-        </svg>
+        <ChevronLeftIcon aria-hidden="true" size={14} />
         Mes affaires
       </Link>
       <span className="hidden text-slate-300 sm:inline">/</span>

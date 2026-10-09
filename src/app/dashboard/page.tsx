@@ -8,6 +8,7 @@ import {
   type AffaireListItem,
 } from "@/lib/affaires/server";
 import { getUserContext } from "@/lib/auth/server";
+import { ArrowRightIcon, FolderIcon } from "lucide-react";
 
 const STATUS_LABELS: Record<
   "draft" | "sending" | "sent" | "accepted" | "archived",
@@ -46,21 +47,7 @@ function StatusBadge({ item }: Readonly<{ item: AffaireListItem }>) {
 
 function ShortcutIcon() {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M5 12h14" />
-      <path d="m13 6 6 6-6 6" />
-    </svg>
+    <ArrowRightIcon strokeWidth="1.75" aria-hidden="true" size={18} />
   );
 }
 
@@ -187,20 +174,7 @@ export default async function DashboardPage() {
             <EmptyState
               className="m-4 border-0 py-10 shadow-none"
               icon={
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="26"
-                  height="26"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-                </svg>
+                <FolderIcon strokeWidth="1.5" aria-hidden="true" size={26} />
               }
               title="Aucune affaire pour le moment"
               description="Créez votre première affaire pour démarrer un chiffrage."

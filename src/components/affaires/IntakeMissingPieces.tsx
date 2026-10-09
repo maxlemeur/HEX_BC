@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui-legacy/Badge";
 import type { AffaireIntakeWorkspaceMissingPiece } from "@/lib/affaires/intake";
+import { PlusIcon, TriangleAlertIcon } from "lucide-react";
 
 type BadgeVariant = "info" | "warning" | "error";
 
@@ -51,22 +52,7 @@ export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesPr
       aria-label="Pieces manquantes au dossier"
     >
       <div className="mb-2 flex items-center gap-2">
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={hasCritical ? "text-danger" : "text-warning"}
-          aria-hidden="true"
-        >
-          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-          <line x1="12" x2="12" y1="9" y2="13" />
-          <line x1="12" x2="12.01" y1="17" y2="17" />
-        </svg>
+        <TriangleAlertIcon className={hasCritical ? "text-danger" : "text-warning"} aria-hidden="true" size={16} />
         <h3 className="text-sm font-semibold text-slate-800">
           Pieces manquantes au dossier
         </h3>
@@ -97,10 +83,7 @@ export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesPr
           onClick={onAddFile}
           className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <line x1="12" x2="12" y1="5" y2="19" />
-            <line x1="5" x2="19" y1="12" y2="12" />
-          </svg>
+          <PlusIcon aria-hidden="true" size={12} />
           Ajouter les pieces manquantes
         </button>
       )}

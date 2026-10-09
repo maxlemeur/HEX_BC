@@ -8,6 +8,7 @@ import { fetchApi } from "@/components/catalogue/api";
 import { NumberInput } from "@/components/ui-legacy/NumberInput";
 import type { CatalogueItem } from "@/components/catalogue/types";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
+import { CheckIcon, CircleAlertIcon } from "lucide-react";
 
 type CatalogueListResponse = {
   items: CatalogueItem[];
@@ -700,13 +701,9 @@ export function CatalogueManager() {
                       : "bg-amber-400 text-white"
                   }`}>
                     {linkSummary.unmatched_count === 0 ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M5 12l5 5L20 7" />
-                      </svg>
+                      <CheckIcon aria-hidden="true" size={20} />
                     ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 9v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                      </svg>
+                      <CircleAlertIcon aria-hidden="true" size={20} />
                     )}
                   </div>
                   <div>

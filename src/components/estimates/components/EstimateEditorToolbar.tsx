@@ -25,6 +25,7 @@ import { usePopover } from "@/hooks/usePopover";
 import { EstimateEditorCommandBar } from "@/components/estimates/components/EstimateEditorCommandBar";
 import type { UiMode } from "@/lib/ui-mode";
 import { parseNumberInput } from "@/lib/estimates/editor-values";
+import { ChevronDownIcon, FilePlusIcon, InfoIcon, KeyboardIcon, RectangleEllipsisIcon, Redo2Icon, SettingsIcon, TriangleAlertIcon, Undo2Icon, XIcon } from "lucide-react";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -419,7 +420,7 @@ export function LegacyEstimateEditorToolbar({
             title="Annuler (Ctrl+Z)"
             data-testid="estimate-editor-undo-button"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+            <Undo2Icon aria-hidden="true" size={16} />
             <span className={isCompactViewport ? "sr-only" : "text-xs"}>
               Annuler
             </span>
@@ -433,7 +434,7 @@ export function LegacyEstimateEditorToolbar({
             title="Rétablir (Ctrl+Y)"
             data-testid="estimate-editor-redo-button"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
+            <Redo2Icon aria-hidden="true" size={16} />
             <span className={isCompactViewport ? "sr-only" : "text-xs"}>
               Rétablir
             </span>
@@ -455,19 +456,7 @@ export function LegacyEstimateEditorToolbar({
               data-testid="estimate-editor-primary-actions-button"
             >
               Actions
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+              <ChevronDownIcon aria-hidden="true" strokeWidth="2.5" size={12} />
             </button>
             {primaryActionsOpen ? (
               <div
@@ -589,18 +578,7 @@ export function LegacyEstimateEditorToolbar({
                 className="inline-flex items-center gap-1 text-[11px] font-medium text-subtle-foreground"
                 title="Assistants optionnels : ils proposent du contenu à valider sans remplacer le flux principal."
               >
-                <svg
-                  aria-hidden="true"
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 11v5" />
-                  <path d="M12 8h.01" />
-                </svg>
+                <InfoIcon aria-hidden="true" className="h-3.5 w-3.5" />
                 Assistants optionnels
               </span>
             ) : null}
@@ -615,7 +593,7 @@ export function LegacyEstimateEditorToolbar({
               <>
                 <div className="h-5 w-px bg-slate-200" />
                 <button className="btn btn-ghost btn-sm flex items-center gap-1.5" type="button" onClick={onOpenSettings} title="Paramétrage" data-testid="estimate-editor-settings-button">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <SettingsIcon aria-hidden="true" size={15} />
                   <span>Paramétrage</span>
                 </button>
               </>
@@ -653,7 +631,7 @@ export function LegacyEstimateEditorToolbar({
               data-testid="estimate-editor-overflow-button"
             >
               Plus...
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`ml-0.5 transition-transform ${overflowOpen ? "rotate-180" : ""}`}><polyline points="6 9 12 15 18 9"/></svg>
+              <ChevronDownIcon aria-hidden="true" strokeWidth="2.5" className={`ml-0.5 transition-transform ${overflowOpen ? "rotate-180" : ""}`} size={12} />
             </button>
             {overflowOpen && (
               <div
@@ -820,7 +798,7 @@ export function LegacyEstimateEditorToolbar({
               title="Inserer un template"
               data-testid="estimate-editor-quick-template-button"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              <FilePlusIcon aria-hidden="true" size={14} />
               <span className="text-xs">+ Template</span>
             </button>
             {quickTemplatePickerNode}
@@ -836,7 +814,7 @@ export function LegacyEstimateEditorToolbar({
               title="Inserer un ouvrage"
               data-testid="estimate-editor-quick-assembly-button"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
+              <RectangleEllipsisIcon aria-hidden="true" size={14} />
               <span className="text-xs">+ Ouvrage</span>
             </button>
             {quickAssemblyPickerNode}
@@ -923,9 +901,9 @@ export function LegacyEstimateEditorToolbar({
               aria-controls={ANOMALIES_PANEL_ID}
               data-testid="estimate-editor-anomalies-button"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <TriangleAlertIcon aria-hidden="true" strokeWidth="2.5" size={12} />
               {qualityCounts.linesWithAnomaliesCount} anomalie{qualityCounts.linesWithAnomaliesCount > 1 ? "s" : ""}
-              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <ChevronDownIcon aria-hidden="true" strokeWidth="2.5" size={10} />
             </button>
             {anomaliesOpen && (
               <div
@@ -1275,7 +1253,7 @@ function KeyboardShortcutsButton() {
         aria-label="Raccourcis clavier"
         data-testid="estimate-editor-keyboard-shortcuts-button"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+        <KeyboardIcon aria-hidden="true" size={14} />
       </button>
 
       {isOpen && (
@@ -1296,7 +1274,7 @@ function KeyboardShortcutsButton() {
                 onClick={() => setIsOpen(false)}
                 aria-label="Fermer"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                <XIcon aria-hidden="true" size={18} />
               </button>
             </div>
             <div className="space-y-2">

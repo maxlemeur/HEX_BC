@@ -4,40 +4,23 @@ import { useState } from "react";
 
 import { DevisUploader } from "./DevisUploader";
 import { DevisList, type DevisItem } from "./DevisList";
+import { ChevronDownIcon, CloudUploadIcon, LucidePlus } from "lucide-react";
 
 function ChevronIcon({ className, expanded }: { className?: string; expanded: boolean }) {
   return (
-    <svg
-      className={`${className} transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
-      viewBox="0 0 20 20"
-      fill="currentColor"
-    >
-      <path
-        fillRule="evenodd"
-        d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-        clipRule="evenodd"
-      />
-    </svg>
+    <ChevronDownIcon aria-hidden="true" className={`${className} transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
   );
 }
 
 function PlusIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 20 20"
-      fill="currentColor"
-    >
-      <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-    </svg>
+    <LucidePlus aria-hidden="true" className={className} />
   );
 }
 
 function UploadCloudIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M5.5 17a4.5 4.5 0 01-1.44-8.765 4.5 4.5 0 018.302-3.046 3.5 3.5 0 014.504 4.272A4 4 0 0115 17H5.5zm3.75-2.75a.75.75 0 001.5 0V9.66l1.95 2.1a.75.75 0 101.1-1.02l-3.25-3.5a.75.75 0 00-1.1 0l-3.25 3.5a.75.75 0 101.1 1.02l1.95-2.1v4.59z" clipRule="evenodd" />
-    </svg>
+    <CloudUploadIcon aria-hidden="true" className={className} />
   );
 }
 

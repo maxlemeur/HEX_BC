@@ -19,6 +19,7 @@ import type {
   AffaireManagerQueueFilter,
   AffaireManagerQueueSummary,
 } from "./types";
+import { ChevronRightIcon, EyeIcon, FolderIcon, HouseIcon, PrinterIcon, SearchIcon, SquarePenIcon, TrashIcon } from "lucide-react";
 
 const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -76,19 +77,7 @@ function AffairesEmptyState({
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
-              <svg
-                width="26"
-                height="26"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
+              <FolderIcon strokeWidth="1.5" aria-hidden="true" size={26} />
             }
             title="Créez votre première affaire"
             description="Démarrez un nouveau projet pour lancer votre premier chiffrage."
@@ -99,20 +88,7 @@ function AffairesEmptyState({
         ) : (
           <EmptyState
             icon={
-              <svg
-                width="26"
-                height="26"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
+              <SearchIcon strokeWidth="1.5" aria-hidden="true" size={26} />
             }
             title="Aucune affaire trouvée"
             description="Modifiez vos filtres ou votre recherche pour afficher des résultats."
@@ -436,19 +412,7 @@ export function AffairesDenseTable({
                         aria-expanded={expanded}
                         aria-label={`${expanded ? "Replier" : "Déplier"} les détails de l’affaire ${item.projectName}`}
                       >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
+                        <ChevronRightIcon aria-hidden="true" size={16} />
                       </button>
                     </td>
                     <td
@@ -539,20 +503,7 @@ export function AffairesDenseTable({
                           className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                            <polyline points="9 22 9 12 15 12 15 22" />
-                          </svg>
+                          <HouseIcon aria-hidden="true" size={16} />
                         </Link>
                         {/* Detail estimation – visible quand non-brouillon */}
                         {hasCurrentVersion && item.currentStatus !== "draft" && (
@@ -564,20 +515,7 @@ export function AffairesDenseTable({
                             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                             onClick={(event) => event.stopPropagation()}
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
+                            <EyeIcon aria-hidden="true" size={16} />
                           </Link>
                         )}
                         {/* Editer – visible quand brouillon */}
@@ -594,20 +532,7 @@ export function AffairesDenseTable({
                             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                             onClick={(event) => event.stopPropagation()}
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
+                            <SquarePenIcon aria-hidden="true" size={16} />
                           </Link>
                         )}
                         {/* Supprimer – visible quand brouillon */}
@@ -622,21 +547,7 @@ export function AffairesDenseTable({
                               requestDelete(item.projectId, item.projectName);
                             }}
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M3 6h18" />
-                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                            </svg>
+                            <TrashIcon aria-hidden="true" size={16} />
                           </button>
                         )}
                       </div>
@@ -813,10 +724,7 @@ function ExpandedContent({
           href={`/dashboard/affaires/${projectId}`}
           className="flex items-center gap-2 text-blue-600 hover:text-blue-800 hover:underline"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <polyline points="9 22 9 12 15 12 15 22" />
-          </svg>
+          <HouseIcon aria-hidden="true" size={14} />
           Hub affaire
         </Link>
         {cv && cv.status !== "draft" && (
@@ -824,10 +732,7 @@ function ExpandedContent({
             href={`/dashboard/estimates/${cv.id}`}
             className="flex items-center gap-2 text-emerald-600 hover:text-emerald-800 hover:underline"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <EyeIcon aria-hidden="true" size={14} />
             Voir l&apos;estimation
           </Link>
         )}
@@ -836,10 +741,7 @@ function ExpandedContent({
             href={`/dashboard/estimates/${cv.id}/edit`}
             className="flex items-center gap-2 text-amber-600 hover:text-amber-800 hover:underline"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
+            <SquarePenIcon aria-hidden="true" size={14} />
             Editer le chiffrage
           </Link>
         )}
@@ -848,11 +750,7 @@ function ExpandedContent({
             href={`/dashboard/estimates/${cv.id}/print`}
             className="flex items-center gap-2 text-slate-600 hover:text-foreground hover:underline"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="6 9 6 2 18 2 18 9" />
-              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-              <rect x="6" y="14" width="12" height="8" />
-            </svg>
+            <PrinterIcon aria-hidden="true" size={14} />
             Exporter
           </Link>
         )}

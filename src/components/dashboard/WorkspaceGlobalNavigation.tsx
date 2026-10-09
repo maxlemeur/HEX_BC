@@ -15,6 +15,7 @@ import {
 } from "@/components/dashboard/DashboardNavigationContext";
 import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active";
 import type { NavGroup } from "@/lib/navigation/build-nav-groups";
+import { ChevronDownIcon } from "lucide-react";
 
 const MENU_ITEM_SELECTOR = '[role="menuitem"]';
 
@@ -212,17 +213,7 @@ export function WorkspaceGlobalNavigation() {
                     }
                   >
                     {topLevelLabel}
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      aria-hidden="true"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
+                    <ChevronDownIcon aria-hidden="true" size={12} />
                   </button>
 
                   {isOpen ? (

@@ -9,6 +9,7 @@ import {
 } from "@/lib/affaires/intake";
 import { Badge } from "@/components/ui-legacy/Badge";
 import { IntakeDocumentCard, type IntakeDocumentData } from "./IntakeDocumentCard";
+import { ChevronDownIcon, CircleAlertIcon, DownloadIcon, FileIcon, FileTextIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon } from "lucide-react";
 
 type IntakeCategoryCardProps = {
   category: AffaireIntakeDocumentKind;
@@ -25,52 +26,25 @@ type IntakeCategoryCardProps = {
 
 const CATEGORY_ICONS: Record<AffaireIntakeDocumentKind, React.ReactNode> = {
   dpgf: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" x2="8" y1="13" y2="13" />
-      <line x1="16" x2="8" y1="17" y2="17" />
-      <line x1="10" x2="8" y1="9" y2="9" />
-    </svg>
+    <FileTextIcon aria-hidden="true" size={16} />
   ),
   plans: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-      <line x1="3" x2="21" y1="9" y2="9" />
-      <line x1="9" x2="9" y1="21" y2="9" />
-    </svg>
+    <PanelsTopLeftIcon aria-hidden="true" size={16} />
   ),
   cctp: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
+    <FileIcon aria-hidden="true" size={16} />
   ),
   bpu_dqe: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" x2="8" y1="13" y2="13" />
-      <line x1="16" x2="8" y1="17" y2="17" />
-    </svg>
+    <FileTextIcon aria-hidden="true" size={16} />
   ),
   annexes: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    </svg>
+    <PaperclipIcon aria-hidden="true" size={16} />
   ),
   emails: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect width="20" height="16" x="2" y="4" rx="2" />
-      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-    </svg>
+    <MailIcon aria-hidden="true" size={16} />
   ),
   a_classer: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" x2="12" y1="8" y2="12" />
-      <line x1="12" x2="12.01" y1="16" y2="16" />
-    </svg>
+    <CircleAlertIcon aria-hidden="true" size={16} />
   ),
 };
 
@@ -176,20 +150,7 @@ export function IntakeCategoryCard({
             </p>
           )}
         </div>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`mt-1 shrink-0 text-subtle-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDownIcon className={`mt-1 shrink-0 text-subtle-foreground transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" size={14} />
       </button>
 
       {/* DPGF contextual action */}
@@ -200,11 +161,7 @@ export function IntakeCategoryCard({
             onClick={onBridgeDpgfImport}
             className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" x2="12" y1="15" y2="3" />
-            </svg>
+            <DownloadIcon aria-hidden="true" size={12} />
             Lancer l&apos;import structure
           </button>
         </div>

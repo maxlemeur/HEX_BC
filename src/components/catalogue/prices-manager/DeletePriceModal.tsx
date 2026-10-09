@@ -7,6 +7,7 @@ import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types"
 import { Modal } from "@/components/ui-legacy/Modal";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { formatEUR } from "@/lib/money";
+import { TrashIcon } from "lucide-react";
 
 type DeletePriceModalProps = {
   open: boolean;
@@ -64,19 +65,7 @@ export function DeletePriceModal({
         <Modal.Header>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-danger/10">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--danger)"
-                strokeWidth="1.75"
-              >
-                <path d="M3 6h18" />
-                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-              </svg>
+              <TrashIcon aria-hidden="true" stroke="var(--danger)" strokeWidth="1.75" size={20} />
             </div>
             <div>
               <Modal.Title>Confirmer la suppression</Modal.Title>

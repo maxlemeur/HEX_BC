@@ -8,38 +8,17 @@ import {
   validateFileForUpload,
 } from "@/lib/file-validation";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { CircleCheckIcon, CloudUploadIcon, LoaderCircleIcon, LucideX } from "lucide-react";
 
 function CheckIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-        clipRule="evenodd"
-      />
-    </svg>
+    <CircleCheckIcon className={className} aria-hidden="true" />
   );
 }
 
 function XIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-        clipRule="evenodd"
-      />
-    </svg>
+    <LucideX className={className} aria-hidden="true" />
   );
 }
 
@@ -312,15 +291,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
           <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl transition-colors ${
             dragActive ? "bg-brand-orange/10" : "bg-muted"
           }`}>
-            <svg
-              className={`h-7 w-7 transition-colors ${dragActive ? "text-brand-orange" : "text-subtle-foreground"}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-            </svg>
+            <CloudUploadIcon aria-hidden="true" className={`h-7 w-7 transition-colors ${dragActive ? "text-brand-orange" : "text-subtle-foreground"}`} strokeWidth="1.5" />
           </div>
           <p className="text-sm font-medium text-foreground-secondary">
             {dragActive ? "Deposez vos fichiers" : "Glissez vos fichiers ici"}
@@ -442,17 +413,12 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
             >
               {isUploading ? (
                 <>
-                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
+                  <LoaderCircleIcon aria-hidden="true" className="h-4 w-4 animate-spin" />
                   Envoi en cours...
                 </>
               ) : (
                 <>
-                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.5 17a4.5 4.5 0 01-1.44-8.765 4.5 4.5 0 018.302-3.046 3.5 3.5 0 014.504 4.272A4 4 0 0115 17H5.5zm3.75-2.75a.75.75 0 001.5 0V9.66l1.95 2.1a.75.75 0 101.1-1.02l-3.25-3.5a.75.75 0 00-1.1 0l-3.25 3.5a.75.75 0 101.1 1.02l1.95-2.1v4.59z" clipRule="evenodd" />
-                  </svg>
+                  <CloudUploadIcon aria-hidden="true" className="h-4 w-4" />
                   Envoyer {pendingCount} fichier{pendingCount > 1 ? "s" : ""}
                 </>
               )}

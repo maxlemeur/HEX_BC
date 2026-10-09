@@ -28,6 +28,7 @@ import {
   isProductionWorkspaceRoute,
 } from "@/lib/navigation/dashboard-navigation-mode";
 import { initStore } from "@/lib/stores/last-affaire-store";
+import { KeyboardIcon, MenuIcon, XIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Text-editing guard (shared with useCommandPalette)
@@ -372,21 +373,7 @@ export function DashboardShell({
             aria-label="Afficher les raccourcis clavier"
             title="Raccourcis clavier"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="2" y="4" width="20" height="16" rx="2" />
-              <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
-            </svg>
+            <KeyboardIcon strokeWidth="1.75" aria-hidden="true" size={18} />
           </button>
           <Link
             href="/dashboard/profile"
@@ -421,11 +408,7 @@ export function DashboardShell({
           aria-hidden={drawerOpen || undefined}
           tabIndex={drawerOpen ? -1 : 0}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 6h16" />
-            <path d="M4 12h16" />
-            <path d="M4 18h16" />
-          </svg>
+          <MenuIcon aria-hidden="true" size={20} />
         </button>
       ) : null}
 
@@ -487,21 +470,7 @@ export function DashboardShell({
             onClick={() => closeDrawer(true)}
             aria-label="Fermer le menu"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <XIcon aria-hidden="true" size={20} />
           </button>
           {!isWorkspace ? (
             <button
@@ -584,28 +553,7 @@ export function DashboardShell({
             }}
             title="Raccourcis clavier"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0"
-            >
-              <rect x="2" y="4" width="20" height="16" rx="2" />
-              <path d="M6 8h.01" />
-              <path d="M10 8h.01" />
-              <path d="M14 8h.01" />
-              <path d="M18 8h.01" />
-              <path d="M8 12h.01" />
-              <path d="M12 12h.01" />
-              <path d="M16 12h.01" />
-              <path d="M7 16h10" />
-            </svg>
+            <KeyboardIcon aria-hidden="true" strokeWidth="1.75" className="shrink-0" size={16} />
             <span className="sidebar-label">Raccourcis</span>
             <kbd className="sidebar-label ml-auto rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/50">
               ?

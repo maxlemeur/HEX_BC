@@ -22,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { FileTypeIcon, getFileTypeLabel } from "./FileTypeIcon";
 import { DevisPreviewModal, isPreviewableType } from "./DevisPreviewModal";
+import { FileTextIcon, GripVerticalIcon, LockIcon, LucideDownload, LucideEye, LucidePencil, PlusIcon, Trash2Icon } from "lucide-react";
 
 export type DevisItem = {
   id: string;
@@ -77,71 +78,37 @@ function formatDate(value: string) {
 
 function DocumentIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 48 48"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M28 4H12a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4V16l-12-12z" />
-      <polyline points="28 4 28 16 40 16" />
-      <line x1="16" y1="24" x2="32" y2="24" />
-      <line x1="16" y1="32" x2="32" y2="32" />
-    </svg>
+    <FileTextIcon aria-hidden="true" className={className} strokeWidth="1.5" />
   );
 }
 
 function GripIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-    >
-      <circle cx="5" cy="4" r="1.2" />
-      <circle cx="11" cy="4" r="1.2" />
-      <circle cx="5" cy="8" r="1.2" />
-      <circle cx="11" cy="8" r="1.2" />
-      <circle cx="5" cy="12" r="1.2" />
-      <circle cx="11" cy="12" r="1.2" />
-    </svg>
+    <GripVerticalIcon aria-hidden="true" className={className} />
   );
 }
 
 function EyeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-      <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-    </svg>
+    <LucideEye aria-hidden="true" className={className} />
   );
 }
 
 function DownloadIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
-      <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
-    </svg>
+    <LucideDownload aria-hidden="true" className={className} />
   );
 }
 
 function TrashIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-    </svg>
+    <Trash2Icon aria-hidden="true" className={className} />
   );
 }
 
 function PencilIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
-    </svg>
+    <LucidePencil aria-hidden="true" className={className} />
   );
 }
 
@@ -610,9 +577,7 @@ export function DevisList({
         </div>
         {!canManage && items.length > 0 && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
-            </svg>
+            <LockIcon aria-hidden="true" className="h-3.5 w-3.5" />
             Lecture seule
           </span>
         )}
@@ -657,9 +622,7 @@ export function DevisList({
               type="button"
               onClick={onAddClick}
             >
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-              </svg>
+              <PlusIcon aria-hidden="true" className="h-4 w-4" />
               Ajouter un document
             </button>
           )}

@@ -1,4 +1,5 @@
 import type { TakeoffFlowKind } from "@/lib/takeoff/flow-hierarchy";
+import { ChevronDownIcon } from "lucide-react";
 
 type TakeoffFlowHierarchyPanelProps = {
   currentKind: Exclude<TakeoffFlowKind, "legacy">;
@@ -65,20 +66,7 @@ export function TakeoffFlowHierarchyPanel({
               </span>
             ) : null}
           </span>
-          <svg
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              d="m6 9 6 6 6-6"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-            />
-          </svg>
+          <ChevronDownIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
         </summary>
 
         <div className="grid max-w-full gap-2 border-t border-border p-2 sm:gap-3 sm:p-3 lg:grid-cols-3">

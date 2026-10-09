@@ -9,6 +9,7 @@ import { Button } from "@/components/ui-legacy/Button";
 import { Input } from "@/components/ui-legacy/Input";
 import { Modal } from "@/components/ui-legacy/Modal";
 import { useImportFlow } from "@/hooks/useImportFlow";
+import { InfoIcon, UploadIcon } from "lucide-react";
 
 
 // ---------------------------------------------------------------------------
@@ -197,19 +198,7 @@ function MiniDropZone({
         }`}
       >
         <div className="flex flex-col items-center gap-1.5">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--slate-400)"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <path d="m17 8-5-5-5 5" />
-            <path d="M12 3v12" />
-          </svg>
+          <UploadIcon stroke="var(--slate-400)" strokeWidth="1.5" aria-hidden="true" size={20} />
           <p className="text-xs font-medium text-slate-600">
             Deposez un fichier DPGF (optionnel)
           </p>
@@ -717,7 +706,7 @@ export function QuickCreateAffaireDialog({
                 <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
                   Import DPGF{" "}
                   <span className="ml-0.5 inline-flex cursor-help align-middle" title="Décomposition du Prix Global et Forfaitaire — fichier Excel décrivant les postes à chiffrer">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-subtle-foreground"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <InfoIcon aria-hidden="true" className="text-subtle-foreground" size={14} />
                   </span>{" "}
                   (optionnel)
                 </summary>

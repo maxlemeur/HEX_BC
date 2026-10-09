@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlertIcon, CircleXIcon, TriangleAlertIcon } from "lucide-react";
+
 type EstimateEditorAlertsProps = {
   statusError: string | null;
   isViewerReadOnly: boolean;
@@ -64,11 +66,7 @@ export function EstimateEditorAlerts({
     <div data-testid="estimate-editor-alerts">
       {statusError && (
         <div className="alert alert-error mb-6" data-testid="estimate-editor-alert-status-error">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={20} />
           {statusError}
         </div>
       )}
@@ -91,11 +89,7 @@ export function EstimateEditorAlerts({
           data-testid="estimate-editor-alert-draft-locked"
         >
           <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
+            <TriangleAlertIcon aria-hidden="true" size={20} />
             <span>Verrouille par {lockHolderLabel}.</span>
           </div>
           {isAdmin ? (
@@ -117,11 +111,7 @@ export function EstimateEditorAlerts({
 
       {draftLockError && !isDraftLockedByOther ? (
         <div className="alert alert-warning mb-6" data-testid="estimate-editor-alert-draft-lock-error">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
+          <TriangleAlertIcon aria-hidden="true" size={20} />
           {draftLockError}
         </div>
       ) : null}
@@ -132,11 +122,7 @@ export function EstimateEditorAlerts({
           data-testid="estimate-editor-alert-conflict"
         >
           <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
+            <TriangleAlertIcon aria-hidden="true" size={20} />
             <span>
               {conflictMessage}. Rechargez la version pour recuperer les donnees serveur.
             </span>
@@ -159,11 +145,7 @@ export function EstimateEditorAlerts({
           data-testid="estimate-editor-alert-restorable-draft"
         >
           <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v4" />
-              <path d="M12 16h.01" />
-            </svg>
+            <CircleAlertIcon aria-hidden="true" size={20} />
             <span>Des modifications locales ont été conservées en mémoire de session.</span>
           </div>
           <button
@@ -192,11 +174,7 @@ export function EstimateEditorAlerts({
       {totalsOutOfSync && !isSaveBlocked ? (
         <div className="alert alert-warning mb-6 flex items-center justify-between" data-testid="estimate-editor-alert-totals-out-of-sync">
           <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
+            <TriangleAlertIcon aria-hidden="true" size={20} />
             Les totaux n&apos;ont pas pu être sauvegardés. Vos modifications locales sont conservées.
           </div>
           <button
@@ -212,11 +190,7 @@ export function EstimateEditorAlerts({
 
       {isStatusReadOnly ? (
         <div className="alert alert-info mb-6" data-testid="estimate-editor-alert-status-read-only">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v4" />
-            <path d="M12 16h.01" />
-          </svg>
+          <CircleAlertIcon aria-hidden="true" size={20} />
           Cette version est en lecture seule car son statut n&apos;est plus brouillon.
         </div>
       ) : null}
@@ -227,11 +201,7 @@ export function EstimateEditorAlerts({
           data-testid="estimate-editor-alert-bulk-suggest-applied"
         >
           <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v4" />
-              <path d="M12 16h.01" />
-            </svg>
+            <CircleAlertIcon aria-hidden="true" size={20} />
             <span>Suggestions appliquees sur {bulkSuggestAppliedCount} ligne(s).</span>
           </div>
           <button
@@ -259,11 +229,7 @@ export function EstimateEditorAlerts({
           aria-live="polite"
           data-testid="estimate-editor-alert-action-notice"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v4" />
-            <path d="M12 16h.01" />
-          </svg>
+          <CircleAlertIcon aria-hidden="true" size={20} />
           {actionNotice}
         </div>
       ) : null}
@@ -274,11 +240,7 @@ export function EstimateEditorAlerts({
           aria-live="assertive"
           data-testid="estimate-editor-alert-action-error"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={20} />
           {actionError}
         </div>
       ) : null}

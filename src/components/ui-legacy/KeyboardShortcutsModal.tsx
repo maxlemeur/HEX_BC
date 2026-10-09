@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui-legacy/Modal";
+import { CalculatorIcon, KeyboardIcon, SearchIcon, SquareDashedIcon, XIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,20 +53,7 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
       id: "navigation",
       title: "Navigation",
       icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
+        <SearchIcon aria-hidden="true" size={16} />
       ),
       shortcuts: [
         { keys: [mod, "K"], label: "Recherche rapide" },
@@ -77,24 +65,7 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
       id: "editor",
       title: "Éditeur de chiffrage",
       icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <rect width="16" height="20" x="4" y="2" rx="2" />
-          <path d="M8 7h8" />
-          <path d="M8 11h2" />
-          <path d="M14 11h2" />
-          <path d="M8 15h2" />
-          <path d="M14 15h2" />
-        </svg>
+        <CalculatorIcon aria-hidden="true" size={16} />
       ),
       shortcuts: [
         { keys: [mod, "S"], label: "Sauvegarder" },
@@ -111,30 +82,7 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
       id: "selection",
       title: "Sélection",
       icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M5 3a2 2 0 0 0-2 2" />
-          <path d="M19 3a2 2 0 0 1 2 2" />
-          <path d="M21 19a2 2 0 0 1-2 2" />
-          <path d="M5 21a2 2 0 0 1-2-2" />
-          <path d="M9 3h1" />
-          <path d="M9 21h1" />
-          <path d="M14 3h1" />
-          <path d="M14 21h1" />
-          <path d="M3 9v1" />
-          <path d="M21 9v1" />
-          <path d="M3 14v1" />
-          <path d="M21 14v1" />
-        </svg>
+        <SquareDashedIcon aria-hidden="true" size={16} />
       ),
       shortcuts: [
         { keys: [mod, "A"], label: "Tout sélectionner" },
@@ -191,27 +139,7 @@ export function KeyboardShortcutsModal({
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="M6 8h.01" />
-                <path d="M10 8h.01" />
-                <path d="M14 8h.01" />
-                <path d="M18 8h.01" />
-                <path d="M8 12h.01" />
-                <path d="M12 12h.01" />
-                <path d="M16 12h.01" />
-                <path d="M7 16h10" />
-              </svg>
+              <KeyboardIcon aria-hidden="true" size={16} />
             </div>
             <div>
               <Modal.Title className="text-base font-semibold text-foreground">
@@ -226,20 +154,7 @@ export function KeyboardShortcutsModal({
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             aria-label="Fermer"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <XIcon aria-hidden="true" size={16} />
           </Modal.Close>
         </div>
 

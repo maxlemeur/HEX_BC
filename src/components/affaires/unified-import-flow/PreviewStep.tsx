@@ -21,6 +21,7 @@ import type {
   StructureDecision,
   StructurePreviewData,
 } from "./types";
+import { ArrowRightIcon } from "lucide-react";
 
 const LazyDataPreview = dynamic(
   () =>
@@ -260,19 +261,7 @@ export function PreviewStep({
         >
           <span className="flex items-center gap-2">
             Suivant : Confirmation
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRightIcon aria-hidden="true" size={16} />
           </span>
         </button>
       </div>

@@ -15,6 +15,7 @@ import type {
   StructureDecision,
   StructurePreviewData,
 } from "./types";
+import { CheckIcon } from "lucide-react";
 
 type ConfirmationStepProps = {
   importId: string;
@@ -146,19 +147,7 @@ export function ConfirmationStep({
       >
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
+            <CheckIcon strokeWidth="2.5" aria-hidden="true" size={18} />
           </div>
           <div>
             <h3 className="text-sm font-semibold text-foreground">

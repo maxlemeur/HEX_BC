@@ -22,6 +22,7 @@ import {
   type PlanSetListItem,
   type TakeoffLevel,
 } from "@/lib/takeoff/client";
+import { CheckIcon } from "lucide-react";
 
 type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
 
@@ -468,19 +469,7 @@ function LaunchMetreDialogContent({
           {launchSuccess ? (
             <div aria-live="polite" className="space-y-4 py-4 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--success)"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
+                <CheckIcon stroke="var(--success)" strokeWidth="2.5" aria-hidden="true" />
               </div>
               <p className="text-sm font-semibold text-slate-800">
                 {launchRecoveryUnconfirmed

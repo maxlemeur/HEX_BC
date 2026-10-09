@@ -10,6 +10,7 @@ import {
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
+import { ChevronLeftIcon, ChevronRightIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -341,9 +342,7 @@ export function EvidencePanel({
               disabled={itemIndex === 0}
               aria-label="Item précédent (flèche gauche)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
-              </svg>
+              <ChevronLeftIcon aria-hidden="true" className="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -352,9 +351,7 @@ export function EvidencePanel({
               disabled={itemIndex === totalItems - 1}
               aria-label="Item suivant (flèche droite)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-              </svg>
+              <ChevronRightIcon aria-hidden="true" className="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -362,9 +359,7 @@ export function EvidencePanel({
               onClick={onClose}
               aria-label="Fermer (Échap)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-              </svg>
+              <XIcon aria-hidden="true" className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -436,9 +431,7 @@ export function EvidencePanel({
           {anomalies.length > 0 && (
             <div className="rounded-lg border border-warning/30 bg-warning-light p-3">
               <div className="flex items-center gap-1.5 text-xs font-medium text-warning">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                </svg>
+                <TriangleAlertIcon aria-hidden="true" className="h-4 w-4" />
                 Anomalies détectées
               </div>
               <ul className="mt-2 space-y-1 text-xs text-foreground-secondary">

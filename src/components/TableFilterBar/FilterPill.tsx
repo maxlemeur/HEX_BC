@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FilterOption, MultiSelectFilterConfig, SelectFilterConfig } from "./types";
+import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react";
 
 type FilterPillProps = {
   config: SelectFilterConfig | MultiSelectFilterConfig;
@@ -86,19 +87,7 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
         {isMultiSelect && selectedValues.length > 1 && (
           <span className="filter-pill__count">{selectedValues.length}</span>
         )}
-        <svg
-          className="filter-pill__chevron"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
+        <ChevronDownIcon aria-hidden="true" className="filter-pill__chevron" size={14} />
       </button>
 
       {isOpen && (
@@ -112,17 +101,7 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
                 if (!isMultiSelect) setIsOpen(false);
               }}
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
+              <XIcon aria-hidden="true" size={14} />
               Effacer
             </button>
           )}
@@ -140,18 +119,7 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
                 {isMultiSelect && (
                   <span className="filter-dropdown__checkbox">
                     {selected && (
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
+                      <CheckIcon aria-hidden="true" strokeWidth="3" size={12} />
                     )}
                   </span>
                 )}

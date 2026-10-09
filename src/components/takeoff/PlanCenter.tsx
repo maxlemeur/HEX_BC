@@ -13,6 +13,7 @@ import {
   isTakeoffApiError,
 } from "@/lib/takeoff/client";
 import type { CreatePlanSetInput, PlanSetListItem } from "@/lib/takeoff/types";
+import { FolderPlusIcon } from "lucide-react";
 
 type PlanCenterProps = {
   versionId: string;
@@ -161,20 +162,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
       {/* Empty state */}
       {!isLoading && !error && sets && sets.length === 0 && (
         <div className="dashboard-card flex flex-col items-center justify-center px-6 py-16 text-center">
-          <svg
-            className="mb-4 h-12 w-12 text-slate-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 10.5v6m3-3H9m4.06-7.19l-2.12-2.12a1.5 1.5 0 00-1.06-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V8.25a2.25 2.25 0 00-2.25-2.25h-5.38a1.5 1.5 0 01-1.06-.44z"
-            />
-          </svg>
+          <FolderPlusIcon className="mb-4 h-12 w-12 text-slate-300" strokeWidth={1.5} aria-hidden="true" />
           <h3 className="text-base font-semibold text-slate-800">
             Aucun jeu de plans
           </h3>

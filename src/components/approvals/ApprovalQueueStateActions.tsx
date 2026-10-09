@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 import { markApprovalQueueItemStateAction } from "@/app/dashboard/_actions/approval-queue";
 import type { ReviewerState } from "@/lib/approvals/server";
+import { CheckIcon, EllipsisIcon, LoaderIcon } from "lucide-react";
 
 const STATE_OPTIONS: { value: ReviewerState; label: string; ariaLabel: string }[] = [
   { value: "seen", label: "Vu", ariaLabel: "Marquer comme vu" },
@@ -81,15 +82,9 @@ export function ApprovalQueueStateActions({
         aria-label="Actions de triage"
       >
         {isPending ? (
-          <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-          </svg>
+          <LoaderIcon aria-hidden="true" className="h-3 w-3 animate-spin" />
         ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="1" />
-            <circle cx="19" cy="12" r="1" />
-            <circle cx="5" cy="12" r="1" />
-          </svg>
+          <EllipsisIcon aria-hidden="true" size={14} />
         )}
       </button>
 
@@ -118,9 +113,7 @@ export function ApprovalQueueStateActions({
               }`}
             >
               {currentState === option.value && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <CheckIcon aria-hidden="true" strokeWidth="3" size={12} />
               )}
               <span className={currentState === option.value ? "" : "ml-5"}>{option.label}</span>
             </button>

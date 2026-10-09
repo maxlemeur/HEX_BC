@@ -16,6 +16,7 @@ import {
 import { detectAnomalies } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import type { TakeoffTable } from "@/lib/takeoff/types";
+import { ChevronDownIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -205,18 +206,7 @@ function TableCard({
           onClick={onToggleCollapse}
           aria-label={collapsed ? "Deplier" : "Replier"}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className={`h-5 w-5 transition-transform ${collapsed ? "-rotate-90" : ""}`}
-          >
-            <path
-              fillRule="evenodd"
-              d="M5.22 8.22a.75.75 0 011.06 0L10 11.94l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 9.28a.75.75 0 010-1.06z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <ChevronDownIcon aria-hidden="true" className={`h-5 w-5 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
         </button>
 
         <div className="min-w-0 flex-1">

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui-legacy/Badge";
 import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import type { DirectionPortfolioCard } from "@/lib/direction/server";
 import { formatEUR } from "@/lib/money";
+import { ChartColumnIcon } from "lucide-react";
 
 type Props = {
   cards: DirectionPortfolioCard[];
@@ -69,22 +70,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
     return (
       <EmptyState
         icon={
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M4 19h16" />
-            <path d="M6 17V9" />
-            <path d="M12 17V5" />
-            <path d="M18 17v-4" />
-          </svg>
+          <ChartColumnIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
         title="Aucun dossier dans ce perimetre"
         description="Essayez un autre horizon ou un autre responsable pour recharger le portefeuille."

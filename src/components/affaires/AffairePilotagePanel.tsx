@@ -24,6 +24,7 @@ import {
   type PilotageStepStatus,
 } from "./AffairePilotagePanel.logic";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import { ArrowRightIcon, CircleCheckIcon } from "lucide-react";
 
 type AffairePilotagePanelProps = {
   projectId: string;
@@ -134,20 +135,7 @@ function ExceptionActionButton({
         className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
       >
         {action.label}
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M5 12h14" />
-          <path d="m12 5 7 7-7 7" />
-        </svg>
+        <ArrowRightIcon aria-hidden="true" size={14} />
       </Link>
     );
   }
@@ -163,20 +151,7 @@ function ExceptionActionButton({
       className="inline-flex items-center gap-1.5 text-left text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
     >
       {action.label}
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M5 12h14" />
-        <path d="m12 5 7 7-7 7" />
-      </svg>
+      <ArrowRightIcon aria-hidden="true" size={14} />
     </button>
   );
 }
@@ -410,20 +385,7 @@ export function AffairePilotagePanel({
           {exceptions.length === 0 ? (
             <EmptyState
               icon={
-                <svg
-                  width="26"
-                  height="26"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="m9 12 2 2 4-4" />
-                </svg>
+                <CircleCheckIcon strokeWidth="1.5" aria-hidden="true" size={26} />
               }
               title="Rien d'urgent a reprendre"
               description="Le dossier peut avancer sans repasser par une revue exhaustive."

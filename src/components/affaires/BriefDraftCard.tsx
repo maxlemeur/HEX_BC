@@ -23,6 +23,7 @@ import {
   COCKPIT_OPEN_SURFACE_EVENT,
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
+import { FileIcon, SquarePenIcon, XIcon } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -175,10 +176,7 @@ function BriefSourceAnnotation({
   );
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs text-subtle-foreground">
-      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-      </svg>
+      <FileIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
       {uniqueSources.map((source) => (
         <a
           key={`${source.sourceDocumentId}:${source.sourceFileName}`}
@@ -244,10 +242,7 @@ function BriefEditableList({
             aria-label={`Supprimer: ${item}`}
             className="shrink-0 rounded-md p-1 text-subtle-foreground hover:bg-warning/10 hover:text-danger"
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <XIcon className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       ))}
@@ -303,10 +298,7 @@ function BriefBlockSection({
           {label}
         </h3>
         {isEditable && isEditing && (
-          <svg className="h-3.5 w-3.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
+          <SquarePenIcon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
         )}
         {provenance && (
           <Badge variant={provenance.variant} size="sm">{provenance.label}</Badge>
@@ -666,10 +658,7 @@ export function BriefDraftCard({
         <div className="mt-4">
           <EmptyState
             icon={
-              <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
+              <FileIcon className="h-6 w-6" strokeWidth="1.5" aria-hidden="true" />
             }
             title="Aucun brief généré"
             description="Le brief sera généré automatiquement après le traitement des documents."

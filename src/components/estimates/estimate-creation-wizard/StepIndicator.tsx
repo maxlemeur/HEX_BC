@@ -1,6 +1,7 @@
 "use client";
 
 import { STEPS } from "@/components/estimates/estimate-creation-wizard/shared";
+import { CheckIcon } from "lucide-react";
 
 type StepIndicatorProps = {
   currentStep: number;
@@ -54,16 +55,7 @@ export function StepIndicator({
                   }`}
                 >
                   {isValidated && !isActive ? (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
+                    <CheckIcon aria-hidden="true" strokeWidth="3" size={14} />
                   ) : (
                     index + 1
                   )}

@@ -7,6 +7,7 @@ import type { ApprovalQueueItem, ExceptionGroupKey, ReviewerState } from "@/lib/
 
 import { Badge } from "@/components/ui-legacy/Badge";
 import { ApprovalQueueStateActions } from "./ApprovalQueueStateActions";
+import { ChevronRightIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Exception pill colors
@@ -201,19 +202,7 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
 
         <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary group-hover:underline">
           Ouvrir le dossier
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m9 18 6-6-6-6" />
-          </svg>
+          <ChevronRightIcon aria-hidden="true" size={14} />
         </span>
       </Link>
 

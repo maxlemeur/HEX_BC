@@ -12,6 +12,7 @@ import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
+import { CircleCheckIcon } from "lucide-react";
 
 type ValidationReviewPanelProps = {
   items: ReviewItem[];
@@ -324,20 +325,7 @@ export function ValidationReviewPanel({
     return (
       <EmptyState
         icon={
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            className="h-7 w-7"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+          <CircleCheckIcon aria-hidden="true" strokeWidth={1.5} className="h-7 w-7" />
         }
         title="Aucun item a valider"
         description="Le releve ne contient aucun item."

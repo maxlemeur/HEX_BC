@@ -14,6 +14,7 @@ import type {
   RoundingMode,
 } from "@/lib/estimate-calculations";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
+import { CircleXIcon } from "lucide-react";
 
 export type DiscountMode = "simple" | "cascade";
 
@@ -156,19 +157,7 @@ export function EstimateSettingsPanel({
     <div className="dashboard-card p-8">
       {error && (
         <div className="alert alert-error mb-6">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={20} />
           {error}
         </div>
       )}

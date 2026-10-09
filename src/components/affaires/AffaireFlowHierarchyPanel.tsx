@@ -35,6 +35,7 @@ import {
 } from "./AffaireFlowHierarchyPanel.review-logic";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
+import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon, UploadIcon } from "lucide-react";
 
 type IllustrationItem = {
   key: string;
@@ -367,43 +368,26 @@ function ResultFactPill({ label }: { label: string }) {
 function getCategoryStoryIcon(category: string) {
   if (category === "plans") {
     return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-        <line x1="3" x2="21" y1="9" y2="9" />
-        <line x1="9" x2="9" y1="21" y2="9" />
-      </svg>
+      <PanelsTopLeftIcon aria-hidden="true" size={14} />
     );
   }
   if (category === "cctp") {
     return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-        <polyline points="14 2 14 8 20 8" />
-      </svg>
+      <FileIcon aria-hidden="true" size={14} />
     );
   }
   if (category === "dpgf" || category === "bpu_dqe") {
     return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" x2="8" y1="13" y2="13" />
-        <line x1="16" x2="8" y1="17" y2="17" />
-      </svg>
+      <FileTextIcon aria-hidden="true" size={14} />
     );
   }
   if (category === "emails") {
     return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect width="20" height="16" x="2" y="4" rx="2" />
-        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-      </svg>
+      <MailIcon aria-hidden="true" size={14} />
     );
   }
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    </svg>
+    <PaperclipIcon aria-hidden="true" size={14} />
   );
 }
 
@@ -825,21 +809,7 @@ function ResultCard({
                               aria-label="Pourquoi TIMAX hesite"
                               className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/10 text-sky-50/80 transition-colors hover:bg-white/18 hover:text-white"
                             >
-                              <svg
-                                width="11"
-                                height="11"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <circle cx="12" cy="12" r="10" />
-                                <path d="M9.09 9a3 3 0 1 1 5.82 1c0 2-3 2-3 4" />
-                                <line x1="12" x2="12.01" y1="17" y2="17" />
-                              </svg>
+                              <CircleHelpIcon aria-hidden="true" size={11} />
                             </button>
                           )}
                         >
@@ -1055,21 +1025,7 @@ function ResultCard({
                                 aria-label={`Pourquoi ${getStateHeroBadgeLabel(card)}`}
                                 className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/10 text-sky-50/80 transition-colors hover:bg-white/18 hover:text-white"
                               >
-                                <svg
-                                  width="11"
-                                  height="11"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <circle cx="12" cy="12" r="10" />
-                                  <path d="M9.09 9a3 3 0 1 1 5.82 1c0 2-3 2-3 4" />
-                                  <line x1="12" x2="12.01" y1="17" y2="17" />
-                                </svg>
+                                <CircleHelpIcon aria-hidden="true" size={11} />
                               </button>
                             )}
                           >
@@ -1135,9 +1091,7 @@ function ResultCard({
                 </div>
                 {reviewCount > 0 ? (
                   <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                    </svg>
+                    <FunnelIcon aria-hidden="true" size={12} />
                     A revoir ({reviewCount})
                   </div>
                 ) : null}
@@ -1190,10 +1144,7 @@ function ResultCard({
                   {showReviewContextSection ? (
                     <section aria-label="Contexte déjà classé">
                       <div className="mb-2 flex items-center gap-2">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
-                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                          <polyline points="22 4 12 14.01 9 11.01" />
-                        </svg>
+                        <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
                         <h4 className="text-xs font-semibold text-emerald-900">Contexte déjà classé</h4>
                         <Badge variant="success" size="sm">{classifiedCount}</Badge>
                       </div>
@@ -1220,10 +1171,7 @@ function ResultCard({
                   {sortedCategories.length > 0 ? (
                     <section aria-label="Pièces déjà reçues">
                       <div className="mb-2 flex items-center gap-2">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
-                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                          <polyline points="22 4 12 14.01 9 11.01" />
-                        </svg>
+                        <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
                         <h4 className="text-xs font-semibold text-emerald-900">Deja dans le dossier</h4>
                         <Badge variant="success" size="sm">{classifiedCount}</Badge>
                       </div>
@@ -1249,11 +1197,7 @@ function ResultCard({
                 <div className="space-y-4">
                   <section aria-label="Choix principal">
                     <div className="mb-2 flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-700" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 8v4" />
-                        <path d="M12 16h.01" />
-                      </svg>
+                      <CircleAlertIcon className="shrink-0 text-amber-700" aria-hidden="true" size={16} />
                       <h4 className="text-xs font-semibold text-amber-900">Choisir le document principal</h4>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1279,10 +1223,7 @@ function ResultCard({
                   {sortedCategories.length > 0 ? (
                     <section aria-label="Documents classés par catégorie">
                       <div className="mb-2 flex items-center gap-2">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
-                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                          <polyline points="22 4 12 14.01 9 11.01" />
-                        </svg>
+                        <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
                         <h4 className="text-xs font-semibold text-emerald-900">Valides</h4>
                         <Badge variant="success" size="sm">{classifiedCount}</Badge>
                       </div>
@@ -1327,20 +1268,13 @@ function ResultCard({
               card.kind !== "primary" &&
               (intakeWorkspace?.missingPieces.length ?? 0) === 0 ? (
                 <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                    <polyline points="22 4 12 14.01 9 11.01" />
-                  </svg>
+                  <CircleCheckBigIcon className="shrink-0" aria-hidden="true" size={16} />
                   Triage termine — Tous les documents sont valides.
                 </div>
               ) : null}
               {totalCount > 0 && (reviewCount > 0 || processingCount > 0) ? (
                 <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" x2="12" y1="8" y2="12" />
-                    <line x1="12" x2="12.01" y1="16" y2="16" />
-                  </svg>
+                  <CircleAlertIcon className="shrink-0" aria-hidden="true" size={16} />
                   {card.kind === "review"
                     ? `${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} a revoir dans le dossier.`
                     : `Triage en cours — ${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} restent a confirmer.`}
@@ -1507,20 +1441,7 @@ export function AffaireFlowHierarchyPanel(
 
                 <div className="relative z-10 flex min-h-[20rem] flex-col items-center justify-center px-6 py-8 text-center sm:min-h-[24rem]">
                   <div className="mb-4 text-white/90 transition-transform duration-300 group-hover:scale-110">
-                    <svg
-                      className="h-16 w-16"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                      strokeWidth="1.5"
-                      aria-hidden="true"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-                      />
-                    </svg>
+                    <UploadIcon className="h-16 w-16" strokeWidth="1.5" aria-hidden="true" />
                   </div>
 
                   <h3 className="max-w-3xl text-2xl font-bold text-white sm:text-4xl">

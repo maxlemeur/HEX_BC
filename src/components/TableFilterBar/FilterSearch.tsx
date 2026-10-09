@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
+
 type FilterSearchProps = {
   value: string;
   onChange: (value: string) => void;
@@ -17,31 +19,9 @@ export function FilterSearch({
     <div className="table-filter-bar__search" role="search">
       <div className="table-filter-bar__search-icon">
         {isPending ? (
-          <svg
-            className="animate-spin"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
+          <LoaderCircleIcon aria-hidden="true" className="animate-spin" size={20} />
         ) : (
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <SearchIcon aria-hidden="true" size={20} />
         )}
       </div>
       <input
@@ -59,19 +39,7 @@ export function FilterSearch({
           onClick={() => onChange("")}
           aria-label="Effacer la recherche"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
+          <XIcon aria-hidden="true" size={16} />
         </button>
       )}
     </div>

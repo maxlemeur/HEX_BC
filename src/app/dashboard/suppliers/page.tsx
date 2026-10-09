@@ -8,6 +8,7 @@ import { fetchApi } from "@/components/catalogue/api";
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { SortOption } from "@/components/TableFilterBar";
+import { BriefcaseIcon, CircleXIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
 
 type Supplier = {
   id: string;
@@ -236,39 +237,14 @@ export default function SuppliersPage() {
           type="button"
           onClick={openCreateForm}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
+          <PlusIcon aria-hidden="true" size={20} />
           Ajouter un fournisseur
         </button>
       </div>
 
       {!isFormOpen && formError ? (
         <div className="alert alert-error mb-6">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={20} />
           {formError}
         </div>
       ) : null}
@@ -481,19 +457,7 @@ export default function SuppliersPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {formError ? (
                   <div className="alert alert-error flex-1">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="m15 9-6 6" />
-                      <path d="m9 9 6 6" />
-                    </svg>
+                    <CircleXIcon aria-hidden="true" size={18} />
                     {formError}
                   </div>
                 ) : (
@@ -559,38 +523,14 @@ export default function SuppliersPage() {
             onClick={() => void mutate()}
             type="button"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className={isValidating ? "animate-spin" : ""}
-            >
-              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-            </svg>
+            <RotateCwIcon aria-hidden="true" className={isValidating ? "animate-spin" : ""} size={16} />
             {isValidating ? "Chargement..." : "Actualiser"}
           </button>
         </div>
 
         {loadError ? (
           <div className="alert alert-error m-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
+            <CircleXIcon aria-hidden="true" size={18} />
             {loadError.message}
           </div>
         ) : null}
@@ -704,18 +644,7 @@ export default function SuppliersPage() {
                     ) : suppliers.length === 0 ? (
                       <div className="flex flex-col items-center gap-3">
                         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="var(--slate-400)"
-                            strokeWidth="1.5"
-                          >
-                            <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                            <rect width="20" height="14" x="2" y="6" rx="2" />
-                          </svg>
+                          <BriefcaseIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
                         </div>
                         <div className="text-center">
                           <p className="font-medium text-foreground-secondary">Aucun fournisseur</p>
@@ -725,18 +654,7 @@ export default function SuppliersPage() {
                     ) : (
                       <div className="flex flex-col items-center gap-3">
                         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="var(--slate-400)"
-                            strokeWidth="1.5"
-                          >
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="m21 21-4.3-4.3" />
-                          </svg>
+                          <SearchIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
                         </div>
                         <div className="text-center">
                           <p className="font-medium text-foreground-secondary">Aucun resultat</p>
@@ -778,17 +696,7 @@ export default function SuppliersPage() {
                           onClick={() => openEditForm(supplier)}
                           type="button"
                         >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                          </svg>
+                          <PencilIcon aria-hidden="true" size={14} />
                           Modifier
                         </button>
                         <button
@@ -796,19 +704,7 @@ export default function SuppliersPage() {
                           onClick={() => onDelete(supplier.id)}
                           type="button"
                         >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                          </svg>
+                          <TrashIcon aria-hidden="true" size={14} />
                           Supprimer
                         </button>
                       </div>

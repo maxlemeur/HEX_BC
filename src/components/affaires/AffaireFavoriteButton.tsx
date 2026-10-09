@@ -1,5 +1,7 @@
 "use client";
 
+import { StarIcon } from "lucide-react";
+
 type AffaireFavoriteButtonProps = {
   isFavorite: boolean;
   isPending?: boolean;
@@ -33,19 +35,7 @@ export function AffaireFavoriteButton({
         onToggle();
       }}
     >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill={isFavorite ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="m12 17.27-5.18 3.05 1.4-5.89L3 9.76l6.03-.52L12 3.75l2.97 5.49 6.03.52-5.22 4.67 1.4 5.89z" />
-      </svg>
+      <StarIcon fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" size={16} />
     </button>
   );
 }

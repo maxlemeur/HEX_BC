@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CheckIcon } from "lucide-react";
 
 const STEPS = [
   { label: "Import", href: "/dashboard/imports", step: 1 },
@@ -54,9 +55,7 @@ export function DpgfStepper({ importId }: { importId?: string | null }) {
                   `}
                 >
                   {isDone ? (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M2 6l3 3 5-5" />
-                    </svg>
+                    <CheckIcon aria-hidden="true" size={12} />
                   ) : (
                     step.step
                   )}

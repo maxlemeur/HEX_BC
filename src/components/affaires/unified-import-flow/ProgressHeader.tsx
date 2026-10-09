@@ -1,4 +1,5 @@
 import { STEP_LABELS, type Step } from "./types";
+import { CheckIcon } from "lucide-react";
 
 type ProgressHeaderProps = {
   currentStep: Step;
@@ -34,18 +35,7 @@ export function ProgressHeader({ currentStep, steps }: ProgressHeaderProps) {
               }`}
             >
               {isDone ? (
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
+                <CheckIcon aria-hidden="true" strokeWidth="3" size={12} />
               ) : (
                 <span>{index + 1}</span>
               )}

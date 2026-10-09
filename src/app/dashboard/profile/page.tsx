@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useUserContext } from "@/components/UserContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { CircleCheckBigIcon, CircleXIcon, SaveIcon } from "lucide-react";
 
 type Profile = {
   id: string;
@@ -278,37 +279,14 @@ export default function ProfilePage() {
             {/* Messages */}
             {error && (
               <div className="alert alert-error mt-5">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="m15 9-6 6" />
-                  <path d="m9 9 6 6" />
-                </svg>
+                <CircleXIcon aria-hidden="true" size={18} />
                 {error}
               </div>
             )}
 
             {success && (
               <div className="alert alert-success mt-5">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
+                <CircleCheckBigIcon aria-hidden="true" size={18} />
                 Profil mis a jour avec succes
               </div>
             )}
@@ -327,19 +305,7 @@ export default function ProfilePage() {
                   </>
                 ) : (
                   <>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                      <polyline points="17 21 17 13 7 13 7 21" />
-                      <polyline points="7 3 7 8 15 8" />
-                    </svg>
+                    <SaveIcon aria-hidden="true" size={18} />
                     Enregistrer
                   </>
                 )}

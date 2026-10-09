@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
+import { CircleXIcon } from "lucide-react";
 
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 
@@ -102,19 +103,7 @@ export function LaborRolesManager({
 
       {error && (
         <div className="alert alert-error mt-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={18} />
           {error}
         </div>
       )}

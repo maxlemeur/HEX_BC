@@ -24,6 +24,7 @@ import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import type { IntakeDocumentData } from "./IntakeDocumentCard";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
+import { CircleAlertIcon, CircleCheckBigIcon, CircleIcon, FunnelIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 
 type IntakeWorkspaceProps = {
   projectId: string;
@@ -428,9 +429,7 @@ export function IntakeWorkspace({
                 }`}
                 aria-pressed={isFilterActive}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                </svg>
+                <FunnelIcon aria-hidden="true" size={12} />
                 A revoir ({needsReviewCount})
               </button>
             )}
@@ -442,10 +441,7 @@ export function IntakeWorkspace({
                 onClick={() => setShowDropzone((v) => !v)}
                 className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="12" x2="12" y1="5" y2="19" />
-                  <line x1="5" x2="19" y1="12" y2="12" />
-                </svg>
+                <PlusIcon aria-hidden="true" size={12} />
                 {showDropzone ? "Masquer" : "Ajouter des fichiers"}
               </button>
             )}
@@ -559,9 +555,7 @@ export function IntakeWorkspace({
           {processingDocs.length > 0 && (
             <section aria-label="Documents en cours d'analyse" className="mt-4">
               <div className="flex items-center gap-2 rounded-lg bg-blue-100 border border-blue-300 px-3 py-2 mb-2">
-                <svg className="h-4 w-4 animate-spin shrink-0 text-blue-700" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                </svg>
+                <CircleIcon className="h-4 w-4 animate-spin shrink-0 text-blue-700" aria-hidden="true" />
                 <h3 className="text-xs font-semibold text-blue-900">En cours d&apos;analyse</h3>
                 <Badge variant="info" size="sm">{processingDocs.length}</Badge>
               </div>
@@ -583,11 +577,7 @@ export function IntakeWorkspace({
           {reviewDocs.length > 0 && (
             <section aria-label="Documents a confirmer" className="mt-4">
               <div className="flex items-center gap-2 rounded-lg bg-amber-100 border border-amber-400 px-3 py-2 mb-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-700" aria-hidden="true">
-                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                  <line x1="12" x2="12" y1="9" y2="13" />
-                  <line x1="12" x2="12.01" y1="17" y2="17" />
-                </svg>
+                <TriangleAlertIcon className="shrink-0 text-amber-700" aria-hidden="true" size={16} />
                 <h3 className="text-xs font-semibold text-amber-900">A confirmer</h3>
                 <Badge variant="warning" size="sm">{reviewDocs.length}</Badge>
               </div>
@@ -609,10 +599,7 @@ export function IntakeWorkspace({
           {classifiedDocs.length > 0 && (
             <section aria-label="Documents classés par catégorie" className="mt-4">
               <div className="flex items-center gap-2 mb-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
+                <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
                 <h3 className="text-xs font-semibold text-emerald-900">Valides</h3>
                 <Badge variant="success" size="sm">{classifiedCount}</Badge>
               </div>
@@ -670,20 +657,13 @@ export function IntakeWorkspace({
       {/* CTA: Triage status */}
       {hasDocuments && triageComplete && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
+          <CircleCheckBigIcon className="shrink-0" aria-hidden="true" size={16} />
           Triage termine — Tous les documents sont valides.
         </div>
       )}
       {hasDocuments && !triageComplete && (needsReviewCount > 0 || processingCount > 0) && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" x2="12" y1="8" y2="12" />
-            <line x1="12" x2="12.01" y1="16" y2="16" />
-          </svg>
+          <CircleAlertIcon className="shrink-0" aria-hidden="true" size={16} />
           <span>
             Triage en cours — {needsReviewCount + processingCount} document{(needsReviewCount + processingCount) > 1 ? "s" : ""} restent a confirmer.
             {!isFilterActive && needsReviewCount > 0 && (

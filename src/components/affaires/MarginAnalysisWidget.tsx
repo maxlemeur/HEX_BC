@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui-legacy/Badge";
 import type { AffaireHubMarginAnalysisResult } from "@/lib/affaires/server";
 import { formatEUR } from "@/lib/money";
+import { ChevronRightIcon } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Margin threshold helpers                                           */
@@ -160,18 +161,7 @@ function MarginSectionTable({
                       href={`/dashboard/estimates/${currentVersionId}/edit#section-${section.sectionId}`}
                       aria-label={`Ouvrir ${section.sectionTitle}`}
                     >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="m9 18 6-6-6-6" />
-                      </svg>
+                      <ChevronRightIcon aria-hidden="true" size={14} />
                     </Link>
                   </td>
                 </tr>
@@ -203,18 +193,7 @@ function MarginSectionTable({
                 <Badge variant={getMarginBadgeVariant(tier)} size="sm">
                   {section.marginPercent.toFixed(1)}%
                 </Badge>
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--slate-400)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="m9 18 6-6-6-6" />
-                </svg>
+                <ChevronRightIcon aria-hidden="true" stroke="var(--slate-400)" size={14} />
               </div>
             </Link>
           );

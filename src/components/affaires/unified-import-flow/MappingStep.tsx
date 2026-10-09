@@ -16,6 +16,7 @@ import {
   type MappingStepResult,
   type SuggestionsData,
 } from "./types";
+import { ArrowRightIcon } from "lucide-react";
 
 const LazyColumnMapper = dynamic(
   () =>
@@ -226,19 +227,7 @@ export function MappingStep({
         >
           <span className="flex items-center gap-2">
             Suivant : Apercu
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRightIcon aria-hidden="true" size={16} />
           </span>
         </button>
       </div>

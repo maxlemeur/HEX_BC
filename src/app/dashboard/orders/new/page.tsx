@@ -23,6 +23,7 @@ import {
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ChevronLeftIcon, CircleXIcon, PlusIcon } from "lucide-react";
 
 type SupplierOption = SupplierCreateResult;
 
@@ -321,17 +322,7 @@ export default function NewOrderPage() {
               className="btn btn-ghost btn-sm"
               href="/dashboard/orders"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
+              <ChevronLeftIcon aria-hidden="true" size={18} />
               Annuler
             </Link>
             <div className="hidden h-6 w-px bg-slate-200 sm:block" />
@@ -354,18 +345,7 @@ export default function NewOrderPage() {
               </>
             ) : (
               <>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M5 12h14" />
-                  <path d="M12 5v14" />
-                </svg>
+                <PlusIcon aria-hidden="true" size={18} />
                 Creer le bon
               </>
             )}
@@ -377,19 +357,7 @@ export default function NewOrderPage() {
       {displayError && (
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-error">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
+            <CircleXIcon aria-hidden="true" size={18} />
             {displayError}
           </div>
         </div>

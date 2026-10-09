@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChartLineIcon, EuroIcon } from "lucide-react";
 
 const CARDS = [
   {
@@ -6,10 +7,7 @@ const CARDS = [
     title: "Prix fournisseurs",
     description: "Grilles tarifaires des fournisseurs",
     icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 1v22" />
-        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H6" />
-      </svg>
+      <EuroIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
     ),
   },
   {
@@ -17,10 +15,7 @@ const CARDS = [
     title: "Indices",
     description: "Indices de révision et coefficients",
     icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 3v18h18" />
-        <path d="m7 14 4-4 3 3 5-6" />
-      </svg>
+      <ChartLineIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
     ),
   },
 ];

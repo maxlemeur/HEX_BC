@@ -10,6 +10,7 @@ import {
   TERMINAL_IMPORT_STATUSES,
   VALID_EXTENSIONS,
 } from "./types";
+import { UploadIcon } from "lucide-react";
 
 type UploadStepProps = {
   projectId: string;
@@ -207,18 +208,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
           >
             <div className="flex flex-col items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--slate-400)"
-                  strokeWidth="1.5"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <path d="m17 8-5-5-5 5" />
-                  <path d="M12 3v12" />
-                </svg>
+                <UploadIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground-secondary">

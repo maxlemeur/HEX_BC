@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { ChartLineIcon, ClockIcon, FlagIcon, MonitorIcon, ShieldAlertIcon, SlidersHorizontalIcon, Trash2Icon } from "lucide-react";
 
 export default async function AdminHubPage() {
   const { profile, tenantId } = await getUserContext();
@@ -39,22 +40,7 @@ export default async function AdminHubPage() {
             className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--brand-blue)"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect width="18" height="14" x="3" y="4" rx="2" />
-                <path d="M8 20h8" />
-                <path d="M12 16v4" />
-                <path d="M8 10h8" />
-              </svg>
+              <MonitorIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
             </div>
             <h3 className="mt-3 font-semibold text-foreground">Organisation</h3>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -110,21 +96,7 @@ export default async function AdminHubPage() {
             className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--brand-blue)"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 8v4l3 3" />
-                <path d="M8 12h.01" />
-              </svg>
+              <ClockIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
               Apprentissage des suggestions
@@ -139,21 +111,7 @@ export default async function AdminHubPage() {
             className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--brand-blue)"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-                <path d="M12 8v4" />
-                <path d="M12 16h.01" />
-              </svg>
+              <ShieldAlertIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
               Historique des anomalies
@@ -168,24 +126,7 @@ export default async function AdminHubPage() {
             className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--brand-blue)"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M4 6h16" />
-                <path d="M4 12h10" />
-                <path d="M4 18h7" />
-                <circle cx="17" cy="12" r="2" />
-                <circle cx="14" cy="18" r="2" />
-                <circle cx="9" cy="6" r="2" />
-              </svg>
+              <SlidersHorizontalIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
               Règles de contrôle
@@ -200,20 +141,7 @@ export default async function AdminHubPage() {
             className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--brand-blue)"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                <line x1="4" x2="4" y1="22" y2="15" />
-              </svg>
+              <FlagIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
             </div>
             <h3 className="mt-3 font-semibold text-foreground">
               Fonctionnalités
@@ -273,20 +201,7 @@ export default async function AdminHubPage() {
               className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--brand-blue)"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 3v18h18" />
-                  <path d="m7 12 4-4 4 4 4-4" />
-                </svg>
+                <ChartLineIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
               </div>
               <h3 className="mt-3 font-semibold text-foreground">
                 Suivi des métrés
@@ -314,23 +229,7 @@ export default async function AdminHubPage() {
           className="dashboard-card flex flex-col gap-3 border-red-200 bg-red-50/60 p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 sm:flex-row sm:items-center sm:gap-4"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#b91c1c"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 6h18" />
-              <path d="M8 6V4h8v2" />
-              <path d="M19 6l-1 14H6L5 6" />
-              <path d="M10 11v5" />
-              <path d="M14 11v5" />
-            </svg>
+            <Trash2Icon aria-hidden="true" stroke="#b91c1c" strokeWidth="1.75" size={20} />
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-red-950">Nettoyage des achats</h3>

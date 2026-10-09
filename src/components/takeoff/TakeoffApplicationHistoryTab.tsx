@@ -10,6 +10,7 @@ import {
   formatCount,
   JobsTableSkeleton,
 } from "./takeoff-job-list-shared";
+import { ClockIcon } from "lucide-react";
 
 type Props = {
   projectId: string;
@@ -38,20 +39,7 @@ export default function TakeoffApplicationHistoryTab({
     return (
       <EmptyState
         icon={
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="12 8 12 12 14 14" />
-            <circle cx="12" cy="12" r="10" />
-          </svg>
+          <ClockIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
         title="Aucune application"
         description="Aucune extraction n'a encore ete appliquee au devis."

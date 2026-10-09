@@ -12,6 +12,7 @@ import type {
   DirectionWeeklyQueueItem,
 } from "@/lib/direction/server";
 import { formatEUR } from "@/lib/money";
+import { CalendarIcon } from "lucide-react";
 
 type Props = {
   items: DirectionWeeklyQueueItem[];
@@ -61,22 +62,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
     return (
       <EmptyState
         icon={
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M8 2v4" />
-            <path d="M16 2v4" />
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M3 10h18" />
-          </svg>
+          <CalendarIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
         title="Aucun depart a prioriser cette semaine"
         description="Les echeances detectees sont hors de la semaine courante ou deja stabilisees."

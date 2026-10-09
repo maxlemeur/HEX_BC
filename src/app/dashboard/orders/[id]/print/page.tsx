@@ -10,6 +10,7 @@ import {
   type OrderItemData,
 } from "@/components/PurchaseOrderDocument";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ChevronLeftIcon } from "lucide-react";
 
 type Supplier = {
   name: string;
@@ -184,17 +185,7 @@ export default async function OrderPrintPage({
               className="btn btn-ghost btn-sm"
               href={`/dashboard/orders/${order.id}`}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
+              <ChevronLeftIcon aria-hidden="true" size={18} />
               Retour
             </Link>
             <div className="hidden h-6 w-px bg-slate-200 sm:block" />

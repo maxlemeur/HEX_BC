@@ -18,6 +18,7 @@ import {
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ChevronLeftIcon, CircleXIcon, SaveIcon } from "lucide-react";
 
 type SupplierOption = {
   id: string;
@@ -406,36 +407,14 @@ export default function EditOrderPage() {
               className="btn btn-ghost btn-sm"
               href={id ? `/dashboard/orders/${id}` : "/dashboard/orders"}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
+              <ChevronLeftIcon aria-hidden="true" size={18} />
               Retour
             </Link>
           </div>
         </div>
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-error">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
+            <CircleXIcon aria-hidden="true" size={18} />
             Seuls les bons de commande en brouillon peuvent etre modifies.
           </div>
         </div>
@@ -454,17 +433,7 @@ export default function EditOrderPage() {
               className="btn btn-ghost btn-sm"
               href={id ? `/dashboard/orders/${id}` : "/dashboard/orders"}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
+              <ChevronLeftIcon aria-hidden="true" size={18} />
               Annuler
             </Link>
             <div className="hidden h-6 w-px bg-slate-200 sm:block" />
@@ -492,19 +461,7 @@ export default function EditOrderPage() {
               </>
             ) : (
               <>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                  <polyline points="17 21 17 13 7 13 7 21" />
-                  <polyline points="7 3 7 8 15 8" />
-                </svg>
+                <SaveIcon aria-hidden="true" size={18} />
                 Enregistrer
               </>
             )}
@@ -516,19 +473,7 @@ export default function EditOrderPage() {
       {displayError && (
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-error">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
+            <CircleXIcon aria-hidden="true" size={18} />
             {displayError}
           </div>
         </div>

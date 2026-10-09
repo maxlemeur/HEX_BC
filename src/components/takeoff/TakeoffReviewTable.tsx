@@ -15,6 +15,7 @@ import {
   type SpreadsheetNavigationRow,
 } from "@/hooks/useSpreadsheetNavigation";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
+import { FileTextIcon, TriangleAlertIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,19 +151,7 @@ function ClickableConfidenceBadge({
         />
       </div>
       {/* Evidence icon */}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        className={`h-3.5 w-3.5 ${hasEvidence ? "text-info" : "text-slate-300"}`}
-        aria-label={hasEvidence ? "Evidence disponible" : "Pas d'evidence"}
-      >
-        <path
-          fillRule="evenodd"
-          d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z"
-          clipRule="evenodd"
-        />
-      </svg>
+      <FileTextIcon className={`h-3.5 w-3.5 ${hasEvidence ? "text-info" : "text-slate-300"}`} aria-label={hasEvidence ? "Evidence disponible" : "Pas d'evidence"} />
     </button>
   );
 }
@@ -176,19 +165,7 @@ function AnomalyWarnings({ anomalies }: { anomalies: AnomalyType[] }) {
   return (
     <span className="inline-flex gap-0.5" title={anomalies.map((a) => ANOMALY_LABELS[a]).join(", ")}>
       {anomalies.length > 0 && (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          className="h-4 w-4 text-warning"
-          aria-label={`${anomalies.length} anomalie(s)`}
-        >
-          <path
-            fillRule="evenodd"
-            d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
-            clipRule="evenodd"
-          />
-        </svg>
+        <TriangleAlertIcon className="h-4 w-4 text-warning" aria-label={`${anomalies.length} anomalie(s)`} />
       )}
     </span>
   );

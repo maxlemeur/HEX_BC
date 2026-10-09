@@ -1,5 +1,7 @@
 "use client";
 
+import { XIcon } from "lucide-react";
+
 type ResultCountProps = {
   filteredCount: number;
   totalCount: number;
@@ -42,19 +44,7 @@ export function ResultCount({
           onClick={onClearAll}
           aria-label="Effacer tous les filtres"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
+          <XIcon aria-hidden="true" size={14} />
           Effacer les filtres
           {activeFilterCount > 0 && (
             <span className="table-filter-bar__clear-count">({activeFilterCount})</span>

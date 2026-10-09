@@ -8,6 +8,7 @@ import type { AffaireProjectDetailsValues } from "@/components/affaires/AffaireP
 import { Button } from "@/components/ui-legacy/Button";
 import { Input } from "@/components/ui-legacy/Input";
 import { useImportFlow } from "@/hooks/useImportFlow";
+import { UploadIcon } from "lucide-react";
 
 const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);
 const ACCEPTED_FILE_TYPES =
@@ -144,19 +145,7 @@ function MiniDropZone({
         }`}
       >
         <div className="flex flex-col items-center gap-1.5">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--slate-400)"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <path d="m17 8-5-5-5 5" />
-            <path d="M12 3v12" />
-          </svg>
+          <UploadIcon stroke="var(--slate-400)" strokeWidth="1.5" aria-hidden="true" size={20} />
           <p className="text-xs font-medium text-slate-600">
             Deposez un fichier DPGF
           </p>

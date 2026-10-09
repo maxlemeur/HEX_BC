@@ -9,6 +9,7 @@ import {
 
 import type { NavGroup } from "@/lib/navigation/build-nav-groups";
 import type { DashboardNavigationMode } from "@/lib/navigation/dashboard-navigation-mode";
+import { MenuIcon } from "lucide-react";
 
 export type DashboardNavigationContextValue = {
   mode: DashboardNavigationMode;
@@ -61,22 +62,7 @@ export function WorkspaceNavigationButton({
       aria-expanded={navigation.drawerOpen}
       aria-controls="dashboard-sidebar"
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M4 6h16" />
-        <path d="M4 12h16" />
-        <path d="M4 18h16" />
-      </svg>
+      <MenuIcon aria-hidden="true" size={16} />
     </button>
   );
 }

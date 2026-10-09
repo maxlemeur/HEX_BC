@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleXIcon } from "lucide-react";
+
 export default function PlansError({
   reset,
 }: {
@@ -8,21 +10,7 @@ export default function PlansError({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-16">
-      <svg
-        width="48"
-        height="48"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="text-slate-300"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <path d="m15 9-6 6" />
-        <path d="m9 9 6 6" />
-      </svg>
+      <CircleXIcon aria-hidden="true" strokeWidth="1.5" className="text-slate-300" size={48} />
       <p className="text-sm text-muted-foreground">
         Impossible de charger les plans de cette affaire.
       </p>

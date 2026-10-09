@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { AcceptEstimateModal } from "@/components/portal/AcceptEstimateModal";
 import { RejectEstimateModal } from "@/components/portal/RejectEstimateModal";
+import { CheckIcon, CircleXIcon, ClockIcon, XIcon } from "lucide-react";
 
 type PortalActionsProps = {
   token: string;
@@ -51,20 +52,7 @@ export function PortalActions({
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#059669"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <CheckIcon stroke="#059669" strokeWidth="2.5" aria-hidden="true" size={16} />
             </div>
             <p className="text-sm font-medium text-emerald-800">
               Ce devis a été accepté. Merci pour votre confiance.
@@ -84,21 +72,7 @@ export function PortalActions({
         <div className="rounded-xl border border-border bg-surface-subtle px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--slate-500)"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m15 9-6 6" />
-                <path d="m9 9 6 6" />
-              </svg>
+              <XIcon stroke="var(--slate-500)" strokeWidth="2.5" aria-hidden="true" size={16} />
             </div>
             <p className="text-sm font-medium text-slate-600">
               Ce devis a été refusé.
@@ -117,21 +91,7 @@ export function PortalActions({
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#d97706"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
+            <ClockIcon stroke="#d97706" strokeWidth="2.5" aria-hidden="true" size={16} />
           </div>
           <p className="text-sm font-medium text-amber-800">
             Ce devis a expiré. Veuillez contacter votre interlocuteur.
@@ -157,22 +117,7 @@ export function PortalActions({
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-surface px-6 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
           onClick={() => setRejectModalOpen(true)}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
+          <CircleXIcon aria-hidden="true" size={16} />
           Refuser le devis
         </button>
         <button
@@ -180,20 +125,7 @@ export function PortalActions({
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
           onClick={() => setAcceptModalOpen(true)}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <CheckIcon aria-hidden="true" size={16} />
           Accepter le devis
         </button>
       </div>

@@ -23,6 +23,7 @@ import { useSupplierPricesList } from "@/components/catalogue/prices-manager/use
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
 import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
+import { ChevronDownIcon, PlusIcon, UploadIcon } from "lucide-react";
 
 // --- Filter & Sort config ---
 
@@ -217,20 +218,7 @@ export function PricesManager({
             type="button"
             onClick={openCreateForm}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14" />
-              <path d="M12 5v14" />
-            </svg>
+            <PlusIcon aria-hidden="true" size={20} />
             Ajouter un fournisseur / tarif
           </button>
         </div>
@@ -287,11 +275,7 @@ export function PricesManager({
         >
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" x2="12" y1="3" y2="15" />
-              </svg>
+              <UploadIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-800">
@@ -302,18 +286,7 @@ export function PricesManager({
               </p>
             </div>
           </div>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--slate-400)"
-            strokeWidth="2"
-            className={`transition-transform ${isCsvOpen ? "rotate-180" : ""}`}
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <ChevronDownIcon aria-hidden="true" stroke="var(--slate-400)" className={`transition-transform ${isCsvOpen ? "rotate-180" : ""}`} size={20} />
         </button>
 
         {isCsvOpen ? (

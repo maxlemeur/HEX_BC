@@ -13,6 +13,7 @@ import {
   resolveTakeoffPdfMimeType,
   validateTakeoffPdfUploadMetadata,
 } from "@/lib/takeoff/pdf-validation";
+import { CheckIcon } from "lucide-react";
 
 const PLAN_PDF_ACCEPT = ".pdf,application/pdf";
 const PLAN_PDF_MAX_SIZE_BYTES = 50 * 1024 * 1024;
@@ -363,16 +364,7 @@ export function PlanFileUploadZone({
               )}
 
               {entry.status === "done" && (
-                <svg
-                  className="h-4 w-4 shrink-0 text-success"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
+                <CheckIcon className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
               )}
 
               {entry.status === "error" && (

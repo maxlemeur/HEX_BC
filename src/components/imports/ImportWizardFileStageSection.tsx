@@ -6,6 +6,7 @@ import { TabularPdfReviewPanel } from "@/components/imports/TabularPdfReviewPane
 import { IMPORT_WIZARD_ACCEPTED_FILE_TYPES } from "@/components/imports/importWizardFileScan";
 import type { ApprovedPdfTable, TabularPdfReviewPayload } from "@/hooks/useImportFlow";
 import type { FileStage } from "@/components/imports/useImportWizardFileStage";
+import { ArrowRightIcon, CheckIcon, CircleXIcon, TriangleAlertIcon, UploadIcon } from "lucide-react";
 
 type ImportWizardFileStageSectionProps = {
   approvedPdfTables: ApprovedPdfTable[];
@@ -94,11 +95,7 @@ export function ImportWizardFileStageSection({
             >
               <div className="flex flex-col items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--slate-400)" strokeWidth="1.5">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <path d="m17 8-5-5-5 5" />
-                    <path d="M12 3v12" />
-                  </svg>
+                  <UploadIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground-secondary">
@@ -166,9 +163,7 @@ export function ImportWizardFileStageSection({
           <div className="animate-fade-in rounded-xl border-2 border-primary bg-primary/5 p-5">
             <div className="flex items-center gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-success/10">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
+                <CheckIcon aria-hidden="true" stroke="var(--success)" size={20} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">
@@ -212,11 +207,7 @@ export function ImportWizardFileStageSection({
           <div className="animate-fade-in rounded-xl border-2 border-danger bg-danger/5 p-5">
             <div className="flex items-center gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="m15 9-6 6" />
-                  <path d="m9 9 6 6" />
-                </svg>
+                <CircleXIcon aria-hidden="true" stroke="var(--error)" size={20} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">
@@ -250,9 +241,7 @@ export function ImportWizardFileStageSection({
           <div className="animate-fade-in rounded-xl border-2 border-success bg-success/5 p-5">
             <div className="flex items-center gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-success/10">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
+                <CheckIcon aria-hidden="true" stroke="var(--success)" size={20} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">
@@ -288,10 +277,7 @@ export function ImportWizardFileStageSection({
                   ) : (
                     <span className="flex items-center gap-2">
                       Lancer l&apos;import
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M5 12h14" />
-                        <path d="m12 5 7 7-7 7" />
-                      </svg>
+                      <ArrowRightIcon aria-hidden="true" size={16} />
                     </span>
                   )}
                 </button>
@@ -327,11 +313,7 @@ export function ImportWizardFileStageSection({
           <div className="animate-fade-in rounded-xl border-2 border-warning bg-warning/5 p-5">
             <div className="flex items-center gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-warning/10">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" strokeWidth="2">
-                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                  <line x1="12" x2="12" y1="9" y2="13" />
-                  <line x1="12" x2="12.01" y1="17" y2="17" />
-                </svg>
+                <TriangleAlertIcon aria-hidden="true" stroke="var(--warning)" size={20} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">
@@ -382,10 +364,7 @@ export function ImportWizardFileStageSection({
                   ) : (
                     <span className="flex items-center gap-2">
                       Lancer l&apos;import
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M5 12h14" />
-                        <path d="m12 5 7 7-7 7" />
-                      </svg>
+                      <ArrowRightIcon aria-hidden="true" size={16} />
                     </span>
                   )}
                 </button>

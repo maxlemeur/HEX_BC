@@ -16,6 +16,7 @@ import {
   reclassifyAffaireDocument,
   setAffaireDocumentAsPrimary,
 } from "@/app/dashboard/affaires/_actions/intake";
+import { CircleAlertIcon, CircleIcon } from "lucide-react";
 
 export type IntakeDocumentData = {
   documentId: string;
@@ -207,9 +208,7 @@ export function IntakeDocumentCard({
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {isProcessing ? (
                 <Badge variant="neutral" size="sm">
-                  <svg className="mr-1 h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                  </svg>
+                  <CircleIcon className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
                   Classification en cours...
                 </Badge>
               ) : (
@@ -326,11 +325,7 @@ export function IntakeDocumentCard({
         <ul className="mt-2 space-y-0.5 pl-6">
           {doc.issues.map((issue, i) => (
             <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
-              <svg className="mt-0.5 h-3 w-3 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" x2="12" y1="8" y2="12" />
-                <line x1="12" x2="12.01" y1="16" y2="16" />
-              </svg>
+              <CircleAlertIcon className="mt-0.5 h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
               {issue}
             </li>
           ))}

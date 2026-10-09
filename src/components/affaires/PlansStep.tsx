@@ -23,6 +23,7 @@ import {
 } from "@/lib/takeoff/default-import-plan-set";
 import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
+import { CheckIcon, CircleCheckBigIcon, FileIcon, LinkIcon, PackageIcon, SearchIcon } from "lucide-react";
 
 type PlansStepProps = {
   projectId: string;
@@ -238,10 +239,7 @@ export function PlansStep({
     <section aria-label="Ajouter les plans (optionnel)">
       {showSuccessBanner && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3" role="status">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-green-600">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
+          <CircleCheckBigIcon aria-hidden="true" className="shrink-0 text-green-600" size={20} />
           <span className="text-sm font-medium text-green-800">Chiffrage cree avec succes</span>
         </div>
       )}
@@ -249,19 +247,7 @@ export function PlansStep({
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--brand-blue)"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
+            <FileIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.5" size={20} />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -287,11 +273,7 @@ export function PlansStep({
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-              <line x1="12" y1="22.08" x2="12" y2="12" />
-            </svg>
+            <PackageIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
             <span className="text-xs font-semibold text-slate-800">Extraction de metres</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -300,10 +282,7 @@ export function PlansStep({
         </div>
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
+            <LinkIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
             <span className="text-xs font-semibold text-slate-800">Preuves</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -312,10 +291,7 @@ export function PlansStep({
         </div>
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
+            <SearchIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
             <span className="text-xs font-semibold text-slate-800">Detection des ecarts</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -388,9 +364,7 @@ export function PlansStep({
           {!isUploadActive && uploadedCount > 0 && (
             <div className="mt-4 space-y-3">
               <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-green-600" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <CheckIcon strokeWidth="2.5" className="shrink-0 text-green-600" aria-hidden="true" size={14} />
                 <span className="text-xs font-medium text-green-800">
                   {uploadedCount} {uploadedCount > 1 ? "fichiers uploades" : "fichier uploade"} — {formatBytes(uploadedSizeBytes)}
                 </span>

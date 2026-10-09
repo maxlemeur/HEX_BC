@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { DateRangeFilterConfig, DateRangeValue } from "./types";
+import { ArrowRightIcon, CalendarIcon, ChevronDownIcon, XIcon } from "lucide-react";
 
 type FilterDateRangeProps = {
   config: DateRangeFilterConfig;
@@ -97,36 +98,9 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
         aria-haspopup="dialog"
         aria-label={`Filtrer par ${config.label}${hasValue ? ", filtre actif" : ""}`}
       >
-        <svg
-          className="filter-pill__icon"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <rect width="18" height="18" x="3" y="4" rx="2" />
-          <path d="M16 2v4" />
-          <path d="M8 2v4" />
-          <path d="M3 10h18" />
-        </svg>
+        <CalendarIcon aria-hidden="true" className="filter-pill__icon" size={14} />
         <span className="filter-pill__label">{getDisplayLabel()}</span>
-        <svg
-          className="filter-pill__chevron"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
+        <ChevronDownIcon aria-hidden="true" className="filter-pill__chevron" size={14} />
       </button>
 
       {isOpen && (
@@ -170,17 +144,7 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
               />
             </div>
             <div className="filter-dropdown__date-separator">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M5 12h14" />
-                <path d="m12 5 7 7-7 7" />
-              </svg>
+              <ArrowRightIcon aria-hidden="true" size={16} />
             </div>
             <div className="filter-dropdown__date-field">
               <label className="filter-dropdown__date-label">
@@ -205,17 +169,7 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
                 setIsOpen(false);
               }}
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
+              <XIcon aria-hidden="true" size={14} />
               Effacer les dates
             </button>
           )}

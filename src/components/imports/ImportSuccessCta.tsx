@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRightIcon, CheckIcon } from "lucide-react";
 
 type ImportSuccessCtaProps = {
   importId: string;
@@ -15,9 +16,7 @@ export function ImportSuccessCta({
     <section className="dashboard-card p-8 text-center">
       <div className="mx-auto flex max-w-md flex-col items-center gap-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-success/10">
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2">
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
+          <CheckIcon aria-hidden="true" stroke="var(--success)" size={28} />
         </div>
         <div>
           <p className="text-lg font-semibold text-slate-800">
@@ -33,10 +32,7 @@ export function ImportSuccessCta({
         >
           <span className="flex items-center gap-2">
             Mapper les colonnes
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRightIcon aria-hidden="true" size={16} />
           </span>
         </Link>
         <button

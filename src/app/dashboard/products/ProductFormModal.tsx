@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui-legacy/Modal";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { parseEuroToCents } from "@/lib/money";
+import { ChevronDownIcon } from "lucide-react";
 
 export type ProductRecord = {
   id: string;
@@ -414,19 +415,7 @@ export function ProductFormModal({
                     Améliorent la recherche et les suggestions de tarifs.
                   </span>
                 </span>
-                <svg
-                  aria-hidden="true"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
+                <ChevronDownIcon aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
               </summary>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">

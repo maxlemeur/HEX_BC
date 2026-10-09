@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { UiMode } from "@/lib/ui-mode";
+import { AsteriskIcon, BuildingIcon, ChartLineIcon, DatabaseIcon, FileTextIcon, FolderIcon, HouseIcon, LayersIcon, SettingsIcon, SquareCheckBigIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,21 +38,7 @@ const HOME_ITEM: NavItem = {
   href: "/dashboard",
   label: "Accueil",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m3 11 9-8 9 8" />
-      <path d="M5 10v10h14V10" />
-      <path d="M9 20v-6h6v6" />
-    </svg>
+    <HouseIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -59,19 +46,7 @@ const AFFAIRES_ITEM: NavItem = {
   href: "/dashboard/affaires",
   label: "Mes affaires",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-    </svg>
+    <FolderIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -80,23 +55,7 @@ export const TAKEOFF_NAV_ITEM: NavItem = {
   label: "Métrés plans",
   navId: "takeoff",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 20V8l8-4 8 4v12" />
-      <path d="M10 20v-6h4v6" />
-      <path d="M2 20h20" />
-      <path d="M8 10h.01" />
-      <path d="M16 10h.01" />
-    </svg>
+    <BuildingIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -104,23 +63,7 @@ const ORDERS_ITEM: NavItem = {
   href: "/dashboard/orders",
   label: "Mes commandes",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-      <path d="M10 9H8" />
-      <path d="M16 13H8" />
-      <path d="M16 17H8" />
-    </svg>
+    <FileTextIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -128,21 +71,7 @@ const REFERENTIEL_ITEM: NavItem = {
   href: "/dashboard/referentiel",
   label: "Référentiel",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <ellipse cx="12" cy="5" rx="9" ry="3" />
-      <path d="M3 5v14a9 3 0 0 0 18 0V5" />
-      <path d="M3 12a9 3 0 0 0 18 0" />
-    </svg>
+    <DatabaseIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -150,21 +79,7 @@ const TARIFS_ITEM: NavItem = {
   href: "/dashboard/tarifs",
   label: "Tarifs",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 2 2 7l10 5 10-5-10-5Z" />
-      <path d="m2 17 10 5 10-5" />
-      <path d="m2 12 10 5 10-5" />
-    </svg>
+    <LayersIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -172,20 +87,7 @@ const ANALYTICS_ITEM: NavItem = {
   href: "/dashboard/analytics",
   label: "Performances",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 3v18h18" />
-      <path d="m19 9-5 5-4-4-3 3" />
-    </svg>
+    <ChartLineIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -194,20 +96,7 @@ const APPROVALS_ITEM: NavItem = {
   label: "Approbations",
   navId: "approvals",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M9 11l3 3L22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
+    <SquareCheckBigIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -216,22 +105,7 @@ const DIRECTION_ITEM: NavItem = {
   label: "Vue direction",
   navId: "direction",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12h18" />
-      <path d="M12 3v18" />
-      <path d="M5 5l14 14" />
-      <path d="M19 5 5 19" />
-    </svg>
+    <AsteriskIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 
@@ -239,20 +113,7 @@ const ADMIN_ITEM: NavItem = {
   href: "/dashboard/admin",
   label: "Administration",
   icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
+    <SettingsIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
 

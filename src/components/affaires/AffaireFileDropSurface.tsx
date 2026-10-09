@@ -6,6 +6,7 @@ import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
 } from "@/lib/affaires/intake";
+import { CircleIcon, UploadIcon } from "lucide-react";
 
 const ACCEPT = AFFAIRE_INTAKE_ALLOWED_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -106,22 +107,7 @@ export function AffaireFileDropSurface({
       >
         {isUploading ? (
           <div className="flex items-center justify-center gap-2">
-            <svg
-              className="h-5 w-5 animate-spin text-primary"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeDasharray="31.4 31.4"
-                strokeLinecap="round"
-              />
-            </svg>
+            <CircleIcon className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
             <span className="text-sm font-medium text-foreground-secondary">
               Upload de {uploadingFileCount} fichier
               {uploadingFileCount && uploadingFileCount > 1 ? "s" : ""}...
@@ -129,22 +115,7 @@ export function AffaireFileDropSurface({
           </div>
         ) : (
           <div className="text-center">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="mx-auto mb-2 text-subtle-foreground"
-              aria-hidden="true"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" x2="12" y1="3" y2="15" />
-            </svg>
+            <UploadIcon strokeWidth="1.5" className="mx-auto mb-2 text-subtle-foreground" aria-hidden="true" size={28} />
             <p className="text-sm font-medium text-foreground-secondary">
               {dragActive
                 ? "Deposez les fichiers ici"

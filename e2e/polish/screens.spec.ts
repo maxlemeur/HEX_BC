@@ -199,7 +199,14 @@ async function auditRoute(page: Page, route: PolishRoute, url: string, drainWrit
 
     const screenshot = path.join(SHOTS_DIR, route.id, `${viewport.name}.png`);
     fs.mkdirSync(path.dirname(screenshot), { recursive: true });
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled", caret: "hide" });
+    await page.screenshot({
+      path: screenshot,
+      fullPage: true,
+      animations: "disabled",
+      caret: "hide",
+      // The Next dev indicator ("Compiling…") is not part of the app and breaks pixel diffs.
+      style: "nextjs-portal { display: none !important; }",
+    });
 
     results.push({
       viewport: viewport.name,

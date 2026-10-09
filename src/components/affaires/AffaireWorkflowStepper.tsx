@@ -4,6 +4,7 @@ import type { AffaireHubDpgfSourceResult, AffaireHubSummaryResult } from "@/lib/
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import { buildAffaireWorkflowSteps, type WorkflowStep } from "./affaire-workflow";
+import { CheckIcon } from "lucide-react";
 
 const STEPPER_ANCHOR_MAP: Record<string, string> = {
   dossier: "intake",
@@ -129,9 +130,7 @@ export function AffaireWorkflowStepper({
                   }`}
                 >
                   {step.status === "done" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
+                    <CheckIcon aria-hidden="true" strokeWidth="3" size={12} />
                   ) : (
                     i + 1
                   )}

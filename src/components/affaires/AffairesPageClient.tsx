@@ -34,6 +34,7 @@ import type {
 import type { SortOption, SortState } from "@/components/TableFilterBar/types";
 import { AFFAIRE_PAGE_SIZE_OPTIONS } from "@/lib/affaires/schemas";
 import type { EstimateStatus } from "@/lib/estimates/client";
+import { StarIcon } from "lucide-react";
 
 const AffairesDenseTable = dynamic(
   () =>
@@ -668,19 +669,7 @@ export function AffairesPageClient({
           }`}
           aria-pressed={favoritesOnly}
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill={favoritesOnly ? "currentColor" : "none"}
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m12 17.27-5.18 3.05 1.4-5.89L3 9.76l6.03-.52L12 3.75l2.97 5.49 6.03.52-5.22 4.67 1.4 5.89z" />
-          </svg>
+          <StarIcon fill={favoritesOnly ? "currentColor" : "none"} aria-hidden="true" size={14} />
           Favoris
         </button>
         <div className="grid w-full gap-2 sm:flex sm:w-auto sm:items-center">

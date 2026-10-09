@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { TakeoffRouteHierarchyDescriptor } from "@/lib/takeoff/route-hierarchy";
+import { ChevronDownIcon } from "lucide-react";
 
 type TakeoffRouteHierarchyBannerProps = {
   descriptor: TakeoffRouteHierarchyDescriptor;
@@ -34,20 +35,7 @@ export function TakeoffRouteHierarchyBanner({
               {descriptor.title}
             </span>
           </span>
-          <svg
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              d="m6 9 6 6 6-6"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-            />
-          </svg>
+          <ChevronDownIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
         </summary>
 
         <div className="border-t border-border px-3 pb-4 pt-3 sm:px-4">
