@@ -131,7 +131,7 @@ export default function EstimateTemplatesPage() {
         <div>
           <h1 className="page-title">Templates de chiffrage</h1>
           <p className="page-description">
-            Bibliotheque des modeles reutilisables de votre tenant.
+            Bibliotheque des modèles reutilisables de votre tenant.
           </p>
         </div>
         <div className="flex items-center gap-2">

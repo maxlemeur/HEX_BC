@@ -182,7 +182,7 @@ describe("MappingRulesManager", () => {
     renderManager();
 
     const priorityInput = (await screen.findByLabelText(
-      "Priorite de Renommer PVC"
+      "Priorité de Renommer PVC"
     )) as HTMLInputElement;
     await user.clear(priorityInput);
     await user.type(priorityInput, "77");
@@ -209,7 +209,7 @@ describe("MappingRulesManager", () => {
 
     renderManager();
 
-    const priorityInput = await screen.findByLabelText("Priorite de Renommer PVC");
+    const priorityInput = await screen.findByLabelText("Priorité de Renommer PVC");
     await user.clear(priorityInput);
     await user.type(priorityInput, "35");
     await user.click(screen.getByRole("button", { name: "Enregistrer l'ordre" }));
@@ -233,10 +233,10 @@ describe("MappingRulesManager", () => {
 
     expect(ruleAPriorityCalls).toEqual([35]);
     expect(
-      await screen.findByText(/Ordre des priorites enregistre/)
+      await screen.findByText(/Ordre des priorités enregistre/)
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("Impossible de sauvegarder l'ordre des priorites.")
+      screen.queryByText("Impossible de sauvegarder l'ordre des priorités.")
     ).not.toBeInTheDocument();
   });
 });

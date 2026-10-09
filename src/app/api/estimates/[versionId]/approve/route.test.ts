@@ -109,7 +109,7 @@ describe("estimate approve route", () => {
           {
             scope_type: "approval_rule",
             scope_id: "22222222-2222-4222-8222-222222222222",
-            comment: "Validee sous reserve de confirmer la marge.",
+            comment: "Validée sous reserve de confirmer la marge.",
           },
         ],
       }),
@@ -129,7 +129,7 @@ describe("estimate approve route", () => {
         {
           scopeType: "approval_rule",
           scopeId: "22222222-2222-4222-8222-222222222222",
-          comment: "Validee sous reserve de confirmer la marge.",
+          comment: "Validée sous reserve de confirmer la marge.",
         },
       ],
     });

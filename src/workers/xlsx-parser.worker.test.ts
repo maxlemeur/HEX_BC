@@ -48,7 +48,7 @@ describe("xlsx parser worker", () => {
     buffer = createWorkbookBuffer([
       ["Projet de renovation"],
       ["Alias", "Alias", ""],
-      ["Description", "Description", "Quantite"],
+      ["Description", "Description", "Quantité"],
       ["Tube", "Cuivre", 2],
       [],
       ["Bride", "Acier", 1],
@@ -59,6 +59,7 @@ describe("xlsx parser worker", () => {
     const rows = await parseWorkbook(buffer);
 
     expect(rows).toHaveLength(2);
+    // Les clés de colonnes sont assainies sans accents : « Quantité » devient « Quantite ».
     expect(rows[0]).toEqual(
       expect.objectContaining({
         Description: "Tube",
@@ -88,7 +89,7 @@ describe("xlsx parser worker", () => {
     expect(rows[0]).toEqual(expect.objectContaining({
       Alias: "Description",
       Alias_2: "Description",
-      column_3: "Quantite",
+      column_3: "Quantité",
     }));
   });
 

@@ -13,10 +13,10 @@ import type { AffaireListItem } from "./types";
 import { EyeIcon, FolderIcon, HouseIcon, SearchIcon, SquarePenIcon, TrashIcon } from "lucide-react";
 
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
-  required: { label: "A valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
+  required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
   in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
   approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
-  changes_requested: { label: "A reprendre", className: "bg-red-50 text-red-800 border-red-200" },
+  changes_requested: { label: "À reprendre", className: "bg-red-50 text-red-800 border-red-200" },
 };
 
 type AffairesEmptyVariant = "no-data" | "filtered";
@@ -59,8 +59,8 @@ export function AffairesCardList({
         icon={
           <FolderIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
-        title="Creez votre premiere affaire"
-        description="Demarrez un nouveau projet pour lancer votre premier chiffrage."
+        title="Créez votre première affaire"
+        description="Démarrez un nouveau projet pour lancer votre premier chiffrage."
         actionLabel="Nouvelle affaire"
         onAction={onCreateAffaire}
       />
@@ -70,7 +70,7 @@ export function AffairesCardList({
           <SearchIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
         title="Aucune affaire trouvee"
-        description="Modifiez vos filtres ou votre recherche pour afficher des resultats."
+        description="Modifiez vos filtres ou votre recherche pour afficher des résultats."
       />
     );
   }
@@ -172,7 +172,7 @@ export function AffairesCardList({
                     type="checkbox"
                     className="h-4 w-4 rounded border-border-strong text-primary"
                     checked={selectedProjectIds.has(item.projectId)}
-                    aria-label={`Selectionner l'affaire ${item.projectName}`}
+                    aria-label={`Sélectionner l'affaire ${item.projectName}`}
                     onChange={() =>
                       onToggleProjectSelection(item.projectId)
                     }
@@ -200,7 +200,7 @@ export function AffairesCardList({
               {hasCurrentVersion && item.currentStatus !== "draft" && (
                 <button
                   type="button"
-                  title="Voir le detail"
+                  title="Voir le détail"
                   aria-label="Voir le détail du chiffrage"
                   className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 sm:min-h-8 sm:min-w-8"
                   onClick={() => router.push(`/dashboard/estimates/${item.currentVersionId}`)}
@@ -212,7 +212,7 @@ export function AffairesCardList({
               {canDelete && (
                 <button
                   type="button"
-                  title="Editer l'affaire"
+                  title="Éditer l'affaire"
                   aria-label="Éditer l'affaire"
                   className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 sm:min-h-8 sm:min-w-8"
                   onClick={() => router.push(

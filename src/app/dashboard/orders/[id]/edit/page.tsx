@@ -332,12 +332,12 @@ export default function EditOrderPage() {
     }
 
     if (!isDraft) {
-      setFormError("Seuls les bons de commande en brouillon peuvent etre modifies.");
+      setFormError("Seuls les bons de commande en brouillon peuvent être modifiés.");
       return;
     }
 
     if (!supplierId || !deliverySiteId) {
-      setFormError("Selectionnez un fournisseur et un chantier.");
+      setFormError("Sélectionnez un fournisseur et un chantier.");
       return;
     }
 
@@ -415,7 +415,7 @@ export default function EditOrderPage() {
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-error">
             <CircleXIcon aria-hidden="true" size={18} />
-            Seuls les bons de commande en brouillon peuvent etre modifies.
+            Seuls les bons de commande en brouillon peuvent être modifiés.
           </div>
         </div>
       </div>
@@ -484,7 +484,7 @@ export default function EditOrderPage() {
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-info">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-info/30 border-t-info"></div>
-            Chargement des donnees...
+            Chargement des données...
           </div>
         </div>
       )}

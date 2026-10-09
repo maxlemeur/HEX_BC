@@ -32,12 +32,12 @@ const positiveQuantitySchema = z
 const positiveIntegerSchema = z
   .number()
   .int("Entier attendu.")
-  .min(1, "Doit etre >= 1.");
+  .min(1, "Doit être >= 1.");
 
 const nonNegativeIntegerSchema = z
   .number()
   .int("Entier attendu.")
-  .min(0, "Doit etre >= 0.");
+  .min(0, "Doit être >= 0.");
 
 export const takeoffLevelSchema = z.enum(TAKEOFF_LEVELS);
 
@@ -46,8 +46,8 @@ export const takeoffWarningSeveritySchema = z.enum(["info", "warning", "error"])
 const confidenceSchema = z
   .number()
   .finite("Nombre invalide.")
-  .min(0, "Doit etre >= 0.")
-  .max(1, "Doit etre <= 1.");
+  .min(0, "Doit être >= 0.")
+  .max(1, "Doit être <= 1.");
 
 const warningCodeSchema = z.preprocess(
   (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
@@ -87,7 +87,7 @@ export const TakeoffItemSchema = z
   .object({
     designation: requiredTextSchema.max(500, "Designation trop longue."),
     quantity: positiveQuantitySchema,
-    unit: requiredTextSchema.max(64, "Unite trop longue."),
+    unit: requiredTextSchema.max(64, "Unité trop longue."),
     category: optionalNullableTextSchema.optional(),
     source_page: positiveIntegerSchema.optional(),
     source_file: requiredTextSchema.max(255, "Nom de fichier trop long.").optional(),
@@ -195,7 +195,7 @@ const takeoffMappingRulePatternSchema = requiredTextSchema.max(500, "Pattern tro
 
 const takeoffMappingRulePrioritySchema = nonNegativeIntegerSchema.max(
   100000,
-  "Priorite trop elevee."
+  "Priorité trop élevée."
 );
 
 export const takeoffMappingRuleIdSchema = z.string().uuid("ruleId invalide.");
@@ -252,7 +252,7 @@ function validateRegexMatchPattern(
   } catch {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "match_pattern doit etre une regex valide quand match_type=regex.",
+      message: "match_pattern doit être une regex valide quand match_type=regex.",
       path: ["match_pattern"],
     });
   }
@@ -414,7 +414,7 @@ const updateTakeoffMappingRuleWithoutActionSchema = z
 
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -556,7 +556,7 @@ export const takeoffApplyRequestSchema = z
     if (payload.override !== true && payload.override_justification) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "override_justification ne peut etre fourni que si override=true.",
+        message: "override_justification ne peut être fourni que si override=true.",
         path: ["override_justification"],
       });
     }
@@ -584,7 +584,7 @@ const takeoffMappingPreviewStateSchema = z
   .object({
     designation: requiredTextSchema.max(500, "Designation trop longue."),
     quantity: positiveQuantitySchema,
-    unit: requiredTextSchema.max(64, "Unite trop longue."),
+    unit: requiredTextSchema.max(64, "Unité trop longue."),
     is_excluded: z.boolean(),
     category_id: z.string().uuid("category_id invalide.").nullable(),
     unit_price_cents: nonNegativeIntegerSchema.nullable(),
@@ -791,11 +791,11 @@ const optionalLimitSearchParamSchema = z.preprocess(
   },
   z
     .number()
-    .int("limit doit etre un entier.")
-    .min(1, "limit doit etre >= 1.")
+    .int("limit doit être un entier.")
+    .min(1, "limit doit être >= 1.")
     .max(
       MAX_TAKEOFF_JOBS_LIST_LIMIT,
-      `limit doit etre <= ${MAX_TAKEOFF_JOBS_LIST_LIMIT}.`
+      `limit doit être <= ${MAX_TAKEOFF_JOBS_LIST_LIMIT}.`
     )
     .optional()
 );
@@ -812,11 +812,11 @@ const optionalItemsLimitSearchParamSchema = z.preprocess(
   },
   z
     .number()
-    .int("items_limit doit etre un entier.")
-    .min(1, "items_limit doit etre >= 1.")
+    .int("items_limit doit être un entier.")
+    .min(1, "items_limit doit être >= 1.")
     .max(
       MAX_TAKEOFF_JOB_ITEMS_LIMIT,
-      `items_limit doit etre <= ${MAX_TAKEOFF_JOB_ITEMS_LIMIT}.`
+      `items_limit doit être <= ${MAX_TAKEOFF_JOB_ITEMS_LIMIT}.`
     )
     .optional()
 );
@@ -827,7 +827,7 @@ const requiredUuidSearchParamSchema = z.preprocess(
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
   },
-  z.string().uuid("Parametre UUID invalide.")
+  z.string().uuid("Paramètre UUID invalide.")
 );
 
 const optionalCompareThresholdSearchParamSchema = z.preprocess(
@@ -844,11 +844,11 @@ const optionalCompareThresholdSearchParamSchema = z.preprocess(
     .number()
     .min(
       TAKEOFF_COMPARE_MIN_THRESHOLD,
-      `threshold doit etre >= ${TAKEOFF_COMPARE_MIN_THRESHOLD}.`
+      `threshold doit être >= ${TAKEOFF_COMPARE_MIN_THRESHOLD}.`
     )
     .max(
       TAKEOFF_COMPARE_MAX_THRESHOLD,
-      `threshold doit etre <= ${TAKEOFF_COMPARE_MAX_THRESHOLD}.`
+      `threshold doit être <= ${TAKEOFF_COMPARE_MAX_THRESHOLD}.`
     )
     .optional()
 );
@@ -865,11 +865,11 @@ const optionalOffsetSearchParamSchema = z.preprocess(
   },
   z
     .number()
-    .int("offset doit etre un entier.")
-    .min(0, "offset doit etre >= 0.")
+    .int("offset doit être un entier.")
+    .min(0, "offset doit être >= 0.")
     .max(
       MAX_TAKEOFF_JOB_ITEMS_OFFSET,
-      `offset doit etre <= ${MAX_TAKEOFF_JOB_ITEMS_OFFSET}.`
+      `offset doit être <= ${MAX_TAKEOFF_JOB_ITEMS_OFFSET}.`
     )
     .optional()
 );
@@ -896,11 +896,11 @@ const optionalDpgfComparePageSizeSearchParamSchema = z.preprocess(
   },
   z
     .number()
-    .int("page_size doit etre un entier.")
-    .min(1, "page_size doit etre >= 1.")
+    .int("page_size doit être un entier.")
+    .min(1, "page_size doit être >= 1.")
     .max(
       TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
-      `page_size doit etre <= ${TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE}.`
+      `page_size doit être <= ${TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE}.`
     )
     .optional()
 );

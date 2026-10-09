@@ -96,7 +96,7 @@ export async function getNextCategoryPosition(
       resourceUserId: ownerUserId,
     })
   ) {
-    throw forbidden("Acces interdit aux ressources de cet utilisateur.");
+    throw forbidden("Accès interdit aux ressources de cet utilisateur.");
   }
 
   const { data, error } = await supabase
@@ -108,7 +108,7 @@ export async function getNextCategoryPosition(
     .limit(1);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
+    throw mapSupabaseError(error, "Impossible de déterminer la prochaine position.");
   }
 
   return (data?.[0]?.position ?? 0) + 1;
@@ -125,7 +125,7 @@ export async function getNextLaborRolePosition(
       resourceUserId: ownerUserId,
     })
   ) {
-    throw forbidden("Acces interdit aux ressources de cet utilisateur.");
+    throw forbidden("Accès interdit aux ressources de cet utilisateur.");
   }
 
   const { data, error } = await supabase
@@ -137,7 +137,7 @@ export async function getNextLaborRolePosition(
     .limit(1);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
+    throw mapSupabaseError(error, "Impossible de déterminer la prochaine position.");
   }
 
   return (data?.[0]?.position ?? 0) + 1;
@@ -154,7 +154,7 @@ export async function getNextSuggestionRulePosition(
       resourceUserId: ownerUserId,
     })
   ) {
-    throw forbidden("Acces interdit aux ressources de cet utilisateur.");
+    throw forbidden("Accès interdit aux ressources de cet utilisateur.");
   }
 
   const { data, error } = await supabase
@@ -166,7 +166,7 @@ export async function getNextSuggestionRulePosition(
     .limit(1);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
+    throw mapSupabaseError(error, "Impossible de déterminer la prochaine position.");
   }
 
   return (data?.[0]?.position ?? 0) + 1;

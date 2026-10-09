@@ -38,7 +38,7 @@ export function OverrideCard({
         "Aucune cible de fusion compatible n'existe sous le parent final.";
     } else if (nodeMergeState?.requiresExplicitMergeTarget) {
       mergeGuidanceText =
-        "Selectionnez une cible de fusion compatible avant application.";
+        "Sélectionnez une cible de fusion compatible avant application.";
     } else if (nodeMergeState?.resolvedMergeTargetPath) {
       mergeGuidanceText = `Cible retenue: ${nodeMergeState.resolvedMergeTargetPath}`;
     }
@@ -66,7 +66,7 @@ export function OverrideCard({
             })
           }
         >
-          <option value="create">Creer</option>
+          <option value="create">Créer</option>
           <option value="merge" disabled={!canMerge}>
             Fusionner
           </option>
@@ -127,7 +127,7 @@ export function OverrideCard({
                     entry.excerpt ? `${entry.label}: ${entry.excerpt}` : entry.label,
                   )
                   .join(" · ")
-              : "Aucune provenance detaillee."}
+              : "Aucune provenance détaillée."}
           </p>
         </div>
       </div>

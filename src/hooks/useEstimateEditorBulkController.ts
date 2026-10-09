@@ -337,7 +337,7 @@ export function useEstimateEditorBulkController({
               : "Impossible de supprimer toutes les lignes sélectionnées."
           );
           reportError(
-            `Suppression partielle detectee (${deletedCount}/${selectedLines.length}) : ${baseMessage}. La version a ete rechargee; verifiez les lignes puis reessayez.`
+            `Suppression partielle détectée (${deletedCount}/${selectedLines.length}) : ${baseMessage}. La version a été rechargee; vérifiez les lignes puis réessayez.`
           );
           return;
         }

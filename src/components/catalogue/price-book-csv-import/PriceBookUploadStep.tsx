@@ -95,7 +95,7 @@ export function PriceBookUploadStep({
       </div>
 
       <div className="rounded-xl border border-border bg-surface-subtle p-4">
-        <h3 className="text-sm font-semibold text-slate-800">Etape 1 - Charger le CSV</h3>
+        <h3 className="text-sm font-semibold text-slate-800">Étape 1 - Charger le CSV</h3>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
           <div>
             <label className="form-label" htmlFor="price-book-csv-input">
@@ -137,7 +137,7 @@ export function PriceBookUploadStep({
           {selectedFile ? <p>{selectedFile.name}</p> : null}
           {sourceImportId ? (
             <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-              Trace canonique liee
+              Trace canonique liée
             </span>
           ) : null}
           {detectedEncoding ? <p>Encodage: {detectedEncoding}</p> : null}
@@ -178,9 +178,9 @@ export function PriceBookUploadStep({
 
       {hasRows ? (
         <div className="rounded-xl border border-border bg-surface-subtle p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Etape 2 - Associer les colonnes</h3>
+          <h3 className="text-sm font-semibold text-slate-800">Étape 2 - Associer les colonnes</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            {formatNumber(rowsCount)} ligne(s) detectee(s), {autoMappedCount} colonne(s) associee(s)
+            {formatNumber(rowsCount)} ligne(s) détectée(s), {autoMappedCount} colonne(s) associée(s)
             automatiquement.
           </p>
 
@@ -206,7 +206,7 @@ export function PriceBookUploadStep({
               {isValidating ? "Validation..." : "Mettre à jour l'aperçu"}
             </button>
             <span className="text-xs text-muted-foreground">
-              Champs requis : Fournisseur, Prix unitaire, et Reference ou Designation produit.
+              Champs requis : Fournisseur, Prix unitaire, et Référence ou Designation produit.
             </span>
           </div>
         </div>

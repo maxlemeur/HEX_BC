@@ -18,7 +18,7 @@ export function resolvePlanSetFlowDescriptor(
       kind: "legacy",
       label: "Fallback legacy",
       summary:
-        "Jeu rattache a une version de devis historique. A conserver comme recours explicite, pas comme voie par defaut.",
+        "Jeu rattache a une version de devis historique. À conserver comme recours explicite, pas comme voie par défaut.",
       badgeClassName:
         "bg-warning/10 text-warning ring-1 ring-warning/20",
     };
@@ -28,7 +28,7 @@ export function resolvePlanSetFlowDescriptor(
     kind: "principal",
     label: "Flux principal",
     summary:
-      "Jeu gere au niveau de l'affaire. C'est la voie par defaut pour lancer et reprendre le metre.",
+      "Jeu gere au niveau de l'affaire. C'est la voie par défaut pour lancer et reprendre le métré.",
     badgeClassName:
       "bg-success/10 text-success ring-1 ring-success/20",
   };

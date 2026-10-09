@@ -2062,7 +2062,7 @@ describe("processLevelA", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job a ete annule pendant le traitement.",
+      message: "Le job a été annulé pendant le traitement.",
       details: expect.objectContaining({
         current_status: "canceled",
         expected_status: "processing",

@@ -79,8 +79,8 @@ export function PilotStatusBadge({
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
         killSwitchEnabled
-          ? "bg-success/12 text-success"
-          : "bg-danger/12 text-danger"
+          ? "bg-success-subtle text-success"
+          : "bg-danger-subtle text-danger"
       }`}
     >
       {killSwitchEnabled ? "Pilote actif" : "Pilote coupé"}
@@ -97,10 +97,10 @@ function PilotCriterionStatusBadge({
     <span
       className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
         status === "pass"
-          ? "bg-success/12 text-success"
+          ? "bg-success-subtle text-success"
           : status === "inconclusive"
-            ? "bg-warning/12 text-warning"
-            : "bg-danger/12 text-danger"
+            ? "bg-warning-subtle text-warning"
+            : "bg-danger-subtle text-danger"
       }`}
     >
       {status === "pass"

@@ -205,7 +205,7 @@ export const AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS: Record<
   bpu_dqe: "BPU / DQE",
   annexes: "Annexes",
   emails: "Emails / courriers",
-  a_classer: "A classer",
+  a_classer: "À classer",
 };
 
 export const AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS: Record<
@@ -213,7 +213,7 @@ export const AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS: Record<
   string
 > = {
   primary: "Principal",
-  secondary: "Complementaire",
+  secondary: "Complémentaire",
 };
 
 export const AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS: Record<
@@ -224,8 +224,8 @@ export const AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS: Record<
   project_object: "Objet du projet",
   scope: "Perimetre detecte",
   lots: "Lots concernes",
-  received_pieces: "Pieces recues",
-  assumptions: "Hypotheses initiales",
+  received_pieces: "Pièces reçues",
+  assumptions: "Hypothèses initiales",
   vigilance_points: "Points de vigilance",
   missing_elements: "Éléments manquants",
 };
@@ -509,7 +509,7 @@ export function getHeuristicAffaireDocumentClassification(input: {
     return {
       documentKind: "annexes",
       confidence: 0.42,
-      issues: ["Classification heuristique faible: piece PDF non identifiee clairement."],
+      issues: ["Classification heuristique faible: pièce PDF non identifiee clairement."],
       extractedMetadata: createEmptyAffaireIntakeExtractedMetadata(),
     };
   }
@@ -679,7 +679,7 @@ export function buildAffaireIntakeMissingPieces(
   if (!presentKinds.has("cctp")) {
     missingPieces.push({
       code: "missing_cctp",
-      label: "CCTP non detecte",
+      label: "CCTP non détecté",
       severity: "warning",
     });
   }
@@ -687,7 +687,7 @@ export function buildAffaireIntakeMissingPieces(
   if (!presentKinds.has("bpu_dqe")) {
     missingPieces.push({
       code: "missing_bpu_dqe",
-      label: "BPU / DQE non detecte",
+      label: "BPU / DQE non détecté",
       severity: "warning",
     });
   }
@@ -958,8 +958,8 @@ export function resolveAffairePreliminaryStructureCapability(input: {
       label: "Brief confirme",
       detail:
         briefLots.length > 0
-          ? `${briefLots.length} lot(s) du brief restent reutilisables pour ouvrir une structure preliminaire.`
-          : "Le brief confirme reste la reference de travail, meme sans lot explicite.",
+          ? `${briefLots.length} lot(s) du brief restent reutilisables pour ouvrir une structure préliminaire.`
+          : "Le brief confirme reste la référence de travail, même sans lot explicite.",
       availableLots: briefLots,
       documentId: null,
       fileName: null,
@@ -997,7 +997,7 @@ export function resolveAffairePreliminaryStructureCapability(input: {
       label: "CCTP principal",
       detail:
         cctpLots.length > 0
-          ? `${primaryCctp.fileName ?? "CCTP principal"} expose ${cctpLots.length} lot(s) detecte(s) reutilisables pour une structure preliminaire.`
+          ? `${primaryCctp.fileName ?? "CCTP principal"} expose ${cctpLots.length} lot(s) detecte(s) reutilisables pour une structure préliminaire.`
           : `${primaryCctp.fileName ?? "CCTP principal"} est bien principal, mais ne remonte pas encore de lot defendable pour ouvrir la structure automatiquement.`,
       availableLots: cctpLots,
       documentId: primaryCctp.documentId ?? null,

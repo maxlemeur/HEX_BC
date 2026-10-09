@@ -291,7 +291,7 @@ export function EstimateChangelogView({
                   </div>
                 ) : (
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Aucun detail champ disponible.
+                    Aucun détail champ disponible.
                   </p>
                 )}
               </article>

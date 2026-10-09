@@ -1708,7 +1708,7 @@ describe("estimate server coverage additions", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
-      message: "Une section avec enfants ne peut pas etre convertie en ligne.",
+      message: "Une section avec enfants ne peut pas être convertie en ligne.",
     });
     expect(estimateItemsUpdate).not.toHaveBeenCalled();
   });

@@ -918,7 +918,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
       if (indicesError) {
         throw mapSupabaseError(
           indicesError,
-          "Impossible de charger les indices materiaux des suggestions."
+          "Impossible de charger les indices matériaux des suggestions."
         );
       }
 
@@ -1081,7 +1081,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   if (selectedPriceError) {
     throw mapSupabaseError(
       selectedPriceError,
-      "Impossible de charger la selection fournisseur actuelle."
+      "Impossible de charger la sélection fournisseur actuelle."
     );
   }
 
@@ -1106,7 +1106,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   if (productPriceError) {
     throw mapSupabaseError(
       productPriceError,
-      "Impossible de charger les alternatives de la selection fournisseur."
+      "Impossible de charger les alternatives de la sélection fournisseur."
     );
   }
 
@@ -1639,7 +1639,7 @@ export function buildEstimateSupplierPreselectionReview(input: {
 }
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
-  { name: "Materiaux", position: 1 },
+  { name: "Matériaux", position: 1 },
   { name: "Main d'oeuvre", position: 2 },
   { name: "Sous-traitance", position: 3 },
 ] as const;
@@ -1834,7 +1834,7 @@ function getServiceRoleSupabaseClient() {
     return createServiceRoleClient();
   } catch (error) {
     throw internalError(
-      "Configuration Supabase service role manquante pour executer le workflow protege.",
+      "Configuration Supabase service rôle manquante pour executer le workflow protege.",
       error
     );
   }
@@ -1885,7 +1885,7 @@ async function logEstimateVersionEvent(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible d'enregistrer l'evenement de statut."
+      "Impossible d'enregistrer l'événement de statut."
     );
   }
 }
@@ -2128,7 +2128,7 @@ function getEstimateTotalsInvariantViolation(
     return {
       rule: "total_ttc_gte_total_ht",
       message:
-        "Incoherence des totaux: total_ttc_cents doit etre superieur ou egal a total_ht_cents.",
+        "Incoherence des totaux: total_ttc_cents doit être supérieur ou egal a total_ht_cents.",
     };
   }
 
@@ -2136,7 +2136,7 @@ function getEstimateTotalsInvariantViolation(
     return {
       rule: "total_tax_non_negative",
       message:
-        "Incoherence des totaux: total_tax_cents doit etre superieur ou egal a 0.",
+        "Incoherence des totaux: total_tax_cents doit être supérieur ou egal a 0.",
     };
   }
 
@@ -2149,7 +2149,7 @@ function getEstimateTotalsInvariantViolation(
     return {
       rule: "total_ttc_equals_total_ht_plus_total_tax",
       message:
-        "Incoherence des totaux: total_ttc_cents doit etre egal a total_ht_cents + total_tax_cents.",
+        "Incoherence des totaux: total_ttc_cents doit être egal a total_ht_cents + total_tax_cents.",
     };
   }
 
@@ -2242,11 +2242,11 @@ async function fetchEstimateVersionToken(input: {
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de recuperer le jeton de version."
+        "Impossible de récupérer le jeton de version."
       );
     }
 
-    throw badRequest("Impossible de recuperer le jeton de version.");
+    throw badRequest("Impossible de récupérer le jeton de version.");
   }
 
   return data;
@@ -2312,7 +2312,7 @@ function resolveImportedSectionTitle(input: {
   sourceTitle: string | null | undefined;
   usedTitleKeys: Set<string>;
 }) {
-  const fallbackTitle = "Section importee";
+  const fallbackTitle = "Section importée";
   const baseTitle = toNullableText(input.sourceTitle) ?? fallbackTitle;
   const baseKey = normalizeSectionTitleKey(baseTitle);
 
@@ -2480,7 +2480,7 @@ async function loadLatestLinkedDpgfImportForProject(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger la source DPGF liee.");
+    throw mapSupabaseError(error, "Impossible de charger la source DPGF liée.");
   }
 
   return (data ?? null) as AffaireDpgfImportRow | null;
@@ -2643,7 +2643,7 @@ async function importLinkedDpgfSourceIntoVersionInternal(
   });
 
   if (!latestImport) {
-    throw badRequest("Aucune source DPGF liee a cette affaire.");
+    throw badRequest("Aucune source DPGF liée à cette affaire.");
   }
 
   const mappedRows = await loadMappedRowsForImportWithRetry({
@@ -2656,7 +2656,7 @@ async function importLinkedDpgfSourceIntoVersionInternal(
 
   if (mappedRows.length === 0) {
     throw badRequest(
-      "La source DPGF liee ne contient aucune ligne mappee exploitable."
+      "La source DPGF liée ne contient aucune ligne mappee exploitable."
     );
   }
 
@@ -2668,7 +2668,7 @@ async function importLinkedDpgfSourceIntoVersionInternal(
 
   if (validLines.length === 0) {
     throw badRequest(
-      "Aucune ligne DPGF valide a importer depuis la source liee."
+      "Aucune ligne DPGF valide à importer depuis la source liée."
     );
   }
 
@@ -2759,7 +2759,7 @@ async function importLinkedDpgfSourceIntoVersionInternal(
     });
 
   if (insertError) {
-    throw mapSupabaseError(insertError, "Impossible d'importer la source DPGF liee.");
+    throw mapSupabaseError(insertError, "Impossible d'importer la source DPGF liée.");
   }
 
   const recalculateResult = await recalculateEstimateVersionTotals({
@@ -3180,7 +3180,7 @@ async function getNextItemPosition(
   const { data, error } = await query;
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
+    throw mapSupabaseError(error, "Impossible de déterminer la prochaine position.");
   }
 
   return (data?.[0]?.position ?? 0) + 1;
@@ -3352,7 +3352,7 @@ export async function listEstimateProjectVersions(input: {
     if (anchorError) {
       throw mapSupabaseError(
         anchorError,
-        "Impossible de determiner la position de la version courante."
+        "Impossible de déterminer la position de la version courante."
       );
     }
 
@@ -3367,7 +3367,7 @@ export async function listEstimateProjectVersions(input: {
       if (newerCountError) {
         throw mapSupabaseError(
           newerCountError,
-          "Impossible de determiner la pagination des versions."
+          "Impossible de déterminer la pagination des versions."
         );
       }
 
@@ -4104,7 +4104,7 @@ async function duplicateSectionInternal(input: {
   }
 
   if (sourceSectionData.item_type !== "section") {
-    throw badRequest("Seules les sections peuvent etre dupliquees.");
+    throw badRequest("Seules les sections peuvent être dupliquees.");
   }
 
   const sourceVersionId = sourceSectionData.version_id;
@@ -4366,7 +4366,7 @@ export async function importSectionsFromVersion(
     }
 
     const sourceRootTitle =
-      toNullableText(subtree.rootSection.title) ?? "Section importee";
+      toNullableText(subtree.rootSection.title) ?? "Section importée";
     const sourceRootTitleKey = normalizeSectionTitleKey(sourceRootTitle);
 
     if (input.mode === "merge") {
@@ -4650,7 +4650,7 @@ export async function createEstimate(
     });
 
   if (categoriesError) {
-    throw mapSupabaseError(categoriesError, "Impossible de preparer les categories par defaut.");
+    throw mapSupabaseError(categoriesError, "Impossible de préparer les catégories par défaut.");
   }
 
   const laborRolesPayload: LaborRoleInsert[] = DEFAULT_LABOR_ROLES.map((role) => ({
@@ -4672,7 +4672,7 @@ export async function createEstimate(
   if (laborRolesError) {
     throw mapSupabaseError(
       laborRolesError,
-      "Impossible de preparer les roles MO par defaut."
+      "Impossible de préparer les rôles MO par défaut."
     );
   }
 
@@ -4688,7 +4688,7 @@ export async function createEstimate(
       projectId,
     });
     if (!latestImport) {
-      throw badRequest("Aucune source DPGF liee a cette affaire.");
+      throw badRequest("Aucune source DPGF liée à cette affaire.");
     }
     const mappedRows = await loadMappedRowsForImportWithRetry({
       supabase,
@@ -4699,7 +4699,7 @@ export async function createEstimate(
     });
     if (mappedRows.length === 0) {
       throw badRequest(
-        "La source DPGF liee ne contient aucune ligne mappee exploitable."
+        "La source DPGF liée ne contient aucune ligne mappee exploitable."
       );
     }
     const normalized = normalizeMappedRowsForEstimateCreation(mappedRows, {
@@ -4714,7 +4714,7 @@ export async function createEstimate(
     });
     if (normalized.validLines.length === 0) {
       throw badRequest(
-        "Aucune ligne DPGF valide a importer depuis la source liee."
+        "Aucune ligne DPGF valide à importer depuis la source liée."
       );
     }
     const latestMapping = await loadLatestDpgfMappingForImport({
@@ -4888,7 +4888,7 @@ export async function getEstimateVersionDetails(
   if (categoriesResult.error) {
     throw mapSupabaseError(
       categoriesResult.error,
-      "Impossible de charger les categories."
+      "Impossible de charger les catégories."
     );
   }
 
@@ -4902,14 +4902,14 @@ export async function getEstimateVersionDetails(
   if (laborRolesResult.error) {
     throw mapSupabaseError(
       laborRolesResult.error,
-      "Impossible de charger les roles de main d'oeuvre."
+      "Impossible de charger les rôles de main d'oeuvre."
     );
   }
 
   if (rulesResult.error) {
     throw mapSupabaseError(
       rulesResult.error,
-      "Impossible de charger les regles de suggestion."
+      "Impossible de charger les règles de suggestion."
     );
   }
 
@@ -4999,7 +4999,7 @@ export async function listEstimateVersionEvents(versionId: string) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les evenements.");
+    throw mapSupabaseError(error, "Impossible de charger les événements.");
   }
 
   return {
@@ -5030,8 +5030,8 @@ export async function suggestEstimateCataloguePrices(
 
   const productColumns =
     "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at";
-  const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
-  const productPrefixFilter = `designation.ilike.${safeSearch}%,reference.ilike.${safeSearch}%`;
+  const productContainsFilter = `designation.ilike.%${safeSearch}%,référence.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
+  const productPrefixFilter = `designation.ilike.${safeSearch}%,référence.ilike.${safeSearch}%`;
 
   const [prefixProductResult, productResult, supplierResult] = await Promise.all([
     supabase
@@ -5198,7 +5198,7 @@ export async function getEstimateSupplierComparisons(
 
   if (normalizedItemIds !== null) {
     if (normalizedItemIds.length === 0) {
-      throw badRequest("item_ids ne peut pas etre vide.");
+      throw badRequest("item_ids ne peut pas être vide.");
     }
     if (normalizedItemIds.length > MAX_SUPPLIER_COMPARISON_ITEMS) {
       throw badRequest("item_ids ne peut pas contenir plus de 200 identifiants.");
@@ -5613,7 +5613,7 @@ export async function patchEstimateVersion(
     }
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre a jour la version.");
+      throw mapSupabaseError(error, "Impossible de mettre à jour la version.");
     }
     throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
       updated_at: version.updated_at,
@@ -5738,7 +5738,7 @@ export async function patchEstimateStatus(
   if (version.status === "draft" && input.status === "sent") {
     if (input.force === true && !isTenantAdmin(context.tenantRole)) {
       throw forbidden(
-        "Le forcage d'envoi est reserve aux administrateurs.",
+        "Le forcage d'envoi est réservé aux administrateurs.",
         undefined,
         "FORCE_SEND_FORBIDDEN"
       );
@@ -5772,7 +5772,7 @@ export async function patchEstimateStatus(
 
     if (gating.blockingFlags.length > 0 && input.force !== true) {
       throw badRequest(
-        "Envoi bloque: des anomalies bloquantes doivent etre corrigees avant validation.",
+        "Envoi bloque: des anomalies bloquantes doivent être corrigees avant validation.",
         {
           gating,
         },
@@ -6243,7 +6243,7 @@ async function projectTieredDraftMutation(input: {
 
   const updatesById = new Map(input.updates.map((update) => [update.id, update]));
   if (updatesById.size !== input.updates.length) {
-    throw badRequest("La liste de mise a jour contient des identifiants dupliqués.");
+    throw badRequest("La liste de mise à jour contient des identifiants dupliqués.");
   }
 
   const items: EstimateItemRow[] = [];
@@ -6446,7 +6446,7 @@ export async function updateEstimateItem(
       const hierarchyIndex = await resolveHierarchyIndexForStructureChecks();
       if (isAncestorOrSelf(hierarchyIndex, currentItem.id, nextParentId)) {
         throw badRequest(
-          "Une section ne peut pas etre deplacee dans sa propre descendance."
+          "Une section ne peut pas être déplacée dans sa propre descendance."
         );
       }
       assertSectionSubtreePlacementAllowed({
@@ -6532,9 +6532,9 @@ export async function updateEstimateItem(
 
     if (error || !data) {
       if (error) {
-        throw mapSupabaseError(error, "Impossible de mettre a jour la section.");
+        throw mapSupabaseError(error, "Impossible de mettre à jour la section.");
       }
-      throw badRequest("Impossible de mettre a jour la section.");
+      throw badRequest("Impossible de mettre à jour la section.");
     }
 
     return {
@@ -6686,7 +6686,7 @@ export async function updateEstimateItem(
 
     if ((sectionChildren ?? []).length > 0) {
       throw badRequest(
-        "Une section avec enfants ne peut pas etre convertie en ligne."
+        "Une section avec enfants ne peut pas être convertie en ligne."
       );
     }
   }
@@ -6816,9 +6816,9 @@ export async function updateEstimateItem(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre a jour la ligne.");
+      throw mapSupabaseError(error, "Impossible de mettre à jour la ligne.");
     }
-    throw badRequest("Impossible de mettre a jour la ligne.");
+    throw badRequest("Impossible de mettre à jour la ligne.");
   }
 
   return {
@@ -6947,7 +6947,7 @@ export async function bulkUpdateEstimateItems(
     ) {
       const parsedDetails = parseBulkUpdateCountDetails(bulkUpdateError.details);
       throw conflict(
-        "La liste de mise a jour est obsolete.",
+        "La liste de mise à jour est obsolete.",
         parsedDetails ?? {
           expected_count: projection?.updates.length ?? input.length,
         }
@@ -6956,7 +6956,7 @@ export async function bulkUpdateEstimateItems(
 
     throw mapSupabaseError(
       bulkUpdateError,
-      "Impossible de mettre a jour les lignes."
+      "Impossible de mettre à jour les lignes."
     );
   }
 
@@ -7132,7 +7132,7 @@ export async function reorderEstimateItems(
   const { data: siblings, error: siblingsError } = await siblingsQuery;
 
   if (siblingsError) {
-    throw mapSupabaseError(siblingsError, "Impossible de charger les lignes a reordonner.");
+    throw mapSupabaseError(siblingsError, "Impossible de charger les lignes à reordonner.");
   }
 
   const siblingIds = (siblings ?? []).map((item) => item.id);
@@ -7214,7 +7214,7 @@ export async function moveEstimateItem(
 
   if (fromParentId === toParentId) {
     throw badRequest(
-      "from_parent_id et to_parent_id doivent etre differents pour un move inter-parent."
+      "from_parent_id et to_parent_id doivent être différents pour un move inter-parent."
     );
   }
 
@@ -7261,7 +7261,7 @@ export async function moveEstimateItem(
   if (item.item_type === "section") {
     if (isAncestorOrSelf(hierarchyIndex, item.id, toParentId)) {
       throw badRequest(
-        "Une section ne peut pas etre deplacee dans sa propre descendance."
+        "Une section ne peut pas être déplacée dans sa propre descendance."
       );
     }
 

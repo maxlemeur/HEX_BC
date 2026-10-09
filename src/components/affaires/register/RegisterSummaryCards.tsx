@@ -102,13 +102,13 @@ export function RegisterSummaryCards({
               }
             >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-warning">
-                Hypotheses ouvertes
+                Hypothèses ouvertes
               </p>
               <p className="mt-1 text-lg font-semibold text-foreground">
                 {summary.openAssumptionCount}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Traces de continuation et points a confirmer
+                Traces de continuation et points à confirmer
               </p>
             </button>
           ) : null}
@@ -127,7 +127,7 @@ export function RegisterSummaryCards({
               }
             >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-danger">
-                Pieces manquantes suivies
+                Pièces manquantes suivies
               </p>
               <p className="mt-1 text-lg font-semibold text-foreground">
                 {summary.openMissingPieceCount}

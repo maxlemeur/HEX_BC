@@ -34,7 +34,7 @@ const DECISION_META: Record<
 > = {
   approved: {
     label: "Approuvee",
-    className: "bg-success/10 text-success",
+    className: "bg-success-subtle text-success",
   },
   approved_with_reservations: {
     label: "Approuvee sous reserve",
@@ -42,7 +42,7 @@ const DECISION_META: Record<
   },
   changes_requested: {
     label: "Retour correction",
-    className: "bg-danger/10 text-danger",
+    className: "bg-danger-subtle text-danger",
   },
 };
 
@@ -51,7 +51,7 @@ const SCOPE_LABELS = {
   lot: "Lot",
   line: "Ligne",
   exception: "Exception",
-  hypothesis: "Hypothese",
+  hypothesis: "Hypothèse",
   approval_rule: "Exception",
 } as const;
 
@@ -76,7 +76,7 @@ function resolveActorLabel(input: {
     return `Utilisateur ${input.actorUserId.slice(0, 8)}`;
   }
 
-  return "Systeme";
+  return "Système";
 }
 
 function parseDecisionFilter(value: string | null): EstimateApprovalDecisionFilter | "" {
@@ -93,7 +93,7 @@ function parseDecisionFilter(value: string | null): EstimateApprovalDecisionFilt
 export function EstimateApprovalDecisionJournalCard({
   versionId,
   initialJournal,
-  title = "Journal de decision",
+  title = "Journal de décision",
 }: Readonly<{
   versionId: string;
   initialJournal: EstimateApprovalDecisionJournal;
@@ -142,7 +142,7 @@ export function EstimateApprovalDecisionJournalCard({
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "Impossible de charger le journal de decision."
+              : "Impossible de charger le journal de décision."
           );
         }
       })();
@@ -200,7 +200,7 @@ export function EstimateApprovalDecisionJournalCard({
         <div className="min-w-0 flex-1 basis-[14rem]">
           <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Decisions historisees, filtrables par auteur et statut.
+            Décisions historisees, filtrables par auteur et statut.
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
@@ -232,8 +232,8 @@ export function EstimateApprovalDecisionJournalCard({
                       (selectedDecision as EstimateApprovalDecisionFilter | "") || null,
                   });
                   toast.success({
-                    title: "Export pret",
-                    description: "Le journal de decision a ete exporte en CSV.",
+                    title: "Export prêt",
+                    description: "Le journal de décision a été exporté en CSV.",
                   });
                 } catch (downloadError) {
                   toast.error({
@@ -241,7 +241,7 @@ export function EstimateApprovalDecisionJournalCard({
                     description:
                       downloadError instanceof Error
                         ? downloadError.message
-                        : "Impossible d'exporter le journal de decision.",
+                        : "Impossible d'exporter le journal de décision.",
                   });
                 } finally {
                   setIsExporting(false);
@@ -259,7 +259,7 @@ export function EstimateApprovalDecisionJournalCard({
           className="basis-full rounded-xl border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600"
           aria-live="polite"
         >
-          {journal.events.length} decision
+          {journal.events.length} décision
           {journal.events.length > 1 ? "s" : ""}
           {selectedAuthor || selectedDecision
             ? " visible(s) avec les filtres actifs."
@@ -330,8 +330,8 @@ export function EstimateApprovalDecisionJournalCard({
       {journal.events.length === 0 ? (
         <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-subtle px-4 py-5 text-sm text-slate-600">
           {selectedAuthor || selectedDecision
-            ? "Aucune decision ne correspond aux filtres actifs."
-            : "Aucune decision d'approbation n'a encore ete historisee pour cette version."}
+            ? "Aucune décision ne correspond aux filtres actifs."
+            : "Aucune décision d'approbation n'a encore été historisee pour cette version."}
         </div>
       ) : (
         <div className="mt-4 space-y-3">

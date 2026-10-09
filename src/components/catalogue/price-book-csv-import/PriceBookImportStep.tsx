@@ -22,9 +22,9 @@ export function PriceBookImportStep({
 }: Readonly<PriceBookImportStepProps>) {
   return (
     <div className="rounded-xl border border-border bg-surface-subtle p-4">
-      <h3 className="text-sm font-semibold text-slate-800">Etape 4 - Importer</h3>
+      <h3 className="text-sm font-semibold text-slate-800">Étape 4 - Importer</h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Vous pouvez importer les lignes pretes maintenant, meme si des corrections restent a faire.
+        Vous pouvez importer les lignes prêtes maintenant, même si des corrections restent à faire.
       </p>
 
       <div className="mt-4">
@@ -34,15 +34,15 @@ export function PriceBookImportStep({
           onClick={() => void onSubmitImport()}
           disabled={!canSubmit || isResolving || isCreatingMissing}
         >
-          {isSubmitting ? "Import..." : "Importer les lignes pretes"}
+          {isSubmitting ? "Import..." : "Importer les lignes prêtes"}
         </button>
       </div>
 
       {importSummary ? (
         <div className="mt-3 text-xs text-slate-600">
-          Importees: {formatNumber(importSummary.imported)} | Ignorees (hors perimetre):{" "}
-          {formatNumber(importSummary.ignored)} | A corriger: {formatNumber(importSummary.toFix)} |
-          Deja existantes: {formatNumber(importSummary.duplicatesSkipped)}
+          Importées: {formatNumber(importSummary.imported)} | Ignorees (hors perimetre):{" "}
+          {formatNumber(importSummary.ignored)} | À corriger: {formatNumber(importSummary.toFix)} |
+          Déjà existantes: {formatNumber(importSummary.duplicatesSkipped)}
         </div>
       ) : null}
     </div>

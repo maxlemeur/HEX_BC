@@ -78,11 +78,11 @@ describe("version-zero-utils", () => {
     it("rejects invalid or negative values instead of coercing them", () => {
       expect(parseVersionZeroQuantityInput("abc")).toEqual({
         quantity: null,
-        error: "Quantite invalide. Utilisez un nombre positif, par exemple 1,5.",
+        error: "Quantité invalide. Utilisez un nombre positif, par exemple 1,5.",
       });
       expect(parseVersionZeroQuantityInput("-2")).toEqual({
         quantity: null,
-        error: "Quantite invalide. Utilisez un nombre positif, par exemple 1,5.",
+        error: "Quantité invalide. Utilisez un nombre positif, par exemple 1,5.",
       });
     });
   });

@@ -416,9 +416,9 @@ export async function updateEstimateAssembly(
     if (error || !data) {
       if (error) {
         throwAssemblyNameConflictIfNeeded(error);
-        throw mapSupabaseError(error, "Impossible de mettre a jour l'ouvrage.");
+        throw mapSupabaseError(error, "Impossible de mettre à jour l'ouvrage.");
       }
-      throw badRequest("Impossible de mettre a jour l'ouvrage.");
+      throw badRequest("Impossible de mettre à jour l'ouvrage.");
     }
     updatedAssembly = data as EstimateAssemblyRow;
   } else {
@@ -484,7 +484,7 @@ export async function updateEstimateAssembly(
       throwAssemblyCompositionErrorIfNeeded(replaceContentsError);
       throw mapSupabaseError(
         replaceContentsError,
-        "Impossible de mettre a jour l'ouvrage."
+        "Impossible de mettre à jour l'ouvrage."
       );
     }
 
@@ -614,7 +614,7 @@ async function assertAssemblyLaborRolesResolved(input: {
   if (offending.length === 0) return;
 
   throw badRequest(
-    "Cet ouvrage contient de la main-d'oeuvre sans role de main-d'oeuvre. Associez un role (qui porte le taux horaire) a ces composants avant insertion : sinon leur cout serait perdu et la ligne inseree vaudrait 0 EUR.",
+    "Cet ouvrage contient de la main-d'oeuvre sans rôle de main-d'oeuvre. Associez un rôle (qui porte le taux horaire) à ces composants avant insertion : sinon leur coût serait perdu et la ligne inseree vaudrait 0 EUR.",
     {
       items: offending.map((item) => ({
         id: item.id,

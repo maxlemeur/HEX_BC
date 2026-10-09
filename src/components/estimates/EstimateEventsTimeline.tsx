@@ -12,15 +12,15 @@ type EstimateEventsTimelineProps = {
 };
 
 const EVENT_LABELS: Record<string, string> = {
-  sent: "Envoye",
+  sent: "Envoyé",
   accepted: "Accepte",
   archived: "Archive",
   rejected: "Rejete",
   seal_verified: "Sceau vérifié",
   approval_submitted: "Soumission d'approbation",
-  approval_rules_evaluated: "Regles d'approbation evaluees",
+  approval_rules_evaluated: "Règles d'approbation evaluees",
   approval_status_changed: "Statut d'approbation modifie",
-  approval_decided: "Decision d'approbation",
+  approval_decided: "Décision d'approbation",
 };
 
 function toEventLabel(value: string) {
@@ -98,7 +98,7 @@ export function EstimateEventsTimeline({
             Timeline statut
           </h2>
           <p className="text-xs text-muted-foreground">
-            Historique append-only des transitions et verifications.
+            Historique append-only des transitions et vérifications.
           </p>
         </div>
         <button
@@ -135,7 +135,7 @@ export function EstimateEventsTimeline({
                   <div className="text-sm text-muted-foreground">
                     {isLoading
                       ? "Chargement de la timeline..."
-                      : "Aucun evenement pour cette version."}
+                      : "Aucun événement pour cette version."}
                   </div>
                 </td>
               </tr>

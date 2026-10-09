@@ -373,7 +373,7 @@ export function useEstimateEditorAiDialogsController({
         reportScopedError(
           mutationScope,
           error,
-          "Impossible de rafraichir le devis apres insertion."
+          "Impossible de rafraichir le devis après insertion."
         );
       }
     },
@@ -453,7 +453,7 @@ export function useEstimateEditorAiDialogsController({
           reportScopedError(
             mutationScope,
             invalidationResult.error,
-            "Impossible de rafraichir le devis apres materialisation."
+            "Impossible de rafraichir le devis après materialisation."
           );
         }
       }

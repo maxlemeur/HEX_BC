@@ -39,14 +39,14 @@ export function useDeleteAffaire() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message ?? "Echec de la suppression.");
+        throw new Error(body?.error?.message ?? "Échec de la suppression.");
       }
       setErrorMessage(null);
       setTarget(null);
       router.refresh();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Echec de la suppression."
+        error instanceof Error ? error.message : "Échec de la suppression."
       );
     } finally {
       setDeleting(false);

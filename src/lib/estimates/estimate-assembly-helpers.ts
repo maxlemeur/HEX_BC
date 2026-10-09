@@ -189,7 +189,7 @@ export async function loadValidLaborRoleIdsForOwner(input: {
     .in("id", uniqueRoleIds);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les roles MO.");
+    throw mapSupabaseError(error, "Impossible de charger les rôles MO.");
   }
 
   return new Set((data ?? []).map((row) => row.id));

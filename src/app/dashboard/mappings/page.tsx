@@ -29,7 +29,7 @@ export default async function DashboardMappingsPage({ searchParams }: DashboardM
       <div className="page-header">
         <h1 className="page-title">Mapping DPGF</h1>
         <p className="page-description">
-          Associez les colonnes de votre fichier aux champs metier, puis validez le mapping.
+          Associez les colonnes de votre fichier aux champs métier, puis validez le mapping.
         </p>
       </div>
 

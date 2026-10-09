@@ -17,10 +17,10 @@ $project = "E2E-HEX-TI153-$stamp"
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-153" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-153" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-ParamsTab -Session $Session
 
-  Invoke-AB $Session "find" "label" "Nom du role" "fill" "Ouvrier"
+  Invoke-AB $Session "find" "label" "Nom du rôle" "fill" "Ouvrier"
   Invoke-AB $Session "find" "label" "Taux horaire (EUR)" "fill" "45"
   Invoke-AB $Session "eval" @"
 (() => {
@@ -37,15 +37,15 @@ try {
 })();
 "@ | Out-Null
 
-  Invoke-AB $Session "find" "label" "Nom de regle" "fill" "Bois"
+  Invoke-AB $Session "find" "label" "Nom de règle" "fill" "Bois"
   Invoke-AB $Session "find" "label" "Mots-cles (virgules)" "fill" "bois"
-  Invoke-AB $Session "find" "label" "Unite" "fill" "m2"
+  Invoke-AB $Session "find" "label" "Unité" "fill" "m2"
 
   $js = @"
 (() => {
   const selects = Array.from(document.querySelectorAll('select'));
   for (const sel of selects) {
-    const opt = Array.from(sel.options).find(o => o.text.trim() === 'Materiaux');
+    const opt = Array.from(sel.options).find(o => o.text.trim() === 'Matériaux');
     if (opt) {
       sel.value = opt.value;
       sel.dispatchEvent(new Event('change', { bubbles: true }));
@@ -72,7 +72,7 @@ try {
 "@
   Invoke-AB $Session "eval" $js
 
-  Invoke-AB $Session "find" "label" "Priorite" "fill" "1"
+  Invoke-AB $Session "find" "label" "Priorité" "fill" "1"
   Invoke-AB $Session "eval" @"
 (() => {
   const input = document.querySelector('#rule-name');
@@ -121,7 +121,7 @@ JSON.stringify((() => {
   }
   $data = $jsonText | ConvertFrom-Json
 
-  if ($data.unit -ne "m2" -or $data.typeFo -ne "Materiaux") {
+  if ($data.unit -ne "m2" -or $data.typeFo -ne "Matériaux") {
     Write-Host "Suggestions not applied in current config (unit=$($data.unit), typeFo=$($data.typeFo)); skipping strict assertion."
   }
 

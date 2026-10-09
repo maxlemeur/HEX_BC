@@ -98,7 +98,7 @@ function renderSnapshotLine(entry: EstimateDiffEntry) {
 
   return (
     <div className="mt-3 grid gap-1 text-xs text-slate-600 md:grid-cols-4">
-      <span>Quantite: {sourceItem.quantity ?? "-"}</span>
+      <span>Quantité: {sourceItem.quantity ?? "-"}</span>
       <span>PU HT: {formatEUR(sourceItem.unit_price_ht_cents ?? 0)}</span>
       <span>Total HT: {formatEUR(sourceItem.line_total_ht_cents ?? 0)}</span>
       <span>Total TTC: {formatEUR(sourceItem.line_total_ttc_cents ?? 0)}</span>
@@ -269,7 +269,7 @@ export function EstimateDiffView({
   if (diff.entries.length === 0 && !hasTotalDelta) {
     return (
       <div className="dashboard-card p-6 text-sm text-slate-600">
-        Aucun changement detecte entre les versions selectionnees.
+        Aucun changement detecte entre les versions sélectionnées.
       </div>
     );
   }
@@ -345,7 +345,7 @@ export function EstimateDiffView({
       <section className="space-y-3">
         {diff.entries.length === 0 ? (
           <div className="dashboard-card p-4 text-sm text-slate-600">
-            Aucune ligne modifiee. L&apos;ecart de total provient des parametres
+            Aucune ligne modifiée. L&apos;écart de total provient des paramètres
             globaux du devis (remise, coefficient global ou arrondi).
           </div>
         ) : null}

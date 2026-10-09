@@ -49,12 +49,12 @@ export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesPr
           : "border-warning/20 bg-warning/5"
       }`}
       role="region"
-      aria-label="Pieces manquantes au dossier"
+      aria-label="Pièces manquantes au dossier"
     >
       <div className="mb-2 flex items-center gap-2">
         <TriangleAlertIcon className={hasCritical ? "text-danger" : "text-warning"} aria-hidden="true" size={16} />
         <h3 className="text-sm font-semibold text-slate-800">
-          Pieces manquantes au dossier
+          Pièces manquantes au dossier
         </h3>
       </div>
 
@@ -84,7 +84,7 @@ export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesPr
           className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
           <PlusIcon aria-hidden="true" size={12} />
-          Ajouter les pieces manquantes
+          Ajouter les pièces manquantes
         </button>
       )}
     </div>

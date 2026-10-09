@@ -197,7 +197,7 @@ function unauthorized(message = "Unauthorized") {
 }
 
 function forbidden(
-  message = "Acces refuse.",
+  message = "Accès refuse.",
   details?: unknown,
   code = "FORBIDDEN",
 ) {
@@ -258,7 +258,7 @@ function mapSupabaseError(
     error.code === "42501" ||
     normalizedMessage.includes("row-level security")
   ) {
-    return forbidden("Acces refuse.", error, "FORBIDDEN");
+    return forbidden("Accès refuse.", error, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {
@@ -490,7 +490,7 @@ async function updateSingleWithFallback(
 
   for (let index = 0; index < 8; index += 1) {
     if (Object.keys(attemptPayload).length === 0) {
-      throw badRequest("Aucun champ de mise a jour valide.");
+      throw badRequest("Aucun champ de mise à jour valide.");
     }
 
     const { data, error } = await supabase
@@ -930,7 +930,7 @@ export async function updateCatalogueItem(input: UpdateCatalogueItemInput) {
     CATALOGUE_TABLE,
     input.id,
     payload,
-    "Impossible de mettre a jour la ligne catalogue.",
+    "Impossible de mettre à jour la ligne catalogue.",
   );
 
   return {
@@ -1534,7 +1534,7 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
 
   const row = asRecord(data);
   if (!row) {
-    throw internalError("Le prix fournisseur a ete cree sans resultat exploitable.");
+    throw internalError("Le prix fournisseur a été créé sans résultat exploitable.");
   }
 
   return {
@@ -1578,7 +1578,7 @@ export async function updateSupplierCatalogItem(
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de mettre a jour la fiche article-fournisseur.",
+      "Impossible de mettre à jour la fiche article-fournisseur.",
     );
   }
 
@@ -1621,7 +1621,7 @@ export async function updateSupplierPrice(input: UpdateSupplierPriceInput) {
       source_mapped_row_id: input.item.source_mapped_row_id,
       notes: input.item.notes ?? input.item.source,
     },
-    "Impossible de mettre a jour le prix fournisseur.",
+    "Impossible de mettre à jour le prix fournisseur.",
   );
 
   return {
@@ -1835,7 +1835,7 @@ export async function updateMaterialIndex(input: UpdateMaterialIndexInput) {
       source: input.item.source,
       metadata: input.item.metadata,
     },
-    "Impossible de mettre a jour l'indice matiere.",
+    "Impossible de mettre à jour l'indice matiere.",
   );
 
   return {

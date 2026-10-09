@@ -52,9 +52,9 @@ export function DataPreview({
       <div className="border-b border-border px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-800">Apercu des donnees mappees</h2>
+            <h2 className="text-sm font-semibold text-slate-800">Aperçu des données mappees</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Verification rapide des champs requis et detection des doublons.
+              Vérification rapide des champs requis et detection des doublons.
             </p>
           </div>
 
@@ -84,11 +84,11 @@ export function DataPreview({
         <div className={`rounded-xl border px-4 py-3 ${validation?.is_valid ? "border-success bg-emerald-50" : "border-border bg-surface-subtle"}`}>
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Validation</p>
           <p className={`mt-1 text-sm font-semibold ${validation?.is_valid ? "text-emerald-700" : "text-slate-800"}`}>
-            {validation ? (validation.is_valid ? "Pret a enregistrer" : "Mapping en cours\u2026") : "-"}
+            {validation ? (validation.is_valid ? "Prêt à enregistrer" : "Mapping en cours\u2026") : "-"}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Champs a compléter</p>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Champs à compléter</p>
           <p className="mt-1 text-sm font-semibold text-slate-800">
             {validation ? validation.missing_required_fields.length : "-"}
           </p>
@@ -103,7 +103,7 @@ export function DataPreview({
 
       {validation && validation.missing_required_fields.length > 0 ? (
         <div className="alert alert-info m-4">
-          <p className="font-medium">Champs a compléter</p>
+          <p className="font-medium">Champs à compléter</p>
           <ul className="mt-1 list-inside list-disc text-sm">
             {validation.missing_required_fields.map((field) => (
               <li key={field}>{field}</li>
@@ -132,25 +132,25 @@ export function DataPreview({
               <th>#</th>
               <th>Référence article</th>
               <th>Designation</th>
-              <th>Quantite</th>
-              <th>Unite</th>
+              <th>Quantité</th>
+              <th>Unité</th>
               <th>Prix fourniture</th>
               <th>Type FO</th>
               <th>Majoration MO</th>
-              <th>Etat</th>
+              <th>État</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
                 <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
-                  Chargement de l&apos;apercu...
+                  Chargement de l&apos;aperçu...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
-                  Aucun apercu disponible.
+                  Aucun aperçu disponible.
                 </td>
               </tr>
             ) : (
@@ -173,7 +173,7 @@ export function DataPreview({
                           hasMissingRequired ? "status-badge status-draft" : "status-badge status-confirmed"
                         }
                       >
-                        {hasMissingRequired ? "A compléter" : "OK"}
+                        {hasMissingRequired ? "À compléter" : "OK"}
                       </span>
                     </td>
                   </tr>

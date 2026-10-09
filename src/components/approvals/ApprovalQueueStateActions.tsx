@@ -8,7 +8,7 @@ import { CheckIcon, EllipsisIcon, LoaderIcon } from "lucide-react";
 
 const STATE_OPTIONS: { value: ReviewerState; label: string; ariaLabel: string }[] = [
   { value: "seen", label: "Vu", ariaLabel: "Marquer comme vu" },
-  { value: "review_laurent", label: "A revoir", ariaLabel: "Marquer a revoir" },
+  { value: "review_laurent", label: "À revoir", ariaLabel: "Marquer à revoir" },
   { value: "blocking", label: "Bloquant", ariaLabel: "Marquer comme bloquant" },
   { value: "acceptable", label: "Acceptable", ariaLabel: "Marquer comme acceptable" },
 ];
@@ -61,7 +61,7 @@ export function ApprovalQueueStateActions({
         onStateChange?.(state);
         setFeedback(`Marque comme "${STATE_OPTIONS.find((o) => o.value === state)?.label}"`);
       } catch {
-        setFeedback("Erreur lors de la mise a jour");
+        setFeedback("Erreur lors de la mise à jour");
       }
     });
   };
@@ -92,7 +92,7 @@ export function ApprovalQueueStateActions({
         <div
           className="absolute right-0 top-full z-10 mt-1 w-40 rounded-lg border border-border bg-surface py-1 shadow-lg"
           role="listbox"
-          aria-label="Etats de triage"
+          aria-label="États de triage"
         >
           {STATE_OPTIONS.map((option) => (
             <button

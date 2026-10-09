@@ -193,7 +193,7 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
 
     const firstCard = dialog
       .locator('[data-testid^="candidate-card-"]')
-      .filter({ hasText: /Quantite\s*:/i })
+      .filter({ hasText: /Quantité\s*:/i })
       .first();
 
     await expect(firstCard).toBeVisible();

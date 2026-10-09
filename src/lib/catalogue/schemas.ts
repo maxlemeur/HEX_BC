@@ -157,7 +157,7 @@ const createCatalogueItemBodySchema = catalogueCreateFieldsSchema.superRefine(
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["reference"],
-      message: "Le champ reference article est requis.",
+      message: "Le champ référence article est requis.",
     });
   }
 );
@@ -168,7 +168,7 @@ const updateCatalogueItemBodySchema = catalogueUpdateFieldsSchema.partial().supe
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [],
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
     });
   }
 );
@@ -372,7 +372,7 @@ const updateSupplierPriceBodySchema = supplierPriceUpdateFieldsSchema.partial().
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [],
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
     });
   }
 );
@@ -402,7 +402,7 @@ export const updateSupplierOfferSchema = z.object({
     .superRefine((payload, ctx) => {
       if (payload.valid_from && payload.valid_to) ensurePriceValidity(payload, ctx);
       if (Object.keys(payload).length === 0) {
-        ctx.addIssue({ code: "custom", message: "Aucun champ de mise a jour fourni." });
+        ctx.addIssue({ code: "custom", message: "Aucun champ de mise à jour fourni." });
       }
     }),
 });
@@ -529,7 +529,7 @@ const updateMaterialIndexBodySchema = materialIndexUpdateFieldsSchema.partial().
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: [],
-        message: "Aucun champ de mise a jour fourni.",
+        message: "Aucun champ de mise à jour fourni.",
       });
     }
 

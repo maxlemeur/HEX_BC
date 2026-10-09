@@ -218,7 +218,7 @@ export function PricingStep({
           ))}
         </select>
         <p className="mt-2 text-xs text-muted-foreground">
-          Champ optionnel memorise dans les notes du projet lors de la creation.
+          Champ optionnel memorise dans les notes du projet lors de la création.
         </p>
       </div>
     </div>

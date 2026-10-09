@@ -62,7 +62,7 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 
 function assertActorIsTenantAdmin(actorMembership: TenantMembershipRow) {
   if (actorMembership.role !== "admin") {
-    throw forbidden("Acces reserve aux administrateurs du tenant.");
+    throw forbidden("Accès reserve aux administrateurs du tenant.");
   }
 }
 
@@ -202,7 +202,7 @@ async function countTenantAdmins(supabase: Supabase, tenantId: string) {
     .eq("role", "admin");
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier les administrateurs du tenant.");
+    throw mapSupabaseError(error, "Impossible de vérifier les administrateurs du tenant.");
   }
 
   return count ?? 0;
@@ -241,7 +241,7 @@ async function setMembershipRole(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le role du membership.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le rôle du membership.");
   }
 
   if (!data) {
@@ -268,13 +268,13 @@ async function setMembershipAsDefault(input: {
   if (switchError) {
     if (switchError.message === "TENANT_DEFAULT_SWITCH_FORBIDDEN") {
       throw forbidden(
-        "Impossible de changer le tenant par defaut depuis ce compte admin."
+        "Impossible de changer le tenant par défaut depuis ce compte admin."
       );
     }
 
     throw mapSupabaseError(
       switchError,
-      "Impossible de definir le tenant par defaut."
+      "Impossible de définir le tenant par défaut."
     );
   }
 
@@ -286,7 +286,7 @@ async function setMembershipAsDefault(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de relire le tenant par defaut.");
+    throw mapSupabaseError(error, "Impossible de relire le tenant par défaut.");
   }
 
   if (!data) {

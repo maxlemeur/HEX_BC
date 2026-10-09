@@ -742,7 +742,7 @@ function ExpandedContent({
             className="flex items-center gap-2 text-amber-600 hover:text-amber-800 hover:underline"
           >
             <SquarePenIcon aria-hidden="true" size={14} />
-            Editer le chiffrage
+            Éditer le chiffrage
           </Link>
         )}
         {cv && (

@@ -207,7 +207,7 @@ function makeSubdetailResult(
         sourceLabel: "Source 1",
         dsCents: 1350,
         facts: [],
-        hypotheses: ["Rendement MO estime a partir du type d'ouvrage et doit etre valide."],
+        hypotheses: ["Rendement MO estime à partir du type d'ouvrage et doit être validé."],
         inferences: ["Presence de pose -> besoin de main d'oeuvre."],
         riskSignals: [],
         sources: [],
@@ -313,7 +313,7 @@ describe("GeneratedOuvrageDialog", () => {
     await user.click(checkbox);
 
     expect(
-      screen.getByText(/1 ouvrage\(s\) selectionne\(s\) pret\(s\) a inserer\./i)
+      screen.getByText(/1 ouvrage\(s\) selectionne\(s\) prêt\(s\) à inserer\./i)
     ).toBeInTheDocument();
 
     const card = screen.getByTestId("candidate-card-c1");
@@ -352,7 +352,7 @@ describe("GeneratedOuvrageDialog", () => {
 
     const incompleteCard = screen.getByTestId("candidate-card-c3");
     expect(
-      within(incompleteCard).getByText(/Cet ouvrage n'est pas pret a etre insere\./i)
+      within(incompleteCard).getByText(/Cet ouvrage n'est pas prêt à être insere\./i)
     ).toBeInTheDocument();
     expect(within(incompleteCard).getByRole("checkbox")).toBeDisabled();
     expect(

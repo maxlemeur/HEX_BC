@@ -84,11 +84,11 @@ function getExceptionBadgeVariant(severity: PilotageExceptionSeverity) {
 function getExceptionBadgeLabel(severity: PilotageExceptionSeverity) {
   switch (severity) {
     case "critical":
-      return "Priorite";
+      return "Priorité";
     case "warning":
       return "À vérifier";
     case "info":
-      return "A preparer";
+      return "À préparer";
   }
 }
 
@@ -109,11 +109,11 @@ function getFinishLineBadgeVariant(status: FinishLineCard["status"]) {
 function getFinishLineBadgeLabel(status: FinishLineCard["status"]) {
   switch (status) {
     case "ready":
-      return "Pret";
+      return "Prêt";
     case "blocked":
       return "Bloqué";
     case "warning":
-      return "A surveiller";
+      return "À surveiller";
     case "waiting":
       return "En attente";
     case "unavailable":
@@ -161,25 +161,25 @@ const GHOST_STEPS: PilotageStep[] = [
     key: "dossier",
     label: "Dossier",
     status: "waiting",
-    summary: "Deposez les pieces du dossier pour lancer le cadrage.",
+    summary: "Déposez les pièces du dossier pour lancer le cadrage.",
   },
   {
     key: "brief",
     label: "Brief",
     status: "waiting",
-    summary: "Le brief apparait une fois les pieces deposees.",
+    summary: "Le brief apparait une fois les pièces déposées.",
   },
   {
     key: "devis",
     label: "Structure devis",
     status: "waiting",
-    summary: "Importez le DPGF pour materialiser la base du devis.",
+    summary: "Importez le DPGF pour matérialiser la base du devis.",
   },
   {
     key: "metre",
-    label: "Metre & preuves",
+    label: "Métré & preuves",
     status: "waiting",
-    summary: "Le metre assiste s'active apres import.",
+    summary: "Le métré assiste s'active après import.",
   },
   {
     key: "validation",
@@ -246,7 +246,7 @@ export function AffairePilotagePanel({
     <section className={`dashboard-card p-5 animate-fade-in${ghost ? " relative" : ""}`}>
       {ghost && (
         <div className="absolute inset-x-0 top-0 z-10 rounded-t-xl bg-muted px-4 py-2 text-center text-xs font-medium text-muted-foreground">
-          Ce panneau s&apos;activera une fois l&apos;affaire creee
+          Ce panneau s&apos;activera une fois l&apos;affaire créée
         </div>
       )}
       <div className={ghost ? "pointer-events-none pt-6 opacity-60" : ""}>
@@ -320,7 +320,7 @@ export function AffairePilotagePanel({
               Timeline du flux principal
             </h3>
             <span className="text-xs text-subtle-foreground">
-              Etat reconstruit depuis l&apos;affaire
+              État reconstruit depuis l&apos;affaire
             </span>
           </div>
 
@@ -331,9 +331,9 @@ export function AffairePilotagePanel({
                   <span
                     className={`mt-1 flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold ${
                       step.status === "done"
-                        ? "border-success bg-success/10 text-success"
+                        ? "border-success bg-success-subtle text-success"
                         : step.status === "blocked"
-                          ? "border-danger bg-danger/10 text-danger"
+                          ? "border-danger bg-danger-subtle text-danger"
                           : step.status === "in_progress"
                             ? "border-primary bg-primary/10 text-primary"
                             : "border-border bg-surface text-subtle-foreground"
@@ -375,7 +375,7 @@ export function AffairePilotagePanel({
         <div className="rounded-2xl border border-border bg-surface p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-slate-800">
-              Exceptions a traiter
+              Exceptions à traiter
             </h3>
             <span className="text-xs text-subtle-foreground">
               Priorise par impact
@@ -387,7 +387,7 @@ export function AffairePilotagePanel({
               icon={
                 <CircleCheckIcon strokeWidth="1.5" aria-hidden="true" size={26} />
               }
-              title="Rien d'urgent a reprendre"
+              title="Rien d'urgent à reprendre"
               description="Le dossier peut avancer sans repasser par une revue exhaustive."
               className="border border-dashed border-border bg-surface-subtle/70 py-10"
             />

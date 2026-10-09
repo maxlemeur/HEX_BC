@@ -147,7 +147,7 @@ const PRICE_FIELD_LABELS: Record<string, string> = {
   unit_price_cents: "Prix unitaire",
   unit_price: "Prix unitaire",
   currency: "Devise",
-  valid_from: "Date de debut",
+  valid_from: "Date de début",
   valid_to: "Date de fin",
 };
 
@@ -172,7 +172,7 @@ const TARGET_FIELD_ALIASES: Record<PriceBookCsvTargetField, string[]> = {
     "reference",
     "ref",
     "product_ref",
-    "reference produit",
+    "référence produit",
     "ref produit",
     "product_id",
     "product id",
@@ -327,27 +327,27 @@ function suggestFixForIssue(code: PriceBookRowIssueCode): string | null {
     case "SUPPLIER_REQUIRED":
       return "Renseigner le fournisseur ou utiliser le bouton de resolution automatique.";
     case "SUPPLIER_UNKNOWN":
-      return "Verifier le nom fournisseur ou creer le fournisseur manquant.";
+      return "Vérifier le nom fournisseur ou créer le fournisseur manquant.";
     case "SUPPLIER_AMBIGUOUS":
-      return "Preciser le nom exact du fournisseur pour lever l'ambiguite.";
+      return "Préciser le nom exact du fournisseur pour lever l'ambiguite.";
     case "PRODUCT_REQUIRED":
-      return "Renseigner une reference ou une designation produit.";
+      return "Renseigner une référence ou une designation produit.";
     case "PRODUCT_UNKNOWN":
-      return "Verifier la reference produit ou creer le produit manquant.";
+      return "Vérifier la référence produit ou créer le produit manquant.";
     case "PRODUCT_AMBIGUOUS":
-      return "Preciser la reference produit pour lever l'ambiguite.";
+      return "Préciser la référence produit pour lever l'ambiguite.";
     case "PRICE_REQUIRED":
       return "Renseigner un prix fournisseur positif.";
     case "PRICE_INVALID":
       return "Saisir un prix numerique (virgule ou point).";
     case "PRICE_NON_POSITIVE":
-      return "Le prix doit etre strictement superieur a zero.";
+      return "Le prix doit être strictement supérieur a zero.";
     case "DUPLICATE_CANDIDATE":
       return "Doublon detecte dans ce fichier d'import.";
     case "NO_SUPPLIER_PRICE":
       return "Aucun prix fournisseur sur cette ligne.";
     case "ZOD_VALIDATION_ERROR":
-      return "Verifier les champs obligatoires de la ligne.";
+      return "Vérifier les champs obligatoires de la ligne.";
     default:
       return null;
   }
@@ -438,7 +438,7 @@ function humanizeZodMessage(rawField: string, message: string): string {
     UUID_FIELDS.has(rawField) &&
     message.toLowerCase().includes("identifiant invalide")
   ) {
-    return "la valeur doit etre un UUID existant (voir pages Fournisseurs / Produits)";
+    return "la valeur doit être un UUID existant (voir pages Fournisseurs / Produits)";
   }
   return message;
 }
@@ -871,7 +871,7 @@ export async function validatePriceBookRows(
         if (!hasProductInput) {
           issues.push({
             code: "PRODUCT_REQUIRED",
-            message: "Produit requis (reference ou designation).",
+            message: "Produit requis (référence ou designation).",
           });
         }
 
@@ -882,7 +882,7 @@ export async function validatePriceBookRows(
             if (resolvedInfo.supplier_match === "not_found") {
               issues.push({
                 code: "SUPPLIER_UNKNOWN",
-                message: `Fournisseur inconnu : "${mappedValues.supplier_name}". Verifiez le nom dans la page Fournisseurs.`,
+                message: `Fournisseur inconnu : "${mappedValues.supplier_name}". Vérifiez le nom dans la page Fournisseurs.`,
               });
             } else if (resolvedInfo.supplier_match === "ambiguous") {
               issues.push({
@@ -899,7 +899,7 @@ export async function validatePriceBookRows(
               const searchValue = mappedValues.product_reference || mappedValues.product_designation;
               issues.push({
                 code: "PRODUCT_UNKNOWN",
-                message: `Produit inconnu : "${searchValue}". Verifiez la reference ou designation dans la page Produits.`,
+                message: `Produit inconnu : "${searchValue}". Vérifiez la référence ou designation dans la page Produits.`,
               });
             } else if (resolvedInfo.product_match === "ambiguous") {
               const searchValue = mappedValues.product_reference || mappedValues.product_designation;
@@ -927,7 +927,7 @@ export async function validatePriceBookRows(
       }
 
       if (typeof parsedPriceCents === "number" && parsedPriceCents <= 0) {
-        issues.push({ code: "PRICE_NON_POSITIVE", message: "Prix doit etre strictement positif." });
+        issues.push({ code: "PRICE_NON_POSITIVE", message: "Prix doit être strictement positif." });
       }
 
       const rowCurrency = ensureCurrency(mappedValues.currency);

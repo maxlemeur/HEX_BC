@@ -82,11 +82,11 @@ describe("AffaireOnboardingClient", () => {
     render(<AffaireOnboardingClient />);
 
     await user.type(screen.getByLabelText(/nom du projet/i), "Projet invalide");
-    await user.click(screen.getByRole("button", { name: /creer l'affaire/i }));
+    await user.click(screen.getByRole("button", { name: /cr[ée]er l'affaire/i }));
 
     expect(await screen.findByText("Impossible de creer ce projet.")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /creer l'affaire/i })
+      screen.getByRole("button", { name: /cr[ée]er l'affaire/i })
     ).toBeEnabled();
   });
 });

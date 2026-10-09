@@ -278,12 +278,12 @@ function GeneratedOuvrageSubdetailEditorForm({
           </p>
           <h4 className="mt-1 text-sm font-semibold text-foreground">{candidateLabel}</h4>
           <p className="mt-1 text-xs text-muted-foreground">
-            Validation humaine requise avant insertion. Les couts restent indicatifs
-            tant que les hypotheses ne sont pas confirmées.
+            Validation humaine requise avant insertion. Les coûts restent indicatifs
+            tant que les hypothèses ne sont pas confirmées.
           </p>
           {reviewStateIsCurrent ? (
             <p className="mt-2 text-xs font-medium text-emerald-700">
-              Revue enregistree. Aucun changement local depuis la validation.
+              Revue enregistrée. Aucun changement local depuis la validation.
             </p>
           ) : null}
         </div>
@@ -298,7 +298,7 @@ function GeneratedOuvrageSubdetailEditorForm({
             Prix cible {formatCurrency(indicativeTargetPriceCents, "EUR")}
           </Badge>
           <Badge variant={subdetail.status === "reviewed" ? "success" : "warning"} size="sm">
-            {subdetail.status === "reviewed" ? "Revu" : "A revoir"}
+            {subdetail.status === "reviewed" ? "Revu" : "À revoir"}
           </Badge>
         </div>
       </div>
@@ -360,7 +360,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                       {component.quantity} {component.unit ?? "u"} · DS{" "}
                       {formatCurrency(componentDsCents, "EUR")}
                       {" · "}
-                      {component.facts.length} fait(s), {component.hypotheses.length} hypothese(s),
+                      {component.facts.length} fait(s), {component.hypotheses.length} hypothèse(s),
                       {" "}
                       {component.inferences.length} inference(s), {component.sources.length} source(s)
                     </p>
@@ -431,12 +431,12 @@ function GeneratedOuvrageSubdetailEditorForm({
                       >
                         <option value="material">Materiau</option>
                         <option value="labor">Main d&apos;oeuvre</option>
-                        <option value="equipment">Materiel</option>
+                        <option value="equipment">Matériel</option>
                         <option value="subcontract">Sous-traitance</option>
                       </select>
                     </div>
                     <div>
-                      <label className="label text-xs font-medium">Unite</label>
+                      <label className="label text-xs font-medium">Unité</label>
                       <input
                         className="input input-bordered input-sm w-full"
                         value={component.unit ?? ""}
@@ -446,7 +446,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium">Quantite</label>
+                      <label className="label text-xs font-medium">Quantité</label>
                       <input
                         className="input input-bordered input-sm w-full"
                         value={String(component.quantity)}
@@ -460,7 +460,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium">Cout unitaire HT</label>
+                      <label className="label text-xs font-medium">Coût unitaire HT</label>
                       <input
                         className="input input-bordered input-sm w-full"
                         value={String(component.unitCostHtCents)}
@@ -506,7 +506,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium">Unite rendement</label>
+                      <label className="label text-xs font-medium">Unité rendement</label>
                       <input
                         className="input input-bordered input-sm w-full"
                         value={component.yieldUnit ?? ""}
@@ -551,7 +551,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                       }
                     />
                     <StatementField
-                      label="Hypotheses"
+                      label="Hypothèses"
                       value={component.hypotheses.join("\n")}
                       onChange={(value) =>
                         updateComponent(index, { hypotheses: parseLines(value) })

@@ -48,7 +48,7 @@ describe("ValidationReviewPanel", () => {
     ).toBeDefined();
     expect(
       screen.queryByText(
-        "Tous les items sont conformes. La revue peut passer a l'etape suivante."
+        "Tous les items sont conformes. La revue peut passer a l'étape suivante."
       )
     ).toBeNull();
   });
@@ -162,7 +162,7 @@ describe("ValidationReviewPanel", () => {
 
     expect(
       screen.getByText(
-        "Tous les items sont conformes. La revue peut passer a l'etape suivante."
+        "Tous les items sont conformes. La revue peut passer a l'étape suivante."
       )
     ).toBeInTheDocument();
     expect(screen.getByText("Faible à vérifier")).toBeInTheDocument();

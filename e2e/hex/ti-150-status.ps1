@@ -17,7 +17,7 @@ $project = "E2E-HEX-TI150-$stamp"
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-150" -Date "2026-02-02" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-150" -Date "2026-02-02" -Validité "30"
 
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Envoyer"
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Accepter"

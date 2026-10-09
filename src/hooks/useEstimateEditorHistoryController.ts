@@ -80,7 +80,7 @@ export function useEstimateEditorHistoryController({
     try {
       const didUndo = await executeUndo();
       if (!didUndo && activeScopeTokenRef.current === scopeToken) {
-        reportError("Impossible d'annuler la derniere action.");
+        reportError("Impossible d'annuler la dernière action.");
       }
     } finally {
       isExecutingRef.current = false;
@@ -94,7 +94,7 @@ export function useEstimateEditorHistoryController({
     try {
       const didRedo = await executeRedo();
       if (!didRedo && activeScopeTokenRef.current === scopeToken) {
-        reportError("Impossible de retablir la derniere action.");
+        reportError("Impossible de retablir la dernière action.");
       }
     } finally {
       isExecutingRef.current = false;

@@ -36,6 +36,7 @@ import {
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon, UploadIcon } from "lucide-react";
+import { foldText } from "@/lib/text/fold";
 
 type IllustrationItem = {
   key: string;
@@ -73,14 +74,14 @@ function getHubReadinessBadge(input: {
 
   if (status === "ready") {
     return {
-      label: "Base de travail prete",
+      label: "Base de travail prête",
       variant: "success" as const,
     };
   }
 
   if (status === "ready_with_reservations") {
     return {
-      label: "Avancer sous reserves",
+      label: "Avancer sous réserves",
       variant: "warning" as const,
     };
   }
@@ -136,18 +137,18 @@ function buildMissingIllustrationItem(
         : piece.label.replace(/ manquant(?:es?)?/i, "");
   const label = normalizedLabel.includes("plans")
     ? mode === "review_context"
-      ? "PLANS NON DETECTES"
+      ? "PLANS NON DÉTECTÉS"
       : "PLAN MANQUANT"
     : normalizedLabel.includes("dpgf")
       ? mode === "review_context"
-        ? "DPGF NON DETECTE"
+        ? "DPGF NON DÉTECTÉ"
         : "DPGF MANQUANT"
       : normalizedLabel.includes("cctp")
         ? mode === "review_context"
-          ? "CCTP NON DETECTE"
+          ? "CCTP NON DÉTECTÉ"
           : "CCTP MANQUANT"
         : mode === "review_context"
-          ? "DOC NON DETECTE"
+          ? "DOC NON DÉTECTÉ"
           : "DOC MANQUANT";
 
   return {
@@ -162,7 +163,7 @@ function buildMissingIllustrationItem(
     severityLabel: getMissingPieceSeverityLabel(piece.severity),
     severityToneClassName:
       piece.severity === "critical"
-        ? "border-danger/20 bg-danger/8 text-danger"
+        ? "border-danger/20 bg-danger-subtle text-danger"
         : "border-amber-300/70 bg-amber-100 text-amber-800",
   };
 }
@@ -200,8 +201,8 @@ function buildComplementarySummaryIllustrationItem(input: {
   return {
     key: `secondary-${input.category}`,
     title: `Autres ${categoryLabel} (${input.count})`,
-    subtitle: `${input.count} document${input.count > 1 ? "s" : ""} complementaire${input.count > 1 ? "s" : ""}`,
-    label: `${categoryLabel.toUpperCase()} COMPLEMENTAIRE`,
+    subtitle: `${input.count} document${input.count > 1 ? "s" : ""} complémentaire${input.count > 1 ? "s" : ""}`,
+    label: `${categoryLabel.toUpperCase()} COMPLÉMENTAIRE`,
     accent: "text-emerald-700",
     frame: "border-emerald-200 bg-emerald-50/90",
     isMissing: false,
@@ -218,7 +219,7 @@ function buildMissingPrimaryIllustrationItem(input: {
   return {
     key: `missing-primary-${input.category}`,
     title: `${input.count} ${categoryLabel}`,
-    subtitle: "Principal a definir",
+    subtitle: "Principal à définir",
     label: `${categoryLabel.toUpperCase()} SANS PRINCIPAL`,
     accent: "text-amber-800",
     frame: "border-amber-200 bg-amber-50/90",
@@ -230,8 +231,8 @@ function buildMissingPrimaryIllustrationItem(input: {
 function buildReviewOverflowIllustrationItem(count: number): IllustrationItem {
   return {
     key: "review-overflow",
-    title: `Autres pieces a confirmer (${count})`,
-    subtitle: `${count} document${count > 1 ? "s" : ""} restent a classer`,
+    title: `Autres pièces à confirmer (${count})`,
+    subtitle: `${count} document${count > 1 ? "s" : ""} restent à classer`,
     label: "AUTRES A CONFIRMER",
     accent: "text-amber-800",
     frame: "border-amber-200 bg-amber-50/90",
@@ -262,7 +263,7 @@ function buildMissingOverflowIllustrationItem(count: number): IllustrationItem {
   return {
     key: "missing-overflow",
     title: `Autres manquants (${count})`,
-    subtitle: `${count} ${noun} ${verb} a ajouter`,
+    subtitle: `${count} ${noun} ${verb} à ajouter`,
     label: "AUTRES MANQUANTS",
     accent: "text-amber-800",
     frame: "border-amber-200 bg-amber-50/90",
@@ -396,25 +397,25 @@ function getStateWhyContent(card: PanelResultCard) {
     card.kind === "structure" && isStructureResumeAction(card.action);
   const isPreliminaryStructureCard =
     card.kind === "structure" &&
-    card.action.label.toLowerCase().includes("structure preliminaire");
+    foldText(card.action.label).includes("structure preliminaire");
   const isHybridStructureCard =
     card.kind === "structure" && isHybridStructureAction(card.action);
   const isDpgfImportStructureCard =
     card.kind === "structure" && isDpgfImportStructureAction(card.action);
   const isNeedsUpdateStructureCard =
     card.kind === "structure" &&
-    (card.title.toLowerCase().includes("remettre a jour") ||
-      card.facts.some((fact) => fact.toLowerCase().includes("a revoir")));
+    (foldText(card.title).includes("remettre a jour") ||
+      card.facts.some((fact) => foldText(fact).includes("a revoir")));
 
   if (card.kind === "primary") {
     return {
-      title: "TIMAX peut analyser plusieurs DPGF / CCTP, mais un seul document principal doit etre choisi par categorie pour lancer les automatismes engageants.",
+      title: "TIMAX peut analyser plusieurs DPGF / CCTP, mais un seul document principal doit être choisi par catégorie pour lancer les automatismes engageants.",
       hints: (card.evidence ?? []).slice(0, 2),
     };
   }
   if (card.kind === "missing") {
     return {
-      title: "Le dossier reste incomplet tant que les pieces critiques ne sont pas presentes.",
+      title: "Le dossier reste incomplet tant que les pièces critiques ne sont pas présentes.",
       hints: card.facts.slice(0, 3),
     };
   }
@@ -422,13 +423,13 @@ function getStateWhyContent(card: PanelResultCard) {
     if (card.readinessStatus === "not_ready") {
       return {
         title:
-          "Le cadrage metier n'est pas encore stabilise. Confirmez le brief avant de lancer la structure ou le metre.",
+          "Le cadrage métier n'est pas encore stabilise. Confirmez le brief avant de lancer la structure ou le métré.",
         hints: [...card.facts.slice(0, 2), ...(card.evidence ?? []).slice(0, 1)],
       };
     }
 
     return {
-      title: "Le dossier est exploitable, mais le cadrage metier doit etre valide avant de structurer le devis.",
+      title: "Le dossier est exploitable, mais le cadrage métier doit être validé avant de structurer le devis.",
       hints: [...card.facts.slice(0, 2), ...(card.evidence ?? []).slice(0, 1)],
     };
   }
@@ -441,24 +442,24 @@ function getStateWhyContent(card: PanelResultCard) {
         : isNeedsUpdateStructureCard
           ? "Une partie de la structure existe déjà, mais certaines lignes doivent encore être revues avant de reprendre le chiffrage."
         : isPreliminaryStructureCard
-          ? "Le brief ou le CCTP permettent d'ouvrir une trame editable de structure provisoire, sans imposer un import DPGF."
+          ? "Le brief ou le CCTP permettent d'ouvrir une trame éditable de structure provisoire, sans imposer un import DPGF."
         : isStructureResumeCard
-          ? "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
+          ? "Le brief est confirmé. La prochaine action est de reprendre la structure du devis."
           : "Le brief est confirmé. La prochaine action est de générer la structure du devis.",
       hints: card.facts.slice(0, 3),
     };
   }
   return {
-    title: "La base devis et les plans sont prets. Le metre peut demarrer depuis cette etape.",
+    title: "La base devis et les plans sont prêts. Le métré peut démarrer depuis cette étape.",
     hints: card.facts.slice(0, 3),
   };
 }
 
 function getStateHeroBadgeLabel(card: PanelResultCard) {
   if (card.kind === "primary") return "Référence principale à définir";
-  if (card.kind === "missing") return "Pieces critiques manquantes";
+  if (card.kind === "missing") return "Pièces critiques manquantes";
   if (card.kind === "brief") {
-    return card.readinessStatus === "not_ready" ? "Brief a confirmer" : "Dossier exploitable";
+    return card.readinessStatus === "not_ready" ? "Brief à confirmer" : "Dossier exploitable";
   }
   if (card.kind === "structure") {
     if (isDpgfImportStructureAction(card.action)) {
@@ -468,16 +469,16 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
       return "Mode hybride";
     }
     if (
-      card.title.toLowerCase().includes("remettre a jour") ||
-      card.facts.some((fact) => fact.toLowerCase().includes("a revoir"))
+      foldText(card.title).includes("remettre a jour") ||
+      card.facts.some((fact) => foldText(fact).includes("a revoir"))
     ) {
-      return "Structure a remettre a jour";
+      return "Structure à remettre à jour";
     }
-    if (card.action.label.toLowerCase().includes("structure preliminaire")) {
-      return "Structure preliminaire";
+    if (foldText(card.action.label).includes("structure preliminaire")) {
+      return "Structure préliminaire";
     }
     return isStructureResumeAction(card.action)
-      ? "Structure a reprendre"
+      ? "Structure à reprendre"
       : "Structure à générer";
   }
   return "Analyse des plans";
@@ -546,7 +547,7 @@ function ResultCard({
   const processingPct = totalCount > 0 ? (processingCount / totalCount) * 100 : 0;
   const progressLegend = [
     classifiedCount > 0 ? `${classifiedCount} valide${classifiedCount > 1 ? "s" : ""}` : null,
-    reviewCount > 0 ? `${reviewCount} a confirmer` : null,
+    reviewCount > 0 ? `${reviewCount} à confirmer` : null,
     processingCount > 0 ? `${processingCount} en cours` : null,
   ]
     .filter(Boolean)
@@ -554,7 +555,7 @@ function ResultCard({
   const lowerPanelSummary =
     card.kind === "review"
       ? reviewCount > 1
-        ? `${reviewCount - 1} autre${reviewCount - 1 > 1 ? "s" : ""} piece${reviewCount - 1 > 1 ? "s" : ""} a confirmer apres la piece active`
+        ? `${reviewCount - 1} autre${reviewCount - 1 > 1 ? "s" : ""} pièce${reviewCount - 1 > 1 ? "s" : ""} à confirmer après la pièce active`
         : "Détail de la pièce active à confirmer"
       : card.kind === "primary"
         ? `${classifiedDpgfCount > 0 ? `${classifiedDpgfCount} DPGF` : ""}${classifiedDpgfCount > 0 && classifiedCctpCount > 0 ? " / " : ""}${classifiedCctpCount > 0 ? `${classifiedCctpCount} CCTP` : ""} à arbitrer`
@@ -1081,8 +1082,8 @@ function ResultCard({
                         ? "Choix principal"
                       : card.kind === "review"
                         ? reviewAdditionalCount > 0
-                          ? "Autres pieces a confirmer"
-                          : "Piece a confirmer"
+                          ? "Autres pièces à confirmer"
+                          : "Pièce à confirmer"
                         : "Dossier de consultation"}
                   </h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1092,7 +1093,7 @@ function ResultCard({
                 {reviewCount > 0 ? (
                   <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">
                     <FunnelIcon aria-hidden="true" size={12} />
-                    A revoir ({reviewCount})
+                    À revoir ({reviewCount})
                   </div>
                 ) : null}
               </div>
@@ -1123,7 +1124,7 @@ function ResultCard({
 
               {card.kind === "review" ? (
                 <div className="space-y-4">
-                  <section aria-label={reviewAdditionalCount > 0 ? "Autres pieces a confirmer" : "Piece active a confirmer"}>
+                  <section aria-label={reviewAdditionalCount > 0 ? "Autres pièces à confirmer" : "Pièce active à confirmer"}>
                     <div className="space-y-2">
                       {(reviewAdditionalCount > 0 ? reviewDocs.slice(1, 3) : reviewDocs.slice(0, 1)).map((document) => (
                         <IntakeDocumentCard
@@ -1135,7 +1136,7 @@ function ResultCard({
                       ))}
                       {reviewAdditionalCount > 2 ? (
                         <div className="rounded-lg border border-warning/20 bg-amber-50 px-3 py-2 text-sm text-slate-600">
-                          {reviewAdditionalCount - 2} autre{reviewAdditionalCount - 2 > 1 ? "s" : ""} piece{reviewAdditionalCount - 2 > 1 ? "s" : ""} a confirmer dans le dossier.
+                          {reviewAdditionalCount - 2} autre{reviewAdditionalCount - 2 > 1 ? "s" : ""} pièce{reviewAdditionalCount - 2 > 1 ? "s" : ""} à confirmer dans le dossier.
                         </div>
                       ) : null}
                     </div>
@@ -1172,7 +1173,7 @@ function ResultCard({
                     <section aria-label="Pièces déjà reçues">
                       <div className="mb-2 flex items-center gap-2">
                         <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
-                        <h4 className="text-xs font-semibold text-emerald-900">Deja dans le dossier</h4>
+                        <h4 className="text-xs font-semibold text-emerald-900">Déjà dans le dossier</h4>
                         <Badge variant="success" size="sm">{classifiedCount}</Badge>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1269,15 +1270,15 @@ function ResultCard({
               (intakeWorkspace?.missingPieces.length ?? 0) === 0 ? (
                 <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
                   <CircleCheckBigIcon className="shrink-0" aria-hidden="true" size={16} />
-                  Triage termine — Tous les documents sont valides.
+                  Triage termine — Tous les documents sont validés.
                 </div>
               ) : null}
               {totalCount > 0 && (reviewCount > 0 || processingCount > 0) ? (
                 <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
                   <CircleAlertIcon className="shrink-0" aria-hidden="true" size={16} />
                   {card.kind === "review"
-                    ? `${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} a revoir dans le dossier.`
-                    : `Triage en cours — ${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} restent a confirmer.`}
+                    ? `${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} à revoir dans le dossier.`
+                    : `Triage en cours — ${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} restent à confirmer.`}
                 </div>
               ) : null}
             </div>
@@ -1349,7 +1350,7 @@ export function AffaireFlowHierarchyPanel(
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Prochaine etape
+            Prochaine étape
           </p>
           {model.showEmptyUploadCard || model.resultCard ? null : (
             <>
@@ -1398,7 +1399,7 @@ export function AffaireFlowHierarchyPanel(
             }}
             onDrop={handleEmptyUploadDrop}
             className="group block w-full text-left"
-            aria-label="Deposer les pieces pour lancer l'analyse"
+            aria-label="Déposer les pièces pour lancer l'analyse"
           >
             <div className="relative overflow-hidden rounded-[1.5rem] border border-[#d5c6af] bg-[#e8dcc9] p-4 sm:p-6">
               <div
@@ -1446,8 +1447,8 @@ export function AffaireFlowHierarchyPanel(
 
                   <h3 className="max-w-3xl text-2xl font-bold text-white sm:text-4xl">
                     {isEmptyUploadDragActive
-                      ? "Relachez pour importer vos pieces"
-                      : "Deposez vos pieces ici"}
+                      ? "Relachez pour importer vos pièces"
+                      : "Déposez vos pièces ici"}
                   </h3>
                   <p className="mt-3 text-sm font-medium text-sky-50 sm:text-lg">
                     CCTP, DPGF, plans, courriers
@@ -1455,7 +1456,7 @@ export function AffaireFlowHierarchyPanel(
 
                   <div className="mt-6">
                     <span className="btn btn-secondary btn-sm border-white/35 bg-white/15 text-white hover:bg-white/25">
-                      Selectionner les fichiers
+                      Sélectionner les fichiers
                     </span>
                   </div>
                   <p className="mt-3 text-xs font-medium uppercase tracking-[0.14em] text-sky-50/88 sm:text-sm">
@@ -1530,7 +1531,7 @@ export function AffaireFlowHierarchyPanel(
 
       {model.blockers.length > 0 ? (
         <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/6 p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Blocages a traiter</h3>
+          <h3 className="text-sm font-semibold text-slate-800">Blocages à traiter</h3>
           <ul className="mt-3 grid gap-2 md:grid-cols-2">
             {model.blockers.map((blocker) => (
               <li
@@ -1550,8 +1551,8 @@ export function AffaireFlowHierarchyPanel(
             Outils utiles si besoin
           </h3>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            Ces aides restent secondaires. Ouvrez-les seulement si elles accelerent une decision ou
-            une preparation utile maintenant.
+            Ces aides restent secondaires. Ouvrez-les seulement si elles accelerent une décision ou
+            une préparation utile maintenant.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             {model.aides.map((action) => (

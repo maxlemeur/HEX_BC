@@ -307,7 +307,7 @@ describe("wizardStep3Schema", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs).toContain("Veuillez selectionner un template.");
+      expect(msgs).toContain("Veuillez sélectionner un template.");
     }
   });
 
@@ -357,7 +357,7 @@ describe("EstimateCreationWizard", () => {
     expect(screen.getByText("Informations projet")).toBeInTheDocument();
     expect(screen.getByLabelText(/Nom du projet/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Client/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Reference/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Référence/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Titre de la version/)).toBeInTheDocument();
   });
 
@@ -533,14 +533,14 @@ describe("EstimateCreationWizard", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Source detectee: HEX-DPGF.xlsx/),
+        screen.getByText(/Source détectée: HEX-DPGF.xlsx/),
       ).toBeInTheDocument();
     });
     expect(
-      screen.getByRole("button", { name: /DPGF source a importer/ }),
+      screen.getByRole("button", { name: /DPGF source à importer/ }),
     ).toBeEnabled();
     expect(
-      screen.getByText("La version sera creee avec les lignes du DPGF source lie."),
+      screen.getByText("La version sera créée avec les lignes du DPGF source lie."),
     ).toBeInTheDocument();
   });
 
@@ -564,7 +564,7 @@ describe("EstimateCreationWizard", () => {
       ).toBeDisabled();
     });
     expect(
-      screen.getByText(/Aucun modele disponible actuellement/),
+      screen.getByText(/Aucun modèle disponible actuellement/),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
@@ -573,7 +573,7 @@ describe("EstimateCreationWizard", () => {
       expect(vi.mocked(createEstimate)).toHaveBeenCalled();
     });
     expect(
-      screen.queryByText("Veuillez selectionner un template."),
+      screen.queryByText("Veuillez sélectionner un template."),
     ).not.toBeInTheDocument();
   });
 
@@ -661,12 +661,12 @@ describe("EstimateCreationWizard", () => {
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
     await waitFor(() => {
       expect(
-        screen.getByText(/Source detectee: HEX-DPGF.xlsx/),
+        screen.getByText(/Source détectée: HEX-DPGF.xlsx/),
       ).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: /Depuis un modèle/ }));
     await user.selectOptions(
-      screen.getByLabelText(/Template \(10 plus recents\)/),
+      screen.getByLabelText(/Template \(10 plus récents\)/),
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
@@ -720,12 +720,12 @@ describe("EstimateCreationWizard", () => {
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
     await waitFor(() => {
       expect(
-        screen.getByText(/Source detectee: HEX-DPGF.xlsx/),
+        screen.getByText(/Source détectée: HEX-DPGF.xlsx/),
       ).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: /Depuis un modèle/ }));
     await user.selectOptions(
-      screen.getByLabelText(/Template \(10 plus recents\)/),
+      screen.getByLabelText(/Template \(10 plus récents\)/),
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
@@ -740,7 +740,7 @@ describe("EstimateCreationWizard", () => {
       expect(vi.mocked(importLinkedDpgfSource)).toHaveBeenCalledWith("version-tpl-123");
       expect(onCreated).toHaveBeenCalledWith("version-tpl-123", {
         linkedDpgfImportWarning:
-          "Le chiffrage a ete cree, mais le DPGF source n'a pas pu etre importe: Import temporairement indisponible.",
+          "Le chiffrage a été créé, mais le DPGF source n'a pas pu être importé: Import temporairement indisponible.",
       });
     });
   });

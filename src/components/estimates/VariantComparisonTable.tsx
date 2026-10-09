@@ -34,7 +34,7 @@ function statusLabel(status: EstimateVariantComparisonItem["status"]) {
     case "sending":
       return "Envoi en cours";
     case "sent":
-      return "Envoye";
+      return "Envoyé";
     case "accepted":
       return "Accepte";
     case "archived":

@@ -18,7 +18,7 @@ export default function NewEstimatePage() {
   function handleCreated(versionId: string, result?: EstimateCreationResult) {
     if (result?.linkedDpgfImportWarning) {
       toast.warning({
-        title: "Version creee avec avertissement",
+        title: "Version créée avec avertissement",
         description: result.linkedDpgfImportWarning,
       });
     }
@@ -37,8 +37,8 @@ export default function NewEstimatePage() {
           </h1>
           <p className="page-description">
             {isExistingProject
-              ? "Ajoutez une version a cette affaire."
-              : "Creez un nouveau projet avec l\u0027assistant de creation."}
+              ? "Ajoutez une version à cette affaire."
+              : "Créez un nouveau projet avec l\u0027assistant de création."}
           </p>
         </div>
         <Link

@@ -28,7 +28,7 @@ const SEVERITY_LABELS = {
 
 const STATUS_LABELS = {
   all: "Tous statuts",
-  to_process: "A traiter",
+  to_process: "À traiter",
   assumed: "Assume",
   false_positive: "Faux positif",
 } as const;
@@ -160,7 +160,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
   return (
     <div>
       <div className="mb-4 flex flex-wrap gap-3">
-        <Badge variant="warning">{summary.to_process_count} a traiter</Badge>
+        <Badge variant="warning">{summary.to_process_count} à traiter</Badge>
         <Badge variant="success">{summary.assumed_count} assumes</Badge>
         <Badge variant="error">{summary.critical_count} critiques</Badge>
         <Badge variant="info">Score affaire {summary.project_score}/100</Badge>

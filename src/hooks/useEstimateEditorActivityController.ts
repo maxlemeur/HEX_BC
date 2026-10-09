@@ -16,7 +16,7 @@ import type { Database } from "@/types/database";
 const AUDIT_LOG_LIMIT = 25;
 const AUDIT_LOAD_ERROR = "Impossible de charger les logs d'audit.";
 const TIMELINE_LOAD_ERROR =
-  "Impossible de charger la timeline des evenements.";
+  "Impossible de charger la timeline des événements.";
 
 export type EstimateEditorAuditLogEntry = Pick<
   Database["public"]["Tables"]["audit_logs"]["Row"],

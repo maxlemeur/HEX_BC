@@ -92,7 +92,7 @@ describe("SupplierComparisonPanel", () => {
     expect(screen.getByText("Old Supplier")).toBeInTheDocument();
     expect(screen.getAllByText("Faux plafond acoustique")).toHaveLength(4);
     expect(screen.getByText("Meilleur prix")).toBeInTheDocument();
-    expect(screen.getByText("Prix le plus recent")).toBeInTheDocument();
+    expect(screen.getByText("Prix le plus récent")).toBeInTheDocument();
     expect(screen.getByText("Fournisseur prefere")).toBeInTheDocument();
     expect(screen.getByText("Sélection actuelle")).toBeInTheDocument();
     expect(screen.getByText("Prix ancien")).toBeInTheDocument();

@@ -788,7 +788,7 @@ async function loadLaborRatesByRoleId(input: {
     .in("id", input.roleIds);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les roles MO.");
+    throw mapSupabaseError(error, "Impossible de charger les rôles MO.");
   }
 
   const rates = new Map<string, number>();
@@ -1352,10 +1352,10 @@ export function buildEstimatePdfDocument(input: {
           <View style={businessPdfStyles.infoCard}>
             <Text style={businessPdfStyles.infoCardTitle}>Client</Text>
             <Text style={businessPdfStyles.clientName}>
-              {input.project.client_name?.trim() || "Client a renseigner"}
+              {input.project.client_name?.trim() || "Client à renseigner"}
             </Text>
             {input.project.reference ? (
-              <Text>Reference projet : {input.project.reference}</Text>
+              <Text>Référence projet : {input.project.reference}</Text>
             ) : null}
           </View>
           <View style={businessPdfStyles.infoCard}>
@@ -1747,7 +1747,7 @@ export async function generateEstimatePdfNow(
     try {
       pdfBuffer = await renderToBuffer(pdfDocument);
     } catch (error) {
-      throw internalError("Impossible de generer le binaire PDF.", error);
+      throw internalError("Impossible de générer le binaire PDF.", error);
     }
 
     const sha256Hash = createHash("sha256")
@@ -1814,7 +1814,7 @@ export async function generateEstimatePdfNow(
       const message =
         error instanceof Error && error.message.trim().length > 0
           ? error.message.trim()
-          : "Echec generation PDF";
+          : "Échec generation PDF";
 
       await failEstimatePdfGeneration({
         client: publicationClient,
@@ -1934,7 +1934,7 @@ export async function getEstimatePdfStatus(
       status: "failed",
       last_error:
         row.last_error ??
-        "Le document PDF ne correspond plus a la revision courante du devis.",
+        "Le document PDF ne correspond plus à la révision courante du devis.",
     };
   }
 
@@ -2158,7 +2158,7 @@ function buildEstimateChangelogPdfDocument(input: {
                     </View>
                   ) : (
                     <Text style={changelogStyles.emptyState}>
-                      Aucun detail champ disponible.
+                      Aucun détail champ disponible.
                     </Text>
                   )}
                 </View>
@@ -2181,6 +2181,6 @@ export async function renderEstimateChangelogPdfBuffer(input: {
   try {
     return await renderToBuffer(document);
   } catch (error) {
-    throw internalError("Impossible de generer le PDF du changelog.", error);
+    throw internalError("Impossible de générer le PDF du changelog.", error);
   }
 }

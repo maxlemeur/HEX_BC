@@ -95,7 +95,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             <h1 className="typo-h1">Cockpit direction</h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               Priorisez les arbitrages, gardez une vue claire des affaires
-              fragiles et renvoyez rapidement les dossiers a traiter.
+              fragiles et renvoyez rapidement les dossiers à traiter.
             </p>
           </div>
 
@@ -119,7 +119,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
 
             <article className="dashboard-card p-4">
               <p className="typo-label text-subtle-foreground">
-                A surveiller
+                À surveiller
               </p>
               <p className="mt-2 typo-kpi animate-count-up text-danger">
                 {data.summary.criticalCount}
@@ -253,8 +253,8 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
 
         <p className="mt-3 text-xs text-subtle-foreground" aria-live="polite">
           {isPending
-            ? "Mise a jour des filtres..."
-            : `${data.cards.length} dossier(s) sur ${data.pagination.totalCards} affiches.`}
+            ? "Mise à jour des filtres..."
+            : `${data.cards.length} dossier(s) sur ${data.pagination.totalCards} affichés.`}
         </p>
       </section>
 
@@ -287,7 +287,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                 })
               }
             >
-              Precedent
+              Précédent
             </button>
             <button
               type="button"

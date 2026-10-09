@@ -238,7 +238,7 @@ describe("useEstimateEditorActivityController", () => {
       });
       expect(result.current.state.timeline).toEqual({
         events: [],
-        error: "Impossible de charger la timeline des evenements.",
+        error: "Impossible de charger la timeline des événements.",
         isLoading: false,
       });
     });

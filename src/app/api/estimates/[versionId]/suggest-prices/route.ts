@@ -23,7 +23,7 @@ function getQuery(request: Request) {
   });
 
   if (!parsed.success) {
-    throw badRequest(parsed.error.issues[0]?.message ?? "Parametre q invalide.");
+    throw badRequest(parsed.error.issues[0]?.message ?? "Paramètre q invalide.");
   }
 
   return parsed.data.q;

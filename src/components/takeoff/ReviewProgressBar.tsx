@@ -94,7 +94,7 @@ export function ReviewProgressBar({
             <span className="font-medium text-foreground-secondary">
               {markedForReviewCount}
             </span>{" "}
-            <span className="text-muted-foreground">a revoir</span>
+            <span className="text-muted-foreground">à revoir</span>
           </span>
         )}
 
@@ -118,7 +118,7 @@ export function ReviewProgressBar({
       {/* 100% message */}
       {allReviewed && (
         <p className="mt-2 text-sm font-medium text-success">
-          Tous les items ont ete revus !
+          Tous les items ont été revus !
         </p>
       )}
     </div>

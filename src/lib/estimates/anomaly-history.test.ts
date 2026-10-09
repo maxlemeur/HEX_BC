@@ -38,9 +38,9 @@ vi.mock("@/lib/estimate-quality", () => ({
   ],
   ESTIMATE_QUALITY_FLAG_META: {
     missing_price: { label: "Prix manquant", description: "" },
-    missing_quantity: { label: "Quantite manquante", description: "" },
+    missing_quantity: { label: "Quantité manquante", description: "" },
     missing_labor_time: { label: "Temps MO manquant", description: "" },
-    missing_labor_role: { label: "Role MO manquant", description: "" },
+    missing_labor_role: { label: "Rôle MO manquant", description: "" },
     line_nature_mismatch: { label: "Nature incoherente", description: "" },
     supplier_price_outdated: {
       label: "Prix fournisseur obsolete",
@@ -48,7 +48,7 @@ vi.mock("@/lib/estimate-quality", () => ({
     },
     labor_split_incomplete: { label: "Split MO incomplet", description: "" },
     price_outlier: { label: "Prix atypique", description: "" },
-    quantity_outlier: { label: "Quantite atypique", description: "" },
+    quantity_outlier: { label: "Quantité atypique", description: "" },
   },
   computeEstimateQualityFlagsByItemId: vi.fn().mockReturnValue({}),
 }));

@@ -156,7 +156,7 @@ describe("PriceBookCsvImport", () => {
       expect(container.textContent).toContain("Total detecte");
       expect(container.textContent).toContain("Importables");
       expect(container.textContent).toContain("Ignorees (hors perimetre)");
-      expect(container.textContent).toContain("A corriger");
+      expect(container.textContent).toContain("À corriger");
     });
 
     fireEvent.click(

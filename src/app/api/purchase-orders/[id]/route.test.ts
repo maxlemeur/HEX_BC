@@ -308,7 +308,7 @@ describe("purchase orders [id] route regressions", () => {
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
-      error: "Seuls les bons de commande en brouillon peuvent etre modifies.",
+      error: "Seuls les bons de commande en brouillon peuvent être modifiés.",
     });
   });
 

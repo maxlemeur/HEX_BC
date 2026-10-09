@@ -271,7 +271,7 @@ describe("TakeoffJobMonitor", () => {
       expect(applyTakeoffJobMock).not.toHaveBeenCalled();
     });
     expect(
-      screen.getAllByText("La version cible est verrouillee par Marie.")
+      screen.getAllByText("La version cible est verrouillée par Marie.")
     ).not.toHaveLength(0);
   });
 

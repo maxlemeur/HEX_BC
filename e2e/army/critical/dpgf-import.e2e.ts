@@ -103,7 +103,7 @@ function businessSnapshot(estimate: ArmyEstimate) {
       : ["a", "b", "c", "d", "e", "f"].map((suffix) => `h_${token}_${suffix}`);
     // The upload API exposes normalized source keys; retain accented CSV input.
     const sourceHeaders = headerStyle === "business"
-      ? ["Reference_article", "Designation", "Quantite", "Unite", "Prix_fourniture", "Montant_HT"]
+      ? ["Reference_article", "Designation", "Quantité", "Unité", "Prix_fourniture", "Montant_HT"]
         .map((label) => `${label}_${token}`)
       : headers;
     const targets = ["hex_code", "designation", "quantity", "unit", "unit_price_ht", "total_ht"];
@@ -162,7 +162,7 @@ function businessSnapshot(estimate: ArmyEstimate) {
       await browser.locator('input[type="file"]').setInputFiles(fixturePath);
       await screen.getByRole("button", "Lancer l'import", { exact: true }).tap();
 
-      const nextMapping = screen.getByRole("button", "Suivant : Apercu", { exact: true });
+      const nextMapping = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
       const editMapping = screen.getByRole("button", "Modifier le mapping", { exact: true });
       await expect.poll(async () => (await nextMapping.isVisible()) || (await editMapping.isVisible()), {
         timeout: 30_000,

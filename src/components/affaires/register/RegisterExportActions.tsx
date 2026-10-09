@@ -57,9 +57,9 @@ export function RegisterExportActions({
         );
 
         toast.success({
-          title: "Export pret",
+          title: "Export prêt",
           description:
-            "Le CSV et la note de revue interne ont ete telecharges.",
+            "Le CSV et la note de revue interne ont été téléchargés.",
         });
       } catch (error) {
         toast.error({

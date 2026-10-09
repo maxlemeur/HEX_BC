@@ -152,11 +152,11 @@ async function getTenantMembershipOrThrow(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier le tenant courant.");
+    throw mapSupabaseError(error, "Impossible de vérifier le tenant courant.");
   }
 
   if (!data) {
-    throw forbidden("Aucun acces a ce tenant.");
+    throw forbidden("Aucun accès à ce tenant.");
   }
 
   return data as TenantMembershipRow;
@@ -205,7 +205,7 @@ export async function toggleFeatureFlagForTenant(
 
   const membership = await getTenantMembershipOrThrow(supabase, tenantId, userId);
   if (membership.role !== "admin") {
-    throw forbidden("Acces reserve aux administrateurs du tenant.");
+    throw forbidden("Accès reserve aux administrateurs du tenant.");
   }
 
   const upsertPayload: {
@@ -230,7 +230,7 @@ export async function toggleFeatureFlagForTenant(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le feature flag.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le feature flag.");
   }
 
   const parsed = parseFeatureFlagRow(data);

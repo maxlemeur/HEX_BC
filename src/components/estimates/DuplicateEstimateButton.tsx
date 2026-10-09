@@ -97,7 +97,7 @@ export function DuplicateEstimateButton({
           {isCreatingVariant ? (
             <>
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600"></span>
-              Creation variante...
+              Création variante...
             </>
           ) : (
             "Créer une variante"

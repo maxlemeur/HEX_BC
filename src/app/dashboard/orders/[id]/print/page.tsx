@@ -190,7 +190,7 @@ export default async function OrderPrintPage({
             </Link>
             <div className="hidden h-6 w-px bg-slate-200 sm:block" />
             <span className="hidden text-sm font-semibold text-foreground-secondary sm:block">
-              Apercu avant impression
+              Aperçu avant impression
             </span>
             <span className="hidden rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange sm:inline-block">
               {order.reference}

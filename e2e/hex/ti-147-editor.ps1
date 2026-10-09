@@ -52,13 +52,13 @@ function Wait-ForPersistedLines {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-147" -Date "2026-02-02" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-147" -Date "2026-02-02" -Validité "30"
   Go-EditorTab -Session $Session
 
   Add-Chapter -Session $Session -Title "Chapitre 1"
   Add-Line -Session $Session -Designation "Planches bois"
   try {
-    Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Materiaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
+    Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Matériaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
   } catch {
     Write-Host "TI-147 WARN: line numeric fields not editable in this layout, continuing persistence check."
   }

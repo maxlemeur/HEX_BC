@@ -137,9 +137,9 @@ type ProcessableTakeoffLevel =
 
 const UNIT_SYNONYMS: Readonly<Record<string, readonly string[]>> = {
   m: ["m", "metre", "metres", "meter", "meters", "m."],
-  ml: ["ml", "m.l", "ml.", "metre lineaire", "metres lineaires", "linear meter"],
-  m2: ["m2", "m²", "metre carre", "metres carres", "sqm", "sq m"],
-  m3: ["m3", "m³", "metre cube", "metres cubes", "cbm", "cubic meter"],
+  ml: ["ml", "m.l", "ml.", "métré linéaire", "métrés lineaires", "linear meter"],
+  m2: ["m2", "m²", "métré carre", "métrés carres", "sqm", "sq m"],
+  m3: ["m3", "m³", "métré cube", "métrés cubes", "cbm", "cubic meter"],
   u: ["u", "unite", "unit", "piece", "pieces", "pcs", "pc", "ea"],
   kg: ["kg", "kilogramme", "kilogrammes", "kilo", "kilogram"],
   t: ["t", "tonne", "tonnes", "ton", "tons"],
@@ -336,7 +336,7 @@ function normalizeTakeoffUnit(input: {
     normalizedUnit: fallback,
     warning: warning({
       code: "UNIT_NORMALIZATION_UNKNOWN",
-      message: `Unite '${raw || "vide"}' non reconnue, conservee telle quelle.`,
+      message: `Unité '${raw || "vide"}' non reconnue, conservee telle quelle.`,
       severity: "warning",
       itemIndex: input.itemIndex,
     }),
@@ -392,7 +392,7 @@ function parseTakeoffWorkbook(input: {
       warnings.push(
         warning({
           code: "SHEET_EMPTY",
-          message: `La feuille ${sheetName} est vide et a ete ignoree.`,
+          message: `La feuille ${sheetName} est vide et a été ignoree.`,
           severity: "warning",
           tableIndex: sheetIndex,
         })
@@ -437,7 +437,7 @@ function parseTakeoffWorkbook(input: {
       warnings.push(
         warning({
           code: "SHEET_NO_DATA_ROWS",
-          message: `La feuille ${sheetName} ne contient pas de donnees exploitables.`,
+          message: `La feuille ${sheetName} ne contient pas de données exploitables.`,
           severity: "warning",
           tableIndex: sheetIndex,
         })
@@ -661,7 +661,7 @@ async function fetchCurrentTakeoffJobStatus(input: {
     throw toTakeoffError(
       mapSupabaseError(
         error,
-        "Impossible de verifier le statut courant du job takeoff."
+        "Impossible de vérifier le statut courant du job takeoff."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -691,7 +691,7 @@ function buildProcessingStatusConflictError(input: {
     code: TakeoffErrorCode.CONFLICT,
     message:
       input.currentStatus === "canceled"
-        ? "Le job a ete annule pendant le traitement."
+        ? "Le job a été annulé pendant le traitement."
         : "Le job n'est plus en cours de traitement.",
     details: {
       expected_status: "processing",
@@ -717,7 +717,7 @@ async function clearResultsAfterCanceledTransition(input: {
       level: input.level,
     });
   } catch (cleanupError) {
-    console.error("Impossible de nettoyer les resultats apres annulation du job.", {
+    console.error("Impossible de nettoyer les résultats après annulation du job.", {
       job_id: input.job.id,
       operation: input.operation,
       error: cleanupError,
@@ -870,7 +870,7 @@ async function markJobAsProcessing(input: {
   if (!data) {
     throw new TakeoffError({
       code: TakeoffErrorCode.CONFLICT,
-      message: `Le job ne peut pas etre traite depuis le statut '${input.job.status}'.`,
+      message: `Le job ne peut pas être traité depuis le statut '${input.job.status}'.`,
       details: {
         current_status: input.job.status,
       },
@@ -1027,7 +1027,7 @@ async function updateJobAsFailed(input: {
   const { data, error } = await query.select("id" as never).maybeSingle();
 
   if (error) {
-    console.error("Impossible de marquer le job takeoff en echec.", {
+    console.error("Impossible de marquer le job takeoff en échec.", {
       job_id: input.job.id,
       tenant_id: input.tenantId,
       error,
@@ -1087,7 +1087,7 @@ async function scheduleBatchReconcile(input: {
   if (!data) {
     throw new TakeoffError({
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job n'est plus dans un etat compatible avec la reconciliation batch.",
+      message: "Le job n'est plus dans un état compatible avec la reconciliation batch.",
       retryable: false,
       jobId: input.job.id,
     });
@@ -1148,7 +1148,7 @@ async function clearPreviousResultsForJob(input: {
     throw toTakeoffError(
       mapSupabaseError(
         deleteItemsError,
-        "Impossible de nettoyer les items takeoff precedents."
+        "Impossible de nettoyer les items takeoff précédents."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -1169,7 +1169,7 @@ async function clearPreviousResultsForJob(input: {
     throw toTakeoffError(
       mapSupabaseError(
         deleteResultsError,
-        "Impossible de nettoyer les resultats takeoff precedents."
+        "Impossible de nettoyer les résultats takeoff précédents."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -1306,7 +1306,7 @@ async function snapshotTakeoffPersistenceState(input: {
     throw toTakeoffError(
       mapSupabaseError(
         resultsResponse.error,
-        "Impossible de lire le snapshot des resultats takeoff."
+        "Impossible de lire le snapshot des résultats takeoff."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -1376,7 +1376,7 @@ async function restoreTakeoffPersistenceState(input: {
 
     if (error) {
       throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de restaurer les resultats takeoff."),
+        mapSupabaseError(error, "Impossible de restaurer les résultats takeoff."),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
           retryable: false,
@@ -1500,7 +1500,7 @@ async function persistTakeoffResultAndItems(input: {
             hint: null,
             message: "Insertion takeoff_results invalide.",
           },
-          "Impossible de persister le resultat takeoff."
+          "Impossible de persister le résultat takeoff."
         ),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -1568,7 +1568,7 @@ async function persistTakeoffResultAndItems(input: {
       const restoreMapped = toTakeoffError(restoreError, {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         fallbackMessage:
-          "Impossible de restaurer l'etat precedent apres echec de persistance takeoff.",
+          "Impossible de restaurer l'état précédent après échec de persistance takeoff.",
         retryable: false,
         jobId: input.job.id,
         level: input.level,
@@ -1578,7 +1578,7 @@ async function persistTakeoffResultAndItems(input: {
         code: TakeoffErrorCode.INTERNAL_ERROR,
         status: 500,
         message:
-          "La persistance takeoff a echoue et la restauration atomique n'a pas pu etre completee.",
+          "La persistance takeoff a echoue et la restauration atomique n'a pas pu être complétée.",
         details: {
           original_error: mapped.details,
           rollback_error: restoreMapped.details,
@@ -1693,7 +1693,7 @@ async function persistFailureSnapshotIfNeeded(input: {
       duration_ms: input.durationMs,
     } as never);
   } catch (snapshotError) {
-    console.error("Impossible de persister le snapshot d'echec takeoff.", {
+    console.error("Impossible de persister le snapshot d'échec takeoff.", {
       job_id: input.job.id,
       error: snapshotError,
     });
@@ -3275,7 +3275,7 @@ async function processTakeoffLevel(
     if (!job) {
       throw new TakeoffError({
         code: TakeoffErrorCode.INTERNAL_ERROR,
-        message: "Le job takeoff n'est pas charge avant l'appel fournisseur.",
+        message: "Le job takeoff n'est pas chargé avant l'appel fournisseur.",
         retryable: true,
         jobId: normalizedJobId,
         level,
@@ -3935,7 +3935,7 @@ export async function reconcileTakeoffBatchJob(
     ) {
       throw new TakeoffError({
         code: TakeoffErrorCode.AI_PROVIDER,
-        message: `Le batch Gemini a termine avec l'etat ${pollResult.providerBatchStateRaw}.`,
+        message: `Le batch Gemini a termine avec l'état ${pollResult.providerBatchStateRaw}.`,
         retryable: false,
         details: pollResult.details,
         jobId: job.id,
@@ -3946,7 +3946,7 @@ export async function reconcileTakeoffBatchJob(
     if (pollResult.status !== "succeeded") {
       throw new TakeoffError({
         code: TakeoffErrorCode.AI_PROVIDER,
-        message: "Etat batch Gemini inattendu lors de la reconciliation.",
+        message: "État batch Gemini inattendu lors de la reconciliation.",
         retryable: false,
         jobId: job.id,
         level: TAKEOFF_LEVEL_A,

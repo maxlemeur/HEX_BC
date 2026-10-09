@@ -13,6 +13,7 @@ import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability"
 import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";
 import { getReviewProbableCategories, sortReviewDocuments } from "./AffaireFlowHierarchyPanel.review-logic";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import { foldText } from "@/lib/text/fold";
 
 export type AffaireFlowHierarchyPanelProps = {
   projectId: string;
@@ -238,7 +239,7 @@ function isPreliminaryStructureSuggestion(suggestion: CockpitSuggestion | null) 
     return false;
   }
 
-  if (suggestion.label.toLowerCase().includes("structure preliminaire")) {
+  if (foldText(suggestion.label).includes("structure preliminaire")) {
     return true;
   }
 
@@ -273,8 +274,8 @@ function describePreliminaryStructureContext(intakeWorkspace: AffaireFlowHierarc
 
   if (readyPrimaryCctp && briefDraft?.status === "confirme") {
     return {
-      title: "Structure preliminaire editable",
-      message: "Le brief est confirme. Ouvrez une trame editable du devis a partir du brief et du CCTP principal, sans import DPGF obligatoire.",
+      title: "Structure préliminaire éditable",
+      message: "Le brief est confirmé. Ouvrez une trame éditable du devis à partir du brief et du CCTP principal, sans import DPGF obligatoire.",
       facts: dedupe(["Brief confirme", "CCTP principal detecte", "Sans import DPGF obligatoire"]),
       evidence: dedupe([
         readyPrimaryCctp.fileName ?? "",
@@ -286,8 +287,8 @@ function describePreliminaryStructureContext(intakeWorkspace: AffaireFlowHierarc
 
   if (readyPrimaryCctp) {
     return {
-      title: "Structure preliminaire editable",
-      message: "Ouvrez une trame editable du devis a partir du CCTP principal, sans import DPGF obligatoire.",
+      title: "Structure préliminaire éditable",
+      message: "Ouvrez une trame éditable du devis à partir du CCTP principal, sans import DPGF obligatoire.",
       facts: dedupe(["CCTP principal detecte", "Sans import DPGF obligatoire"]),
       evidence: dedupe([
         readyPrimaryCctp.fileName ?? "",
@@ -297,8 +298,8 @@ function describePreliminaryStructureContext(intakeWorkspace: AffaireFlowHierarc
   }
 
   return {
-    title: "Structure preliminaire editable",
-    message: "Le brief confirme permet d'ouvrir une trame editable du devis, sans import DPGF obligatoire.",
+    title: "Structure préliminaire éditable",
+    message: "Le brief confirme permet d'ouvrir une trame éditable du devis, sans import DPGF obligatoire.",
     facts: dedupe(["Brief confirme", "Sans import DPGF obligatoire"]),
     evidence: dedupe([briefLots.length > 0 ? `Lots brief: ${briefLots.slice(0, 2).join(", ")}` : ""]).filter(Boolean),
   };
@@ -313,15 +314,15 @@ function describeStructureMode(structureMode: AffaireFlowHierarchyPanelProps["st
     return {
       badgeLabel: "Mode manuel actif",
       facts: [
-        `${formatCountLabel(structureMode.manualLineCount, "ligne manuelle", "lignes manuelles")} deja saisie${structureMode.manualLineCount > 1 ? "s" : ""}`,
+        `${formatCountLabel(structureMode.manualLineCount, "ligne manuelle", "lignes manuelles")} déjà saisie${structureMode.manualLineCount > 1 ? "s" : ""}`,
       ],
     };
   }
 
   if (structureMode.mode === "imported") {
     return {
-      badgeLabel: "Structure importee",
-      facts: [`${formatCountLabel(structureMode.importedLineCount, "ligne importee", "lignes importees")} depuis la DPGF`],
+      badgeLabel: "Structure importée",
+      facts: [`${formatCountLabel(structureMode.importedLineCount, "ligne importée", "lignes importées")} depuis la DPGF`],
     };
   }
 
@@ -330,18 +331,18 @@ function describeStructureMode(structureMode: AffaireFlowHierarchyPanelProps["st
       badgeLabel: "Mode hybride actif",
       facts: [
         `${formatCountLabel(structureMode.manualLineCount, "ligne manuelle", "lignes manuelles")}`,
-        `${formatCountLabel(structureMode.importedLineCount, "ligne importee", "lignes importees")}`,
+        `${formatCountLabel(structureMode.importedLineCount, "ligne importée", "lignes importées")}`,
       ],
     };
   }
 
   return {
-    badgeLabel: "Structure a remettre a jour",
+    badgeLabel: "Structure à remettre à jour",
     facts: [
       formatCountLabel(structureMode.lineCount, "ligne déjà saisie", "lignes déjà saisies"),
       structureMode.unsupportedLineCount > 0
-        ? `${formatCountLabel(structureMode.unsupportedLineCount, "ligne a revoir", "lignes a revoir")}`
-        : "Mode de structure a clarifier",
+        ? `${formatCountLabel(structureMode.unsupportedLineCount, "ligne à revoir", "lignes à revoir")}`
+        : "Mode de structure à clarifier",
     ],
   };
 }
@@ -388,7 +389,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const canonicalDrivers = canonicalHubReadiness?.drivers ?? [];
 
   let title = "Continuer depuis l'affaire";
-  let summary = "Le cockpit doit vous mener a la prochaine action utile sans vous disperser.";
+  let summary = "Le cockpit doit vous mener à la prochaine action utile sans vous disperser.";
   let statusLabel = "Parcours affaire-first";
   let statusVariant: AffaireFlowPanelModel["statusVariant"] = "info";
   let heroState: AffaireFlowPanelModel["heroState"] = "ready_to_continue";
@@ -415,7 +416,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const hasRevalidationDriver = canonicalDrivers.some((driver) => driver.code === "revalidation_required");
   const continuationHypothesisFact =
     continuationHypothesisCount > 0
-      ? `${formatCountLabel(continuationHypothesisCount, "hypothese de continuation active", "hypotheses de continuation actives")}`
+      ? `${formatCountLabel(continuationHypothesisCount, "hypothèse de continuation active", "hypothèses de continuation actives")}`
       : "";
   const clarificationFact =
     clarificationCount > 0 ? `${formatCountLabel(clarificationCount, "clarification client ouverte", "clarifications client ouvertes")}` : "";
@@ -431,7 +432,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const structureModeDescription = describeStructureMode(input.structureMode);
 
   if (showEmptyUploadCard) {
-    title = "Deposez les pieces pour lancer l'analyse";
+    title = "Déposez les pièces pour lancer l'analyse";
     summary = "CCTP, DPGF, plans, courriers.";
     statusLabel = "Affaire neuve";
     statusVariant = "info";
@@ -439,7 +440,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     readinessLevel = "not_ready";
   } else if (processingDocuments.length > 0 && processingDocuments.length === documentsCount) {
     title = "Analyse en cours";
-    summary = "TIMAX classe les pieces et prepare le dossier avant de vous proposer la suite utile.";
+    summary = "TIMAX classe les pièces et prepare le dossier avant de vous proposer la suite utile.";
 
     statusLabel = "Analyse en cours";
     statusVariant = "info";
@@ -448,7 +449,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   } else if (reviewDocument) {
     title = "Vérifier les documents reçus";
     summary = reviewIntakeSuggestion?.preview ?? "Certains documents restent ambigus. Confirmez-les avant de poursuivre.";
-    statusLabel = "Documents a confirmer";
+    statusLabel = "Documents à confirmer";
     statusVariant = "warning";
     heroState = "review";
     reviewImpact = reviewCouldResolveCriticalMissing ? "critical_missing" : "standard";
@@ -457,20 +458,20 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       ? toSuggestionAction(reviewIntakeSuggestion)
       : toHrefAction({
           key: "review-intake-fallback",
-          label: "Confirmer les pieces",
-          description: "Ouvrir les pieces a revoir depuis le dossier intake.",
+          label: "Confirmer les pièces",
+          description: "Ouvrir les pièces à revoir depuis le dossier intake.",
           href: `/dashboard/affaires/${input.projectId}?intakeFilter=a_revoir#intake`,
           variant: "primary",
         });
     resultCard = {
       kind: "review",
-      title: "Des pieces sont a revoir",
+      title: "Des pièces sont à revoir",
       message: "Certains documents restent ambigus. Confirmez-les avant de poursuivre.",
       action: primaryAction,
-      facts: [reviewIntakeSuggestion ? `${reviewIntakeSuggestion.label.replace("Confirmer ", "")}` : "1 document a confirmer"],
+      facts: [reviewIntakeSuggestion ? `${reviewIntakeSuggestion.label.replace("Confirmer ", "")}` : "1 document à confirmer"],
       evidence: dedupe([
         reviewDocument?.fileName ?? "",
-        reviewDocument ? `Classification a confirmer (${formatConfidenceLabel(reviewDocument.confidence)})` : "",
+        reviewDocument ? `Classification à confirmer (${formatConfidenceLabel(reviewDocument.confidence)})` : "",
         reviewCouldResolveCriticalMissing ? "Peut lever un manque critique" : "",
         reviewDocument?.issues[0] ?? "",
       ]).filter(Boolean),
@@ -480,8 +481,8 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     title = categories.length === 1 ? `Choisir le ${categories[0]} principal` : "Choisir les documents principaux";
     summary =
       categories.length === 1
-        ? `Choisissez le ${categories[0]} de reference avant de lancer les automatismes de production.`
-        : "Choisissez les documents de reference avant de lancer les automatismes de production.";
+        ? `Choisissez le ${categories[0]} de référence avant de lancer les automatismes de production.`
+        : "Choisissez les documents de référence avant de lancer les automatismes de production.";
     statusLabel = "Référence principale à définir";
     statusVariant = "warning";
     heroState = "primary_selection_required";
@@ -493,8 +494,8 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       action: null,
       facts: [],
       evidence: dedupe([
-        hasMissingPrimaryDpgf ? `${documents.filter((document) => document.detectedCategory === "dpgf").length} DPGF detectes` : "",
-        hasMissingPrimaryCctp ? `${documents.filter((document) => document.detectedCategory === "cctp").length} CCTP detectes` : "",
+        hasMissingPrimaryDpgf ? `${documents.filter((document) => document.detectedCategory === "dpgf").length} DPGF détectés` : "",
+        hasMissingPrimaryCctp ? `${documents.filter((document) => document.detectedCategory === "cctp").length} CCTP détectés` : "",
         "Analyse et comparaison disponibles tant que le principal n'est pas choisi.",
       ]).filter(Boolean),
     };
@@ -504,12 +505,12 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     title = missingPiecesAllowContinuation ? "Consolider le dossier" : "Compléter le dossier";
     summary = missingPiecesAllowContinuation
       ? criticalMissingPieces.length > 0
-        ? `Le dossier peut avancer, mais ${count} piece${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} reste${count > 1 ? "nt" : ""} a regulariser pour fiabiliser le metre et la sortie devis.`
-        : `Le dossier reste exploitable, mais ${count} piece${count > 1 ? "s" : ""} manque${count > 1 ? "nt" : ""} encore pour fiabiliser le chiffrage.`
+        ? `Le dossier peut avancer, mais ${count} pièce${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} reste${count > 1 ? "nt" : ""} à régulariser pour fiabiliser le métré et la sortie devis.`
+        : `Le dossier reste exploitable, mais ${count} pièce${count > 1 ? "s" : ""} manque${count > 1 ? "nt" : ""} encore pour fiabiliser le chiffrage.`
       : criticalMissingPieces.length > 0
-        ? `Ajoutez d'abord ${count} piece${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} avant de lancer le metre ou de finaliser la sortie devis.`
-        : `Le dossier reste incomplet. Ajoutez les pieces manquantes avant de poursuivre le chiffrage.`;
-    statusLabel = missingPiecesAllowContinuation ? "Sous reserves" : "Dossier incomplet";
+        ? `Ajoutez d'abord ${count} pièce${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} avant de lancer le métré ou de finaliser la sortie devis.`
+        : `Le dossier reste incomplet. Ajoutez les pièces manquantes avant de poursuivre le chiffrage.`;
+    statusLabel = missingPiecesAllowContinuation ? "Sous réserves" : "Dossier incomplet";
     statusVariant = "warning";
     heroState = "missing";
     readinessLevel = canonicalReadinessStatus ?? "not_ready";
@@ -520,24 +521,24 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
         : toHrefAction({
             key: "missing-intake-fallback",
             label: "Compléter le dossier",
-            description: "Ouvrir l'intake pour ajouter les pieces manquantes.",
+            description: "Ouvrir l'intake pour ajouter les pièces manquantes.",
             href: `/dashboard/affaires/${input.projectId}#intake`,
             variant: "primary",
           });
     resultCard = {
       kind: "missing",
-      title: missingPiecesAllowContinuation ? "Dossier exploitable sous reserves" : "Dossier incomplet",
+      title: missingPiecesAllowContinuation ? "Dossier exploitable sous réserves" : "Dossier incomplet",
       message: missingPiecesAllowContinuation
         ? !hasDpgf && !hasPlans
-          ? "La base actuelle permet d'avancer, mais la base devis et les plans restent a consolider."
+          ? "La base actuelle permet d'avancer, mais la base devis et les plans restent à consolider."
           : !hasDpgf
             ? "Les plans sont presents. Ajoutez la base devis pour fiabiliser la suite du chiffrage."
-            : "La base devis est presente. Ajoutez les plans techniques pour fiabiliser la suite."
+            : "La base devis est présente. Ajoutez les plans techniques pour fiabiliser la suite."
         : !hasDpgf && !hasPlans
           ? "Il manque la base devis et les plans pour lancer l'analyse."
           : !hasDpgf
             ? "Les plans sont presents, mais il manque encore la base devis."
-            : "La base devis est prete, mais il manque encore les plans techniques.",
+            : "La base devis est prête, mais il manque encore les plans techniques.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: missingPieces.map((piece) => piece.label).slice(0, 3),
@@ -553,7 +554,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       canonicalReadinessStatus === "not_ready"
         ? (confirmBriefSuggestion?.preview ?? "Valider le cadrage du dossier avant de debloquer la suite du chiffrage assiste.")
         : (confirmBriefSuggestion?.preview ?? "Valider le cadrage du dossier pour debloquer la suite du chiffrage assiste.");
-    statusLabel = canonicalReadinessStatus === "not_ready" ? "Base insuffisante" : "Brief a valider";
+    statusLabel = canonicalReadinessStatus === "not_ready" ? "Base insuffisante" : "Brief à valider";
     statusVariant = canonicalReadinessStatus === "not_ready" ? "warning" : "info";
     heroState = "brief";
     readinessLevel = canonicalReadinessStatus ?? "ready_with_reservations";
@@ -562,7 +563,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       : toHrefAction({
           key: "confirm-brief-fallback",
           label: "Confirmer le brief",
-          description: "Ouvrir le brief affaire pour valider le cadrage metier.",
+          description: "Ouvrir le brief affaire pour valider le cadrage métier.",
           href: `/dashboard/affaires/${input.projectId}#brief`,
           variant: "primary",
         });
@@ -571,11 +572,11 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       title: canonicalReadinessStatus === "not_ready" ? "Base de travail insuffisante" : "Dossier exploitable",
       message:
         canonicalReadinessStatus === "not_ready"
-          ? "Confirmez le cadrage metier avant de structurer le devis ou de lancer le metre."
-          : "Les pieces critiques sont presentes. Confirmez le cadrage metier avant de chiffrer.",
+          ? "Confirmez le cadrage métier avant de structurer le devis ou de lancer le métré."
+          : "Les pièces critiques sont présentes. Confirmez le cadrage métier avant de chiffrer.",
       readinessStatus: readinessLevel,
       action: primaryAction,
-      facts: dedupe([hasDpgf ? "DPGF detecte" : "", hasPlans ? "Plans detectes" : "", hasCctp ? "CCTP detecte" : ""]).filter(Boolean),
+      facts: dedupe([hasDpgf ? "DPGF detecte" : "", hasPlans ? "Plans détectés" : "", hasCctp ? "CCTP detecte" : ""]).filter(Boolean),
       evidence: dedupe([
         briefDraft?.projectObject ?? "",
         briefDraft?.lots.length ? `Lots: ${briefDraft.lots.slice(0, 2).join(", ")}` : "",
@@ -596,11 +597,11 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
           ? "Compléter le dossier"
           : "Stabiliser le dossier";
     summary = reviewPending
-      ? (reviewIntakeSuggestion?.preview ?? "Des documents doivent encore etre confirmes avant toute reprise du chiffrage.")
+      ? (reviewIntakeSuggestion?.preview ?? "Des documents doivent encore être confirmés avant toute reprise du chiffrage.")
       : briefPending
-        ? "Le cadrage metier doit etre valide avant de relancer les automatismes."
+        ? "Le cadrage métier doit être validé avant de relancer les automatismes."
         : canonicalMissingCount > 0
-          ? `Ajoutez d'abord ${canonicalMissingCount} piece${canonicalMissingCount > 1 ? "s" : ""} manquante${canonicalMissingCount > 1 ? "s" : ""} avant de relancer les automatismes.`
+          ? `Ajoutez d'abord ${canonicalMissingCount} pièce${canonicalMissingCount > 1 ? "s" : ""} manquante${canonicalMissingCount > 1 ? "s" : ""} avant de relancer les automatismes.`
           : "Le backend indique que le dossier n'est pas encore exploitable. Traitez le blocage prioritaire avant de poursuivre.";
     statusLabel = "Base insuffisante";
 
@@ -612,8 +613,8 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
         ? toSuggestionAction(reviewIntakeSuggestion)
         : toHrefAction({
             key: "review-intake-fallback",
-            label: "Confirmer les pieces",
-            description: "Ouvrir les pieces a revoir depuis le dossier intake.",
+            label: "Confirmer les pièces",
+            description: "Ouvrir les pièces à revoir depuis le dossier intake.",
             href: `/dashboard/affaires/${input.projectId}?intakeFilter=a_revoir#intake`,
             variant: "primary",
           })
@@ -621,7 +622,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
         ? toHrefAction({
             key: "confirm-brief-fallback",
             label: "Confirmer le brief",
-            description: "Ouvrir le brief affaire pour valider le cadrage metier.",
+            description: "Ouvrir le brief affaire pour valider le cadrage métier.",
             href: `/dashboard/affaires/${input.projectId}#brief`,
             variant: "primary",
           })
@@ -632,7 +633,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
             : toHrefAction({
                 key: "missing-intake-fallback",
                 label: "Compléter le dossier",
-                description: "Ouvrir l'intake pour ajouter les pieces manquantes.",
+                description: "Ouvrir l'intake pour ajouter les pièces manquantes.",
                 href: `/dashboard/affaires/${input.projectId}#intake`,
                 variant: "primary",
               });
@@ -646,7 +647,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     primaryAction = toSuggestionAction(revalidationSuggestion);
     resultCard = {
       kind: "primary",
-      title: revalidationCount > 1 ? `${revalidationCount} revalidations a relancer` : "Revalidation a relancer",
+      title: revalidationCount > 1 ? `${revalidationCount} revalidations à relancer` : "Revalidation à relancer",
       message:
         revalidationFacts.length > 0
           ? `Le dossier a change. Relancez d'abord ${revalidationFacts.join(" + ").toLowerCase()} avant de reprendre la remise.`
@@ -684,9 +685,9 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     primaryAction = toSuggestionAction(hybridSuggestion);
     resultCard = {
       kind: "structure",
-      title: hasWorkReservations ? "Passage en hybride sous reserves" : "Passage en hybride recommande",
+      title: hasWorkReservations ? "Passage en hybride sous réserves" : "Passage en hybride recommande",
       message: hasWorkReservations
-        ? "Le devis existe deja en mode manuel. Importez la DPGF dans cette meme structure pour converger vers un mode hybride, mais le dossier reste sous reserves."
+        ? "Le devis existe déjà en mode manuel. Importez la DPGF dans cette même structure pour converger vers un mode hybride, mais le dossier reste sous réserves."
         : "Le devis existe déjà en mode manuel. Importez la DPGF dans cette même structure pour converger vers un mode hybride sans repartir de zéro.",
       readinessStatus: readinessLevel,
       action: primaryAction,
@@ -704,7 +705,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     };
   } else if (shouldOpenLinkedDpgfAsBase && input.currentVersion && input.dpgfSource) {
     title = "Importer la DPGF";
-    summary = "Le DPGF principal est pret. Utilisez-le comme base du devis avant d'ajouter vos completements manuels.";
+    summary = "Le DPGF principal est prêt. Utilisez-le comme base du devis avant d'ajouter vos completements manuels.";
     statusLabel = "Base importable";
     statusVariant = "info";
     heroState = "structure";
@@ -712,16 +713,16 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     primaryAction = toHrefAction({
       key: "import-dpgf-base",
       label: "Importer la DPGF",
-      description: "Ouvrir le devis pour importer la DPGF liee et materialiser la structure.",
+      description: "Ouvrir le devis pour importer la DPGF liée et matérialiser la structure.",
       href: `/dashboard/estimates/${input.currentVersion.id}/edit`,
       variant: "primary",
     });
     resultCard = {
       kind: "structure",
-      title: hasWorkReservations ? "Base DPGF importable sous reserves" : "Base DPGF prete a importer",
+      title: hasWorkReservations ? "Base DPGF importable sous réserves" : "Base DPGF prête à importer",
       message: hasWorkReservations
-        ? "La DPGF principale est validee. Importez-la comme base du devis, mais gardez en tete que le dossier reste encore sous reserves."
-        : "La DPGF principale est validee. Importez-la comme base du devis pour pre-remplir la structure avant les ajustements manuels.",
+        ? "La DPGF principale est validée. Importez-la comme base du devis, mais gardez en tete que le dossier reste encore sous réserves."
+        : "La DPGF principale est validée. Importez-la comme base du devis pour pré-remplir la structure avant les ajustements manuels.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
@@ -732,7 +733,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       evidence: dedupe([input.dpgfSource.filename, input.dpgfSource.mappingStatus === "applied" ? "Mapping déjà appliqué" : "Mapping valide"]).filter(Boolean),
     };
   } else if (planExceptionCount > 0 && viewExceptionsSuggestion) {
-    title = "Traiter les ecarts de preuves";
+    title = "Traiter les écarts de preuves";
     summary = viewExceptionsSuggestion.preview;
     statusLabel = "Revue requise";
     statusVariant = "warning";
@@ -740,29 +741,29 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     readinessLevel = "ready_with_reservations";
     primaryAction = toSuggestionAction(viewExceptionsSuggestion);
   } else if (analyzePlansSuggestion) {
-    title = "Lancer le metre";
+    title = "Lancer le métré";
     summary = analyzePlansSuggestion.preview;
-    statusLabel = hasWorkReservations ? "Analyse sous reserves" : "Pret pour analyse";
+    statusLabel = hasWorkReservations ? "Analyse sous réserves" : "Prêt pour analyse";
     statusVariant = hasWorkReservations ? "warning" : "success";
     heroState = "plans";
     readinessLevel = input.hubReadiness?.status ?? (hasDocumentReservations ? "ready_with_reservations" : "ready");
     primaryAction = toSuggestionAction(analyzePlansSuggestion);
     resultCard = {
       kind: "plans",
-      title: hasWorkReservations ? "Structure disponible sous reserves" : "Structure prete",
+      title: hasWorkReservations ? "Structure disponible sous réserves" : "Structure prête",
       message: hasWorkReservations
         ? hasContinuationHypothesisDriver && !hasDocumentReservations
-          ? "Lancez l'analyse des plans en gardant la trace d'hypothese active dans le registre."
+          ? "Lancez l'analyse des plans en gardant la trace d'hypothèse active dans le registre."
           : "Lancez l'analyse des plans, mais le dossier reste incomplet."
-        : "Lancez l'analyse des plans pour extraire les quantites.",
+        : "Lancez l'analyse des plans pour extraire les quantités.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
         structureModeDescription?.badgeLabel ?? "",
         clarificationFact,
         continuationHypothesisFact,
-        hasPlans ? "Plans detectes" : "",
-        hasDpgf ? (hasWorkReservations ? "Base devis disponible sous reserves" : "Base devis prete") : "",
+        hasPlans ? "Plans détectés" : "",
+        hasDpgf ? (hasWorkReservations ? "Base devis disponible sous réserves" : "Base devis prête") : "",
         ...documentReservationFacts,
       ]).filter(Boolean),
     };
@@ -773,11 +774,11 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     title = generateStructureSuggestion.label;
     summary = generateStructureSuggestion.preview;
     statusLabel = needsStructureUpdate
-      ? "Structure a remettre a jour"
+      ? "Structure à remettre à jour"
       : hasStructureDraft
-        ? "Structure a reprendre"
+        ? "Structure à reprendre"
         : isPreliminaryStructure
-          ? "Structure preliminaire"
+          ? "Structure préliminaire"
           : "Structure à générer";
     statusVariant = hasWorkReservations ? "warning" : "success";
     heroState = "structure";
@@ -787,34 +788,34 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       kind: "structure",
       title: isPreliminaryStructure
         ? hasWorkReservations
-          ? "Structure preliminaire sous reserves"
-          : (preliminaryContext?.title ?? "Structure preliminaire editable")
+          ? "Structure préliminaire sous réserves"
+          : (preliminaryContext?.title ?? "Structure préliminaire éditable")
         : needsStructureUpdate
           ? hasWorkReservations
-            ? "Structure a remettre a jour sous reserves"
-            : "Structure a remettre a jour"
+            ? "Structure à remettre à jour sous réserves"
+            : "Structure à remettre à jour"
           : hasWorkReservations
-            ? "Structure generable sous reserves"
+            ? "Structure generable sous réserves"
             : "Brief confirme",
       message: hasStructureDraft
         ? hasWorkReservations
           ? hasContinuationHypothesisDriver && !hasDocumentReservations
-            ? "Le brief est confirme. Reprenez la structure du devis en gardant la trace d'hypothese active."
-            : "Le brief est confirme. Reprenez la structure du devis, mais le dossier reste incomplet."
-          : "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+            ? "Le brief est confirmé. Reprenez la structure du devis en gardant la trace d'hypothèse active."
+            : "Le brief est confirmé. Reprenez la structure du devis, mais le dossier reste incomplet."
+          : "Le brief est confirmé. Reprenez la structure du devis avant de matérialiser le chiffrage."
         : needsStructureUpdate
           ? hasWorkReservations
-            ? "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage. Le dossier reste sous reserves."
+            ? "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage. Le dossier reste sous réserves."
             : "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage."
           : isPreliminaryStructure
             ? hasWorkReservations
-              ? `${preliminaryContext?.message ?? "La structure preliminaire reste disponible."} Le dossier reste toutefois sous reserves.`
-              : (preliminaryContext?.message ?? "Le brief confirme suffit pour ouvrir une structure preliminaire editable.")
+              ? `${preliminaryContext?.message ?? "La structure préliminaire reste disponible."} Le dossier reste toutefois sous réserves.`
+              : (preliminaryContext?.message ?? "Le brief confirme suffit pour ouvrir une structure préliminaire éditable.")
             : hasWorkReservations
               ? hasContinuationHypothesisDriver && !hasDocumentReservations
-                ? "Le brief est confirme. Generez la structure du devis en gardant la trace d'hypothese active."
-                : "Le brief est confirme. Generez la structure du devis, mais le dossier reste incomplet."
-              : "Le brief est confirme. Generez la structure du devis pour lancer le chiffrage.",
+                ? "Le brief est confirmé. Générez la structure du devis en gardant la trace d'hypothèse active."
+                : "Le brief est confirmé. Générez la structure du devis, mais le dossier reste incomplet."
+              : "Le brief est confirmé. Générez la structure du devis pour lancer le chiffrage.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: isPreliminaryStructure
@@ -830,16 +831,16 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
             ...(structureModeDescription?.facts ?? []),
             clarificationFact,
             continuationHypothesisFact,
-            hasDpgf ? (hasWorkReservations ? "Base devis disponible sous reserves" : "Base devis prete") : "",
-            hasPlans ? "Plans detectes" : "",
+            hasDpgf ? (hasWorkReservations ? "Base devis disponible sous réserves" : "Base devis prête") : "",
+            hasPlans ? "Plans détectés" : "",
             ...(hasWorkReservations ? documentReservationFacts : ["Version brouillon disponible"]),
           ]).filter(Boolean),
       evidence: isPreliminaryStructure ? (preliminaryContext?.evidence ?? []) : undefined,
     };
   } else if (prepareValidationSuggestion) {
-    title = "Preparer la validation";
+    title = "Préparer la validation";
     summary = prepareValidationSuggestion.preview;
-    statusLabel = "Pret pour validation";
+    statusLabel = "Prêt pour validation";
     statusVariant = "success";
     heroState = "ready_to_continue";
     readinessLevel = "ready_with_reservations";
@@ -847,7 +848,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   } else if (submissionReadiness && (submissionReadiness.status === "ready" || submissionReadiness.status === "warning")) {
     title = "Vérifier la sortie devis";
     summary = "Le chiffrage est assez stable pour vérifier le PDF, l'email et la sortie client.";
-    statusLabel = "Sortie a finaliser";
+    statusLabel = "Sortie à finaliser";
     statusVariant = "success";
     heroState = "ready_to_continue";
     readinessLevel = submissionReadiness.status === "ready" ? "ready" : "ready_with_reservations";
@@ -861,7 +862,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   } else if (input.takeoffEnabled && (input.plansSummary?.planSetCount ?? 0) > 0) {
     title = "Ouvrir les plans";
     summary = "Les plans sont disponibles. Continuez le parcours affaire-first depuis cette surface.";
-    statusLabel = "Pret pour metre";
+    statusLabel = "Prêt pour métré";
     statusVariant = "info";
     heroState = "ready_to_continue";
     readinessLevel = "ready_with_reservations";
@@ -881,7 +882,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
           ? []
           : criticalMissingPieces.map((piece) => piece.label)),
         ...(planExceptionCount > 0
-          ? [`${planExceptionCount} ecart${planExceptionCount > 1 ? "s" : ""} majeur${planExceptionCount > 1 ? "s" : ""} sur les metres`]
+          ? [`${planExceptionCount} écart${planExceptionCount > 1 ? "s" : ""} majeur${planExceptionCount > 1 ? "s" : ""} sur les métrés`]
           : []),
         ...finishLineBlockers,
       ]).slice(0, 3);
@@ -942,7 +943,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     ? toHrefAction({
         key: "legacy-fallback",
         label: "Ouvrir le fallback legacy",
-        description: `Un contexte estimate-first existe deja sur la V${input.currentVersion?.versionNumber ?? "?"}. Utilisez-le seulement comme reprise exceptionnelle.`,
+        description: `Un contexte estimate-first existe déjà sur la V${input.currentVersion?.versionNumber ?? "?"}. Utilisez-le seulement comme reprise exceptionnelle.`,
         href: `/dashboard/estimates/${input.currentVersion?.id}/takeoff`,
         variant: "secondary",
       })

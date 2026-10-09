@@ -209,11 +209,11 @@ describe("QuickCreateAffaireDialog", () => {
 
     await user.type(screen.getByLabelText("Nom du projet *"), "Affaire test");
     await user.selectOptions(screen.getByLabelText("Import disponible"), importId);
-    await user.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+    await user.click(screen.getByRole("button", { name: "Créer l'affaire" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /Cet import n['’]est pas pret pour la creation rapide\. Finalisez le mapping puis reessayez\./i
+        /Cet import n['’]est pas prêt pour la création rapide\. Finalisez le mapping puis réessayez\./i
       );
     });
 
@@ -277,7 +277,7 @@ describe("QuickCreateAffaireDialog", () => {
         new File(["designation;quantite\nposte;1"], "dpgf.csv", { type: "text/csv" }),
       );
       await user.type(screen.getByLabelText("Nom du projet *"), "Affaire redirect");
-      await user.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+      await user.click(screen.getByRole("button", { name: "Créer l'affaire" }));
 
       await waitFor(() => {
         expect(routerPushMock).toHaveBeenCalledWith(
@@ -335,7 +335,7 @@ describe("QuickCreateAffaireDialog", () => {
       new File(["designation;quantite\nposte;1"], "dpgf.csv", { type: "text/csv" }),
     );
     await user.type(screen.getByLabelText("Nom du projet *"), "Affaire faible confiance");
-    await user.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+    await user.click(screen.getByRole("button", { name: "Créer l'affaire" }));
 
     await waitFor(() => {
       expect(quickCreateAffaireMock).toHaveBeenCalledWith(
@@ -392,7 +392,7 @@ describe("QuickCreateAffaireDialog", () => {
       fireEvent.change(screen.getByLabelText("Nom du projet *"), {
         target: { value: "Affaire timeout" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+      fireEvent.click(screen.getByRole("button", { name: "Créer l'affaire" }));
 
       await waitFor(() => {
         expect(screen.getByText("Analyse du fichier\u2026")).toBeInTheDocument();
@@ -400,7 +400,7 @@ describe("QuickCreateAffaireDialog", () => {
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent(
-          /Import introuvable apres l['’]upload\. Veuillez reessayer\./i,
+          /Import introuvable après l['’]upload\. Veuillez réessayer\./i,
         );
       });
     } finally {
@@ -446,7 +446,7 @@ describe("QuickCreateAffaireDialog", () => {
     fireEvent.change(screen.getByLabelText("Nom du projet *"), {
       target: { value: "Affaire busy" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+    fireEvent.click(screen.getByRole("button", { name: "Créer l'affaire" }));
 
     await waitFor(() => {
       expect(importFileMock).toHaveBeenCalledTimes(1);

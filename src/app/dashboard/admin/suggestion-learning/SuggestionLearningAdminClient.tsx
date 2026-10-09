@@ -248,12 +248,12 @@ async function fetchSuggestionLearnings(route: string): Promise<SuggestionLearni
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Reponse suggestion learning invalide.");
+    throw new Error("Réponse suggestion learning invalide.");
   }
 
   const envelope = payload as ApiEnvelope<SuggestionLearningState>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.proposals)) {
-    throw new Error(resolveErrorMessage(payload, "Reponse suggestion learning invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse suggestion learning invalide."));
   }
 
   return envelope.data;
@@ -278,12 +278,12 @@ async function fetchFeatureFlags([
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Reponse feature flags invalide.");
+    throw new Error("Réponse feature flags invalide.");
   }
 
   const envelope = payload as ApiEnvelope<FeatureFlagsResponse>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.flags)) {
-    throw new Error(resolveErrorMessage(payload, "Reponse feature flags invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse feature flags invalide."));
   }
 
   return envelope.data;
@@ -310,16 +310,16 @@ async function patchReview(input: {
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de mettre a jour la revue."));
+    throw new Error(resolveErrorMessage(payload, "Impossible de mettre à jour la revue."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Reponse suggestion learning invalide.");
+    throw new Error("Réponse suggestion learning invalide.");
   }
 
   const envelope = payload as ApiEnvelope<SuggestionLearningState>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.proposals)) {
-    throw new Error(resolveErrorMessage(payload, "Reponse suggestion learning invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse suggestion learning invalide."));
   }
 
   return envelope.data;
@@ -356,16 +356,16 @@ async function patchFeatureFlag(input: {
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de mettre a jour le feature flag."));
+    throw new Error(resolveErrorMessage(payload, "Impossible de mettre à jour le feature flag."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Reponse feature flags invalide.");
+    throw new Error("Réponse feature flags invalide.");
   }
 
   const envelope = payload as ApiEnvelope<{ flag: FeatureFlagRecord }>;
   if (!envelope.ok || !envelope.data?.flag) {
-    throw new Error(resolveErrorMessage(payload, "Reponse feature flags invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse feature flags invalide."));
   }
 
   return envelope.data.flag;
@@ -385,12 +385,12 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
     throw new Error(
-      resolveErrorMessage(payload, "Impossible de purger les donnees suggestion learning.")
+      resolveErrorMessage(payload, "Impossible de purger les données suggestion learning.")
     );
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Reponse suggestion learning invalide.");
+    throw new Error("Réponse suggestion learning invalide.");
   }
 
   const envelope = payload as ApiEnvelope<SuggestionLearningPurgeResult>;
@@ -400,7 +400,7 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
     typeof envelope.data.deleted_count !== "number" ||
     !Array.isArray(envelope.data.proposals)
   ) {
-    throw new Error(resolveErrorMessage(payload, "Reponse suggestion learning invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse suggestion learning invalide."));
   }
 
   return envelope.data;

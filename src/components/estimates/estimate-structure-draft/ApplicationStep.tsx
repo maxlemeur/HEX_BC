@@ -48,7 +48,7 @@ export function ApplicationStep({
               Fusionner avec l&apos;existant
             </span>
             <p className="mt-2 text-sm text-muted-foreground">
-              Utilise les doublons detectes et cree le reste.
+              Utilise les doublons détectés et cree le reste.
             </p>
           </label>
           <label
@@ -64,7 +64,7 @@ export function ApplicationStep({
               disabled={hasExistingItems}
             />
             <span className="ml-3 font-medium text-foreground">
-              Creer a vide
+              Créer a vide
             </span>
             <p className="mt-2 text-sm text-muted-foreground">
               Reserve aux versions sans structure existante.

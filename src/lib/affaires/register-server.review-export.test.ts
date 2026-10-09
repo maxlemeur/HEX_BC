@@ -246,8 +246,8 @@ describe("fetchAffaireRegisterReviewExport", () => {
     ]);
     expect(result.reviewNote).toContain("Revue interne registre - Hydro Express");
     expect(result.reviewNote).toContain("Exclusions: 1");
-    expect(result.csvContent).toContain("Hypotheses;Hypothese");
-    expect(result.csvContent).toContain("Exclusions;Hypothese");
-    expect(result.csvContent).toContain("Clarifications client;Piece manquante");
+    expect(result.csvContent).toContain("Hypothèses;Hypothèse");
+    expect(result.csvContent).toContain("Exclusions;Hypothèse");
+    expect(result.csvContent).toContain("Clarifications client;Pièce manquante");
   });
 });

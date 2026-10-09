@@ -246,7 +246,7 @@ export function PurchaseOrderDocument({
                   onChange={(e) => onSupplierChange?.(e.target.value)}
                   required
                 >
-                  <option value="">- Selectionner -</option>
+                  <option value="">- Sélectionner -</option>
                   {supplierOptions.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}

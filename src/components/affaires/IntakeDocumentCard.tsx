@@ -53,7 +53,7 @@ const CATEGORY_LABELS: Record<AffaireIntakeDocumentKind, string> = {
   bpu_dqe: "BPU / DQE",
   annexes: "Annexes",
   emails: "Emails / Courriers",
-  a_classer: "A classer",
+  a_classer: "À classer",
 };
 
 const CATEGORY_OPTIONS: AffaireIntakeDocumentKind[] = [
@@ -73,7 +73,7 @@ function getConfidenceDisplay(confidence: number): { label: string; variant: Bad
   if (confidence >= 0.80) return { label: "Confiant", variant: "success" };
   if (confidence >= 0.65) return { label: "Probable", variant: "info" };
   if (confidence >= 0.40) return { label: "À vérifier", variant: "warning" };
-  return { label: "A confirmer", variant: "error" };
+  return { label: "À confirmer", variant: "error" };
 }
 
 function getCategoryBadgeVariant(category: AffaireIntakeDocumentKind): BadgeVariant {
@@ -243,7 +243,7 @@ export function IntakeDocumentCard({
                 disabled={isPending}
                 className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-60"
               >
-                Definir comme principal
+                Définir comme principal
               </button>
             ) : null}
             <button
@@ -261,7 +261,7 @@ export function IntakeDocumentCard({
       {isEditing && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle p-2">
           <label htmlFor={`reclassify-${doc.documentId}`} className="sr-only">
-            Nouvelle categorie
+            Nouvelle catégorie
           </label>
           <select
             id={`reclassify-${doc.documentId}`}

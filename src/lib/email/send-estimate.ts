@@ -141,7 +141,7 @@ async function loadPdfBuffer(
 
   if (error || !data) {
     throw internalError(
-      "Impossible de recuperer le PDF du devis pour l'email.",
+      "Impossible de récupérer le PDF du devis pour l'email.",
       error
     );
   }
@@ -183,7 +183,7 @@ async function preparePdfForDispatch(input: {
       !/^[a-f0-9]{64}$/.test(expectedHash)
     ) {
       throw internalError(
-        "Le PDF contractuel fige du devis envoye est indisponible.",
+        "Le PDF contractuel fige du devis envoyé est indisponible.",
         { status: pdfStatus.status },
         "ESTIMATE_EMAIL_FROZEN_PDF_UNAVAILABLE"
       );
@@ -257,7 +257,7 @@ function assertDispatchMatchesSubmission(input: {
     input.dispatch.created_by !== input.actorUserId
   ) {
     throw conflict(
-      "Un envoi est deja reserve avec une enveloppe differente. Reprenez les memes destinataires et le meme message.",
+      "Un envoi est déjà réservé avec une enveloppe différente. Reprenez les mêmes destinataires et le même message.",
       { dispatch_id: input.dispatch.id },
       "ESTIMATE_EMAIL_DISPATCH_CONFLICT"
     );
@@ -314,7 +314,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
       const { gating } = await getEstimateSendGating(input.versionId);
       if (gating.blockingFlags.length > 0) {
         throw badRequest(
-          "Envoi bloque: des anomalies bloquantes doivent etre corrigees avant validation.",
+          "Envoi bloque: des anomalies bloquantes doivent être corrigees avant validation.",
           { gating },
           "ESTIMATE_GATING_BLOCKED"
         );
@@ -331,7 +331,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
       verifiedSealHash = seal.computed_hash;
     } else if (versionStatus !== "sending") {
       throw forbidden(
-        "Ce devis finalise ne peut plus etre envoye par email.",
+        "Ce devis finalise ne peut plus être envoyé par email.",
         { status: versionStatus },
         "ESTIMATE_EMAIL_STATUS_FORBIDDEN"
       );
@@ -368,7 +368,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
   }
   if (dispatch.status === "unknown") {
     throw conflict(
-      "L'issue de cet envoi doit etre rapprochee avec le fournisseur avant toute reprise.",
+      "L'issue de cet envoi doit être rapprochee avec le fournisseur avant toute reprise.",
       { dispatch_id: dispatch.id },
       "ESTIMATE_EMAIL_DELIVERY_UNKNOWN"
     );
@@ -455,7 +455,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
         });
       } catch (rollbackError) {
         throw internalError(
-          "La preparation de l'email a echoue et le brouillon n'a pas pu etre libere automatiquement.",
+          "La préparation de l'email a echoue et le brouillon n'a pas pu être libere automatiquement.",
           { preparation_error: error, rollback_error: rollbackError },
           "ESTIMATE_EMAIL_PREPARATION_ROLLBACK_FAILED"
         );

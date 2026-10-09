@@ -269,7 +269,7 @@ function createSubdetailDraftRow(
       confidence: 0.72,
       pricing_source: "heuristic_review_draft",
       facts: ["Ouvrage parent: Pose de faux plafond"],
-      hypotheses: ["Cout materiau indicatif estime par heuristique metier a confirmer."],
+      hypotheses: ["Coût materiau indicatif estime par heuristique métier à confirmer."],
       inferences: ["Presence de pose -> besoin de main d'oeuvre."],
       risk_signals: [],
     },
@@ -337,7 +337,7 @@ function createSubdetailItemRows() {
       confidence: 0.65,
       source_label: "Texte libre saisi",
       facts: [],
-      hypotheses: ["Rendement MO estime a partir du type d'ouvrage et doit etre valide."],
+      hypotheses: ["Rendement MO estime à partir du type d'ouvrage et doit être validé."],
       inferences: ["Presence de pose -> besoin de main d'oeuvre."],
       metadata: { risk_signals: [] },
     },
@@ -681,7 +681,7 @@ describe("insertGeneratedOuvrages", () => {
       expect.objectContaining({
         item_type: "section",
         parent_id: null,
-        title: "A classer",
+        title: "À classer",
         source_provider: "generated_ouvrage",
       })
     );
@@ -849,7 +849,7 @@ describe("insertGeneratedOuvrages", () => {
       estimate_items: {
         select: [
           createQueryBuilder({
-            data: [{ id: FALLBACK_SECTION_ID, title: "A classer" }],
+            data: [{ id: FALLBACK_SECTION_ID, title: "À classer" }],
             error: null,
           }),
         ],
@@ -911,7 +911,7 @@ describe("insertGeneratedOuvrages", () => {
     });
   });
 
-  it("reuses the explicit 'A classer' section when it already exists", async () => {
+  it("reuses the explicit 'À classer' section when it already exists", async () => {
     const supabase = createSupabaseStub({
       estimate_versions: {
         select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
@@ -1025,7 +1025,7 @@ describe("insertGeneratedOuvrages", () => {
       estimate_items: {
         select: [
           createQueryBuilder({
-            data: [{ id: FALLBACK_SECTION_ID, title: "A classer" }],
+            data: [{ id: FALLBACK_SECTION_ID, title: "À classer" }],
             error: null,
           }),
         ],
@@ -1389,7 +1389,7 @@ describe("rejectGeneratedOuvrageDraft", () => {
     const result = await rejectGeneratedOuvrageDraft({
       draftId: DRAFT_ID,
       candidateId: CANDIDATE_ID,
-      reason: "A clarifier avec le client.",
+      reason: "À clarifier avec le client.",
     });
 
     expect(result).toMatchObject({
@@ -1446,7 +1446,7 @@ describe("rejectGeneratedOuvrageDraft", () => {
       rejectGeneratedOuvrageDraft({
         draftId: DRAFT_ID,
         candidateId: CANDIDATE_ID,
-        reason: "A clarifier avec le client.",
+        reason: "À clarifier avec le client.",
       })
     ).rejects.toMatchObject({
       code: "EST381_DRAFT_DISCARDED",

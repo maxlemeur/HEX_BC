@@ -122,8 +122,8 @@ const PHASE_MESSAGES: Record<DialogPhase, string> = {
   idle: "",
   uploading: "Upload en cours\u2026",
   parsing: "Analyse du fichier\u2026",
-  fetching_suggestions: "Verification du mapping\u2026",
-  creating: "Creation de l\u2019affaire\u2026",
+  fetching_suggestions: "Vérification du mapping\u2026",
+  creating: "Création de l\u2019affaire\u2026",
 };
 
 // ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ function MiniDropZone({
         <div className="flex flex-col items-center gap-1.5">
           <UploadIcon stroke="var(--slate-400)" strokeWidth="1.5" aria-hidden="true" size={20} />
           <p className="text-xs font-medium text-slate-600">
-            Deposez un fichier DPGF (optionnel)
+            Déposez un fichier DPGF (optionnel)
           </p>
           <p className="text-[10px] text-subtle-foreground">
             CSV, XLSX ou XLS
@@ -402,7 +402,7 @@ export function QuickCreateAffaireDialog({
     } else if (match.status === "failed" || match.status === "error") {
       pendingImportIdRef.current = null;
       setPhase("idle");
-      setServerError("Le fichier n\u2019a pas pu etre analyse.");
+      setServerError("Le fichier n\u2019a pas pu être analyse.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, imports]);
@@ -423,7 +423,7 @@ export function QuickCreateAffaireDialog({
       pendingImportIdRef.current = null;
       setPhase("idle");
       setServerError(
-        "Import introuvable apres l\u2019upload. Veuillez reessayer.",
+        "Import introuvable après l\u2019upload. Veuillez réessayer.",
       );
     }, PARSING_IMPORT_LOOKUP_TIMEOUT_MS);
 
@@ -527,7 +527,7 @@ export function QuickCreateAffaireDialog({
       pendingImportIdRef.current = null;
       setPhase("idle");
       setServerError(
-        err instanceof Error ? err.message : "Erreur lors de la creation.",
+        err instanceof Error ? err.message : "Erreur lors de la création.",
       );
     }
   }
@@ -554,7 +554,7 @@ export function QuickCreateAffaireDialog({
           const mappingReady = await isImportMappingReady(selectedImportId);
           if (!mappingReady) {
             setServerError(
-              "Cet import n\u2019est pas pret pour la creation rapide. Finalisez le mapping puis reessayez.",
+              "Cet import n\u2019est pas prêt pour la création rapide. Finalisez le mapping puis réessayez.",
             );
             return;
           }
@@ -575,7 +575,7 @@ export function QuickCreateAffaireDialog({
         setServerError(
           err instanceof Error
             ? err.message
-            : "Impossible de creer l\u2019affaire.",
+            : "Impossible de créer l\u2019affaire.",
         );
       }
     });
@@ -597,7 +597,7 @@ export function QuickCreateAffaireDialog({
         setServerError(
           err instanceof Error
             ? err.message
-            : "Impossible de creer l\u2019affaire.",
+            : "Impossible de créer l\u2019affaire.",
         );
       }
     });
@@ -830,7 +830,7 @@ export function QuickCreateAffaireDialog({
               href="/dashboard/estimates/new"
               className="mr-auto text-xs text-muted-foreground hover:underline"
             >
-              Creation avancee
+              Création avancee
             </Link>
           )}
           <Modal.Close disabled={isBusy}>Annuler</Modal.Close>
@@ -841,7 +841,7 @@ export function QuickCreateAffaireDialog({
             disabled={!canSubmit}
             onClick={handleSubmit}
           >
-            Creer l&apos;affaire
+            Créer l&apos;affaire
           </Button>
         </Modal.Footer>
       </Modal.Content>

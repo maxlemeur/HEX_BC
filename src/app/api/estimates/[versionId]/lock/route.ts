@@ -43,7 +43,7 @@ function parseForceQuery(request: Request) {
     return false;
   }
 
-  throw badRequest("Parametre force invalide.");
+  throw badRequest("Paramètre force invalide.");
 }
 
 export async function POST(

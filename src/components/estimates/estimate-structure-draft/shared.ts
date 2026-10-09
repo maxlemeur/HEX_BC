@@ -2,7 +2,7 @@ import type { TreeFilterKey } from "@/lib/estimates/estimate-structure-draft";
 
 export const WIZARD_STEPS = [
   { step: 1, label: "Sources" },
-  { step: 2, label: "Selection" },
+  { step: 2, label: "Sélection" },
   { step: 3, label: "Application" },
 ] as const;
 

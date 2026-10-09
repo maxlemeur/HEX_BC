@@ -438,7 +438,7 @@ function assertSameVersionScope(input: {
 
   if (!sameTenant || !sameProject) {
     throw badRequest(
-      "Les versions comparees doivent appartenir au meme projet et au meme tenant."
+      "Les versions comparees doivent appartenir au même projet et au même tenant."
     );
   }
 }
@@ -520,7 +520,7 @@ export async function getOrBuildEstimateChangelog(input: {
   if (upsertError) {
     throw mapSupabaseError(
       upsertError,
-      "Impossible de mettre a jour le cache de changelog."
+      "Impossible de mettre à jour le cache de changelog."
     );
   }
 

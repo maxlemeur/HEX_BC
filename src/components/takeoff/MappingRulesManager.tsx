@@ -291,20 +291,20 @@ export function MappingRulesManager() {
       try {
         if (editorState.mode === "create") {
           await createTakeoffMappingRule(payload as CreateTakeoffMappingRuleInput);
-          setSuccessMessage("Regle creee.");
+          setSuccessMessage("Règle créée.");
         } else {
           await updateTakeoffMappingRule(
             editorState.rule.id,
             payload as UpdateTakeoffMappingRuleInput
           );
-          setSuccessMessage("Regle mise a jour.");
+          setSuccessMessage("Règle mise à jour.");
         }
 
         setEditorState(null);
         await mutate();
       } catch (error) {
         setActionError(
-          toErrorMessage(error, "Impossible d'enregistrer la regle de mapping.")
+          toErrorMessage(error, "Impossible d'enregistrer la règle de mapping.")
         );
       } finally {
         setIsEditorSubmitting(false);
@@ -324,11 +324,11 @@ export function MappingRulesManager() {
         await updateTakeoffMappingRule(rule.id, {
           is_active: !rule.is_active,
         });
-        setSuccessMessage(rule.is_active ? "Regle desactivee." : "Regle activee.");
+        setSuccessMessage(rule.is_active ? "Règle désactivée." : "Règle activée.");
         await mutate();
       } catch (error) {
         setActionError(
-          toErrorMessage(error, "Impossible de modifier l'etat actif/inactif.")
+          toErrorMessage(error, "Impossible de modifier l'état actif/inactif.")
         );
       } finally {
         setBusyRuleId(null);
@@ -369,13 +369,13 @@ export function MappingRulesManager() {
 
     if (Object.keys(nextFieldErrors).length > 0) {
       setActionError(
-        "Corrigez les priorites invalides avant de sauvegarder l'ordre."
+        "Corrigez les priorités invalides avant de sauvegarder l'ordre."
       );
       return;
     }
 
     if (updates.length === 0) {
-      setSuccessMessage("Aucun changement de priorite.");
+      setSuccessMessage("Aucun changement de priorité.");
       return;
     }
 
@@ -417,11 +417,11 @@ export function MappingRulesManager() {
 
       try {
         await mutate();
-        setSuccessMessage("Ordre des priorites enregistre.");
+        setSuccessMessage("Ordre des priorités enregistre.");
       } catch {
         setActionError(null);
         setSuccessMessage(
-          "Ordre des priorites enregistre. Impossible d'actualiser la liste pour le moment."
+          "Ordre des priorités enregistre. Impossible d'actualiser la liste pour le moment."
         );
       }
     } catch (writeError) {
@@ -437,7 +437,7 @@ export function MappingRulesManager() {
       setActionError(
         toErrorMessage(
           writeError,
-          "Impossible de sauvegarder l'ordre des priorites."
+          "Impossible de sauvegarder l'ordre des priorités."
         )
       );
     } finally {
@@ -457,11 +457,11 @@ export function MappingRulesManager() {
 
     try {
       await deleteTakeoffMappingRule(targetRule.id);
-      setSuccessMessage("Regle supprimee.");
+      setSuccessMessage("Règle supprimée.");
       await mutate();
     } catch (error) {
       setActionError(
-        toErrorMessage(error, "Impossible de supprimer la regle de mapping.")
+        toErrorMessage(error, "Impossible de supprimer la règle de mapping.")
       );
     } finally {
       setBusyRuleId(null);
@@ -474,7 +474,7 @@ export function MappingRulesManager() {
         <div>
           <h1 className="page-title">Règles d&apos;enrichissement de l&apos;extraction</h1>
           <p className="page-description">
-            Creez, testez et priorisez les regles d&apos;enrichissement automatique.
+            Créez, testez et priorisez les règles d&apos;enrichissement automatique.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -488,7 +488,7 @@ export function MappingRulesManager() {
             }}
             disabled={Boolean(editorState) || isEditorSubmitting || isReordering}
           >
-            Nouvelle regle
+            Nouvelle règle
           </button>
           <button
             type="button"
@@ -503,7 +503,7 @@ export function MappingRulesManager() {
 
       {rulesLoadError && rules.length === 0 ? (
         <div className="alert alert-error">
-          {toErrorMessage(rulesLoadError, "Impossible de charger les regles de mapping.")}
+          {toErrorMessage(rulesLoadError, "Impossible de charger les règles de mapping.")}
         </div>
       ) : null}
       {assembliesLoadError ? (
@@ -561,27 +561,27 @@ export function MappingRulesManager() {
 
         {isRulesLoading ? (
           <div className="px-6 py-8 text-sm text-muted-foreground">
-            Chargement des regles de mapping...
+            Chargement des règles de mapping...
           </div>
         ) : (
           <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Priorite</th>
-                  <th>Etat</th>
+                  <th>Priorité</th>
+                  <th>État</th>
                   <th>Nom</th>
                   <th>Match</th>
                   <th>Action</th>
                   <th>Cree le</th>
-                  <th>Operations</th>
+                  <th>Opérations</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRules.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-10 text-center text-muted-foreground">
-                      Aucune regle de mapping.
+                      Aucune règle de mapping.
                     </td>
                   </tr>
                 ) : (
@@ -601,7 +601,7 @@ export function MappingRulesManager() {
                               className={`form-input form-input--sm ${
                                 priorityErrorById[rule.id] ? "border-danger" : ""
                               }`}
-                              aria-label={`Priorite de ${rule.name}`}
+                              aria-label={`Priorité de ${rule.name}`}
                               value={draftPriority}
                               onChange={(event) => {
                                 setPriorityDraftById((previous) => ({
@@ -676,7 +676,7 @@ export function MappingRulesManager() {
                               }}
                               disabled={isBusy || isEditorSubmitting || isReordering}
                             >
-                              Editer
+                              Éditer
                             </button>
                             <button
                               type="button"
@@ -684,7 +684,7 @@ export function MappingRulesManager() {
                               onClick={() => void handleToggleActive(rule)}
                               disabled={isBusy || isEditorSubmitting || isReordering}
                             >
-                              {rule.is_active ? "Desactiver" : "Activer"}
+                              {rule.is_active ? "Désactiver" : "Activer"}
                             </button>
                             <button
                               type="button"
@@ -709,13 +709,13 @@ export function MappingRulesManager() {
 
       <ConfirmModal
         open={deletingRule !== null}
-        title="Supprimer la regle"
+        title="Supprimer la règle"
         message={
           deletingRule
-            ? `Confirmez la suppression definitive de la regle "${deletingRule.name}" ?`
+            ? `Confirmez la suppression definitive de la règle "${deletingRule.name}" ?`
             : ""
         }
-        confirmLabel="Supprimer la regle"
+        confirmLabel="Supprimer la règle"
         variant="danger"
         onCancel={() => setDeletingRule(null)}
         onConfirm={() => void confirmDelete()}

@@ -71,7 +71,7 @@ export function classifyEstimatePdfStorageFailure(
     reason: "storage_unavailable" as const,
     message:
       operation === "upload"
-        ? "Impossible d'enregistrer le PDF. Reessayez ou contactez un administrateur."
-        : "Impossible de preparer le telechargement du PDF. Reessayez ou contactez un administrateur.",
+        ? "Impossible d'enregistrer le PDF. Réessayez ou contactez un administrateur."
+        : "Impossible de préparer le téléchargement du PDF. Réessayez ou contactez un administrateur.",
   };
 }

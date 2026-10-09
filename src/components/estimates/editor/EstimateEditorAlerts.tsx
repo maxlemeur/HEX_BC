@@ -90,7 +90,7 @@ export function EstimateEditorAlerts({
         >
           <div className="flex items-center gap-2">
             <TriangleAlertIcon aria-hidden="true" size={20} />
-            <span>Verrouille par {lockHolderLabel}.</span>
+            <span>Verrouillé par {lockHolderLabel}.</span>
           </div>
           {isAdmin ? (
             <button
@@ -124,7 +124,7 @@ export function EstimateEditorAlerts({
           <div className="flex items-center gap-2">
             <TriangleAlertIcon aria-hidden="true" size={20} />
             <span>
-              {conflictMessage}. Rechargez la version pour recuperer les donnees serveur.
+              {conflictMessage}. Rechargez la version pour récupérer les données serveur.
             </span>
           </div>
           <button
@@ -202,7 +202,7 @@ export function EstimateEditorAlerts({
         >
           <div className="flex items-center gap-2">
             <CircleAlertIcon aria-hidden="true" size={20} />
-            <span>Suggestions appliquees sur {bulkSuggestAppliedCount} ligne(s).</span>
+            <span>Suggestions appliquées sur {bulkSuggestAppliedCount} ligne(s).</span>
           </div>
           <button
             className="btn btn-secondary btn-sm"

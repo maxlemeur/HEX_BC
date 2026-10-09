@@ -182,14 +182,14 @@ export async function linkTakeoffJobsFromSourceVersionToTargetVersion(input: {
   if (sourceJobsError) {
     throw mapSupabaseError(
       sourceJobsError,
-      "Impossible de recuperer les jobs takeoff de la version source."
+      "Impossible de récupérer les jobs takeoff de la version source."
     );
   }
 
   if (inheritedLinksError) {
     throw mapSupabaseError(
       inheritedLinksError,
-      "Impossible de recuperer les liens takeoff de la version source."
+      "Impossible de récupérer les liens takeoff de la version source."
     );
   }
 
@@ -240,7 +240,7 @@ export async function linkTakeoffJobsFromSourceVersionToTargetVersion(input: {
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de lier les jobs takeoff a la nouvelle version."
+        "Impossible de lier les jobs takeoff à la nouvelle version."
       );
     }
 

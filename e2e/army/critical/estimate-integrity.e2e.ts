@@ -294,7 +294,7 @@ armyTest(
       () => screen.getByRole("button", "Excel (.xlsx)", { exact: true }).tap(), { timeout: 60_000 }
     ));
     const sheet = worksheet(standard.workbook, "Devis");
-    expect(sheet.getRow(1).values).toEqual([undefined, "Poste", "Désignation", "Unite", "Quantité", "PU HT", "Total HT", "TVA", "Total TTC"]);
+    expect(sheet.getRow(1).values).toEqual([undefined, "Poste", "Désignation", "Unité", "Quantité", "PU HT", "Total HT", "TVA", "Total TTC"]);
     const standardRows = expected.map((line) => {
       const row = matchingRows(sheet, 2, line.title);
       return { title: row.getCell(2).text.trim(), values: [4, 5, 6, 7, 8].map((column) => row.getCell(column).value) };
@@ -312,7 +312,7 @@ armyTest(
     const dpgf = await downloadedWorkbook(await browser.waitForDownload(
       () => screen.getByTestId("estimate-page-toolbar-export-dpgf-button").tap(), { timeout: 60_000 }
     ));
-    const dpgfSheet = worksheet(dpgf.workbook, "Donnees");
+    const dpgfSheet = worksheet(dpgf.workbook, "Données");
     const dpgfRows = expected.map((line) => {
       const row = matchingRows(dpgfSheet, 3, line.title);
       return {

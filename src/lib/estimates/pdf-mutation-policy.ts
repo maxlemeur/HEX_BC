@@ -25,7 +25,7 @@ export function assertEstimatePdfMutationAllowed(
   }
 
   throw forbidden(
-    "Le PDF contractuel d'un devis transmis ne peut plus etre remplace.",
+    "Le PDF contractuel d'un devis transmis ne peut plus être remplace.",
     { status },
     "ESTIMATE_PDF_CONTRACT_IMMUTABLE"
   );

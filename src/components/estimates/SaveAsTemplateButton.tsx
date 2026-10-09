@@ -80,16 +80,16 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
   return (
     <>
       <Button className={className} variant="secondary" size="sm" type="button" onClick={openModal}>
-        Sauvegarder comme modele
+        Sauvegarder comme modèle
       </Button>
 
       <Modal.Root open={isOpen} onOpenChange={setIsOpen}>
         <Modal.Content className="max-w-xl">
           <Modal.Header>
             <div>
-              <Modal.Title>Sauvegarder comme modele</Modal.Title>
+              <Modal.Title>Sauvegarder comme modèle</Modal.Title>
               <p className="mt-1 text-sm text-muted-foreground">
-                Le modele reprend sections, lignes et parametres de cette version.
+                Le modèle reprend sections, lignes et paramètres de cette version.
               </p>
             </div>
             <Modal.Close disabled={isSubmitting} />

@@ -22,7 +22,7 @@ describe("K-01: error response sanitization", () => {
 
       // server-side log must contain the details
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[imports] API error details"),
+        expect.stringContaining("[imports] API error détails"),
         expect.objectContaining({ table: "dpgf_imports" })
       );
 
@@ -43,7 +43,7 @@ describe("K-01: error response sanitization", () => {
       expect(error).not.toHaveProperty("details");
 
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[catalogue] API error details"),
+        expect.stringContaining("[catalogue] API error détails"),
         expect.objectContaining({ table: "catalogue_items" })
       );
 
@@ -64,7 +64,7 @@ describe("K-01: error response sanitization", () => {
       expect(error).not.toHaveProperty("details");
 
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[mappings] API error details"),
+        expect.stringContaining("[mappings] API error détails"),
         expect.objectContaining({ field: "mapping" })
       );
 

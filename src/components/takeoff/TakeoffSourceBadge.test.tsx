@@ -156,7 +156,7 @@ describe("TakeoffSourceBadge", () => {
         summary: {
           ds_cents: 4500,
           risk_signals: [
-            { label: "Quantite a confirmer", severity: "warning", basis: "hypothesis" },
+            { label: "Quantité a confirmer", severity: "warning", basis: "hypothesis" },
             { label: "Prix library seulement", severity: "critical", basis: "inference" },
           ],
         },
@@ -168,7 +168,7 @@ describe("TakeoffSourceBadge", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent(
-      "Risques: Quantite a confirmer · Prix library seulement"
+      "Risques: Quantité a confirmer · Prix library seulement"
     );
   });
 });

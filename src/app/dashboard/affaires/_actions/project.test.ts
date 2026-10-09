@@ -54,7 +54,7 @@ describe("affaire site address", () => {
 
   it("rejects unauthorized roles", async () => {
     membership.mockResolvedValue({ role: "viewer", tenant_id: "tenant" });
-    await expect(updateAffaireProjectMetadataAction({ ...input, siteAddress: "Paris" })).rejects.toThrow("Acces refuse");
+    await expect(updateAffaireProjectMetadataAction({ ...input, siteAddress: "Paris" })).rejects.toThrow("Accès refuse");
     expect(query.update).not.toHaveBeenCalled();
   });
 });

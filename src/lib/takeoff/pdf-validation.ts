@@ -92,7 +92,7 @@ export function validateTakeoffPdfUploadMetadata(input: {
       valid: false,
       reason: "unsupported",
       message:
-        "Le document doit etre un PDF (.pdf). Si le navigateur remonte un type MIME incorrect, verifiez l'extension ou reexportez le fichier.",
+        "Le document doit être un PDF (.pdf). Si le navigateur remonte un type MIME incorrect, vérifiez l'extension ou reexportez le fichier.",
     };
   }
 
@@ -108,7 +108,7 @@ function buildPdfInspectionMessage(error: unknown) {
   if (message.includes("encrypted") || message.includes("password")) {
     return {
       message:
-        "Le PDF est protege et ne peut pas etre analyse. Exportez une version non protegee puis relancez.",
+        "Le PDF est protege et ne peut pas être analyse. Exportez une version non protegee puis relancez.",
       details: {
         reason: "encrypted_pdf",
         provider_message: error instanceof Error ? error.message : String(error),
@@ -163,8 +163,8 @@ export async function inspectTakeoffPdfBytes(
 
 export function buildTakeoffPdfNotInterpretableMessage(level: "B" | "C") {
   if (level === "C") {
-    return "Le PDF est lisible mais ne contient pas assez d'elements exploitables pour une pre-estimation. Importez un plan plus lisible ou un autre document.";
+    return "Le PDF est lisible mais ne contient pas assez d'éléments exploitables pour une pre-estimation. Importez un plan plus lisible ou un autre document.";
   }
 
-  return "Le PDF est lisible mais aucun tableau exploitable n'a ete detecte. Importez un PDF mieux exporte ou essayez un autre document.";
+  return "Le PDF est lisible mais aucun tableau exploitable n'a été détecté. Importez un PDF mieux exporte ou essayez un autre document.";
 }

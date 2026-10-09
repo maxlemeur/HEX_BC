@@ -75,7 +75,7 @@ describe("IntakeWorkspace", () => {
 
     expect(screen.getByText("1 valide")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /A revoir/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Documents a confirmer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Documents à confirmer" })).not.toBeInTheDocument();
   });
 
   it("does not re-scroll the focused source document on workspace refreshes", async () => {

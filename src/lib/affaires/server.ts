@@ -873,7 +873,7 @@ async function fetchAffaireHubSummaryWithContext(
   if (acceptedVersionResult.error) {
     throw mapSupabaseError(
       acceptedVersionResult.error,
-      "Impossible de charger la derniere version acceptee."
+      "Impossible de charger la dernière version acceptée."
     );
   }
 
@@ -2148,7 +2148,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
       .in("id", [...laborRoleIds]);
 
     if (rolesError) {
-      throw mapSupabaseError(rolesError, "Impossible de charger les roles main d'oeuvre.");
+      throw mapSupabaseError(rolesError, "Impossible de charger les rôles main d'oeuvre.");
     }
 
     for (const role of rolesData ?? []) {

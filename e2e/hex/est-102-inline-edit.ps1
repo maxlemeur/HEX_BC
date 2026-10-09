@@ -429,13 +429,13 @@ function Get-ActiveInlineTarget {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-102" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-102" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-EditorTab -Session $Session
 
   Add-Chapter -Session $Session -Title "Chapitre inline"
   Add-Line -Session $Session -Designation "Ligne inline"
   try {
-    Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
+    Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Matériaux" -Kfo "1" -HoursMo "0" -Kmo "1"
   } catch {
     Write-Host "EST-102 WARN: line numeric fields are not editable in this layout."
   }

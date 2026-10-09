@@ -179,7 +179,7 @@ function parseRateInput(input: string): number {
   const normalized = input.trim().replace(",", ".");
   const parsed = Number.parseFloat(normalized);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error("Le taux doit etre un nombre positif.");
+    throw new Error("Le taux doit être un nombre positif.");
   }
   return parsed;
 }
@@ -188,7 +188,7 @@ function normalizeCreateOrUpdateInput(draft: CurrencyRateDraft) {
   const from = normalizeCurrencyCode(draft.from_currency);
   const to = normalizeCurrencyCode(draft.to_currency);
   if (from === to) {
-    throw new Error("Les devises source et cible doivent etre differentes.");
+    throw new Error("Les devises source et cible doivent être différentes.");
   }
 
   const rate = parseRateInput(draft.rate);
@@ -311,7 +311,7 @@ async function createCurrencyRate(payload: {
 
   const body = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(body, "Impossible de creer le taux de change."));
+    throw new Error(resolveErrorMessage(body, "Impossible de créer le taux de change."));
   }
 }
 
@@ -337,7 +337,7 @@ async function updateCurrencyRate(input: {
 
   const body = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(body, "Impossible de mettre a jour le taux de change."));
+    throw new Error(resolveErrorMessage(body, "Impossible de mettre à jour le taux de change."));
   }
 }
 
@@ -430,13 +430,13 @@ export function CurrencyRatesAdminClient() {
         source: "",
       }));
       setSuccessMessage(
-        `Taux ${payload.from_currency}/${payload.to_currency} cree avec succes.`
+        `Taux ${payload.from_currency}/${payload.to_currency} cree avec succès.`
       );
     } catch (createError) {
       setActionError(
         createError instanceof Error
           ? createError.message
-          : "Impossible de creer le taux de change."
+          : "Impossible de créer le taux de change."
       );
     } finally {
       setCreating(false);
@@ -458,13 +458,13 @@ export function CurrencyRatesAdminClient() {
       });
       await mutate();
       setSuccessMessage(
-        `Taux ${draft.from_currency}/${draft.to_currency} mis a jour.`
+        `Taux ${draft.from_currency}/${draft.to_currency} mis à jour.`
       );
     } catch (updateError) {
       setActionError(
         updateError instanceof Error
           ? updateError.message
-          : "Impossible de mettre a jour le taux de change."
+          : "Impossible de mettre à jour le taux de change."
       );
     } finally {
       setUpdatingId(null);
@@ -582,7 +582,7 @@ export function CurrencyRatesAdminClient() {
               className="btn btn-ghost btn-sm"
               onClick={() => setFilters({ from: "", to: "", includeInactive: false })}
             >
-              Reinitialiser
+              Réinitialiser
             </button>
           </div>
         </div>
@@ -685,7 +685,7 @@ export function CurrencyRatesAdminClient() {
               onClick={() => void handleCreate()}
               disabled={creating}
             >
-              {creating ? "Creation..." : "Creer"}
+              {creating ? "Creation..." : "Créer"}
             </button>
           </div>
         </div>
@@ -711,8 +711,8 @@ export function CurrencyRatesAdminClient() {
                   <th>Taux</th>
                   <th>Date effet</th>
                   <th>Source</th>
-                  <th>Etat</th>
-                  <th>Derniere MAJ</th>
+                  <th>État</th>
+                  <th>Dernière MAJ</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>

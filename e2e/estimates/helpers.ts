@@ -407,7 +407,7 @@ export async function createEstimateViaWizard(
   const loadingStatus = page.getByText("Chargement du chiffrage...");
   await loadingStatus.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
   await expect(
-    page.getByRole("heading", { name: /Editer le chiffrage|Éditer le chiffrage/i })
+    page.getByRole("heading", { name: /Éditer le chiffrage|Éditer le chiffrage/i })
   ).toBeVisible({ timeout: 30_000 });
 
   return { projectName, title, versionId };
@@ -714,7 +714,7 @@ export async function openEditorTab(page: Page) {
   }
 
   await expect(
-    page.getByRole("heading", { name: /Éditer le chiffrage|Editer le chiffrage/i })
+    page.getByRole("heading", { name: /Éditer le chiffrage|Éditer le chiffrage/i })
   ).toBeVisible();
   await expect(page.getByRole("grid", { name: /Lignes de devis/i })).toBeVisible();
 }
@@ -765,7 +765,7 @@ export async function setLineCoreValues(
   const escapedTitle = escapeRegExp(lineTitle);
 
   const quantityInput = page.getByLabel(
-    new RegExp(`Quantite pour ${escapedTitle}`, "i")
+    new RegExp(`Quantité pour ${escapedTitle}`, "i")
   );
   await quantityInput.fill(values.quantity);
   await quantityInput.press("Tab");
@@ -797,7 +797,7 @@ export async function changeEstimateStatus(
     await sendButton.click();
 
     const gatingDialog = page.getByRole("dialog", {
-      name: /Verification avant envoi/i,
+      name: /Vérification avant envoi/i,
     });
     if (await gatingDialog.isVisible().catch(() => false)) {
       const confirmSendButton = gatingDialog.getByRole("button", {

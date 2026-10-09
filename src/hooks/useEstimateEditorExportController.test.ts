@@ -357,7 +357,7 @@ describe("useEstimateEditorExportController CSV export", () => {
     });
 
     expect(reportError).toHaveBeenCalledWith(
-      "Certaines comparaisons fournisseurs n'ont pas pu etre chargees pour l'export."
+      "Certaines comparaisons fournisseurs n'ont pas pu être chargees pour l'export."
     );
     expect(mocks.exportToCSV).toHaveBeenCalledTimes(1);
     expect(result.current.state).toEqual({

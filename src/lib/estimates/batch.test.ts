@@ -180,7 +180,7 @@ describe("executeEstimateBatch", () => {
       })
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "operations ne peut pas etre vide.",
+      message: "operations ne peut pas être vide.",
     });
 
     expect(vi.mocked(bulkUpdateEstimateItems)).not.toHaveBeenCalled();

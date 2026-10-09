@@ -227,7 +227,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
 
           <div>
             <label className="form-label" htmlFor="takeoff-period-filter">
-              Periode
+              Période
             </label>
             <select
               id="takeoff-period-filter"
@@ -279,7 +279,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                   <th>Date</th>
                   <th>Duree</th>
                   <th>Items</th>
-                  <th>Cout</th>
+                  <th>Coût</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -332,7 +332,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                             {job.source_file_name ?? "Fichier inconnu"}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {job.source_file_type ?? "Type non renseigne"}
+                            {job.source_file_type ?? "Type non renseigné"}
                           </div>
                         </td>
                         <td>{job.level}</td>
@@ -351,7 +351,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                               href={`/dashboard/estimates/${versionId}/takeoff/${job.id}`}
                               className="btn btn-secondary btn-sm"
                             >
-                              Detail
+                              Détail
                             </Link>
                             {reviewEnabled ? (
                               <Link
@@ -441,7 +441,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                 onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
                 disabled={effectivePage <= 1}
               >
-                Precedent
+                Précédent
               </button>
               <span className="text-sm text-slate-600">
                 Page {effectivePage} / {totalPages}

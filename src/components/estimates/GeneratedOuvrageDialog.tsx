@@ -324,7 +324,7 @@ export function GeneratedOuvrageDialog({
 
       setStep("review");
       setStatusMessage(
-        `${insertResult.insertedCount} ouvrage(s) insere(s). Il reste des propositions a traiter.`
+        `${insertResult.insertedCount} ouvrage(s) insere(s). Il reste des propositions à traiter.`
       );
       toast.success({ title: `${insertResult.insertedCount} ouvrage(s) insere(s).` });
     } catch (err) {

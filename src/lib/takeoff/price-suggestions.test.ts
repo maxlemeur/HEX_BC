@@ -28,7 +28,7 @@ describe("buildTakeoffPriceSuggestion", () => {
         {
           sourceKind: "history",
           kind: "fact",
-          label: "Version precedente",
+          label: "Version précédente",
           sourceRef: "Historique projet v2",
           priceCents: 1210,
           freshnessLabel: "recente",

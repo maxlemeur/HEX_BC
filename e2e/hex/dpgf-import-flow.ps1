@@ -63,8 +63,8 @@ try {
   Assert-Contains -Text $pageText -Expected "Mapping" -Message "Stepper: Mapping step on mapping page"
   Assert-Contains -Text $pageText -Expected "Liaison" -Message "Stepper: Liaison step on mapping page"
 
-  # M-10: Consolidated buttons (should have "Apercu" and "Enregistrer")
-  Assert-Contains -Text $pageText -Expected "Apercu" -Message "Consolidated Apercu button visible"
+  # M-10: Consolidated buttons (should have "Aperçu" and "Enregistrer")
+  Assert-Contains -Text $pageText -Expected "Aperçu" -Message "Consolidated Aperçu button visible"
 
   # M-09: Test query param by navigating with a fake import_id
   Invoke-AB $Session "open" "$BaseUrl/dashboard/mappings?import_id=test-id-123"

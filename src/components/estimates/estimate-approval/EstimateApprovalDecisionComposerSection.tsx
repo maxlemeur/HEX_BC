@@ -63,7 +63,7 @@ export function EstimateApprovalDecisionComposerSection({
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Ciblez l&apos;affaire, un lot, une ligne, une exception ou une
-            hypothese sans ouvrir l&apos;éditeur complet.
+            hypothèse sans ouvrir l&apos;éditeur complet.
           </p>
         </div>
         {activeCycle ? (
@@ -199,7 +199,7 @@ export function EstimateApprovalDecisionComposerSection({
         </button>
         <button
           type="button"
-          className="btn btn-sm border-warning bg-warning/10 text-warning hover:bg-warning/20"
+          className="btn btn-sm border-warning bg-warning-subtle text-warning hover:bg-warning/20"
           disabled={isPending}
           onClick={onApproveWithReservations}
         >

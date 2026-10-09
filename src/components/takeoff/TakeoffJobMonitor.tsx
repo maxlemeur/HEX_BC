@@ -213,7 +213,7 @@ function FatalError({
     errorStatus === 404
       ? "Extraction introuvable"
       : errorStatus === 403
-        ? "Acces refuse"
+        ? "Accès refuse"
         : errorStatus === 401
           ? "Session expiree"
         : "Erreur";
@@ -280,7 +280,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
       </div>
       <div>
         <dt className="text-xs font-medium text-muted-foreground">
-          Strategie
+          Stratégie
         </dt>
         <dd className="mt-1 text-sm">
           {getProcessingStrategyLabel(job.processing_strategy)}
@@ -288,7 +288,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
       </div>
       <div>
         <dt className="text-xs font-medium text-muted-foreground">
-          Etat provider
+          État provider
         </dt>
         <dd className="mt-1 text-sm">
           {getProviderBatchStateLabel({
@@ -365,7 +365,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
       )}
       {job.metrics.cost_cents !== null && (
         <div>
-          <dt className="text-xs font-medium text-muted-foreground">Cout</dt>
+          <dt className="text-xs font-medium text-muted-foreground">Coût</dt>
           <dd className="mt-1 text-sm">
             {formatCostCents(job.metrics.cost_cents)}
           </dd>
@@ -432,7 +432,7 @@ export default function TakeoffJobMonitor({
         );
       } else if (response.dispatch?.status === "queued_for_recovery") {
         setActionNotice(
-          `Réconciliation enregistrée. La reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+          `Réconciliation enregistrée. La reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
         );
       }
       setReconcileState("idle");
@@ -459,7 +459,7 @@ export default function TakeoffJobMonitor({
         );
       } else if (response.dispatch?.status === "queued_for_recovery") {
         setActionNotice(
-          `Nouvelle soumission enregistrée. La reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+          `Nouvelle soumission enregistrée. La reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
         );
       }
       setResubmitState("idle");
@@ -683,11 +683,11 @@ export default function TakeoffJobMonitor({
       {applySuccess && (
         <div className="mt-4 rounded-md border border-success/30 bg-success-light p-3">
           <p className="text-sm font-medium text-success">
-            Application au devis terminee.
+            Application au devis terminée.
           </p>
           <p className="mt-1 text-xs text-slate-600">
             Version: {applySuccess.versionId} · Section: {applySuccess.sectionLabel} ·
-            Strategie: {getStrategyLabel(applySuccess.strategy)} · Crees:{" "}
+            Stratégie: {getStrategyLabel(applySuccess.strategy)} · Créés:{" "}
             {applySuccess.createdCount} · Maj: {applySuccess.updatedCount} · Ignores:{" "}
             {applySuccess.ignoredCount} · {formatTimestamp(applySuccess.appliedAt)}
           </p>
@@ -705,7 +705,7 @@ export default function TakeoffJobMonitor({
             href={`/dashboard/estimates/${versionId}`}
             className="btn btn-primary btn-sm"
           >
-            Voir les resultats
+            Voir les résultats
           </Link>
         )}
         {isCompleted && (
@@ -720,7 +720,7 @@ export default function TakeoffJobMonitor({
         )}
         {isCompleted && !canOpenApplyWizard && (
           <span className="self-center text-xs text-muted-foreground">
-            Aucun item inclus a appliquer.
+            Aucun item inclus à appliquer.
           </span>
         )}
 

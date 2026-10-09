@@ -197,7 +197,7 @@ function unauthorized(message = "Unauthorized") {
   });
 }
 
-function forbidden(message = "Acces refuse.", details?: unknown, code = "FORBIDDEN") {
+function forbidden(message = "Accès refuse.", details?: unknown, code = "FORBIDDEN") {
   return new MappingsApiError({
     status: 403,
     code,
@@ -241,7 +241,7 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Mappi
   const normalizedMessage = (error.message ?? "").toLowerCase();
 
   if (error.code === "42501" || normalizedMessage.includes("row-level security")) {
-    return forbidden("Acces refuse.", error, "FORBIDDEN");
+    return forbidden("Accès refuse.", error, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {
@@ -1262,7 +1262,7 @@ async function upsertTemplate(
       .neq("name", input.name);
 
     if (resetDefaultError) {
-      throw mapSupabaseError(resetDefaultError, "Impossible de definir le template par defaut.");
+      throw mapSupabaseError(resetDefaultError, "Impossible de définir le template par défaut.");
     }
   }
 
@@ -1696,11 +1696,11 @@ export async function createMapping(input: {
     .single();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer le mapping.");
+    throw mapSupabaseError(error, "Impossible de créer le mapping.");
   }
 
   if (!data) {
-    throw internalError("Impossible de creer le mapping.");
+    throw internalError("Impossible de créer le mapping.");
   }
 
   // T-10: Build mapped rows, then delete+insert with safety

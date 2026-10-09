@@ -150,7 +150,7 @@ describe("estimate lock route", () => {
         ok: false,
         error: expect.objectContaining({
           code: "BAD_REQUEST",
-          message: "Parametre force invalide.",
+          message: "Paramètre force invalide.",
         }),
       })
     );

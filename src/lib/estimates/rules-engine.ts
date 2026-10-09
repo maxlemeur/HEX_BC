@@ -799,7 +799,7 @@ function formatEuroCents(value: number) {
 const APPROVAL_CHANGE_FIELD_LABELS: Record<string, string> = {
   margin_bp: "Marge",
   discount_bp: "Remise",
-  validite_jours: "Validite",
+  validite_jours: "Validité",
   rounding_mode: "Mode d'arrondi",
   rounding_step_cents: "Pas d'arrondi",
   tax_rate_bp: "TVA",
@@ -1050,7 +1050,7 @@ async function loadRuleSignalContext(input: {
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de charger les preuves takeoff pour les regles d'approbation."
+        "Impossible de charger les preuves takeoff pour les règles d'approbation."
       );
     }
 
@@ -1078,7 +1078,7 @@ async function loadRuleSignalContext(input: {
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de charger la couverture DPGF pour les regles d'approbation."
+        "Impossible de charger la couverture DPGF pour les règles d'approbation."
       );
     }
 
@@ -1286,7 +1286,7 @@ function resolveViolationMessage(input: {
     return `${base} Demande d'approbation rejetee.`;
   }
 
-  return `${base} Approbation enregistree.`;
+  return `${base} Approbation enregistrée.`;
 }
 
 function resolveUnavailableSignalMessage(input: {
@@ -1336,13 +1336,13 @@ async function loadCurrentEstimateContentRevision(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de verifier la revision du devis."
+      "Impossible de vérifier la révision du devis."
     );
   }
 
   const revision = Number(data);
   if (!Number.isSafeInteger(revision) || revision <= 0) {
-    throw badRequest("Impossible de verifier la revision du devis.");
+    throw badRequest("Impossible de vérifier la révision du devis.");
   }
 
   return revision;
@@ -1368,7 +1368,7 @@ export async function evaluateRules(input: {
     .order("created_at", { ascending: true });
 
   if (rulesError) {
-    throw mapSupabaseError(rulesError, "Impossible de charger les regles de devis.");
+    throw mapSupabaseError(rulesError, "Impossible de charger les règles de devis.");
   }
 
   const rules = ((rulesData ?? []) as EstimateRuleRow[]).map((rule) => {
@@ -1729,7 +1729,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
         message: buildAffaireRegisterSubmissionSignalMessage({
           entries: criticalMissingPieceEntries,
           label: "Documents critiques manquants",
-          intro: "Des pieces critiques restent manquantes avant soumission.",
+          intro: "Des pièces critiques restent manquantes avant soumission.",
         }),
         category: "documents",
         actionLabel: "Ouvrir les documents manquants",
@@ -1775,7 +1775,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
         message: buildAffaireRegisterSubmissionSignalMessage({
           entries: openMissingPieceEntries,
           label: "Documents manquants",
-          intro: "Des pieces manquantes restent ouvertes avant validation.",
+          intro: "Des pièces manquantes restent ouvertes avant validation.",
         }),
         category: "documents",
         actionLabel: "Ouvrir les documents manquants",
@@ -1797,7 +1797,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
         message: buildAffaireRegisterSubmissionSignalMessage({
           entries: openAssumptionEntries,
           label: "Questions ouvertes",
-          intro: "Des hypotheses restent ouvertes avant validation.",
+          intro: "Des hypothèses restent ouvertes avant validation.",
         }),
         category: "register",
         actionLabel: "Ouvrir le registre",
@@ -1819,7 +1819,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
         message: buildAffaireRegisterSubmissionSignalMessage({
           entries: clarifyMissingPieceEntries,
           label: "Documents attendus du client",
-          intro: "Des pieces restent a demander au client avant envoi externe.",
+          intro: "Des pièces restent à demander au client avant envoi externe.",
         }),
         category: "documents",
         actionLabel: "Ouvrir les documents attendus",
@@ -1842,7 +1842,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
           entries: clarifyAssumptionEntries,
           label: "Clarifications client",
           intro:
-            "Des points restent a clarifier avec le client avant envoi externe.",
+            "Des points restent à clarifier avec le client avant envoi externe.",
         }),
         category: "register",
         actionLabel: "Ouvrir le registre",
@@ -1864,7 +1864,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
         message:
           versionZeroSummary.activeDraft.counts.pending > 0
             ? `La V0 IA comporte encore ${versionZeroSummary.activeDraft.counts.pending} ligne(s) en attente de validation humaine.`
-            : "Une V0 IA active doit etre materialisee ou abandonnee avant soumission.",
+            : "Une V0 IA active doit être materialisee ou abandonnee avant soumission.",
         category: "estimate_quality",
         actionLabel: isEstimateAiDraftEnabled() ? "Ouvrir la V0" : undefined,
         actionHref: isEstimateAiDraftEnabled()
@@ -2377,7 +2377,7 @@ function resolveDecisionEventActorLabel(input: {
     return `Utilisateur ${input.actorUserId.slice(0, 8)}`;
   }
 
-  return "Systeme";
+  return "Système";
 }
 
 function normalizeApprovalOutcome(
@@ -3020,7 +3020,7 @@ export async function listEstimateApprovalDecisionJournal(input: {
   const { data, error } = await filteredEventsQuery.order("created_at", { ascending: false });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le journal de decision.");
+    throw mapSupabaseError(error, "Impossible de charger le journal de décision.");
   }
 
   const authorQuery = context.supabase
@@ -3034,7 +3034,7 @@ export async function listEstimateApprovalDecisionJournal(input: {
   if (authorError) {
     throw mapSupabaseError(
       authorError,
-      "Impossible de charger les auteurs du journal de decision."
+      "Impossible de charger les auteurs du journal de décision."
     );
   }
 
@@ -3192,7 +3192,7 @@ async function enrichEstimateApprovalSummary(input: {
       id: "reviewer:none",
       label: "Validateur indisponible",
       message:
-        "Aucun role admin ou director n'est disponible pour prendre la revue.",
+        "Aucun rôle admin ou director n'est disponible pour prendre la revue.",
     });
   }
   const correctionSourceCycleId =
@@ -3385,7 +3385,7 @@ async function logEstimateVersionEvent(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible d'enregistrer l'evenement d'approbation."
+      "Impossible d'enregistrer l'événement d'approbation."
     );
   }
 }
@@ -3470,7 +3470,7 @@ async function loadApprovalCommentTargetContext(input: {
   if (hypothesisResult.error) {
     throw mapSupabaseError(
       hypothesisResult.error,
-      "Impossible de charger les hypotheses pour l'approbation."
+      "Impossible de charger les hypothèses pour l'approbation."
     );
   }
 
@@ -3661,7 +3661,7 @@ export async function updateEstimateReviewCorrectionItemStatus(input: {
   const access = await getVersionAccessOrThrow(context, input.versionId);
 
   if (access.project.user_id !== context.userId) {
-    throw forbidden("Action reservee au proprietaire du chiffrage.");
+    throw forbidden("Action réservée au proprietaire du chiffrage.");
   }
 
   const { data, error } = await context.supabase.rpc(
@@ -3675,15 +3675,15 @@ export async function updateEstimateReviewCorrectionItemStatus(input: {
 
   if (error) {
     if (error.message.includes("ESTIMATE_REVIEW_CORRECTION_OWNER_REQUIRED")) {
-      throw forbidden("Action reservee au proprietaire du chiffrage.");
+      throw forbidden("Action réservée au proprietaire du chiffrage.");
     }
 
     if (error.message.includes("ESTIMATE_REVIEW_CORRECTION_STATUS_UNCHANGED")) {
-      throw badRequest("Le statut de correction est deja applique.");
+      throw badRequest("Le statut de correction est déjà appliqué.");
     }
 
     if (error.message.includes("ESTIMATE_REVIEW_CORRECTION_ITEM_NOT_FOUND")) {
-      throw notFound("Element de correction introuvable.");
+      throw notFound("Élément de correction introuvable.");
     }
 
     throw mapSupabaseError(
@@ -3758,21 +3758,21 @@ function assertAdminRole(context: Pick<AuthenticatedContext, "tenantRole">) {
   if (isTenantAdmin(context.tenantRole)) {
     return;
   }
-  throw forbidden("Action reservee aux administrateurs.");
+  throw forbidden("Action réservée aux administrateurs.");
 }
 
 function assertRequesterRole(context: Pick<AuthenticatedContext, "tenantRole">) {
   if (context.tenantRole === "admin" || context.tenantRole === "engineer") {
     return;
   }
-  throw forbidden("Action reservee aux demandeurs d'approbation.");
+  throw forbidden("Action réservée aux demandeurs d'approbation.");
 }
 
 function assertApproverRole(context: Pick<AuthenticatedContext, "tenantRole">) {
   if (isTenantApprover(context.tenantRole)) {
     return;
   }
-  throw forbidden("Action reservee aux roles de validation.");
+  throw forbidden("Action réservée aux rôles de validation.");
 }
 
 function normalizeOptionalUuid(value: string | undefined) {
@@ -3824,7 +3824,7 @@ function normalizeDecisionComments(input: {
 
     if (scopeType !== "project" && !scopeId) {
       throw badRequest(
-        "Chaque commentaire cible doit pointer vers un lot, une ligne, une exception ou une hypothese."
+        "Chaque commentaire cible doit pointer vers un lot, une ligne, une exception ou une hypothèse."
       );
     }
 
@@ -4006,7 +4006,7 @@ async function decideReviewCycleAtomically(input: {
   if (error) {
     if (error.message.includes("ESTIMATE_REVIEW_SNAPSHOT_STALE")) {
       throw conflict(
-        "Le devis a ete modifie depuis sa soumission. Une nouvelle revue est requise.",
+        "Le devis a été modifié depuis sa soumission. Une nouvelle revue est requise.",
         undefined,
         "ESTIMATE_REVIEW_SNAPSHOT_STALE"
       );
@@ -4023,14 +4023,14 @@ async function decideReviewCycleAtomically(input: {
       throw badRequest("Aucun cycle de revue actif n'est disponible.");
     }
 
-    throw mapSupabaseError(error, "Impossible d'enregistrer la decision d'approbation.");
+    throw mapSupabaseError(error, "Impossible d'enregistrer la décision d'approbation.");
   }
 
   const row = Array.isArray(data)
     ? ((data[0] as unknown) as DecideEstimateReviewCycleResult | undefined)
     : undefined;
   if (!row) {
-    throw badRequest("Impossible d'enregistrer la decision d'approbation.");
+    throw badRequest("Impossible d'enregistrer la décision d'approbation.");
   }
 
   return row;
@@ -4052,7 +4052,7 @@ async function decideApprovalAtomically(input: {
   if (error) {
     if (error.message.includes("ESTIMATE_REVIEW_SNAPSHOT_STALE")) {
       throw conflict(
-        "Le devis a ete modifie depuis sa soumission. Une nouvelle revue est requise.",
+        "Le devis a été modifié depuis sa soumission. Une nouvelle revue est requise.",
         undefined,
         "ESTIMATE_REVIEW_SNAPSHOT_STALE"
       );
@@ -4067,13 +4067,13 @@ async function decideApprovalAtomically(input: {
 
     throw mapSupabaseError(
       error,
-      "Impossible d'enregistrer la decision d'approbation."
+      "Impossible d'enregistrer la décision d'approbation."
     );
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
-    throw badRequest("Impossible d'enregistrer la decision d'approbation.");
+    throw badRequest("Impossible d'enregistrer la décision d'approbation.");
   }
 
   return row as unknown as EstimateApprovalRow;
@@ -4093,7 +4093,7 @@ async function findRuleForTenant(input: {
     .single();
 
   if (error || !data) {
-    throw notFound("Regle introuvable.");
+    throw notFound("Règle introuvable.");
   }
 
   return data as EstimateRuleRow;
@@ -4117,7 +4117,7 @@ async function findRulesForTenant(input: {
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les regles ciblees.");
+    throw mapSupabaseError(error, "Impossible de charger les règles ciblees.");
   }
 
   return (data ?? []) as EstimateRuleRow[];
@@ -4194,7 +4194,7 @@ export async function submitEstimateApproval(
         resourceUserId: access.project.user_id,
       })
     ) {
-      throw forbidden("Action reservee au proprietaire du chiffrage.");
+      throw forbidden("Action réservée au proprietaire du chiffrage.");
     }
 
     if (await freezeApprovalV2DraftIfRequired(context, access.version))
@@ -4257,7 +4257,7 @@ export async function submitEstimateApproval(
     ]);
 
     if (submissionReadiness.blockers.length > 0) {
-      throw badRequest("Des blocants restent a lever avant la soumission.");
+      throw badRequest("Des blocants restent à lever avant la soumission.");
     }
 
     const requestedRuleIdSet = new Set(
@@ -4290,7 +4290,7 @@ export async function submitEstimateApproval(
         (row) => row.status === "pending"
       );
       if (hasPendingCorrections) {
-        throw badRequest("Tous les items de correction doivent etre traites avant la resoumission.");
+        throw badRequest("Tous les items de correction doivent être traités avant la resoumission.");
       }
 
       carriedOverRuleIds = await listRuleIdsForReviewCycle({
@@ -4310,7 +4310,7 @@ export async function submitEstimateApproval(
     ].filter((ruleId) => requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(ruleId));
 
     if (requestedRuleIds.length === 0) {
-      throw badRequest("Aucune regle de validation ne peut etre soumise.");
+      throw badRequest("Aucune règle de validation ne peut être soumise.");
     }
 
     const requestableReasonByRuleId = new Map(
@@ -4340,7 +4340,7 @@ export async function submitEstimateApproval(
         ruleId,
         label: carriedOverRule
           ? resolveApprovalSummaryLabel(carriedOverRule.rule_type)
-          : "Regle de validation",
+          : "Règle de validation",
       };
     });
 
@@ -4422,7 +4422,7 @@ export async function submitEstimateApproval(
         resourceUserId: access.project.user_id,
       })
     ) {
-      throw forbidden("Action reservee au proprietaire du chiffrage.");
+      throw forbidden("Action réservée au proprietaire du chiffrage.");
     }
 
     const ruleId = normalizeOptionalUuid(input.ruleId);
@@ -4436,7 +4436,7 @@ export async function submitEstimateApproval(
     });
 
     if (!rule.is_active) {
-      throw badRequest("La regle ciblee est inactive.");
+      throw badRequest("La règle ciblee est inactive.");
     }
 
     if (await freezeApprovalV2DraftIfRequired(context, access.version))
@@ -4593,7 +4593,7 @@ export async function submitEstimateApproval(
     targetApproval = data as EstimateApprovalRow;
   } else {
     if (!ruleId) {
-      throw badRequest("rule_id ou approval_id est requis pour une decision.");
+      throw badRequest("rule_id ou approval_id est requis pour une décision.");
     }
 
     targetApproval = await findLatestApprovalForRule({
@@ -4646,7 +4646,7 @@ export async function listEstimateRulesForCurrentTenant() {
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les regles.");
+    throw mapSupabaseError(error, "Impossible de charger les règles.");
   }
 
   return {
@@ -4732,7 +4732,7 @@ export async function updateEstimateRuleForCurrentTenant(input: {
   }
 
   if (Object.keys(payload).length === 0) {
-    throw badRequest("Aucun champ a mettre a jour.");
+    throw badRequest("Aucun champ à mettre à jour.");
   }
 
   const { data, error } = await context.supabase
@@ -4747,14 +4747,14 @@ export async function updateEstimateRuleForCurrentTenant(input: {
 
   if (error || !data) {
     if (error?.code === "PGRST116") {
-      throw notFound("Regle introuvable.");
+      throw notFound("Règle introuvable.");
     }
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre a jour la regle.");
+      throw mapSupabaseError(error, "Impossible de mettre à jour la règle.");
     }
 
-    throw notFound("Regle introuvable.");
+    throw notFound("Règle introuvable.");
   }
 
   return {
@@ -4776,14 +4776,14 @@ export async function deleteEstimateRuleForCurrentTenant(ruleId: string) {
 
   if (error || !data) {
     if (error?.code === "PGRST116") {
-      throw notFound("Regle introuvable.");
+      throw notFound("Règle introuvable.");
     }
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible de supprimer la regle.");
+      throw mapSupabaseError(error, "Impossible de supprimer la règle.");
     }
 
-    throw notFound("Regle introuvable.");
+    throw notFound("Règle introuvable.");
   }
 
   return {

@@ -1002,7 +1002,7 @@ async function resolvePlanSetSourceFile(input: {
     throw new TakeoffError({
       status: 422,
       code: TakeoffErrorCode.NOT_FOUND,
-      message: "Le jeu de plans ne reference aucun fichier stocke.",
+      message: "Le jeu de plans ne référence aucun fichier stocke.",
       retryable: false,
       jobId: input.jobId,
       level: TAKEOFF_PLAN_SET_LEVEL,
@@ -1200,7 +1200,7 @@ function parseEstimateVersionId(formData: FormData) {
     throw new TakeoffError({
       status: 422,
       code: TakeoffErrorCode.TAKEOFF_ESTIMATE_VERSION_ID_INVALID,
-      message: "Le champ estimate_version_id doit etre un UUID valide.",
+      message: "Le champ estimate_version_id doit être un UUID valide.",
       retryable: false,
     });
   }
@@ -1226,7 +1226,7 @@ function parseTakeoffLevel(formData: FormData) {
     throw new TakeoffError({
       status: 422,
       code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-      message: "Le niveau Takeoff doit etre l'un des niveaux supportes: A, B ou C.",
+      message: "Le niveau Takeoff doit être l'un des niveaux supportes: A, B ou C.",
       retryable: false,
     });
   }
@@ -1238,7 +1238,7 @@ function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
   if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
 
   throw forbidden(
-    "Seul un administrateur peut forcer l'application des items non verifies."
+    "Seul un administrateur peut forcer l'application des items non vérifiés."
   );
 }
 
@@ -1583,7 +1583,7 @@ function normalizeTakeoffApplySummary(input: {
     throw new TakeoffError({
       status: 500,
       code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "La reponse apply_takeoff_job est invalide.",
+      message: "La réponse apply_takeoff_job est invalide.",
       details: {
         issues: toValidationIssues(parsed.error),
       },
@@ -1646,7 +1646,7 @@ function normalizeTakeoffJobSummaryRow(
     parseWithSchema(
       takeoffJobSummarySchema,
       row,
-      "Donnees takeoff_jobs invalides en base."
+      "Données takeoff_jobs invalides en base."
     ),
     tenantRole
   );
@@ -1663,7 +1663,7 @@ function normalizeTakeoffResultRow(row: unknown): TakeoffJobResult {
   return parseWithSchema(
     takeoffJobResultSchema,
     row,
-    "Donnees takeoff_results invalides en base."
+    "Données takeoff_results invalides en base."
   );
 }
 
@@ -1671,7 +1671,7 @@ function normalizeTakeoffItemRow(row: unknown): TakeoffJobItem {
   return parseWithSchema(
     takeoffJobItemSchema,
     row,
-    "Donnees takeoff_items invalides en base."
+    "Données takeoff_items invalides en base."
   );
 }
 
@@ -1683,7 +1683,7 @@ function normalizeTakeoffDpgfManualLinkRow(row: unknown): TakeoffDpgfManualLinkR
   return parseWithSchema(
     takeoffDpgfManualLinkSchema,
     row,
-    "Donnees takeoff_dpgf_links invalides en base."
+    "Données takeoff_dpgf_links invalides en base."
   );
 }
 
@@ -1697,7 +1697,7 @@ function normalizeTakeoffDpgfReviewDecisionRow(
   return parseWithSchema(
     takeoffDpgfReviewDecisionSchema,
     row,
-    "Donnees takeoff_dpgf_review_decisions invalides en base."
+    "Données takeoff_dpgf_review_decisions invalides en base."
   );
 }
 
@@ -1707,7 +1707,7 @@ function buildTakeoffDpgfReviewDecisionRecord(input: {
 }): TakeoffDpgfReviewDecisionRecord {
   if (!isRecord(input.row)) {
     throw unprocessableEntity(
-      "Donnees takeoff_dpgf_review_decisions invalides en base.",
+      "Données takeoff_dpgf_review_decisions invalides en base.",
       {
         row: input.row,
       },
@@ -1747,7 +1747,7 @@ function normalizeTakeoffDpgfEstimateItemRow(row: unknown) {
   return parseWithSchema(
     takeoffDpgfCompareEstimateItemRowSchema,
     row,
-    "Donnees estimate_items invalides en base pour la comparaison DPGF."
+    "Données estimate_items invalides en base pour la comparaison DPGF."
   );
 }
 
@@ -1756,7 +1756,7 @@ function normalizeTakeoffDpgfMappedRows(rows: unknown[]) {
     parseWithSchema(
       takeoffDpgfCompareMappedRowSchema,
       row,
-      "Donnees dpgf_rows_mapped invalides en base."
+      "Données dpgf_rows_mapped invalides en base."
     )
   );
 }
@@ -1764,7 +1764,7 @@ function normalizeTakeoffDpgfMappedRows(rows: unknown[]) {
 function normalizeTakeoffPriceSuggestionRow(row: unknown): TakeoffPriceSuggestionRow {
   if (!isRecord(row)) {
     throw unprocessableEntity(
-      "Donnees takeoff_price_suggestions invalides en base.",
+      "Données takeoff_price_suggestions invalides en base.",
       { row },
       "VALIDATION_ERROR"
     );
@@ -1850,7 +1850,7 @@ function normalizeTakeoffPriceSuggestionSourceRows(
   return rows.map((row) => {
     if (!isRecord(row)) {
       throw unprocessableEntity(
-        "Donnees takeoff_price_suggestion_sources invalides en base.",
+        "Données takeoff_price_suggestion_sources invalides en base.",
         { row },
         "VALIDATION_ERROR"
       );
@@ -2103,7 +2103,7 @@ function normalizeEstimateItemPriceSuggestionRow(
   const parsed = parseWithSchema(
     takeoffDpgfCompareEstimateItemRowSchema,
     row,
-    "Donnees estimate_items invalides pour la suggestion de prix."
+    "Données estimate_items invalides pour la suggestion de prix."
   );
 
   return {
@@ -2548,10 +2548,10 @@ function buildTerminalStatusConflictError(input: {
 }): TakeoffError {
   const message =
     input.action === "retry"
-      ? "Le job doit etre en statut failed pour etre relance."
+      ? "Le job doit être en statut failed pour être relance."
       : input.action === "resubmit"
-        ? "Le job doit etre en statut failed ou canceled pour etre resoumis."
-        : "Le job doit etre en statut pending ou processing pour etre annule.";
+        ? "Le job doit être en statut failed ou canceled pour être resoumis."
+        : "Le job doit être en statut pending ou processing pour être annulé.";
 
   return new TakeoffError({
     status: 409,
@@ -2588,7 +2588,7 @@ async function getTakeoffJobById(input: {
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de verifier l'idempotence du job."),
+      mapSupabaseError(error, "Impossible de vérifier l'idempotence du job."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -2665,7 +2665,7 @@ async function getTakeoffResultByJobId(input: {
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger le resultat du job takeoff."),
+      mapSupabaseError(error, "Impossible de charger le résultat du job takeoff."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -2899,7 +2899,7 @@ async function getEstimateVersionNumbersById(input: {
     throw toTakeoffError(
       mapSupabaseError(
         error,
-        "Impossible de charger les numeros de version des decisions DPGF."
+        "Impossible de charger les numéros de version des décisions DPGF."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -3051,7 +3051,7 @@ async function listTakeoffDpgfReviewDecisions(input: {
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les decisions DPGF."),
+      mapSupabaseError(error, "Impossible de charger les décisions DPGF."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -3480,7 +3480,7 @@ async function loadStaleSupplierPriceItemIds(input: {
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les prix fournisseurs selectionnes."),
+      mapSupabaseError(error, "Impossible de charger les prix fournisseurs sélectionnés."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -4235,7 +4235,7 @@ export async function listTakeoffJobs(
       throw toTakeoffError(
         mapSupabaseError(
           versionError,
-          "Impossible de resoudre le numero de version."
+          "Impossible de resoudre le numéro de version."
         ),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -4386,7 +4386,7 @@ export async function compareTakeoffJobs(
   const normalizedOtherJobId = parseWithSchema(
     takeoffJobIdSchema,
     input.with,
-    "Parametre with invalide."
+    "Paramètre with invalide."
   );
   const threshold = input.threshold ?? TAKEOFF_COMPARE_DEFAULT_THRESHOLD;
 
@@ -4394,7 +4394,7 @@ export async function compareTakeoffJobs(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "La comparaison doit cibler deux jobs differents.",
+      message: "La comparaison doit cibler deux jobs différents.",
       details: {
         base_job_id: normalizedBaseJobId,
         other_job_id: normalizedOtherJobId,
@@ -4432,7 +4432,7 @@ export async function compareTakeoffJobs(
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
       message:
-        "Les jobs selectionnes ne correspondent pas au meme document (version + fichier source).",
+        "Les jobs sélectionnés ne correspondent pas au même document (version + fichier source).",
       details: {
         base_job_id: normalizedBaseJobId,
         other_job_id: normalizedOtherJobId,
@@ -4908,7 +4908,7 @@ export async function getTakeoffPriceSuggestion(
   const payload = parseWithSchema(
     takeoffPriceSuggestionQuerySchema,
     query,
-    "Parametres de suggestion de prix invalides."
+    "Paramètres de suggestion de prix invalides."
   );
 
   await assertTakeoffJobAccessibleForVersion({
@@ -5021,7 +5021,7 @@ export async function requestTakeoffPriceSuggestion(
         estimate_item_id: payload.estimate_item_id,
         version_id: payload.version_id,
         fact: "Aucune source pricebook, historique ou ouvrage proche exploitable.",
-        hypothesis: "La ligne peut etre trop specifique ou insuffisamment decrite.",
+        hypothesis: "La ligne peut être trop spécifique ou insuffisamment decrite.",
       },
       retryable: false,
       jobId: normalizedJobId,
@@ -5077,7 +5077,7 @@ export async function requestTakeoffPriceSuggestion(
       throw toTakeoffError(
         mapSupabaseError(
           supersedeError,
-          "Impossible de superseder la suggestion de prix precedente."
+          "Impossible de superseder la suggestion de prix précédente."
         ),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -5152,7 +5152,7 @@ export async function requestTakeoffPriceSuggestion(
     throw new TakeoffError({
       status: 500,
       code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "La suggestion de prix persistee est introuvable apres insertion.",
+      message: "La suggestion de prix persistee est introuvable après insertion.",
       retryable: false,
       jobId: normalizedJobId,
     });
@@ -5302,7 +5302,7 @@ export async function reviewTakeoffPriceSuggestion(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "La suggestion de prix cible a deja ete supersedee.",
+      message: "La suggestion de prix cible a déjà été supersedee.",
       details: {
         suggestion_id: normalizedSuggestionId,
       },
@@ -5513,7 +5513,7 @@ export async function saveTakeoffDpgfManualLink(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "La ligne DPGF n'appartient pas a la version cible.",
+      message: "La ligne DPGF n'appartient pas à la version cible.",
       details: {
         version_id: payload.version_id,
         estimate_item_version_id: estimateItem.version_id,
@@ -5622,7 +5622,7 @@ export async function saveTakeoffDpgfManualLink(
   parseWithSchema(
     z.array(z.string().uuid()),
     savedLinkIds ?? [],
-    "La reponse save_takeoff_dpgf_manual_links est invalide."
+    "La réponse save_takeoff_dpgf_manual_links est invalide."
   );
 
   const { data, error } = await supabase
@@ -5675,7 +5675,7 @@ export async function saveTakeoffReviewDecision(
   const payload = parseWithSchema(
     saveTakeoffReviewDecisionSchema,
     input,
-    "Payload de decision DPGF invalide."
+    "Payload de décision DPGF invalide."
   );
 
   const accessibleJob = await assertTakeoffJobAccessibleForVersion({
@@ -5746,7 +5746,7 @@ export async function saveTakeoffReviewDecision(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "La ligne DPGF n'appartient pas a la version cible.",
+      message: "La ligne DPGF n'appartient pas à la version cible.",
       details: {
         version_id: payload.version_id,
         estimate_item_version_id: estimateItem.version_id,
@@ -5777,7 +5777,7 @@ export async function saveTakeoffReviewDecision(
     throw toTakeoffError(
       mapSupabaseError(
         existingDecisionRow.error,
-        "Impossible de charger la decision DPGF existante."
+        "Impossible de charger la décision DPGF existante."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -5849,7 +5849,7 @@ export async function saveTakeoffReviewDecision(
       throw toTakeoffError(
         mapSupabaseError(
           sourceDecisionRow.error,
-          "Impossible de charger la decision DPGF source."
+          "Impossible de charger la décision DPGF source."
         ),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -5908,7 +5908,7 @@ export async function saveTakeoffReviewDecision(
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible d'enregistrer la decision DPGF."),
+      mapSupabaseError(error, "Impossible d'enregistrer la décision DPGF."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -6056,7 +6056,7 @@ export async function updateTakeoffRiskAlertStatus(
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de mettre a jour l'alerte de risque."),
+      mapSupabaseError(error, "Impossible de mettre à jour l'alerte de risque."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -6068,7 +6068,7 @@ export async function updateTakeoffRiskAlertStatus(
   const alert = normalizeRiskAlertRow((data ?? null) as Record<string, unknown>);
   if (!alert) {
     throw unprocessableEntity(
-      "Alerte de risque invalide en base apres mise a jour.",
+      "Alerte de risque invalide en base après mise à jour.",
       {
         alert_id: normalizedAlertId,
       },
@@ -6139,7 +6139,7 @@ export async function previewTakeoffJobConversion(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job doit etre en statut completed pour calculer une preview.",
+      message: "Le job doit être en statut completed pour calculer une preview.",
       details: {
         current_status: jobRow.status,
         allowed_statuses: ["completed"],
@@ -6165,7 +6165,7 @@ function assertTakeoffOperatorActionRole(tenantRole: string | null | undefined) 
   throw new TakeoffError({
     status: 403,
     code: TakeoffErrorCode.FORBIDDEN,
-    message: "Acces refuse.",
+    message: "Accès refuse.",
     retryable: false,
   });
 }
@@ -6229,7 +6229,7 @@ function assertTakeoffProviderBatchCanReset(
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
       message:
-        "Le batch provider a deja reussi. Relancez un reconcile au lieu d'une resoumission.",
+        "Le batch provider a déjà réussi. Relancez un reconcile au lieu d'une resoumission.",
       details: {
         provider_batch_id: existingJob.provider_batch_id,
         provider_batch_state: existingJob.provider_batch_state,
@@ -6244,7 +6244,7 @@ function assertTakeoffProviderBatchCanReset(
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
       message:
-        "Le job possede deja un batch provider actif. Relancez un reconcile au lieu d'une resoumission.",
+        "Le job possede déjà un batch provider actif. Relancez un reconcile au lieu d'une resoumission.",
       details: {
         provider_batch_id: existingJob.provider_batch_id,
         provider_batch_state: existingJob.provider_batch_state,
@@ -6749,7 +6749,7 @@ async function assertTakeoffApplyDraftLockOwnership(input: {
     throw toTakeoffError(
       mapSupabaseError(
         error,
-        "Impossible de verifier le verrou brouillon de la version cible."
+        "Impossible de vérifier le verrou brouillon de la version cible."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -6878,7 +6878,7 @@ export async function applyTakeoffJob(
       throw new TakeoffError({
         status: 409,
         code: TakeoffErrorCode.CONFLICT,
-        message: "Le job doit etre en statut completed pour etre applique.",
+        message: "Le job doit être en statut completed pour être appliqué.",
         details: {
           current_status: jobRow.status,
           allowed_statuses: ["completed"],
@@ -6917,7 +6917,7 @@ export async function applyTakeoffJob(
 
       if (guardItemsError) {
         throw toTakeoffError(
-          mapSupabaseError(guardItemsError, "Impossible de verifier les items pour le guard."),
+          mapSupabaseError(guardItemsError, "Impossible de vérifier les items pour le guard."),
           { jobId: normalizedJobId }
         );
       }
@@ -7103,7 +7103,7 @@ export async function applyTakeoffJob(
       throw new TakeoffError({
         status: 500,
         code: TakeoffErrorCode.INTERNAL_ERROR,
-        message: "Le job takeoff n'est pas dans le statut attendu apres apply.",
+        message: "Le job takeoff n'est pas dans le statut attendu après apply.",
         details: {
           expected_status: "applied",
           current_status: updatedJobRow.status,
@@ -7208,7 +7208,7 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
     throw new TakeoffError({
       status: 403,
       code: TakeoffErrorCode.TAKEOFF_TENANT_UNAUTHORIZED,
-      message: "Acces interdit aux ressources de ce tenant.",
+      message: "Accès interdit aux ressources de ce tenant.",
       retryable: false,
     });
   }
@@ -7247,7 +7247,7 @@ async function removeCreatedJobIfPresent(input: {
     .eq("id" as never, input.jobId as never);
 
   if (error) {
-    console.error("Failed to rollback takeoff job creation", {
+    console.error("Failed to rollback takeoff job création", {
       jobId: input.jobId,
       tenantId: input.tenantId,
       error,
@@ -7343,7 +7343,7 @@ export async function createTakeoffJobFromFormData(
           status: 409,
           code: TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED,
           message:
-            "La cle d'idempotence est deja utilisee avec un payload different.",
+            "La clé d'idempotence est déjà utilisee avec un payload différent.",
           details: {
             job_id: existingJob.id,
           },
@@ -7392,7 +7392,7 @@ export async function createTakeoffJobFromFormData(
       throw new TakeoffError({
         status: 400,
         code: TakeoffErrorCode.BAD_REQUEST,
-        message: "Impossible de televerser le fichier takeoff.",
+        message: "Impossible de téléverser le fichier takeoff.",
         details: uploadError,
         retryable: false,
         jobId,
@@ -7446,7 +7446,7 @@ export async function createTakeoffJobFromFormData(
             status: 409,
             code: TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED,
             message:
-              "La cle d'idempotence est deja utilisee avec un payload different.",
+              "La clé d'idempotence est déjà utilisee avec un payload différent.",
             details: {
               job_id: existingJob.id,
             },
@@ -7464,7 +7464,7 @@ export async function createTakeoffJobFromFormData(
           status: 404,
           code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND,
           message:
-            "Le job Takeoff associe a la cle d'idempotence est introuvable.",
+            "Le job Takeoff associe à la clé d'idempotence est introuvable.",
           details: {
             reason: "IDEMPOTENCY_KEY_CONFLICT_WITHOUT_JOB",
           },
@@ -7480,7 +7480,7 @@ export async function createTakeoffJobFromFormData(
 
       if (insertError) {
         throw toTakeoffError(
-          mapSupabaseError(insertError, "Impossible de creer le job takeoff."),
+          mapSupabaseError(insertError, "Impossible de créer le job takeoff."),
           {
             fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
             retryable: false,
@@ -7493,7 +7493,7 @@ export async function createTakeoffJobFromFormData(
       throw new TakeoffError({
         status: 400,
         code: TakeoffErrorCode.BAD_REQUEST,
-        message: "Impossible de creer le job takeoff.",
+        message: "Impossible de créer le job takeoff.",
         retryable: false,
         jobId,
         level,
@@ -7545,7 +7545,7 @@ export async function createTakeoffJobFromFormData(
   } catch (error) {
     throw toTakeoffError(error, {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      fallbackMessage: "Impossible de creer le job takeoff.",
+      fallbackMessage: "Impossible de créer le job takeoff.",
       retryable: false,
       jobId,
       level,
@@ -7568,7 +7568,7 @@ export async function createTakeoffJobFromPlanSet(input: {
       status: 422,
       code: TakeoffErrorCode.BAD_REQUEST,
       message:
-        "Le niveau Rapide n'est pas disponible pour les jeux de plans. Utilisez Standard ou Detaille.",
+        "Le niveau Rapide n'est pas disponible pour les jeux de plans. Utilisez Standard ou Détaillé.",
       retryable: false,
       level,
     });
@@ -7652,8 +7652,8 @@ export async function createTakeoffJobFromPlanSet(input: {
   if (insertError || !insertedJob) {
     throw toTakeoffError(
       insertError
-        ? mapSupabaseError(insertError, "Impossible de creer le job takeoff.")
-        : new Error("Impossible de creer le job takeoff."),
+        ? mapSupabaseError(insertError, "Impossible de créer le job takeoff.")
+        : new Error("Impossible de créer le job takeoff."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -7703,10 +7703,10 @@ const TAKEOFF_ITEM_BATCH_MAX = 100;
 
 const takeoffItemPatchFieldSchema = z
   .object({
-    designation: z.string().trim().min(1, "designation ne peut pas etre vide.").max(500).optional(),
-    quantity: z.number().finite().positive("quantity doit etre > 0.").optional(),
-    unit: z.string().trim().min(1, "unit ne peut pas etre vide.").max(64).optional(),
-    source_page: z.number().int().positive("source_page doit etre > 0.").nullable().optional(),
+    designation: z.string().trim().min(1, "designation ne peut pas être vide.").max(500).optional(),
+    quantity: z.number().finite().positive("quantity doit être > 0.").optional(),
+    unit: z.string().trim().min(1, "unit ne peut pas être vide.").max(64).optional(),
+    source_page: z.number().int().positive("source_page doit être > 0.").nullable().optional(),
     is_excluded: z.boolean().optional(),
     exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
     is_verified: z.boolean().optional(),
@@ -7715,7 +7715,7 @@ const takeoffItemPatchFieldSchema = z
   .strict()
   .refine(
     (fields) => Object.keys(fields).length > 0,
-    { message: "Au moins un champ de mise a jour est requis." }
+    { message: "Au moins un champ de mise à jour est requis." }
   )
   .refine(
     (fields) => {
@@ -7757,7 +7757,7 @@ export async function batchUpdateTakeoffItems(
   const request = parseWithSchema(
     takeoffItemBatchPatchSchema,
     body,
-    "Payload de mise a jour invalide."
+    "Payload de mise à jour invalide."
   ) as TakeoffItemBatchPatchRequest;
 
   // Verify job exists, same tenant, status completed
@@ -7771,7 +7771,7 @@ export async function batchUpdateTakeoffItems(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job doit etre en statut completed pour modifier les items.",
+      message: "Le job doit être en statut completed pour modifier les items.",
       details: {
         current_status: jobRow.status,
         allowed_statuses: ["completed"],
@@ -7819,7 +7819,7 @@ export async function batchUpdateTakeoffItems(
         results.push({
           item_id: entry.item_id,
           success: false,
-          error: "Conflit de concurrence: l'item a ete modifie depuis votre derniere lecture.",
+          error: "Conflit de concurrence: l'item a été modifié depuis votre dernière lecture.",
         });
         continue;
       }
@@ -7980,7 +7980,7 @@ export async function batchUpdateTakeoffItems(
         results.push({
           item_id: entry.item_id,
           success: false,
-          error: "Impossible de mettre a jour l'item.",
+          error: "Impossible de mettre à jour l'item.",
         });
         continue;
       }
@@ -7989,7 +7989,7 @@ export async function batchUpdateTakeoffItems(
         results.push({
           item_id: entry.item_id,
           success: false,
-          error: "Conflit de concurrence: l'item a ete modifie depuis votre derniere lecture.",
+          error: "Conflit de concurrence: l'item a été modifié depuis votre dernière lecture.",
         });
         continue;
       }
@@ -8043,7 +8043,7 @@ export async function batchUpdateTakeoffItems(
       results.push({
         item_id: entry.item_id,
         success: false,
-        error: "Erreur interne lors de la mise a jour de l'item.",
+        error: "Erreur interne lors de la mise à jour de l'item.",
       });
     }
   }

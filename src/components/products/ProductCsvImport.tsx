@@ -94,7 +94,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
       setError(
         refreshError instanceof Error
           ? refreshError.message
-          : "Les produits sont importes, mais la liste n'a pas pu etre actualisee."
+          : "Les produits sont importés, mais la liste n'a pas pu être actualisee."
       );
     } finally {
       setIsImporting(false);

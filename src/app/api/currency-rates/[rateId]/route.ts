@@ -30,7 +30,7 @@ const patchCurrencyRateSchema = z
 
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ a mettre a jour.",
+      message: "Aucun champ à mettre à jour.",
       path: [],
     });
   });

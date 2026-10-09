@@ -69,7 +69,7 @@ export type ExistingSection = {
   title: string;
 };
 
-export const GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL = "A classer (par defaut)";
+export const GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL = "À classer (par défaut)";
 
 export function formatGeneratedOuvrageLotLabel(input: {
   lotId: string | null;

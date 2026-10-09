@@ -292,7 +292,7 @@ describe("confirmUnifiedImportFlow", () => {
         importId: IMPORT_ID,
         createEstimate: true,
       })
-    ).rejects.toThrow("projectId est requis pour creer un chiffrage.");
+    ).rejects.toThrow("projectId est requis pour créer un chiffrage.");
   });
 
   it("creates a new estimate version from valid mapped rows", async () => {
@@ -687,7 +687,7 @@ describe("confirmUnifiedImportFlow", () => {
         previewSourceVersionId,
       })
     ).rejects.toThrow(
-      "La version source du carry-over takeoff a change. Rechargez la confirmation avant de creer le chiffrage."
+      "La version source du carry-over takeoff a change. Rechargez la confirmation avant de créer le chiffrage."
     );
 
     expect(supabase.rpc).not.toHaveBeenCalled();
@@ -785,7 +785,7 @@ describe("confirmUnifiedImportFlow", () => {
         projectId: PROJECT_ID,
         createEstimate: true,
       })
-    ).rejects.toThrow("Cet import est deja lie a une autre affaire.");
+    ).rejects.toThrow("Cet import est déjà lié a une autre affaire.");
   });
 
   it("rejects estimate creation when there are zero valid lines", async () => {
@@ -815,7 +815,7 @@ describe("confirmUnifiedImportFlow", () => {
         projectId: PROJECT_ID,
         createEstimate: true,
       })
-    ).rejects.toThrow("Aucune ligne valide a inserer pour creer le chiffrage.");
+    ).rejects.toThrow("Aucune ligne valide à inserer pour créer le chiffrage.");
 
     expect(supabase.rpc).not.toHaveBeenCalled();
   });

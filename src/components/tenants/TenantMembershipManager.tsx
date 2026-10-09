@@ -185,13 +185,13 @@ export function TenantMembershipManager() {
         }),
       });
 
-      setSuccess("Role mis a jour avec succes.");
+      setSuccess("Rôle mis à jour avec succès.");
       await loadMemberships();
     } catch (updateError) {
       setActionError(
         updateError instanceof Error
           ? updateError.message
-          : "Impossible de modifier le role du membre."
+          : "Impossible de modifier le rôle du membre."
       );
     } finally {
       setUpdatingMembershipId(null);
@@ -220,13 +220,13 @@ export function TenantMembershipManager() {
         }),
       });
 
-      setSuccess("Tenant par defaut mis a jour.");
+      setSuccess("Tenant par défaut mis à jour.");
       await loadMemberships();
     } catch (defaultError) {
       setActionError(
         defaultError instanceof Error
           ? defaultError.message
-          : "Impossible de mettre a jour le tenant par defaut."
+          : "Impossible de mettre à jour le tenant par défaut."
       );
     } finally {
       setIsSettingDefault(false);
@@ -254,12 +254,12 @@ export function TenantMembershipManager() {
         <div className="page-header">
           <h1 className="page-title">Tenant et membres</h1>
           <p className="page-description">
-            Gestion reservee aux administrateurs du tenant courant.
+            Gestion réservée aux administrateurs du tenant courant.
           </p>
         </div>
 
         <div className="alert alert-info">
-          Vous n&apos;avez pas les droits administrateur pour gerer les memberships.
+          Vous n&apos;avez pas les droits administrateur pour gérer les memberships.
         </div>
       </div>
     );
@@ -282,7 +282,7 @@ export function TenantMembershipManager() {
         <div>
           <h1 className="page-title">Tenant et membres</h1>
           <p className="page-description">
-            Gerer les roles du tenant {tenantName ? `"${tenantName}"` : "courant"}.
+            Gérer les rôles du tenant {tenantName ? `"${tenantName}"` : "courant"}.
           </p>
         </div>
 
@@ -300,13 +300,13 @@ export function TenantMembershipManager() {
             className="btn btn-primary"
             onClick={() => void handleSetDefault()}
             disabled={isSettingDefault || isCurrentTenantDefault || !ownMembership}
-            title={isCurrentTenantDefault ? "Ce tenant est deja votre tenant par defaut." : undefined}
+            title={isCurrentTenantDefault ? "Ce tenant est déjà votre tenant par défaut." : undefined}
           >
             {isSettingDefault
-              ? "Mise a jour..."
+              ? "Mise à jour..."
               : isCurrentTenantDefault
-                ? "Tenant par defaut"
-                : "Definir par defaut"}
+                ? "Tenant par défaut"
+                : "Définir par défaut"}
           </button>
         </div>
       </div>
@@ -326,7 +326,7 @@ export function TenantMembershipManager() {
             {ownMembership ? ROLE_LABELS[ownMembership.role] : "-"}
           </p>
           <p>
-            <span className="font-medium text-slate-800">Statut par defaut:</span>{" "}
+            <span className="font-medium text-slate-800">Statut par défaut:</span>{" "}
             {isCurrentTenantDefault ? "Oui" : "Non"}
           </p>
         </div>
@@ -343,8 +343,8 @@ export function TenantMembershipManager() {
               <tr>
                 <th>Membre</th>
                 <th>Fonction</th>
-                <th>Role tenant</th>
-                <th>Par defaut</th>
+                <th>Rôle tenant</th>
+                <th>Par défaut</th>
                 <th>Depuis</th>
               </tr>
             </thead>

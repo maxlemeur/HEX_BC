@@ -96,9 +96,9 @@ function buildRevalidationNote(entry: AffaireRegisterEntry) {
   const impactedStages = formatRevalidationImpactedStages(entry);
   const details = [
     cause ? `Cause: ${cause}` : null,
-    impactedStages ? `Etapes a revoir: ${impactedStages}` : null,
+    impactedStages ? `Étapes à revoir: ${impactedStages}` : null,
     entry.revalidationRequest?.triggerFileName
-      ? `Piece declenchante: ${entry.revalidationRequest.triggerFileName}`
+      ? `Pièce declenchante: ${entry.revalidationRequest.triggerFileName}`
       : null,
     entry.revalidationRequest?.comment?.trim() || null,
   ]
@@ -124,7 +124,7 @@ type RegisterEntryStatusPanel = {
 
 export function getEntryStatusLabel(entry: AffaireRegisterEntry) {
   if (hasAcceptedContinuationDecision(entry)) {
-    return "Ouverte · continuation sous hypothese";
+    return "Ouverte · continuation sous hypothèse";
   }
 
   if (hasRequiredRevalidation(entry)) {
@@ -210,20 +210,20 @@ export function buildDerivedSummary(
 export function resolveTransitionPrompt(transition: PendingTransition) {
   if (transition.kind === "continue_with_hypothesis") {
     return {
-      title: "Continuer avec hypothese",
+      title: "Continuer avec hypothèse",
       description:
-        "Utilisez cette action pour poursuivre l'etude sans lever le manque. Le point reste ouvert et une hypothese formelle est tracee dans le registre.",
+        "Utilisez cette action pour poursuivre l'étude sans lever le manque. Le point reste ouvert et une hypothèse formelle est tracee dans le registre.",
       actionLabel: "Confirmer la continuation",
       commentLabel: "Commentaire de continuation (facultatif)",
       commentPlaceholder:
-        "Ex. Budget exploratoire maintenu dans l'attente de la piece definitive.",
+        "Ex. Budget exploratoire maintenu dans l'attente de la pièce definitive.",
       impactTitle: "Ce que cela change",
       impactItems: [
         "Le manque reste visible dans le registre et dans la readiness hub.",
-        "Une hypothese de continuation est creee ou mise a jour pour tracer la decision.",
-        "Aucun hard-block n'est ajoute tant que l'affaire reste en etude.",
+        "Une hypothèse de continuation est créée ou mise à jour pour tracer la décision.",
+        "Aucun hard-block n'est ajouté tant que l'affaire reste en étude.",
       ],
-      changeLabel: "Ouverte · continuation sous hypothese",
+      changeLabel: "Ouverte · continuation sous hypothèse",
     };
   }
 
@@ -231,16 +231,16 @@ export function resolveTransitionPrompt(transition: PendingTransition) {
     return {
       title: "Demander une revalidation",
       description:
-        "Utilisez cette action quand un additif ou une piece critique recue tardivement rouvre ce point. La revalidation reste ciblee sur les etapes declarees.",
+        "Utilisez cette action quand un additif ou une pièce critique reçue tardivement rouvre ce point. La revalidation reste ciblee sur les étapes declarees.",
       actionLabel: "Confirmer la revalidation",
       commentLabel: "Consigne de reprise (facultative)",
       commentPlaceholder:
-        "Ex. Revoir le lot C avant remise apres integration de l'additif.",
+        "Ex. Revoir le lot C avant remise après integration de l'additif.",
       impactTitle: "Ce que cela change",
       impactItems: [
         "Le point revient ouvert dans le registre avec une trace explicite de revalidation.",
-        "La remise repasse sous blocage tant que les etapes impactees ne sont pas revues.",
-        "Le dossier n'est pas reset globalement: seules les etapes cochees sont a rejouer.",
+        "La remise repasse sous blocage tant que les étapes impactees ne sont pas revues.",
+        "Le dossier n'est pas reset globalement: seules les étapes cochees sont à rejouer.",
       ],
       changeLabel: `${AFFAIRE_REGISTER_STATUS_LABELS[transition.entry.status]} → Ouverte · revalidation requise`,
     };
@@ -331,17 +331,17 @@ export function getEntryStatusPanel(
 ): RegisterEntryStatusPanel {
   if (hasAcceptedContinuationDecision(entry)) {
     return {
-      title: "Continuation acceptee sous hypothese",
+      title: "Continuation acceptée sous hypothèse",
       description:
-        "Le manque reste ouvert pour suivi, mais l'etude peut continuer sous reserve jusqu'a confirmation avant remise.",
+        "Le manque reste ouvert pour suivi, mais l'étude peut continuer sous reserve jusqu'a confirmation avant remise.",
       note: entry.continuationDecision?.hypothesisText
         ? {
-            label: "Hypothese active",
+            label: "Hypothèse active",
             value: entry.continuationDecision.hypothesisText,
           }
         : entry.continuationDecision?.comment
           ? {
-              label: "Trace de decision",
+              label: "Trace de décision",
               value: entry.continuationDecision.comment,
             }
           : null,
@@ -352,7 +352,7 @@ export function getEntryStatusPanel(
     return {
       title: "Revalidation requise",
       description:
-        "Le point a ete rouvert apres evolution du dossier. Reprenez seulement les etapes impactees avant remise.",
+        "Le point a été rouvert après evolution du dossier. Reprenez seulement les étapes impactees avant remise.",
       note: buildRevalidationNote(entry),
     };
   }
@@ -412,7 +412,7 @@ export function getEntryStatusActions(
         key: "request_revalidation",
         label: "Demander une revalidation",
         description:
-          "Rouvre ce point apres additif ou piece critique recue tardivement.",
+          "Rouvre ce point après additif ou pièce critique reçue tardivement.",
         transition: {
           kind: "request_revalidation",
           entry,
@@ -490,9 +490,9 @@ export function getEntryStatusActions(
   if (canAffaireRegisterEntryContinueWithHypothesis(entry)) {
     actions.push({
       key: "continue_with_hypothesis",
-      label: "Continuer avec hypothese",
+      label: "Continuer avec hypothèse",
       description:
-        "Le manque reste ouvert mais l'etude peut continuer sous reserve.",
+        "Le manque reste ouvert mais l'étude peut continuer sous reserve.",
       transition: {
         kind: "continue_with_hypothesis",
         entry,
@@ -555,20 +555,20 @@ export function resolveTransitionFeedback(transition: PendingTransition) {
   if (transition.kind === "continue_with_hypothesis") {
     return {
       inlineMessage:
-        "Continuation sous hypothese enregistree. Le manque reste ouvert et la trace est visible dans le registre.",
+        "Continuation sous hypothèse enregistrée. Le manque reste ouvert et la trace est visible dans le registre.",
       toastTitle: "Continuation tracee",
       toastDescription:
-        "Une hypothese de continuation a ete ajoutee sans masquer le point manquant.",
+        "Une hypothèse de continuation a été ajoutée sans masquer le point manquant.",
     };
   }
 
   if (transition.kind === "request_revalidation") {
     return {
       inlineMessage:
-        "Revalidation demandee. Le point est rouvert avec une reprise ciblee des etapes impactees.",
+        "Revalidation demandee. Le point est rouvert avec une reprise ciblee des étapes impactees.",
       toastTitle: "Revalidation tracee",
       toastDescription:
-        "La reouverture ciblee a ete enregistree sans reset global du dossier.",
+        "La reouverture ciblee a été enregistrée sans reset global du dossier.",
     };
   }
 

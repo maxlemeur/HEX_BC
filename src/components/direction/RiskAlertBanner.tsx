@@ -20,7 +20,7 @@ const LEVEL_VARIANT = {
 } as const;
 
 const STATUS_LABEL = {
-  to_process: "A traiter",
+  to_process: "À traiter",
   assumed: "Assumee",
   false_positive: "Fausse alerte",
 } as const;
@@ -112,9 +112,9 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
           alertIds: alert.alertIds,
           status: "to_process",
         });
-        setFeedback(`Statut remis a "A traiter" pour ${alert.projectName}.`);
+        setFeedback(`Statut remis a "À traiter" pour ${alert.projectName}.`);
       } catch {
-        setFeedback("Impossible de mettre a jour cette alerte.");
+        setFeedback("Impossible de mettre à jour cette alerte.");
       }
     });
   }
@@ -135,10 +135,10 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
           status: nextStatus,
           reviewNote: note.trim(),
         });
-        setFeedback(`Statut mis a jour pour ${alert.projectName}.`);
+        setFeedback(`Statut mis à jour pour ${alert.projectName}.`);
         closeEditor();
       } catch {
-        setFeedback("Impossible de mettre a jour cette alerte.");
+        setFeedback("Impossible de mettre à jour cette alerte.");
       }
     });
   }
@@ -220,7 +220,7 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                     <div className="space-y-3">
                       <label className="space-y-1.5">
                         <span className="block text-xs font-semibold text-foreground-secondary">
-                          Note de decision
+                          Note de décision
                         </span>
                         <textarea
                           ref={textareaRef}
@@ -257,7 +257,7 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                         disabled={isPending}
                         onClick={() => handleReset(alert)}
                       >
-                        Marquer a traiter
+                        Marquer à traiter
                       </button>
                       <button
                         type="button"

@@ -253,7 +253,7 @@ export function EstimateEditorDrawer({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-sm font-semibold text-slate-800">Audit admin</h2>
-                    <p className="text-xs text-muted-foreground">Dernieres operations journalisees sur cette version.</p>
+                    <p className="text-xs text-muted-foreground">Dernières opérations journalisees sur cette version.</p>
                   </div>
                   <button
                     className="btn btn-secondary btn-sm"
@@ -290,7 +290,7 @@ export function EstimateEditorDrawer({
                             <div className="text-sm text-muted-foreground">
                               {isAuditLoading
                                 ? "Chargement des logs d'audit..."
-                                : "Aucun log d'audit recent pour cette version."}
+                                : "Aucun log d'audit récent pour cette version."}
                             </div>
                           </td>
                         </tr>

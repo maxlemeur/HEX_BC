@@ -760,7 +760,7 @@ describe("useEstimateEditorSuggestionsController", () => {
     expect(harness.result.current.meta.appliedCount).toBe(1);
     expect(harness.getItems()[0]?.description).toBe("u");
     expect(harness.reportError).toHaveBeenCalledWith(
-      "1 compteur(s) de suggestions n'ont pas pu etre mis a jour."
+      "1 compteur(s) de suggestions n'ont pas pu être mis à jour."
     );
     expect(harness.setItems).toHaveBeenCalledTimes(1);
   });

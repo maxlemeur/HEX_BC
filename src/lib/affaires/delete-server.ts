@@ -16,7 +16,7 @@ type BulkArchiveDraftAffairesRpcRow =
 export const bulkDeleteAffairesInputSchema = z.object({
   projectIds: z
     .array(z.string().uuid("ID projet invalide."))
-    .min(1, "Selection vide.")
+    .min(1, "Sélection vide.")
     .max(
       BULK_DELETE_AFFAIRES_MAX,
       "La suppression est limitee a 1 000 affaires par lot.",
@@ -74,7 +74,7 @@ export async function bulkDeleteDraftAffaires(
     if (error) {
       const mappedError = mapSupabaseError(
         error,
-        "Impossible de supprimer les affaires selectionnees.",
+        "Impossible de supprimer les affaires sélectionnées.",
       );
       if (offset === 0) {
         throw mappedError;
@@ -124,7 +124,7 @@ export async function bulkDeleteDraftAffaires(
       failures.push({
         projectId,
         reason: "failed",
-        message: "Aucun resultat de suppression n'a ete retourne.",
+        message: "Aucun résultat de suppression n'a été retourne.",
       });
     }
   }
@@ -168,7 +168,7 @@ export async function bulkArchiveDraftAffaires(
     if (error) {
       const mappedError = mapSupabaseError(
         error,
-        "Impossible d'archiver les affaires selectionnees.",
+        "Impossible d'archiver les affaires sélectionnées.",
       );
       if (offset === 0) {
         throw mappedError;
@@ -218,7 +218,7 @@ export async function bulkArchiveDraftAffaires(
       failures.push({
         projectId,
         reason: "failed",
-        message: "Aucun resultat d'archivage n'a ete retourne.",
+        message: "Aucun résultat d'archivage n'a été retourne.",
       });
     }
   }

@@ -71,7 +71,7 @@ async function updatePlanSetRequest(input: {
 
   if (!response.ok) {
     throw new Error(
-      toApiErrorMessage(payload, "Impossible de mettre a jour le jeu de plans.")
+      toApiErrorMessage(payload, "Impossible de mettre à jour le jeu de plans.")
     );
   }
 }
@@ -89,7 +89,7 @@ function formatAbsoluteDate(isoDate: string) {
 function formatRelativeTime(isoDate: string) {
   const diff = Date.now() - new Date(isoDate).getTime();
   const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "A l'instant";
+  if (minutes < 1) return "À l'instant";
   if (minutes < 60) return `Il y a ${minutes} min`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `Il y a ${hours}h`;
@@ -221,13 +221,13 @@ export function PlanSetCard({
         description: editDescription.trim() || null,
       });
       setEditingSet(false);
-      setAnnouncement(`Jeu "${normalizedName}" mis a jour.`);
+      setAnnouncement(`Jeu "${normalizedName}" mis à jour.`);
       onUpdated();
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : "Impossible de mettre a jour le jeu de plans.";
+          : "Impossible de mettre à jour le jeu de plans.";
       setEditError(message);
       setAnnouncement(message);
     } finally {

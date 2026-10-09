@@ -64,7 +64,7 @@ function approvalRow(
     amount_ht_cents: 125_000,
     margin_bp: 1_500,
     requested_at: "2026-07-31T10:30:00.000Z",
-    submission_message: "A valider",
+    submission_message: "À valider",
     comment_count: 0,
     reviewer_state: null,
     exception_count: 0,
@@ -171,7 +171,7 @@ describe("fetchApprovalQueue", () => {
       visualState: "commented",
       exceptionGroups: [
         { key: "price", label: "Prix", count: 3 },
-        { key: "missing_documents", label: "Pieces manquantes", count: 2 },
+        { key: "missing_documents", label: "Pièces manquantes", count: 2 },
       ],
     });
     expect(result[1]).toMatchObject({
@@ -233,7 +233,7 @@ describe("markApprovalQueueItemState", () => {
     await expect(
       markApprovalQueueItemState("cycle-1", "seen")
     ).rejects.toThrow(
-      "Seuls les administrateurs et directeurs peuvent modifier l'etat de revue."
+      "Seuls les administrateurs et directeurs peuvent modifier l'état de revue."
     );
     expect(from).not.toHaveBeenCalled();
   });

@@ -282,7 +282,7 @@ export function PricesManager({
                 Importer un fichier de prix (CSV)
               </h2>
               <p className="text-xs text-muted-foreground">
-                Importez vos prix depuis un fichier CSV avec un assistant guide en 5 etapes.
+                Importez vos prix depuis un fichier CSV avec un assistant guide en 5 étapes.
               </p>
             </div>
           </div>

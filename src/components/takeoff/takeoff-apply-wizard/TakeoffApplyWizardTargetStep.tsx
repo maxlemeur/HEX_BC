@@ -70,7 +70,7 @@ export function TakeoffApplyWizardTargetStep({
       {sectionsError && <div className="alert alert-error">{sectionsError}</div>}
       {!isLoadingSections && !sectionsError && sectionOptions.length === 0 && (
         <div className="alert alert-info">
-          Creez d&apos;abord un lot ou un chapitre dans le devis pour y rattacher les lignes du metre.
+          Créez d&apos;abord un lot ou un chapitre dans le devis pour y rattacher les lignes du métré.
         </div>
       )}
     </div>

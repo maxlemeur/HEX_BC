@@ -74,7 +74,7 @@ export function RegisterTransitionDialog({
 
         <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Entree concernee
+            Entrée concernee
           </p>
           <p className="mt-2 text-sm font-medium text-slate-800">
             {pendingTransition.entry.text}
@@ -134,7 +134,7 @@ export function RegisterTransitionDialog({
             </label>
 
             <label className="flex flex-col gap-1 text-xs text-slate-600">
-              Piece ou additif declenchant (facultatif)
+              Pièce ou additif declenchant (facultatif)
               <input
                 className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm text-foreground-secondary"
                 value={revalidationForm.triggerFileName}
@@ -147,10 +147,10 @@ export function RegisterTransitionDialog({
 
             <fieldset className="grid gap-2 text-xs text-slate-600">
               <legend className="text-xs font-medium text-foreground-secondary">
-                Etapes impactees a relancer
+                Étapes impactees à relancer
               </legend>
               <p className="text-[11px] text-muted-foreground">
-                Ciblez uniquement les etapes reellement rouvertes.
+                Ciblez uniquement les étapes reellement rouvertes.
               </p>
               {Object.entries(AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS).map(
                 ([value, label]) => (

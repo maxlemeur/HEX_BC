@@ -87,7 +87,7 @@ async function getAuthenticatedContext() {
 
 function assertTenantAdmin(role: TenantRole) {
   if (role === ADMIN_ROLE) return;
-  throw forbidden("Acces reserve aux administrateurs du tenant.");
+  throw forbidden("Accès reserve aux administrateurs du tenant.");
 }
 
 async function getTenantOrThrow(supabase: Supabase, tenantId: string) {
@@ -222,7 +222,7 @@ async function countTenantAdmins(supabase: Supabase, tenantId: string) {
     .eq("role", ADMIN_ROLE);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier les administrateurs du tenant.");
+    throw mapSupabaseError(error, "Impossible de vérifier les administrateurs du tenant.");
   }
 
   return count ?? 0;
@@ -273,11 +273,11 @@ export async function createMembership(input: CreateMembershipInput) {
     .maybeSingle();
 
   if (existingMembershipError) {
-    throw mapSupabaseError(existingMembershipError, "Impossible de verifier le membership.");
+    throw mapSupabaseError(existingMembershipError, "Impossible de vérifier le membership.");
   }
 
   if (existingMembership) {
-    throw conflict("Cet utilisateur est deja membre de ce tenant.");
+    throw conflict("Cet utilisateur est déjà membre de ce tenant.");
   }
 
   const directoryClient = createServiceRoleClient();
@@ -297,7 +297,7 @@ export async function createMembership(input: CreateMembershipInput) {
     .eq("user_id", input.user_id);
 
   if (countError) {
-    throw mapSupabaseError(countError, "Impossible de verifier les memberships existants.");
+    throw mapSupabaseError(countError, "Impossible de vérifier les memberships existants.");
   }
 
   const payload: TenantMembershipInsert = {
@@ -315,9 +315,9 @@ export async function createMembership(input: CreateMembershipInput) {
 
   if (createError || !created) {
     if (createError) {
-      throw mapSupabaseError(createError, "Impossible de creer le membership.");
+      throw mapSupabaseError(createError, "Impossible de créer le membership.");
     }
-    throw conflict("Impossible de creer le membership.");
+    throw conflict("Impossible de créer le membership.");
   }
 
   const membership = await mapMembershipWithProfile(supabase, created as TenantMembershipRow);
@@ -357,9 +357,9 @@ export async function updateMembership(membershipId: string, input: UpdateMember
 
   if (updateError || !updated) {
     if (updateError) {
-      throw mapSupabaseError(updateError, "Impossible de mettre a jour le membership.");
+      throw mapSupabaseError(updateError, "Impossible de mettre à jour le membership.");
     }
-    throw conflict("Impossible de mettre a jour le membership.");
+    throw conflict("Impossible de mettre à jour le membership.");
   }
 
   const membership = await mapMembershipWithProfile(supabase, updated as TenantMembershipRow);

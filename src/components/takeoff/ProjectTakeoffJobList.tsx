@@ -314,7 +314,7 @@ export default function ProjectTakeoffJobList({
               className="form-label"
               htmlFor="takeoff-period-filter"
             >
-              Periode
+              Période
             </label>
             <select
               id="takeoff-period-filter"
@@ -457,7 +457,7 @@ export default function ProjectTakeoffJobList({
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
                             {job.source_file_type ??
-                              "Type non renseigne"}
+                              "Type non renseigné"}
                           </div>
                         </td>
                         <td>{job.level}</td>
@@ -478,7 +478,7 @@ export default function ProjectTakeoffJobList({
                               href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
                               className="btn btn-secondary btn-sm"
                             >
-                              Detail
+                              Détail
                             </Link>
                             {reviewEnabled ? (
                               <Link
@@ -599,7 +599,7 @@ export default function ProjectTakeoffJobList({
                 }
                 disabled={effectivePage <= 1}
               >
-                Precedent
+                Précédent
               </button>
               <span className="text-sm text-slate-600">
                 Page {effectivePage} / {totalPages}

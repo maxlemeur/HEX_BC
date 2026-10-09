@@ -73,7 +73,7 @@ export async function freezeEstimateV2Snapshot(
     estimate_projects: { user_id: string } | { user_id: string }[] | null;
   };
   if (resolveCalcEngineVersion(version) !== 2) {
-    throw badRequest("Le gel du snapshot est reserve au moteur de calcul v2.");
+    throw badRequest("Le gel du snapshot est réservé au moteur de calcul v2.");
   }
   const project = resolveEmbeddedOne(version.estimate_projects);
   if (!project) {
@@ -104,7 +104,7 @@ export async function freezeEstimateV2Snapshot(
     .map((item) => item.id);
   if (mismatchedItemIds.length > 0) {
     throw badRequest(
-      "La nature de certaines lignes ne correspond pas aux fournitures ou a la main-d'oeuvre saisies.",
+      "La nature de certaines lignes ne correspond pas aux fournitures ou à la main-d'oeuvre saisies.",
       { item_ids: mismatchedItemIds },
       "ESTIMATE_LINE_NATURE_MISMATCH"
     );

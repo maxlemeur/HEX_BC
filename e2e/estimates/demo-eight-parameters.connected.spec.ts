@@ -265,7 +265,7 @@ test("TI-576 sauvegarde du titre conserve les remises historiques synthétiques"
   await expect(drawer.getByText("Remises historiques conservées", { exact: true })).toBeVisible();
   await expect(drawer.getByText(/Remises : 5 % puis 10 %/)).toBeVisible();
   await drawer.locator("#estimate-title").fill(`${run.prefix} Titre modifié`);
-  await drawer.getByRole("button", { name: "Enregistrer le parametrage", exact: true }).click();
+  await drawer.getByRole("button", { name: "Enregistrer le paramétrage", exact: true }).click();
   await expect.poll(async () => (await apiJson<{ version: { title: string } }>(page,
     `/api/estimates/${versionId}`)).version.title).toBe(`${run.prefix} Titre modifié`);
   await page.reload();

@@ -181,7 +181,7 @@ export function IntakeDropzone({
 
         const data = extractUploadResponseData(payload);
         if (!data) {
-          const message = "Reponse upload invalide.";
+          const message = "Réponse upload invalide.";
           setState({ phase: "error", message });
           setAnnouncement(`Erreur: ${message}`);
           return;
@@ -297,7 +297,7 @@ export function IntakeDropzone({
             onClick={reset}
             className="ml-2 text-xs font-medium underline"
           >
-            Reessayer
+            Réessayer
           </button>
         </div>
       )}

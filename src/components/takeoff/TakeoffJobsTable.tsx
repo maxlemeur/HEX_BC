@@ -75,7 +75,7 @@ export default function TakeoffJobsTable({
             );
           } else if (response.dispatch?.status === "queued_for_recovery") {
             setActionNotice(
-              `Réconciliation enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+              `Réconciliation enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
             );
           }
         } else if (action === "resubmit") {
@@ -86,7 +86,7 @@ export default function TakeoffJobsTable({
             );
           } else if (response.dispatch?.status === "queued_for_recovery") {
             setActionNotice(
-              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est active (suivi ${response.dispatch.correlation_id}).`
+              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
             );
           }
         } else {

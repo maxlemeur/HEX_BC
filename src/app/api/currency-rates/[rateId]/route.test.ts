@@ -149,7 +149,7 @@ describe("currency-rates [rateId] route", () => {
 
   it("PATCH returns 403 when actor is not admin", async () => {
     vi.mocked(updateCurrencyRateForTenant).mockRejectedValue(
-      forbidden("Acces reserve aux administrateurs du tenant.")
+      forbidden("Accès reserve aux administrateurs du tenant.")
     );
 
     const response = await PATCH(

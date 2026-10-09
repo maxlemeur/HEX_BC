@@ -531,14 +531,14 @@ describe("TakeoffReviewPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Ouvrir l'apply controle" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Ouvrir l'apply contrôle" })).toBeDefined();
     });
 
-    const applyButton = screen.getByRole("button", { name: "Ouvrir l'apply controle" });
+    const applyButton = screen.getByRole("button", { name: "Ouvrir l'apply contrôle" });
     expect(applyButton).toBeDisabled();
     expect(
       screen.getAllByText(
-        "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels."
+        "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels."
       ).length
     ).toBeGreaterThan(0);
 
@@ -570,7 +570,7 @@ describe("TakeoffReviewPage", () => {
     );
 
     const applyButton = await screen.findByRole("button", {
-      name: "Ouvrir l'apply controle",
+      name: "Ouvrir l'apply contrôle",
     });
 
     await waitFor(() => {

@@ -81,47 +81,47 @@ export const ESTIMATE_GATING_FLAG_META: Record<
   no_pdf_generated: {
     label: "PDF absent",
     description:
-      "Aucun document PDF n'est genere pour cette version. Lancez une generation avant l'envoi.",
+      "Aucun document PDF n'est généré pour cette version. Lancez une generation avant l'envoi.",
   },
   rule_violation: {
-    label: "Regles metier non respectees",
+    label: "Règles métier non respectees",
     description:
       "Des regles metier (marge, remise, approbation) ne sont pas satisfaites.",
   },
   critical_missing_pieces: {
     label: "Documents critiques manquants",
     description:
-      "Le registre affaire contient des pieces manquantes critiques encore ouvertes.",
+      "Le registre affaire contient des pièces manquantes critiques encore ouvertes.",
   },
   critical_open_questions: {
     label: "Questions critiques ouvertes",
     description:
-      "Le registre affaire contient des hypotheses ou pieces manquantes critiques encore ouvertes.",
+      "Le registre affaire contient des hypothèses ou pièces manquantes critiques encore ouvertes.",
   },
   client_missing_documents_required: {
     label: "Documents attendus du client",
     description:
-      "Le registre affaire contient des pieces attendues du client avant l'envoi.",
+      "Le registre affaire contient des pièces attendues du client avant l'envoi.",
   },
   client_clarification_required: {
     label: "Clarification client requise",
     description:
-      "Le registre affaire contient des points a clarifier avec le client avant l'envoi.",
+      "Le registre affaire contient des points à clarifier avec le client avant l'envoi.",
   },
   missing_pieces_pending: {
-    label: "Documents manquants a traiter",
+    label: "Documents manquants à traiter",
     description:
-      "Des pieces manquantes non critiques restent ouvertes dans le registre affaire.",
+      "Des pièces manquantes non critiques restent ouvertes dans le registre affaire.",
   },
   open_questions_pending: {
-    label: "Questions ouvertes a traiter",
+    label: "Questions ouvertes à traiter",
     description:
-      "Des hypotheses ou pieces manquantes non critiques restent ouvertes dans le registre affaire.",
+      "Des hypothèses ou pièces manquantes non critiques restent ouvertes dans le registre affaire.",
   },
   version_zero_review_pending: {
-    label: "V0 IA a revoir",
+    label: "V0 IA à revoir",
     description:
-      "Une V0 assistee est encore active sur cette version. La revue humaine explicite doit etre finalisee avant envoi.",
+      "Une V0 assistee est encore activé sur cette version. La revue humaine explicite doit être finalisee avant envoi.",
   },
 };
 
@@ -478,7 +478,7 @@ export async function evaluateEstimateSendGating(
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de charger les prix fournisseurs selectionnes."
+        "Impossible de charger les prix fournisseurs sélectionnés."
       );
     }
 
@@ -700,7 +700,7 @@ export async function evaluateEstimateSendGating(
       item_ids: [],
       label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description:
-        "Des regles bloquantes ne peuvent pas etre evaluees avec les preuves disponibles.",
+        "Des règles bloquantes ne peuvent pas être evaluees avec les preuves disponibles.",
       details: toUnavailableRuleDetails(blockingUnavailableSignals),
     });
   }
@@ -714,7 +714,7 @@ export async function evaluateEstimateSendGating(
       item_ids: [],
       label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description:
-        "Certaines regles d'avertissement ne peuvent pas etre evaluees avec les preuves disponibles.",
+        "Certaines règles d'avertissement ne peuvent pas être evaluees avec les preuves disponibles.",
       details: toUnavailableRuleDetails(warningUnavailableSignals),
     });
   }
@@ -749,7 +749,7 @@ export async function evaluateEstimateSendGating(
     kind: "missing_piece",
     label: "Documents critiques manquants",
     description:
-      "Des pieces critiques restent manquantes ou inexploitees dans le registre affaire.",
+      "Des pièces critiques restent manquantes ou inexploitees dans le registre affaire.",
   });
   pushRegisterGatingFlag({
     bucket: blockingFlags,
@@ -774,7 +774,7 @@ export async function evaluateEstimateSendGating(
     kind: "missing_piece",
     label: "Documents attendus du client",
     description:
-      "Des pieces attendues du client restent necessaires avant l'envoi.",
+      "Des pièces attendues du client restent nécessaires avant l'envoi.",
   });
   pushRegisterGatingFlag({
     bucket: blockingFlags,
@@ -797,9 +797,9 @@ export async function evaluateEstimateSendGating(
     registerSeverity: null,
     entries: openMissingPieceEntries,
     kind: "missing_piece",
-    label: "Documents manquants a traiter",
+    label: "Documents manquants à traiter",
     description:
-      "Des pieces manquantes non critiques restent ouvertes dans le registre affaire.",
+      "Des pièces manquantes non critiques restent ouvertes dans le registre affaire.",
   });
   pushRegisterGatingFlag({
     bucket: warningFlags,

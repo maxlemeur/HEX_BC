@@ -53,7 +53,7 @@ type GeneratedOuvrageCandidateCardProps = {
 const AI_STATUS_CONFIG = {
   certain: { variant: "success" as const, label: "Certain" },
   plausible: { variant: "warning" as const, label: "Plausible" },
-  question: { variant: "error" as const, label: "A clarifier" },
+  question: { variant: "error" as const, label: "À clarifier" },
 } as const;
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
@@ -96,7 +96,7 @@ function ReadinessStepper({
   return (
     <div
       className="flex flex-wrap items-center gap-1 mt-2 text-xs"
-      aria-label="Etapes de preparation"
+      aria-label="Étapes de préparation"
     >
       {steps.map((step, i) => (
         <Fragment key={i}>
@@ -180,7 +180,7 @@ export function GeneratedOuvrageCandidateCard({
         </div>
         {candidate.editedUnit && (
           <p className="text-xs text-subtle-foreground mt-1">
-            Unite proposee : {candidate.editedUnit}
+            Unité proposee : {candidate.editedUnit}
           </p>
         )}
       </div>
@@ -225,7 +225,7 @@ export function GeneratedOuvrageCandidateCard({
           className="checkbox checkbox-sm mt-0.5"
           checked={candidate.selected}
           onChange={() => onToggleSelect(candidate.candidateId)}
-          aria-label={`Selectionner ${candidate.designation}`}
+          aria-label={`Sélectionner ${candidate.designation}`}
           disabled={selectionDisabled}
         />
         <div className="flex-1 min-w-0">
@@ -239,7 +239,7 @@ export function GeneratedOuvrageCandidateCard({
             </Badge>
             {insertReady && candidate.selected && (
               <Badge variant="success" size="sm">
-                Pret a inserer
+                Prêt à inserer
               </Badge>
             )}
           </div>
@@ -255,7 +255,7 @@ export function GeneratedOuvrageCandidateCard({
           {nextStep === "parent" && (
             <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2.5">
               <p className="text-xs font-medium text-amber-900">
-                Cet ouvrage n&apos;est pas pret a etre insere.
+                Cet ouvrage n&apos;est pas prêt à être insere.
               </p>
               <p className="text-xs text-amber-800 mt-0.5">
                 Il manque : {missingFieldsLabel}.
@@ -275,7 +275,7 @@ export function GeneratedOuvrageCandidateCard({
           {nextStep === "select" && (
             <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5">
               <p className="text-xs font-medium text-emerald-800">
-                Ouvrage pret. Selectionnez-le pour l&apos;ajouter au devis.
+                Ouvrage prêt. Selectionnez-le pour l&apos;ajouter au devis.
               </p>
             </div>
           )}
@@ -284,10 +284,10 @@ export function GeneratedOuvrageCandidateCard({
           {parentReadiness.isReady && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
               {candidate.editedUnit && (
-                <span>Unite : {candidate.editedUnit}</span>
+                <span>Unité : {candidate.editedUnit}</span>
               )}
               {candidate.editedQuantity != null && (
-                <span>Quantite : {candidate.editedQuantity}</span>
+                <span>Quantité : {candidate.editedQuantity}</span>
               )}
               <span>
                 Lot :{" "}
@@ -352,7 +352,7 @@ export function GeneratedOuvrageCandidateCard({
                 className="btn btn-primary btn-xs"
                 onClick={() => onToggleSelect(candidate.candidateId)}
               >
-                Selectionner pour insertion
+                Sélectionner pour insertion
               </button>
             )}
 
@@ -495,7 +495,7 @@ function EditMode({
     >
       <div className="space-y-3">
         <p className="text-xs font-medium text-foreground-secondary">
-          Completez la ligne pour debloquer la selection et l&apos;insertion.
+          Complétez la ligne pour debloquer la sélection et l&apos;insertion.
         </p>
         <div>
           <label className="label text-xs font-medium">
@@ -518,7 +518,7 @@ function EditMode({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label text-xs font-medium">
-              Unite
+              Unité
               {!unit.trim() && (
                 <span className="text-error ml-1">*</span>
               )}
@@ -537,7 +537,7 @@ function EditMode({
           </div>
           <div>
             <label className="label text-xs font-medium">
-              Quantite
+              Quantité
               {(!quantity.trim() || !(Number.parseFloat(quantity.replace(",", ".")) > 0)) && (
                 <span className="text-error ml-1">*</span>
               )}
@@ -576,7 +576,7 @@ function EditMode({
         {/* Live readiness feedback */}
         {parentReadiness.isReady ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-            Ligne complete. Validez pour passer a l&apos;etape suivante.
+            Ligne complete. Validez pour passer a l&apos;étape suivante.
           </div>
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

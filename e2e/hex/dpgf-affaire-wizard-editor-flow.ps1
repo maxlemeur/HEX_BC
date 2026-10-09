@@ -285,8 +285,8 @@ try {
   Wait-ForSelector -Session $Session -Selector "input[placeholder='Ex: Residence Les Jardins']" -TimeoutSeconds 20
   Invoke-AB $Session "fill" "input[placeholder='Ex: Residence Les Jardins']" $projectName | Out-Null
 
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Creer l'affaire" -ScopeSelector "main" -TimeoutSeconds 20
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Creer l'affaire" -ScopeSelector "main"
+  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Créer l'affaire" -ScopeSelector "main" -TimeoutSeconds 20
+  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Créer l'affaire" -ScopeSelector "main"
 
   $hubUrl = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/affaires/[0-9a-fA-F-]{36}" -TimeoutSeconds 90
   if ($hubUrl -notmatch "/dashboard/affaires/([0-9a-fA-F-]{36})") {
@@ -370,7 +370,7 @@ try {
   $step3Deadline = (Get-Date).AddSeconds(40)
   while ((Get-Date) -lt $step3Deadline) {
     $step3Text = Get-PageText -Session $Session
-    if ($step3Text -like "*Source detectee:*" -and $step3Text -like "*DPGF source a importer*") {
+    if ($step3Text -like "*Source detectee:*" -and $step3Text -like "*DPGF source à importer*") {
       $step3Ready = $true
       break
     }
@@ -381,7 +381,7 @@ try {
     throw "Wizard step 3 did not show linked DPGF source state. Text: $step3Text"
   }
 
-  if ($step3Text -notlike "*La version sera creee avec les lignes du DPGF source lie.*") {
+  if ($step3Text -notlike "*La version sera créée avec les lignes du DPGF source lie.*") {
     throw "Wizard step 3 did not announce source import. Text: $step3Text"
   }
 
@@ -415,7 +415,7 @@ try {
     if ($creationText -like "*Veuillez selectionner un template*") {
       throw "Wizard blocked by template selection error: $creationText"
     }
-    if ($creationText -like "*Impossible d'importer la source DPGF liee.*") {
+    if ($creationText -like "*Impossible d'importer la source DPGF liée.*") {
       throw "Wizard create failed while importing linked source: $creationText"
     }
 

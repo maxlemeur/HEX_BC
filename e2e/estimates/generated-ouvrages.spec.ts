@@ -175,7 +175,7 @@ async function findGeneratedFallbackInsertion(page: Page, versionId: string) {
     (item) =>
       item.item_type === "section" &&
       item.parent_id === null &&
-      item.title === "A classer"
+      item.title === "À classer"
   );
   if (!fallbackSection) return null;
 
@@ -229,7 +229,7 @@ test.describe("EST-381 - generated ouvrages review", () => {
 
     await expect(dialog.getByText(/Toutes les propositions ont ete ecartees/i)).toBeVisible();
     await expect(
-      dialog.getByRole("button", { name: /Inserer les ouvrages selectionnes/i })
+      dialog.getByRole("button", { name: /Inserer les ouvrages sélectionnés/i })
     ).toHaveCount(0);
   });
 
@@ -258,7 +258,7 @@ test.describe("EST-381 - generated ouvrages review", () => {
 
     const insertableCard = dialog
       .locator('[data-testid^="candidate-card-"]')
-      .filter({ hasText: /Quantite\s*:/i })
+      .filter({ hasText: /Quantité\s*:/i })
       .first();
 
     await expect(insertableCard).toBeVisible();

@@ -10,7 +10,7 @@ export default function DashboardCataloguePage() {
       <div className="page-header">
         <h1 className="page-title">Catalogue</h1>
         <p className="page-description">
-          Gerez les articles du catalogue et liez les lignes importees aux produits.
+          Gérez les articles du catalogue et liez les lignes importées aux produits.
         </p>
       </div>
 

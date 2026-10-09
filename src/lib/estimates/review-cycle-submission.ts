@@ -89,7 +89,7 @@ function normalizeUuid(value: string, label: string) {
 function normalizeRuleIds(ruleIds: string[]) {
   const normalized = [...new Set(ruleIds.map((ruleId) => normalizeUuid(ruleId, "rule_id")))];
   if (normalized.length === 0) {
-    throw badRequest("Au moins une regle de validation est obligatoire.");
+    throw badRequest("Au moins une règle de validation est obligatoire.");
   }
   return normalized;
 }
@@ -106,7 +106,7 @@ function normalizeSubmissionMessage(message: string | null | undefined) {
   if (message === null || message === undefined) return null;
   const normalized = message.trim();
   if (!normalized) {
-    throw badRequest("Le message de soumission ne peut pas etre vide.");
+    throw badRequest("Le message de soumission ne peut pas être vide.");
   }
   return normalized;
 }
@@ -127,7 +127,7 @@ function mapReviewSubmissionError(error: SupabaseErrorLike) {
   }
 
   if (message.includes("ESTIMATE_REVIEW_DRAFT_NOT_FOUND")) {
-    return notFound("Le brouillon de devis a soumettre est introuvable.");
+    return notFound("Le brouillon de devis à soumettre est introuvable.");
   }
 
   if (message.includes("ESTIMATE_REVIEW_ASSIGNED_REVIEWER_INVALID")) {
@@ -135,11 +135,11 @@ function mapReviewSubmissionError(error: SupabaseErrorLike) {
   }
 
   if (message.includes("ESTIMATE_REVIEW_RULE_IDS_REQUIRED")) {
-    return badRequest("Au moins une regle de validation est obligatoire.");
+    return badRequest("Au moins une règle de validation est obligatoire.");
   }
 
   if (message.includes("ESTIMATE_REVIEW_RULES_INVALID")) {
-    return badRequest("Une ou plusieurs regles de validation sont invalides.");
+    return badRequest("Une ou plusieurs règles de validation sont invalides.");
   }
 
   if (message.includes("ESTIMATE_REVIEW_SUBMISSION_MESSAGE_REQUIRED")) {

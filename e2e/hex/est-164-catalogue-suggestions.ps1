@@ -90,7 +90,7 @@ function Get-CandidateVersionIds {
 
   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
   $project = "E2E-HEX-EST164-$stamp"
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-164" -Date "2026-02-02" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-164" -Date "2026-02-02" -Validité "30"
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre EST-164"
   Add-Line -Session $Session -Designation "Tube Inox 316L"

@@ -55,7 +55,7 @@ export const CORRECTION_STATUS_META: Record<
   },
   corrected: {
     label: "Corrigé",
-    className: "bg-success/10 text-success",
+    className: "bg-success-subtle text-success",
   },
   to_discuss: {
     label: "À discuter",
@@ -75,7 +75,7 @@ export const DECISION_META: Record<
 > = {
   approved: {
     badgeLabel: "Approuvée",
-    badgeClassName: "bg-success/10 text-success",
+    badgeClassName: "bg-success-subtle text-success",
     buttonLabel: "Approuver",
     requiresComment: false,
     successTitle: "Version approuvée",
@@ -89,7 +89,7 @@ export const DECISION_META: Record<
   },
   changes_requested: {
     badgeLabel: "À corriger",
-    badgeClassName: "bg-danger/10 text-danger",
+    badgeClassName: "bg-danger-subtle text-danger",
     buttonLabel: "Renvoyer en correction",
     requiresComment: true,
     successTitle: "Retour correction envoyé",

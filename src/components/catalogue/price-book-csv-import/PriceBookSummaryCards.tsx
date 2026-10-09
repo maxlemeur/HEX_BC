@@ -32,7 +32,7 @@ export function PriceBookSummaryCards({
         </p>
       </div>
       <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">A corriger</p>
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">À corriger</p>
         <p className="mt-1 text-base font-semibold text-danger">
           {formatNumber(validation.rejectedRowsCount)}
         </p>

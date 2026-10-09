@@ -56,7 +56,7 @@ test.describe("V3-006 — Plan Center affaire", () => {
         .waitFor({ state: "visible", timeout: 15_000 })
         .then(() => "plans"),
       page
-        .getByText("Plans introuvables ou acces non autorise.")
+        .getByText("Plans introuvables ou accès non autorise.")
         .waitFor({ state: "visible", timeout: 15_000 })
         .then(() => "unavailable"),
     ]).catch(() => "unknown");

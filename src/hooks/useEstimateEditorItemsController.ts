@@ -709,7 +709,7 @@ export function useEstimateEditorItemsController({
               } catch (error) {
                 if (context && !context.isCurrentScope()) return;
                 console.error(
-                  "Impossible de restaurer l'ordre exact apres annulation de suppression.",
+                  "Impossible de restaurer l'ordre exact après annulation de suppression.",
                   error
                 );
               }

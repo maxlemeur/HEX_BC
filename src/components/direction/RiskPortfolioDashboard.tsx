@@ -12,10 +12,10 @@ type Props = {
 
 const APPROVAL_LABEL = {
   not_required: "Sans validation",
-  required: "A valider",
+  required: "À valider",
   in_review: "En revue",
-  approved: "Validee",
-  changes_requested: "A reprendre",
+  approved: "Validée",
+  changes_requested: "À reprendre",
 } as const;
 
 const APPROVAL_VARIANT = {
@@ -44,7 +44,7 @@ function formatCoverage(value: number | null) {
 
 function formatTargetDate(value: string | null) {
   if (!value) {
-    return "Sans echeance detectee";
+    return "Sans échéance détectée";
   }
 
   return new Date(value).toLocaleDateString("fr-FR", {
@@ -62,7 +62,7 @@ function riskBadge(score: number) {
     return { label: "Attention", variant: "warning" as const };
   }
 
-  return { label: "Sous controle", variant: "info" as const };
+  return { label: "Sous contrôle", variant: "info" as const };
 }
 
 export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
@@ -86,7 +86,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
             Portefeuille marge, risque et completude
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Chaque carte donne un scan rapide, les points a surveiller et l&apos;entree vers le cockpit affaire.
+            Chaque carte donne un scan rapide, les points à surveiller et l&apos;entrée vers le cockpit affaire.
           </p>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                     </Badge>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {card.clientName ?? "Client non precise"}
+                    {card.clientName ?? "Client non précise"}
                     {card.ownerName ? ` · ${card.ownerName}` : ""}
                   </p>
                 </div>
@@ -154,7 +154,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                 </div>
                 <div className="rounded-2xl bg-surface-subtle px-3 py-3">
                   <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
-                    Hypotheses
+                    Hypothèses
                   </p>
                   <p className="mt-2 text-sm font-semibold text-foreground">
                     {card.openHypothesesCount}

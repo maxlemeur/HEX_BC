@@ -77,7 +77,7 @@ export function EstimateEmailTemplate({
           {/* Footer */}
           <Section style={contentStyle}>
             <Text style={footerStyle}>
-              Ce devis vous a ete transmis par {companyName}. Vous pouvez le
+              Ce devis vous a été transmis par {companyName}. Vous pouvez le
               consulter, l&apos;accepter ou le refuser en ligne via le lien
               ci-dessus.
             </Text>

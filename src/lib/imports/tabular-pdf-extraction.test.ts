@@ -130,7 +130,7 @@ describe("detectTabularPdfTablesFromLayout", () => {
           () => item
         ),
       })
-    ).toThrow(/depasse 20000 elements texte sur une page/);
+    ).toThrow(/depasse 20000 éléments texte sur une page/);
   });
 
   it("rejects parser work that exceeds the extraction deadline", async () => {
@@ -211,7 +211,7 @@ describe("detectTabularPdfTablesFromLayout", () => {
           },
         ],
       })
-    ).toThrow(/element texte du PDF depasse la taille maximale autorisee/);
+    ).toThrow(/élément texte du PDF depasse la taille maximale autorisee/);
   });
 
   it("rejects cumulative multi-line expansion before retaining unbounded output", () => {
@@ -451,7 +451,7 @@ describe("detectTabularPdfTablesFromLayout", () => {
     const columns = [
       { text: "N°", x: 40 },
       { text: "Designation des ouvrages", x: 90 },
-      { text: "Unite", x: 300 },
+      { text: "Unité", x: 300 },
       { text: "Qte", x: 360 },
       { text: "P.U. HT", x: 420 },
       { text: "Total HT", x: 500 },
@@ -498,7 +498,7 @@ describe("detectTabularPdfTablesFromLayout", () => {
         headers: [
           "N°",
           "Designation des ouvrages",
-          "Unite",
+          "Unité",
           "Qte",
           "P.U. HT",
           "Total HT",

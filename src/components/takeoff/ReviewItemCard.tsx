@@ -193,7 +193,7 @@ export function ReviewItemCard({
               className="active:scale-[0.98] transition-transform duration-150"
               leftIcon={<EyeIcon className="h-4 w-4" />}
             >
-              {isMarkedForReview ? "Marque" : "A revoir"}
+              {isMarkedForReview ? "Marque" : "À revoir"}
             </Button>
           )}
           <Button

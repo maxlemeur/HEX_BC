@@ -19,7 +19,7 @@ export function TakeoffDeprecationBanner({
   const resolvedTargetLabel = descriptor?.targetLabel ?? targetLabel;
   const resolvedDescription =
     descriptor?.description ??
-    "La vNext guide d'abord vers le parcours affaire pour lancer, suivre et reprendre le metre.";
+    "La vNext guide d'abord vers le parcours affaire pour lancer, suivre et reprendre le métré.";
   const resolvedProvenanceLabel =
     descriptor?.provenanceLabel ?? "Provenance du chemin : legacy estimate-first";
 

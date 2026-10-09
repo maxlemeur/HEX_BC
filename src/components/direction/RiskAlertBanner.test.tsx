@@ -37,7 +37,7 @@ const ALERT: DirectionSyntheticAlert = {
   jobId: "job-1",
   latestJobId: "job-1",
   level: "warning",
-  label: "Marge fragile avec ecarts ouverts",
+  label: "Marge fragile avec écarts ouverts",
   reasons: ["3 exceptions restent a arbitrer."],
   status: "to_process",
   alertIds: ["alert-1"],
@@ -75,7 +75,7 @@ describe("RiskAlertBanner", () => {
     const trigger = screen.getByRole("button", { name: "Marquer assumee" });
     await user.click(trigger);
 
-    const noteField = screen.getByLabelText("Note de decision");
+    const noteField = screen.getByLabelText("Note de décision");
     expect(noteField).toHaveFocus();
     expect(
       screen.getByRole("button", { name: /Confirmer l'hypothese/i })
@@ -83,7 +83,7 @@ describe("RiskAlertBanner", () => {
 
     await user.click(screen.getByRole("button", { name: "Annuler" }));
 
-    expect(screen.queryByLabelText("Note de decision")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Note de décision")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Marquer assumee" })).toHaveFocus();
   });
 });

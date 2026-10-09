@@ -149,7 +149,7 @@ describe("TakeoffUploadForm", () => {
     await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
     await screen.findByRole("alert");
 
-    await user.click(screen.getByRole("button", { name: /reessayer l'extraction/i }));
+    await user.click(screen.getByRole("button", { name: /réessayer l'extraction/i }));
 
     await waitFor(() => {
       expect(createTakeoffJobMock).toHaveBeenCalledTimes(2);

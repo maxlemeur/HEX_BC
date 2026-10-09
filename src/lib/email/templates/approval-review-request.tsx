@@ -64,7 +64,7 @@ export function ApprovalReviewRequestEmailTemplate({
           <Hr style={hrStyle} />
 
           <Section style={contentStyle}>
-            <Text style={sectionLabelStyle}>Regles declenchees</Text>
+            <Text style={sectionLabelStyle}>Règles declenchees</Text>
             {ruleLabels.length > 0 ? (
               ruleLabels.map((ruleLabel) => (
                 <Text key={ruleLabel} style={listItemStyle}>
@@ -73,7 +73,7 @@ export function ApprovalReviewRequestEmailTemplate({
               ))
             ) : (
               <Text style={messageStyle}>
-                La version contient au moins une demande d&apos;approbation a traiter.
+                La version contient au moins une demande d&apos;approbation à traiter.
               </Text>
             )}
           </Section>

@@ -44,24 +44,24 @@ type ValidationFilter =
   | "missing_source_context";
 
 const FILTER_OPTIONS: Array<{ value: ValidationFilter; label: string }> = [
-  { value: "priority", label: "A traiter d'abord" },
+  { value: "priority", label: "À traiter d'abord" },
   { value: "all", label: "Tous les signaux" },
   { value: "low_confidence", label: "Confiance faible" },
   { value: "missing_evidence", label: "Sans preuve" },
   { value: "missing_source_context", label: "Source incomplete" },
   { value: "anomalies", label: "Anomalies" },
-  { value: "unverified", label: "Non verifies" },
-  { value: "open_hypotheses", label: "Hypotheses ouvertes" },
+  { value: "unverified", label: "Non vérifiés" },
+  { value: "open_hypotheses", label: "Hypothèses ouvertes" },
 ];
 
 const ISSUE_LABELS: Record<string, string> = {
   low_confidence: "Confiance faible",
-  missing_evidence: "Aucune preuve liee",
+  missing_evidence: "Aucune preuve liée",
   missing_source_context: "Source ou page manquante",
-  zero_quantity: "Quantite nulle",
+  zero_quantity: "Quantité nulle",
   empty_designation: "Designation manquante",
   unverified: "Validation manuelle requise",
-  open_hypotheses: "Hypothese ouverte",
+  open_hypotheses: "Hypothèse ouverte",
 };
 
 const PRIORITY_ISSUES = new Set<string>([
@@ -192,15 +192,15 @@ function buildStatusMessage(input: {
   canOpenApplyWizard: boolean;
 }) {
   if (input.hasDirtyOrSaving) {
-    return "Sauvegarde en cours. Attendez la confirmation avant de passer a l'apply.";
+    return "Sauvegarde en cours. Attendez la confirmation avant de passer à l'apply.";
   }
 
   if (input.hasSaveErrors) {
-    return "Certaines decisions ne sont pas encore enregistrees. Reprenez les lignes en erreur avant de continuer.";
+    return "Certaines décisions ne sont pas encore enregistrées. Reprenez les lignes en erreur avant de continuer.";
   }
 
   if (hasBlockingTakeoffDpgfExceptions(input.dpgfSummary)) {
-    return "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels.";
+    return "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.";
   }
 
   if (input.summary.priorityCount > 0) {
@@ -214,7 +214,7 @@ function buildStatusMessage(input: {
     return "Les exceptions principales sont levees. Finalisez les validations humaines restantes.";
   }
 
-  return "La revue est propre. Vous pouvez passer a l'etape suivante sans dispersion.";
+  return "La revue est propre. Vous pouvez passer à l'étape suivante sans dispersion.";
 }
 
 export function ValidationReviewPanel({
@@ -327,7 +327,7 @@ export function ValidationReviewPanel({
         icon={
           <CircleCheckIcon aria-hidden="true" strokeWidth={1.5} className="h-7 w-7" />
         }
-        title="Aucun item a valider"
+        title="Aucun item à valider"
         description="Le releve ne contient aucun item."
       />
     );
@@ -339,7 +339,7 @@ export function ValidationReviewPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-warning">
-              Priorite de revue
+              Priorité de revue
             </p>
             <h2 className="mt-1 text-lg font-semibold text-foreground">
               Traitez d&apos;abord les exceptions qui peuvent biaiser le chiffrage
@@ -351,12 +351,12 @@ export function ValidationReviewPanel({
           <div className="flex flex-wrap gap-2">
             {onOpenDpgfExceptions ? (
               <Button variant="secondary" size="sm" onClick={onOpenDpgfExceptions}>
-                Revoir les ecarts DPGF
+                Revoir les écarts DPGF
               </Button>
             ) : null}
             {onOpenDetailedReview ? (
               <Button variant="ghost" size="sm" onClick={onOpenDetailedReview}>
-                Vue detaillee
+                Vue détaillée
               </Button>
             ) : null}
           </div>
@@ -364,7 +364,7 @@ export function ValidationReviewPanel({
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <PriorityCard
-            label="A traiter d'abord"
+            label="À traiter d'abord"
             value={summary.priorityCount}
             tone={summary.priorityCount > 0 ? "warning" : "success"}
             hint="preuves manquantes, faible confiance, source incomplete"
@@ -373,7 +373,7 @@ export function ValidationReviewPanel({
             label="Sans preuve"
             value={summary.missingEvidence}
             tone={summary.missingEvidence > 0 ? "warning" : "success"}
-            hint="items a documenter avant arbitrage"
+            hint="items à documenter avant arbitrage"
           />
           <PriorityCard
             label="Source incomplete"
@@ -400,8 +400,8 @@ export function ValidationReviewPanel({
           role="status"
         >
           {hasSaveErrors
-            ? "Certaines decisions n'ont pas pu etre sauvegardees. Reprenez les lignes en erreur avant de continuer."
-            : "Sauvegarde automatique en cours. Les decisions seront confirmees dans quelques instants."}
+            ? "Certaines décisions n'ont pas pu être sauvegardees. Reprenez les lignes en erreur avant de continuer."
+            : "Sauvegarde automatique en cours. Les décisions seront confirmées dans quelques instants."}
         </section>
       )}
 
@@ -413,7 +413,7 @@ export function ValidationReviewPanel({
                 Rapprochement DPGF
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Gardez les cas simples hors du chemin. Ouvrez seulement les lignes sans preuve, a confirmer ou a lier manuellement.
+                Gardez les cas simples hors du chemin. Ouvrez seulement les lignes sans preuve, à confirmer ou à lier manuellement.
               </p>
             </div>
             {onOpenDpgfExceptions ? (
@@ -424,7 +424,7 @@ export function ValidationReviewPanel({
           </div>
 
           {dpgfLoading ? (
-            <p className="mt-3 text-sm text-muted-foreground">Chargement des ecarts DPGF...</p>
+            <p className="mt-3 text-sm text-muted-foreground">Chargement des écarts DPGF...</p>
           ) : dpgfError ? (
             <p className="mt-3 text-sm text-danger">{dpgfError}</p>
           ) : dpgfSummary ? (
@@ -456,14 +456,14 @@ export function ValidationReviewPanel({
                 hint="cas qui demandent un arbitrage humain"
               />
               <PriorityCard
-                label="A confirmer"
+                label="À confirmer"
                 value={dpgfSummary.to_confirm + dpgfSummary.significant_gaps}
                 tone={
                   dpgfSummary.to_confirm + dpgfSummary.significant_gaps > 0
                     ? "warning"
                     : "success"
                 }
-                hint="ecarts forts ou rapprochements fragiles"
+                hint="écarts forts ou rapprochements fragiles"
               />
             </div>
           ) : null}
@@ -504,7 +504,7 @@ export function ValidationReviewPanel({
             variant={summary.withAnomalies === 0 ? "success" : "error"}
           />
           <SummaryCard
-            label="Hypotheses ouvertes"
+            label="Hypothèses ouvertes"
             value={summary.openHypotheses}
             variant={summary.openHypotheses === 0 ? "success" : "warning"}
           />
@@ -521,7 +521,7 @@ export function ValidationReviewPanel({
           </p>
         ) : summary.flaggedCount === 0 ? (
           <p className="mt-3 text-sm font-medium text-success" role="status">
-            Tous les items sont conformes. La revue peut passer a l&apos;etape suivante.
+            Tous les items sont conformes. La revue peut passer a l&apos;étape suivante.
           </p>
         ) : canOpenApplyWizard && summary.priorityCount === 0 ? (
           <p className="mt-3 text-sm text-slate-600" role="status">
@@ -529,7 +529,7 @@ export function ValidationReviewPanel({
           </p>
         ) : (
           <p className="mt-3 text-sm text-slate-600" role="status">
-            {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} necessite{summary.flaggedCount > 1 ? "nt" : ""} une verification,
+            {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} necessite{summary.flaggedCount > 1 ? "nt" : ""} une vérification,
             dont {summary.priorityCount} prioritaire{summary.priorityCount > 1 ? "s" : ""}.
           </p>
         )}
@@ -613,10 +613,10 @@ export function ValidationReviewPanel({
       <section className="rounded-lg border border-border bg-surface px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
-            Prochaine etape :{" "}
+            Prochaine étape :{" "}
             <span className="font-medium text-slate-800">
               {canOpenApplyWizard
-                ? "L'apply controle est pret. Verifiez l'impact puis confirmez."
+                ? "L'apply contrôle est prêt. Vérifiez l'impact puis confirmez."
                 : (applyReadinessMessage ?? statusMessage)}
             </span>
           </p>
@@ -627,19 +627,19 @@ export function ValidationReviewPanel({
                 size="sm"
                 onClick={onOpenApplyWizard}
                 disabled={!canOpenApplyWizard}
-                title={canOpenApplyWizard ? "Ouvrir l'apply controle" : (applyReadinessMessage ?? statusMessage)}
+                title={canOpenApplyWizard ? "Ouvrir l'apply contrôle" : (applyReadinessMessage ?? statusMessage)}
               >
-                Ouvrir l&apos;apply controle
+                Ouvrir l&apos;apply contrôle
               </Button>
             ) : null}
             {onOpenDpgfExceptions ? (
               <Button variant="secondary" size="sm" onClick={onOpenDpgfExceptions}>
-                Ecarts DPGF
+                Écarts DPGF
               </Button>
             ) : null}
             {onOpenDetailedReview ? (
               <Button variant="ghost" size="sm" onClick={onOpenDetailedReview}>
-                Revue detaillee
+                Revue détaillée
               </Button>
             ) : null}
           </div>
@@ -746,7 +746,7 @@ function ValidationItemRow({
             ) : null}
             {!item.is_verified ? (
               <Badge variant="warning" size="sm">
-                Verification requise
+                Vérification requise
               </Badge>
             ) : (
               <Badge variant="success" size="sm">

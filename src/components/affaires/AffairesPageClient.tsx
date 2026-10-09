@@ -484,11 +484,11 @@ export function AffairesPageClient({
           return next;
         });
         toast.error({
-          title: "Favori non enregistre",
+          title: "Favori non enregistré",
           description:
             error instanceof Error
               ? error.message
-              : "Impossible de mettre a jour le favori.",
+              : "Impossible de mettre à jour le favori.",
         });
       } finally {
         setFavoritePendingIds((current) =>
@@ -555,17 +555,17 @@ export function AffairesPageClient({
 
       if (result.archivedIds.length > 0 && result.failures.length === 0) {
         toast.success({
-          title: `${result.archivedIds.length} affaire${result.archivedIds.length > 1 ? "s" : ""} archivee${result.archivedIds.length > 1 ? "s" : ""}`,
+          title: `${result.archivedIds.length} affaire${result.archivedIds.length > 1 ? "s" : ""} archivée${result.archivedIds.length > 1 ? "s" : ""}`,
         });
       } else if (result.archivedIds.length > 0) {
         toast.warning({
           title: "Archivage partiel",
-          description: `${result.archivedIds.length} affaire${result.archivedIds.length > 1 ? "s" : ""} archivee${result.archivedIds.length > 1 ? "s" : ""}, ${result.failures.length} non archivee${result.failures.length > 1 ? "s" : ""}. Les echecs restent selectionnes.`,
+          description: `${result.archivedIds.length} affaire${result.archivedIds.length > 1 ? "s" : ""} archivée${result.archivedIds.length > 1 ? "s" : ""}, ${result.failures.length} non archivée${result.failures.length > 1 ? "s" : ""}. Les échecs restent sélectionnés.`,
         });
       } else {
         toast.error({
-          title: "Aucune affaire archivee",
-          description: `${result.failures.length} affaire${result.failures.length > 1 ? "s n'ont" : " n'a"} pas pu etre archivee${result.failures.length > 1 ? "s" : ""}.`,
+          title: "Aucune affaire archivée",
+          description: `${result.failures.length} affaire${result.failures.length > 1 ? "s n'ont" : " n'a"} pas pu être archivée${result.failures.length > 1 ? "s" : ""}.`,
         });
       }
 
@@ -589,17 +589,17 @@ export function AffairesPageClient({
 
       if (result.deletedIds.length > 0 && result.failures.length === 0) {
         toast.success({
-          title: `${result.deletedIds.length} affaire${result.deletedIds.length > 1 ? "s" : ""} supprimee${result.deletedIds.length > 1 ? "s" : ""}`,
+          title: `${result.deletedIds.length} affaire${result.deletedIds.length > 1 ? "s" : ""} supprimée${result.deletedIds.length > 1 ? "s" : ""}`,
         });
       } else if (result.deletedIds.length > 0) {
         toast.warning({
           title: "Suppression partielle",
-          description: `${result.deletedIds.length} affaire${result.deletedIds.length > 1 ? "s" : ""} supprimee${result.deletedIds.length > 1 ? "s" : ""}, ${result.failures.length} non supprimee${result.failures.length > 1 ? "s" : ""}. Les echecs restent selectionnes.`,
+          description: `${result.deletedIds.length} affaire${result.deletedIds.length > 1 ? "s" : ""} supprimée${result.deletedIds.length > 1 ? "s" : ""}, ${result.failures.length} non supprimée${result.failures.length > 1 ? "s" : ""}. Les échecs restent sélectionnés.`,
         });
       } else {
         toast.error({
-          title: "Aucune affaire supprimee",
-          description: `${result.failures.length} affaire${result.failures.length > 1 ? "s n'ont" : " n'a"} pas pu etre supprimee${result.failures.length > 1 ? "s" : ""}.`,
+          title: "Aucune affaire supprimée",
+          description: `${result.failures.length} affaire${result.failures.length > 1 ? "s n'ont" : " n'a"} pas pu être supprimée${result.failures.length > 1 ? "s" : ""}.`,
         });
       }
 
@@ -698,7 +698,7 @@ export function AffairesPageClient({
       >
         <span className="text-sm font-medium text-foreground-secondary">
           {selectedProjectIds.length} affaire
-          {selectedProjectIds.length > 1 ? "s" : ""} selectionnee
+          {selectedProjectIds.length > 1 ? "s" : ""} sélectionnée
           {selectedProjectIds.length > 1 ? "s" : ""}
         </span>
         <button
@@ -708,8 +708,8 @@ export function AffairesPageClient({
           aria-pressed={allVisibleDraftsSelected}
           onClick={handleToggleAllVisibleDrafts}
         >
-          {allVisibleDraftsSelected ? "Retirer" : "Selectionner"} les brouillons
-          affiches ({visibleDraftIds.length})
+          {allVisibleDraftsSelected ? "Retirer" : "Sélectionner"} les brouillons
+          affichés ({visibleDraftIds.length})
         </button>
         {selectedProjectIds.length > 0 ? (
           <>
@@ -809,7 +809,7 @@ export function AffairesPageClient({
             disabled={!hasPrevPage}
             className="btn btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Precedent
+            Précédent
           </button>
           <button
             type="button"

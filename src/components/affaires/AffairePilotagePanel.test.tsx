@@ -210,7 +210,7 @@ describe("AffairePilotagePanel", () => {
       key: "devis",
       status: "in_progress",
       summary:
-        "12 lignes de devis existent deja, dont 3 a revoir avant de poursuivre la structure.",
+        "12 lignes de devis existent déjà, dont 3 à revoir avant de poursuivre la structure.",
     });
   });
 
@@ -413,7 +413,7 @@ describe("AffairePilotagePanel", () => {
               severity: "warning",
               count: 1,
               item_ids: [],
-              label: "Prix a revalider",
+              label: "Prix à revalider",
               description: "Certains prix datent.",
             },
           ],
@@ -428,7 +428,7 @@ describe("AffairePilotagePanel", () => {
                   severity: "warning",
                   count: 1,
                   item_ids: [],
-                  label: "Prix a revalider",
+                  label: "Prix à revalider",
                   description: "Certains prix datent.",
                 },
               ],
@@ -464,11 +464,11 @@ describe("AffairePilotagePanel", () => {
     expect(cards[0]).toMatchObject({
       key: "send",
       status: "warning",
-      summary: "1 point a verifier avant l'envoi.",
+      summary: "1 point à vérifier avant l'envoi.",
     });
     expect(cards[0]?.details).toEqual([
-      "Qualite devis · 1 reserve",
-      "Prix a revalider",
+      "Qualité devis · 1 reserve",
+      "Prix à revalider",
     ]);
   });
 
@@ -498,19 +498,19 @@ describe("AffairePilotagePanel", () => {
 
     expect(scope.queryByText("Indisponible")).not.toBeInTheDocument();
     expect(
-      scope.queryByText("La verification de sortie devis est indisponible pour le moment.")
+      scope.queryByText("La vérification de sortie devis est indisponible pour le moment.")
     ).not.toBeInTheDocument();
     expect(
-      scope.queryByText("La verification achats est indisponible pour le moment.")
+      scope.queryByText("La vérification achats est indisponible pour le moment.")
     ).not.toBeInTheDocument();
     expect(
-      scope.queryByText("PDF, email et BDC depuis le meme point")
+      scope.queryByText("PDF, email et BDC depuis le même point")
     ).not.toBeInTheDocument();
     expect(
       scope.queryByRole("button", { name: /Préparer le PDF/i })
     ).not.toBeInTheDocument();
     expect(
-      scope.queryByRole("button", { name: /Preparer l'envoi/i })
+      scope.queryByRole("button", { name: /Préparer l'envoi/i })
     ).not.toBeInTheDocument();
     expect(
       scope.queryByRole("button", { name: /Exporter le BDC/i })
@@ -587,7 +587,7 @@ describe("AffairePilotagePanel", () => {
       </ToastProvider>
     );
 
-    expect(screen.getAllByText("Pret a envoyer").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Prêt à envoyer").length).toBeGreaterThan(0);
     expect(screen.getByText("Documents critiques manquants")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /Ouvrir les documents manquants/i })
@@ -750,9 +750,9 @@ describe("AffairePilotagePanel", () => {
       </ToastProvider>,
     );
 
-    expect(within(container).queryByRole("link", { name: /Creer un devis/i })).not.toBeInTheDocument();
+    expect(within(container).queryByRole("link", { name: /Créer un devis/i })).not.toBeInTheDocument();
     expect(
-      within(container).queryByText("PDF, email et BDC depuis le meme point")
+      within(container).queryByText("PDF, email et BDC depuis le même point")
     ).not.toBeInTheDocument();
   });
 

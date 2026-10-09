@@ -170,7 +170,7 @@ export function useEstimateEditorStatusController({
   isDraftLockPending,
   draftLockPendingMessage = "Acquisition du verrou de brouillon en cours.",
   isDraftLockedByOther,
-  draftLockedByOtherMessage = "Verrouille par un autre utilisateur.",
+  draftLockedByOtherMessage = "Verrouillé par un autre utilisateur.",
   isDraftLockAcquiring,
   draftLockAcquiringMessage = "Acquisition du verrou de brouillon en cours.",
   isForcingDraftUnlock,
@@ -453,7 +453,7 @@ export function useEstimateEditorStatusController({
       if (isFlushInProgress()) {
         reportScopedError(
           scope,
-          "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+          "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
         );
         return null;
       }
@@ -472,7 +472,7 @@ export function useEstimateEditorStatusController({
       if (flushResult === "noop" && hasPendingUpdatesNow()) {
         reportScopedError(
           scope,
-          "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+          "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
         );
         return null;
       }
@@ -545,7 +545,7 @@ export function useEstimateEditorStatusController({
           updatedVersion.id !== scope.versionId ||
           updatedVersion.status !== nextStatus
         ) {
-          reportScopedError(scope, "Reponse de statut incoherente.");
+          reportScopedError(scope, "Réponse de statut incoherente.");
           return false;
         }
         const currentVersion = getVersionSnapshot();
@@ -572,7 +572,7 @@ export function useEstimateEditorStatusController({
         handleScopedError(
           scope,
           requestError,
-          "Impossible de mettre a jour le statut."
+          "Impossible de mettre à jour le statut."
         );
         return false;
       } finally {

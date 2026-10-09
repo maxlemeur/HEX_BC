@@ -170,7 +170,7 @@ export function PastePreviewDialog({
               id="paste-preview-dialog-title"
               className="text-lg font-semibold text-slate-800"
             >
-              Apercu du collage
+              Aperçu du collage
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className={formatBadge.className}>{formatBadge.label}</span>
@@ -201,7 +201,7 @@ export function PastePreviewDialog({
 
         {hasDuplicateMapping ? (
           <div className="alert alert-error mb-4" data-testid="paste-preview-dialog-duplicate-mapping-error">
-            Plusieurs colonnes pointent vers le meme champ cible. Corrigez le mapping avant de confirmer.
+            Plusieurs colonnes pointent vers le même champ cible. Corrigez le mapping avant de confirmer.
           </div>
         ) : null}
 
@@ -221,7 +221,7 @@ export function PastePreviewDialog({
 
             {mapping.length === 0 ? (
               <div className="px-4 py-6 text-sm text-muted-foreground" data-testid="paste-preview-mapping-empty">
-                Aucun mapping a afficher.
+                Aucun mapping à afficher.
               </div>
             ) : (
               <div className="table-scroll max-h-[430px]" data-testid="paste-preview-mapping-table">
@@ -230,7 +230,7 @@ export function PastePreviewDialog({
                     <tr>
                       <th>Source</th>
                       <th>Cible</th>
-                      <th>Etat</th>
+                      <th>État</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -292,7 +292,7 @@ export function PastePreviewDialog({
           >
             <div className="border-b border-border px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-800">
-                Apercu des lignes
+                Aperçu des lignes
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
                 Incluez ou excluez les lignes avant import.
@@ -301,7 +301,7 @@ export function PastePreviewDialog({
 
             {rows.length === 0 ? (
               <div className="px-4 py-6 text-sm text-muted-foreground" data-testid="paste-preview-rows-empty">
-                Aucune ligne detectee.
+                Aucune ligne détectée.
               </div>
             ) : (
               <div className="table-scroll max-h-[430px]" data-testid="paste-preview-rows-table">
@@ -313,7 +313,7 @@ export function PastePreviewDialog({
                       {sourceColumns.map((column) => (
                         <th key={column}>{column}</th>
                       ))}
-                      <th>Etat</th>
+                      <th>État</th>
                       <th>Raisons invalides</th>
                     </tr>
                   </thead>
@@ -378,8 +378,8 @@ export function PastePreviewDialog({
 
             <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
               {allRowsErrors.size === 0
-                ? "Aucune erreur de validation detectee sur les lignes affichees."
-                : `${allRowsErrors.size} type(s) erreur detecte(s) dans cet apercu.`}
+                ? "Aucune erreur de validation détectée sur les lignes affichées."
+                : `${allRowsErrors.size} type(s) erreur detecte(s) dans cet aperçu.`}
             </div>
           </section>
         </div>
@@ -388,7 +388,7 @@ export function PastePreviewDialog({
           <p className="text-sm text-muted-foreground">
             {includedInvalidRowsCount > 0
               ? `${includedInvalidRowsCount} ligne(s) invalide(s) sont encore incluses.`
-              : "Toutes les lignes incluses sont valides."}
+              : "Toutes les lignes incluses sont validés."}
           </p>
           <div className="flex items-center gap-3">
             <button

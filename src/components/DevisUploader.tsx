@@ -228,7 +228,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
 
     if (successfulUploads > 0) {
       setSuccessCount(successfulUploads);
-      setAnnouncement(`${successfulUploads} fichier(s) envoye(s) avec succes.`);
+      setAnnouncement(`${successfulUploads} fichier(s) envoyé(s) avec succès.`);
       await mutate(apiUrl);
       onUploadComplete?.();
     }
@@ -277,7 +277,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         }}
         role="button"
         tabIndex={canManage ? 0 : -1}
-        aria-label="Zone de depot. Glissez des fichiers ou cliquez pour selectionner"
+        aria-label="Zone de dépôt. Glissez des fichiers ou cliquez pour sélectionner"
         aria-disabled={!canManage}
         onKeyDown={(event) => {
           if (!canManage || isUploading) return;
@@ -294,7 +294,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
             <CloudUploadIcon aria-hidden="true" className={`h-7 w-7 transition-colors ${dragActive ? "text-brand-orange" : "text-subtle-foreground"}`} strokeWidth="1.5" />
           </div>
           <p className="text-sm font-medium text-foreground-secondary">
-            {dragActive ? "Deposez vos fichiers" : "Glissez vos fichiers ici"}
+            {dragActive ? "Déposez vos fichiers" : "Glissez vos fichiers ici"}
           </p>
           <p className="mt-1.5 text-sm text-muted-foreground">
             ou <span className="font-medium text-primary hover:underline">parcourez</span> votre ordinateur
@@ -310,7 +310,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         <div className="mt-5 space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold text-foreground-secondary">
-              Fichiers selectionnes
+              Fichiers sélectionnés
               <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium text-slate-600">
                 {uploadQueue.length}
               </span>
@@ -434,7 +434,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
             <CheckIcon className="h-4 w-4 text-success" />
           </div>
           <span className="text-sm font-medium text-success">
-            {successCount} fichier{successCount > 1 ? "s" : ""} ajoute{successCount > 1 ? "s" : ""} avec succes
+            {successCount} fichier{successCount > 1 ? "s" : ""} ajoute{successCount > 1 ? "s" : ""} avec succès
           </span>
         </div>
       )}

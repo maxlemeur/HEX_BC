@@ -289,7 +289,7 @@ const createAffaireRegisterEntryInputSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["scopeRef"],
-          message: "La reference d'exception est requise.",
+          message: "La référence d'exception est requise.",
         });
       }
       if (!value.scopeLabel || value.scopeLabel.trim().length === 0) {
@@ -338,7 +338,7 @@ const requestAffaireRegisterRevalidationInputSchema = z.object({
   cause: affaireRegisterRevalidationCauseSchema,
   impactedStages: z
     .array(affaireRegisterRevalidationImpactedStageSchema)
-    .min(1, "Au moins une etape impactee est requise.")
+    .min(1, "Au moins une étape impactee est requise.")
     .max(5),
   triggerDocumentId: z.string().uuid("triggerDocumentId invalide.").nullable().optional(),
   triggerFileName: z.string().trim().max(255).nullable().optional(),
@@ -787,7 +787,7 @@ async function requireAffaireRegisterProjectAccess(
     mode === "reader" ? isOwner || isAdmin || isDirector : isOwner || isAdmin;
 
   if (!hasAccess) {
-    throw forbidden("Acces refuse a ce registre affaire.");
+    throw forbidden("Accès refuse à ce registre affaire.");
   }
 
   return {
@@ -945,7 +945,7 @@ async function updateAffaireRegisterEntryWithEvent(input: {
 
   const updatedEntry = normalizeAffaireRegisterEntryRow(data);
   if (!updatedEntry) {
-    throw badRequest("Reponse invalide lors de la mise a jour du registre.");
+    throw badRequest("Réponse invalide lors de la mise à jour du registre.");
   }
 
   return updatedEntry;
@@ -1034,7 +1034,7 @@ async function deactivateMissingSyncEntries(input: {
     .in("sync_key", staleSyncKeys);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de desactiver le registre sync.");
+    throw mapSupabaseError(error, "Impossible de désactiver le registre sync.");
   }
 
   const rows = ((data ?? []) as unknown[])
@@ -1064,7 +1064,7 @@ async function deactivateMissingSyncEntries(input: {
         status: nextStatus,
         is_active: false,
       } satisfies Json,
-      fallbackMessage: "Impossible de desactiver une entree du registre.",
+      fallbackMessage: "Impossible de désactiver une entrée du registre.",
     });
   }
 }
@@ -2013,7 +2013,7 @@ export async function createAffaireRegisterEntry(input: z.infer<typeof createAff
 
   const entry = normalizeAffaireRegisterEntryRow(data);
   if (!entry) {
-    throw badRequest("Reponse invalide lors de la creation du registre.");
+    throw badRequest("Réponse invalide lors de la création du registre.");
   }
 
   await insertAffaireRegisterEvent({
@@ -2053,12 +2053,12 @@ export async function updateAffaireRegisterEntryStatus(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'entree du registre.");
+    throw mapSupabaseError(error, "Impossible de charger l'entrée du registre.");
   }
 
   const entry = normalizeAffaireRegisterEntryRow(data);
   if (!entry) {
-    throw notFound("Entree du registre introuvable.");
+    throw notFound("Entrée du registre introuvable.");
   }
 
   if (entry.status === parsed.status) {
@@ -2070,7 +2070,7 @@ export async function updateAffaireRegisterEntryStatus(
 
   if (parsed.status === "clarify_with_client" && entry.status !== "open") {
     throw badRequest(
-      "Seules les entrees ouvertes peuvent etre basculees en clarification client."
+      "Seules les entrées ouvertes peuvent être basculees en clarification client."
     );
   }
 
@@ -2141,7 +2141,7 @@ export async function updateAffaireRegisterEntryStatus(
           : null,
       comment,
     } satisfies Json,
-    fallbackMessage: "Impossible de mettre a jour le registre.",
+    fallbackMessage: "Impossible de mettre à jour le registre.",
   });
 
   return {
@@ -2168,12 +2168,12 @@ export async function updateAffaireRegisterEntryFollowUp(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'entree du registre.");
+    throw mapSupabaseError(error, "Impossible de charger l'entrée du registre.");
   }
 
   const entry = normalizeAffaireRegisterEntryRow(data);
   if (!entry) {
-    throw notFound("Entree du registre introuvable.");
+    throw notFound("Entrée du registre introuvable.");
   }
 
   const now = new Date().toISOString();
@@ -2329,7 +2329,7 @@ export async function updateAffaireRegisterEntryFollowUp(
       followUp: nextFollowUp,
       comment,
     } satisfies Json,
-    fallbackMessage: "Impossible de mettre a jour le pilotage du registre.",
+    fallbackMessage: "Impossible de mettre à jour le pilotage du registre.",
   });
 
   return {
@@ -2357,12 +2357,12 @@ export async function requestAffaireRegisterRevalidation(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'entree du registre.");
+    throw mapSupabaseError(error, "Impossible de charger l'entrée du registre.");
   }
 
   const entry = normalizeAffaireRegisterEntryRow(data);
   if (!entry) {
-    throw notFound("Entree du registre introuvable.");
+    throw notFound("Entrée du registre introuvable.");
   }
   if (!isAffaireRegisterEntryResolved(entry.status)) {
     throw badRequest(
@@ -2458,17 +2458,17 @@ export async function continueAffaireRegisterWithHypothesis(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'entree du registre.");
+    throw mapSupabaseError(error, "Impossible de charger l'entrée du registre.");
   }
 
   const sourceEntry = normalizeAffaireRegisterEntryRow(data);
   if (!sourceEntry) {
-    throw notFound("Entree du registre introuvable.");
+    throw notFound("Entrée du registre introuvable.");
   }
 
   if (sourceEntry.kind !== "missing_piece" || sourceEntry.status !== "open") {
     throw badRequest(
-      "Seules les pieces manquantes ouvertes peuvent etre poursuivies sous hypothese."
+      "Seules les pièces manquantes ouvertes peuvent être poursuivies sous hypothèse."
     );
   }
 
@@ -2491,7 +2491,7 @@ export async function continueAffaireRegisterWithHypothesis(
   if (assumptionError) {
     throw mapSupabaseError(
       assumptionError,
-      "Impossible de charger les hypotheses de continuation."
+      "Impossible de charger les hypothèses de continuation."
     );
   }
 
@@ -2584,7 +2584,7 @@ export async function continueAffaireRegisterWithHypothesis(
 
     const normalizedHypothesisEntry = normalizeAffaireRegisterEntryRow(hypothesisData);
     if (!normalizedHypothesisEntry) {
-      throw badRequest("Reponse invalide lors de la creation de l'hypothese.");
+      throw badRequest("Réponse invalide lors de la création de l'hypothèse.");
     }
     hypothesisEntry = normalizedHypothesisEntry;
 
@@ -2652,7 +2652,7 @@ export async function continueAffaireRegisterWithHypothesis(
       continuationDecision: decision,
       comment,
     } satisfies Json,
-    fallbackMessage: "Impossible de tracer la continuation sous hypothese.",
+    fallbackMessage: "Impossible de tracer la continuation sous hypothèse.",
   });
 
   return {

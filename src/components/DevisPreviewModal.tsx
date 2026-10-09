@@ -300,7 +300,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
               disabled={!devis.downloadUrl}
             >
               <DownloadIcon className="h-4 w-4" />
-              Telecharger
+              Télécharger
             </button>
             <button
               className="flex items-center justify-center rounded-lg bg-white/10 p-2 text-white transition hover:bg-white/20"
@@ -317,10 +317,10 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
           {!canPreview ? (
             <div className="text-center">
               <p className="text-lg font-medium text-white">
-                Apercu non disponible
+                Aperçu non disponible
               </p>
               <p className="mt-2 text-sm text-subtle-foreground">
-                Ce type de fichier ({devis.mimeType}) ne peut pas etre previsualise.
+                Ce type de fichier ({devis.mimeType}) ne peut pas être previsualise.
               </p>
               <button
                 className="btn btn-primary mt-4"
@@ -329,7 +329,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                 disabled={!devis.downloadUrl}
               >
                 <DownloadIcon className="h-4 w-4" />
-                Telecharger le fichier
+                Télécharger le fichier
               </button>
             </div>
           ) : (
@@ -344,7 +344,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                     type="button"
                     onClick={handleDownload}
                   >
-                    Telecharger a la place
+                    Télécharger à la place
                   </button>
                 </div>
               )}
@@ -394,14 +394,14 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                     />
                   ) : (
                     <div className="rounded-xl bg-white/5 p-6 text-center text-sm text-slate-200">
-                      Aucun contenu d&apos;email a afficher.
+                      Aucun contenu d&apos;email à afficher.
                     </div>
                   )}
 
                   {emailPreview.attachments.length > 0 && (
                     <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
                       <div className="text-sm font-semibold text-white">
-                        Pieces jointes ({emailPreview.attachments.length})
+                        Pièces jointes ({emailPreview.attachments.length})
                       </div>
                       <div className="mt-3 space-y-2">
                         {emailPreview.attachments.map((attachment) => (
@@ -430,7 +430,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                                 }}
                                 disabled={!attachment.content || !isAttachmentPreviewable(attachment)}
                               >
-                                Apercu
+                                Aperçu
                               </button>
                               <button
                                 className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20 disabled:opacity-50"
@@ -438,7 +438,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                                 onClick={() => handleAttachmentDownload(attachment)}
                                 disabled={!attachment.content}
                               >
-                                Telecharger
+                                Télécharger
                               </button>
                             </div>
                           </div>
@@ -451,7 +451,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                     <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="text-sm font-semibold text-white">
-                          Apercu de la piece jointe
+                          Aperçu de la pièce jointe
                         </div>
                         <button
                           className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20"

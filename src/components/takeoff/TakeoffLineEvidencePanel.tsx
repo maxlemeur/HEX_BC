@@ -28,13 +28,13 @@ type TakeoffLineEvidencePanelProps = {
 
 const EVIDENCE_KIND_LABELS: Record<TakeoffLineEvidence["kind"], string> = {
   fact: "Fait",
-  hypothesis: "Hypothese",
+  hypothesis: "Hypothèse",
   inference: "Inference",
 };
 
 const EVIDENCE_TYPE_LABELS: Record<TakeoffLineEvidence["type"], string> = {
   dpgf: "DPGF",
-  takeoff: "Metre",
+  takeoff: "Métré",
   plan_zone: "Plan",
   formula: "Formule",
   price_source: "Prix",
@@ -108,7 +108,7 @@ function buildLineContextLabel(input: {
       : null,
   ].filter((fragment): fragment is string => fragment !== null);
 
-  return fragments.length > 0 ? fragments.join(" · ") : "Contexte source non renseigne";
+  return fragments.length > 0 ? fragments.join(" · ") : "Contexte source non renseigné";
 }
 
 function EvidenceCard({
@@ -141,7 +141,7 @@ function EvidenceCard({
         </div>
         <div className="min-w-[12rem] text-right text-xs text-muted-foreground">
           <p>{formatEvidenceDate(evidence.created_at)}</p>
-          <p>{evidence.author_name ? `Par ${evidence.author_name}` : "Auteur non renseigne"}</p>
+          <p>{evidence.author_name ? `Par ${evidence.author_name}` : "Auteur non renseigné"}</p>
         </div>
       </div>
 
@@ -376,7 +376,7 @@ export function TakeoffLineEvidencePanel({
 
           {hasNoEvidence ? (
             <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
-              Aucune preuve detaillee n&apos;est disponible pour cette ligne.
+              Aucune preuve détaillée n&apos;est disponible pour cette ligne.
             </div>
           ) : null}
 
@@ -388,7 +388,7 @@ export function TakeoffLineEvidencePanel({
                     Preuves actives
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Les faits, hypotheses et inferences encore valides pour la ligne.
+                    Les faits, hypothèses et inferences encore validés pour la ligne.
                   </p>
                 </div>
                 <div className="space-y-5">

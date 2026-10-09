@@ -87,7 +87,7 @@ export function buildPdfChunks(
   config: TakeoffChunkingRuntimeConfig
 ): TakeoffPdfChunk[] {
   if (!Number.isInteger(pageCount) || pageCount <= 0) {
-    throw new Error("pageCount doit etre un entier strictement positif.");
+    throw new Error("pageCount doit être un entier strictement positif.");
   }
 
   if (
@@ -102,7 +102,7 @@ export function buildPdfChunks(
   }
 
   if (config.overlapPages >= config.chunkSizePages) {
-    throw new Error("chunk_overlap_pages doit etre strictement inferieur a chunk_size_pages.");
+    throw new Error("chunk_overlap_pages doit être strictement inférieur a chunk_size_pages.");
   }
 
   if (pageCount <= config.thresholdPages) {
@@ -168,7 +168,7 @@ export function mergeTakeoffChunkExchanges(
   chunkExchanges: TakeoffChunkExchange[]
 ): MergedTakeoffChunkExchange {
   if (chunkExchanges.length === 0) {
-    throw new Error("Au moins un resultat de chunk est requis.");
+    throw new Error("Au moins un résultat de chunk est requis.");
   }
 
   const itemsByKey = new Map<string, TakeoffExchange["items"][number]>();

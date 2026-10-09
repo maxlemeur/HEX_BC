@@ -29,7 +29,7 @@ export function ResultStep({
           {"\u2713"}
         </span>
         <h3 className="text-lg font-semibold text-foreground">
-          Structure appliquee
+          Structure appliquée
         </h3>
       </div>
 
@@ -38,7 +38,7 @@ export function ResultStep({
           <p className="text-2xl font-semibold text-emerald-700">
             {applyResult.createdCount}
           </p>
-          <p className="mt-1 text-sm text-emerald-600">creation(s)</p>
+          <p className="mt-1 text-sm text-emerald-600">création(s)</p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
           <p className="text-2xl font-semibold text-amber-700">
@@ -57,7 +57,7 @@ export function ResultStep({
       {createdNodes.length > 0 ? (
         <div>
           <h4 className="text-sm font-semibold text-foreground-secondary">
-            Sections creees
+            Sections créées
           </h4>
           <ul className="mt-2 space-y-1">
             {createdNodes.map((node) => (

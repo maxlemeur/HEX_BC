@@ -62,7 +62,7 @@ const BASE_ITEM: ApprovalQueueItem = {
       jobId: "job-1",
       latestJobId: "job-1",
       level: "critical",
-      label: "Montant eleve avec preuves a consolider",
+      label: "Montant eleve avec preuves à consolider",
       reasons: ["2 preuves manquantes."],
       status: "to_process",
       alertIds: ["alert-1"],

@@ -269,7 +269,7 @@ function describePilotageStructureMode(input: {
     return {
       status: "done" as const,
       summary:
-        `${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} de devis disponible${structureMode.importedLineCount > 1 ? "s" : ""} depuis la DPGF importee.`,
+        `${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} de devis disponible${structureMode.importedLineCount > 1 ? "s" : ""} depuis la DPGF importée.`,
     };
   }
 
@@ -277,7 +277,7 @@ function describePilotageStructureMode(input: {
     return {
       status: "done" as const,
       summary:
-        `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} manuelle${structureMode.manualLineCount > 1 ? "s" : ""} et ${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} importee${structureMode.importedLineCount > 1 ? "s" : ""} coexistent deja dans la structure hybride.`,
+        `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} manuelle${structureMode.manualLineCount > 1 ? "s" : ""} et ${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} importée${structureMode.importedLineCount > 1 ? "s" : ""} coexistent déjà dans la structure hybride.`,
     };
   }
 
@@ -285,8 +285,8 @@ function describePilotageStructureMode(input: {
     status: "in_progress" as const,
     summary:
       (structureMode.unsupportedLineCount ?? 0) > 0
-        ? `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} de devis existe${structureMode.lineCount > 1 ? "nt" : ""} deja, dont ${structureMode.unsupportedLineCount} a revoir avant de poursuivre la structure.`
-        : `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} existe${structureMode.lineCount > 1 ? "nt" : ""}, mais le mode de structure doit encore etre remis a plat.`,
+        ? `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} de devis existe${structureMode.lineCount > 1 ? "nt" : ""} déjà, dont ${structureMode.unsupportedLineCount} à revoir avant de poursuivre la structure.`
+        : `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} existe${structureMode.lineCount > 1 ? "nt" : ""}, mais le mode de structure doit encore être remis a plat.`,
   };
 }
 
@@ -459,7 +459,7 @@ export function buildReadyToSendAction(input: {
   if (!input.currentVersion) {
     return {
       kind: "href" as const,
-      label: "Creer un devis",
+      label: "Créer un devis",
       href: `/dashboard/estimates/new?projectId=${input.projectId}`,
     };
   }
@@ -553,7 +553,7 @@ export function buildReadyToOrderAction(input: {
       kind: "href" as const,
       label:
         order && (order.coveredLinesCount > 0 || order.staleLinesCount > 0)
-          ? "Mettre a jour les prix fournisseurs"
+          ? "Mettre à jour les prix fournisseurs"
           : "Importer des prix fournisseurs",
       href: pricesHref,
     };
@@ -584,17 +584,17 @@ export function buildFinishLineCards(input: {
     return [
       {
         key: "send",
-        label: "Pret a envoyer",
+        label: "Prêt à envoyer",
         status: "waiting",
         summary: "La sortie devis apparait une fois un premier devis brouillon cree.",
-        details: ["Creez une version de devis pour verifier la sortie client."],
+        details: ["Créez une version de devis pour vérifier la sortie client."],
         action: buildReadyToSendAction(input),
       },
       {
         key: "order",
-        label: "Pret a commander",
+        label: "Prêt à commander",
         status: "waiting",
-        summary: "La preparation commandes devient lisible quand les lignes fournisseur existent.",
+        summary: "La préparation commandes devient lisible quand les lignes fournisseur existent.",
         details: ["Les achats restent prepares manuellement depuis l'affaire."],
         action: buildReadyToOrderAction(input),
       },
@@ -605,18 +605,18 @@ export function buildFinishLineCards(input: {
     return [
       {
         key: "send",
-        label: "Pret a envoyer",
+        label: "Prêt à envoyer",
         status: "unavailable",
-        summary: "La verification de sortie devis est indisponible pour le moment.",
+        summary: "La vérification de sortie devis est indisponible pour le moment.",
         details: ["Rechargez la page ou reprenez le devis pour continuer."],
         action: buildReadyToSendAction(input),
       },
       {
         key: "order",
-        label: "Pret a commander",
+        label: "Prêt à commander",
         status: "unavailable",
-        summary: "La verification achats est indisponible pour le moment.",
-        details: ["Rechargez la page avant de preparer les commandes."],
+        summary: "La vérification achats est indisponible pour le moment.",
+        details: ["Rechargez la page avant de préparer les commandes."],
         action: buildReadyToOrderAction(input),
       },
     ] satisfies FinishLineCard[];
@@ -629,21 +629,21 @@ export function buildFinishLineCards(input: {
 
   const readyToSendCard: FinishLineCard = {
     key: "send",
-    label: "Pret a envoyer",
+    label: "Prêt à envoyer",
     status: submissionReadiness?.status ?? "unavailable",
     summary:
       submissionReadiness?.status === "ready"
-        ? "Le devis peut sortir sans etape cachee supplementaire."
+        ? "Le devis peut sortir sans étape cachee supplementaire."
         : submissionReadiness?.status === "warning"
-          ? `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} a verifier avant l'envoi.`
+          ? `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} à vérifier avant l'envoi.`
           : submissionReadiness?.status === "blocked"
-            ? `${submissionReadiness.blockers.length} blocage${submissionReadiness.blockers.length > 1 ? "s" : ""} metier a lever avant l'envoi.`
+            ? `${submissionReadiness.blockers.length} blocage${submissionReadiness.blockers.length > 1 ? "s" : ""} métier à lever avant l'envoi.`
             : submissionReadiness?.errorMessage ??
-              "La verification de sortie devis est indisponible pour le moment.",
+              "La vérification de sortie devis est indisponible pour le moment.",
     details:
       readyToSendDetails.length > 0
         ? readyToSendDetails
-        : ["Aucun blocage metier n'est remonte sur la sortie devis."],
+        : ["Aucun blocage métier n'est remonte sur la sortie devis."],
     action: buildReadyToSendAction(input),
   };
 
@@ -653,30 +653,30 @@ export function buildFinishLineCards(input: {
       ? `${order.missingPriceLinesCount} ligne${order.missingPriceLinesCount > 1 ? "s" : ""} sans fournisseur retenu`
       : null,
     order.ambiguousLinesCount > 0
-      ? `${order.ambiguousLinesCount} ligne${order.ambiguousLinesCount > 1 ? "s" : ""} a arbitrer`
+      ? `${order.ambiguousLinesCount} ligne${order.ambiguousLinesCount > 1 ? "s" : ""} à arbitrer`
       : null,
     order.staleLinesCount > 0
-      ? `${order.staleLinesCount} prix fournisseur${order.staleLinesCount > 1 ? "s" : ""} a revalider`
+      ? `${order.staleLinesCount} prix fournisseur${order.staleLinesCount > 1 ? "s" : ""} à revalider`
       : null,
   ].filter((detail): detail is string => detail !== null);
 
   const readyToOrderCard: FinishLineCard = {
     key: "order",
-    label: "Pret a commander",
+    label: "Prêt à commander",
     status: order.status,
     summary:
       order.status === "ready"
         ? `${order.coveredLinesCount} ligne${order.coveredLinesCount > 1 ? "s" : ""} fournisseur preparable${order.coveredLinesCount > 1 ? "s" : ""} sans ressaisie.`
         : order.status === "waiting"
-          ? "Aucune ligne fournisseur n'est encore identifiable pour preparer des commandes."
+          ? "Aucune ligne fournisseur n'est encore identifiable pour préparer des commandes."
           : order.status === "blocked"
-            ? `${order.orderableLinesCount - order.coveredLinesCount} ligne${order.orderableLinesCount - order.coveredLinesCount > 1 ? "s" : ""} reste${order.orderableLinesCount - order.coveredLinesCount > 1 ? "nt" : ""} a fiabiliser avant la preparation achats.`
-            : order.errorMessage ?? "La preparation achats reste indisponible.",
+            ? `${order.orderableLinesCount - order.coveredLinesCount} ligne${order.orderableLinesCount - order.coveredLinesCount > 1 ? "s" : ""} reste${order.orderableLinesCount - order.coveredLinesCount > 1 ? "nt" : ""} à fiabiliser avant la préparation achats.`
+            : order.errorMessage ?? "La préparation achats reste indisponible.",
     details:
       readyToOrderDetails.length > 0
         ? readyToOrderDetails
         : order.status === "ready"
-          ? ["Les lignes fournisseur sont couvertes a cette etape."]
+          ? ["Les lignes fournisseur sont couvertes à cette étape."]
           : [order.errorMessage ?? "Les commandes restent preparees manuellement."],
     action: buildReadyToOrderAction(input),
   };
@@ -698,24 +698,24 @@ export function buildFinishLineReadiness(input: {
 
   if (reviewDocumentsCount > 0) {
     blockers.push(
-      `${reviewDocumentsCount} piece${reviewDocumentsCount > 1 ? "s" : ""} reste${reviewDocumentsCount > 1 ? "nt" : ""} a confirmer dans le dossier.`,
+      `${reviewDocumentsCount} pièce${reviewDocumentsCount > 1 ? "s" : ""} reste${reviewDocumentsCount > 1 ? "nt" : ""} à confirmer dans le dossier.`,
     );
   }
 
   if (criticalMissingPiecesCount > 0) {
     blockers.push(
-      `${criticalMissingPiecesCount} piece${criticalMissingPiecesCount > 1 ? "s critiques manquantes" : " critique manquante"} avant la sortie.`,
+      `${criticalMissingPiecesCount} pièce${criticalMissingPiecesCount > 1 ? "s critiques manquantes" : " critique manquante"} avant la sortie.`,
     );
   }
 
   if (input.dpgfSource === null) {
-    blockers.push("Importez puis validez le DPGF avant de preparer la sortie.");
+    blockers.push("Importez puis validez le DPGF avant de préparer la sortie.");
   } else if (!hasValidatedDpgfMapping(input.dpgfSource)) {
     blockers.push("Validez le DPGF avant d'ouvrir la sortie devis.");
   }
 
   if (input.currentVersion === null) {
-    blockers.push("Creez un premier devis brouillon pour materialiser la sortie.");
+    blockers.push("Créez un premier devis brouillon pour matérialiser la sortie.");
   } else if (input.lineCount === 0) {
     blockers.push("Materialisez au moins une ligne de devis exploitable.");
   }
@@ -725,7 +725,7 @@ export function buildFinishLineReadiness(input: {
       reveal: true,
       title: "Sortie devis et achats",
       summary:
-        "Le dossier est assez mature pour afficher la sortie devis, l'email client, le BDC et la preparation achats.",
+        "Le dossier est assez mature pour afficher la sortie devis, l'email client, le BDC et la préparation achats.",
       blockers: [],
     } satisfies FinishLineReadiness;
   }
@@ -782,28 +782,28 @@ export function buildPilotageSteps(input: {
   const dossierSummaryParts: string[] = [];
   let dossierStatus: PilotageStepStatus = "waiting";
   if (documentsCount === 0) {
-    dossierSummaryParts.push("Deposez les pieces du dossier pour lancer le cadrage.");
+    dossierSummaryParts.push("Déposez les pièces du dossier pour lancer le cadrage.");
   } else if (processingDocumentsCount > 0) {
     dossierStatus = "in_progress";
     dossierSummaryParts.push(
-      `${processingDocumentsCount} piece${processingDocumentsCount > 1 ? "s" : ""} en cours de tri.`,
+      `${processingDocumentsCount} pièce${processingDocumentsCount > 1 ? "s" : ""} en cours de tri.`,
     );
   } else if (reviewDocumentsCount > 0 || criticalMissingPiecesCount > 0) {
     dossierStatus = "blocked";
     if (reviewDocumentsCount > 0) {
       dossierSummaryParts.push(
-        `${reviewDocumentsCount} piece${reviewDocumentsCount > 1 ? "s" : ""} a confirmer.`,
+        `${reviewDocumentsCount} pièce${reviewDocumentsCount > 1 ? "s" : ""} à confirmer.`,
       );
     }
     if (criticalMissingPiecesCount > 0) {
       dossierSummaryParts.push(
-        `${criticalMissingPiecesCount} piece${criticalMissingPiecesCount > 1 ? "s" : ""} critique${criticalMissingPiecesCount > 1 ? "s" : ""} manquante${criticalMissingPiecesCount > 1 ? "s" : ""}.`,
+        `${criticalMissingPiecesCount} pièce${criticalMissingPiecesCount > 1 ? "s" : ""} critique${criticalMissingPiecesCount > 1 ? "s" : ""} manquante${criticalMissingPiecesCount > 1 ? "s" : ""}.`,
       );
     }
   } else if (missingPiecesCount > 0) {
     dossierStatus = "in_progress";
     dossierSummaryParts.push(
-      `${missingPiecesCount} piece${missingPiecesCount > 1 ? "s" : ""} utile${missingPiecesCount > 1 ? "s" : ""} a ajouter.`,
+      `${missingPiecesCount} pièce${missingPiecesCount > 1 ? "s" : ""} utile${missingPiecesCount > 1 ? "s" : ""} à ajouter.`,
     );
   } else {
     dossierStatus = "done";
@@ -816,28 +816,28 @@ export function buildPilotageSteps(input: {
       key: "brief",
       label: "Brief",
       status: "waiting",
-      summary: "Le brief apparait une fois les pieces du dossier deposees.",
+      summary: "Le brief apparait une fois les pièces du dossier déposées.",
     };
   } else if (input.intakeWorkspace?.briefDraft === null) {
     briefStep = {
       key: "brief",
       label: "Brief",
       status: "in_progress",
-      summary: "Le brief se construit a partir des pieces detectees.",
+      summary: "Le brief se construit à partir des pièces détectées.",
     };
   } else if (briefStatus === "a_confirmer") {
     briefStep = {
       key: "brief",
       label: "Brief",
       status: "blocked",
-      summary: "Confirmez les hypotheses, vigilances et manques avant la suite.",
+      summary: "Confirmez les hypothèses, vigilances et manques avant la suite.",
     };
   } else {
     briefStep = {
       key: "brief",
       label: "Brief",
       status: "done",
-      summary: "Brief confirme, hypotheses et points de vigilance poses.",
+      summary: "Brief confirme, hypothèses et points de vigilance poses.",
     };
   }
 
@@ -858,7 +858,7 @@ export function buildPilotageSteps(input: {
       key: "devis",
       label: "Structure devis",
       status: "waiting",
-      summary: "Creez un premier devis manuel ou importez un DPGF pour lancer la structure.",
+      summary: "Créez un premier devis manuel ou importez un DPGF pour lancer la structure.",
     };
   } else if (input.lineCount > 0) {
     devisStep = {
@@ -878,16 +878,16 @@ export function buildPilotageSteps(input: {
       status: hasConfirmedBrief ? "in_progress" : "waiting",
       summary: hasConfirmedBrief
         ? hasReadyPrimaryCctp
-          ? "Une structure preliminaire du devis peut etre ouverte depuis le CCTP principal, sans DPGF obligatoire."
-          : "Le devis peut demarrer en manuel ou s'ouvrir via une structure preliminaire, sans DPGF obligatoire."
-        : "Confirmez le brief, puis demarrez en manuel ou importez un DPGF selon le dossier.",
+          ? "Une structure préliminaire du devis peut être ouverte depuis le CCTP principal, sans DPGF obligatoire."
+          : "Le devis peut démarrer en manuel ou s'ouvrir via une structure préliminaire, sans DPGF obligatoire."
+        : "Confirmez le brief, puis démarrez en manuel ou importez un DPGF selon le dossier.",
     };
   } else if (input.dpgfSource.importStatus === "failed") {
     devisStep = {
       key: "devis",
       label: "Structure devis",
       status: "blocked",
-      summary: "Le DPGF doit etre corrige avant de poursuivre la structuration.",
+      summary: "Le DPGF doit être corrige avant de poursuivre la structuration.",
     };
   } else if (
     input.dpgfSource.importStatus !== "completed" ||
@@ -907,7 +907,7 @@ export function buildPilotageSteps(input: {
       label: "Structure devis",
       status: "in_progress",
       summary:
-        "La DPGF est validee. Importez-la comme base du devis pour materialiser les lignes utiles.",
+        "La DPGF est validée. Importez-la comme base du devis pour matérialiser les lignes utiles.",
     };
   } else {
     devisStep = {
@@ -922,21 +922,21 @@ export function buildPilotageSteps(input: {
   if (!input.takeoffEnabled) {
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "waiting",
-      summary: "Le metre assiste n'est pas active pour cette affaire.",
+      summary: "Le métré assiste n'est pas activé pour cette affaire.",
     };
   } else if ((input.plansSummary?.planSetCount ?? 0) === 0) {
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "waiting",
-      summary: "Ajoutez des plans pour lancer l'analyse et comparer les quantites.",
+      summary: "Ajoutez des plans pour lancer l'analyse et comparer les quantités.",
     };
   } else if (latestJob?.status === "action_required") {
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "blocked",
       summary:
         input.plansSummary?.failureReasonLabel ??
@@ -946,14 +946,14 @@ export function buildPilotageSteps(input: {
     const exceptionCount = input.plansSummary?.exceptionCount;
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "blocked",
       summary:
         typeof exceptionCount === "number" && exceptionCount > 0
-          ? `${exceptionCount} ecart${exceptionCount > 1 ? "s" : ""} majeur${exceptionCount > 1 ? "s" : ""} a revoir.`
+          ? `${exceptionCount} écart${exceptionCount > 1 ? "s" : ""} majeur${exceptionCount > 1 ? "s" : ""} à revoir.`
           : takeoffCoverageAvailable
-            ? "La revue des metres reste requise avant d'appliquer les quantites dans le devis."
-            : "La revue des metres reste requise, mais le resume compare est indisponible.",
+            ? "La revue des métrés reste requise avant d'appliquer les quantités dans le devis."
+            : "La revue des métrés reste requise, mais le resume compare est indisponible.",
     };
   } else if (
     latestJob &&
@@ -963,22 +963,22 @@ export function buildPilotageSteps(input: {
   ) {
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "in_progress",
       summary: `${latestJob.label}.`,
     };
   } else if ((input.plansSummary?.exceptionCount ?? 0) > 0) {
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "blocked",
-      summary: `${input.plansSummary?.exceptionCount ?? 0} ecart${(input.plansSummary?.exceptionCount ?? 0) > 1 ? "s" : ""} majeur${(input.plansSummary?.exceptionCount ?? 0) > 1 ? "s" : ""} a revoir.`,
+      summary: `${input.plansSummary?.exceptionCount ?? 0} écart${(input.plansSummary?.exceptionCount ?? 0) > 1 ? "s" : ""} majeur${(input.plansSummary?.exceptionCount ?? 0) > 1 ? "s" : ""} à revoir.`,
     };
   } else if (latestJob && latestJob.status === "completed") {
     const coveragePercent = input.plansSummary?.coveragePercent;
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "done",
       summary:
         typeof coveragePercent === "number"
@@ -988,9 +988,9 @@ export function buildPilotageSteps(input: {
   } else {
     metreStep = {
       key: "metre",
-      label: "Metre & preuves",
+      label: "Métré & preuves",
       status: "in_progress",
-      summary: "Les plans sont synchronises et l'analyse peut etre relancee.",
+      summary: "Les plans sont synchronises et l'analyse peut être relancee.",
     };
   }
 
@@ -1012,8 +1012,8 @@ export function buildPilotageSteps(input: {
       status: "done",
       summary:
         input.currentVersion.status === "accepted"
-          ? `Version ${input.currentVersion.versionNumber} acceptee.`
-          : `Version ${input.currentVersion.versionNumber} envoyee.`,
+          ? `Version ${input.currentVersion.versionNumber} acceptée.`
+          : `Version ${input.currentVersion.versionNumber} envoyée.`,
     };
   } else if (
     input.approvalSummary?.approvalStatus === "approved" ||
@@ -1023,7 +1023,7 @@ export function buildPilotageSteps(input: {
       key: "validation",
       label: "Validation & sortie",
       status: "done",
-      summary: "Le devis est pret a sortir sans validation supplementaire.",
+      summary: "Le devis est prêt a sortir sans validation supplementaire.",
     };
   } else if (input.approvalSummary?.approvalStatus === "in_review") {
     validationStep = {
@@ -1044,7 +1044,7 @@ export function buildPilotageSteps(input: {
       key: "validation",
       label: "Validation & sortie",
       status: "waiting",
-      summary: "Le devis est a preparer pour validation ou envoi.",
+      summary: "Le devis est à préparer pour validation ou envoi.",
     };
   }
 
@@ -1082,13 +1082,13 @@ export function buildPilotageExceptions(input: {
   if (reviewDocumentsCount > 0) {
     exceptions.push({
       id: "intake-review",
-      title: `Confirmer ${reviewDocumentsCount} piece${reviewDocumentsCount > 1 ? "s" : ""} ambigu${reviewDocumentsCount > 1 ? "es" : "e"}`,
+      title: `Confirmer ${reviewDocumentsCount} pièce${reviewDocumentsCount > 1 ? "s" : ""} ambigu${reviewDocumentsCount > 1 ? "es" : "e"}`,
       summary:
-        "Classez les documents a revoir pour eviter de propager une mauvaise interpretation du dossier.",
+        "Classez les documents à revoir pour éviter de propager une mauvaise interpretation du dossier.",
       severity: "warning",
       action: {
         kind: "href",
-        label: "Ouvrir les pieces a revoir",
+        label: "Ouvrir les pièces à revoir",
         href: `/dashboard/affaires/${input.projectId}?intakeFilter=a_revoir#intake`,
       },
     });
@@ -1097,15 +1097,15 @@ export function buildPilotageExceptions(input: {
   if (missingPiecesCount > 0 && allowSurfaceActions) {
     exceptions.push({
       id: "missing-pieces",
-      title: `Ajouter ${missingPiecesCount} piece${missingPiecesCount > 1 ? "s" : ""} manquante${missingPiecesCount > 1 ? "s" : ""}`,
+      title: `Ajouter ${missingPiecesCount} pièce${missingPiecesCount > 1 ? "s" : ""} manquante${missingPiecesCount > 1 ? "s" : ""}`,
       summary:
         criticalMissingPiecesCount > 0
-          ? "Le dossier reste incomplet sur des pieces critiques."
-          : "Le dossier peut avancer, mais certaines pieces restent utiles pour fiabiliser la suite.",
+          ? "Le dossier reste incomplet sur des pièces critiques."
+          : "Le dossier peut avancer, mais certaines pièces restent utiles pour fiabiliser la suite.",
       severity: criticalMissingPiecesCount > 0 ? "critical" : "info",
       action: {
         kind: "surface",
-        label: "Ajouter des pieces",
+        label: "Ajouter des pièces",
         surfaceId: "intake-upload",
       },
     });
@@ -1116,7 +1116,7 @@ export function buildPilotageExceptions(input: {
       id: "brief-confirm",
       title: "Confirmer le brief affaire",
       summary:
-        "Validez ou corrigez hypotheses, points de vigilance et manques avant les automations aval.",
+        "Validez ou corrigez hypothèses, points de vigilance et manques avant les automations aval.",
       severity: "warning",
       action: {
         kind: "surface",
@@ -1131,7 +1131,7 @@ export function buildPilotageExceptions(input: {
       id: "dpgf-import-failed",
       title: "Corriger l'import du DPGF",
       summary:
-        "Le dernier import du DPGF a echoue. Reprenez cette etape avant de structurer le devis.",
+        "Le dernier import du DPGF a echoue. Reprenez cette étape avant de structurer le devis.",
       severity: "critical",
       action: {
         kind: "href",
@@ -1144,11 +1144,11 @@ export function buildPilotageExceptions(input: {
       id: "dpgf-mapping-pending",
       title: "Finaliser la structure du devis",
       summary:
-        "Le DPGF est importe mais son mapping doit etre valide avant de poursuivre le chiffrage.",
+        "Le DPGF est importé mais son mapping doit être validé avant de poursuivre le chiffrage.",
       severity: "warning",
       action: {
         kind: "href",
-        label: "Verifier le DPGF",
+        label: "Vérifier le DPGF",
         href: "#dpgf",
       },
     });
@@ -1158,7 +1158,7 @@ export function buildPilotageExceptions(input: {
     const count = input.registerSummary?.criticalOpenCount ?? 0;
     exceptions.push({
       id: "register-critical",
-      title: `${count} point${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} a arbitrer`,
+      title: `${count} point${count > 1 ? "s" : ""} critique${count > 1 ? "s" : ""} à arbitrer`,
       summary:
         "Traitez d'abord les points qui bloquent la lecture fiable du dossier ou la suite du chiffrage.",
       severity: "critical",
@@ -1182,7 +1182,7 @@ export function buildPilotageExceptions(input: {
       .join(" + ");
     exceptions.push({
       id: "register-revalidation",
-      title: `${count} revalidation${count > 1 ? "s" : ""} a relancer`,
+      title: `${count} revalidation${count > 1 ? "s" : ""} à relancer`,
       summary: revalidationStages
         ? `Le dossier a change. Reprenez ${revalidationStages.toLowerCase()} avant la suite.`
         : "Le dossier a change. Reprenez la revalidation ciblee avant la suite.",
@@ -1203,7 +1203,7 @@ export function buildPilotageExceptions(input: {
     const criticalCount = input.registerSummary?.criticalClarifyWithClientCount ?? 0;
     exceptions.push({
       id: "register-clarify",
-      title: `${count} clarification${count > 1 ? "s" : ""} client a porter`,
+      title: `${count} clarification${count > 1 ? "s" : ""} client à porter`,
       summary:
         criticalCount > 0
           ? "Un retour client reste attendu sur un point critique du dossier."
@@ -1225,7 +1225,7 @@ export function buildPilotageExceptions(input: {
       id: "register-open",
       title: `${count} point${count > 1 ? "s" : ""} registre en attente`,
       summary:
-        "Le registre concentre les hypotheses et clarifications encore ouvertes dans l'affaire.",
+        "Le registre concentre les hypothèses et clarifications encore ouvertes dans l'affaire.",
       severity: "warning",
       action: {
         kind: "href",
@@ -1246,7 +1246,7 @@ export function buildPilotageExceptions(input: {
       title: "Relancer ou corriger l'analyse des plans",
       summary:
         input.plansSummary.failureReasonLabel ??
-        "Le metre ne peut pas continuer sans action de votre part.",
+        "Le métré ne peut pas continuer sans action de votre part.",
       severity: "critical",
       action: {
         kind: "href",
@@ -1263,9 +1263,9 @@ export function buildPilotageExceptions(input: {
     const count = input.plansSummary.exceptionCount ?? 0;
     exceptions.push({
       id: "takeoff-exceptions",
-      title: `${count} ecart${count > 1 ? "s" : ""} majeur${count > 1 ? "s" : ""} sur les metres`,
+      title: `${count} écart${count > 1 ? "s" : ""} majeur${count > 1 ? "s" : ""} sur les métrés`,
       summary:
-        "Revoyez les preuves et les ecarts avant d'appliquer les quantites dans le devis.",
+        "Revoyez les preuves et les écarts avant d'appliquer les quantités dans le devis.",
       severity: "critical",
       action: {
         kind: "href",
@@ -1278,7 +1278,7 @@ export function buildPilotageExceptions(input: {
       id: "takeoff-review-required",
       title: "Revoir l'analyse des plans",
       summary:
-        "Le backend signale qu'une revue reste requise avant d'exploiter les metres dans le devis.",
+        "Le backend signale qu'une revue reste requise avant d'exploiter les métrés dans le devis.",
       severity: "warning",
       action: {
         kind: "href",
@@ -1296,11 +1296,11 @@ export function buildPilotageExceptions(input: {
       id: "takeoff-launch",
       title: "Lancer l'analyse des plans",
       summary:
-        "Les plans sont deja presents dans l'affaire. Il reste a demarrer le metre pour comparer les quantites.",
+        "Les plans sont déjà presents dans l'affaire. Il reste à démarrer le métré pour comparer les quantités.",
       severity: "info",
       action: {
         kind: "surface",
-        label: "Demarrer l'analyse",
+        label: "Démarrer l'analyse",
         surfaceId: "launch-metre",
       },
     });

@@ -497,7 +497,7 @@ async function loadRuleIdsForVersion(input: {
     .eq("user_id", input.ownerUserId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les regles de suggestion.");
+    throw mapSupabaseError(error, "Impossible de charger les règles de suggestion.");
   }
 
   return (data ?? []).map((row) => row.id);
@@ -551,7 +551,7 @@ async function assertTenantAdmin(context: AuthenticatedContext) {
     return;
   }
 
-  throw forbidden("Acces reserve aux administrateurs du tenant.");
+  throw forbidden("Accès reserve aux administrateurs du tenant.");
 }
 
 export async function getLearnings(input: {
@@ -621,7 +621,7 @@ async function loadAllowedRuleIdsForTracking(input: {
     .in("id", uniqueRuleIds);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier les regles de suggestion.");
+    throw mapSupabaseError(error, "Impossible de vérifier les règles de suggestion.");
   }
 
   return new Set((data ?? []).map((row) => row.id));
@@ -778,7 +778,7 @@ export async function reviewLearning(input: {
     const { error } = await deleteQuery;
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible de reinitialiser la revue.");
+      throw mapSupabaseError(error, "Impossible de réinitialiser la revue.");
     }
   } else {
     const status = input.action === "approve" ? "approved" : "rejected";

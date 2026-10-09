@@ -720,7 +720,7 @@ test.describe("V3-010 — DPGF review page", () => {
     await expect(
       page.getByText("Traitez d'abord les exceptions qui peuvent biaiser le chiffrage")
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Revue detaillee" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Revue détaillée" }).first()).toBeVisible();
     await expect(page.getByText("Cloison BA13")).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Ouvrir les preuves|Ajouter une preuve/i })
@@ -1193,7 +1193,7 @@ test.describe("V3-010 — DPGF review page", () => {
     await expect(panel.getByText(/^Sources \(\d+\)$/)).toBeVisible();
     expect(await panel.getByText(/Historique projet v\d+/).count()).toBeGreaterThanOrEqual(3);
 
-    const submitButton = panel.getByRole("button", { name: "Selectionner une action" });
+    const submitButton = panel.getByRole("button", { name: "Sélectionner une action" });
     await expect(submitButton).toBeDisabled();
 
     await panel.getByRole("button", { name: "Prix cible" }).click();
@@ -1224,7 +1224,7 @@ test.describe("V3-010 — DPGF review page", () => {
     ).toBe(200);
 
     await expect(panel).toBeVisible();
-    await expect(panel.getByText("Decision enregistree : Appliquer prix cible")).toBeVisible();
+    await expect(panel.getByText("Décision enregistrée : Appliquer prix cible")).toBeVisible();
     await expect(panel.getByText(`Note : ${reviewNote}`)).toBeVisible();
     await expect(panel.getByRole("button", { name: "Recalculer" })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Fermer", exact: true })).toBeVisible();
@@ -1236,7 +1236,7 @@ test.describe("V3-010 — DPGF review page", () => {
     const reviewedPanel = page.getByRole("dialog", { name: /Suggestion de prix/i });
     await expect(reviewedPanel).toBeVisible();
     await expect(
-      reviewedPanel.getByText("Decision enregistree : Appliquer prix cible")
+      reviewedPanel.getByText("Décision enregistrée : Appliquer prix cible")
     ).toBeVisible();
     await expect(reviewedPanel.getByText(`Note : ${reviewNote}`)).toBeVisible();
     await expect(reviewedPanel.getByRole("button", { name: "Recalculer" })).toBeVisible();

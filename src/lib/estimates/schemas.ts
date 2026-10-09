@@ -75,7 +75,7 @@ const optionalAidSchema = z
 const nonNegativeNumberSchema = z
   .number()
   .finite("Nombre invalide.")
-  .min(0, "Doit etre >= 0.");
+  .min(0, "Doit être >= 0.");
 
 const nullableNonNegativeNumberSchema = z.union([
   nonNegativeNumberSchema,
@@ -85,17 +85,17 @@ const nullableNonNegativeNumberSchema = z.union([
 const nonNegativeIntegerSchema = z
   .number()
   .int("Entier attendu.")
-  .min(0, "Doit etre >= 0.");
+  .min(0, "Doit être >= 0.");
 
 const positiveIntegerSchema = z
   .number()
   .int("Entier attendu.")
-  .min(1, "Doit etre >= 1.");
+  .min(1, "Doit être >= 1.");
 const sectionDepthSchema = z
   .number()
   .int("Entier attendu.")
-  .min(MIN_SECTION_DEPTH, `Doit etre >= ${MIN_SECTION_DEPTH}.`)
-  .max(MAX_SECTION_DEPTH, `Doit etre <= ${MAX_SECTION_DEPTH}.`);
+  .min(MIN_SECTION_DEPTH, `Doit être >= ${MIN_SECTION_DEPTH}.`)
+  .max(MAX_SECTION_DEPTH, `Doit être <= ${MAX_SECTION_DEPTH}.`);
 
 const uuidSchema = z.string().uuid(UUID_ERROR_MESSAGE);
 const nullableUuidSchema = z.union([uuidSchema, z.null()]);
@@ -108,19 +108,19 @@ const dateOnlySchema = z
 const taxRateBpSchema = z
   .number()
   .int("Entier attendu.")
-  .min(0, "Doit etre >= 0.")
-  .max(10000, "Doit etre <= 10000.");
+  .min(0, "Doit être >= 0.")
+  .max(10000, "Doit être <= 10000.");
 
 const basisPointsSchema = z
   .number()
   .int("Entier attendu.")
-  .min(0, "Doit etre >= 0.");
-const discountStepBpSchema = basisPointsSchema.max(10000, "Doit etre <= 10000.");
+  .min(0, "Doit être >= 0.");
+const discountStepBpSchema = basisPointsSchema.max(10000, "Doit être <= 10000.");
 const discountStepsSchema = z.array(discountStepBpSchema);
 const globalCoefficientSchema = z
   .number()
   .finite("Nombre invalide.")
-  .min(0, "Doit etre >= 0.");
+  .min(0, "Doit être >= 0.");
 
 const updatedAtTokenSchema = z
   .string()
@@ -197,7 +197,7 @@ const createEstimateVersionSchema = z
     if (mode === "simple" && steps.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "discount_steps doit etre vide en mode simple.",
+        message: "discount_steps doit être vide en mode simple.",
         path: ["discount_steps"],
       });
     }
@@ -311,7 +311,7 @@ export const patchEstimateVersionSchema = z
     if (!hasUpdatableField) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Aucun champ a mettre a jour.",
+        message: "Aucun champ à mettre à jour.",
         path: [],
       });
       return;
@@ -324,7 +324,7 @@ export const patchEstimateVersionSchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "discount_steps doit etre vide en mode simple.",
+        message: "discount_steps doit être vide en mode simple.",
         path: ["discount_steps"],
       });
     }
@@ -456,7 +456,7 @@ const updateEstimateItemDataSchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -471,7 +471,7 @@ export const updateEstimateItemSchema = z
     if (Object.keys(payload).length > 1) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -485,7 +485,7 @@ const bulkUpdateEstimateItemSchema = z
     if (Object.keys(payload).length > 1) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -519,7 +519,7 @@ export const bulkUpdateEstimateVersionPatchSchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "version_patch ne peut pas etre vide.",
+      message: "version_patch ne peut pas être vide.",
       path: [],
     });
   });
@@ -544,7 +544,7 @@ export const bulkUpdateEstimateItemsRequestSchema = z.preprocess(
       if (payload.updates.length > 0 || payload.version_patch) return;
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "updates ne peut pas etre vide.",
+        message: "updates ne peut pas être vide.",
         path: ["updates"],
       });
     })
@@ -557,7 +557,7 @@ export const deleteEstimateItemSchema = z.object({
 export const reorderEstimateItemsSchema = z
   .object({
     parent_id: nullableUuidSchema.optional(),
-    ordered_ids: z.array(uuidSchema).min(1, "ordered_ids ne peut pas etre vide."),
+    ordered_ids: z.array(uuidSchema).min(1, "ordered_ids ne peut pas être vide."),
   })
   .superRefine((payload, ctx) => {
     const set = new Set(payload.ordered_ids);
@@ -578,7 +578,7 @@ export const moveEstimateItemSchema = z
     ordered_source_ids: z.array(uuidSchema),
     ordered_target_ids: z
       .array(uuidSchema)
-      .min(1, "ordered_target_ids ne peut pas etre vide."),
+      .min(1, "ordered_target_ids ne peut pas être vide."),
   })
   .superRefine((payload, ctx) => {
     const sourceSet = new Set(payload.ordered_source_ids);
@@ -619,7 +619,7 @@ export const moveEstimateItemSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "from_parent_id et to_parent_id doivent etre differents pour un move inter-parent.",
+          "from_parent_id et to_parent_id doivent être différents pour un move inter-parent.",
         path: ["to_parent_id"],
       });
     }
@@ -667,7 +667,7 @@ export const batchOperationsSchema = z.object({
   dry_run: z.boolean().optional(),
   operations: z
     .array(batchOperationSchema)
-    .min(1, "operations ne peut pas etre vide."),
+    .min(1, "operations ne peut pas être vide."),
 });
 
 export const estimateSupplierComparisonsRequestSchema = z
@@ -703,7 +703,7 @@ export const estimateSupplierComparisonsRequestSchema = z
       if (payload.item_ids.length === 0) return;
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "all_items ne peut pas etre combine avec item_ids.",
+        message: "all_items ne peut pas être combine avec item_ids.",
         path: ["all_items"],
       });
       return;
@@ -712,7 +712,7 @@ export const estimateSupplierComparisonsRequestSchema = z
     if (payload.item_ids === null || payload.item_ids.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "item_ids ne peut pas etre vide.",
+        message: "item_ids ne peut pas être vide.",
         path: ["item_ids"],
       });
       return;
@@ -788,7 +788,7 @@ export const estimatePurchaseOrderDraftsCreateSchema = z
     groups: z
       .array(estimatePurchaseOrderDraftGroupSchema)
       .min(1, "Au moins un groupe fournisseur est requis.")
-      .max(50, "Trop de groupes dans une seule requete."),
+      .max(50, "Trop de groupes dans une seule requête."),
   }))
   .superRefine((payload, ctx) => {
     const requestedItemIds = new Set<string>();
@@ -810,7 +810,7 @@ export const estimatePurchaseOrderDraftsCreateSchema = z
 
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Une ligne ne peut etre commandee qu'une seule fois par requete.",
+          message: "Une ligne ne peut être commandee qu'une seule fois par requête.",
           path: ["groups", groupIndex, "item_ids", itemIndex],
         });
       });
@@ -842,7 +842,7 @@ export const updateLaborRoleSchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -850,8 +850,8 @@ export const updateLaborRoleSchema = z
 const marginTierMultiplierSchema = z
   .number()
   .finite("Nombre invalide.")
-  .min(0, "Doit etre >= 0.")
-  .max(100, "Doit etre <= 100.");
+  .min(0, "Doit être >= 0.")
+  .max(100, "Doit être <= 100.");
 
 export const createMarginTierSchema = z.object({
   threshold_cents: nonNegativeIntegerSchema,
@@ -869,7 +869,7 @@ export const updateMarginTierSchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -904,7 +904,7 @@ export const updateSuggestionRuleSchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
@@ -939,7 +939,7 @@ export const trackSuggestionCorrectionsSchema = z.object({
       })
     )
     .min(1, "Au moins une correction est requise.")
-    .max(50, "Trop de corrections dans une seule requete."),
+    .max(50, "Trop de corrections dans une seule requête."),
 });
 
 export const reviewSuggestionLearningSchema = z.object({
@@ -950,7 +950,7 @@ export const reviewSuggestionLearningSchema = z.object({
 });
 
 export const purgeSuggestionLearningSchema = z.object({
-  retention_months: positiveIntegerSchema.max(120, "Doit etre <= 120.").optional(),
+  retention_months: positiveIntegerSchema.max(120, "Doit être <= 120.").optional(),
 });
 
 export const createEstimateTemplateFromVersionSchema = z.preprocess(
@@ -984,14 +984,14 @@ export const updateEstimateTemplateSchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
 
 export const listEstimateTemplatesQuerySchema = z.object({
   search: optionalNullableTextSchema.optional(),
-  limit: positiveIntegerSchema.max(100, "Doit etre <= 100.").optional().default(10),
+  limit: positiveIntegerSchema.max(100, "Doit être <= 100.").optional().default(10),
   order: z.enum(["recent", "oldest"]).optional().default("recent"),
 });
 
@@ -1074,7 +1074,7 @@ export const importEstimateSectionsModeSchema = z.enum(["merge", "append"]);
 
 const importEstimateSectionIdsSchema = z
   .array(uuidSchema)
-  .min(1, "section_ids ne peut pas etre vide.")
+  .min(1, "section_ids ne peut pas être vide.")
   .max(100, "section_ids ne peut pas contenir plus de 100 sections.")
   .superRefine((sectionIds, ctx) => {
     const uniqueIds = new Set<string>();
@@ -1174,7 +1174,7 @@ export const generateEstimateStructureDraftSchema = z.preprocess(
 
 const estimateStructureDraftNodeIdsSchema = z
   .array(uuidSchema)
-  .min(1, "selected_root_node_ids ne peut pas etre vide.")
+  .min(1, "selected_root_node_ids ne peut pas être vide.")
   .max(200, "selected_root_node_ids ne peut pas contenir plus de 200 noeuds.")
   .superRefine((nodeIds, ctx) => {
     const uniqueIds = new Set<string>();
@@ -1295,7 +1295,7 @@ export const reviewVersionZeroLineSchema = z.preprocess(
   z.object({
     review_status: versionZeroLineReviewStatusSchema.refine(
       (status) => status !== "pending",
-      "Le statut pending ne peut pas etre applique manuellement."
+      "Le statut pending ne peut pas être appliqué manuellement."
     ),
     edited_values: z
       .preprocess(
@@ -1420,7 +1420,7 @@ const estimateAssemblyItemSchema = z.preprocess(
     position: positiveIntegerSchema,
     cost_type: z.enum(["material", "labor", "equipment", "subcontract"]).optional(),
     unit_cost_ht_cents: nonNegativeIntegerSchema.optional(),
-    loss_coeff_bp: nonNegativeIntegerSchema.max(100000, "Doit etre <= 100000.").optional(),
+    loss_coeff_bp: nonNegativeIntegerSchema.max(100000, "Doit être <= 100000.").optional(),
     yield_value: nullableNonNegativeNumberSchema.optional(),
     yield_unit: optionalNullableTextSchema.optional(),
     source_metadata: z.record(z.string(), z.unknown()).optional(),
@@ -1441,7 +1441,7 @@ const estimateAssemblyItemsSchema = z
 
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Les positions des lignes doivent etre uniques.",
+        message: "Les positions des lignes doivent être uniques.",
         path: [index, "position"],
       });
     });
@@ -1479,14 +1479,14 @@ const estimateAssemblyMembersSchema = z
       if (childIds.has(member.child_assembly_id)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Un sous-ouvrage ne peut etre ajoute qu'une fois.",
+          message: "Un sous-ouvrage ne peut être ajouté qu'une fois.",
           path: [index, "child_assembly_id"],
         });
       }
       if (positions.has(member.position)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Les positions des sous-ouvrages doivent etre uniques.",
+          message: "Les positions des sous-ouvrages doivent être uniques.",
           path: [index, "position"],
         });
       }
@@ -1534,7 +1534,7 @@ export const createEstimateAssemblySchema = z.preprocess(
     if (positions.has(member.position)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Les positions de tous les contenus doivent etre uniques.",
+        message: "Les positions de tous les contenus doivent être uniques.",
         path: ["members", index, "position"],
       });
     }
@@ -1586,14 +1586,14 @@ export const updateEstimateAssemblySchema = z
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
       path: [],
     });
   });
 
 export const listEstimateAssembliesQuerySchema = z.object({
   search: optionalNullableTextSchema.optional(),
-  limit: positiveIntegerSchema.max(100, "Doit etre <= 100.").optional().default(20),
+  limit: positiveIntegerSchema.max(100, "Doit être <= 100.").optional().default(20),
   order: z.enum(["recent", "oldest"]).optional().default("recent"),
 });
 
@@ -1771,7 +1771,7 @@ export const wizardStep3Schema = z.object({
   if (data.creationMode === "template" && !data.selectedTemplateId) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Veuillez selectionner un template.",
+      message: "Veuillez sélectionner un template.",
       path: ["selectedTemplateId"],
     });
   }

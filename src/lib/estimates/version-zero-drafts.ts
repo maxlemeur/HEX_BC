@@ -532,12 +532,12 @@ async function assertVersionIsEmpty(input: {
     .eq("version_id", input.versionId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier le contenu de la version.");
+    throw mapSupabaseError(error, "Impossible de vérifier le contenu de la version.");
   }
 
   if ((count ?? 0) > 0) {
     throw conflict(
-      "La V0 ne peut etre generee ou appliquee que sur une version brouillon vide.",
+      "La V0 ne peut être générée ou appliquée que sur une version brouillon vide.",
       { versionId: input.versionId, itemCount: count ?? 0 },
       "EST384_VERSION_NOT_EMPTY"
     );
@@ -633,12 +633,12 @@ function buildFallbackLots(input: {
     ]).slice(0, 4);
     const hypotheses = uniqueStrings([
       ...lotAssumptions,
-      relevantScope.length === 0 ? `Le perimetre detaille du lot ${lotLabel} reste a confirmer.` : null,
+      relevantScope.length === 0 ? `Le perimetre détaillé du lot ${lotLabel} reste à confirmer.` : null,
     ]).slice(0, 4);
     const inferences = uniqueStrings([
       relevantScope.length > 0
-        ? `Le lot ${lotLabel} doit etre structure a partir des elements explicites du brief.`
-        : `Le lot ${lotLabel} necessite une decomposition manuelle complementaire.`,
+        ? `Le lot ${lotLabel} doit être structure à partir des éléments explicites du brief.`
+        : `Le lot ${lotLabel} necessite une decomposition manuelle complémentaire.`,
     ]);
     const riskSignals = uniqueStrings([
       ...relevantVigilance,
@@ -646,7 +646,7 @@ function buildFallbackLots(input: {
     ]).slice(0, 4);
     const missingSignals = uniqueStrings([
       ...relevantMissing,
-      relevantScope.length === 0 ? `Manque de details operatoires pour le lot ${lotLabel}.` : null,
+      relevantScope.length === 0 ? `Manque de détails operatoires pour le lot ${lotLabel}.` : null,
     ]).slice(0, 4);
 
     const lines: InternalVersionZeroLine[] =
@@ -669,9 +669,9 @@ function buildFallbackLots(input: {
           }))
         : [
             {
-              proposedTitle: `${lotLabel} - chiffrage a consolider`,
+              proposedTitle: `${lotLabel} - chiffrage à consolider`,
               proposedDescription:
-                "Lot identifie dans le brief confirme, mais decomposition detaillee a revoir.",
+                "Lot identifie dans le brief confirme, mais decomposition détaillée à revoir.",
               proposedQuantity: null,
               proposedUnit: null,
               confidence: 0.38,
@@ -721,9 +721,9 @@ async function tryGenerateGeminiLots(input: {
   const prompt = [
     "Tu prepares une V0 de devis batiment relue par un humain.",
     "Contraintes obligatoires:",
-    "- distinguer faits, hypotheses et inferences",
+    "- distinguer faits, hypothèses et inferences",
     "- ne proposer aucun prix",
-    "- quantite et unite peuvent etre null si inconnues",
+    "- quantité et unité peuvent être null si inconnues",
     "- si le brief est incomplet, utiliser status partial ou missing",
     "- produire des lignes courtes, auditables et explicables",
     "",
@@ -732,10 +732,10 @@ async function tryGenerateGeminiLots(input: {
     `Objet: ${input.brief.project_object}`,
     `Lots cibles: ${input.lotLabels.join(", ")}`,
     `Scope: ${pickStringArray(input.brief.scope, 12).join(" | ") || "aucun"}`,
-    `Hypotheses: ${pickStringArray(input.brief.assumptions, 8).join(" | ") || "aucune"}`,
+    `Hypothèses: ${pickStringArray(input.brief.assumptions, 8).join(" | ") || "aucune"}`,
     `Vigilance: ${pickStringArray(input.brief.vigilance_points, 8).join(" | ") || "aucune"}`,
     `Manquants: ${pickStringArray(input.brief.missing_elements, 8).join(" | ") || "aucun"}`,
-    `Fichiers source: ${sourceFiles.join(", ") || "non renseignes"}`,
+    `Fichiers source: ${sourceFiles.join(", ") || "non renseignés"}`,
   ].join("\n");
 
   const result = await callGeminiStructured({
@@ -910,7 +910,7 @@ async function persistGeneratedDraft(input: {
     .single();
 
   if (draftError || !draftData) {
-    throw mapSupabaseError(draftError, "Impossible de creer le snapshot V0.");
+    throw mapSupabaseError(draftError, "Impossible de créer le snapshot V0.");
   }
 
   const draft = draftData as EstimateVersionZeroDraftRow;
@@ -1007,7 +1007,7 @@ async function supersedeActiveDrafts(input: {
     .neq("id", input.newDraftId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de superseder la V0 precedente.");
+    throw mapSupabaseError(error, "Impossible de superseder la V0 précédente.");
   }
 }
 
@@ -1244,7 +1244,7 @@ async function buildDraftSummary(input: {
         .eq("version_id", input.version.id);
 
       if (error) {
-        throw mapSupabaseError(error, "Impossible de verifier le contenu de la version.");
+        throw mapSupabaseError(error, "Impossible de vérifier le contenu de la version.");
       }
 
       return (count ?? 0) === 0;
@@ -1344,7 +1344,7 @@ export async function generateVersionZeroDraft(input: {
 
   if (!brief) {
     throw conflict(
-      "Un brief confirme est requis pour generer la V0.",
+      "Un brief confirme est requis pour générer la V0.",
       { projectId: project.id },
       "EST384_CONFIRMED_BRIEF_REQUIRED"
     );
@@ -1378,7 +1378,7 @@ export async function generateVersionZeroDraft(input: {
 
   if (selectedLots.length === 0) {
     throw badRequest(
-      "Aucun lot exploitable n'a ete trouve dans le brief confirme.",
+      "Aucun lot exploitable n'a été trouve dans le brief confirme.",
       undefined,
       "EST384_NO_LOTS"
     );
@@ -1419,7 +1419,7 @@ export async function generateVersionZeroDraft(input: {
     summaryText:
       aiResult && "data" in aiResult && aiResult.data
         ? aiResult.data.summary
-        : `V0 generee sur ${lots.length} lot(s), a revoir avant toute application.`,
+        : `V0 générée sur ${lots.length} lot(s), à revoir avant toute application.`,
     generationMetadata: {
       model: aiResult && "model" in aiResult ? aiResult.model : null,
       prompt_version:
@@ -1549,7 +1549,7 @@ export async function reviewVersionZeroLine(input: {
 
   if (VERSION_ZERO_TERMINAL_STATUSES.includes(draft.status)) {
     throw conflict(
-      "Ce snapshot V0 ne peut plus etre revu.",
+      "Ce snapshot V0 ne peut plus être revu.",
       { draftId: draft.id, status: draft.status },
       "EST384_DRAFT_NOT_REVIEWABLE"
     );
@@ -1603,7 +1603,7 @@ export async function reviewVersionZeroLine(input: {
     .eq("id", input.lineDraftId);
 
   if (updateError) {
-    throw mapSupabaseError(updateError, "Impossible de mettre a jour la ligne V0.");
+    throw mapSupabaseError(updateError, "Impossible de mettre à jour la ligne V0.");
   }
 
   return fetchVersionZeroReview({
@@ -1633,7 +1633,7 @@ function throwVersionZeroMaterializationRpcErrorIfNeeded(error: {
 
   if (normalized.includes("est384_draft_not_reviewable")) {
     throw conflict(
-      "Ce snapshot V0 ne peut plus etre materialise.",
+      "Ce snapshot V0 ne peut plus être materialise.",
       undefined,
       "EST384_DRAFT_NOT_REVIEWABLE"
     );
@@ -1641,7 +1641,7 @@ function throwVersionZeroMaterializationRpcErrorIfNeeded(error: {
 
   if (normalized.includes("est384_pending_lines")) {
     throw conflict(
-      "Toutes les lignes V0 doivent etre revues avant materialisation.",
+      "Toutes les lignes V0 doivent être revues avant materialisation.",
       undefined,
       "EST384_PENDING_LINES"
     );
@@ -1649,7 +1649,7 @@ function throwVersionZeroMaterializationRpcErrorIfNeeded(error: {
 
   if (normalized.includes("est384_version_not_empty")) {
     throw conflict(
-      "La V0 ne peut etre generee ou appliquee que sur une version brouillon vide.",
+      "La V0 ne peut être générée ou appliquée que sur une version brouillon vide.",
       undefined,
       "EST384_VERSION_NOT_EMPTY"
     );
@@ -1694,7 +1694,7 @@ export async function materializeVersionZeroDraft(input: {
 
   if (VERSION_ZERO_TERMINAL_STATUSES.includes(draft.status)) {
     throw conflict(
-      "Ce snapshot V0 ne peut plus etre materialise.",
+      "Ce snapshot V0 ne peut plus être materialise.",
       { draftId: draft.id, status: draft.status },
       "EST384_DRAFT_NOT_REVIEWABLE"
     );
@@ -1712,7 +1712,7 @@ export async function materializeVersionZeroDraft(input: {
 
   if (review.draft.counts.pending > 0) {
     throw conflict(
-      "Toutes les lignes V0 doivent etre revues avant materialisation.",
+      "Toutes les lignes V0 doivent être revues avant materialisation.",
       { draftId: draft.id, pendingCount: review.draft.counts.pending },
       "EST384_PENDING_LINES"
     );
@@ -1886,7 +1886,7 @@ export async function materializeVersionZeroDraft(input: {
         "EST384_MATERIALIZE_RPC_MISSING"
       );
     }
-    throw mapSupabaseError(rpcError, "Impossible de materialiser la V0.");
+    throw mapSupabaseError(rpcError, "Impossible de matérialiser la V0.");
   }
 
   const rpcResult = Array.isArray(rpcData)
@@ -1894,7 +1894,7 @@ export async function materializeVersionZeroDraft(input: {
     : null;
 
   if (!rpcResult) {
-    throw badRequest("Impossible de materialiser la V0.");
+    throw badRequest("Impossible de matérialiser la V0.");
   }
 
   return fetchVersionZeroReview({

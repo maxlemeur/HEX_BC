@@ -15,7 +15,7 @@ export const ESTIMATE_READINESS_CATEGORY_LABELS: Record<
 > = {
   documents: "Documents",
   register: "Registre",
-  estimate_quality: "Qualite devis",
+  estimate_quality: "Qualité devis",
   pdf: "PDF",
   approvals: "Approbations",
 };

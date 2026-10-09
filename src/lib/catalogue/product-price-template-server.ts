@@ -45,7 +45,7 @@ export const productPriceTemplateImportSchema = z
     prices: z.array(supplierPriceTemplateRowSchema).max(MAX_TEMPLATE_ROWS),
   })
   .refine((value) => value.products.length + value.prices.length > 0, {
-    message: "Le fichier ne contient aucune ligne a importer.",
+    message: "Le fichier ne contient aucune ligne à importer.",
   });
 
 export type ProductPriceTemplateImportInput = z.infer<typeof productPriceTemplateImportSchema>;
@@ -109,7 +109,7 @@ function mapDatabaseError(error: PostgrestError, fallbackMessage: string) {
     return new CatalogueApiError({
       status: 403,
       code: "FORBIDDEN",
-      message: "Vous n'avez pas les droits necessaires pour importer ce fichier.",
+      message: "Vous n'avez pas les droits nécessaires pour importer ce fichier.",
     });
   }
 
@@ -287,7 +287,7 @@ export async function importProductPriceTemplate(
       const { error } = await supabase.from("products").insert(productsToCreate);
 
       if (error) {
-        throw mapDatabaseError(error, "Impossible de creer les produits du fichier.");
+        throw mapDatabaseError(error, "Impossible de créer les produits du fichier.");
       }
     }
   }
@@ -296,7 +296,7 @@ export async function importProductPriceTemplate(
   if (refreshedProductsResult.error) {
     throw mapDatabaseError(
       refreshedProductsResult.error,
-      "Les produits ont ete importes, mais leurs references n'ont pas pu etre rechargees."
+      "Les produits ont été importés, mais leurs références n'ont pas pu être rechargees."
     );
   }
 
@@ -314,7 +314,7 @@ export async function importProductPriceTemplate(
       throw new CatalogueApiError({
         status: 400,
         code: "TEMPLATE_REFERENCE_LOST",
-        message: "Une reference produit ou fournisseur n'est plus disponible.",
+        message: "Une référence produit ou fournisseur n'est plus disponible.",
       });
     }
 

@@ -245,7 +245,7 @@ function assertDirectionAccess(role: TenantRole) {
   }
 
   throw forbidden(
-    "Acces reserve a la direction et aux administrateurs.",
+    "Accès reserve à la direction et aux administrateurs.",
     undefined,
     "FORBIDDEN"
   );
@@ -600,7 +600,7 @@ async function listReviewCyclesByVersionId(versionIds: string[]) {
           if (reviewerStatesError) {
             throw mapSupabaseError(
               reviewerStatesError,
-              "Impossible de charger les etats de revue direction."
+              "Impossible de charger les états de revue direction."
             );
           }
 
@@ -639,7 +639,7 @@ async function listLatestJobsByVersionId(versionIds: string[]) {
           .order("created_at" as never, { ascending: false });
 
         if (error) {
-          throw mapSupabaseError(error, "Impossible de charger les derniers jobs metres.");
+          throw mapSupabaseError(error, "Impossible de charger les derniers jobs métrés.");
         }
 
         return (data ?? []) as TakeoffJobRow[];
@@ -1012,7 +1012,7 @@ export async function fetchDirectionDashboardPageData(
   assertDirectionAccess(context.tenantRole);
   await writeDirectionDebugLog(
     "server",
-    `page-data:start tenant=${context.tenantId} role=${context.tenantRole} versions=${versions.length} ownerFilter=${query.ownerUserId ?? "all"} lotFilter=${query.lot ?? "all"} horizon=${query.horizon} onlyExceptions=${query.onlyExceptions ? "true" : "false"}`
+    `page-data:start tenant=${context.tenantId} rôle=${context.tenantRole} versions=${versions.length} ownerFilter=${query.ownerUserId ?? "all"} lotFilter=${query.lot ?? "all"} horizon=${query.horizon} onlyExceptions=${query.onlyExceptions ? "true" : "false"}`
   );
 
   const versionIds = versions.map((version) => version.id);

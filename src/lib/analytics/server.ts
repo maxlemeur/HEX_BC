@@ -296,7 +296,7 @@ export async function fetchChiffreurAnalytics(input?: {
   const isAdmin = isAdminRole(profile.tenant_role);
 
   if (!isAdmin && requestedOwnerUserId && requestedOwnerUserId !== profile.id) {
-    throw forbidden("Le filtrage analytics par utilisateur est reserve aux administrateurs.");
+    throw forbidden("Le filtrage analytics par utilisateur est réservé aux administrateurs.");
   }
 
   const effectiveOwnerUserId = isAdmin

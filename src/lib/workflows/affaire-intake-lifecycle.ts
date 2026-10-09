@@ -132,7 +132,7 @@ export async function claimAffaireIntakeUpload(input: {
 
   const row = normalizeClaimRow(data);
   if (!row) {
-    throw new Error("Reponse de claim intake invalide.");
+    throw new Error("Réponse de claim intake invalide.");
   }
 
   if (!row.claimed) {
@@ -221,7 +221,7 @@ export async function releaseAffaireIntakeUploadAfterError(input: {
   const message =
     input.error instanceof Error
       ? input.error.message
-      : "Le traitement intake a echoue sans detail exploitable.";
+      : "Le traitement intake a echoue sans détail exploitable.";
 
   try {
     await finishAffaireIntakeUploadAttempt({

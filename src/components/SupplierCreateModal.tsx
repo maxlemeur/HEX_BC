@@ -191,7 +191,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
             name="phone"
             type="tel"
             autoComplete="tel"
-            label="Telephone"
+            label="Téléphone"
             placeholder="01 00 00 00 00"
             value={formState.phone}
             onChange={(event) => updateField("phone", event.target.value)}

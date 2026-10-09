@@ -636,7 +636,7 @@ export function TakeoffSourceBadge({
                     <p className="mt-1 text-xs text-[var(--slate-500)]">
                       {application.hierarchyLevel
                         ? `Niveau ${application.hierarchyLevel}`
-                        : "Niveau non renseigne"}{" "}
+                        : "Niveau non renseigné"}{" "}
                       · {formatAiConfidence(application)} ·{" "}
                       {application.appliedAction ?? "action non renseignee"}
                     </p>
@@ -655,7 +655,7 @@ export function TakeoffSourceBadge({
                     ) : null}
                     {application.hypotheses.length > 0 ? (
                       <p className="mt-1 text-xs text-[var(--slate-600)]">
-                        Hypotheses: {application.hypotheses.join(" · ")}
+                        Hypothèses: {application.hypotheses.join(" · ")}
                       </p>
                     ) : null}
                     {application.inferences.length > 0 ? (
@@ -676,7 +676,7 @@ export function TakeoffSourceBadge({
                     {generatedOuvrageSnapshot.summary.assemblyName ?? "Snapshot applique"}
                   </p>
                   <p className="mt-1 text-xs text-[var(--slate-500)]">
-                    Reference:{" "}
+                    Référence:{" "}
                     {generatedOuvrageSnapshot.summary.assemblyReferenceCode ??
                       NOT_AVAILABLE_LABEL}
                   </p>
@@ -705,7 +705,7 @@ export function TakeoffSourceBadge({
                   ) : null}
                   {generatedOuvrageSnapshot.summary.hypotheses.length > 0 ? (
                     <p className="mt-1 text-xs text-[var(--slate-600)]">
-                      Hypotheses:{" "}
+                      Hypothèses:{" "}
                       {generatedOuvrageSnapshot.summary.hypotheses.join(" · ")}
                     </p>
                   ) : null}
@@ -782,7 +782,7 @@ export function TakeoffSourceBadge({
                     ) : null}
                     {application.hypotheses.length > 0 ? (
                       <p className="mt-1 text-xs text-[var(--slate-600)]">
-                        Hypotheses: {application.hypotheses.join(" · ")}
+                        Hypothèses: {application.hypotheses.join(" · ")}
                       </p>
                     ) : null}
                     {application.inferences.length > 0 ? (

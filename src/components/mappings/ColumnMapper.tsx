@@ -23,7 +23,7 @@ export type ColumnMapping = Record<string, string>;
 const EMPTY_SAMPLE_VALUES: Record<string, string[]> = {};
 
 const CONFIDENCE_LABELS: Record<MappingConfidenceBand, string> = {
-  high: "Confiance elevee",
+  high: "Confiance élevée",
   medium: "Confiance moyenne",
   low: "Confiance faible",
 };
@@ -184,7 +184,7 @@ export function ColumnMapper({
           <div>
             <h2 className="text-sm font-semibold text-slate-800">Mapping des colonnes</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Associez les colonnes source aux champs metier.
+              Associez les colonnes source aux champs métier.
               <span className="ml-2 font-medium text-foreground-secondary">
                 {mappedTargetCount}/{totalTargetFields} champs
               </span>
@@ -228,7 +228,7 @@ export function ColumnMapper({
 
       {sourceColumns.length === 0 ? (
         <div className="px-6 py-8 text-sm text-muted-foreground">
-          Aucune colonne detectee. Selectionnez un import pour commencer.
+          Aucune colonne détectée. Sélectionnez un import pour commencer.
         </div>
       ) : (
         <div className="table-scroll">
@@ -236,7 +236,7 @@ export function ColumnMapper({
             <thead>
               <tr>
                 <th>Colonne source</th>
-                <th>Apercu</th>
+                <th>Aperçu</th>
                 {confidenceBySource && <th>Confiance</th>}
                 <th>Champ cible</th>
               </tr>
@@ -342,7 +342,7 @@ export function ColumnMapper({
           </span>
         ) : (
           <span className="flex flex-wrap items-center gap-1.5">
-            A mapper :
+            À mapper :
             {missingRequiredTargets.map((v) => (
               <span
                 key={v}

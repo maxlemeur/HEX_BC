@@ -80,7 +80,7 @@ function createBasePayload(level: "A" | "B" | "C") {
     warnings: [
       {
         code: "  qty_inferred  ",
-        message: "Quantite deduite d'un libelle ambigu.",
+        message: "Quantité deduite d'un libelle ambigu.",
         severity: "warning" as const,
       },
     ],
@@ -384,7 +384,7 @@ describe("takeoff apply mapping schemas", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("override_justification ne peut etre fourni")
+        issue.message.includes("override_justification ne peut être fourni")
       )
     ).toBe(true);
   });

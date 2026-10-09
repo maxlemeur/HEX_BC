@@ -57,7 +57,7 @@ async function assertExportAccess() {
     await getAuthenticatedTenantContext();
 
   if (!isExportAllowedRole(tenantRole)) {
-    throw forbidden("Export reserve aux roles admin et engineer.");
+    throw forbidden("Export reserve aux rôles admin et engineer.");
   }
 
   return {

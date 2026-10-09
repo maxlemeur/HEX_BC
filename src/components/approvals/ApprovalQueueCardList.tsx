@@ -16,7 +16,7 @@ export function ApprovalQueueCardList({ items }: ApprovalQueueCardListProps) {
           <SquareCheckBigIcon aria-hidden="true" strokeWidth="1.5" size={28} />
         }
         title="Aucune affaire en attente de revue"
-        description="Toutes les affaires soumises ont ete traitees."
+        description="Toutes les affaires soumises ont été traitees."
       />
     );
   }

@@ -195,9 +195,9 @@ const optionalLimitSearchParamSchema = z.preprocess(
   },
   z
     .number()
-    .int("limit doit etre un entier.")
-    .min(1, "limit doit etre >= 1.")
-    .max(MAX_PLAN_SETS_LIST_LIMIT, `limit doit etre <= ${MAX_PLAN_SETS_LIST_LIMIT}.`)
+    .int("limit doit être un entier.")
+    .min(1, "limit doit être >= 1.")
+    .max(MAX_PLAN_SETS_LIST_LIMIT, `limit doit être <= ${MAX_PLAN_SETS_LIST_LIMIT}.`)
     .optional()
 );
 
@@ -270,11 +270,11 @@ export const createPlanFileSchema = z
   .object({
     file_name: requiredTextSchema.max(255, "Nom de fichier trop long."),
     file_type: normalizedMimeTypeSchema,
-    file_size_bytes: z.number().int("Entier attendu.").positive("Doit etre > 0."),
+    file_size_bytes: z.number().int("Entier attendu.").positive("Doit être > 0."),
     page_count: z
       .number()
       .int("Entier attendu.")
-      .min(1, "Doit etre >= 1.")
+      .min(1, "Doit être >= 1.")
       .nullable()
       .optional(),
     file_hash: optionalNullableHashSchema,
@@ -300,7 +300,7 @@ export const createPlanFileSchema = z
         code: z.ZodIssueCode.custom,
         path: ["file_type"],
         message:
-          "Le type MIME du fichier n'est pas compatible avec un PDF. Verifiez l'export ou l'extension .pdf.",
+          "Le type MIME du fichier n'est pas compatible avec un PDF. Vérifiez l'export ou l'extension .pdf.",
       });
     }
   });
@@ -509,7 +509,7 @@ function normalizePlanSetRow(row: unknown): PlanSet {
   return parseWithSchema(
     planSetRowSchema,
     row,
-    "Donnees plan_set invalides en base."
+    "Données plan_set invalides en base."
   );
 }
 
@@ -521,7 +521,7 @@ function normalizePlanFileRow(row: unknown): PlanFile {
   return parseWithSchema(
     planFileRowSchema,
     row,
-    "Donnees plan_file invalides en base."
+    "Données plan_file invalides en base."
   );
 }
 
@@ -537,7 +537,7 @@ async function getAuthenticatedTakeoffContext() {
 
 function assertPlanSetMutationRole(role: string | null | undefined) {
   if (role === "admin" || role === "engineer") return;
-  throw forbidden("Action reservee aux administrateurs et ingenieurs.");
+  throw forbidden("Action réservée aux administrateurs et ingenieurs.");
 }
 
 async function resolveProjectIdForEstimateVersion(input: {
@@ -797,7 +797,7 @@ export function parseListPlanSetsQuery(payload: unknown): ListPlanSetsQuery {
   return parseWithSchema(
     listPlanSetsQuerySchema,
     payload,
-    "Parametres de requete invalides."
+    "Paramètres de requête invalides."
   );
 }
 
@@ -805,7 +805,7 @@ export function parseListPlanFilesQuery(payload: unknown): ListPlanFilesQuery {
   return parseWithSchema(
     listPlanFilesQuerySchema,
     payload,
-    "Parametres de requete invalides."
+    "Paramètres de requête invalides."
   );
 }
 
@@ -815,7 +815,7 @@ export function parseGetPlanFileDetailQuery(
   return parseWithSchema(
     getPlanFileDetailQuerySchema,
     payload,
-    "Parametres de requete invalides."
+    "Paramètres de requête invalides."
   );
 }
 
@@ -846,7 +846,7 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
 
     if (targetProjectId && targetProjectId !== resolvedProjectId) {
       throw unprocessableEntity(
-        "project_id et estimate_version_id ne pointent pas vers la meme affaire.",
+        "project_id et estimate_version_id ne pointent pas vers la même affaire.",
         {
           project_id: targetProjectId,
           estimate_version_id: input.estimate_version_id,
@@ -982,7 +982,7 @@ export async function createPlanSet(input: CreatePlanSetInput) {
 
     if (targetProjectId && targetProjectId !== resolvedProjectId) {
       throw unprocessableEntity(
-        "project_id et estimate_version_id ne pointent pas vers la meme affaire.",
+        "project_id et estimate_version_id ne pointent pas vers la même affaire.",
         {
           project_id: targetProjectId,
           estimate_version_id: estimateVersionId,
@@ -1023,11 +1023,11 @@ export async function createPlanSet(input: CreatePlanSetInput) {
     .single();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer le jeu de plans.");
+    throw mapSupabaseError(error, "Impossible de créer le jeu de plans.");
   }
 
   if (!data) {
-    throw internalError("Impossible de creer le jeu de plans.");
+    throw internalError("Impossible de créer le jeu de plans.");
   }
 
   return {
@@ -1077,7 +1077,7 @@ export async function deletePlanSet(setId: string) {
 
       if (!compensation.ok) {
         throw internalError(
-          "Suppression du jeu de plans incomplete: echec cleanup storage et echec compensation.",
+          "Suppression du jeu de plans incomplete: échec cleanup storage et échec compensation.",
           {
             set_id: setId,
             storage_error: cleanupError,
@@ -1091,7 +1091,7 @@ export async function deletePlanSet(setId: string) {
       }
 
       throw conflict(
-        "Suppression du jeu de plans annulee car le cleanup storage a echoue.",
+        "Suppression du jeu de plans annulée car le cleanup storage a echoue.",
         {
           set_id: setId,
           storage_error: cleanupError,
@@ -1271,7 +1271,7 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
 
     if (!rollbackResult.ok) {
       throw internalError(
-        "Impossible de generer l'URL d'upload signee et echec du rollback metadata.",
+        "Impossible de générer l'URL d'upload signee et échec du rollback metadata.",
         {
           set_id: setId,
           file_id: fileId,
@@ -1282,7 +1282,7 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
     }
 
     throw internalError(
-      "Impossible de generer l'URL d'upload signee.",
+      "Impossible de générer l'URL d'upload signee.",
       {
         set_id: setId,
         file_id: fileId,
@@ -1347,7 +1347,7 @@ export async function getPlanFileDetail(input: {
 
   if (signedError || !signedData?.signedUrl) {
     throw internalError(
-      "Impossible de generer l'URL de telechargement signee.",
+      "Impossible de générer l'URL de téléchargement signee.",
       {
         set_id: input.setId,
         file_id: input.fileId,
@@ -1406,7 +1406,7 @@ export async function deletePlanFile(setId: string, fileId: string) {
 
     if (!compensation.ok) {
       throw internalError(
-        "Suppression du fichier incomplete: echec cleanup storage et echec compensation.",
+        "Suppression du fichier incomplete: échec cleanup storage et échec compensation.",
         {
           set_id: setId,
           file_id: fileId,
@@ -1421,7 +1421,7 @@ export async function deletePlanFile(setId: string, fileId: string) {
     }
 
     throw conflict(
-      "Suppression du fichier annulee car le cleanup storage a echoue.",
+      "Suppression du fichier annulée car le cleanup storage a echoue.",
       {
         set_id: setId,
         file_id: fileId,

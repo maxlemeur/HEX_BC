@@ -222,7 +222,7 @@ describe("PlansMetresCard", () => {
       />
     );
 
-    expect(await screen.findByText("Statuts precedents conserves")).toBeInTheDocument();
+    expect(await screen.findByText("Statuts précédents conserves")).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Reprendre l'analyse" })
     ).not.toBeInTheDocument();
@@ -625,7 +625,7 @@ describe("PlansMetresCard", () => {
       />
     );
 
-    expect(await screen.findByText("Reprise apres echec partiel")).toBeInTheDocument();
+    expect(await screen.findByText("Reprise après échec partiel")).toBeInTheDocument();
     expect(screen.getByText("1 acquis")).toBeInTheDocument();
     await waitFor(() => {
       expect(fetchTakeoffActivityCenter).toHaveBeenCalledTimes(2);

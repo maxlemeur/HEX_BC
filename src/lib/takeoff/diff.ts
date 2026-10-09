@@ -67,7 +67,7 @@ const TAKEOFF_DIFF_FIELDS: readonly TakeoffFieldConfig[] = [
   },
   {
     field: "unit",
-    label: "Unite",
+    label: "Unité",
     kind: "text",
   },
   {

@@ -53,7 +53,7 @@ export function AcceptanceConfirmationEmailTemplate({
           <Section style={contentStyle}>
             <div style={confirmationBoxStyle}>
               <Text style={confirmationTextStyle}>
-                Votre devis a bien ete accepte le {acceptedAt}.
+                Votre devis a bien été accepté le {acceptedAt}.
               </Text>
             </div>
           </Section>
@@ -71,7 +71,7 @@ export function AcceptanceConfirmationEmailTemplate({
           {/* Footer */}
           <Section style={contentStyle}>
             <Text style={footerStyle}>
-              Ce message est un accuse de reception automatique envoye par{" "}
+              Ce message est un accuse de réception automatique envoyé par{" "}
               {companyName}. Un interlocuteur vous contactera prochainement pour
               la suite du projet.
             </Text>

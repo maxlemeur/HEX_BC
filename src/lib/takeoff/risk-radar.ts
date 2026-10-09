@@ -26,11 +26,11 @@ const RISK_WEIGHT_BY_CAUSE: Record<TakeoffRiskCauseCode, number> = {
 
 const RISK_CAUSE_LABELS: Record<TakeoffRiskCauseCode, string> = {
   missing_proof: "Preuve absente",
-  dpgf_takeoff_gap: "Ecart DPGF / metre",
+  dpgf_takeoff_gap: "Écart DPGF / métré",
   atypical_price: "Prix atypique",
   insufficient_margin: "Marge insuffisante",
   vat_inconsistency: "TVA incoherente",
-  missing_piece: "Piece manquante",
+  missing_piece: "Pièce manquante",
 };
 
 const ACTIVE_REVIEW_STATUSES: TakeoffRiskStatus[] = [
@@ -622,14 +622,14 @@ export function buildTakeoffRiskCandidates(
           cause_code: "dpgf_takeoff_gap",
           margin_bucket: marginBucket,
           reason_labels: [
-            `Ecart de ${row.delta_percent.toFixed(1)}% entre la quantite DPGF et le metre.`,
+            `Écart de ${row.delta_percent.toFixed(1)}% entre la quantité DPGF et le métré.`,
           ],
           provenance: buildProofProvenance(
             row,
             buildInferenceEntry(
-              "Delta DPGF / metre",
+              "Delta DPGF / métré",
               "Comparaison DPGF / takeoff",
-              `DPGF ${row.dpgf_quantity ?? "n/a"} ${row.quantity_unit ?? ""} vs metre ${row.takeoff_quantity ?? "n/a"} ${row.quantity_unit ?? ""}`.trim(),
+              `DPGF ${row.dpgf_quantity ?? "n/a"} ${row.quantity_unit ?? ""} vs métré ${row.takeoff_quantity ?? "n/a"} ${row.quantity_unit ?? ""}`.trim(),
               row.confidence_score
             )
           ),
@@ -668,7 +668,7 @@ export function buildTakeoffRiskCandidates(
               .filter((proof) => proof.type === "price_source")
               .map(mapProofToProvenance),
             buildInferenceEntry(
-              "Controle qualite prix",
+              "Contrôle qualité prix",
               "Signaux devis / pricing",
               dedupeStrings(
                 pricingFlags.map((flag) => {
@@ -704,7 +704,7 @@ export function buildTakeoffRiskCandidates(
           cause_code: "vat_inconsistency",
           margin_bucket: marginBucket,
           reason_labels: [
-            `TVA ligne ${formatPercentBp(lineTaxRateBp)} differente de la TVA version ${formatPercentBp(input.versionTaxRateBp)}.`,
+            `TVA ligne ${formatPercentBp(lineTaxRateBp)} différente de la TVA version ${formatPercentBp(input.versionTaxRateBp)}.`,
           ],
           provenance: [
             buildFactEntry(
@@ -753,7 +753,7 @@ export function buildTakeoffRiskCandidates(
           ),
           buildInferenceEntry(
             "Seuil de marge",
-            "Regles de devis / fallback radar",
+            "Règles de devis / fallback radar",
             formatPercentBp(input.marginThresholdBp)
           ),
         ],
@@ -782,7 +782,7 @@ export function buildTakeoffRiskCandidates(
             buildInferenceEntry(
               piece.label,
               "Workspace intake",
-              `Signal ${piece.severity} derive des pieces detectees dans l'intake.`
+              `Signal ${piece.severity} derive des pièces détectées dans l'intake.`
             )
           )
         ),

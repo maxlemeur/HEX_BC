@@ -706,7 +706,7 @@ export function useEstimateEditorSuggestionsController({
         ) {
           const message = resolveActionError(
             error,
-            "Impossible de mettre a jour la regle.",
+            "Impossible de mettre à jour la règle.",
             resolveErrorMessage
           );
           setRulesState((previous) =>
@@ -914,7 +914,7 @@ export function useEstimateEditorSuggestionsController({
           previous.routeVersionId === targetVersionId
             ? {
                 ...previous,
-                dialogError: "Selectionnez au moins une suggestion.",
+                dialogError: "Sélectionnez au moins une suggestion.",
               }
             : previous
         );
@@ -931,7 +931,7 @@ export function useEstimateEditorSuggestionsController({
           previous.routeVersionId === targetVersionId
             ? {
                 ...previous,
-                dialogError: "Aucune ligne eligible selectionnee.",
+                dialogError: "Aucune ligne eligible sélectionnée.",
               }
             : previous
         );
@@ -1051,7 +1051,7 @@ export function useEstimateEditorSuggestionsController({
             if (failedFeedbackCount > 0) {
               reportError(
                 String(failedFeedbackCount) +
-                  " compteur(s) de suggestions n'ont pas pu etre mis a jour."
+                  " compteur(s) de suggestions n'ont pas pu être mis à jour."
               );
             }
           }

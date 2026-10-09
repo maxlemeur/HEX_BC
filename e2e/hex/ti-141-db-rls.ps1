@@ -34,7 +34,7 @@ if (-not $secondaryEmail -or -not $secondaryPassword) {
 
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-141" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-141" -Date "2026-02-02" -Validité "30" | Out-Null
 
   Logout -Session $Session
 

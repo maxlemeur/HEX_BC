@@ -59,7 +59,7 @@ export function LaborRolesManager({
     const rateCents = parseEuroToCents(newRate || "0") ?? 0;
 
     if (!trimmedName) {
-      setFormError("Le nom du role est obligatoire.");
+      setFormError("Le nom du rôle est obligatoire.");
       return;
     }
 
@@ -93,10 +93,10 @@ export function LaborRolesManager({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">
-            Roles main d&apos;oeuvre
+            Rôles main d&apos;oeuvre
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Gerer les roles MO disponibles pour vos chiffrages.
+            Gérer les rôles MO disponibles pour vos chiffrages.
           </p>
         </div>
       </div>
@@ -111,14 +111,14 @@ export function LaborRolesManager({
       <div className="estimate-role-form mt-6 grid gap-4 sm:grid-cols-[1fr_180px_auto]">
         <div>
           <label className="form-label" htmlFor="new-role-name">
-            Nom du role
+            Nom du rôle
           </label>
           <input
             id="new-role-name"
             className="form-input form-input--sm"
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
-            placeholder="Ex: Chef d'equipe"
+            placeholder="Ex: Chef d'équipe"
           />
         </div>
         <div>
@@ -156,7 +156,7 @@ export function LaborRolesManager({
         <table className="data-table">
           <thead>
             <tr>
-              <th>Role</th>
+              <th>Rôle</th>
               <th>Taux horaire</th>
               <th>Actif</th>
             </tr>
@@ -166,7 +166,7 @@ export function LaborRolesManager({
               <tr>
                 <td colSpan={3}>
                   <div className="text-sm text-muted-foreground">
-                    Aucun role defini.
+                    Aucun rôle defini.
                   </div>
                 </td>
               </tr>

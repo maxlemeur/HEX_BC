@@ -522,7 +522,7 @@ body {
 
 .status-confirmed {
   background: var(--success-light);
-  color: #059669;
+  color: var(--success);
 }
 
 .status-confirmed::before {
@@ -540,7 +540,7 @@ body {
 
 .status-accepted {
   background: var(--success-light);
-  color: #059669;
+  color: var(--success);
 }
 
 .status-accepted::before {
@@ -548,12 +548,12 @@ body {
 }
 
 .status-received {
-  background: #ddd6fe;
-  color: #7c3aed;
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 .status-received::before {
-  background: #7c3aed;
+  background: #6d28d9;
 }
 
 .status-canceled {
@@ -563,24 +563,6 @@ body {
 
 .status-canceled::before {
   background: var(--error);
-}
-
-.status-accepted {
-  background: var(--success-light);
-  color: #059669;
-}
-
-.status-accepted::before {
-  background: var(--success);
-}
-
-.status-archived {
-  background: var(--slate-100);
-  color: var(--slate-500);
-}
-
-.status-archived::before {
-  background: var(--slate-400);
 }
 
 .status-archived {

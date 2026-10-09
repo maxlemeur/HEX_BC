@@ -218,7 +218,7 @@ function createSupabaseTakeoffWorkerRepository(
       if (error) {
         throw toTakeoffError(error, {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          fallbackMessage: "Impossible de marquer le job takeoff en echec.",
+          fallbackMessage: "Impossible de marquer le job takeoff en échec.",
           retryable: false,
           jobId: input.jobId,
         });
@@ -360,7 +360,7 @@ function createSupabaseTakeoffWorkerRepository(
           completed_at: input.nowIso,
           error_code: TakeoffErrorCode.AI_TIMEOUT,
           error_message:
-            "Le batch provider n'a pas atteint d'etat terminal apres epuisement des tentatives de reconciliation.",
+            "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
           provider_reconcile_due_at: null,
           provider_reconcile_lease_token: null,
           provider_reconcile_lease_expires_at: null,
@@ -442,7 +442,7 @@ export async function processTakeoffJobAttempt(
   if (!isUuidLike(jobId)) {
     throw new TakeoffError({
       code: TakeoffErrorCode.BAD_REQUEST,
-      message: "job_id doit etre un UUID valide.",
+      message: "job_id doit être un UUID valide.",
       retryable: false,
       jobId,
     });
@@ -501,7 +501,7 @@ export async function processTakeoffJobAttempt(
     if (!(await repository.isTenantActive(tenantId))) {
       throw new TakeoffError({
         code: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
-        message: "Le tenant a ete suspendu avant l'appel fournisseur.",
+        message: "Le tenant a été suspendu avant l'appel fournisseur.",
         retryable: true,
         jobId: job.id,
         level:
@@ -628,7 +628,7 @@ export async function processTakeoffJobAttempt(
         durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
         errorCode: TakeoffErrorCode.AI_TIMEOUT,
         errorMessage:
-          "Le batch provider n'a pas atteint d'etat terminal apres epuisement des tentatives de reconciliation.",
+          "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
         correlationId: options.correlationId,
       });
     }

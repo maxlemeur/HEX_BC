@@ -9,7 +9,7 @@ export default function AffaireNotFound() {
         Affaire introuvable ou non autorisee.
       </p>
       <Link href="/dashboard/affaires" className="btn btn-secondary">
-        Retour a la liste des affaires
+        Retour à la liste des affaires
       </Link>
     </div>
   );

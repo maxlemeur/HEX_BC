@@ -293,7 +293,7 @@ export function useEstimateEditorStructureController({
         await refreshVersionToken(
           targetVersionId,
           () => isCurrentMutation(mutationScope),
-          "Impossible de rafraichir le jeton de version apres insertion d'ouvrage."
+          "Impossible de rafraichir le jeton de version après insertion d'ouvrage."
         );
         if (!isCurrentMutation(mutationScope)) return;
 
@@ -371,7 +371,7 @@ export function useEstimateEditorStructureController({
               await refreshVersionToken(
                 historyScope.version.id,
                 () => isCurrentHistoryMutation(historyScope, context),
-                "Impossible de rafraichir le jeton de version apres reinsertion d'ouvrage."
+                "Impossible de rafraichir le jeton de version après reinsertion d'ouvrage."
               );
             } finally {
               finishMutation(historyScope);
@@ -438,7 +438,7 @@ export function useEstimateEditorStructureController({
         await refreshVersionToken(
           targetVersionId,
           () => isCurrentMutation(mutationScope),
-          "Impossible de rafraichir le jeton de version apres insertion de template."
+          "Impossible de rafraichir le jeton de version après insertion de template."
         );
         if (!isCurrentMutation(mutationScope)) return;
 
@@ -502,7 +502,7 @@ export function useEstimateEditorStructureController({
               await refreshVersionToken(
                 historyScope.version.id,
                 () => isCurrentHistoryMutation(historyScope, context),
-                "Impossible de rafraichir le jeton de version apres reinsertion de template."
+                "Impossible de rafraichir le jeton de version après reinsertion de template."
               );
             } finally {
               finishMutation(historyScope);
@@ -553,7 +553,7 @@ export function useEstimateEditorStructureController({
           await refreshVersionToken(
             targetVersionId,
             () => isCurrentMutation(mutationScope),
-            "Impossible de rafraichir le jeton de version apres duplication de section."
+            "Impossible de rafraichir le jeton de version après duplication de section."
           );
         } catch (error) {
           if (!isCurrentMutation(mutationScope)) return;

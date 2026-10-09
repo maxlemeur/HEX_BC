@@ -57,7 +57,7 @@ function assertTakeoffMappingRulesAdminRole(tenantRole: string) {
   if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
 
   throw forbidden(
-    "Seul un administrateur peut gerer les regles de mapping takeoff."
+    "Seul un administrateur peut gérer les règles de mapping takeoff."
   );
 }
 
@@ -66,7 +66,7 @@ function normalizeTakeoffMappingRuleRow(row: TakeoffMappingRuleRow): TakeoffMapp
 
   if (!parsed.success) {
     throw unprocessableEntity(
-      "Regle de mapping takeoff invalide.",
+      "Règle de mapping takeoff invalide.",
       {
         issues: toValidationIssues(parsed.error),
       },
@@ -84,7 +84,7 @@ function assertRegexMatchPatternIsValid(matchType: string, matchPattern: string)
     new RegExp(matchPattern);
   } catch {
     throw unprocessableEntity(
-      "Le champ match_pattern doit etre une regex valide.",
+      "Le champ match_pattern doit être une regex valide.",
       {
         match_type: matchType,
         match_pattern: matchPattern,
@@ -149,7 +149,7 @@ export async function listActiveTakeoffMappingRules(input: {
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les regles de mapping takeoff."),
+      mapSupabaseError(error, "Impossible de charger les règles de mapping takeoff."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -176,7 +176,7 @@ export async function listTakeoffMappingRules(): Promise<TakeoffMappingRulesList
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de charger les regles de mapping takeoff."
+      "Impossible de charger les règles de mapping takeoff."
     );
   }
 
@@ -212,11 +212,11 @@ export async function createTakeoffMappingRule(
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de creer la regle de mapping takeoff."
+        "Impossible de créer la règle de mapping takeoff."
       );
     }
 
-    throw badRequest("Impossible de creer la regle de mapping takeoff.");
+    throw badRequest("Impossible de créer la règle de mapping takeoff.");
   }
 
   return {
@@ -241,12 +241,12 @@ export async function updateTakeoffMappingRule(
   if (existingRuleError) {
     throw mapSupabaseError(
       existingRuleError,
-      "Impossible de charger la regle de mapping takeoff."
+      "Impossible de charger la règle de mapping takeoff."
     );
   }
 
   if (!existingRule) {
-    throw notFound("Regle de mapping takeoff introuvable.");
+    throw notFound("Règle de mapping takeoff introuvable.");
   }
 
   const existing = normalizeTakeoffMappingRuleRow(existingRule as TakeoffMappingRuleRow);
@@ -268,11 +268,11 @@ export async function updateTakeoffMappingRule(
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de mettre a jour la regle de mapping takeoff."
+        "Impossible de mettre à jour la règle de mapping takeoff."
       );
     }
 
-    throw badRequest("Impossible de mettre a jour la regle de mapping takeoff.");
+    throw badRequest("Impossible de mettre à jour la règle de mapping takeoff.");
   }
 
   return {
@@ -296,12 +296,12 @@ export async function deleteTakeoffMappingRule(
   if (existingRuleError) {
     throw mapSupabaseError(
       existingRuleError,
-      "Impossible de charger la regle de mapping takeoff."
+      "Impossible de charger la règle de mapping takeoff."
     );
   }
 
   if (!existingRule) {
-    throw notFound("Regle de mapping takeoff introuvable.");
+    throw notFound("Règle de mapping takeoff introuvable.");
   }
 
   const { error } = await supabase
@@ -313,7 +313,7 @@ export async function deleteTakeoffMappingRule(
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de supprimer la regle de mapping takeoff."
+      "Impossible de supprimer la règle de mapping takeoff."
     );
   }
 

@@ -600,7 +600,7 @@ describe("useEstimateEditorBulkController", () => {
     });
     expect(harness.triggerVersionReload).toHaveBeenCalledTimes(1);
     expect(harness.reportError).toHaveBeenLastCalledWith(
-      "Suppression partielle detectee (1/3) : public:second delete failed. La version a ete rechargee; verifiez les lignes puis reessayez."
+      "Suppression partielle détectée (1/3) : public:second delete failed. La version a été rechargee; vérifiez les lignes puis réessayez."
     );
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });

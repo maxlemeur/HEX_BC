@@ -306,7 +306,7 @@ export function TakeoffReviewExpert({
                     onSetCompareWithJobId(nextValue.length > 0 ? nextValue : null);
                   }}
                 >
-                  <option value="">Selectionner une extraction</option>
+                  <option value="">Sélectionner une extraction</option>
                   {selectedCompareCandidate === null && compareWithJobId ? (
                     <option value={compareWithJobId}>
                       Extraction {compareWithJobId}
@@ -367,7 +367,7 @@ export function TakeoffReviewExpert({
             />
           ) : (
             <section className="dashboard-card p-6 text-sm text-slate-600">
-              Selectionnez une autre extraction pour afficher le diff.
+              Sélectionnez une autre extraction pour afficher le diff.
             </section>
           )}
         </div>

@@ -224,7 +224,7 @@ export function usePriceBookCsvWorkflow({
       const nextRowLineNumbers = parsed.rowLineNumbers;
       const nextSourceColumns = extractPriceBookSourceColumns(nextRows);
       if (nextSourceColumns.length === 0) {
-        throw new Error("Aucune colonne exploitable n'a ete detectee.");
+        throw new Error("Aucune colonne exploitable n'a été détectée.");
       }
 
       const importRecord = sourceImportId
@@ -270,12 +270,12 @@ export function usePriceBookCsvWorkflow({
     }
 
     if (!detectedProfile) {
-      setError("Le profil du fichier n'a pas ete detecte.");
+      setError("Le profil du fichier n'a pas été détecté.");
       return;
     }
 
     if (!sourceImportId) {
-      setError("Le fichier source n'est pas encore rattache au pipeline canonique.");
+      setError("Le fichier source n'est pas encore rattaché au pipeline canonique.");
       return;
     }
 
@@ -286,7 +286,7 @@ export function usePriceBookCsvWorkflow({
   const resolveAutomatically = useCallback(async () => {
     if (!validation || !detectedProfile) return;
     if (unknownSuppliers.length === 0 && unknownProducts.length === 0) {
-      setError("Aucun fournisseur/produit inconnu a resoudre.");
+      setError("Aucun fournisseur/produit inconnu à resoudre.");
       return;
     }
 
@@ -320,7 +320,7 @@ export function usePriceBookCsvWorkflow({
       });
 
       if (supplierReplacements.size === 0 && productReplacements.size === 0) {
-        setError("Aucune resolution automatique fiable n'a ete trouvee.");
+        setError("Aucune resolution automatique fiable n'a été trouvee.");
         return;
       }
 
@@ -334,7 +334,7 @@ export function usePriceBookCsvWorkflow({
 
       setRows(nextRows);
       await runValidation(nextRows, mapping, detectedProfile, rowLineNumbers);
-      setSuccess("Resolution automatique appliquee.");
+      setSuccess("Resolution automatique appliquée.");
     } catch (resolveError) {
       setError(
         resolveError instanceof Error
@@ -364,7 +364,7 @@ export function usePriceBookCsvWorkflow({
 
     const suppliersCount = unknownSuppliers.length;
     const productsCount = unknownProducts.length;
-    const confirmMessage = `Creer ${suppliersCount} fournisseur(s) et ${productsCount} produit(s) ?`;
+    const confirmMessage = `Créer ${suppliersCount} fournisseur(s) et ${productsCount} produit(s) ?`;
 
     let shouldCreate = true;
     if (typeof window !== "undefined" && typeof window.confirm === "function") {
@@ -404,7 +404,7 @@ export function usePriceBookCsvWorkflow({
       );
 
       setSuccess(
-        `Creation assistee terminee: ${result.createdSuppliers.length} fournisseur(s), ${result.createdProducts.length} produit(s).`
+        `Création assistee terminée: ${result.createdSuppliers.length} fournisseur(s), ${result.createdProducts.length} produit(s).`
       );
     } catch (createError) {
       setError(
@@ -429,12 +429,12 @@ export function usePriceBookCsvWorkflow({
 
   const submitImport = useCallback(async () => {
     if (!validation || validation.acceptedRows === 0) {
-      setError("Aucune ligne valide a importer.");
+      setError("Aucune ligne valide à importer.");
       return;
     }
 
     if (!sourceImportId) {
-      setError("Le fichier source n'est pas encore rattache au pipeline canonique.");
+      setError("Le fichier source n'est pas encore rattaché au pipeline canonique.");
       return;
     }
 
@@ -467,7 +467,7 @@ export function usePriceBookCsvWorkflow({
       await onImported();
 
       setSuccess(
-        `Import termine: ${result.created_count} ligne(s) importee(s), ${validation.ignoredRowsCount} ignoree(s), ${validation.rejectedRowsCount} a corriger, ${duplicatesSkipped} deja existante(s).`
+        `Import termine: ${result.created_count} ligne(s) importée(s), ${validation.ignoredRowsCount} ignoree(s), ${validation.rejectedRowsCount} à corriger, ${duplicatesSkipped} déjà existante(s).`
       );
     } catch (submitError) {
       setError(

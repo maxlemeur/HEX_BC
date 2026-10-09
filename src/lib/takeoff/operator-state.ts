@@ -29,8 +29,8 @@ const TAKEOFF_RETRY_MAX = 3;
 const TAKEOFF_OPERATOR_STATE_LABELS: Record<TakeoffJobOperatorState, string> = {
   none: "Aucune action requise",
   submitted_to_provider: "Soumis au provider",
-  awaiting_provider_result: "En attente du resultat provider",
-  provider_failed: "Echec provider",
+  awaiting_provider_result: "En attente du résultat provider",
+  provider_failed: "Échec provider",
   orphan_to_reconcile: "Reprise reconcile requise",
 };
 

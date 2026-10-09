@@ -47,7 +47,7 @@ function New-EstimateWithRetry {
     [string]$Project,
     [string]$Title,
     [string]$Date,
-    [string]$Validite
+    [string]$Validité
   )
 
   for ($attempt = 1; $attempt -le 2; $attempt++) {
@@ -59,7 +59,7 @@ function New-EstimateWithRetry {
         -Project $projectName `
         -Title $Title `
         -Date $Date `
-        -Validite $Validite)
+        -Validité $Validité)
 
       $versionId = $null
       foreach ($entry in $result) {
@@ -122,7 +122,7 @@ try {
     -Project $project `
     -Title "E2E TI-182" `
     -Date "2026-02-21" `
-    -Validite "30"
+    -Validité "30"
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/assemblies"
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Nouvel ouvrage"

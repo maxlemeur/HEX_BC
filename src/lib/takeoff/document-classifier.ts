@@ -193,7 +193,7 @@ function classifyTakeoffSignals(files: Array<TakeoffFileSignal>) {
       recommendationStrength: "low",
       warningCode: "unsupported_override",
       warningMessage:
-        "Le document n'a pas ete reconnu automatiquement. Verifiez le niveau choisi avant de lancer l'analyse.",
+        "Le document n'a pas été reconnu automatiquement. Vérifiez le niveau choisi avant de lancer l'analyse.",
       signals,
     });
   }
@@ -210,7 +210,7 @@ function classifyTakeoffSignals(files: Array<TakeoffFileSignal>) {
           : null,
       warningMessage:
         matchedTableHints.length > 0 && matchedPlanHints.length > 0
-          ? "Le lot melange indices de tableaux et de plans. Le niveau Detaille est recommande pour eviter une extraction partielle."
+          ? "Le lot melange indices de tableaux et de plans. Le niveau Détaillé est recommande pour éviter une extraction partielle."
           : null,
       signals,
     });
@@ -244,7 +244,7 @@ function classifyTakeoffSignals(files: Array<TakeoffFileSignal>) {
       recommendationStrength: "high",
       warningCode: "mixed_pdf_signals",
       warningMessage:
-        "Le PDF contient des indices de plans et de tableaux. Le niveau Detaille est recommande.",
+        "Le PDF contient des indices de plans et de tableaux. Le niveau Détaillé est recommande.",
       signals,
     });
   }
@@ -256,7 +256,7 @@ function classifyTakeoffSignals(files: Array<TakeoffFileSignal>) {
     recommendationStrength: "low",
     warningCode: "ambiguous_pdf",
     warningMessage:
-      "Le PDF reste ambigu. Le niveau Standard est preselectionne par defaut; passez en Detaille si le document ressemble surtout a un plan.",
+      "Le PDF reste ambigu. Le niveau Standard est preselectionne par défaut; passez en Détaillé si le document ressemble surtout a un plan.",
     signals,
   });
 }
@@ -287,7 +287,7 @@ export function classifyTakeoffPlanSetSource(input: {
       recommendationStrength: "low",
       warningCode: "unsupported_override",
       warningMessage:
-        "Aucun fichier exploitable n'a ete detecte dans ce jeu de plans. Choisissez un niveau explicitement avant de lancer l'analyse.",
+        "Aucun fichier exploitable n'a été détecté dans ce jeu de plans. Choisissez un niveau explicitement avant de lancer l'analyse.",
       signals: {
         mimeType: null,
         extension: "",
@@ -338,7 +338,7 @@ export function getTakeoffSelectionWarning(input: {
       code: "strong_mismatch",
       message:
         recommendation.documentClass === "structured"
-          ? "Ce document ressemble a un metrage structure. Utilisez le niveau Rapide pour eviter un lancement incoherent."
+          ? "Ce document ressemble a un metrage structure. Utilisez le niveau Rapide pour éviter un lancement incoherent."
           : "Ce document n'est pas compatible avec le niveau choisi.",
       severity: "critical",
     };
@@ -349,7 +349,7 @@ export function getTakeoffSelectionWarning(input: {
       code: recommendation.warningCode ?? "unsupported_override",
       message:
         recommendation.warningMessage ??
-        "Le document n'a pas ete reconnu automatiquement. Verifiez le niveau choisi avant de lancer l'analyse.",
+        "Le document n'a pas été reconnu automatiquement. Vérifiez le niveau choisi avant de lancer l'analyse.",
       severity: "critical",
     };
   }
@@ -370,7 +370,7 @@ export function getTakeoffSelectionWarning(input: {
     return {
       code: "strong_mismatch",
       message:
-        "Le document ressemble plutot a un plan complexe. Le niveau Standard risque de produire une extraction incomplète.",
+        "Le document ressemble plutôt a un plan complexe. Le niveau Standard risque de produire une extraction incomplète.",
       severity: "critical",
     };
   }
@@ -379,14 +379,14 @@ export function getTakeoffSelectionWarning(input: {
     return {
       code: "cost_warning",
       message:
-        "Le niveau Detaille reste possible, mais il sera plus couteux que la recommandation Standard.",
+        "Le niveau Détaillé reste possible, mais il sera plus couteux que la recommandation Standard.",
       severity: "warning",
     };
   }
 
   return {
     code: "strong_mismatch",
-    message: "Le niveau choisi s'ecarte fortement de la recommandation detectee.",
+    message: "Le niveau choisi s'ecarte fortement de la recommandation détectée.",
     severity: "critical",
   };
 }

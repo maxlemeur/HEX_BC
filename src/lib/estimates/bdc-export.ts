@@ -203,12 +203,12 @@ function resolveLaborRoleLabel(
     const parts: string[] = [];
     if (item.labor_role_atelier_id) {
       parts.push(
-        `Atelier: ${laborRoleNameById.get(item.labor_role_atelier_id) ?? "Role atelier"}`
+        `Atelier: ${laborRoleNameById.get(item.labor_role_atelier_id) ?? "Rôle atelier"}`
       );
     }
     if (item.labor_role_chantier_id) {
       parts.push(
-        `Chantier: ${laborRoleNameById.get(item.labor_role_chantier_id) ?? "Role chantier"}`
+        `Chantier: ${laborRoleNameById.get(item.labor_role_chantier_id) ?? "Rôle chantier"}`
       );
     }
     return parts.join(" / ");
@@ -593,7 +593,7 @@ async function writeWorkbook(input: {
     { header: "Position", key: "position", width: 10 },
     { header: "AID", key: "aid", width: 38 },
     { header: "Désignation", key: "designation", width: 42 },
-    { header: "Unite", key: "unite", width: 12 },
+    { header: "Unité", key: "unite", width: 12 },
     { header: "Quantité", key: "quantite", width: 12 },
     { header: "Type FO", key: "type_fo", width: 14 },
     { header: "PU FO HT EUR", key: "pu_fo_ht_eur", width: 16 },
@@ -602,8 +602,8 @@ async function writeWorkbook(input: {
     { header: "h MO", key: "h_mo", width: 10 },
     { header: "K MO", key: "k_mo", width: 10 },
     { header: "Taux horaire MO EUR", key: "taux_horaire_mo_eur", width: 20 },
-    { header: "Role MO", key: "role_mo", width: 24 },
-    { header: "Categorie", key: "categorie", width: 20 },
+    { header: "Rôle MO", key: "role_mo", width: 24 },
+    { header: "Catégorie", key: "categorie", width: 20 },
     { header: "Total FO HT EUR", key: "total_fo_ht_eur", width: 18 },
     { header: "Total MO HT EUR", key: "total_mo_ht_eur", width: 18 },
     { header: "Total HT EUR", key: "total_ht_eur", width: 18 },

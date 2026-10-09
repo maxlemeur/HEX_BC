@@ -472,7 +472,7 @@ export default function ProductsPage() {
       );
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "Mise a jour impossible.",
+        error instanceof Error ? error.message : "Mise à jour impossible.",
       );
     } finally {
       setUpdatingStatusId(null);

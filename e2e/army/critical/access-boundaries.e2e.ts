@@ -20,7 +20,7 @@ test(
     const runId = randomUUID();
     const runPrefix = `ARMY access ${runId}`;
     const origin = new URL(app.baseUrl!).origin;
-    const csv = "Designation;Unite;Quantite;Prix unitaire\nARMY access line;m2;2;12.50\n";
+    const csv = "Designation;Unité;Quantité;Prix unitaire\nARMY access line;m2;2;12.50\n";
     const cases: AccessCase[] = [
       { id: "estimate-list", route: "/api/estimates", method: "GET", payloadKind: "none", jsonBody: null },
       {
@@ -44,7 +44,7 @@ test(
           filename: `ARMY-access-${runId}.json`,
           sourceFormat: "json",
           sourceKind: "tabular",
-          rows: [{ Designation: "ARMY access line", Unite: "m2", Quantite: "2", "Prix unitaire": "12.50" }],
+          rows: [{ Designation: "ARMY access line", Unité: "m2", Quantité: "2", "Prix unitaire": "12.50" }],
         }),
       },
       { id: "import-csv-upload", route: "/api/imports", method: "POST", payloadKind: "csv-import", jsonBody: null },

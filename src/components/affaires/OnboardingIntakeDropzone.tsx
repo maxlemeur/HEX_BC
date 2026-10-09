@@ -182,7 +182,7 @@ export function OnboardingIntakeDropzone({
           message:
             error instanceof Error
               ? error.message
-              : "Impossible de creer l'affaire avant l'upload.",
+              : "Impossible de créer l'affaire avant l'upload.",
         });
         return;
       }
@@ -211,7 +211,7 @@ export function OnboardingIntakeDropzone({
         if (!data) {
           setState({
             phase: "error",
-            message: "Reponse upload invalide.",
+            message: "Réponse upload invalide.",
           });
           return;
         }

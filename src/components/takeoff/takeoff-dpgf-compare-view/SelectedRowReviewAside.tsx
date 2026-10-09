@@ -215,12 +215,12 @@ export function SelectedRowReviewAside({
                 <p className="mt-2 text-sm font-semibold text-slate-950">
                   {selectedRow.risk
                     ? `${RISK_SEVERITY_LABELS[selectedRow.risk.severity]} · ${selectedRow.risk.score}/100`
-                    : "Aucun signal specifique sur cette ligne"}
+                    : "Aucun signal spécifique sur cette ligne"}
                 </p>
                 <p className="mt-1 text-xs text-slate-600">
                   {selectedRow.risk?.causes.length
                     ? selectedRow.risk.causes.join(" · ")
-                    : "Le radar complet reste visible dans la file A traiter."}
+                    : "Le radar complet reste visible dans la file À traiter."}
                 </p>
               </div>
               {selectedRow.risk?.status ? (

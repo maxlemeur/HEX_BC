@@ -215,7 +215,7 @@ async function resetProcurementData(formData: FormData) {
         errors: [
           cleanupError instanceof Error
             ? cleanupError.message
-            : "Le drain Storage n'a pas pu demarrer.",
+            : "Le drain Storage n'a pas pu démarrer.",
         ],
       };
     }
@@ -291,7 +291,7 @@ export default async function ProcurementResetPage({
 
       {done ? (
         <div className="alert alert-success">
-          Suppression terminee : {firstParam(params, "orders") ?? "0"} bon(s),
+          Suppression terminée : {firstParam(params, "orders") ?? "0"} bon(s),
           {" "}
           {firstParam(params, "suppliers") ?? "0"} fournisseur(s) et{" "}
           {firstParam(params, "prices") ?? "0"} prix fournisseur(s) supprimes.
@@ -300,7 +300,7 @@ export default async function ProcurementResetPage({
 
       {done && (storagePending > 0 || storageFailed > 0 || storageSkipped) ? (
         <div className="alert alert-warning">
-          Le nettoyage base est termine. {storagePending} objet(s) Storage
+          Le nettoyage base est terminé. {storagePending} objet(s) Storage
           restent dans la file durable et seront repris automatiquement.
         </div>
       ) : null}
@@ -309,7 +309,7 @@ export default async function ProcurementResetPage({
 
       <section className="dashboard-card p-6">
         <h2 className="text-sm font-semibold text-foreground">
-          Donnees qui seront supprimees
+          Données qui seront supprimées
         </h2>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-lg border border-border p-4">

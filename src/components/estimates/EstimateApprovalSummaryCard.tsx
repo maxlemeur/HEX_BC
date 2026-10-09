@@ -19,7 +19,7 @@ const APPROVAL_STATUS_STYLES: Record<
     className: "bg-muted text-foreground-secondary",
   },
   required: {
-    label: "A valider",
+    label: "À valider",
     className: "bg-warning-light text-warning",
   },
   in_review: {
@@ -28,11 +28,11 @@ const APPROVAL_STATUS_STYLES: Record<
   },
   approved: {
     label: "Approuvee",
-    className: "bg-success/10 text-success",
+    className: "bg-success-subtle text-success",
   },
   changes_requested: {
     label: "Modifications demandees",
-    className: "bg-danger/10 text-danger",
+    className: "bg-danger-subtle text-danger",
   },
 };
 
@@ -41,14 +41,14 @@ const DECISION_LABELS: Record<"missing" | "pending" | "approved" | "rejected", s
     missing: "Aucune demande",
     pending: "En attente",
     approved: "Approuvee",
-    rejected: "A reprendre",
+    rejected: "À reprendre",
   };
 
 const UNAVAILABLE_SIGNAL_LABELS: Record<string, string> = {
   critical_exceptions_count: "Nombre d'exceptions critiques",
   missing_line_evidence_count: "Nombre de lignes sans justificatif",
   dpgf_coverage_bp: "Taux de couverture DPGF",
-  takeoff_evidence_coverage_bp: "Taux de couverture des preuves metre",
+  takeoff_evidence_coverage_bp: "Taux de couverture des preuves métré",
   total_ht_cents: "Montant total HT",
   margin_bp: "Taux de marge",
   discount_bp: "Taux de remise",
@@ -151,7 +151,7 @@ export function EstimateApprovalSummaryCard({
           <p className="mt-1 text-xs text-slate-600">
             {summary.latestDecision.cycleNumber
               ? `Cycle ${summary.latestDecision.cycleNumber}`
-              : "Decision recente"}
+              : "Décision récente"}
             {" • "}
             {summary.latestDecision.decision
               ? REVIEW_DECISION_LABELS[summary.latestDecision.decision]
@@ -220,11 +220,11 @@ export function EstimateApprovalSummaryCard({
             Signaux non encore disponibles
           </p>
           <p className="mt-1">
-            Les indicateurs suivants ne peuvent pas encore etre evalues :{" "}
+            Les indicateurs suivants ne peuvent pas encore être evalues :{" "}
             {summary.unavailableSignals
               .map((signal) => UNAVAILABLE_SIGNAL_LABELS[signal] ?? signal)
               .join(", ")}
-            . Ils seront pris en compte des que les donnees seront renseignees.
+            . Ils seront pris en compte des que les données seront renseignees.
           </p>
         </div>
       ) : null}

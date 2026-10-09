@@ -225,7 +225,7 @@ export function CockpitCommandBar({
             setShowOverflowMenu(false);
           }}
         >
-          Gerer
+          Gérer
         </button>
         {showManageMenu ? (
           <div className="absolute right-0 top-full z-20 mt-1 min-w-[320px] rounded-lg border border-border bg-surface p-2 shadow-lg">

@@ -8,7 +8,7 @@ export default function DashboardIndicesPage() {
       <div className="page-header">
         <h1 className="page-title">Indices matiere</h1>
         <p className="page-description">
-          CRUD des indices matiere et operation bulk upsert pour mises a jour volumineuses.
+          CRUD des indices matiere et opération bulk upsert pour mises à jour volumineuses.
         </p>
       </div>
 

@@ -14,11 +14,11 @@ describe("resolveEstimateLineTruth", () => {
     expect(truth).toMatchObject({
       source: {
         kind: "dpgf",
-        label: "DPGF importee",
+        label: "DPGF importée",
       },
       qtyStatus: {
         code: "imported_unverified",
-        label: "Qte importee non verifiee",
+        label: "Qte importée non vérifiée",
       },
       confidence: {
         label: "moyenne",
@@ -40,7 +40,7 @@ describe("resolveEstimateLineTruth", () => {
     expect(truth).toMatchObject({
       source: {
         kind: "plan",
-        label: "Plan / metre",
+        label: "Plan / métré",
       },
       qtyStatus: {
         code: "measured",

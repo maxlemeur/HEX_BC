@@ -51,7 +51,7 @@ test.describe("EST-262 - parcours critique (creation, edition, statut, sortie)",
     await sendButton.click();
 
     const gatingDialog = page.getByRole("dialog", {
-      name: /Verification avant envoi/i,
+      name: /Vérification avant envoi/i,
     });
     const sentBadge = page
       .locator(".status-badge")

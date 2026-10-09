@@ -63,11 +63,11 @@ function formatVersionStatus(status: string) {
     case "sending":
       return "Envoi en cours";
     case "sent":
-      return "Envoyee";
+      return "Envoyée";
     case "accepted":
-      return "Acceptee";
+      return "Acceptée";
     case "archived":
-      return "Archivee";
+      return "Archivée";
     default:
       return status;
   }
@@ -80,7 +80,7 @@ function getSendActionState(
   if (currentVersion?.status === "sending") {
     return {
       status: "warning" as const,
-      note: "Un envoi est deja reserve. Reprenez-le avec les memes donnees pour terminer la livraison sans creer de doublon.",
+      note: "Un envoi est déjà réservé. Reprenez-le avec les mêmes données pour terminer la livraison sans créer de doublon.",
       disabled: false,
     };
   }
@@ -88,7 +88,7 @@ function getSendActionState(
   if (currentVersion && !canSendEstimateByEmail(currentVersion)) {
     return {
       status: "unavailable" as const,
-      note: `L'envoi email reste reserve aux versions brouillon ou envoyee. Cette version est ${formatVersionStatus(currentVersion.status).toLowerCase()}.`,
+      note: `L'envoi email reste reserve aux versions brouillon ou envoyée. Cette version est ${formatVersionStatus(currentVersion.status).toLowerCase()}.`,
       disabled: true,
     };
   }
@@ -113,7 +113,7 @@ function getSendActionState(
   if (submissionReadiness.status === "warning") {
     return {
       status: "warning" as const,
-      note: `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} reste${submissionReadiness.alerts.length > 1 ? "nt" : ""} a verifier avant l'envoi final.`,
+      note: `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} reste${submissionReadiness.alerts.length > 1 ? "nt" : ""} à vérifier avant l'envoi final.`,
       disabled: false,
     };
   }
@@ -126,7 +126,7 @@ function getSendActionState(
     return {
       status: "blocked" as const,
       note: hasOnlyPdfBlocker
-        ? "Generez d'abord le PDF ici, puis preparez l'email depuis la meme zone."
+        ? "Générez d'abord le PDF ici, puis préparez l'email depuis la même zone."
         : `${submissionReadiness.blockers.length} blocage${submissionReadiness.blockers.length > 1 ? "s" : ""} visible${submissionReadiness.blockers.length > 1 ? "s" : ""} juste au-dessus avant l'envoi.`,
       disabled: true,
     };
@@ -202,7 +202,7 @@ export function AffaireFinishLineActions({
             Sortie devis
           </p>
           <h3 className="mt-2 text-sm font-semibold text-slate-800">
-            PDF, email et BDC depuis le meme point
+            PDF, email et BDC depuis le même point
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
             La version a sortir reste explicite et chaque action garde son retour
@@ -232,13 +232,13 @@ export function AffaireFinishLineActions({
       {!currentVersion ? (
         <div className="mt-4 rounded-xl border border-dashed border-border-strong bg-surface px-4 py-4">
           <p className="text-sm text-slate-600">
-            Creez d&apos;abord une version de devis pour centraliser la sortie client.
+            Créez d&apos;abord une version de devis pour centraliser la sortie client.
           </p>
           <Link
             href={`/dashboard/estimates/new?projectId=${projectId}`}
             className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
-            Creer un devis
+            Créer un devis
             <ArrowRightIcon aria-hidden="true" size={14} />
           </Link>
         </div>
@@ -254,7 +254,7 @@ export function AffaireFinishLineActions({
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Préparez le PDF de la {formatVersionLabel(currentVersion).toLowerCase()},
                 puis téléchargez-le une fois prêt. Le document existant est réutilisé
-                s’il est encore valide.
+                s’il est encore validé.
               </p>
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
                 <EstimatePdfDownloadButton
@@ -264,10 +264,10 @@ export function AffaireFinishLineActions({
                   processingLabel="Génération du PDF…"
                   showInlineError={false}
                   onSuccess={() => {
-                    const successMessage = `PDF pret pour la version V${currentVersion.versionNumber}.`;
+                    const successMessage = `PDF prêt pour la version V${currentVersion.versionNumber}.`;
                     setPdfFeedback({ tone: "success", message: successMessage });
                     toast.success({
-                      title: "PDF pret",
+                      title: "PDF prêt",
                       description: successMessage,
                     });
                     router.refresh();
@@ -316,11 +316,11 @@ export function AffaireFinishLineActions({
                   withDot
                 >
                   {sendActionState.status === "ready"
-                    ? "Pret"
+                    ? "Prêt"
                     : sendActionState.status === "warning"
-                      ? "A assumer"
+                      ? "À assumer"
                       : sendActionState.status === "blocked"
-                        ? "A lever"
+                        ? "À lever"
                         : "En attente"}
                 </Badge>
               </div>
@@ -328,7 +328,7 @@ export function AffaireFinishLineActions({
                 {sendActionState.note}
               </p>
               {submissionReadinessGroups.length > 0 ? (
-                <ul className="mt-3 flex flex-wrap gap-2" aria-label="Categories de blocage pre-remise">
+                <ul className="mt-3 flex flex-wrap gap-2" aria-label="Catégories de blocage pré-remise">
                   {submissionReadinessGroups.map((group) => (
                     <li key={group.category}>
                       <Badge
@@ -351,7 +351,7 @@ export function AffaireFinishLineActions({
                 >
                   {currentVersion.status === "sending"
                     ? "Reprendre l'envoi"
-                    : "Preparer l'envoi"}
+                    : "Préparer l'envoi"}
                 </button>
               </div>
             </article>

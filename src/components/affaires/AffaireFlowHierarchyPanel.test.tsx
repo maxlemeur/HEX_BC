@@ -106,7 +106,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.queryByText("Documents a confirmer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Documents à confirmer")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ouvrir les plans" })).toBeInTheDocument();
   });
 
@@ -386,9 +386,9 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.getAllByText("Structure a remettre a jour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Structure à remettre à jour").length).toBeGreaterThan(0);
     expect(screen.getByText("12 lignes déjà saisies")).toBeInTheDocument();
-    expect(screen.getByText("3 lignes a revoir")).toBeInTheDocument();
+    expect(screen.getByText("3 lignes à revoir")).toBeInTheDocument();
     expect(
       screen.getByText(
         "Le devis contient déjà une trame, mais certaines lignes doivent être revues avant de poursuivre le chiffrage."
@@ -396,7 +396,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Generer la structure du devis" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Pourquoi Structure a remettre a jour" }));
+    await user.click(screen.getByRole("button", { name: "Pourquoi Structure à remettre à jour" }));
 
     expect(
       screen.getByText(
@@ -408,9 +408,9 @@ describe("AffaireFlowHierarchyPanel", () => {
   it("falls back to brief-only preliminary structure copy when the primary CCTP has no defendable lots", () => {
     const preliminaryStructure = buildSuggestion({
       actionId: "open-structure-draft",
-      label: "Ouvrir la structure preliminaire",
+      label: "Ouvrir la structure préliminaire",
       intent: "generate_structure",
-      preview: "Ouvrir une preview editable de structure a partir du brief confirme.",
+      preview: "Ouvrir une preview éditable de structure à partir du brief confirme.",
       target: {
         kind: "navigate",
         href: "/dashboard/estimates/version-structure-draft-limited/edit?openStructureDraft=1",
@@ -477,7 +477,7 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     expect(
       screen.getAllByText(
-        "Le brief confirme permet d'ouvrir une trame editable du devis, sans import DPGF obligatoire.",
+        "Le brief confirme permet d'ouvrir une trame éditable du devis, sans import DPGF obligatoire.",
       ).length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText("CCTP principal detecte")).not.toBeInTheDocument();
@@ -575,7 +575,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.queryByText(/avant de lancer le metre/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Avancer sous reserves")).toBeInTheDocument();
+    expect(screen.getByText("Avancer sous réserves")).toBeInTheDocument();
   });
 
   it("keeps the brief hero aligned with canonical not-ready status", () => {
@@ -667,7 +667,7 @@ describe("AffaireFlowHierarchyPanel", () => {
           missingPieces: [],
           briefDraft: {
             status: "a_confirmer",
-            summary: "Brief a confirmer.",
+            summary: "Brief à confirmer.",
             projectObject: "Chiffrage CFO/CFA d'un batiment tertiaire.",
             scope: ["Courants forts"],
             lots: ["Electricite"],
@@ -687,7 +687,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Base de travail insuffisante" })).toBeInTheDocument();
-    expect(screen.getAllByText("Brief a confirmer").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Brief à confirmer").length).toBeGreaterThan(0);
     expect(screen.queryByText("Dossier exploitable")).not.toBeInTheDocument();
     expect(screen.getByText("Base insuffisante")).toBeInTheDocument();
   });
@@ -695,7 +695,7 @@ describe("AffaireFlowHierarchyPanel", () => {
   it("shows the canonical hub readiness even when the local next step looks ready", () => {
     const analyzePlans = buildSuggestion({
       actionId: "analyze-plans",
-      label: "Lancer le metre",
+      label: "Lancer le métré",
       intent: "analyze_plans",
       preview: "Analyser les plans pour extraire les quantites.",
       target: {
@@ -786,12 +786,12 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Lancer le metre" })).toBeInTheDocument();
-    expect(screen.getByText("Analyse sous reserves")).toBeInTheDocument();
-    expect(screen.getByText("Avancer sous reserves")).toBeInTheDocument();
-    expect(screen.queryByText("Base de travail prete")).not.toBeInTheDocument();
-    expect(screen.getByText("Base devis disponible sous reserves")).toBeInTheDocument();
-    expect(screen.queryByText("Base devis prete")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lancer le métré" })).toBeInTheDocument();
+    expect(screen.getByText("Analyse sous réserves")).toBeInTheDocument();
+    expect(screen.getByText("Avancer sous réserves")).toBeInTheDocument();
+    expect(screen.queryByText("Base de travail prête")).not.toBeInTheDocument();
+    expect(screen.getByText("Base devis disponible sous réserves")).toBeInTheDocument();
+    expect(screen.queryByText("Base devis prête")).not.toBeInTheDocument();
   });
 
   it("keeps the clarification CTA as the only visible next step when client clarifications remain", () => {
@@ -799,7 +799,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       actionId: "list-clarifications",
       label: "Traiter 1 clarification client",
       intent: "list_hypotheses",
-      preview: "Des clarifications critiques restent a porter vers le client avant envoi.",
+      preview: "Des clarifications critiques restent à porter vers le client avant envoi.",
       target: {
         kind: "navigate",
         href: "/dashboard/affaires/project-clarify-only?registerStatus=clarify_with_client#register",
@@ -921,7 +921,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       actionId: "review-revalidation",
       label: "Relancer 1 revalidation critique",
       intent: "list_hypotheses",
-      preview: "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pre-remise.",
+      preview: "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pré-remise.",
       target: {
         kind: "navigate",
         href: "/dashboard/affaires/project-revalidation?registerRevalidation=required#register",
@@ -1043,7 +1043,7 @@ describe("AffaireFlowHierarchyPanel", () => {
   it("blocks plan launch CTAs when canonical readiness is not ready", () => {
     const analyzePlans = buildSuggestion({
       actionId: "analyze-plans-not-ready",
-      label: "Lancer le metre",
+      label: "Lancer le métré",
       intent: "analyze_plans",
       preview: "Analyser les plans pour extraire les quantites.",
       target: {
@@ -1134,7 +1134,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Lancer le metre" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lancer le métré" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Confirmer le brief" })).toHaveAttribute(
       "href",
       "/dashboard/affaires/project-not-ready#brief",
@@ -1233,7 +1233,7 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Vérifier la sortie devis" })).toBeInTheDocument();
-    expect(screen.getByText("Sortie a finaliser")).toBeInTheDocument();
+    expect(screen.getByText("Sortie à finaliser")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ouvrir la sortie devis" })).toHaveAttribute(
       "href",
       "#finish-line-output",
@@ -1353,19 +1353,19 @@ describe("AffaireFlowHierarchyPanel", () => {
     );
 
     expect(screen.getAllByText("Revoir la structure du devis").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Structure a reprendre").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Structure à reprendre").length).toBeGreaterThan(0);
     expect(screen.queryByText("Structure à générer")).not.toBeInTheDocument();
     expect(
       screen.getAllByText(
-        "Le brief est confirme. Reprenez la structure du devis avant de materialiser le chiffrage."
+        "Le brief est confirmé. Reprenez la structure du devis avant de matérialiser le chiffrage."
       ).length,
     ).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "Pourquoi Structure a reprendre" }));
+    await user.click(screen.getByRole("button", { name: "Pourquoi Structure à reprendre" }));
 
     expect(
       screen.getByText(
-        "Le brief est confirme. La prochaine action est de reprendre la structure du devis."
+        "Le brief est confirmé. La prochaine action est de reprendre la structure du devis."
       )
     ).toBeInTheDocument();
   });
@@ -1416,7 +1416,7 @@ describe("AffaireFlowHierarchyPanel", () => {
                 detectedLots: [],
                 detectedVariants: [],
               },
-              issues: ["Classification a confirmer"],
+              issues: ["Classification à confirmer"],
             },
           ],
           missingPieces: [
@@ -1440,7 +1440,7 @@ describe("AffaireFlowHierarchyPanel", () => {
             actionId: "add-missing-pieces",
             label: "Ajouter 1 piece manquante",
             intent: "add_missing_pieces",
-            preview: "Compléter le dossier avec les pieces manquantes detectees pendant l'intake.",
+            preview: "Compléter le dossier avec les pièces manquantes détectées pendant l'intake.",
             target: { kind: "open_surface", surfaceId: "intake-upload" },
             priority: 800,
           }),
@@ -1451,8 +1451,8 @@ describe("AffaireFlowHierarchyPanel", () => {
     expect(screen.getAllByText("piece-inconnue.pdf").length).toBeGreaterThan(0);
     expect(screen.getByText("CCTP PRINCIPAL")).toBeInTheDocument();
     expect(screen.getByText("cctp-lot-electricite.docx")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "CCTPComplementaire" })).toBeInTheDocument();
-    expect(screen.getByText("DPGF NON DETECTE")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "CCTPComplémentaire" })).toBeInTheDocument();
+    expect(screen.getByText("DPGF NON DÉTECTÉ")).toBeInTheDocument();
   });
 
   it("surfaces a no-primary alert when multiple DPGF exist without a primary reference", () => {
@@ -1516,7 +1516,7 @@ describe("AffaireFlowHierarchyPanel", () => {
 
     expect(screen.getByText("DPGF SANS PRINCIPAL")).toBeInTheDocument();
     expect(screen.getByText("2 DPGF")).toBeInTheDocument();
-    expect(screen.getByText("Principal a definir")).toBeInTheDocument();
+    expect(screen.getByText("Principal à définir")).toBeInTheDocument();
     expect(screen.getByText("Choisir le document principal")).toBeInTheDocument();
     expect(screen.getByText("Choix principal")).toBeInTheDocument();
     expect(screen.queryByText("Autres DPGF (2)")).not.toBeInTheDocument();

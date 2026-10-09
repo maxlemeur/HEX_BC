@@ -348,7 +348,7 @@ describe("useEstimateEditorImportController", () => {
       );
     });
     expect(harness.result.current.state.importSummaryMessage).toBe(
-      "2 section(s) et 5 ligne(s) importees."
+      "2 section(s) et 5 ligne(s) importées."
     );
 
     harness.changeRoute("version-2", "project-2");

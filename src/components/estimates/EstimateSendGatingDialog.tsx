@@ -40,21 +40,21 @@ function getFocusableElements(container: HTMLElement) {
 }
 
 function formatFlagCount(count: number) {
-  return `${count} point${count > 1 ? "s" : ""} a traiter`;
+  return `${count} point${count > 1 ? "s" : ""} à traiter`;
 }
 
 function formatRegisterAction(flag: EstimateSendGatingFlag) {
   switch (flag.key) {
     case "critical_missing_pieces":
-      return "Recuperez ou requalifiez ces pieces critiques avant de reprendre l'envoi.";
+      return "Recuperez ou requalifiez ces pièces critiques avant de reprendre l'envoi.";
     case "critical_open_questions":
       return "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
     case "client_missing_documents_required":
-      return "Revenez sur les demandes de pieces client pour solder ou requalifier ces attentes documentaires.";
+      return "Revenez sur les demandes de pièces client pour solder ou requalifier ces attentes documentaires.";
     case "client_clarification_required":
       return "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
     case "missing_pieces_pending":
-      return "Passez par le registre affaire pour solder ou assumer explicitement ces pieces manquantes.";
+      return "Passez par le registre affaire pour solder ou assumer explicitement ces pièces manquantes.";
     case "open_questions_pending":
       return "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
     default:
@@ -226,13 +226,13 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
     ruleViolations.slice(0, 3).forEach((message, index) => {
       detailsLines.push({
         key: `rule-violation-${index}`,
-        text: `Regle: ${message}`,
+        text: `Règle: ${message}`,
       });
     });
     if (ruleViolations.length > 3) {
       detailsLines.push({
         key: "rule-violation-overflow",
-        text: `...${ruleViolations.length - 3} regle(s) supplementaire(s).`,
+        text: `...${ruleViolations.length - 3} règle(s) supplementaire(s).`,
       });
     }
   }
@@ -248,7 +248,7 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
     if (registerEntries.length > 3) {
       detailsLines.push({
         key: "register-entry-overflow",
-        text: `...${registerEntries.length - 3} entree(s) registre supplementaire(s).`,
+        text: `...${registerEntries.length - 3} entrée(s) registre supplementaire(s).`,
       });
     }
   }
@@ -289,7 +289,7 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
   if (flags.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Aucun element.
+        Aucun élément.
       </p>
     );
   }
@@ -467,10 +467,10 @@ export function EstimateSendGatingDialog({
               id="estimate-send-gating-title"
               className="text-lg font-semibold text-slate-800"
             >
-              Verification avant envoi
+              Vérification avant envoi
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Traitez les blocants metier avant de passer la version en statut envoye.
+              Traitez les blocants métier avant de passer la version en statut envoyé.
             </p>
           </div>
           <button
@@ -506,7 +506,7 @@ export function EstimateSendGatingDialog({
               Avertissements ({warningFlags.length})
             </h3>
             <p className="mb-2 text-xs text-muted-foreground">
-              Ces signaux n&apos;interdisent pas toujours l&apos;envoi, mais ils doivent etre assumes explicitement.
+              Ces signaux n&apos;interdisent pas toujours l&apos;envoi, mais ils doivent être assumes explicitement.
             </p>
             {renderFlags(warningFlags, projectId)}
           </section>

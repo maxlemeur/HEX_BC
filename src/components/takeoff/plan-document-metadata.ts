@@ -70,7 +70,7 @@ const REVISION_STATUS_KEYS = [
 const ACTIVE_STATUS_VALUES = new Set([
   "active",
   "actif",
-  "actif pour metre",
+  "actif pour métré",
   "current",
   "latest",
   "valide",

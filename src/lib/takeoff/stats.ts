@@ -161,7 +161,7 @@ export function parseTakeoffMetricsQuery(
   if (requestedLevel && requestedLevel.length > 0) {
     if (!(TAKEOFF_LEVELS as readonly string[]).includes(requestedLevel)) {
       throw badRequest(
-        "Parametre level invalide. Valeurs autorisees: A, B, C.",
+        "Paramètre level invalide. Valeurs autorisees: A, B, C.",
         { level: requestedLevel },
         "BAD_REQUEST"
       );

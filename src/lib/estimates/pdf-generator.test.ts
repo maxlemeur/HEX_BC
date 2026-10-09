@@ -617,7 +617,7 @@ describe("estimate pdf generator", () => {
 
     await expect(getEstimatePdfLayoutConfiguration(VERSION_ID)).rejects.toMatchObject({
       code: "FORBIDDEN",
-      message: "Acces refuse.",
+      message: "Accès refuse.",
     });
   });
 
@@ -821,7 +821,7 @@ describe("estimate pdf generator", () => {
       publishedContentRevision: 1,
       lastError: null,
       expectedError:
-        "Le document PDF ne correspond plus a la revision courante du devis.",
+        "Le document PDF ne correspond plus à la révision courante du devis.",
     },
     {
       label: "an unfinished failed attempt",

@@ -156,7 +156,7 @@ describe("estimate export route", () => {
         ok: false,
         error: expect.objectContaining({
           code: "FORBIDDEN",
-          message: "Export reserve aux roles admin et engineer.",
+          message: "Export reserve aux rôles admin et engineer.",
         }),
       })
     );

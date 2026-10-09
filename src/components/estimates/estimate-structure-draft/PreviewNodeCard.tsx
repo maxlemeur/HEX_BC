@@ -60,13 +60,13 @@ export function PreviewNodeCard({
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Hypotheses
+            Hypothèses
           </p>
           <ul className="mt-2 space-y-1 text-sm text-foreground-secondary">
             {node.hypotheses.length > 0 ? (
               node.hypotheses.map((entry) => <li key={entry}>{entry}</li>)
             ) : (
-              <li>Aucune hypothese supplementaire.</li>
+              <li>Aucune hypothèse supplementaire.</li>
             )}
           </ul>
         </div>

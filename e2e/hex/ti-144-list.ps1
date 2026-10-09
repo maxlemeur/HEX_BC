@@ -18,8 +18,8 @@ $projectB = "E2E-HEX-TI144-B-$stamp"
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $projectA -Title "E2E TI-144 A" -Date "2026-02-02" -Validite "30" | Out-Null
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $projectB -Title "E2E TI-144 B" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $projectA -Title "E2E TI-144 A" -Date "2026-02-02" -Validité "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $projectB -Title "E2E TI-144 B" -Date "2026-02-02" -Validité "30" | Out-Null
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates" | Out-Null
   $deadline = (Get-Date).AddSeconds(20)

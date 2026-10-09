@@ -295,7 +295,7 @@ export default function SitesPage() {
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     {editingId
-                      ? "Mettez a jour les informations du site de livraison."
+                      ? "Mettez à jour les informations du site de livraison."
                       : "Renseignez les informations du nouveau chantier."}
                   </p>
                 </div>
@@ -430,7 +430,7 @@ export default function SitesPage() {
                         Enregistrement...
                       </>
                     ) : editingId ? (
-                      "Mettre a jour"
+                      "Mettre à jour"
                     ) : (
                       "Ajouter"
                     )}
@@ -489,12 +489,12 @@ export default function SitesPage() {
           ) : displayedSites.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <p className="font-medium text-foreground-secondary">
-                {sites.length === 0 ? "Aucun chantier" : "Aucun resultat"}
+                {sites.length === 0 ? "Aucun chantier" : "Aucun résultat"}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {sites.length === 0
-                  ? "Ajoutez un chantier pour demarrer."
-                  : "Modifiez vos filtres pour voir plus de resultats."}
+                  ? "Ajoutez un chantier pour démarrer."
+                  : "Modifiez vos filtres pour voir plus de résultats."}
               </p>
             </div>
           ) : (
@@ -524,7 +524,7 @@ export default function SitesPage() {
                   <div className="mt-4 space-y-2 text-sm">
                     <p className="text-slate-600">
                       <span className="font-medium text-slate-800">Contact :</span>{" "}
-                      {site.contact_name ?? "Non renseigne"}
+                      {site.contact_name ?? "Non renseigné"}
                     </p>
                     {site.contact_phone ? (
                       <a
@@ -597,8 +597,8 @@ export default function SitesPage() {
                           <SearchIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
                         </div>
                         <div className="text-center">
-                          <p className="font-medium text-foreground-secondary">Aucun resultat</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de resultats.</p>
+                          <p className="font-medium text-foreground-secondary">Aucun résultat</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de résultats.</p>
                         </div>
                       </div>
                     )}

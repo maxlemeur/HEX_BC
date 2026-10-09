@@ -40,11 +40,11 @@ export async function ensureParentIsValid({
   }
 
   if (data.version_id !== versionId) {
-    throw badRequest("parent_id doit appartenir a la meme version.");
+    throw badRequest("parent_id doit appartenir à la même version.");
   }
 
   if (data.item_type !== "section") {
-    throw badRequest("Le parent doit etre de type section.");
+    throw badRequest("Le parent doit être de type section.");
   }
 
   if (itemId && data.id === itemId) {
@@ -98,7 +98,7 @@ export function assertSectionPlacementAllowed(input: {
   }
 
   throw badRequest(
-    `Impossible de creer ce niveau: profondeur max ${input.maxSectionDepth}.`
+    `Impossible de créer ce niveau: profondeur max ${input.maxSectionDepth}.`
   );
 }
 
@@ -107,12 +107,12 @@ export function assertLinePlacementAllowed(input: {
   parentSectionLevel: number | null;
 }) {
   if (input.parentSectionLevel === null) {
-    throw badRequest("Une ligne doit etre ajoutee sous une section.");
+    throw badRequest("Une ligne doit être ajoutée sous une section.");
   }
 
   if (input.parentSectionLevel > input.maxSectionDepth) {
     throw badRequest(
-      `Une ligne ne peut pas etre rattachee au-dela du niveau ${input.maxSectionDepth}.`
+      `Une ligne ne peut pas être rattachee au-dela du niveau ${input.maxSectionDepth}.`
     );
   }
 }

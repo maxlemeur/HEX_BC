@@ -31,7 +31,7 @@ export class WorkflowTenantInactiveError extends Error {
   readonly code = "WORKFLOW_TENANT_INACTIVE";
 
   constructor(readonly tenantId: string) {
-    super("Le tenant est suspendu; aucun effet externe ne peut etre execute.");
+    super("Le tenant est suspendu; aucun effet externe ne peut être execute.");
     this.name = "WorkflowTenantInactiveError";
   }
 }
@@ -49,7 +49,7 @@ export async function isWorkflowTenantActive(
 
   if (error) {
     throw new WorkflowTenantCheckError(
-      "Impossible de verifier l'etat du tenant avant l'effet externe.",
+      "Impossible de vérifier l'état du tenant avant l'effet externe.",
       tenantId,
       { cause: error }
     );

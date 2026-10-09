@@ -363,7 +363,7 @@ export default async function EstimateDetailPage({
           projectId={version.project_id}
           projectName={project.name}
           versionNumber={version.version_number}
-          pageSuffix="Detail"
+          pageSuffix="Détail"
         />
       )}
       <div className="page-header flex flex-wrap items-start justify-between gap-4">

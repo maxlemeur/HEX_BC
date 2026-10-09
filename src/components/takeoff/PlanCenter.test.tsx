@@ -48,7 +48,7 @@ describe("PlanCenter", () => {
       ).toBeInTheDocument();
     });
     expect(
-      screen.getByRole("button", { name: /Reessayer/i })
+      screen.getByRole("button", { name: /Réessayer/i })
     ).toBeInTheDocument();
   });
 });

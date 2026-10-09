@@ -278,7 +278,7 @@ function summarizeTableIssues(table: TabularPdfDetectedTable): TabularPdfTableIs
     issues.push({
       code: "missing_headers",
       severity: "error",
-      message: "Le tableau doit exposer au moins deux colonnes detectees.",
+      message: "Le tableau doit exposer au moins deux colonnes détectées.",
     });
   }
 
@@ -319,13 +319,13 @@ function summarizeTableIssues(table: TabularPdfDetectedTable): TabularPdfTableIs
     issues.push({
       code: "empty_table",
       severity: "error",
-      message: "Les lignes detectees sont trop vides pour converger proprement vers le mapping.",
+      message: "Les lignes détectées sont trop vides pour converger proprement vers le mapping.",
     });
   } else if (sparseRowCount > 0) {
     issues.push({
       code: "sparse_rows",
       severity: "warning",
-      message: "Certaines lignes sont partielles et devront etre revues avant validation.",
+      message: "Certaines lignes sont partielles et devront être revues avant validation.",
     });
   }
 
@@ -484,7 +484,7 @@ export function buildApprovedTabularPdfRows(input: {
 
   if (normalizedRows.length === 0) {
     throw new Error(
-      "Aucune ligne exploitable n'a ete retenue apres validation des tableaux PDF."
+      "Aucune ligne exploitable n'a été retenue après validation des tableaux PDF."
     );
   }
 

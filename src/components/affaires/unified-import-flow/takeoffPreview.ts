@@ -12,7 +12,7 @@ function getTakeoffCarryOverSourceLabel(summary: TakeoffCarryOverSummary): strin
   }
 
   if (summary.sourceVersionId) {
-    return "version precedente";
+    return "version précédente";
   }
 
   return null;
@@ -26,9 +26,9 @@ export function getTakeoffCarryOverPreviewCopy(
   if (summary.state === "not_applicable") {
     return {
       toneClassName: "border-border bg-surface-subtle",
-      title: "Aucun carry-over takeoff a reprendre",
+      title: "Aucun carry-over takeoff à reprendre",
       description:
-        "Cette creation ne repart d'aucune version takeoff precedente.",
+        "Cette création ne repart d'aucune version takeoff précédente.",
     };
   }
 
@@ -36,19 +36,19 @@ export function getTakeoffCarryOverPreviewCopy(
     return {
       toneClassName: "border-border bg-surface-subtle",
       title: sourceLabel
-        ? `Aucune analyse takeoff a reprendre depuis ${sourceLabel}`
-        : "Aucune analyse takeoff a reprendre",
+        ? `Aucune analyse takeoff à reprendre depuis ${sourceLabel}`
+        : "Aucune analyse takeoff à reprendre",
       description:
-        "La version sera creee sans reprise takeoff existante.",
+        "La version sera créée sans reprise takeoff existante.",
     };
   }
 
   if (summary.state === "unavailable") {
     return {
       toneClassName: "border-amber-200 bg-amber-50",
-      title: "Etat de reprise takeoff indisponible",
+      title: "État de reprise takeoff indisponible",
       description:
-        "Le carry-over n'est pas prouve ici. La version reste creable, mais la reprise devra etre verifiee apres creation.",
+        "Le carry-over n'est pas prouve ici. La version reste creable, mais la reprise devra être vérifiée après création.",
     };
   }
 
@@ -56,19 +56,19 @@ export function getTakeoffCarryOverPreviewCopy(
     return {
       toneClassName: "border-emerald-200 bg-emerald-50",
       title: sourceLabel
-        ? `Carry-over takeoff pret depuis ${sourceLabel}`
-        : "Carry-over takeoff pret",
+        ? `Carry-over takeoff prêt depuis ${sourceLabel}`
+        : "Carry-over takeoff prêt",
       description:
-        "Les analyses deja acquises restent visibles sur la nouvelle version.",
+        "Les analyses déjà acquises restent visibles sur la nouvelle version.",
     };
   }
 
   return {
     toneClassName: "border-amber-200 bg-amber-50",
     title: sourceLabel
-      ? `Carry-over takeoff a surveiller depuis ${sourceLabel}`
-      : "Carry-over takeoff a surveiller",
+      ? `Carry-over takeoff à surveiller depuis ${sourceLabel}`
+      : "Carry-over takeoff à surveiller",
     description:
-      "Certaines analyses suivent, d'autres restent en cours ou devront etre relancees.",
+      "Certaines analyses suivent, d'autres restent en cours ou devront être relancees.",
   };
 }

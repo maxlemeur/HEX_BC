@@ -84,7 +84,7 @@ const draftFixture = {
               excerpt: "Preparation des surfaces",
             },
           ],
-          facts: ["Historique present sur une version precedente."],
+          facts: ["Historique present sur une version précédente."],
           hypotheses: [],
           inferences: ["Sous-chapitre nouveau."],
           children: [],
@@ -151,10 +151,10 @@ const weakAssemblyOnlyDraftFixture = {
       ],
       facts: ["Ouvrage disponible: Electricite"],
       hypotheses: [
-        "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, a confirmer humainement.",
+        "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, à confirmer humainement.",
       ],
       inferences: [
-        "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview.",
+        "Aucune source métier forte ne rend ce lot defendable par défaut dans cette preview.",
       ],
       children: [],
     },
@@ -244,7 +244,7 @@ describe("EstimateStructureDraftDialog", () => {
     await user.click(screen.getByRole("button", { name: "Continuer" }));
     await screen.findByText("Mode d'application");
     expect(
-      screen.getByRole("radio", { name: /Creer a vide/i })
+      screen.getByRole("radio", { name: /Créer a vide/i })
     ).toBeDisabled();
     expect(onConfirm).not.toHaveBeenCalled();
 
@@ -260,7 +260,7 @@ describe("EstimateStructureDraftDialog", () => {
       });
     });
 
-    await screen.findByText("Structure appliquee");
+    await screen.findByText("Structure appliquée");
     expect(onClose).not.toHaveBeenCalled();
 
     const dialog = screen.getByRole("dialog");
@@ -364,7 +364,7 @@ describe("EstimateStructureDraftDialog", () => {
     const weakCheckbox = screen.getByRole("checkbox");
     expect(weakCheckbox).not.toBeChecked();
     expect(
-      screen.getByText(/Suggestion issue des ouvrages seuls, non preselectionnee par defaut/i)
+      screen.getByText(/Suggestion issue des ouvrages seuls, non preselectionnee par défaut/i)
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Continuer" })
@@ -442,7 +442,7 @@ describe("EstimateStructureDraftDialog", () => {
     expect(optionLabels).not.toContain("Electricite > Preparation existante");
     expect(
       within(childNodeCard).getByText(
-        /Selectionnez une cible de fusion compatible avant application\./i
+        /Sélectionnez une cible de fusion compatible avant application\./i
       )
     ).toBeInTheDocument();
     expect(

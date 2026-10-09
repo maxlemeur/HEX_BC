@@ -72,9 +72,9 @@ export const ESTIMATE_QUALITY_FLAG_META: Record<
       "Le prix unitaire est statistiquement atypique par rapport aux autres lignes comparees.",
   },
   quantity_outlier: {
-    label: "Quantite atypique",
+    label: "Quantité atypique",
     description:
-      "La quantite est statistiquement atypique par rapport aux autres lignes comparees.",
+      "La quantité est statistiquement atypique par rapport aux autres lignes comparees.",
   },
 };
 

@@ -114,7 +114,7 @@ export function DeliverySiteCreateModal({
     setIsSubmitting(false);
 
     if (error || !data) {
-      setFormError(error?.message ?? "Impossible de creer le chantier.");
+      setFormError(error?.message ?? "Impossible de créer le chantier.");
       return;
     }
 
@@ -220,7 +220,7 @@ export function DeliverySiteCreateModal({
             name="phone"
             type="tel"
             autoComplete="tel"
-            label="Telephone"
+            label="Téléphone"
             placeholder="01 00 00 00 00"
             value={formState.contact_phone}
             onChange={(event) => updateField("contact_phone", event.target.value)}

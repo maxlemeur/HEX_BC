@@ -11,7 +11,7 @@ export default function PortalNotFound() {
         Lien invalide
       </h1>
       <p className="mt-3 max-w-md text-muted-foreground">
-        Ce lien de consultation n&apos;est pas valide ou a été révoqué.
+        Ce lien de consultation n&apos;est pas validé ou a été révoqué.
         Veuillez contacter votre interlocuteur pour obtenir un nouveau lien.
       </p>
       <PortalContactBlock />

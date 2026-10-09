@@ -28,7 +28,7 @@ export function UnknownResolutionPanel({
   return (
     <section className="dashboard-card overflow-hidden">
       <div className="border-b border-border px-6 py-4">
-        <h3 className="text-sm font-semibold text-slate-800">Etape 3 - Resoudre les inconnus</h3>
+        <h3 className="text-sm font-semibold text-slate-800">Étape 3 - Resoudre les inconnus</h3>
         <p className="mt-1 text-xs text-muted-foreground">
           Fournisseurs inconnus: {unknownSuppliersCount} | Produits inconnus: {unknownProductsCount}
         </p>

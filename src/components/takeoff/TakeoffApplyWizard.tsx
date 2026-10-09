@@ -179,7 +179,7 @@ export function TakeoffApplyWizard({
   }, [open, presetStrategy, resetPreview, versionId]);
 
   const selectedSectionLabel = useMemo(() => {
-    if (!targetSectionId) return "Aucune section selectionnee";
+    if (!targetSectionId) return "Aucune section sélectionnée";
     return (
       sectionOptions.find((option) => option.id === targetSectionId)?.summaryLabel ??
       "Section cible"
@@ -308,7 +308,7 @@ export function TakeoffApplyWizard({
               aria-live="polite"
               className="mt-1 text-sm text-muted-foreground"
             >
-              Etape {displayStep} / {totalSteps}
+              Étape {displayStep} / {totalSteps}
             </p>
           </div>
           <Modal.Close disabled={isSubmitting} />
@@ -319,7 +319,7 @@ export function TakeoffApplyWizard({
             ref={bodyScrollRef}
             data-testid="takeoff-apply-wizard-body"
             role="region"
-            aria-label={`Contenu de l'etape ${displayStep} sur ${totalSteps}`}
+            aria-label={`Contenu de l'étape ${displayStep} sur ${totalSteps}`}
             tabIndex={0}
             className="max-h-[calc(100dvh-15rem)] space-y-4 overflow-y-auto overscroll-contain pr-1"
           >

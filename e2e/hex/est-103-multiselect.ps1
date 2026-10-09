@@ -489,7 +489,7 @@ JSON.stringify((() => {
     nextLabel = String(nextOption.textContent ?? '').trim();
   } else {
     categoryControl.focus();
-    categoryControl.value = String(categoryControl.value ?? '').trim() || 'Materiaux';
+    categoryControl.value = String(categoryControl.value ?? '').trim() || 'Matériaux';
     categoryControl.dispatchEvent(new Event('input', { bubbles: true }));
     categoryControl.dispatchEvent(new Event('change', { bubbles: true }));
     nextLabel = String(categoryControl.value ?? '').trim();
@@ -601,7 +601,7 @@ JSON.stringify((() => {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-103" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-103" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-EditorTab -Session $Session
 
   Add-Chapter -Session $Session -Title "Tmp section A"

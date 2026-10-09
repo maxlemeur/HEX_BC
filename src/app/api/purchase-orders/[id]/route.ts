@@ -109,7 +109,7 @@ export async function PUT(
 
   if (!(await canWritePurchaseOrders(supabase, userId, existingOrder.tenant_id))) {
     return NextResponse.json(
-      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
       { status: 403 }
     );
   }
@@ -117,7 +117,7 @@ export async function PUT(
   // Check if order is in draft status
   if (existingOrder.status !== "draft") {
     return NextResponse.json(
-      { error: "Seuls les bons de commande en brouillon peuvent etre modifies." },
+      { error: "Seuls les bons de commande en brouillon peuvent être modifiés." },
       { status: 403 }
     );
   }
@@ -223,7 +223,7 @@ export async function PUT(
   if (replaceError) {
     if (replaceError.message.includes("PURCHASE_ORDER_DRAFT_NOT_EDITABLE")) {
       return NextResponse.json(
-        { error: "Seuls les bons de commande en brouillon peuvent etre modifies." },
+        { error: "Seuls les bons de commande en brouillon peuvent être modifiés." },
         { status: 403 }
       );
     }
@@ -271,7 +271,7 @@ export async function DELETE(
 
   if (!(await canWritePurchaseOrders(supabase, userId, existingOrder.tenant_id))) {
     return NextResponse.json(
-      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
       { status: 403 }
     );
   }
@@ -279,7 +279,7 @@ export async function DELETE(
   // Check if order is in draft status
   if (existingOrder.status !== "draft") {
     return NextResponse.json(
-      { error: "Seuls les bons de commande en brouillon peuvent etre supprimes." },
+      { error: "Seuls les bons de commande en brouillon peuvent être supprimés." },
       { status: 403 }
     );
   }
@@ -292,7 +292,7 @@ export async function DELETE(
   if (deleteError) {
     if (deleteError.message.includes("PURCHASE_ORDER_DRAFT_NOT_DELETABLE")) {
       return NextResponse.json(
-        { error: "Seuls les bons de commande en brouillon peuvent etre supprimes." },
+        { error: "Seuls les bons de commande en brouillon peuvent être supprimés." },
         { status: 403 }
       );
     }

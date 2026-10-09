@@ -150,7 +150,7 @@ export function IndicesManager() {
           }),
         });
 
-        setSuccess("Indice mis a jour.");
+        setSuccess("Indice mis à jour.");
       } else {
         await fetchApi<{ item: MaterialIndex }>("/api/indices", {
           method: "POST",
@@ -426,7 +426,7 @@ export function IndicesManager() {
 
           <div>
             <label className="form-label" htmlFor="index-unit">
-              Unite
+              Unité
             </label>
             <input
               id="index-unit"
@@ -454,7 +454,7 @@ export function IndicesManager() {
 
           <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
             <button type="submit" className="btn btn-primary" disabled={isSaving}>
-              {isSaving ? "Enregistrement..." : editingId ? "Mettre a jour" : "Ajouter"}
+              {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour" : "Ajouter"}
             </button>
 
             {editingId ? (

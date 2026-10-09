@@ -47,7 +47,7 @@ const RULE_TYPE_OPTIONS: Array<{ value: RuleType; label: string }> = [
 
 const SCOPE_TYPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
   { value: "global", label: "Global" },
-  { value: "category", label: "Categorie" },
+  { value: "category", label: "Catégorie" },
   { value: "client", label: "Client" },
 ];
 

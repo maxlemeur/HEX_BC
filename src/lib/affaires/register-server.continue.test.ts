@@ -69,7 +69,7 @@ function createHypothesisRow() {
     source_document_id: null,
     kind: "assumption" as const,
     code: "missing_dpgf",
-    text: "Continuation acceptee sans dpgf manquant. Hypothese documentaire a confirmer avant remise.",
+    text: "Continuation acceptée sans dpgf manquant. Hypothèse documentaire à confirmer avant remise.",
     severity: "critical" as const,
     status: "open" as const,
     origin_kind: "manual" as const,
@@ -239,7 +239,7 @@ function createSupabaseMock() {
                   status: "accepted_with_hypothesis",
                   hypothesisEntryId: HYPOTHESIS_ID,
                   hypothesisText:
-                    "Continuation acceptee sans dpgf manquant. Hypothese documentaire a confirmer avant remise.",
+                    "Continuation acceptée sans dpgf manquant. Hypothèse documentaire à confirmer avant remise.",
                   acceptedAt: NOW,
                   acceptedByUserId: USER_ID,
                   comment: "Budget exploratoire maintenu.",
@@ -286,7 +286,7 @@ describe("continueAffaireRegisterWithHypothesis", () => {
     expect(hypothesisInsertPayloads[0]).toMatchObject({
       project_id: PROJECT_ID,
       kind: "assumption",
-      text: "Continuation acceptee sans dpgf manquant. Hypothese documentaire a confirmer avant remise.",
+      text: "Continuation acceptée sans dpgf manquant. Hypothèse documentaire à confirmer avant remise.",
       severity: "critical",
       metadata: expect.objectContaining({
         businessImpact: [

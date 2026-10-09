@@ -17,7 +17,7 @@ export function WizardHeader({ step, onClose, isSubmitting }: WizardHeaderProps)
           >
             Structure IA
           </h2>
-          <nav aria-label="Etapes du wizard" className="mt-3">
+          <nav aria-label="Étapes du wizard" className="mt-3">
             <ol className="flex items-center gap-0">
               {WIZARD_STEPS.map((wizardStep, index) => {
                 const isDone = step > wizardStep.step || step === 4;

@@ -314,7 +314,7 @@ function New-Estimate {
     [string]$Project,
     [string]$Title,
     [string]$Date,
-    [string]$Validite
+    [string]$Validité
   )
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/new" | Out-Null
@@ -333,7 +333,7 @@ function New-Estimate {
 
   Wait-ForSelector -Session $Session -Selector "#wiz-date-devis" -TimeoutSeconds 20
   Invoke-AB $Session "fill" "#wiz-date-devis" $Date | Out-Null
-  Invoke-AB $Session "fill" "#wiz-validite" $Validite | Out-Null
+  Invoke-AB $Session "fill" "#wiz-validite" $Validité | Out-Null
 
   Wait-ForButtonEnabledByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main" -TimeoutSeconds 20
   Click-FirstEnabledButtonByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main"

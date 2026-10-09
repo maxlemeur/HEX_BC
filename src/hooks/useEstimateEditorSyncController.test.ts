@@ -1197,7 +1197,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(canProceed).toBe(false);
     expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
     expect(input.reportError).toHaveBeenLastCalledWith(
-      "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+      "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
     );
 
     await act(async () => {

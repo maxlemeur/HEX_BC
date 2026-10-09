@@ -219,14 +219,14 @@ describe("VersionZeroDraftDialog mutation guards", () => {
     const user = userEvent.setup();
 
     const materializeButton = await screen.findByRole("button", {
-      name: "Materialiser dans le devis",
+      name: "Matérialiser dans le devis",
     });
     await waitFor(() => expect(materializeButton).toBeEnabled());
     await user.click(materializeButton);
 
     await waitFor(() => {
       expect(ensureMutationCanProceed).toHaveBeenCalledWith(
-        "materialiser la version zero"
+        "matérialiser la version zero"
       );
       expect(materializeButton).toBeEnabled();
     });
@@ -245,7 +245,7 @@ describe("VersionZeroDraftDialog mutation guards", () => {
     const user = userEvent.setup();
 
     const materializeButton = await screen.findByRole("button", {
-      name: "Materialiser dans le devis",
+      name: "Matérialiser dans le devis",
     });
     await waitFor(() => expect(materializeButton).toBeEnabled());
     await user.click(materializeButton);
@@ -288,10 +288,10 @@ describe("VersionZeroDraftDialog mutation guards", () => {
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Rejeter" })).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Valider l'edition" })
+      screen.getByRole("button", { name: "Valider l'édition" })
     ).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Materialiser dans le devis" })
+      screen.getByRole("button", { name: "Matérialiser dans le devis" })
     ).toBeDisabled();
 
     rerender(

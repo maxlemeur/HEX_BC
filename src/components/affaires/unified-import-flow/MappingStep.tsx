@@ -192,7 +192,7 @@ export function MappingStep({
         >
           <p className="font-medium">Mapping automatique applique</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Vous avez choisi de modifier le mapping. Verifiez et ajustez les correspondances ci-dessous.
+            Vous avez choisi de modifier le mapping. Vérifiez et ajustez les correspondances ci-dessous.
           </p>
         </div>
       )}
@@ -226,7 +226,7 @@ export function MappingStep({
           }
         >
           <span className="flex items-center gap-2">
-            Suivant : Apercu
+            Suivant : Aperçu
             <ArrowRightIcon aria-hidden="true" size={16} />
           </span>
         </button>

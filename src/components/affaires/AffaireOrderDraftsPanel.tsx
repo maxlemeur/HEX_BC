@@ -84,9 +84,9 @@ function getReadyBadgeLabel(
 ) {
   switch (status) {
     case "ready":
-      return "Pret";
+      return "Prêt";
     case "blocked":
-      return "A fiabiliser";
+      return "À fiabiliser";
     case "waiting":
       return "En attente";
     case "unavailable":
@@ -97,11 +97,11 @@ function getReadyBadgeLabel(
 function formatReasonLabel(reason: EstimatePurchaseOrderDraftBlockedReason) {
   switch (reason) {
     case "selection_missing":
-      return "Choix fournisseur a confirmer";
+      return "Choix fournisseur à confirmer";
     case "stale":
-      return "Prix a revalider";
+      return "Prix à revalider";
     case "ambiguous":
-      return "Arbitrage fournisseur necessaire";
+      return "Arbitrage fournisseur nécessaire";
     case "no_price":
       return "Aucun prix fournisseur exploitable";
     case "missing_quantity":
@@ -219,7 +219,7 @@ export function AffaireOrderDraftsPanel({
       setLoadError(
         toSafeErrorMessage(
           error,
-          "Impossible de preparer les brouillons de commandes."
+          "Impossible de préparer les brouillons de commandes."
         )
       );
     } finally {
@@ -307,11 +307,11 @@ export function AffaireOrderDraftsPanel({
 
       setCreationResult(result);
       toast.success({
-        title: "Brouillons crees",
+        title: "Brouillons créés",
         description:
           result.summary.draftOrdersCreated > 1
-            ? `${result.summary.draftOrdersCreated} brouillons commandes sont prets.`
-            : "Le brouillon commande est pret.",
+            ? `${result.summary.draftOrdersCreated} brouillons commandes sont prêts.`
+            : "Le brouillon commande est prêt.",
       });
       router.refresh();
       await refreshPreparation();
@@ -364,8 +364,8 @@ export function AffaireOrderDraftsPanel({
             Brouillons par fournisseur, sans ressaisie
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Les exceptions restent en tete, puis vous creez uniquement les
-            brouillons utiles depuis les choix fournisseur deja retenus.
+            Les exceptions restent en tete, puis vous créez uniquement les
+            brouillons utiles depuis les choix fournisseur déjà retenus.
           </p>
         </div>
         <Badge
@@ -380,13 +380,13 @@ export function AffaireOrderDraftsPanel({
 
       <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-600">
         {readyToOrder?.status === "ready"
-          ? `${readyToOrder.coveredLinesCount} ligne${readyToOrder.coveredLinesCount > 1 ? "s" : ""} sont deja commandables. Choisissez un chantier puis confirmez les brouillons.`
+          ? `${readyToOrder.coveredLinesCount} ligne${readyToOrder.coveredLinesCount > 1 ? "s" : ""} sont déjà commandables. Choisissez un chantier puis confirmez les brouillons.`
           : readyToOrder?.status === "blocked"
-            ? "Certaines lignes restent a fiabiliser avant la creation. Les blocages sont visibles juste en dessous."
+            ? "Certaines lignes restent à fiabiliser avant la création. Les blocages sont visibles juste en dessous."
             : readyToOrder?.status === "unavailable"
               ? readyToOrder.errorMessage ??
-                "La preparation commandes est indisponible pour le moment."
-              : "La finish line commandes devient actionnable des qu'une preparation fournisseur existe."}
+                "La préparation commandes est indisponible pour le moment."
+              : "La finish line commandes devient actionnable des qu'une préparation fournisseur existe."}
       </div>
 
       {loadError && !preparation ? (
@@ -397,16 +397,16 @@ export function AffaireOrderDraftsPanel({
             className="btn btn-secondary btn-sm mt-3"
             onClick={() => void refreshPreparation()}
           >
-            Recharger la preparation
+            Recharger la préparation
           </button>
         </div>
       ) : isLoading && !preparation ? (
         <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-4">
           <p className="text-sm font-medium text-foreground-secondary">
-            Preparation des brouillons fournisseurs...
+            Préparation des brouillons fournisseurs...
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            TIMAX relit les lignes commandables et isole les exceptions avant creation.
+            TIMAX relit les lignes commandables et isole les exceptions avant création.
           </p>
         </div>
       ) : preparation ? (
@@ -419,7 +419,7 @@ export function AffaireOrderDraftsPanel({
                 className="btn btn-secondary btn-sm mt-3"
                 onClick={() => void refreshPreparation()}
               >
-                Recharger la preparation
+                Recharger la préparation
               </button>
             </div>
           ) : null}
@@ -429,12 +429,12 @@ export function AffaireOrderDraftsPanel({
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-slate-800">
-                    A traiter avant la creation
+                    À traiter avant la création
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
                     {preparation.summary.blockedLines} ligne
                     {preparation.summary.blockedLines > 1 ? "s restent" : " reste"} hors
-                    brouillon pour garder une creation fiable.
+                    brouillon pour garder une création fiable.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -474,7 +474,7 @@ export function AffaireOrderDraftsPanel({
                   {preparation.blockedLines.length - MAX_BLOCKED_LINES} autre
                   {preparation.blockedLines.length - MAX_BLOCKED_LINES > 1 ? "s" : ""} ligne
                   {preparation.blockedLines.length - MAX_BLOCKED_LINES > 1 ? "s restent" : " reste"} a
-                  traiter dans la meme logique.
+                  traiter dans la même logique.
                 </p>
               ) : null}
 
@@ -498,7 +498,7 @@ export function AffaireOrderDraftsPanel({
                 Aucune ligne bloquante
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                La selection fournisseur actuelle suffit pour preparer les brouillons de commandes.
+                La sélection fournisseur actuelle suffit pour préparer les brouillons de commandes.
               </p>
             </article>
           )}
@@ -508,7 +508,7 @@ export function AffaireOrderDraftsPanel({
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-slate-800">
-                    Brouillons crees
+                    Brouillons créés
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
                     {creationResult.summary.draftOrdersCreated} brouillon
@@ -523,7 +523,7 @@ export function AffaireOrderDraftsPanel({
                   className="btn btn-secondary btn-sm"
                   onClick={() => void refreshPreparation()}
                 >
-                  Relire la preparation
+                  Relire la préparation
                 </button>
               </div>
 
@@ -570,8 +570,8 @@ export function AffaireOrderDraftsPanel({
                   <p className="mt-1 text-sm text-slate-600">
                     {preparation.summary.supplierGroups} regroupement
                     {preparation.summary.supplierGroups > 1 ? "s" : ""} fournisseur
-                    {preparation.summary.supplierGroups > 1 ? "s" : ""} sont prets a etre
-                    confirmes.
+                    {preparation.summary.supplierGroups > 1 ? "s" : ""} sont prêts à être
+                    confirmés.
                   </p>
                 </div>
                 <Badge variant="info" size="sm">
@@ -651,7 +651,7 @@ export function AffaireOrderDraftsPanel({
                   className="min-h-24 rounded-xl border border-border-strong bg-surface px-3 py-2"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Exemple: livraison a planifier avec le chef de chantier."
+                  placeholder="Exemple: livraison à planifier avec le chef de chantier."
                 />
               </label>
 
@@ -686,7 +686,7 @@ export function AffaireOrderDraftsPanel({
                           </div>
                         </div>
                         <Badge variant={isSelected ? "info" : "neutral"} size="sm">
-                          {isSelected ? "Inclus" : "Hors creation"}
+                          {isSelected ? "Inclus" : "Hors création"}
                         </Badge>
                       </div>
 
@@ -736,9 +736,9 @@ export function AffaireOrderDraftsPanel({
                   disabled={!canCreateDrafts}
                 >
                   {isCreating
-                    ? "Creation des brouillons..."
+                    ? "Création des brouillons..."
                     : selectedGroups.length > 1
-                      ? `Creer ${selectedGroups.length} brouillons`
+                      ? `Créer ${selectedGroups.length} brouillons`
                       : "Créer le brouillon"}
                 </button>
                 <button
@@ -754,7 +754,7 @@ export function AffaireOrderDraftsPanel({
           ) : (
             <article className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-4">
               <p className="text-sm font-semibold text-slate-800">
-                Aucun brouillon a creer pour l&apos;instant
+                Aucun brouillon à créer pour l&apos;instant
               </p>
               <p className="mt-1 text-sm text-slate-600">
                 Tant qu&apos;aucun regroupement fournisseur stable n&apos;est propose, la

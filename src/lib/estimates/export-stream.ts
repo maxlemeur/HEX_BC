@@ -296,7 +296,7 @@ async function writeWorkbook(input: {
   estimateSheet.columns = [
     { header: "Poste", key: "poste", width: 12 },
     { header: "Désignation", key: "designation", width: 44 },
-    { header: "Unite", key: "unite", width: 20 },
+    { header: "Unité", key: "unite", width: 20 },
     { header: "Quantité", key: "quantite", width: 12 },
     { header: "PU HT", key: "pu_ht", width: 14 },
     { header: "Total HT", key: "total_ht", width: 14 },
@@ -372,13 +372,13 @@ async function writeWorkbook(input: {
             : []),
           [
             input.payload.totals.roundingAdjustmentCents !== 0
-              ? "Montant a payer"
+              ? "Montant à payer"
               : "Total TTC",
             toEuroAmount(input.payload.totals.roundedTtcCents) ?? 0,
           ],
         ] as Array<[string, string | number]>)),
     [
-      "Parametres",
+      "Paramètres",
       `Marge ${input.payload.totals.appliedMarginMultiplier.toFixed(2)} / Remise ${toEuroAmount(input.payload.totals.discountCents)?.toFixed(2) ?? "0.00"} €`,
     ],
   ];

@@ -51,7 +51,7 @@ function makeTable(overrides: Partial<TakeoffTable> = {}): TakeoffTable {
   return {
     page: 1,
     title: "Schedule Finitions R+1",
-    headers: ["Designation", "Quantité", "Unite"],
+    headers: ["Designation", "Quantité", "Unité"],
     rows: [
       { row_index: 0, cells: ["Carrelage 30x30", "25.5", "m2"] },
       { row_index: 1, cells: ["Parquet chene", "18.0", "m2"] },
@@ -141,7 +141,7 @@ describe("TakeoffTableView", () => {
       <TakeoffTableView
         tables={[
           makeTable({
-            headers: ["Designation", "Unite", "Quantité"],
+            headers: ["Designation", "Unité", "Quantité"],
             rows: [{ row_index: 0, cells: ["Carrelage 30x30", "m2", "25.5"] }],
           }),
         ]}
@@ -170,7 +170,7 @@ describe("TakeoffTableView", () => {
       <TakeoffTableView
         tables={[
           makeTable({
-            headers: ["Designation", "Unite", "Prix"],
+            headers: ["Designation", "Unité", "Prix"],
             rows: [{ row_index: 0, cells: ["Carrelage 30x30", "m2", "18.5"] }],
           }),
         ]}
@@ -181,7 +181,7 @@ describe("TakeoffTableView", () => {
       />
     );
 
-    const unitInput = screen.getByLabelText("Unite");
+    const unitInput = screen.getByLabelText("Unité");
     fireEvent.change(unitInput, { target: { value: "m3" } });
     fireEvent.blur(unitInput);
 

@@ -219,17 +219,17 @@ export function useEstimateApprovalActions({
             title:
               status === "corrected"
                 ? "Item marque comme corrige"
-                : "Item marque a discuter",
-            description: "La checklist de correction a ete mise a jour.",
+                : "Item marque à discuter",
+            description: "La checklist de correction a été mise à jour.",
           });
           router.refresh();
         } catch (error) {
           toast.error({
-            title: "Mise a jour impossible",
+            title: "Mise à jour impossible",
             description:
               error instanceof Error
                 ? error.message
-                : "Impossible de mettre a jour cet item.",
+                : "Impossible de mettre à jour cet item.",
           });
         }
       })();
@@ -262,7 +262,7 @@ export function useEstimateApprovalActions({
             description:
               selectedReviewer
                 ? `Dossier transmis a ${selectedReviewer.fullName}.`
-                : "Dossier transmis a la validation.",
+                : "Dossier transmis à la validation.",
           });
           setShowSubmitPanel(false);
           setSubmissionMessage("");

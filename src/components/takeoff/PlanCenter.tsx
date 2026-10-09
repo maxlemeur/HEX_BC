@@ -72,7 +72,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
       } catch (err) {
         const msg = isTakeoffApiError(err)
           ? err.message
-          : "Impossible de creer le jeu de plans.";
+          : "Impossible de créer le jeu de plans.";
         setCreateError(msg);
       } finally {
         setCreating(false);
@@ -128,7 +128,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
             setModalOpen(true);
           }}
         >
-          Creer un jeu de plans
+          Créer un jeu de plans
         </Button>
       </div>
 
@@ -154,7 +154,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
             className="mt-2 text-sm font-semibold underline"
             onClick={() => mutate()}
           >
-            Reessayer
+            Réessayer
           </button>
         </div>
       )}
@@ -168,7 +168,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
           </h3>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Un jeu de plans regroupe vos fichiers PDF pour une extraction.
-            Commencez par en creer un.
+            Commencez par en créer un.
           </p>
           <Button
             className="mt-6"
@@ -178,7 +178,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
               setModalOpen(true);
             }}
           >
-            Creer mon premier jeu de plans
+            Créer mon premier jeu de plans
           </Button>
         </div>
       )}

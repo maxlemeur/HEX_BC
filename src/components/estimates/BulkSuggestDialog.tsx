@@ -69,7 +69,7 @@ export function BulkSuggestDialog({
               Application en masse des suggestions
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selectionnez les lignes a mettre a jour ({selectedCount}/{rows.length}).
+              Sélectionnez les lignes à mettre à jour ({selectedCount}/{rows.length}).
             </p>
           </div>
           <button
@@ -97,7 +97,7 @@ export function BulkSuggestDialog({
                       checked={allSelected}
                       onChange={(event) => onToggleAll(event.target.checked)}
                       disabled={isApplying}
-                      aria-label="Selectionner toutes les suggestions"
+                      aria-label="Sélectionner toutes les suggestions"
                     />
                   </th>
                   <th>Ligne</th>
@@ -118,7 +118,7 @@ export function BulkSuggestDialog({
                             onToggleItem(row.itemId, event.target.checked)
                           }
                           disabled={isApplying}
-                          aria-label={`Selectionner la ligne ${row.itemTitle}`}
+                          aria-label={`Sélectionner la ligne ${row.itemTitle}`}
                         />
                       </td>
                       <td>

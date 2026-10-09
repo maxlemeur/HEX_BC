@@ -33,7 +33,7 @@ function statusLabel(status: EstimateImportSourceVersion["status"]) {
     case "draft":
       return "Brouillon";
     case "sent":
-      return "Envoye";
+      return "Envoyé";
     case "accepted":
       return "Accepte";
     case "archived":
@@ -201,7 +201,7 @@ export function ImportFromEstimateDialog({
               Importer depuis un autre devis
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Etape {step} / 3
+              Étape {step} / 3
             </p>
           </div>
           <button
@@ -272,7 +272,7 @@ export function ImportFromEstimateDialog({
               <>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm text-slate-600">
-                    Selectionnez une ou plusieurs sections a importer.
+                    Sélectionnez une ou plusieurs sections à importer.
                   </p>
                   <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
                     <input
@@ -320,7 +320,7 @@ export function ImportFromEstimateDialog({
                   ))}
                 </div>
                 <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
-                  Selection: {selectedSummary.sectionCount} section(s),{" "}
+                  Sélection: {selectedSummary.sectionCount} section(s),{" "}
                   {selectedSummary.lineCount} ligne(s), total HT{" "}
                   {formatEUR(selectedSummary.totalHtCents)}.
                 </div>
@@ -333,7 +333,7 @@ export function ImportFromEstimateDialog({
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
               <p className="font-medium text-slate-800">
-                Recapitulatif
+                Récapitulatif
               </p>
               <p className="mt-1">
                 Source: {selectedSource ? formatSourceLabel(selectedSource) : "-"}
@@ -376,7 +376,7 @@ export function ImportFromEstimateDialog({
                 <span>
                   <span className="font-medium text-slate-800">Merge</span>
                   <span className="block text-slate-600">
-                    Ajoute les lignes dans la section existante de meme titre, ou
+                    Ajoute les lignes dans la section existante de même titre, ou
                     cree la section si absente.
                   </span>
                 </span>

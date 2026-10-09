@@ -284,7 +284,7 @@ describe("hasBlockingTakeoffDpgfExceptions", () => {
           proofs: [{ type: "dpgf", label: "DPGF", value: "10 m2" }],
           applied_decision: {
             decision: "keep_dpgf",
-            reason: "Quantite DPGF confirmee",
+            reason: "Quantité DPGF confirmee",
             source: "current",
             carried_over_from_version_id: null,
             carried_over_from_version_number: null,

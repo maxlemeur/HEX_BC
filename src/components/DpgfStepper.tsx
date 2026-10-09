@@ -23,7 +23,7 @@ export function DpgfStepper({ importId }: { importId?: string | null }) {
   const currentIndex = STEPS.findIndex((s) => pathname?.startsWith(s.href));
 
   return (
-    <nav aria-label="Etapes du flux DPGF" className="mb-6">
+    <nav aria-label="Étapes du flux DPGF" className="mb-6">
       <ol className="flex items-center gap-0">
         {STEPS.map((step, index) => {
           const isActive = index === currentIndex;

@@ -98,7 +98,7 @@ describe("assembly-only weak signal mode", () => {
         ],
         facts: ["Ouvrage disponible: Electricite"],
         hypotheses: [],
-        inferences: ["Regroupement propose a partir du catalogue d'ouvrages."],
+        inferences: ["Regroupement propose à partir du catalogue d'ouvrages."],
         children: [],
       },
     ]);
@@ -109,10 +109,10 @@ describe("assembly-only weak signal mode", () => {
     });
     expect(result.confidence).toBeLessThanOrEqual(0.49);
     expect(result.hypotheses).toContain(
-      "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, a confirmer humainement."
+      "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, à confirmer humainement."
     );
     expect(result.inferences).toContain(
-      "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview."
+      "Aucune source métier forte ne rend ce lot defendable par défaut dans cette preview."
     );
   });
 
@@ -139,7 +139,7 @@ describe("assembly-only weak signal mode", () => {
         ],
         facts: ["Ouvrage disponible: Electricite"],
         hypotheses: [],
-        inferences: ["Regroupement propose a partir du catalogue d'ouvrages."],
+        inferences: ["Regroupement propose à partir du catalogue d'ouvrages."],
         children: [],
       },
     ]);
@@ -1201,7 +1201,7 @@ describe("applyEstimateStructureDraft", () => {
       })
     ).rejects.toMatchObject({
       message:
-        "La cible de fusion selectionnee n'est pas compatible avec le parent final.",
+        "La cible de fusion sélectionnée n'est pas compatible avec le parent final.",
     });
 
     expect(rpc).not.toHaveBeenCalled();

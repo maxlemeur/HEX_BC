@@ -29,7 +29,7 @@ function compactRecord<T extends Record<string, unknown>>(payload: T): T {
 async function getAdminClient() {
   const { supabase, userId, isTenantAdmin } = await getAuthenticatedTenantContext();
   if (!isTenantAdmin) {
-    throw forbidden("La gestion du catalogue est reservee aux administrateurs.");
+    throw forbidden("La gestion du catalogue est réservée aux administrateurs.");
   }
   return { supabase, userId };
 }
@@ -60,7 +60,7 @@ export async function createProduct(input: CreateProductInput) {
     if (error.code === "23505") {
       throw conflict("Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.");
     }
-    throw mapSupabaseError(error, "Impossible de creer le produit.");
+    throw mapSupabaseError(error, "Impossible de créer le produit.");
   }
 
   return { item: data };
@@ -83,7 +83,7 @@ export async function updateProduct(input: UpdateProductInput) {
   const payload = compactRecord<ProductUpdate>({ ...input.item });
 
   if (Object.keys(payload).length === 0) {
-    throw badRequest("Aucun champ de mise a jour fourni.");
+    throw badRequest("Aucun champ de mise à jour fourni.");
   }
 
   const { data, error } = await supabase
@@ -100,7 +100,7 @@ export async function updateProduct(input: UpdateProductInput) {
     if (error.message.includes("REFERENCE_PRICE_VALIDATION_REQUIRED")) {
       throw conflict("Le prix de référence doit être validé depuis « Examiner le prix ». Une référence validée ne peut pas changer d’unité sans nouvelle validation.");
     }
-    throw mapSupabaseError(error, "Impossible de mettre a jour le produit.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le produit.");
   }
 
   if (!data) {

@@ -103,7 +103,7 @@ describe("takeoff feature flags", () => {
     await expect(assertTakeoffEnabled(TENANT_ID)).rejects.toMatchObject({
       status: 403,
       code: "TAKEOFF_MODULE_DISABLED",
-      message: "Le module Takeoff est desactive pour ce tenant.",
+      message: "Le module Takeoff est désactivé pour ce tenant.",
     });
   });
 

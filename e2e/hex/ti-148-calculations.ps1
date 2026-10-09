@@ -17,11 +17,11 @@ $project = "E2E-HEX-TI148-$stamp"
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-148" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-148" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre 1"
   Add-Line -Session $Session -Designation "Planches bois"
-  Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Materiaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
+  Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Matériaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
 
   Go-ParamsTab -Session $Session
   Invoke-AB $Session "find" "label" "Marge (multiplicateur)" "fill" "1.2"

@@ -339,10 +339,10 @@ describe("AffairesPageClient", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Selectionner les brouillons affiches (1)",
+        name: "Sélectionner les brouillons affichés (1)",
       })
     );
-    expect(screen.getByText("1 affaire selectionnee")).toBeInTheDocument();
+    expect(screen.getByText("1 affaire sélectionnée")).toBeInTheDocument();
 
     rerender(
       <AffairesPageClient
@@ -363,7 +363,7 @@ describe("AffairesPageClient", () => {
       />
     );
 
-    expect(screen.getByText("1 affaire selectionnee")).toBeInTheDocument();
+    expect(screen.getByText("1 affaire sélectionnée")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "1000" }));
 
     await waitFor(() => {
@@ -371,7 +371,7 @@ describe("AffairesPageClient", () => {
         "/dashboard/affaires?size=1000",
         { scroll: false }
       );
-      expect(screen.getByText("0 affaire selectionnee")).toBeInTheDocument();
+      expect(screen.getByText("0 affaire sélectionnée")).toBeInTheDocument();
     });
   });
 

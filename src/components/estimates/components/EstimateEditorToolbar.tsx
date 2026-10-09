@@ -395,7 +395,7 @@ export function LegacyEstimateEditorToolbar({
             onClick={onOpenSettings}
             data-testid="estimate-editor-settings-button"
           >
-            Parametres
+            Paramètres
           </button>
         ) : null}
         <KeyboardShortcutsButton />

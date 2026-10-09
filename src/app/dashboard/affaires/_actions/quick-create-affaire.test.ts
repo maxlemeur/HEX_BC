@@ -394,7 +394,7 @@ describe("quickCreateAffaire", () => {
         mapping: {
           Code: "hex_code",
           Designation: "designation",
-          Quantite: "quantity",
+          Quantité: "quantity",
           PU: "unit_price_ht",
         },
       })
@@ -407,7 +407,7 @@ describe("quickCreateAffaire", () => {
       mapping: {
         Code: "hex_code",
         Designation: "designation",
-        Quantite: "quantity",
+        Quantité: "quantity",
         PU: "unit_price_ht",
       },
       save_template: false,
@@ -501,7 +501,7 @@ describe("quickCreateAffaire", () => {
         projectName: "Affaire conflict",
         importId: IMPORT_ID,
       })
-    ).rejects.toThrow("Cet import est deja lie a une autre affaire.");
+    ).rejects.toThrow("Cet import est déjà lié a une autre affaire.");
 
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -640,6 +640,6 @@ describe("quickCreateAffaire", () => {
       quickCreateAffaire({
         projectName: "Affaire viewer",
       })
-    ).rejects.toThrow("Acces refuse: role non autorise pour cette action.");
+    ).rejects.toThrow("Accès refuse: rôle non autorise pour cette action.");
   });
 });

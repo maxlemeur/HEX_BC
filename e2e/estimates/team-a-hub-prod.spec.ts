@@ -18,7 +18,7 @@ test.describe("Team A hub prod coverage", () => {
       waitUntil: "domcontentloaded",
     });
 
-    await expect(page.getByText("Deposez vos pieces ici")).toBeVisible();
+    await expect(page.getByText("Déposez vos pièces ici")).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Continuer en manuel" }),
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit?entry=manual`);

@@ -169,7 +169,7 @@ JSON.stringify((() => {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-104" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-104" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-EditorTab -Session $Session
 
   Add-Chapter -Session $Session -Title "Chapitre clipboard"
@@ -177,7 +177,7 @@ try {
   $lineCountBefore = Get-LineCount -Session $Session
 
   $clipboardTsv = @(
-    "Designation`tQuantite`tUnite`tPrix unitaire HT (EUR)`tType FO`tK FO`th MO`tK MO`tMajoration MO (%)",
+    "Designation`tQuantité`tUnité`tPrix unitaire HT (EUR)`tType FO`tK FO`th MO`tK MO`tMajoration MO (%)",
     "Porte coupe-feu`t2`tu`t125,50`tAcier`t1,1`t2`t1`t120",
     "Ligne invalide`tabc`tm2`t80`tBois`t1`t1`t1`t100"
   ) -join "`n"

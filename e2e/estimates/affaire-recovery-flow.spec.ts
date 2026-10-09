@@ -369,10 +369,10 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
 
     const plansSection = await openPlansSection(page, projectId);
 
-    await expect(plansSection.getByText("Reprise apres echec partiel")).toBeVisible();
+    await expect(plansSection.getByText("Reprise après échec partiel")).toBeVisible();
     await expect(
       plansSection.getByText(
-        "Les analyses deja acquises restent visibles. Corrigez ou relancez uniquement la reprise en echec."
+        "Les analyses déjà acquises restent visibles. Corrigez ou relancez uniquement la reprise en échec."
       )
     ).toBeVisible();
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
@@ -381,7 +381,7 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     const partialRecoveryHistory = plansSection.locator("ol").first();
     await expect(
       partialRecoveryHistory.locator("li").filter({ hasText: "V2" }).first()
-    ).toContainText("Echec a corriger");
+    ).toContainText("Échec a corriger");
     await expect(
       partialRecoveryHistory.locator("li").filter({ hasText: "V1" }).first()
     ).toContainText("Analyse terminee");
@@ -446,7 +446,7 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     await expect(plansSection.getByText("Reprise en attente")).toBeVisible();
     await expect(
       plansSection.getByText(
-        "Les resultats deja acquis restent disponibles pendant l'attente. Revenez ici pour suivre ou relancer seulement ce qui manque."
+        "Les résultats déjà acquis restent disponibles pendant l'attente. Revenez ici pour suivre ou relancer seulement ce qui manque."
       )
     ).toBeVisible();
     await expect(plansSection.getByText("1 acquis")).toBeVisible();

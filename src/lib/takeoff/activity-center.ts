@@ -239,7 +239,7 @@ async function listMatchingJobs(
 
     if (error) {
       throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de charger les jobs du centre d'activite."),
+        mapSupabaseError(error, "Impossible de charger les jobs du centre d'activité."),
         { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
       );
     }

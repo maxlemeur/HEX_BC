@@ -138,7 +138,7 @@ describe("POST /api/portal/[token]/reject", () => {
     const res = await POST(makeRequest({}), makeParams());
     expect(res.status).toBe(409);
     const json = await res.json();
-    expect(json.error).toMatch(/deja.*traite/i);
+    expect(json.error).toMatch(/déjà.*traité/i);
   });
 
   it("returns 404 for expired token", async () => {

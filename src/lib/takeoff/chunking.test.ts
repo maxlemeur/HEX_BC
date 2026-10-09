@@ -63,7 +63,7 @@ describe("takeoff chunking", () => {
         chunkSizePages: 8,
         overlapPages: 8,
       })
-    ).toThrow("chunk_overlap_pages doit etre strictement inferieur a chunk_size_pages.");
+    ).toThrow("chunk_overlap_pages doit être strictement inférieur a chunk_size_pages.");
   });
 
   it("reads page counts and creates bounded sub-PDF chunks", async () => {

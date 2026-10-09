@@ -39,7 +39,7 @@ export function ImportStep({
   return (
     <div className="grid gap-6">
       <div>
-        <span className="form-label">Mode de creation</span>
+        <span className="form-label">Mode de création</span>
         <div className="mt-2 flex flex-wrap gap-2">
           <button
             type="button"
@@ -85,7 +85,7 @@ export function ImportStep({
         </div>
         {templateModeUnavailable && (
           <p className="mt-2 text-xs text-muted-foreground">
-            Aucun modele disponible actuellement. Creation en mode Nouveau (vide).
+            Aucun modèle disponible actuellement. Création en mode Nouveau (vide).
           </p>
         )}
       </div>
@@ -93,7 +93,7 @@ export function ImportStep({
       {data.creationMode === "template" && (
         <div>
           <label className="form-label" htmlFor="wiz-template-id">
-            Template (10 plus recents)
+            Template (10 plus récents)
           </label>
           <select
             id="wiz-template-id"
@@ -137,12 +137,12 @@ export function ImportStep({
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           {projectId
-            ? "Si une source DPGF est liee a cette affaire, vous pouvez pre-remplir automatiquement la version."
-            : "Le pre-remplissage DPGF source est disponible depuis une affaire existante liee a un import DPGF."}
+            ? "Si une source DPGF est liée à cette affaire, vous pouvez pré-remplir automatiquement la version."
+            : "Le pre-remplissage DPGF source est disponible depuis une affaire existante liée a un import DPGF."}
         </p>
         {projectId && isLoadingLinkedDpgfSource ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            Verification de la source DPGF liee...
+            Vérification de la source DPGF liée...
           </p>
         ) : null}
         {projectId && linkedDpgfSourceError ? (
@@ -150,7 +150,7 @@ export function ImportStep({
         ) : null}
         {projectId && hasLinkedDpgfSource && linkedDpgfSource ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            Source detectee: {linkedDpgfSource.filename} ({linkedDpgfSource.mappedRowCount} ligne(s) importable(s)).
+            Source détectée: {linkedDpgfSource.filename} ({linkedDpgfSource.mappedRowCount} ligne(s) importable(s)).
           </p>
         ) : null}
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -179,13 +179,13 @@ export function ImportStep({
             onClick={() => updateField("dpgfImportMode", "source")}
             disabled={!hasLinkedDpgfSource || isLoadingLinkedDpgfSource}
           >
-            DPGF source a importer
+            DPGF source à importer
           </button>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
           {data.dpgfImportMode === "source"
-            ? "La version sera creee avec les lignes du DPGF source lie."
-            : "Aucun pre-remplissage DPGF source a la creation."}
+            ? "La version sera créée avec les lignes du DPGF source lie."
+            : "Aucun pre-remplissage DPGF source à la création."}
         </p>
       </div>
 
@@ -246,7 +246,7 @@ export function ImportStep({
             <dt className="text-muted-foreground">Import DPGF</dt>
             <dd className="font-medium">
               {data.dpgfImportMode === "source"
-                ? "Source DPGF a importer apres creation"
+                ? "Source DPGF à importer après création"
                 : "Aucun import au demarrage"}
             </dd>
           </div>

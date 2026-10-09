@@ -396,13 +396,13 @@ describe("bulk-suggest", () => {
     expect(preview[0]?.changes).toEqual([
       {
         field: "description",
-        label: "Unite",
+        label: "Unité",
         currentDisplay: "-",
         proposedDisplay: "u",
       },
       {
         field: "category_id",
-        label: "Categorie",
+        label: "Catégorie",
         currentDisplay: "-",
         proposedDisplay: "Menuiserie",
       },

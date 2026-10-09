@@ -229,7 +229,7 @@ describe("EstimateApprovalActions", () => {
 
     await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
 
-    const takeoffLinks = screen.getAllByRole("link", { name: "Ouvrir Plans & metres" });
+    const takeoffLinks = screen.getAllByRole("link", { name: "Ouvrir Plans & métrés" });
     expect(takeoffLinks).toHaveLength(2);
     expect(takeoffLinks[0]).toHaveAttribute("href", "/dashboard/affaires/project-1/takeoff");
     expect(

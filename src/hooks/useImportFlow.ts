@@ -278,7 +278,7 @@ async function postWorkerImport(
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, "Creation de l'import impossible."));
+    throw new Error(await extractErrorMessage(response, "Création de l'import impossible."));
   }
 
   return extractCreatedImportId(response);
@@ -304,7 +304,7 @@ async function postTabularPdfReview(file: File): Promise<TabularPdfReviewPayload
 
   const payload = (await response.json()) as unknown;
   if (!payload || typeof payload !== "object") {
-    throw new Error("Reponse invalide lors de l'analyse du PDF tabulaire.");
+    throw new Error("Réponse invalide lors de l'analyse du PDF tabulaire.");
   }
 
   const data =
@@ -312,7 +312,7 @@ async function postTabularPdfReview(file: File): Promise<TabularPdfReviewPayload
     (payload as TabularPdfReviewPayload);
 
   if (!data || typeof data !== "object" || !Array.isArray(data.tables)) {
-    throw new Error("Reponse invalide lors de l'analyse du PDF tabulaire.");
+    throw new Error("Réponse invalide lors de l'analyse du PDF tabulaire.");
   }
 
   return data;
@@ -355,7 +355,7 @@ async function postReviewedPdfImport(input: {
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, "Creation de l'import PDF impossible."));
+    throw new Error(await extractErrorMessage(response, "Création de l'import PDF impossible."));
   }
 
   return extractCreatedImportId(response);
@@ -417,7 +417,7 @@ async function postServerFallback(
             resolve(null);
           }
         } else {
-          let message = `Creation de l'import impossible. (HTTP ${xhr.status})`;
+          let message = `Création de l'import impossible. (HTTP ${xhr.status})`;
           try {
             const body = JSON.parse(xhr.responseText) as Record<string, unknown>;
             message = coerceString(body.error) ?? coerceString(body.message) ?? coerceString(body.detail) ?? message;
@@ -439,7 +439,7 @@ async function postServerFallback(
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, "Creation de l'import impossible."));
+    throw new Error(await extractErrorMessage(response, "Création de l'import impossible."));
   }
 
   return extractCreatedImportId(response);
@@ -535,7 +535,7 @@ export function useImportFlow(options?: UseImportFlowOptions) {
               setUploadProgress
             );
             setModeMessage(
-              "Fichier envoye au serveur pour traitement."
+              "Fichier envoyé au serveur pour traitement."
             );
             setLastMode("server");
           }
@@ -548,7 +548,7 @@ export function useImportFlow(options?: UseImportFlowOptions) {
             setUploadProgress
           );
           setModeMessage(
-            "Fichier volumineux, envoye au serveur pour traitement."
+            "Fichier volumineux, envoyé au serveur pour traitement."
           );
           setLastMode("server");
         }

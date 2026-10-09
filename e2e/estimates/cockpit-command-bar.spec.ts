@@ -356,17 +356,17 @@ test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {
 
     await page.goto(`/dashboard/affaires/${projectId}`);
     await expect(page.locator(".cockpit-command-strip")).toBeVisible();
-    await clickCockpitAction(page, "Preparer la validation");
+    await clickCockpitAction(page, "Préparer la validation");
 
     const inlinePreviewText = await readPreviewText(page);
-    expect(inlinePreviewText).toContain("Preparer la validation");
+    expect(inlinePreviewText).toContain("Préparer la validation");
     expect(inlinePreviewText).toContain(
       "Soumettre le chiffrage pour validation par la direction.",
     );
     await closePreview(page);
 
     const palette = await openCommandPalette(page);
-    await palette.getByRole("option", { name: /Preparer la validation/i }).click();
+    await palette.getByRole("option", { name: /Préparer la validation/i }).click();
 
     const palettePreviewText = await readPreviewText(page);
     expect(palettePreviewText).toBe(inlinePreviewText);

@@ -166,7 +166,7 @@ function parseRateOrThrow(value: number): number {
   const parsed = rateSchema.safeParse(value);
 
   if (!parsed.success) {
-    throw badRequest("rate invalide. Doit etre > 0.");
+    throw badRequest("rate invalide. Doit être > 0.");
   }
 
   return parsed.data;
@@ -239,11 +239,11 @@ async function getTenantMembershipOrThrow(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier le tenant courant.");
+    throw mapSupabaseError(error, "Impossible de vérifier le tenant courant.");
   }
 
   if (!data) {
-    throw forbidden("Aucun acces a ce tenant.");
+    throw forbidden("Aucun accès à ce tenant.");
   }
 
   return data as TenantMembershipRow;
@@ -251,7 +251,7 @@ async function getTenantMembershipOrThrow(
 
 function assertTenantAdmin(membership: TenantMembershipRow) {
   if (membership.role === "admin") return;
-  throw forbidden("Acces reserve aux administrateurs du tenant.");
+  throw forbidden("Accès reserve aux administrateurs du tenant.");
 }
 
 export async function getCurrencyRatesActorContext() {
@@ -348,7 +348,7 @@ export async function createCurrencyRateForTenant(
   const toCurrency = parseCurrencyCodeOrThrow(input.toCurrency, "to_currency");
 
   if (fromCurrency === toCurrency) {
-    throw badRequest("from_currency et to_currency doivent etre differents.");
+    throw badRequest("from_currency et to_currency doivent être différents.");
   }
 
   const payload: Database["public"]["Tables"]["currency_rates"]["Insert"] = {
@@ -377,12 +377,12 @@ export async function createCurrencyRateForTenant(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer le taux de change.");
+    throw mapSupabaseError(error, "Impossible de créer le taux de change.");
   }
 
   const parsed = parseCurrencyRateRow(data);
   if (!parsed) {
-    throw badRequest("Impossible de creer le taux de change.");
+    throw badRequest("Impossible de créer le taux de change.");
   }
 
   return parsed;
@@ -433,7 +433,7 @@ export async function updateCurrencyRateForTenant(
   }
 
   if (Object.keys(payload).length === 0) {
-    throw badRequest("Aucun champ a mettre a jour.");
+    throw badRequest("Aucun champ à mettre à jour.");
   }
 
   const { data, error } = await supabase
@@ -445,7 +445,7 @@ export async function updateCurrencyRateForTenant(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le taux de change.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le taux de change.");
   }
 
   const parsed = parseCurrencyRateRow(data);

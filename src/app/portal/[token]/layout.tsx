@@ -5,7 +5,7 @@ import { COMPANY_INFO } from "@/lib/company-info";
 
 export const metadata: Metadata = {
   title: "Devis - Hydro Express",
-  description: "Consultez et gerez votre devis en ligne",
+  description: "Consultez et gérez votre devis en ligne",
 };
 
 export default function PortalLayout({

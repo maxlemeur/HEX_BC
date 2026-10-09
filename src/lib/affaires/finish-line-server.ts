@@ -195,7 +195,7 @@ export const fetchAffaireHubFinishLineSummary = cache(
             ambiguousLinesCount: 0,
             missingPriceLinesCount: 0,
             staleLinesCount: 0,
-            errorMessage: "Impossible d'evaluer la preparation commandes pour le moment.",
+            errorMessage: "Impossible d'evaluer la préparation commandes pour le moment.",
           };
 
     const submissionReadiness = buildAffaireSubmissionReadinessSnapshot({

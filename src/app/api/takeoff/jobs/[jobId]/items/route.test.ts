@@ -426,7 +426,7 @@ describe("PATCH /api/takeoff/jobs/[jobId]/items", () => {
     const { forbidden } = await import("@/lib/estimates/errors");
     vi.mocked(assertTakeoffEnabled).mockRejectedValue(
       forbidden(
-        "Le module Takeoff est desactive pour ce tenant.",
+        "Le module Takeoff est désactivé pour ce tenant.",
         undefined,
         "TAKEOFF_MODULE_DISABLED"
       )

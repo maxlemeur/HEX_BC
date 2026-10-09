@@ -40,7 +40,7 @@ function statusLabel(status: string): string {
     case "completed":
       return "Terminé";
     case "failed":
-      return "Echec";
+      return "Échec";
     default:
       return status;
   }

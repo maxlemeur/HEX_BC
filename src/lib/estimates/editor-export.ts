@@ -415,8 +415,8 @@ export function buildEstimateLineExportRows(input: {
 const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "section_path", header: "Chemin chapitre" },
   { key: "designation", header: "Désignation" },
-  { key: "quality_flags", header: "Flags qualite" },
-  { key: "unit", header: "Unite" },
+  { key: "quality_flags", header: "Flags qualité" },
+  { key: "unit", header: "Unité" },
   { key: "quantity", header: "Quantité" },
   {
     key: "unit_price_ht_cents",
@@ -430,7 +430,7 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "k_fo", header: "K FO" },
   { key: "h_mo", header: "h MO" },
   { key: "h_mo_majoration_pct", header: "Majoration MO (%)" },
-  { key: "labor_role", header: "Role MO" },
+  { key: "labor_role", header: "Rôle MO" },
   { key: "k_mo", header: "K MO" },
   {
     key: "pu_ht_cents",
@@ -457,10 +457,10 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
 const LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[] = [
   ...LINE_EXPORT_COLUMNS,
   { key: "h_mo_atelier", header: "h MO atelier" },
-  { key: "labor_role_atelier", header: "Role MO atelier" },
+  { key: "labor_role_atelier", header: "Rôle MO atelier" },
   { key: "k_mo_atelier", header: "K MO atelier" },
   { key: "h_mo_chantier", header: "h MO chantier" },
-  { key: "labor_role_chantier", header: "Role MO chantier" },
+  { key: "labor_role_chantier", header: "Rôle MO chantier" },
   { key: "k_mo_chantier", header: "K MO chantier" },
 ];
 

@@ -89,7 +89,7 @@ export function SourcesStep({
             </div>
             {isAssemblyOnlyWeakMode ? (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                Contexte pauvre detecte: aucune source metier forte n&apos;alimente la preview.
+                Contexte pauvre detecte: aucune source métier forte n&apos;alimente la preview.
                 Les suggestions issues uniquement des ouvrages sont marquees en faible confiance
                 et ne sont pas preselectionnees.
               </div>

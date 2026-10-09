@@ -73,7 +73,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
     });
 
     expect(snapshot).toMatchObject({
-      title: "Statuts precedents conserves",
+      title: "Statuts précédents conserves",
       latestStatusRaw: "completed",
       acquiredCount: 1,
       waitingCount: 1,

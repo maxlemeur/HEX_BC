@@ -45,7 +45,7 @@ export function useBulkArchiveAffaires({
 
       if (!response.ok || !body?.ok) {
         throw new Error(
-          body?.error?.message ?? "Echec de l'archivage groupe.",
+          body?.error?.message ?? "Échec de l'archivage groupe.",
         );
       }
 
@@ -54,7 +54,7 @@ export function useBulkArchiveAffaires({
       onCompleted(result);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Echec de l'archivage groupe.",
+        error instanceof Error ? error.message : "Échec de l'archivage groupe.",
       );
     } finally {
       setArchiving(false);
@@ -69,7 +69,7 @@ export function useBulkArchiveAffaires({
       ? {
           open: true,
           title: `Archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""}`,
-          message: `Vous allez archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""} selectionnee${targetCount > 1 ? "s" : ""}. Elles disparaitront de la liste active, mais leur historique restera conserve.`,
+          message: `Vous allez archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""} sélectionnée${targetCount > 1 ? "s" : ""}. Elles disparaitront de la liste active, mais leur historique restera conserve.`,
           confirmLabel: archiving
             ? "Archivage..."
             : `Archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""}`,

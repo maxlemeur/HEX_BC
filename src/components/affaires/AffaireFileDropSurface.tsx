@@ -41,6 +41,7 @@ export function AffaireFileDropSurface({
         ref={inputRef}
         type="file"
         className="sr-only"
+        aria-label="Ajouter des pièces à l'affaire"
         accept={ACCEPT}
         multiple
         onChange={(event) => {
@@ -118,9 +119,9 @@ export function AffaireFileDropSurface({
             <UploadIcon strokeWidth="1.5" className="mx-auto mb-2 text-subtle-foreground" aria-hidden="true" size={28} />
             <p className="text-sm font-medium text-foreground-secondary">
               {dragActive
-                ? "Deposez les fichiers ici"
+                ? "Déposez les fichiers ici"
                 : compact
-                  ? "Deposer d'autres fichiers"
+                  ? "Déposer d'autres fichiers"
                   : "Déposez votre dossier d'appel d'offres ici"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">

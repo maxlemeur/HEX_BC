@@ -26,7 +26,7 @@ const MODE_OPTIONS: { value: ReviewMode; label: string; description: string }[] 
   {
     value: "production",
     label: "Production",
-    description: "Table experte avec edition rapide",
+    description: "Table experte avec édition rapide",
   },
   {
     value: "validation",

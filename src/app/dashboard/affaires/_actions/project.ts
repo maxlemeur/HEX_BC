@@ -23,7 +23,7 @@ export type UpdateAffaireProjectMetadataInput = z.infer<
 
 function ensureEngineerOrAdmin(role: string) {
   if (role !== "engineer" && role !== "admin") {
-    throw new Error("Acces refuse: role non autorise pour cette action.");
+    throw new Error("Accès refuse: rôle non autorise pour cette action.");
   }
 }
 
@@ -68,7 +68,7 @@ export async function updateAffaireProjectMetadataAction(
     .maybeSingle();
 
   if (error) {
-    throw new Error("Impossible de mettre a jour les informations affaire.");
+    throw new Error("Impossible de mettre à jour les informations affaire.");
   }
 
   if (!data) {

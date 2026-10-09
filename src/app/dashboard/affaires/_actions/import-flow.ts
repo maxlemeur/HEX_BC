@@ -207,7 +207,7 @@ export async function confirmUnifiedImportFlow(
   const requestedProjectId = parsed.data.projectId ?? null;
 
   if (parsed.data.createEstimate && !requestedProjectId) {
-    throw new Error("projectId est requis pour creer un chiffrage.");
+    throw new Error("projectId est requis pour créer un chiffrage.");
   }
 
   const importRow = await getImportOrThrow({
@@ -223,7 +223,7 @@ export async function confirmUnifiedImportFlow(
     importRow.project_id &&
     importRow.project_id !== requestedProjectId
   ) {
-    throw new Error("Cet import est deja lie a une autre affaire.");
+    throw new Error("Cet import est déjà lié a une autre affaire.");
   }
 
   if (requestedProjectId) {
@@ -292,7 +292,7 @@ export async function confirmUnifiedImportFlow(
     parsed.data.previewSourceVersionId !== versionContext.version_id
   ) {
     throw new Error(
-      "La version source du carry-over takeoff a change. Rechargez la confirmation avant de creer le chiffrage."
+      "La version source du carry-over takeoff a change. Rechargez la confirmation avant de créer le chiffrage."
     );
   }
 
@@ -309,7 +309,7 @@ export async function confirmUnifiedImportFlow(
   );
 
   if (parsed.data.createEstimate && normalizedRows.validLines.length === 0) {
-    throw new Error("Aucune ligne valide a inserer pour creer le chiffrage.");
+    throw new Error("Aucune ligne valide à inserer pour créer le chiffrage.");
   }
 
   if (!parsed.data.createEstimate) {
@@ -331,7 +331,7 @@ export async function confirmUnifiedImportFlow(
 
   const projectId = requestedProjectId;
   if (!projectId) {
-    throw new Error("projectId est requis pour creer un chiffrage.");
+    throw new Error("projectId est requis pour créer un chiffrage.");
   }
 
   const takeoffCarryOverSummary = await loadTakeoffCarryOverSummary({
@@ -366,7 +366,7 @@ export async function confirmUnifiedImportFlow(
       },
     });
   } catch (error) {
-    throw new Error("Impossible de creer la version depuis l'import.", {
+    throw new Error("Impossible de créer la version depuis l'import.", {
       cause: error,
     });
   }

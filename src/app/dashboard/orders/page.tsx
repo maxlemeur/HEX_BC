@@ -174,7 +174,7 @@ const EXPORT_COLUMNS: ExportColumn<PurchaseOrderListRow>[] = [
   { key: "reference", header: "Référence" },
   {
     key: "created_at",
-    header: "Date de creation",
+    header: "Date de création",
     formatter: (value) => formatDate(value as string),
   },
   {
@@ -454,7 +454,7 @@ export default function OrdersPage() {
     try {
       const response = await fetch(`/api/purchase-orders/${orderId}/zip`);
       if (!response.ok) {
-        throw new Error("Erreur lors du telechargement.");
+        throw new Error("Erreur lors du téléchargement.");
       }
 
       const blob = await response.blob();
@@ -486,7 +486,7 @@ export default function OrdersPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Echec de la suppression.");
+        throw new Error(body?.error ?? "Échec de la suppression.");
       }
       setConfirmDeleteOrder(null);
       setOpenMenuId(null);
@@ -834,7 +834,7 @@ export default function OrdersPage() {
                           <ShoppingCartIcon strokeWidth="1.5" aria-hidden="true" size={26} />
                         }
                         title="Aucune commande"
-                        description="Les commandes sont generees depuis un chiffrage accepte."
+                        description="Les commandes sont générées depuis un chiffrage accepte."
                         actionLabel="Voir mes affaires"
                         actionHref="/dashboard/affaires"
                         className="mx-auto max-w-xl"
@@ -877,7 +877,7 @@ export default function OrdersPage() {
                         <DownloadIcon aria-hidden="true" size={16} />
                         {downloadingOrderId === order.id
                           ? "Telechargement..."
-                          : "Telecharger ZIP"}
+                          : "Télécharger ZIP"}
                       </button>
                       <div className="action-menu__section">
                         <span className="action-menu__label">Statut</span>
@@ -1075,7 +1075,7 @@ export default function OrdersPage() {
                                     className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
                                   >
                                     <ExternalLinkIcon aria-hidden="true" className="h-3.5 w-3.5" />
-                                    Gerer
+                                    Gérer
                                   </Link>
                                 </div>
 
@@ -1166,7 +1166,7 @@ export default function OrdersPage() {
                                               disabled={!item.downloadUrl}
                                             >
                                               <EyeIcon aria-hidden="true" className="h-3.5 w-3.5" />
-                                              Apercu
+                                              Aperçu
                                             </button>
                                           )}
                                           <button
@@ -1180,7 +1180,7 @@ export default function OrdersPage() {
                                             disabled={!item.downloadUrl}
                                           >
                                             <DownloadIcon aria-hidden="true" className="h-3.5 w-3.5" />
-                                            Telecharger
+                                            Télécharger
                                           </button>
                                         </div>
                                       </div>

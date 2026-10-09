@@ -41,7 +41,7 @@ export function GeneratedOuvrageFooterBar({
     statusCopy = mutationBlockedMessage;
     statusVariant = "amber";
   } else if (isDiscarded) {
-    statusCopy = "Toutes les propositions ont ete ecartees.";
+    statusCopy = "Toutes les propositions ont été ecartees.";
     statusVariant = "slate";
   } else if (selectedCount === 0) {
     statusCopy =
@@ -54,7 +54,7 @@ export function GeneratedOuvrageFooterBar({
     statusCopy = `${selectedMissingReviewCount} ouvrage(s) selectionne(s) sans sous-detail valide. Validez-les avant insertion.`;
     statusVariant = "amber";
   } else {
-    statusCopy = `${selectedReviewedCount} ouvrage(s) selectionne(s) pret(s) a inserer.`;
+    statusCopy = `${selectedReviewedCount} ouvrage(s) selectionne(s) prêt(s) à inserer.`;
     statusVariant = "green";
   }
 
@@ -101,7 +101,7 @@ export function GeneratedOuvrageFooterBar({
               }
               data-testid="generated-ouvrage-insert-button"
             >
-              Inserer les ouvrages selectionnes
+              Inserer les ouvrages sélectionnés
             </button>
           )}
         </div>

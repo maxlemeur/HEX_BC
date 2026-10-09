@@ -253,7 +253,7 @@ export function BlueprintCreationAnimation({
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              Creation de l&apos;affaire…
+              Création de l&apos;affaire…
             </motion.p>
           ) : (
             <motion.p
@@ -263,7 +263,7 @@ export function BlueprintCreationAnimation({
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
             >
-              Affaire creee !
+              Affaire créée !
             </motion.p>
           )}
         </AnimatePresence>

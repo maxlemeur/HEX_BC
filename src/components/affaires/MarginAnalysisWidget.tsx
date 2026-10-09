@@ -122,7 +122,7 @@ function MarginSectionTable({
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="pb-2 pr-3 font-medium">Lot / Section</th>
-              <th className="pb-2 pr-3 text-right font-medium">Cout</th>
+              <th className="pb-2 pr-3 text-right font-medium">Coût</th>
               <th className="pb-2 pr-3 text-right font-medium">Vente HT</th>
               <th className="pb-2 pr-3 text-right font-medium">Marge EUR</th>
               <th className="pb-2 pr-1 text-right font-medium">Marge %</th>

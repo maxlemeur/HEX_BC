@@ -54,7 +54,7 @@ const CONFIDENCE_VARIANTS = {
 } as const;
 
 const CONFIDENCE_LABELS = {
-  high: "Confiance elevee",
+  high: "Confiance élevée",
   medium: "Confiance moyenne",
   low: "Confiance faible",
 } as const;
@@ -70,7 +70,7 @@ const RISK_VARIANTS: Record<
 
 function formatConfidenceScore(score: number | null | undefined) {
   if (typeof score !== "number") {
-    return "Score non renseigne";
+    return "Score non renseigné";
   }
   return `${Math.round(score * 100)}%`;
 }
@@ -101,7 +101,7 @@ function formatImpactLabel(input: {
   if (typeof input.currentAmountTtc === "number") {
     parts.push(`TTC ${formatEUR(input.currentAmountTtc)}`);
   }
-  return parts.length > 0 ? parts.join(" · ") : "Impact montant non renseigne";
+  return parts.length > 0 ? parts.join(" · ") : "Impact montant non renseigné";
 }
 
 function formatMarginPercent(bp: number) {
@@ -137,7 +137,7 @@ function formatMarginLabel(input: {
     return `${formatMarginPercent(input.compareMarginBp)}%`;
   }
 
-  return "Impact marge non renseigne";
+  return "Impact marge non renseigné";
 }
 
 function hasMarginImpact(input: {
@@ -157,7 +157,7 @@ function formatExplanationError(error: unknown, detail: boolean) {
     return error.message;
   }
   return detail
-    ? "Impossible de charger le detail de l'explication."
+    ? "Impossible de charger le détail de l'explication."
     : "Impossible de charger l'explication.";
 }
 
@@ -214,7 +214,7 @@ function StatementSection({
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-border bg-surface p-4 text-sm text-slate-600">
-          Aucun element pour cette section.
+          Aucun élément pour cette section.
         </div>
       )}
     </section>
@@ -367,7 +367,7 @@ export function EstimateExplanationPanel({
               </Modal.Title>
               <p className="mt-1 text-sm text-slate-600">
                 {kind === "price"
-                  ? "Lecture seule. Aucun prix ne sera applique automatiquement."
+                  ? "Lecture seule. Aucun prix ne sera appliqué automatiquement."
                   : "Lecture seule. Le delta reste purement explicatif."}
               </p>
             </div>
@@ -498,7 +498,7 @@ export function EstimateExplanationPanel({
                   >
                     {explanation.summary_detail
                       ? "Détail chargé"
-                      : "Charger le detail"}
+                      : "Charger le détail"}
                   </Button>
                   {detailState.status === "error" ? (
                     <p className="mt-2 text-sm text-rose-700">{detailState.message}</p>
@@ -536,7 +536,7 @@ export function EstimateExplanationPanel({
               ) : null}
 
               <StatementSection title="Faits" entries={explanation.facts} />
-              <StatementSection title="Hypotheses" entries={explanation.hypotheses} />
+              <StatementSection title="Hypothèses" entries={explanation.hypotheses} />
               <StatementSection title="Inferences" entries={explanation.inferences} />
 
               <section className="rounded-3xl border border-border bg-surface p-5">

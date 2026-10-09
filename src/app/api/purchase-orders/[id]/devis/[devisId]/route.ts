@@ -102,7 +102,7 @@ export async function PATCH(
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
     return NextResponse.json(
-      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
       { status: 403 }
     );
   }
@@ -176,7 +176,7 @@ export async function DELETE(
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
     return NextResponse.json(
-      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
       { status: 403 }
     );
   }

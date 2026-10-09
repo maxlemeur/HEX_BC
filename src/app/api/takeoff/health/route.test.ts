@@ -69,7 +69,7 @@ describe("takeoff health route", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
     vi.mocked(assertTakeoffEnabled).mockRejectedValue(
       forbidden(
-        "Le module Takeoff est desactive pour ce tenant.",
+        "Le module Takeoff est désactivé pour ce tenant.",
         undefined,
         "TAKEOFF_MODULE_DISABLED"
       )

@@ -111,7 +111,7 @@ export function EstimateSuggestionRulesManager({
     const keywords = normalizeKeywords(newKeywords);
 
     if (!trimmedName) {
-      setFormError("Le nom de la regle est obligatoire.");
+      setFormError("Le nom de la règle est obligatoire.");
       return;
     }
 
@@ -212,8 +212,8 @@ export function EstimateSuggestionRulesManager({
             Base de chiffrage
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Definissez des regles pour suggerer Type FO, unite, coefficients et
-            role MO.
+            Definissez des règles pour suggerer Type FO, unité, coefficients et
+            rôle MO.
           </p>
         </div>
       </div>
@@ -228,7 +228,7 @@ export function EstimateSuggestionRulesManager({
       <div className="estimate-role-form mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1.4fr_1.6fr_1fr_1fr_1fr_1fr_1fr_110px_auto]">
         <div>
           <label className="form-label" htmlFor="rule-name">
-            Nom de regle
+            Nom de règle
           </label>
           <input
             id="rule-name"
@@ -252,7 +252,7 @@ export function EstimateSuggestionRulesManager({
         </div>
         <div>
           <label className="form-label" htmlFor="rule-unit">
-            Unite
+            Unité
           </label>
           <input
             id="rule-unit"
@@ -312,7 +312,7 @@ export function EstimateSuggestionRulesManager({
         </div>
         <div>
           <label className="form-label" htmlFor="rule-role">
-            Role MO
+            Rôle MO
           </label>
           <select
             id="rule-role"
@@ -331,7 +331,7 @@ export function EstimateSuggestionRulesManager({
         </div>
         <div>
           <label className="form-label" htmlFor="rule-position">
-            Priorite
+            Priorité
           </label>
           <input
             id="rule-position"
@@ -363,14 +363,14 @@ export function EstimateSuggestionRulesManager({
         <table className="data-table">
           <thead>
             <tr>
-              <th>Regle</th>
+              <th>Règle</th>
               <th>Mots-cles</th>
-              <th>Unite</th>
+              <th>Unité</th>
               <th>Type FO</th>
               <th>K FO</th>
               <th>K MO</th>
-              <th>Role MO</th>
-              <th>Priorite</th>
+              <th>Rôle MO</th>
+              <th>Priorité</th>
               <th>Actif</th>
             </tr>
           </thead>
@@ -379,7 +379,7 @@ export function EstimateSuggestionRulesManager({
               <tr>
                 <td colSpan={9}>
                   <div className="text-sm text-muted-foreground">
-                    Aucune regle definie.
+                    Aucune règle définie.
                   </div>
                 </td>
               </tr>

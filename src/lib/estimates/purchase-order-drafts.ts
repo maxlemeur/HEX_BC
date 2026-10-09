@@ -513,7 +513,7 @@ export async function createEstimatePurchaseOrderDrafts(
   input.groups.forEach((group) => {
     const preparedGroup = groupsBySupplierId.get(group.supplier_id);
     if (!preparedGroup) {
-      throw conflict("Le groupe fournisseur n'est plus preparable dans cet etat.", {
+      throw conflict("Le groupe fournisseur n'est plus preparable dans cet état.", {
         supplier_id: group.supplier_id,
       }, "ORDER_DRAFT_PREPARATION_STALE");
     }
@@ -529,7 +529,7 @@ export async function createEstimatePurchaseOrderDrafts(
 
     group.item_ids.forEach((itemId) => {
       if (requestedItemIds.has(itemId)) {
-        throw badRequest("Une ligne ne peut etre commandee qu'une seule fois par requete.", {
+        throw badRequest("Une ligne ne peut être commandee qu'une seule fois par requête.", {
           item_id: itemId,
         });
       }
@@ -566,7 +566,7 @@ export async function createEstimatePurchaseOrderDrafts(
     for (const group of input.groups) {
       const preparedGroup = groupsBySupplierId.get(group.supplier_id);
       if (!preparedGroup) {
-        throw conflict("Le groupe fournisseur n'est plus preparable dans cet etat.", {
+        throw conflict("Le groupe fournisseur n'est plus preparable dans cet état.", {
           supplier_id: group.supplier_id,
         }, "ORDER_DRAFT_PREPARATION_STALE");
       }
@@ -625,7 +625,7 @@ export async function createEstimatePurchaseOrderDrafts(
         .eq("id", insertedOrder.id);
 
       if (updateError) {
-        throw mapSupabaseError(updateError, "Impossible de finaliser la reference commande.");
+        throw mapSupabaseError(updateError, "Impossible de finaliser la référence commande.");
       }
 
       const { error: itemsError } = await context.supabase
@@ -669,7 +669,7 @@ export async function createEstimatePurchaseOrderDrafts(
 
       if (rollbackError) {
         throw internalError(
-          "Echec de la creation des brouillons et du rollback automatique.",
+          "Échec de la création des brouillons et du rollback automatique.",
           {
             create_error: error instanceof Error ? error.message : "Erreur inconnue.",
             rollback_error: rollbackError,

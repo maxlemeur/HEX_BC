@@ -109,7 +109,7 @@ describe("POST /api/imports/tabular-pdf/review-file", () => {
 
   it("rejects invalid files before invoking the pdf parser", async () => {
     serverMocks.validateTabularPdfReviewFile.mockRejectedValueOnce(
-      Object.assign(new Error("Le fichier doit etre un PDF."), {
+      Object.assign(new Error("Le fichier doit être un PDF."), {
         status: 415,
       })
     );

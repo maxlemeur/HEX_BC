@@ -45,7 +45,7 @@ export function useBulkDeleteAffaires({
 
       if (!response.ok || !body?.ok) {
         throw new Error(
-          body?.error?.message ?? "Echec de la suppression groupee."
+          body?.error?.message ?? "Échec de la suppression groupee."
         );
       }
 
@@ -56,7 +56,7 @@ export function useBulkDeleteAffaires({
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Echec de la suppression groupee."
+          : "Échec de la suppression groupee."
       );
     } finally {
       setDeleting(false);

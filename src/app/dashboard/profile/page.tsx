@@ -144,7 +144,7 @@ export default function ProfilePage() {
         </div>
         {canManageMemberships ? (
           <Link className="btn btn-secondary" href="/dashboard/memberships">
-            Gerer les membres
+            Gérer les membres
           </Link>
         ) : null}
       </div>
@@ -172,7 +172,7 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Role systeme
+                    Rôle système
                   </p>
                   <p className="mt-1">
                     <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
@@ -221,7 +221,7 @@ export default function ProfilePage() {
 
               <div>
                 <label className="form-label" htmlFor="profile-phone">
-                  Telephone
+                  Téléphone
                 </label>
                 <input
                   id="profile-phone"
@@ -250,7 +250,7 @@ export default function ProfilePage() {
                   onChange={(e) => setWorkEmail(e.target.value)}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Email affiche sur les bons de commande (peut etre different de l&apos;email de connexion)
+                  Email affiche sur les bons de commande (peut être différent de l&apos;email de connexion)
                 </p>
               </div>
             </div>
@@ -258,7 +258,7 @@ export default function ProfilePage() {
             {/* Preview */}
             <div className="mt-6 rounded-xl border border-border bg-surface-subtle p-4">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Apercu sur les bons de commande
+                Aperçu sur les bons de commande
               </p>
               <div className="text-sm">
                 <p className="text-lg font-bold text-primary">
@@ -287,7 +287,7 @@ export default function ProfilePage() {
             {success && (
               <div className="alert alert-success mt-5">
                 <CircleCheckBigIcon aria-hidden="true" size={18} />
-                Profil mis a jour avec succes
+                Profil mis à jour avec succès
               </div>
             )}
 

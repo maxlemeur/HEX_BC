@@ -22,7 +22,7 @@ export function parseListTakeoffJobsQuery(payload: unknown): ListTakeoffJobsQuer
   return parseWithSchema(
     listTakeoffJobsQuerySchema,
     payload,
-    "Parametres de requete invalides."
+    "Paramètres de requête invalides."
   );
 }
 
@@ -32,7 +32,7 @@ export function parseGetTakeoffJobDetailsQuery(
   return parseWithSchema(
     getTakeoffJobDetailsQuerySchema,
     payload,
-    "Parametres de requete invalides."
+    "Paramètres de requête invalides."
   );
 }
 
@@ -42,7 +42,7 @@ export function parseCompareTakeoffJobsQuery(
   return parseWithSchema(
     compareTakeoffJobsQuerySchema,
     payload,
-    "Parametres de comparaison invalides."
+    "Paramètres de comparaison invalides."
   );
 }
 
@@ -52,7 +52,7 @@ export function parseTakeoffDpgfComparisonQuery(
   return parseWithSchema(
     takeoffDpgfComparisonQuerySchema,
     payload,
-    "Parametres de comparaison DPGF invalides."
+    "Paramètres de comparaison DPGF invalides."
   );
 }
 
@@ -62,7 +62,7 @@ export function parseTakeoffLineEvidencePanelQuery(
   return parseWithSchema(
     takeoffLineEvidencePanelQuerySchema,
     payload,
-    "Parametres du panneau preuves invalides."
+    "Paramètres du panneau preuves invalides."
   );
 }
 
@@ -72,7 +72,7 @@ export function parseTakeoffPriceSuggestionQuery(
   return parseWithSchema(
     takeoffPriceSuggestionQuerySchema,
     payload,
-    "Parametres de suggestion de prix invalides."
+    "Paramètres de suggestion de prix invalides."
   );
 }
 
@@ -82,7 +82,7 @@ export function parseTakeoffRiskRadarQuery(
   return parseWithSchema(
     takeoffRiskRadarQuerySchema,
     payload,
-    "Parametres du radar de risque invalides."
+    "Paramètres du radar de risque invalides."
   );
 }
 

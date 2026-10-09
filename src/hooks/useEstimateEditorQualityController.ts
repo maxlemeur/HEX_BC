@@ -372,7 +372,7 @@ export function useEstimateEditorQualityController({
             resolveErrorMessage(
               error instanceof Error
                 ? error.message
-                : "Impossible de mettre a jour l'acceptation de l'outlier."
+                : "Impossible de mettre à jour l'acceptation de l'outlier."
             )
           );
         }

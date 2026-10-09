@@ -71,7 +71,7 @@ describe("EstimateSettingsPanel", () => {
       "Peinture hors perimetre"
     );
 
-    const validityInput = screen.getByLabelText("Validite (jours)");
+    const validityInput = screen.getByLabelText("Validité (jours)");
     await user.clear(validityInput);
     await user.type(validityInput, "45");
     expect((validityInput as HTMLInputElement).value).toBe("45");

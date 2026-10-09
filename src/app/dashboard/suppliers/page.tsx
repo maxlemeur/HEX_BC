@@ -200,7 +200,7 @@ export default function SuppliersPage() {
       const hasLinkedOrders = linkedOrdersCount > 0;
       const isPlural = linkedOrdersCount > 1;
       const confirmationMessage = hasLinkedOrders
-        ? `Ce fournisseur est utilise dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archive et retire de la liste active. Continuer ?`
+        ? `Ce fournisseur est utilisé dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archivé et retire de la liste active. Continuer ?`
         : "Supprimer ce fournisseur ?";
 
       if (!window.confirm(confirmationMessage)) {
@@ -294,7 +294,7 @@ export default function SuppliersPage() {
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     {editingId
-                      ? "Mettez a jour les informations du fournisseur."
+                      ? "Mettez à jour les informations du fournisseur."
                       : "Renseignez les informations du nouveau fournisseur."}
                   </p>
                 </div>
@@ -483,7 +483,7 @@ export default function SuppliersPage() {
                         Enregistrement...
                       </>
                     ) : editingId ? (
-                      "Mettre a jour"
+                      "Mettre à jour"
                     ) : (
                       "Ajouter"
                     )}
@@ -544,12 +544,12 @@ export default function SuppliersPage() {
           ) : displayedSuppliers.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <p className="font-medium text-foreground-secondary">
-                {suppliers.length === 0 ? "Aucun fournisseur" : "Aucun resultat"}
+                {suppliers.length === 0 ? "Aucun fournisseur" : "Aucun résultat"}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {suppliers.length === 0
-                  ? "Ajoutez un fournisseur pour demarrer."
-                  : "Modifiez vos filtres pour voir plus de resultats."}
+                  ? "Ajoutez un fournisseur pour démarrer."
+                  : "Modifiez vos filtres pour voir plus de résultats."}
               </p>
             </div>
           ) : (
@@ -574,7 +574,7 @@ export default function SuppliersPage() {
                   <div className="mt-4 space-y-2 text-sm">
                     <p className="text-slate-600">
                       <span className="font-medium text-slate-800">Contact :</span>{" "}
-                      {supplier.contact_name ?? "Non renseigne"}
+                      {supplier.contact_name ?? "Non renseigné"}
                     </p>
                     {supplier.email ? (
                       <a
@@ -584,7 +584,7 @@ export default function SuppliersPage() {
                         {supplier.email}
                       </a>
                     ) : (
-                      <p className="text-subtle-foreground">Email non renseigne</p>
+                      <p className="text-subtle-foreground">Email non renseigné</p>
                     )}
                     {supplier.phone ? (
                       <a
@@ -657,8 +657,8 @@ export default function SuppliersPage() {
                           <SearchIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
                         </div>
                         <div className="text-center">
-                          <p className="font-medium text-foreground-secondary">Aucun resultat</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de resultats.</p>
+                          <p className="font-medium text-foreground-secondary">Aucun résultat</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de résultats.</p>
                         </div>
                       </div>
                     )}

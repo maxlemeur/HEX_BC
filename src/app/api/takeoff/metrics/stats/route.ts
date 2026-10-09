@@ -30,7 +30,7 @@ async function getActorContext() {
     await getAuthenticatedTenantContext();
 
   if (tenantRole !== TENANT_ADMIN_ROLE) {
-    throw forbidden("Acces reserve aux administrateurs.");
+    throw forbidden("Accès reserve aux administrateurs.");
   }
 
   return {
@@ -130,7 +130,7 @@ export async function GET(request: Request) {
       throw mapSupabaseError(runMetricsResult.error, "Impossible de charger les metriques de run.");
     }
     if (resultsResult.error) {
-      throw mapSupabaseError(resultsResult.error, "Impossible de charger les resultats takeoff.");
+      throw mapSupabaseError(resultsResult.error, "Impossible de charger les résultats takeoff.");
     }
     if (itemsResult.error) {
       throw mapSupabaseError(itemsResult.error, "Impossible de charger les items takeoff.");
@@ -144,7 +144,7 @@ export async function GET(request: Request) {
 
     const auditLogs = await fetchRowsByJobIdBatch<TakeoffMetricsAuditLogRow>({
       jobIds,
-      errorMessage: "Impossible de charger les evenements de correction takeoff.",
+      errorMessage: "Impossible de charger les événements de correction takeoff.",
       fetchBatch: async (batch) =>
         (await supabase
           .from("audit_logs" as never)

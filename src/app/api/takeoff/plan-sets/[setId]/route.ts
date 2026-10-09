@@ -46,7 +46,7 @@ const updatePlanSetSchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Au moins un champ de mise a jour est requis.",
+        message: "Au moins un champ de mise à jour est requis.",
       });
     }
   });
@@ -116,7 +116,7 @@ async function updatePlanSetById(setId: string, input: UpdatePlanSetInput) {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le jeu de plans.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le jeu de plans.");
   }
 
   if (!data) {

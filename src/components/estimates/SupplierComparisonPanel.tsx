@@ -88,7 +88,7 @@ function getAlternativeBadgeLabels(input: {
     labels.push("Meilleur prix");
   }
   if (input.alternative.kind === "most_recent") {
-    labels.push("Prix le plus recent");
+    labels.push("Prix le plus récent");
   }
   if (input.alternative.kind === "preferred_supplier") {
     labels.push("Fournisseur prefere");

@@ -52,12 +52,12 @@ async function fetchFeatureFlags([
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Reponse feature flags invalide.");
+    throw new Error("Réponse feature flags invalide.");
   }
 
   const envelope = payload as ApiEnvelope<FeatureFlagsResponse>;
   if (!envelope.ok || !envelope.data) {
-    throw new Error(resolveErrorMessage(payload, "Reponse feature flags invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse feature flags invalide."));
   }
 
   return envelope.data;

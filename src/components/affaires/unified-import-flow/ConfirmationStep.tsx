@@ -228,7 +228,7 @@ export function ConfirmationStep({
         Confirmation
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Verifiez le resume avant de continuer.
+        Vérifiez le resume avant de continuer.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -257,7 +257,7 @@ export function ConfirmationStep({
                 : "text-slate-800"
             }`}
           >
-            {validation?.is_valid ? "Pret" : "Mapping en cours…"}
+            {validation?.is_valid ? "Prêt" : "Mapping en cours…"}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
@@ -339,7 +339,7 @@ export function ConfirmationStep({
               </div>
               <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  A relancer
+                  À relancer
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
                   {carryOverPreview.actionRequiredJobs}
@@ -359,7 +359,7 @@ export function ConfirmationStep({
               className="btn btn-sm font-medium underline underline-offset-2 hover:no-underline"
               onClick={() => setConfirmError(null)}
             >
-              Reessayer
+              Réessayer
             </button>
           </div>
         </div>
@@ -394,7 +394,7 @@ export function ConfirmationStep({
             {isConfirming ? (
               <span className="flex items-center gap-2">
                 <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Creation…
+                Création…
               </span>
             ) : isCarryOverPreviewLoading ? (
               "Analyse du carry-over…"

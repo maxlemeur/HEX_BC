@@ -118,8 +118,8 @@ export function AssistedReviewPanel({
       toast.success({
         title: `${items.length - skipped} items acceptes`,
         description: skipped > 0
-          ? `${skipped} item(s) "a revoir" non affecte(s).`
-          : "Tous les items ont ete marques comme revus.",
+          ? `${skipped} item(s) "à revoir" non affecte(s).`
+          : "Tous les items ont été marques comme revus.",
       });
     });
   }, [items, markedForReviewIds, onIncludeItems, onReviewedIdsChange, toast]);
@@ -130,8 +130,8 @@ export function AssistedReviewPanel({
         icon={
           <FileTextIcon aria-hidden="true" strokeWidth={1.5} className="h-7 w-7" />
         }
-        title="Aucun item a revoir"
-        description="Le releve ne contient aucun item a valider."
+        title="Aucun item à revoir"
+        description="Le releve ne contient aucun item à valider."
       />
     );
   }
@@ -149,7 +149,7 @@ export function AssistedReviewPanel({
       <div className="border-b border-border bg-surface-subtle px-4 py-2">
         <p className="text-sm text-slate-600">
           Parcourez chaque item et decidez de le conserver ou de l&apos;ecarter.
-          L&apos;IA a detecte {items.length} element{items.length > 1 ? "s" : ""} dans les plans.
+          L&apos;IA a detecte {items.length} élément{items.length > 1 ? "s" : ""} dans les plans.
         </p>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {acceptedCount > 0 && (
@@ -159,10 +159,10 @@ export function AssistedReviewPanel({
             <Badge variant="error" size="sm">{rejectedCount} ecarte{rejectedCount > 1 ? "s" : ""}</Badge>
           )}
           {markedForReviewCount > 0 && (
-            <Badge variant="warning" size="sm">{markedForReviewCount} a revoir</Badge>
+            <Badge variant="warning" size="sm">{markedForReviewCount} à revoir</Badge>
           )}
           {pendingCount > 0 && (
-            <Badge variant="neutral" size="sm">{pendingCount} a examiner</Badge>
+            <Badge variant="neutral" size="sm">{pendingCount} à examiner</Badge>
           )}
         </div>
       </div>
@@ -206,7 +206,7 @@ export function AssistedReviewPanel({
 
       <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-border bg-surface px-4 py-3">
         <p className="text-sm text-slate-600">
-          {acceptedCount} item{acceptedCount !== 1 ? "s" : ""} pret{acceptedCount !== 1 ? "s" : ""} a appliquer
+          {acceptedCount} item{acceptedCount !== 1 ? "s" : ""} prêt{acceptedCount !== 1 ? "s" : ""} à appliquer
         </p>
         <Button
           variant="primary"

@@ -47,7 +47,7 @@ export function SearchableSelect({
   placeholder = "Selectionner...",
   helperText,
   error,
-  emptyMessage = "Aucun resultat.",
+  emptyMessage = "Aucun résultat.",
   className,
   required,
   disabled,

@@ -29,7 +29,7 @@ describe("affaire register continuation contract", () => {
         entryText: "DPGF manquant",
       })
     ).toBe(
-      "Continuation acceptee sans dpgf manquant. Hypothese documentaire a confirmer avant remise."
+      "Continuation acceptée sans dpgf manquant. Hypothèse documentaire à confirmer avant remise."
     );
   });
 
@@ -312,7 +312,7 @@ describe("affaire register continuation contract", () => {
         dueDate: "2026-03-20",
         updatedAt: "2026-03-14T10:05:00.000Z",
         updatedByUserId: "11111111-1111-4111-8111-111111111111",
-        comment: "A relancer avant revue.",
+        comment: "À relancer avant revue.",
       },
     };
 
@@ -330,7 +330,7 @@ describe("affaire register continuation contract", () => {
       dueDate: "2026-03-20",
       updatedAt: "2026-03-14T10:05:00.000Z",
       updatedByUserId: "11111111-1111-4111-8111-111111111111",
-      comment: "A relancer avant revue.",
+      comment: "À relancer avant revue.",
     });
   });
 
@@ -558,7 +558,7 @@ describe("affaire register continuation contract", () => {
     ]);
     expect(exportResult.reviewNote).toContain("Points exportes: 3");
     expect(exportResult.reviewNote).toContain(
-      "Hypotheses: 1 - Pieces manquantes: 0 - Clarifications: 1 - Revalidations: 0 - Exclusions: 1"
+      "Hypothèses: 1 - Pièces manquantes: 0 - Clarifications: 1 - Revalidations: 0 - Exclusions: 1"
     );
     expect(exportResult.reviewNote).toContain(
       "- Exclusion / Affaire test: Variante volontairement exclue du perimetre - source memo-exclusions.pdf"
@@ -566,7 +566,7 @@ describe("affaire register continuation contract", () => {
     expect(exportResult.csvContent).toContain("section;type;severite;statut");
     expect(exportResult.csvContent).toContain("'=Base tarifaire a confirmer");
     expect(exportResult.csvContent).toContain(
-      "Exclusions;Piece manquante;Attention;Rejetee;Variante volontairement exclue du perimetre"
+      "Exclusions;Pièce manquante;Attention;Rejetee;Variante volontairement exclue du perimetre"
     );
     expect(exportResult.csvFilename).toBe("registre-revue-aff-42-hydro-express.csv");
   });

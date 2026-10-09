@@ -49,7 +49,7 @@ try {
 
   $text = Get-PageText -Session $Session
   Assert-Contains -Text $text -Expected "Format BDC detecte" -Message "BDC profile detected"
-  Assert-Contains -Text $text -Expected "Importer les lignes pretes" -Message "Guided import action visible"
+  Assert-Contains -Text $text -Expected "Importer les lignes prêtes" -Message "Guided import action visible"
   Assert-Contains -Text $text -Expected "Ignorees" -Message "Ignored rows summary visible"
   Write-Host "PASS: Guided import with MM_BDC_V1.2.csv works end-to-end"
 } finally {

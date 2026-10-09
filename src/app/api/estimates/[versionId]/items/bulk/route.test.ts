@@ -232,7 +232,7 @@ describe("POST /api/estimates/[versionId]/items/bulk", () => {
 
   it("maps stale errors from server to 409 CONFLICT", async () => {
     vi.mocked(bulkUpdateEstimateItems).mockRejectedValue(
-      conflict("La liste de mise a jour est obsolete.", {
+      conflict("La liste de mise à jour est obsolete.", {
         expected_count: 2,
         updated_count: 1,
       })

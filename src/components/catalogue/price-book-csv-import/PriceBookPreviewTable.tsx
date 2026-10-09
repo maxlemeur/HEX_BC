@@ -10,7 +10,7 @@ export function PriceBookPreviewTable({
   return (
     <section className="dashboard-card overflow-hidden">
       <div className="border-b border-border px-6 py-4">
-        <h3 className="text-sm font-semibold text-slate-800">Apercu - 10 premieres lignes</h3>
+        <h3 className="text-sm font-semibold text-slate-800">Aperçu - 10 premières lignes</h3>
       </div>
 
       <div className="table-scroll">
@@ -30,7 +30,7 @@ export function PriceBookPreviewTable({
             {validation.previewRows.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center text-muted-foreground">
-                  Aucun apercu disponible.
+                  Aucun aperçu disponible.
                 </td>
               </tr>
             ) : (
@@ -52,7 +52,7 @@ export function PriceBookPreviewTable({
                     ? "Valide"
                     : row.status === "ignored"
                       ? "Ignoree (hors perimetre)"
-                      : "A corriger";
+                      : "À corriger";
 
                 return (
                   <tr key={`${row.lineNumber}-${row.values.unit_price}-${row.values.supplier_name}`}>

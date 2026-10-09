@@ -187,7 +187,7 @@ function InlineDiffEntry({
               checked={selected}
               onChange={(event) => onSelectionChange(event.target.checked)}
             />
-            Selection
+            Sélection
           </label>
         ) : null}
       </header>
@@ -274,7 +274,7 @@ function SideBySideDiffEntry({
               checked={selected}
               onChange={(event) => onSelectionChange(event.target.checked)}
             />
-            Selection
+            Sélection
           </label>
         ) : null}
       </header>
@@ -465,7 +465,7 @@ export default function TakeoffDiffView({
               }`}
               onClick={() => setMode("side-by-side")}
             >
-              Cote a cote
+              Cote à côté
             </button>
           </div>
 
@@ -482,7 +482,7 @@ export default function TakeoffDiffView({
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            Selection cherry-pick: {selectedIdsArray.length} item(s)
+            Sélection cherry-pick: {selectedIdsArray.length} item(s)
           </span>
           <button
             type="button"
@@ -492,7 +492,7 @@ export default function TakeoffDiffView({
             }}
             disabled={isApplyingSelection || selectableIds.length === 0}
           >
-            {isApplyingSelection ? "Application..." : "Appliquer la selection"}
+            {isApplyingSelection ? "Application..." : "Appliquer la sélection"}
           </button>
         </div>
 

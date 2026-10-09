@@ -115,7 +115,7 @@ function asRequiredString(row: Record<string, unknown>, key: string) {
   const value = row[key];
   if (typeof value !== "string" || value.trim().length === 0) {
     throw unprocessableEntity(
-      "Donnees estimate_line_evidences invalides en base.",
+      "Données estimate_line_evidences invalides en base.",
       { row, key },
       "VALIDATION_ERROR"
     );
@@ -131,7 +131,7 @@ function asJsonObject(value: unknown): Record<string, unknown> {
 function normalizeEvidenceRow(row: unknown): EvidenceRow {
   if (!isRecord(row)) {
     throw unprocessableEntity(
-      "Donnees estimate_line_evidences invalides en base.",
+      "Données estimate_line_evidences invalides en base.",
       { row },
       "VALIDATION_ERROR"
     );
@@ -397,7 +397,7 @@ function buildDesiredEvidences(input: {
       source_file_name: null,
       source_page: null,
       confidence_score: input.row.confidence_score,
-      note: "La quantite takeoff agregee provient de plusieurs items relies.",
+      note: "La quantité takeoff agregee provient de plusieurs items relies.",
       source_record_table: null,
       source_record_id: null,
       payload: {
@@ -482,12 +482,12 @@ function buildDesiredEvidences(input: {
           : "inference",
       label:
         input.row.applied_decision.decision === "manual_fix"
-          ? "Hypothese manuelle"
+          ? "Hypothèse manuelle"
           : "Arbitrage de revue",
       source_label:
         input.row.applied_decision.source === "carried_over"
-          ? "Decision reprise depuis une version precedente"
-          : "Decision de revue humaine",
+          ? "Décision reprise depuis une version précédente"
+          : "Décision de revue humaine",
       source_file_name: null,
       source_page: null,
       confidence_score: null,

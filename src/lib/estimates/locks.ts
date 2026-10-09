@@ -396,7 +396,7 @@ async function releaseLockInternal(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de liberer le verrou de brouillon.");
+    throw mapSupabaseError(error, "Impossible de libérer le verrou de brouillon.");
   }
 
   const lockRow = data as DraftLockRow | null;

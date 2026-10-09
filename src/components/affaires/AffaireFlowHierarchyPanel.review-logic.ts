@@ -84,7 +84,7 @@ export function getCategoryIllustrationLabel(category: string) {
   if (category === "bpu_dqe") return "BPU/DQE";
   if (category === "emails") return "Courriers";
   if (category === "annexes") return "Annexes";
-  return "A classer";
+  return "À classer";
 }
 
 export function getReviewProbableCategories(
@@ -168,23 +168,23 @@ export function getReviewEvidenceHints(
 ) {
   if (!document) {
     return [
-      "Piece recue",
-      "Aucune categorie certaine",
-      "Verification manuelle requise",
+      "Pièce reçue",
+      "Aucune catégorie certaine",
+      "Vérification manuelle requise",
     ];
   }
 
   const extension = getFileExtension(document.fileName);
   const fileTypeHint =
     extension === "pdf"
-      ? "PDF recu"
+      ? "PDF reçu"
       : SPREADSHEET_EXTENSIONS.has(extension)
-        ? "Tableur recu"
+        ? "Tableur reçu"
         : TEXT_DOCUMENT_EXTENSIONS.has(extension)
-          ? "Document texte recu"
+          ? "Document texte reçu"
           : IMAGE_EXTENSIONS.has(extension)
-            ? "Image recue"
-            : "Piece recue";
+            ? "Image reçue"
+            : "Pièce reçue";
 
   const missingKinds = getMissingReviewKinds(missingPieces);
   const liftedBlockingHint = getReviewProbableCategories(document).find(
@@ -202,7 +202,7 @@ export function getReviewEvidenceHints(
   return dedupe([
     fileTypeHint,
     `${Math.round(document.confidence * 100)}% de confiance`,
-    document.confidence < 0.65 ? "Aucune categorie certaine" : "",
+    document.confidence < 0.65 ? "Aucune catégorie certaine" : "",
     liftHint,
     document.issues[0] ?? "",
   ]).filter(Boolean);
@@ -218,10 +218,10 @@ export function getReviewChoiceSecondaryBadge(input: {
   hasPrimaryCctp: boolean;
 }) {
   if (input.category === "dpgf" && input.hasPrimaryDpgf) {
-    return "Complementaire";
+    return "Complémentaire";
   }
   if (input.category === "cctp" && input.hasPrimaryCctp) {
-    return "Complementaire";
+    return "Complémentaire";
   }
 
   return null;
@@ -234,23 +234,23 @@ export function getReviewChoiceConsequence(input: {
 }) {
   const { category, hasPrimaryDpgf, hasPrimaryCctp } = input;
   if (category === "plans") {
-    return "La piece integrera le centre plans et pourra nourrir le metre.";
+    return "La pièce integrera le centre plans et pourra nourrir le métré.";
   }
   if (category === "cctp") {
     return hasPrimaryCctp
-      ? "La piece sera ajoutee comme CCTP complementaire sans remplacer le principal."
-      : "La piece deviendra le CCTP principal pour le cadrage et le brief metier.";
+      ? "La pièce sera ajoutée comme CCTP complémentaire sans remplacer le principal."
+      : "La pièce deviendra le CCTP principal pour le cadrage et le brief métier.";
   }
   if (category === "dpgf") {
     return hasPrimaryDpgf
-      ? "La piece sera ajoutee comme DPGF complementaire sans remplacer le principal."
-      : "La piece deviendra le DPGF principal pour la structure et le chiffrage.";
+      ? "La pièce sera ajoutée comme DPGF complémentaire sans remplacer le principal."
+      : "La pièce deviendra le DPGF principal pour la structure et le chiffrage.";
   }
   if (category === "bpu_dqe") {
-    return "La piece restera exploitable comme base de prix ou de quantites.";
+    return "La pièce restera exploitable comme base de prix ou de quantités.";
   }
   if (category === "emails") {
-    return "La piece restera disponible comme contexte contractuel secondaire.";
+    return "La pièce restera disponible comme contexte contractuel secondaire.";
   }
-  return "La piece restera disponible comme document secondaire du dossier.";
+  return "La pièce restera disponible comme document secondaire du dossier.";
 }

@@ -61,9 +61,9 @@ function buildSnapshotCopy(input: {
 }) {
   if (input.latestJob.statusRaw === "action_required" && input.acquiredCount > 0) {
     return {
-      title: "Reprise apres echec partiel",
+      title: "Reprise après échec partiel",
       description:
-        "Les analyses deja acquises restent visibles. Corrigez ou relancez uniquement la reprise en echec.",
+        "Les analyses déjà acquises restent visibles. Corrigez ou relancez uniquement la reprise en échec.",
     };
   }
 
@@ -71,7 +71,7 @@ function buildSnapshotCopy(input: {
     return {
       title: "Reprise en attente",
       description:
-        "Les resultats deja acquis restent disponibles pendant l'attente. Revenez ici pour suivre ou relancer seulement ce qui manque.",
+        "Les résultats déjà acquis restent disponibles pendant l'attente. Revenez ici pour suivre ou relancer seulement ce qui manque.",
     };
   }
 
@@ -79,14 +79,14 @@ function buildSnapshotCopy(input: {
     return {
       title: "Reprise avec revue requise",
       description:
-        "Les statuts precedents restent visibles. Reprenez depuis la revue des exceptions sans perdre les analyses deja acquises.",
+        "Les statuts précédents restent visibles. Reprenez depuis la revue des exceptions sans perdre les analyses déjà acquises.",
     };
   }
 
   return {
-    title: "Statuts precedents conserves",
+    title: "Statuts précédents conserves",
     description:
-      "L'affaire garde l'historique recent des analyses pour reprendre au bon endroit sans masquer les sous-resultats deja acquis.",
+      "L'affaire garde l'historique récent des analyses pour reprendre au bon endroit sans masquer les sous-resultats déjà acquis.",
   };
 }
 

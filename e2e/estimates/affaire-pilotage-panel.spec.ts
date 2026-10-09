@@ -766,7 +766,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only`
     );
 
-    await clickWithin(pilotageSection, "button", "Ajouter des pieces");
+    await clickWithin(pilotageSection, "button", "Ajouter des pièces");
     await expect(
       page.getByRole("region", { name: /Intake dossier affaire/i })
     ).toBeVisible();
@@ -791,8 +791,8 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(
       page.getByRole("heading", { name: /Revue des exceptions & preuves/i })
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /Revoir les ecarts DPGF/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Ecarts DPGF", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Revoir les écarts DPGF/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Écarts DPGF", exact: true })).toBeVisible();
   });
 
   test("affiche une finish line lisible avec deux statuts distincts et leurs blocages", async ({
@@ -813,8 +813,8 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
 
     const pilotageSection = await openAffaireHub(page, projectId);
 
-    await expect(pilotageSection).toContainText("Pret a envoyer");
-    await expect(pilotageSection).toContainText("Pret a commander");
+    await expect(pilotageSection).toContainText("Prêt à envoyer");
+    await expect(pilotageSection).toContainText("Prêt à commander");
     await expect(pilotageSection).toContainText("PDF · 1 blocage");
     await expect(pilotageSection).toContainText("Prix manquant");
     await expect(pilotageSection).toContainText("1 ligne a arbitrer");
@@ -849,19 +849,19 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     const pilotageSection = await openAffaireHub(page, projectId);
 
     await expect(
-      pilotageSection.getByText("PDF, email et BDC depuis le meme point")
+      pilotageSection.getByText("PDF, email et BDC depuis le même point")
     ).toBeVisible();
     await expect(
       pilotageSection.getByRole("button", { name: "Telecharger le PDF" })
     ).toBeVisible();
     await expect(
-      pilotageSection.getByRole("button", { name: "Preparer l'envoi" })
+      pilotageSection.getByRole("button", { name: "Préparer l'envoi" })
     ).toBeVisible();
     await expect(
       pilotageSection.getByRole("button", { name: "Exporter le BDC" })
     ).toBeVisible();
 
-    await clickWithin(pilotageSection, "button", "Preparer l'envoi");
+    await clickWithin(pilotageSection, "button", "Préparer l'envoi");
     await expect(
       page.getByRole("heading", { name: /Envoyer le devis par email/i })
     ).toBeVisible();
@@ -919,7 +919,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(
       pilotageSection.getByText("Brouillons par fournisseur, sans ressaisie")
     ).toBeVisible();
-    await expect(pilotageSection.getByText("A traiter avant la creation")).toBeVisible();
+    await expect(pilotageSection.getByText("À traiter avant la création")).toBeVisible();
     await expect(pilotageSection.getByText("Brouillons proposes")).toBeVisible();
     await expect(pilotageSection.getByText("Best Supplier")).toBeVisible();
 
@@ -928,11 +928,11 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       .selectOption(siteId);
     await clickWithin(pilotageSection, "button", "Creer le brouillon");
 
-    await expect(pilotageSection.getByText("Brouillons crees")).toBeVisible();
+    await expect(pilotageSection.getByText("Brouillons créés")).toBeVisible();
     await expect(
       pilotageSection.getByRole("link", { name: "Ouvrir le brouillon" })
     ).toHaveAttribute("href", /\/dashboard\/orders\/.+/);
-    await expect(pilotageSection.getByText("A traiter avant la creation")).toBeVisible();
+    await expect(pilotageSection.getByText("À traiter avant la création")).toBeVisible();
     await expect(
       pilotageSection.getByText("Aucun prix fournisseur exploitable", { exact: true })
     ).toBeVisible();
@@ -959,7 +959,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
 
     await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByText("Prochaine etape")).toBeVisible();
+    await expect(page.getByText("Prochaine étape")).toBeVisible();
     await expect(page.getByText("Reprise legacy")).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Ouvrir le fallback legacy" })

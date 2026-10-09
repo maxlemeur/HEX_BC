@@ -238,8 +238,8 @@ export function SendEstimateModal({
         }
 
         toast.success({
-          title: "Devis envoye",
-          description: "L'envoi du devis est confirme.",
+          title: "Devis envoyé",
+          description: "L'envoi du devis est confirmé.",
         });
         clearConfirmedIdempotencyKeys(versionId);
         idempotencyKeyRef.current = null;

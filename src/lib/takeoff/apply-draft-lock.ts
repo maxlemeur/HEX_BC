@@ -13,7 +13,7 @@ export type EnsureTakeoffApplyDraftLockResult = {
 function resolveLockedByOtherMessage(holderName: string | null | undefined) {
   const normalizedHolder = holderName?.trim() ?? "";
   const holder = normalizedHolder.length > 0 ? normalizedHolder : "un autre utilisateur";
-  return `La version cible est verrouillee par ${holder}.`;
+  return `La version cible est verrouillée par ${holder}.`;
 }
 
 export async function ensureTakeoffApplyDraftLock(
@@ -44,7 +44,7 @@ export async function ensureTakeoffApplyDraftLock(
         errorMessage:
           renewError instanceof Error
             ? renewError.message
-            : "Impossible de verifier le verrou de brouillon de la version cible.",
+            : "Impossible de vérifier le verrou de brouillon de la version cible.",
       };
     }
   }

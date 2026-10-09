@@ -100,7 +100,7 @@ export function EstimateApprovalSubmissionPanel({
             Soumission a validation
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Verifiez les blocants, les alertes restantes et le contexte avant d&apos;envoyer le dossier.
+            Vérifiez les blocants, les alertes restantes et le contexte avant d&apos;envoyer le dossier.
           </p>
         </div>
         <button
@@ -141,12 +141,12 @@ export function EstimateApprovalSubmissionPanel({
               </p>
               {submissionOverview.coveragePercent === null ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Analyse metres indisponible.{" "}
+                  Analyse métrés indisponible.{" "}
                   <Link
                     href={`/dashboard/affaires/${projectId}/takeoff`}
                     className="font-medium text-primary underline underline-offset-2"
                   >
-                    Ouvrir Plans & metres
+                    Ouvrir Plans & métrés
                   </Link>
                   .
                 </p>
@@ -161,12 +161,12 @@ export function EstimateApprovalSubmissionPanel({
               </p>
               {submissionOverview.exceptionCount === null ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Revue des ecarts indisponible.{" "}
+                  Revue des écarts indisponible.{" "}
                   <Link
                     href={`/dashboard/affaires/${projectId}/takeoff`}
                     className="font-medium text-primary underline underline-offset-2"
                   >
-                    Ouvrir Plans & metres
+                    Ouvrir Plans & métrés
                   </Link>
                   .
                 </p>
@@ -174,7 +174,7 @@ export function EstimateApprovalSubmissionPanel({
             </article>
             <article className="rounded-xl border border-border bg-surface px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Hypotheses ouvertes
+                Hypothèses ouvertes
               </p>
               <p className="mt-2 text-lg font-semibold text-foreground">
                 {formatCount(submissionOverview.openAssumptionCount)}
@@ -194,7 +194,7 @@ export function EstimateApprovalSubmissionPanel({
                   </>
                 ) : (
                   <>
-                    Pieces manquantes:{" "}
+                    Pièces manquantes:{" "}
                     {formatCount(submissionOverview.openMissingPieceCount)}. Clarifications
                     client: {formatCount(submissionOverview.clarifyWithClientCount)}.
                   </>
@@ -290,7 +290,7 @@ export function EstimateApprovalSubmissionPanel({
                     Alertes
                   </p>
                   <p className="mt-1 text-xs text-slate-600">
-                    Visibles pour la validation interne. Certaines alertes devront etre traitees avant l&apos;envoi client.
+                    Visibles pour la validation interne. Certaines alertes devront être traitees avant l&apos;envoi client.
                   </p>
                 </div>
                 <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-warning">
@@ -337,7 +337,7 @@ export function EstimateApprovalSubmissionPanel({
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-slate-600">
-                  Aucune alerte complementaire.
+                  Aucune alerte complémentaire.
                 </p>
               )}
             </section>
@@ -345,7 +345,7 @@ export function EstimateApprovalSubmissionPanel({
 
           <section className="rounded-xl border border-border bg-surface px-4 py-4">
             <p className="text-sm font-semibold text-slate-800">
-              Regles declenchees
+              Règles declenchees
             </p>
             {summary.reasons.length > 0 ? (
               <div className="mt-3 space-y-2">
@@ -364,8 +364,8 @@ export function EstimateApprovalSubmissionPanel({
                           : reason.approvalStatus === "pending"
                             ? "En revue"
                             : reason.approvalStatus === "rejected"
-                              ? "A reprendre"
-                              : "A soumettre"}
+                              ? "À reprendre"
+                              : "À soumettre"}
                       </span>
                     </div>
                     <p className="mt-1 text-sm text-foreground-secondary">
@@ -376,7 +376,7 @@ export function EstimateApprovalSubmissionPanel({
               </div>
             ) : (
               <p className="mt-3 text-sm text-slate-600">
-                Aucune regle d&apos;approbation active sur cette version.
+                Aucune règle d&apos;approbation active sur cette version.
               </p>
             )}
           </section>
@@ -448,7 +448,7 @@ export function EstimateApprovalSubmissionPanel({
             ) : null}
             {!isResubmission && requestableReasonsCount === 0 ? (
               <p className="text-xs text-muted-foreground">
-                Aucune regle de validation n&apos;est actuellement declenchee sur cette version.
+                Aucune règle de validation n&apos;est actuellement declenchee sur cette version.
               </p>
             ) : null}
             {isResubmission && correctionChecklist && !correctionChecklist.allTreated ? (

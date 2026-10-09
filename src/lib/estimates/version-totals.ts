@@ -121,7 +121,7 @@ function assertCompleteV2PublicationLaborAssignments(input: {
 
   if (missingAssignments.length > 0) {
     throw badRequest(
-      "Un role de main-d'oeuvre est requis pour chaque composante horaire avant publication.",
+      "Un rôle de main-d'oeuvre est requis pour chaque composante horaire avant publication.",
       { missing_assignments: missingAssignments },
       "ESTIMATE_LABOR_ROLE_REQUIRED"
     );
@@ -176,7 +176,7 @@ async function resolveEstimateCalculationContext(input: {
       );
       if (missingRoleIds.length > 0) {
         throw badRequest(
-          "Certains roles de main-d'oeuvre ne correspondent pas au proprietaire du projet.",
+          "Certains rôles de main-d'oeuvre ne correspondent pas au proprietaire du projet.",
           { missing_role_ids: missingRoleIds.sort() },
           "ESTIMATE_LABOR_ROLE_OWNER_MISMATCH"
         );

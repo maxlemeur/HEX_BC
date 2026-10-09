@@ -42,7 +42,7 @@ function Wait-ForPageTextContains {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-027" -Date "2026-02-24" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-027" -Date "2026-02-24" -Validité "30"
 
   Go-ParamsTab -Session $Session
   Invoke-AB $Session "eval" @"
@@ -57,11 +57,11 @@ try {
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Section EST-027"
   Add-Line -Session $Session -Designation "Ligne USD"
-  Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "1,234.56" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
+  Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "1,234.56" -TypeFo "Matériaux" -Kfo "1" -HoursMo "0" -Kmo "1"
   Invoke-AB $Session "eval" "document.activeElement && typeof document.activeElement.blur === 'function' ? document.activeElement.blur() : null" | Out-Null
 
   Go-ParamsTab -Session $Session
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Enregistrer le parametrage" | Out-Null
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Enregistrer le paramétrage" | Out-Null
   Wait-ForPageTextContains -Session $Session -Expected "Parametrage enregistre" -TimeoutSeconds 30 | Out-Null
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/admin/currencies" | Out-Null

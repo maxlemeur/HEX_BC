@@ -338,7 +338,7 @@ export default function TakeoffDpgfCompareView({
       });
 
       toast.success({
-        title: "Statut de risque mis a jour",
+        title: "Statut de risque mis à jour",
         description: `${riskActionTarget.causeLabel} passe en ${RISK_STATUS_LABELS[riskActionTarget.status].toLocaleLowerCase("fr-FR")}.`,
       });
       setRiskActionTarget(null);
@@ -346,7 +346,7 @@ export default function TakeoffDpgfCompareView({
       void mutateRiskRadar();
     } catch (error) {
       toast.error({
-        title: "Impossible de mettre a jour le risque",
+        title: "Impossible de mettre à jour le risque",
         description: isTakeoffApiError(error) ? error.message : "Erreur inconnue.",
       });
     } finally {

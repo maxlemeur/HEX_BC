@@ -324,10 +324,10 @@ function SortableDevisRow({
                     onClick={onPreview}
                     type="button"
                     disabled={!item.downloadUrl}
-                    aria-label={`Apercu ${item.name}`}
+                    aria-label={`Aperçu ${item.name}`}
                   >
                     <EyeIcon className="h-4 w-4" />
-                    <span>Apercu</span>
+                    <span>Aperçu</span>
                   </button>
                 )}
                 <button
@@ -339,10 +339,10 @@ function SortableDevisRow({
                   }}
                   type="button"
                   disabled={!item.downloadUrl}
-                  aria-label={`Telecharger ${item.name}`}
+                  aria-label={`Télécharger ${item.name}`}
                 >
                   <DownloadIcon className="h-4 w-4" />
-                  <span>Telecharger</span>
+                  <span>Télécharger</span>
                 </button>
               </div>
 
@@ -569,9 +569,9 @@ export function DevisList({
           </div>
           <p className="mt-1.5 text-sm text-muted-foreground">
             {items.length === 0
-              ? "Aucun document attache a cette commande"
+              ? "Aucun document attache à cette commande"
               : canManage && items.length > 1
-                ? "Glissez les elements pour modifier l'ordre"
+                ? "Glissez les éléments pour modifier l'ordre"
                 : `${items.length} document${items.length > 1 ? "s" : ""} attache${items.length > 1 ? "s" : ""}`}
           </p>
         </div>

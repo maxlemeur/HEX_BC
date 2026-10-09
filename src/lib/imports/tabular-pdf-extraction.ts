@@ -93,7 +93,7 @@ function asPdfTextItem(value) {
 
   if (value.str.length > limits.maxRawItemChars) {
     throw budgetError(
-      "Un element texte du PDF depasse la taille maximale autorisee."
+      "Un élément texte du PDF depasse la taille maximale autorisee."
     );
   }
 
@@ -269,7 +269,7 @@ function estimateLineUnit(lines) {
 function buildPageLayoutText(content, outputBudget) {
   if (content.items.length > limits.maxItemsPerPage) {
     throw budgetError(
-      "Le PDF depasse " + limits.maxItemsPerPage + " elements texte sur une page."
+      "Le PDF depasse " + limits.maxItemsPerPage + " éléments texte sur une page."
     );
   }
 
@@ -330,7 +330,7 @@ async function extractLayoutText() {
       totalItemCount += content.items.length;
       if (totalItemCount > limits.maxTotalItems) {
         throw budgetError(
-          "Le PDF depasse la limite de " + limits.maxTotalItems + " elements texte."
+          "Le PDF depasse la limite de " + limits.maxTotalItems + " éléments texte."
         );
       }
 
@@ -558,7 +558,7 @@ function asPdfTextItem(value: unknown): PdfTextItem | null {
 
   if (candidate.str.length > PDF_EXTRACTION_MAX_RAW_ITEM_CHARS) {
     throw budgetError(
-      "Un element texte du PDF depasse la taille maximale autorisee."
+      "Un élément texte du PDF depasse la taille maximale autorisee."
     );
   }
 
@@ -745,7 +745,7 @@ function buildPageLayoutText(
 ) {
   if (content.items.length > PDF_EXTRACTION_MAX_ITEMS_PER_PAGE) {
     throw budgetError(
-      `Le PDF depasse ${PDF_EXTRACTION_MAX_ITEMS_PER_PAGE} elements texte sur une page.`
+      `Le PDF depasse ${PDF_EXTRACTION_MAX_ITEMS_PER_PAGE} éléments texte sur une page.`
     );
   }
 
@@ -866,7 +866,7 @@ async function runPdfJsWorkerWithDeadline(
     worker.once("message", (message: unknown) => {
       settle(() => {
         if (!message || typeof message !== "object" || Array.isArray(message)) {
-          reject(new Error("Reponse du worker PDF invalide."));
+          reject(new Error("Réponse du worker PDF invalide."));
           return;
         }
 
@@ -902,7 +902,7 @@ async function runPdfJsWorkerWithDeadline(
         reject(
           new Error(
             code === 0
-              ? "Le worker PDF s'est arrete sans resultat."
+              ? "Le worker PDF s'est arrete sans résultat."
               : `Le worker PDF s'est arrete avec le code ${code}.`
           )
         );

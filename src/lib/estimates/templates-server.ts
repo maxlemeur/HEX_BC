@@ -169,9 +169,9 @@ export async function updateEstimateTemplate(
   if (error || !data) {
     if (error) {
       throwTemplateNameConflictIfNeeded(error);
-      throw mapSupabaseError(error, "Impossible de mettre a jour le template.");
+      throw mapSupabaseError(error, "Impossible de mettre à jour le template.");
     }
-    throw badRequest("Impossible de mettre a jour le template.");
+    throw badRequest("Impossible de mettre à jour le template.");
   }
 
   const updatedTemplate = data as unknown as EstimateTemplateRow;

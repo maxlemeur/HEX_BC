@@ -586,7 +586,7 @@ export function useEstimateEditorSupplierController({
           ...(previous.routeVersionId === routeVersionId
             ? previous.dialog
             : EMPTY_DIALOG_STATE),
-          error: "Selectionnez au moins une preselection fournisseur.",
+          error: "Sélectionnez au moins une preselection fournisseur.",
         },
       }));
       return;
@@ -603,7 +603,7 @@ export function useEstimateEditorSupplierController({
           ...(previous.routeVersionId === routeVersionId
             ? previous.dialog
             : EMPTY_DIALOG_STATE),
-          error: "Aucune ligne eligible selectionnee.",
+          error: "Aucune ligne eligible sélectionnée.",
         },
       }));
       return;

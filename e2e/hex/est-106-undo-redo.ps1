@@ -398,7 +398,7 @@ function Try-ReorderFirstLineDown {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-106" -Date "2026-02-02" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-106" -Date "2026-02-02" -Validité "30"
   Go-EditorTab -Session $Session
 
   Invoke-AB $Session "eval" "window.confirm = () => true;" | Out-Null

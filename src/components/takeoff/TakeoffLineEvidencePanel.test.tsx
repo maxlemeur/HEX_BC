@@ -64,7 +64,7 @@ describe("TakeoffLineEvidencePanel", () => {
     });
 
     expect(
-      await screen.findByText("Aucune preuve detaillee n'est disponible pour cette ligne.")
+      await screen.findByText("Aucune preuve détaillée n'est disponible pour cette ligne.")
     ).toBeInTheDocument();
   });
 });

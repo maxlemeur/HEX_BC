@@ -57,7 +57,7 @@ export async function POST(
 
     if (portalToken.status !== "pending") {
       return NextResponse.json(
-        { error: "Ce devis a deja ete traite." },
+        { error: "Ce devis a déjà été traité." },
         { status: 409 }
       );
     }
@@ -84,13 +84,13 @@ export async function POST(
       if (claimError.code !== "P0001") {
         console.error("Portal rejection claim error:", claimError);
         return NextResponse.json(
-          { error: "Erreur lors de la mise a jour du statut du devis." },
+          { error: "Erreur lors de la mise à jour du statut du devis." },
           { status: 500 }
         );
       }
 
       return NextResponse.json(
-        { error: "Ce devis a deja ete traite." },
+        { error: "Ce devis a déjà été traité." },
         { status: 409 }
       );
     }

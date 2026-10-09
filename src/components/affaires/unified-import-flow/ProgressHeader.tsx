@@ -30,7 +30,7 @@ export function ProgressHeader({ currentStep, steps }: ProgressHeaderProps) {
                 isCurrent
                   ? "bg-primary text-white"
                   : isDone
-                    ? "bg-success/10 text-success"
+                    ? "bg-success-subtle text-success"
                     : "bg-muted text-subtle-foreground"
               }`}
             >

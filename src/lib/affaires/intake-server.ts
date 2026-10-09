@@ -556,7 +556,7 @@ async function syncAffaireIntakeDocumentPriorities(input: {
 
   if (error) {
     throw internalError(
-      "Impossible de recalculer les priorites documentaires intake.",
+      "Impossible de recalculer les priorités documentaires intake.",
       error
     );
   }
@@ -586,7 +586,7 @@ async function syncAffaireIntakeDocumentPriorities(input: {
 
     if (updateError) {
       throw internalError(
-        "Impossible de synchroniser les priorites documentaires intake.",
+        "Impossible de synchroniser les priorités documentaires intake.",
         updateError
       );
     }
@@ -705,7 +705,7 @@ function addIssue(issues: string[], issue: string) {
 
 function buildClassificationPrompt(input: { fileName: string; mimeType: string }) {
   return [
-    "ROLE",
+    "RÔLE",
     "Tu classes des documents d'un dossier de chiffrage BTP.",
     "",
     "CONTEXTE",
@@ -713,23 +713,23 @@ function buildClassificationPrompt(input: { fileName: string; mimeType: string }
     `- file_name: ${input.fileName}`,
     `- mime_type: ${input.mimeType}`,
     "",
-    "CATEGORIES",
+    "CATÉGORIES",
     "dpgf | plans | cctp | bpu_dqe | annexes | emails | a_classer",
     "",
     "OBJECTIF",
-    "Retourner la categorie la plus probable, un score de confiance entre 0 et 1, les ambiguities, et les metadonnees utiles pour ouvrir l'affaire.",
+    "Retourner la catégorie la plus probable, un score de confiance entre 0 et 1, les ambiguities, et les metadonnees utiles pour ouvrir l'affaire.",
     "",
     "METADONNEES",
     "- projectName: nom du projet si identifiable",
-    "- clientName: maitre d'ouvrage / client si identifiable",
+    "- clientName: maître d'ouvrage / client si identifiable",
     "- deadlineAt: date limite ISO 8601 si explicite, sinon null",
     "- detectedLots: lots explicitement cites",
     "- detectedVariants: variantes explicitement citees",
     "",
-    "REGLES",
+    "RÈGLES",
     "1. Ne jamais inventer d'information non visible dans le document.",
-    "2. Si le document est ambigu, reduire confidence et utiliser a_classer si aucune categorie n'est defensible.",
-    "3. Les issues doivent etre courtes, orientees action et decrire le doute ou l'erreur de lecture.",
+    "2. Si le document est ambigu, reduire confidence et utiliser a_classer si aucune catégorie n'est defensible.",
+    "3. Les issues doivent être courtes, orientees action et decrire le doute ou l'erreur de lecture.",
     "4. Retourner un JSON strict conforme au schema fourni, sans markdown.",
   ].join("\n");
 }
@@ -748,7 +748,7 @@ function findZipEndOfCentralDirectory(buffer: Buffer) {
 function validateXlsxArchiveBudget(buffer: Buffer) {
   const endOffset = findZipEndOfCentralDirectory(buffer);
   if (endOffset < 0) {
-    throw new Error("Archive XLSX invalide ou repertoire central introuvable.");
+    throw new Error("Archive XLSX invalide ou répertoire central introuvable.");
   }
 
   const entryCount = buffer.readUInt16LE(endOffset + 10);
@@ -763,11 +763,11 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
   }
   if (entryCount > SPREADSHEET_MAX_ARCHIVE_ENTRIES) {
     throw new Error(
-      `Le classeur depasse ${SPREADSHEET_MAX_ARCHIVE_ENTRIES} entrees archivees.`
+      `Le classeur depasse ${SPREADSHEET_MAX_ARCHIVE_ENTRIES} entrées archivées.`
     );
   }
   if (directoryOffset + directorySize > buffer.length) {
-    throw new Error("Repertoire central XLSX invalide.");
+    throw new Error("Répertoire central XLSX invalide.");
   }
 
   let cursor = directoryOffset;
@@ -778,7 +778,7 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
       cursor + 46 > directoryOffset + directorySize ||
       buffer.readUInt32LE(cursor) !== ZIP_CENTRAL_DIRECTORY_ENTRY_SIGNATURE
     ) {
-      throw new Error("Entree du repertoire central XLSX invalide.");
+      throw new Error("Entrée du répertoire central XLSX invalide.");
     }
 
     const flags = buffer.readUInt16LE(cursor + 8);
@@ -795,16 +795,16 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
       declaredExpandedSize === 0xffffffff ||
       localHeaderOffset === 0xffffffff
     ) {
-      throw new Error("Les entrees XLSX ZIP64 ne sont pas prises en charge.");
+      throw new Error("Les entrées XLSX ZIP64 ne sont pas prises en charge.");
     }
     if ((flags & 0x1) !== 0) {
       throw new Error("Les classeurs XLSX chiffres ne sont pas pris en charge.");
     }
     if (compressionMethod !== 0 && compressionMethod !== 8) {
-      throw new Error("Methode de compression XLSX non prise en charge.");
+      throw new Error("Méthode de compression XLSX non prise en charge.");
     }
     if (declaredExpandedSize > SPREADSHEET_MAX_ENTRY_BYTES) {
-      throw new Error("Une entree du classeur depasse la taille autorisee.");
+      throw new Error("Une entrée du classeur depasse la taille autorisee.");
     }
     if (
       declaredExpandedSize > 0 &&
@@ -817,7 +817,7 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
       localHeaderOffset + 30 > buffer.length ||
       buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE
     ) {
-      throw new Error("Entree locale XLSX invalide.");
+      throw new Error("Entrée locale XLSX invalide.");
     }
 
     const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
@@ -844,7 +844,7 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
           maxOutputLength: Math.min(remainingBudget, SPREADSHEET_MAX_ENTRY_BYTES),
         }).byteLength;
       } catch {
-        throw new Error("Une entree XLSX depasse le budget de decompression.");
+        throw new Error("Une entrée XLSX depasse le budget de decompression.");
       }
     }
 
@@ -860,7 +860,7 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
   }
 
   if (cursor !== directoryOffset + directorySize) {
-    throw new Error("Taille du repertoire central XLSX incoherente.");
+    throw new Error("Taille du répertoire central XLSX incoherente.");
   }
 }
 
@@ -1127,7 +1127,7 @@ async function requireAffaireProjectAccess(
         : isOwner || isAdmin;
 
   if (!hasAccess) {
-    throw forbidden("Acces refuse a cette affaire.");
+    throw forbidden("Accès refuse à cette affaire.");
   }
 
   return {
@@ -1294,7 +1294,7 @@ function buildFallbackAffaireBrief(input: {
   } else {
     scopeEntries.push(
       createBriefEntry(
-        "Le perimetre detaille reste a confirmer a partir des pieces recues.",
+        "Le perimetre détaillé reste à confirmer à partir des pièces reçues.",
         pickDocumentIdsForBrief(input.documents, () => true)
       )
     );
@@ -1315,7 +1315,7 @@ function buildFallbackAffaireBrief(input: {
   if (earliestDeadline) {
     vigilanceEntries.push(
       createBriefEntry(
-        `Une echeance explicite a ete detectee pour le ${new Date(earliestDeadline).toLocaleDateString("fr-FR")}.`,
+        `Une échéance explicite a été détectée pour le ${new Date(earliestDeadline).toLocaleDateString("fr-FR")}.`,
         pickDocumentIdsForBrief(
           input.documents,
           (document) => document.extracted_metadata.deadlineAt === earliestDeadline
@@ -1327,7 +1327,7 @@ function buildFallbackAffaireBrief(input: {
   if (reviewDocuments.length > 0) {
     vigilanceEntries.push(
       createBriefEntry(
-        `${reviewDocuments.length} piece(s) doivent encore etre confirmees ou reclassifiees avant cadrage final.`,
+        `${reviewDocuments.length} pièce(s) doivent encore être confirmées ou reclassifiees avant cadrage final.`,
         reviewDocuments.map((document) => document.id).slice(0, 6)
       )
     );
@@ -1336,7 +1336,7 @@ function buildFallbackAffaireBrief(input: {
   if (!clientName) {
     assumptionEntries.push(
       createBriefEntry(
-        "Le client ou maitre d'ouvrage reste a confirmer humainement.",
+        "Le client ou maître d'ouvrage reste à confirmer humainement.",
         pickDocumentIdsForBrief(input.documents, () => true)
       )
     );
@@ -1345,7 +1345,7 @@ function buildFallbackAffaireBrief(input: {
   if (lots.length === 0) {
     assumptionEntries.push(
       createBriefEntry(
-        "Les lots concernes doivent etre verifies avant lancement du chiffrage detaille.",
+        "Les lots concernes doivent être vérifiés avant lancement du chiffrage détaillé.",
         pickDocumentIdsForBrief(input.documents, () => true)
       )
     );
@@ -1361,7 +1361,7 @@ function buildFallbackAffaireBrief(input: {
   }
 
   for (const document of reviewDocuments.slice(0, 6)) {
-    const issue = document.issues[0] ?? "Classification a confirmer.";
+    const issue = document.issues[0] ?? "Classification à confirmer.";
     missingEntries.push(createBriefEntry(issue, [document.id]));
   }
 
@@ -1376,11 +1376,11 @@ function buildFallbackAffaireBrief(input: {
   );
   const summaryParts = [
     `Brief provisoire du dossier ${projectName}.`,
-    clientName ? `Client detecte: ${clientName}.` : "Client a confirmer.",
-    `${input.documents.length} piece(s) ont ete retenues dans l'intake.`,
+    clientName ? `Client detecte: ${clientName}.` : "Client à confirmer.",
+    `${input.documents.length} pièce(s) ont été retenues dans l'intake.`,
     lots.length > 0
-      ? `${lots.length} lot(s) ont ete identifies.`
-      : "Le lotissement reste a preciser.",
+      ? `${lots.length} lot(s) ont été identifies.`
+      : "Le lotissement reste à préciser.",
   ];
 
   return affaireBriefGenerationSchema.parse({
@@ -1388,7 +1388,7 @@ function buildFallbackAffaireBrief(input: {
     projectObject: createBriefEntry(
       lots.length > 0
         ? `${projectName} · lots ${lots.slice(0, 4).join(", ")}`
-        : `${projectName} · perimetre a confirmer`,
+        : `${projectName} · perimetre à confirmer`,
       projectSourceIds
     ),
     scope: scopeEntries.slice(0, 12),
@@ -1415,14 +1415,14 @@ function buildBriefGenerationPrompt(input: {
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
 }) {
   return [
-    "ROLE",
-    "Tu produis un brief affaire BTP a partir d'un workspace d'intake deja classe.",
+    "RÔLE",
+    "Tu produis un brief affaire BTP à partir d'un workspace d'intake déjà classe.",
     "",
     "CONTRAINTE",
     "Retourne uniquement un JSON strict conforme au schema fourni.",
-    "Chaque entree doit reutiliser uniquement les sourceDocumentIds presents dans l'inventaire.",
-    "N'invente ni document, ni lot, ni client, ni echeance.",
-    "Le ton doit etre professionnel, concis et exploitable par un chiffreur ou une validatrice.",
+    "Chaque entrée doit reutiliser uniquement les sourceDocumentIds presents dans l'inventaire.",
+    "N'invente ni document, ni lot, ni client, ni échéance.",
+    "Le ton doit être professionnel, concis et exploitable par un chiffreur ou une validatrice.",
     "",
     "PROMPT_VERSION",
     AFFAIRE_BRIEF_PROMPT_VERSION,
@@ -1458,11 +1458,11 @@ function buildBriefGenerationPrompt(input: {
     JSON.stringify(input.missingPieces, null, 2),
     "",
     "REGLES_METIER",
-    "1. summary et projectObject doivent etre une phrase courte et lisible.",
-    "2. receivedPieces doit lister les pieces recues sans omettre une categorie importante.",
+    "1. summary et projectObject doivent être une phrase courte et lisible.",
+    "2. receivedPieces doit lister les pièces reçues sans omettre une catégorie importante.",
     "3. assumptions et vigilancePoints doivent mettre en evidence les zones grises, sans dramatiser.",
     "4. missingElements doit reprendre les vrais manques ou doutes encore ouverts.",
-    "5. Quand aucune source documentaire directe n'est disponible pour une entree, reutilise les pieces les plus proches plutot que d'inventer.",
+    "5. Quand aucune source documentaire directe n'est disponible pour une entrée, reutilise les pièces les plus proches plutôt que d'inventer.",
   ].join("\n");
 }
 
@@ -1519,7 +1519,7 @@ function sanitizeBriefEntryArray(
     .map((_, index) =>
       sanitizeBriefEntry(
         entries[index],
-        fallbackEntries[index] ?? fallbackEntries[0] ?? createBriefEntry("Source a confirmer.", []),
+        fallbackEntries[index] ?? fallbackEntries[0] ?? createBriefEntry("Source à confirmer.", []),
         validDocumentIds
       )
     );
@@ -2033,7 +2033,7 @@ async function persistAffaireBriefDraft(input: {
 
   const brief = normalizeAffaireBriefRow(data);
   if (!brief) {
-    throw internalError("Le brief affaire retourne une reponse invalide.");
+    throw internalError("Le brief affaire retourne une réponse invalide.");
   }
 
   await replaceAffaireBriefSourceLinks({
@@ -2208,7 +2208,7 @@ async function updateUploadStatusFromStoredDocuments(input: {
 
   if (status === "processing") {
     throw internalError(
-      "Le traitement intake ne peut pas etre finalise avec des documents en attente."
+      "Le traitement intake ne peut pas être finalise avec des documents en attente."
     );
   }
 
@@ -2269,7 +2269,7 @@ export async function createAffaireIntakeUpload(
   const upload = normalizeUploadRow(uploadData);
 
   if (!upload) {
-    throw internalError("L'upload intake retourne une reponse invalide.");
+    throw internalError("L'upload intake retourne une réponse invalide.");
   }
 
   await insertAffaireIntakeEvent({
@@ -2370,9 +2370,9 @@ export async function createAffaireIntakeUpload(
           .from("affaire_intake_documents" as never)
           .update({
             upload_status: "rejected",
-            rejection_reason: "Impossible de televerser le fichier dans le storage.",
+            rejection_reason: "Impossible de téléverser le fichier dans le storage.",
             classification_status: "failed",
-            issues: ["Impossible de televerser le fichier dans le storage."],
+            issues: ["Impossible de téléverser le fichier dans le storage."],
           } as never)
           .eq("id", documentId)
       );
@@ -2390,7 +2390,7 @@ export async function createAffaireIntakeUpload(
         documentId,
         actorUserId: context.userId,
         eventType: "document.rejected",
-        reason: "Impossible de televerser le fichier dans le storage.",
+        reason: "Impossible de téléverser le fichier dans le storage.",
       });
 
       responses.push({
@@ -2399,7 +2399,7 @@ export async function createAffaireIntakeUpload(
         mimeType,
         sizeBytes: file.size,
         status: "rejected",
-        rejectionReason: "Impossible de televerser le fichier dans le storage.",
+        rejectionReason: "Impossible de téléverser le fichier dans le storage.",
       });
       continue;
     }
@@ -2458,7 +2458,7 @@ export async function createAffaireIntakeUpload(
       .update({
         status: finalUploadStatus,
         completed_at: uploadedCount > 0 ? null : new Date().toISOString(),
-        last_error: uploadedCount > 0 ? null : "Aucun fichier n'a pu etre televerse.",
+        last_error: uploadedCount > 0 ? null : "Aucun fichier n'a pu être televerse.",
       } as never)
       .eq("id", upload.id)
   );
@@ -2994,7 +2994,7 @@ export async function updateAffaireBrief(input: {
   );
 
   if (error) {
-    throw internalError("Impossible de mettre a jour le brief affaire.", error);
+    throw internalError("Impossible de mettre à jour le brief affaire.", error);
   }
 
   await replaceAffaireBriefSourceLinks({
@@ -3115,7 +3115,7 @@ export async function reclassifyAffaireDocument(input: {
 
   if (error) {
     throw internalError(
-      "Impossible de charger le document intake a reclasser.",
+      "Impossible de charger le document intake à reclasser.",
       error
     );
   }
@@ -3139,7 +3139,7 @@ export async function reclassifyAffaireDocument(input: {
 
   const nextIssues =
     input.category === "a_classer"
-      ? addIssue(document.issues, "Document remis manuellement dans la file a classer.")
+      ? addIssue(document.issues, "Document remis manuellement dans la file à classer.")
       : document.issues;
 
   const { error: updateError } = await resolveSupabaseQuery<{
@@ -3206,7 +3206,7 @@ export async function reclassifyAffaireDocument(input: {
 
   if (refreshedDocsError) {
     throw internalError(
-      "Impossible de recharger les documents intake apres reclassification.",
+      "Impossible de recharger les documents intake après reclassification.",
       refreshedDocsError
     );
   }
@@ -3261,7 +3261,7 @@ export async function setAffaireDocumentAsPrimary(input: {
 
   if (!isAffaireIntakePrimaryEligibleKind(document.document_kind)) {
     throw badRequest(
-      "Seuls les documents DPGF et CCTP peuvent etre definis comme principaux."
+      "Seuls les documents DPGF et CCTP peuvent être définis comme principaux."
     );
   }
 
@@ -3325,7 +3325,7 @@ export async function setAffaireDocumentAsPrimary(input: {
 
     if (promoteError) {
       throw internalError(
-        "Impossible de definir ce document comme principal.",
+        "Impossible de définir ce document comme principal.",
         promoteError
       );
     }

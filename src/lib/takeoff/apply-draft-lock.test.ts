@@ -62,7 +62,7 @@ describe("ensureTakeoffApplyDraftLock", () => {
     await expect(ensureTakeoffApplyDraftLock(VERSION_ID)).resolves.toEqual({
       acquired: false,
       shouldRelease: false,
-      errorMessage: "La version cible est verrouillee par Camille.",
+      errorMessage: "La version cible est verrouillée par Camille.",
     });
   });
 });

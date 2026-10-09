@@ -192,7 +192,7 @@ function buildHistoryFactor(
   return {
     key: "same_project_history",
     label: "Historique projet",
-    value: `${sameProjectCount} reference${sameProjectCount > 1 ? "s" : ""}`,
+    value: `${sameProjectCount} référence${sameProjectCount > 1 ? "s" : ""}`,
     kind: "fact",
   };
 }
@@ -207,7 +207,7 @@ function buildCategoryFactor(
 
   return {
     key: "category_match",
-    label: "Categorie",
+    label: "Catégorie",
     value: `${categoryMatchCount} source${categoryMatchCount > 1 ? "s" : ""} coherente${categoryMatchCount > 1 ? "s" : ""}`,
     kind: "inference",
   };
@@ -232,7 +232,7 @@ function buildUnitFactor(
 
   return {
     key: "unit_match",
-    label: "Unite",
+    label: "Unité",
     value: `${currentUnit} confirme`,
     kind: "fact",
   };
@@ -253,7 +253,7 @@ function buildJustification(input: {
       ? `${countsByKind.get("pricebook")} source${countsByKind.get("pricebook")! > 1 ? "s" : ""} fournisseur`
       : null,
     countsByKind.get("history")
-      ? `${countsByKind.get("history")} reference${countsByKind.get("history")! > 1 ? "s" : ""} interne${countsByKind.get("history")! > 1 ? "s" : ""}`
+      ? `${countsByKind.get("history")} référence${countsByKind.get("history")! > 1 ? "s" : ""} interne${countsByKind.get("history")! > 1 ? "s" : ""}`
       : null,
     countsByKind.get("similar_item")
       ? `${countsByKind.get("similar_item")} ouvrage${countsByKind.get("similar_item")! > 1 ? "s" : ""} proche${countsByKind.get("similar_item")! > 1 ? "s" : ""}`
@@ -262,15 +262,15 @@ function buildJustification(input: {
 
   const mainSentence =
     segments.length > 0
-      ? `Fourchette calculee a partir de ${segments.join(", ")}.`
-      : "Fourchette calculee a partir des sources disponibles.";
+      ? `Fourchette calculee à partir de ${segments.join(", ")}.`
+      : "Fourchette calculee à partir des sources disponibles.";
   const outlierSentence =
     input.outlierCount > 0
       ? `${input.outlierCount} prix atypique${input.outlierCount > 1 ? "s" : ""} reste${input.outlierCount > 1 ? "nt" : ""} visible${input.outlierCount > 1 ? "s" : ""} mais hors calcul principal.`
       : null;
   const confidenceSentence =
     input.confidenceLabel === "high"
-      ? "Confiance elevee: plusieurs sources convergent sur une borne centrale stable."
+      ? "Confiance élevée: plusieurs sources convergent sur une borne centrale stable."
       : input.confidenceLabel === "medium"
         ? "Confiance moyenne: les sources convergent partiellement et justifient une validation humaine."
         : "Confiance faible: la dispersion reste significative et la validation humaine est indispensable.";

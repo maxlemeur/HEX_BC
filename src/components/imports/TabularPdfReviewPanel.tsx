@@ -90,7 +90,7 @@ export function TabularPdfReviewPanel({
             {pdfReview.review.summary.total_tables}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Le PDF rejoint le mapping standard uniquement apres approbation explicite
+            Le PDF rejoint le mapping standard uniquement après approbation explicite
             des tableaux retenus.
           </p>
         </div>
@@ -184,7 +184,7 @@ export function TabularPdfReviewPanel({
                           key={`${table.source_page}:${table.table_index}:${issue.code}`}
                           className={`rounded-full px-2 py-0.5 text-[11px] ${
                             issue.severity === "error"
-                              ? "bg-danger/10 text-danger"
+                              ? "bg-danger-subtle text-danger"
                               : "bg-warning/10 text-[var(--warning-dark,var(--warning))]"
                           }`}
                         >
@@ -228,8 +228,8 @@ export function TabularPdfReviewPanel({
           {approvedCount > 0
             ? `${approvedCount} tableau(x) retenu(s) avant mapping canonique.`
             : hasSelectableTable
-              ? "Selectionnez au moins un tableau a retenir."
-              : "Aucun tableau exploitable n'a ete retenu pour ce PDF."}
+              ? "Sélectionnez au moins un tableau a retenir."
+              : "Aucun tableau exploitable n'a été retenu pour ce PDF."}
         </p>
         <button
           type="button"

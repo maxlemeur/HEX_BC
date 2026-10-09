@@ -15,7 +15,7 @@ export function TakeoffApplyWizardStrategyStep({
     <div className="space-y-3">
       <div className="rounded-xl border border-info/20 bg-info/5 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-info">
-          Strategie d&apos;application
+          Stratégie d&apos;application
         </p>
         <p className="mt-2 text-sm text-foreground-secondary">
           Choisissez comment enrichir le devis. Le wizard vous montre l&apos;impact avant confirmation.

@@ -35,7 +35,7 @@ function throwPdfPublicationError(
     message.includes("ESTIMATE_EMAIL_PDF_PUBLICATION_CONFLICT")
   ) {
     throw conflict(
-      "Cette generation PDF a ete remplacee par un workflow plus recent.",
+      "Cette generation PDF a été remplacee par un workflow plus récent.",
       { code: error.code },
       "ESTIMATE_PDF_GENERATION_SUPERSEDED",
     );
@@ -128,7 +128,7 @@ export async function beginEstimatePdfGeneration(input: {
   );
 
   if (error) {
-    throwPdfPublicationError(error, "Impossible de demarrer la generation PDF.");
+    throwPdfPublicationError(error, "Impossible de démarrer la generation PDF.");
   }
 
   return parseGenerationClaim(data);

@@ -41,9 +41,9 @@ export const STRATEGY_OPTIONS: Array<{
   {
     value: "append",
     label: "Ajouter sans effacer",
-    description: "Ajoute les lignes extraites dans la zone cible sans toucher au contenu deja en place.",
+    description: "Ajoute les lignes extraites dans la zone cible sans toucher au contenu déjà en place.",
     impactLabel: "Le plus sur pour enrichir un devis existant.",
-    caution: "Aucune ligne existante n'est supprimee.",
+    caution: "Aucune ligne existante n'est supprimée.",
   },
   {
     value: "replace",
@@ -57,8 +57,8 @@ export const STRATEGY_OPTIONS: Array<{
   {
     value: "merge",
     label: "Fusionner avec l'existant",
-    description: "Tente de rapprocher les lignes existantes et les lignes extraites selon les regles serveur.",
-    impactLabel: "Bon compromis quand la zone est deja structuree.",
+    description: "Tente de rapprocher les lignes existantes et les lignes extraites selon les règles serveur.",
+    impactLabel: "Bon compromis quand la zone est déjà structuree.",
     caution: "Relisez l'impact avant confirmation.",
   },
 ];

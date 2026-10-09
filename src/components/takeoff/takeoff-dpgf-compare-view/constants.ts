@@ -77,7 +77,7 @@ export const RISK_SEVERITY_VARIANT: Record<
 };
 
 export const RISK_STATUS_LABELS: Record<TakeoffRiskStatus, string> = {
-  to_process: "A traiter",
+  to_process: "À traiter",
   assumed: "Assume",
   false_positive: "Faux positif",
 };

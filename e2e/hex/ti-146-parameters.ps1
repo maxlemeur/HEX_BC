@@ -17,7 +17,7 @@ $project = "E2E-HEX-TI146-$stamp"
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-146" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-146" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-ParamsTab -Session $Session
 
   Invoke-AB $Session "find" "label" "Marge (multiplicateur)" "fill" "1.2"
@@ -38,7 +38,7 @@ try {
 "@
   Invoke-AB $Session "eval" $js
 
-  Invoke-AB $Session "find" "label" "Nom du role" "fill" "Ouvrier"
+  Invoke-AB $Session "find" "label" "Nom du rôle" "fill" "Ouvrier"
   Invoke-AB $Session "find" "label" "Taux horaire (EUR)" "fill" "45"
   Invoke-AB $Session "eval" @"
 (() => {
@@ -59,7 +59,7 @@ try {
   $text = Get-PageText -Session $Session
   Assert-Contains -Text $text -Expected "Ouvrier" -Message "Role added"
 
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Enregistrer le parametrage"
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Enregistrer le paramétrage"
 
   Write-Host "TI-146 PASS"
 } finally {

@@ -529,7 +529,7 @@ export default function TakeoffReviewTable({
         >
           <option value="all">Tous statuts verif</option>
           <option value="verified">Verifies</option>
-          <option value="unverified">Non verifies</option>
+          <option value="unverified">Non vérifiés</option>
         </select>
 
         {/* Category filter */}
@@ -539,7 +539,7 @@ export default function TakeoffReviewTable({
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
           >
-            <option value="all">Toutes categories</option>
+            <option value="all">Toutes catégories</option>
             {allCategories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -611,8 +611,8 @@ export default function TakeoffReviewTable({
           onChange={(e) => handleSortFieldSelect(e.target.value as SortField)}
         >
           <option value="designation">Tri: Designation</option>
-          <option value="quantity">Tri: Quantite</option>
-          <option value="category">Tri: Categorie</option>
+          <option value="quantity">Tri: Quantité</option>
+          <option value="category">Tri: Catégorie</option>
           <option value="confidence">Tri: Confiance</option>
         </select>
         <button
@@ -634,7 +634,7 @@ export default function TakeoffReviewTable({
       {/* ---- Keyboard shortcuts hint ---- */}
       <p className="text-xs text-subtle-foreground">
         Raccourcis : <kbd className="rounded border border-border px-1">E</kbd> exclure/inclure,{" "}
-        <kbd className="rounded border border-border px-1">V</kbd> verifier,{" "}
+        <kbd className="rounded border border-border px-1">V</kbd> vérifier,{" "}
         <kbd className="rounded border border-border px-1">P</kbd> preuve
       </p>
 
@@ -697,19 +697,19 @@ export default function TakeoffReviewTable({
                 className="w-[100px] cursor-pointer select-none"
                 onClick={() => handleSortChange("quantity")}
               >
-                Quantite
+                Quantité
                 {sortField === "quantity" && (
                   <span className="ml-1">{sortDirection === "asc" ? "\u2191" : "\u2193"}</span>
                 )}
               </th>
-              <th className="w-[80px]">Unite</th>
+              <th className="w-[80px]">Unité</th>
               <th className="w-[70px]">Confiance</th>
               <th className="w-[50px]">Alertes</th>
               <th
                 className="w-[120px] cursor-pointer select-none"
                 onClick={() => handleSortChange("category")}
               >
-                Categorie
+                Catégorie
                 {sortField === "category" && (
                   <span className="ml-1">{sortDirection === "asc" ? "\u2191" : "\u2193"}</span>
                 )}
@@ -753,7 +753,7 @@ export default function TakeoffReviewTable({
                         type="checkbox"
                         checked={selectedIds.has(item.id)}
                         onChange={() => toggleSelection(item.id)}
-                        aria-label={`Selectionner ${item.designation}`}
+                        aria-label={`Sélectionner ${item.designation}`}
                       />
                     </td>
 

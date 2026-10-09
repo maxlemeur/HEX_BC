@@ -14,7 +14,7 @@ export function assertCanWriteEstimateWorkflows(role: TenantRole) {
   }
 
   throw forbidden(
-    "Cette action est reservee aux administrateurs et aux chiffreurs.",
+    "Cette action est réservée aux administrateurs et aux chiffreurs.",
     undefined,
     "ESTIMATE_WRITE_ROLE_REQUIRED"
   );

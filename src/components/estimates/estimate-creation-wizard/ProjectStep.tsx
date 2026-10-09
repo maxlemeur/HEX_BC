@@ -26,7 +26,7 @@ export function ProjectStep({
       <div className="grid gap-6">
         <div className="rounded-lg border border-border bg-surface-subtle p-3">
           <p className="text-sm text-slate-600">
-            Version ajoutee au projet existant.
+            Version ajoutée au projet existant.
           </p>
         </div>
         <div>
@@ -81,7 +81,7 @@ export function ProjectStep({
 
       <div>
         <label className="form-label" htmlFor="wiz-reference">
-          Reference projet
+          Référence projet
         </label>
         <input
           id="wiz-reference"
@@ -91,7 +91,7 @@ export function ProjectStep({
           onChange={(event) => updateField("reference", event.target.value)}
         />
         <p className="mt-1 text-xs text-muted-foreground">
-          La reference du devis sera generee automatiquement.
+          La référence du devis sera générée automatiquement.
         </p>
       </div>
 

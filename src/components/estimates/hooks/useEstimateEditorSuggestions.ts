@@ -194,12 +194,12 @@ export function useEstimateEditorSuggestions({
         const supplyType = supplyTypeById.get(supplyTypeId);
         parts.push(`Materiau: ${supplyType?.name ?? "Type inconnu"}`);
       }
-      if (rule.unit) parts.push(`Unite: ${rule.unit}`);
+      if (rule.unit) parts.push(`Unité: ${rule.unit}`);
       if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
       if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
       if (rule.labor_role_id) {
         const role = roleById.get(rule.labor_role_id);
-        parts.push(`Role MO: ${role?.name ?? "Role inconnu"}`);
+        parts.push(`Rôle MO: ${role?.name ?? "Rôle inconnu"}`);
       }
       return parts;
     },

@@ -228,12 +228,12 @@ export function buildDirectionSyntheticAlerts(
       buildAlertGroup(
         input,
         "margin-fragile",
-        "Marge fragile avec ecarts ouverts",
+        "Marge fragile avec écarts ouverts",
         [
           `Marge previsionnelle a ${formatPercent(input.marginBp)}.`,
           `${input.exceptionCount} exception${input.exceptionCount > 1 ? "s" : ""} reste${
             input.exceptionCount > 1 ? "nt" : ""
-          } a arbitrer.`,
+          } à arbitrer.`,
         ],
         [...alertsByCause.quantityGap, ...alertsByCause.priceSignals],
         "critical"
@@ -246,7 +246,7 @@ export function buildDirectionSyntheticAlerts(
       buildAlertGroup(
         input,
         "high-value-missing-proof",
-        "Montant eleve avec preuves a consolider",
+        "Montant eleve avec preuves à consolider",
         [
           "Le montant engage l'affaire au-dessus du seuil de vigilance.",
           `${alertsByCause.missingProof.length} preuve${
@@ -271,7 +271,7 @@ export function buildDirectionSyntheticAlerts(
         "Remise forte sans validation finalisee",
         [
           `Remise courante a ${formatPercent(input.discountBp)}.`,
-          "Le dossier n'est pas encore valide pour l'envoi.",
+          "Le dossier n'est pas encore validé pour l'envoi.",
         ],
         alerts,
         "warning"
@@ -287,20 +287,20 @@ export function buildDirectionSyntheticAlerts(
       buildAlertGroup(
         input,
         "deadline-incomplete",
-        "Dossier incomplet avant echeance",
+        "Dossier incomplet avant échéance",
         [
           input.sendTargetAt
-            ? `Échéance detectee avant la fin de semaine (${new Date(
+            ? `Échéance détectée avant la fin de semaine (${new Date(
                 input.sendTargetAt
               ).toLocaleDateString("fr-FR")}).`
-            : "Une echeance proche demande un arbitrage rapide.",
+            : "Une échéance proche demande un arbitrage rapide.",
           input.openHypothesesCount > 0
-            ? `${input.openHypothesesCount} hypothese${
+            ? `${input.openHypothesesCount} hypothèse${
                 input.openHypothesesCount > 1 ? "s" : ""
               } reste${input.openHypothesesCount > 1 ? "nt" : ""} ouverte${
                 input.openHypothesesCount > 1 ? "s" : ""
               }.`
-            : "Des pieces restent a confirmer avant envoi.",
+            : "Des pièces restent à confirmer avant envoi.",
         ],
         alertsByCause.missingPiece.length > 0 ? alertsByCause.missingPiece : alerts,
         "critical"
@@ -312,7 +312,7 @@ export function buildDirectionSyntheticAlerts(
     const fallback = buildAlertGroup(
       input,
       "generic",
-      "Signal a traiter avant arbitrage",
+      "Signal à traiter avant arbitrage",
       [
         alerts[0]?.cause_label ?? "Un signal de risque reste ouvert.",
         input.riskScore > 0 ? `Score risque ${input.riskScore}/100.` : "",

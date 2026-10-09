@@ -438,7 +438,7 @@ export function TakeoffLaunchPrompt({
               <div
                 className={`rounded border px-3 py-2 text-xs ${
                   levelWarning.severity === "critical"
-                    ? "border-warning/30 bg-warning/10 text-warning"
+                    ? "border-warning/30 bg-warning-subtle text-warning"
                     : "border-primary/15 bg-surface/80 text-foreground-secondary"
                 }`}
                 role={levelWarning.severity === "critical" ? "alert" : "status"}
@@ -469,7 +469,7 @@ export function TakeoffLaunchPrompt({
             {onDismissPermanent && (
               <button
                 type="button"
-                className="rounded-sm text-xs text-subtle-foreground underline underline-offset-2 hover:text-slate-600 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                className="rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                 onClick={onDismissPermanent}
               >
                 Ne pas proposer pour cette affaire

@@ -84,7 +84,7 @@ function Wait-ForPersistedLines {
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-030" -Date "2026-02-02" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-030" -Date "2026-02-02" -Validité "30"
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre EST-030"
   Add-Line -Session $Session -Designation "Tube Inox 316L"

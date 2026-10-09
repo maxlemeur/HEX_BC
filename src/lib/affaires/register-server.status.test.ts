@@ -308,7 +308,7 @@ describe("updateAffaireRegisterEntryStatus", () => {
         comment: "Verifier le perimetre client.",
       })
     ).rejects.toThrow(
-      "Seules les entrees ouvertes peuvent etre basculees en clarification client."
+      "Seules les entrées ouvertes peuvent être basculees en clarification client."
     );
 
     expect(updatePayloads).toHaveLength(0);

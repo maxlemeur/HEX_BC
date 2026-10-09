@@ -256,7 +256,7 @@ async function restoreDeletedItems(items: EstimateItemSnapshot[]) {
     if (!error) continue;
     throw mapSupabaseError(
       error,
-      "Impossible de restaurer les lignes supprimees pendant le rollback."
+      "Impossible de restaurer les lignes supprimées pendant le rollback."
     );
   }
 }
@@ -418,7 +418,7 @@ async function logEstimateBatchAudit(
   });
 
   if (!error) return;
-  throw mapSupabaseError(error, "Impossible d'ecrire l'audit du batch.");
+  throw mapSupabaseError(error, "Impossible d'écrire l'audit du batch.");
 }
 
 async function resolveLatestBatchVersionToken(
@@ -452,13 +452,13 @@ export async function executeEstimateBatch(
   options: ExecuteEstimateBatchOptions
 ): Promise<ExecuteEstimateBatchResult> {
   if (operations.length === 0) {
-    throw badRequest("operations ne peut pas etre vide.");
+    throw badRequest("operations ne peut pas être vide.");
   }
 
   const maxOperations = resolveEstimateBatchMaxOperations(options.maxOperations);
   if (operations.length > maxOperations) {
     throw badRequest(
-      `operations ne peut pas contenir plus de ${maxOperations} operations.`,
+      `operations ne peut pas contenir plus de ${maxOperations} opérations.`,
       {
         max_operations: maxOperations,
         received_operations: operations.length,

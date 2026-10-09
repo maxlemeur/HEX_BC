@@ -37,7 +37,7 @@ describe("useEstimateEditorHistoryController", () => {
     });
 
     expect(reportError).toHaveBeenCalledWith(
-      "Impossible d'annuler la derniere action."
+      "Impossible d'annuler la dernière action."
     );
     expect(result.current.state.canUndo).toBe(true);
     expect(result.current.state.canRedo).toBe(false);

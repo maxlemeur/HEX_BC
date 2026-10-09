@@ -171,7 +171,7 @@ Quatre exports XLSX serveur et deux exports client coexistent.
 | Export | Déclencheur | Feuilles | Colonnes | Nom de fichier |
 | --- | --- | --- | --- | --- |
 | Standard | `?mode=standard` | `Devis`, `Resume` | 8 (6 en autoliquidation) | `devis-<ref|nom>-v<n>.xlsx` |
-| DPGF | `?mode=dpgf` | `Donnees`, `Metadata` | **19** | `devis-<ref|nom>-v<n>-dpgf.xlsx` |
+| DPGF | `?mode=dpgf` | `Données`, `Metadata` | **19** | `devis-<ref|nom>-v<n>-dpgf.xlsx` |
 | BDC V1.1 | `?mode=bdc` | `BDC_V1_1` | **31** | `devis-<ref|nom>-v<n>-bdc-v1_1.xlsx` |
 | Éditeur CSV (client) | bouton CSV de l'éditeur | fichier plat | **19**, ou **25** si le flag MO split est actif | `<projet>_V<n>_<AAAA-MM-JJ>.csv` |
 | Commandes (client) | page `/dashboard/orders` | `Commandes`, `Articles` | — | `commandes_<AAAA-MM-JJ>` |

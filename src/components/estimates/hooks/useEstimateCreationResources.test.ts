@@ -55,7 +55,7 @@ describe("useEstimateCreationResources", () => {
           creationMode: "template",
           selectedTemplateId: "tpl-123",
         },
-        { selectedTemplateId: "Veuillez selectionner un template." }
+        { selectedTemplateId: "Veuillez sélectionner un template." }
       )
     );
 

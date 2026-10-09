@@ -49,7 +49,7 @@ describe("buildDirectionSyntheticAlerts", () => {
       alerts: [
         createAlert({
           cause_code: "dpgf_takeoff_gap",
-          cause_label: "Ecart DPGF / metre",
+          cause_label: "Écart DPGF / métré",
           severity: "critical",
           risk_score: 78,
         }),
@@ -64,7 +64,7 @@ describe("buildDirectionSyntheticAlerts", () => {
     });
 
     expect(alerts[0]).toMatchObject({
-      label: "Marge fragile avec ecarts ouverts",
+      label: "Marge fragile avec écarts ouverts",
       level: "critical",
       status: "to_process",
       jobId: "job-1",
@@ -97,7 +97,7 @@ describe("buildDirectionSyntheticAlerts", () => {
     });
 
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]?.label).toBe("Signal a traiter avant arbitrage");
+    expect(alerts[0]?.label).toBe("Signal à traiter avant arbitrage");
   });
 
   it("keeps an actionable job id when alerts share one and latestJobId is missing", () => {
@@ -130,7 +130,7 @@ describe("buildDirectionSyntheticAlerts", () => {
     expect(alerts[0]).toMatchObject({
       jobId: "job-fallback",
       latestJobId: null,
-      label: "Signal a traiter avant arbitrage",
+      label: "Signal à traiter avant arbitrage",
     });
   });
 });

@@ -42,7 +42,7 @@ export default function TakeoffApplicationHistoryTab({
           <ClockIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
         title="Aucune application"
-        description="Aucune extraction n'a encore ete appliquee au devis."
+        description="Aucune extraction n'a encore été appliquée au devis."
       />
     );
   }
@@ -75,7 +75,7 @@ export default function TakeoffApplicationHistoryTab({
               href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
               className="btn btn-secondary btn-sm mt-4 w-full justify-center"
             >
-              Voir le detail
+              Voir le détail
             </Link>
           </article>
         ))}
@@ -106,7 +106,7 @@ export default function TakeoffApplicationHistoryTab({
                   href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
                   className="btn btn-secondary btn-sm"
                 >
-                  Detail
+                  Détail
                 </Link>
               </td>
             </tr>

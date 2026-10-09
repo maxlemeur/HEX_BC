@@ -649,7 +649,7 @@ function FirstVersionActionBar({ projectId }: { projectId: string }) {
         className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
       >
         <PlusIcon aria-hidden="true" size={14} />
-        Creer un premier devis manuel
+        Créer un premier devis manuel
       </Link>
     </div>
   );
@@ -683,11 +683,11 @@ function AffaireProgressStrip({
       summary.structureMode.mode === "manual"
         ? "Structure manuelle"
         : summary.structureMode.mode === "imported"
-          ? "Structure importee"
+          ? "Structure importée"
           : summary.structureMode.mode === "hybrid"
             ? "Mode hybride"
             : summary.structureMode.mode === "needs_update"
-              ? "Structure a remettre a jour"
+              ? "Structure à remettre à jour"
               : null;
 
     if (structureModeLabel) {
@@ -1068,7 +1068,7 @@ export function DpgfSourceCard({
         <div className="py-4 text-center">
           <FileIcon aria-hidden="true" strokeWidth="1.5" className="mx-auto mb-2 text-slate-300" size={32} />
           <p className="text-sm text-muted-foreground">
-            Importez le bordereau de prix (DPGF) comme base pour pre-remplir la structure du devis.
+            Importez le bordereau de prix (DPGF) comme base pour pré-remplir la structure du devis.
           </p>
           {onStartImport ? (
             <button
@@ -1271,7 +1271,7 @@ export function AffaireHub({
     toast.success({
       title: "Affaire créée !",
       description: dpgfSource
-        ? "DPGF lie — importez-la depuis l'editeur pour pre-remplir le devis."
+        ? "DPGF lie — importez-la depuis l'éditeur pour pré-remplir le devis."
         : undefined,
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource, intakeWorkspace]);

@@ -33,10 +33,10 @@ test.describe("Team A hub synthetic dev scenarios", () => {
     });
     const registerSection = getTeamARegisterSection(page);
 
-    await expect(page.getByText("Analyse sous reserves")).toBeVisible();
+    await expect(page.getByText("Analyse sous réserves")).toBeVisible();
     await expect(
       registerSection.getByText(
-        "Prix fournisseurs a confirmer apres la premiere passe de chiffrage.",
+        "Prix fournisseurs à confirmer après la première passe de chiffrage.",
         { exact: true },
       ).first(),
     ).toBeVisible();
@@ -72,7 +72,7 @@ test.describe("Team A hub synthetic dev scenarios", () => {
       ).first(),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Analyser les plans" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Demarrer l'analyse" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Démarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
   });
@@ -97,12 +97,12 @@ test.describe("Team A hub synthetic dev scenarios", () => {
     ).toBeVisible();
     await expect(
       registerSection.getByText(
-        "Le dossier a change; la revue documentaire et la pre-remise doivent etre rejouees.",
+        "Le dossier a change; la revue documentaire et la pré-remise doivent être rejouees.",
         { exact: true },
       ).first(),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Analyser les plans" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Demarrer l'analyse" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Démarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
   });

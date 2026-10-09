@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
   if (!(await canWritePurchaseOrders(supabase, userId, tenantId))) {
     return NextResponse.json(
-      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
       { status: 403 }
     );
   }
@@ -188,7 +188,7 @@ export async function POST(request: Request) {
   if (updateError) {
     await supabase.from("purchase_orders").delete().eq("id", orderId);
     return NextResponse.json(
-      { error: "Unable to set order reference." },
+      { error: "Unable to set order référence." },
       { status: 400 }
     );
   }

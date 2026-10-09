@@ -419,7 +419,7 @@ export async function withEstimateAiGenerationLease<T>(input: {
   const lease = readEstimateAiGenerationLeaseRow(data);
   if (!lease?.claimed) {
     throw conflict(
-      "Une generation IA est deja en cours ou a ete lancee recemment pour cette version.",
+      "Une generation IA est déjà en cours ou a été lancee recemment pour cette version.",
       { retry_after_seconds: lease?.retry_after_seconds ?? null },
       "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED"
     );
@@ -600,10 +600,10 @@ async function fetchEstimateVersionToken(input: {
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de recuperer le jeton de version.");
+      throw mapSupabaseError(error, "Impossible de récupérer le jeton de version.");
     }
 
-    throw badRequest("Impossible de recuperer le jeton de version.");
+    throw badRequest("Impossible de récupérer le jeton de version.");
   }
 
   return data;
@@ -1029,9 +1029,9 @@ const ESTIMATE_STRUCTURE_STRONG_SIGNAL_SOURCE_KINDS = new Set<
 ]);
 
 const ESTIMATE_STRUCTURE_WEAK_SIGNAL_HYPOTHESIS =
-  "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, a confirmer humainement.";
+  "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'ouvrages, à confirmer humainement.";
 const ESTIMATE_STRUCTURE_WEAK_SIGNAL_INFERENCE =
-  "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview.";
+  "Aucune source métier forte ne rend ce lot defendable par défaut dans cette preview.";
 
 export function isAssemblyOnlyWeakSignalMode(
   sourceSummaries: EstimateStructureDraftSourceSummary[]
@@ -1229,7 +1229,7 @@ function buildHeuristicNodes(
       inferences:
         groupedInferences.length > 0
           ? groupedInferences
-          : [`Titre consolide a partir de ${candidate.entries.length} source(s).`],
+          : [`Titre consolide à partir de ${candidate.entries.length} source(s).`],
       children,
     };
   };
@@ -1461,7 +1461,7 @@ async function loadLatestLinkedDpgfImportForProject(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger la source DPGF liee.");
+    throw mapSupabaseError(error, "Impossible de charger la source DPGF liée.");
   }
 
   return (data ?? null) as
@@ -1632,10 +1632,10 @@ async function loadStructureDraftSourceBundle(input: {
         label: latestLinkedImport.filename,
         path,
         excerpt: line.title,
-        fact: `Ligne DPGF detectee: ${line.title}`,
+        fact: `Ligne DPGF détectée: ${line.title}`,
         hypothesis:
           path.length > 1
-            ? "Chapitrage propose a partir du libelle DPGF."
+            ? "Chapitrage propose à partir du libelle DPGF."
             : null,
         inference:
           path.length > 1
@@ -1695,7 +1695,7 @@ async function loadStructureDraftSourceBundle(input: {
           excerpt: historyVersion.title ?? null,
           fact: `Observe dans V${historyVersion.version_number}: ${section.path}`,
           hypothesis: null,
-          inference: "Structure historisee sur une version precedente.",
+          inference: "Structure historisee sur une version précédente.",
           weight: 1.6,
         });
       });
@@ -1786,7 +1786,7 @@ async function loadStructureDraftSourceBundle(input: {
         excerpt: assembly.description,
         fact: `Ouvrage disponible: ${label}`,
         hypothesis: "L'ouvrage peut constituer un lot autonome ou un sous-chapitre.",
-        inference: "Regroupement propose a partir du catalogue d'ouvrages.",
+        inference: "Regroupement propose à partir du catalogue d'ouvrages.",
         weight: 0.85,
       });
     });
@@ -2018,7 +2018,7 @@ async function loadStructureDraftSourceBundle(input: {
         excerpt: path.join(" > "),
         fact: `Notes affaire: ${path.join(" > ")}`,
         hypothesis: null,
-        inference: "Element issu du contexte affaire local, a confirmer humainement.",
+        inference: "Élément issu du contexte affaire local, à confirmer humainement.",
         weight: 0.95,
       });
     });
@@ -2090,14 +2090,14 @@ Contraintes strictes:
 - maximum 3 niveaux hierarchiques
 - labels concis et actionnables
 - aucune application automatique: ceci sert uniquement de preview humaine
-- toujours distinguer faits, hypotheses et inferences
+- toujours distinguer faits, hypothèses et inferences
 - chaque noeud doit avoir une provenance exploitable
 - ne retourne que le JSON conforme au schema
 
 Contexte projet:
 - affaire: ${input.project.name}
-- reference: ${input.project.reference ?? "non renseignee"}
-- client: ${input.project.client_name ?? "non renseigne"}
+- référence: ${input.project.reference ?? "non renseignee"}
+- client: ${input.project.client_name ?? "non renseigné"}
 - sources disponibles: ${availableSources || "aucune"}
 
 Sources:
@@ -2109,9 +2109,9 @@ ${heuristicBlock || "- aucune proposition heuristique"}
 Consignes de generation:
 - privilegie les structures observees dans l'historique et les templates
 - utilise le DPGF pour compléter, pas pour inventer silencieusement
-- si une structure est incertaine, baisse la confiance et place le doute dans hypotheses/inferences
-- les faits doivent etre des observations directes des sources
-- les hypotheses doivent expliciter ce qui reste a confirmer
+- si une structure est incertaine, baisse la confiance et place le doute dans hypothèses/inferences
+- les faits doivent être des observations directes des sources
+- les hypothèses doivent expliciter ce qui reste à confirmer
 - les inferences doivent expliciter le raisonnement de regroupement
 `.trim();
 }
@@ -2155,7 +2155,7 @@ function buildDraftNodesFromSources(input: {
         duration_ms: null,
         source_entry_count: input.sourceEntries.length,
         generation_summary:
-          "Aucune suggestion defendable a partir des sources disponibles.",
+          "Aucune suggestion defendable à partir des sources disponibles.",
         failure_code: "ESTIMATE_STRUCTURE_DRAFT_NO_SOURCES",
         failure_message: null,
       } satisfies EstimateStructureDraftGenerationMetadata,
@@ -2199,7 +2199,7 @@ function buildDraftNodesFromSources(input: {
           generation_summary:
             defendableNodes.length > 0
               ? geminiResult.data.summary ?? null
-              : "Aucune suggestion defendable a partir des sources disponibles.",
+              : "Aucune suggestion defendable à partir des sources disponibles.",
           failure_code: null,
           failure_message: null,
         } satisfies EstimateStructureDraftGenerationMetadata,
@@ -2231,7 +2231,7 @@ function buildDraftNodesFromSources(input: {
           generation_summary:
             defendableNodes.length > 0
               ? "Fallback heuristique utilise."
-              : "Aucune suggestion defendable a partir des sources disponibles.",
+              : "Aucune suggestion defendable à partir des sources disponibles.",
           failure_code:
             error instanceof Error && "code" in error && typeof error.code === "string"
               ? error.code
@@ -2417,11 +2417,11 @@ export async function generateEstimateStructureDraft(
         if (draftError) {
           throw mapSupabaseError(
             draftError,
-            "Impossible de creer la preview de structure."
+            "Impossible de créer la preview de structure."
           );
         }
 
-        throw badRequest("Impossible de creer la preview de structure.");
+        throw badRequest("Impossible de créer la preview de structure.");
       }
 
       const flattenedNodes = flattenDraftNodes(generation.nodes);
@@ -2812,7 +2812,7 @@ export async function applyEstimateStructureDraft(
   const existingItems = (existingItemsData ?? []) as EstimateItemRow[];
   if (input.mode === "create_empty" && existingItems.length > 0) {
     throw conflict(
-      "Le mode creer a vide est reserve aux versions sans structure existante.",
+      "Le mode créer a vide est réservé aux versions sans structure existante.",
       undefined,
       "ESTIMATE_STRUCTURE_DRAFT_CREATE_EMPTY_REQUIRES_EMPTY_VERSION"
     );
@@ -2844,7 +2844,7 @@ export async function applyEstimateStructureDraft(
   overrideByNodeId.forEach((_, nodeId) => {
     if (!selectedSubtreeIds.has(nodeId)) {
       throw badRequest(
-        "Un override cible un noeud non selectionne.",
+        "Un override cible un noeud non sélectionné.",
         { node_id: nodeId },
         "ESTIMATE_STRUCTURE_DRAFT_OVERRIDE_OUTSIDE_SELECTION"
       );
@@ -2902,7 +2902,7 @@ export async function applyEstimateStructureDraft(
 
       if (!explicitTarget) {
         throw badRequest(
-          "La cible de fusion selectionnee est introuvable.",
+          "La cible de fusion sélectionnée est introuvable.",
           {
             node_id: inputMerge.node.id,
             merge_into_item_id: inputMerge.overrideMergeIntoItemId,
@@ -2916,7 +2916,7 @@ export async function applyEstimateStructureDraft(
         explicitTarget.hierarchy_level !== inputMerge.node.hierarchy_level
       ) {
         throw badRequest(
-          "La cible de fusion selectionnee n'est pas compatible avec le parent final.",
+          "La cible de fusion sélectionnée n'est pas compatible avec le parent final.",
           {
             node_id: inputMerge.node.id,
             merge_into_item_id: inputMerge.overrideMergeIntoItemId,
@@ -2974,7 +2974,7 @@ export async function applyEstimateStructureDraft(
 
       if (!mergeTarget) {
         throw badRequest(
-          "Aucune section cible n'a ete trouvee pour la fusion.",
+          "Aucune section cible n'a été trouvee pour la fusion.",
           {
             node_id: node.id,
             label: node.label,

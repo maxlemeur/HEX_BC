@@ -13,7 +13,7 @@ function parsePositiveInt(value: string | null): number | null {
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Parametre limit invalide.");
+    throw badRequest("Paramètre limit invalide.");
   }
 
   return parsed;

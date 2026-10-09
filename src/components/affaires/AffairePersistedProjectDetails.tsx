@@ -9,6 +9,7 @@ import {
   type AffaireProjectDetailsValues,
 } from "@/components/affaires/AffaireProjectDetailsCard";
 import { ProjectIconPicker, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
 
 type AffairePersistedProjectDetailsProps = {
@@ -94,12 +95,12 @@ export function AffairePersistedProjectDetails({
         setMode("view");
         setErrorMessage(null);
         setProjectNameError(null);
-        toast.success({ title: "Affaire mise a jour" });
+        toast.success({ title: "Affaire mise à jour" });
       } catch (error) {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "Impossible de mettre a jour l'affaire."
+            : "Impossible de mettre à jour l'affaire."
         );
       }
     });
@@ -113,23 +114,13 @@ export function AffairePersistedProjectDetails({
   };
 
   const editButtons = mode === "edit" ? (
-    <div className="flex items-center gap-3">
-      <button
-        type="button"
-        className="btn btn-ghost btn-lg"
-        onClick={cancel}
-        disabled={isPending}
-      >
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="ghost" size="lg" onClick={cancel} disabled={isPending}>
         Annuler
-      </button>
-      <button
-        type="button"
-        className="btn btn-primary btn-lg"
-        onClick={save}
-        disabled={isPending}
-      >
-        {isPending ? "Enregistrement…" : "Enregistrer"}
-      </button>
+      </Button>
+      <Button size="lg" onClick={save} loading={isPending}>
+        Enregistrer
+      </Button>
     </div>
   ) : null;
 

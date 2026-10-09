@@ -224,7 +224,7 @@ describe("PlansStep", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("temporary failure");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Reessayer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
 
     await waitFor(() => {
       expect(createPlanSetMock).toHaveBeenCalledWith({

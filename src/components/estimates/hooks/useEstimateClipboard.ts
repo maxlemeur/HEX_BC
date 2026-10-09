@@ -150,7 +150,7 @@ export function useEstimateClipboard({
     const errors: string[] = [];
 
     if (matrix.headers.length === 0 || matrix.rows.length === 0) {
-      errors.push("Aucune ligne exploitable detectee dans le presse-papier.");
+      errors.push("Aucune ligne exploitable détectée dans le presse-papier.");
     }
 
     const detectedFormat =
@@ -229,7 +229,7 @@ export function useEstimateClipboard({
     });
 
     if (selectedRows.length === 0) {
-      setPasteErrors(["Aucune ligne valide selectionnee pour insertion."]);
+      setPasteErrors(["Aucune ligne valide sélectionnée pour insertion."]);
       return;
     }
 

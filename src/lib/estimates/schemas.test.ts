@@ -39,7 +39,7 @@ describe("createEstimateSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("discount_steps doit etre vide en mode simple")
+        issue.message.includes("discount_steps doit être vide en mode simple")
       )
     ).toBe(true);
   });
@@ -226,7 +226,7 @@ describe("patchEstimateVersionSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("Aucun champ a mettre a jour")
+        issue.message.includes("Aucun champ à mettre à jour")
       )
     ).toBe(true);
   });
@@ -259,7 +259,7 @@ describe("patchEstimateVersionSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("Doit etre >= 0")
+        issue.message.includes("Doit être >= 0")
       )
     ).toBe(true);
   });
@@ -275,7 +275,7 @@ describe("patchEstimateVersionSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("discount_steps doit etre vide en mode simple")
+        issue.message.includes("discount_steps doit être vide en mode simple")
       )
     ).toBe(true);
   });
@@ -424,7 +424,7 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("version_patch ne peut pas etre vide")
+        issue.message.includes("version_patch ne peut pas être vide")
       )
     ).toBe(true);
   });
@@ -438,7 +438,7 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("updates ne peut pas etre vide")
+        issue.message.includes("updates ne peut pas être vide")
       )
     ).toBe(true);
   });
@@ -481,7 +481,7 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("Aucun champ de mise a jour fourni")
+        issue.message.includes("Aucun champ de mise à jour fourni")
       )
     ).toBe(true);
   });
@@ -511,7 +511,7 @@ describe("batchOperationsSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("operations ne peut pas etre vide")
+        issue.message.includes("operations ne peut pas être vide")
       )
     ).toBe(true);
   });
@@ -531,7 +531,7 @@ describe("batchOperationsSchema", () => {
     if (parsed.success) return;
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("Aucun champ de mise a jour fourni")
+        issue.message.includes("Aucun champ de mise à jour fourni")
       )
     ).toBe(true);
   });
@@ -562,7 +562,7 @@ describe("moveEstimateItemSchema", () => {
     ).toBe(true);
     expect(
       parsed.error.issues.some((issue) =>
-        issue.message.includes("doivent etre differents")
+        issue.message.includes("doivent être différents")
       )
     ).toBe(true);
   });

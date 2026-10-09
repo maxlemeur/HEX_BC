@@ -19,7 +19,7 @@ function parsePositiveInt(value: string | null): number | null {
   if (!value) return null;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Parametre limit invalide.");
+    throw badRequest("Paramètre limit invalide.");
   }
 
   return parsed;
@@ -32,7 +32,7 @@ function parseBoolean(value: string | null): boolean | null {
   if (normalized === "true" || normalized === "1") return true;
   if (normalized === "false" || normalized === "0") return false;
 
-  throw badRequest("Parametre booleen invalide.");
+  throw badRequest("Paramètre booleen invalide.");
 }
 
 async function parseJsonBody(request: Request): Promise<unknown> {

@@ -223,12 +223,12 @@ function resolveLaborRoleLabel(
     const parts: string[] = [];
     if (item.labor_role_atelier_id) {
       parts.push(
-        `Atelier: ${laborRoleNameById.get(item.labor_role_atelier_id) ?? "Role atelier"}`
+        `Atelier: ${laborRoleNameById.get(item.labor_role_atelier_id) ?? "Rôle atelier"}`
       );
     }
     if (item.labor_role_chantier_id) {
       parts.push(
-        `Chantier: ${laborRoleNameById.get(item.labor_role_chantier_id) ?? "Role chantier"}`
+        `Chantier: ${laborRoleNameById.get(item.labor_role_chantier_id) ?? "Rôle chantier"}`
       );
     }
     return parts.join(" / ");
@@ -280,10 +280,10 @@ function resolveLaborRoleSplitLabels(
 
   return {
     atelier: item.labor_role_atelier_id
-      ? (laborRoleNameById.get(item.labor_role_atelier_id) ?? "Role atelier")
+      ? (laborRoleNameById.get(item.labor_role_atelier_id) ?? "Rôle atelier")
       : "",
     chantier: item.labor_role_chantier_id
-      ? (laborRoleNameById.get(item.labor_role_chantier_id) ?? "Role chantier")
+      ? (laborRoleNameById.get(item.labor_role_chantier_id) ?? "Rôle chantier")
       : "",
   };
 }
@@ -384,27 +384,27 @@ async function writeWorkbook(input: {
 }) {
   const workbook = (await input.workbookWriterFactory(input.stream)) as WorkbookWriterLike;
 
-  const dataSheet = workbook.addWorksheet("Donnees");
+  const dataSheet = workbook.addWorksheet("Données");
   dataSheet.columns = [
     { header: "Type", key: "type", width: 12 },
     { header: "AID", key: "aid", width: 22 },
     { header: "Désignation", key: "designation", width: 44 },
     { header: "Quantité", key: "quantite", width: 12 },
-    { header: "Unite", key: "unite", width: 18 },
+    { header: "Unité", key: "unite", width: 18 },
     { header: "Prix unitaire HT EUR", key: "prix_unitaire_ht_eur", width: 22 },
     { header: "Type FO", key: "type_fo", width: 18 },
     { header: "K FO", key: "k_fo", width: 10 },
     { header: "h MO", key: "h_mo", width: 10 },
     { header: "K MO", key: "k_mo", width: 10 },
     { header: "Majoration MO", key: "majoration_mo", width: 18 },
-    { header: "Role MO", key: "role_mo", width: 24 },
-    { header: "Categorie", key: "categorie", width: 24 },
+    { header: "Rôle MO", key: "role_mo", width: 24 },
+    { header: "Catégorie", key: "categorie", width: 24 },
     { header: "h MO Atelier", key: "h_mo_atelier", width: 14 },
     { header: "K MO Atelier", key: "k_mo_atelier", width: 14 },
-    { header: "Role MO Atelier", key: "role_mo_atelier", width: 24 },
+    { header: "Rôle MO Atelier", key: "role_mo_atelier", width: 24 },
     { header: "h MO Chantier", key: "h_mo_chantier", width: 15 },
     { header: "K MO Chantier", key: "k_mo_chantier", width: 15 },
-    { header: "Role MO Chantier", key: "role_mo_chantier", width: 24 },
+    { header: "Rôle MO Chantier", key: "role_mo_chantier", width: 24 },
   ];
   styleWorksheetHeader(dataSheet);
 

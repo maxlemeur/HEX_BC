@@ -58,12 +58,12 @@ export function RiskStatusModal({
               autoComplete="off"
               className="form-input min-h-[140px] py-3"
               value={riskReviewNote}
-              placeholder="Distinguer le fait observe, l'hypothese retenue et la raison de l'arbitrage humain."
+              placeholder="Distinguer le fait observe, l'hypothèse retenue et la raison de l'arbitrage humain."
               onChange={(event) => onRiskReviewNoteChange(event.target.value)}
               maxLength={2000}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              Aucune suggestion IA n&apos;est appliquee silencieusement. Ce changement reste explicite
+              Aucune suggestion IA n&apos;est appliquée silencieusement. Ce changement reste explicite
               et justifie.
             </p>
           </div>

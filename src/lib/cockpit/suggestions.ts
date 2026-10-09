@@ -127,26 +127,26 @@ function describeMissingPieces(
 
   if (provisionalMissingPiecesCount === 0) {
     return {
-      label: `Ajouter ${missingPiecesCount} piece${plural} manquante${plural}`,
+      label: `Ajouter ${missingPiecesCount} pièce${plural} manquante${plural}`,
       preview:
-        "Compléter le dossier avec les pieces manquantes detectees pendant l'intake.",
+        "Compléter le dossier avec les pièces manquantes détectées pendant l'intake.",
     };
   }
 
   if (confirmedMissingPiecesCount === 0) {
     return {
-      label: `Compléter ${missingPiecesCount} piece${plural} potentiellement manquante${plural}`,
+      label: `Compléter ${missingPiecesCount} pièce${plural} potentiellement manquante${plural}`,
       preview:
         provisionalCriticalMissingPiecesCount > 0
-          ? "Des pieces a revoir peuvent encore lever un manque critique. Purgez la review avant de conclure que le dossier est incomplet."
-          : "Des pieces a revoir peuvent encore lever ces manques. Purgez la review avant de conclure que le dossier est incomplet.",
+          ? "Des pièces à revoir peuvent encore lever un manque critique. Purgez la review avant de conclure que le dossier est incomplet."
+          : "Des pièces à revoir peuvent encore lever ces manques. Purgez la review avant de conclure que le dossier est incomplet.",
     };
   }
 
   const confirmedPlural = confirmedMissingPiecesCount > 1 ? "s" : "";
   return {
-    label: `Ajouter ${missingPiecesCount} piece${plural} manquante${plural}`,
-    preview: `${confirmedMissingPiecesCount} piece${confirmedPlural} reste${confirmedMissingPiecesCount > 1 ? "nt" : ""} vraiment manquante${confirmedPlural}; ${provisionalMissingPiecesCount} sera${provisionalMissingPiecesCount > 1 ? "ient" : ""} a reconfirmer apres review.`,
+    label: `Ajouter ${missingPiecesCount} pièce${plural} manquante${plural}`,
+    preview: `${confirmedMissingPiecesCount} pièce${confirmedPlural} reste${confirmedMissingPiecesCount > 1 ? "nt" : ""} vraiment manquante${confirmedPlural}; ${provisionalMissingPiecesCount} sera${provisionalMissingPiecesCount > 1 ? "ient" : ""} à reconfirmer après review.`,
   };
 }
 
@@ -237,7 +237,7 @@ export function computeCockpitSuggestions(
         actionId: "add-files",
         label: "Ajouter des fichiers",
         intent: "add_files",
-        preview: "Ajouter des pieces supplementaires au dossier de consultation.",
+        preview: "Ajouter des pièces supplementaires au dossier de consultation.",
         target: { kind: "open_surface", surfaceId: "intake-upload" },
         requiresConfirmation: false,
         confirmTone: "info",
@@ -250,7 +250,7 @@ export function computeCockpitSuggestions(
     suggestions.push(
       createSuggestion({
         actionId: "review-intake",
-        label: `Confirmer ${reviewDocumentsCount} piece${reviewDocumentsCount > 1 ? "s" : ""} a revoir`,
+        label: `Confirmer ${reviewDocumentsCount} pièce${reviewDocumentsCount > 1 ? "s" : ""} à revoir`,
         intent: "review_intake",
         preview:
           "Vérifier les documents ambigus ou mal classés avant de poursuivre le cadrage du dossier.",
@@ -369,15 +369,15 @@ export function computeCockpitSuggestions(
   ) {
     const preview =
       preliminaryStructure.primarySourceKind === "primary_cctp"
-        ? "Ouvrir une preview editable de structure a partir du CCTP principal, sans imposer un import DPGF."
+        ? "Ouvrir une preview éditable de structure à partir du CCTP principal, sans imposer un import DPGF."
         : preliminaryStructure.sources.length > 1
           ? "Ouvrir une prévisualisation éditable de structure à partir du brief confirmé et des signaux documentaires déjà arbitrés."
-          : "Ouvrir une preview editable de structure a partir du brief confirme.";
+          : "Ouvrir une preview éditable de structure à partir du brief confirme.";
 
     suggestions.push(
       createSuggestion({
         actionId: "generate-structure",
-        label: "Ouvrir la structure preliminaire",
+        label: "Ouvrir la structure préliminaire",
         intent: "generate_structure",
         preview,
         target: {
@@ -404,7 +404,7 @@ export function computeCockpitSuggestions(
         label: "Analyser les plans",
         intent: "analyze_plans",
         preview:
-          "Lancer une analyse automatique des plans pour extraire les metres.",
+          "Lancer une analyse automatique des plans pour extraire les métrés.",
         target: { kind: "open_surface", surfaceId: "launch-metre" },
         requiresConfirmation: false,
         confirmTone: "info",
@@ -427,7 +427,7 @@ export function computeCockpitSuggestions(
         actionId: "view-exceptions",
         label: `Voir les ${exceptionCount} exception${exceptionCount !== 1 ? "s" : ""}`,
         intent: "view_exceptions",
-        preview: `${exceptionCount} ecart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""} detecte${exceptionCount !== 1 ? "s" : ""} entre le DPGF et les metres extraits.`,
+        preview: `${exceptionCount} écart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""} detecte${exceptionCount !== 1 ? "s" : ""} entre le DPGF et les métrés extraits.`,
         target: {
           kind: "navigate",
           href: `/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`,
@@ -459,7 +459,7 @@ export function computeCockpitSuggestions(
           : `Relancer ${count} revalidation${count > 1 ? "s" : ""} ciblee${count > 1 ? "s" : ""}`,
         intent: "list_hypotheses",
         preview: impactedStages
-          ? `Un additif ou une piece critique recue tardivement impose une revue ciblee: ${impactedStages}.`
+          ? `Un additif ou une pièce critique reçue tardivement impose une revue ciblee: ${impactedStages}.`
           : "Un additif ou une pièce critique reçue tardivement impose une revue ciblée avant remise.",
         target: {
           kind: "navigate",
@@ -491,7 +491,7 @@ export function computeCockpitSuggestions(
         label: `Traiter ${count} clarification${count !== 1 ? "s" : ""} client`,
         intent: "list_hypotheses",
         preview: isCritical
-          ? "Des clarifications critiques restent a porter vers le client avant envoi."
+          ? "Des clarifications critiques restent à porter vers le client avant envoi."
           : "Des clarifications client restent ouvertes dans le registre affaire.",
         target: {
           kind: "navigate",
@@ -522,12 +522,12 @@ export function computeCockpitSuggestions(
       createSuggestion({
         actionId: "list-hypotheses",
         label: isCritical
-          ? `Traiter ${count} hypothese${count !== 1 ? "s" : ""} critique${count !== 1 ? "s" : ""}`
-          : `Traiter ${count} hypothese${count !== 1 ? "s" : ""} ouverte${count !== 1 ? "s" : ""}`,
+          ? `Traiter ${count} hypothèse${count !== 1 ? "s" : ""} critique${count !== 1 ? "s" : ""}`
+          : `Traiter ${count} hypothèse${count !== 1 ? "s" : ""} ouverte${count !== 1 ? "s" : ""}`,
         intent: "list_hypotheses",
         preview: isCritical
           ? `${count} point${count !== 1 ? "s" : ""} critique${count !== 1 ? "s" : ""} du registre necessitent un arbitrage prioritaire.`
-          : `${count} point${count !== 1 ? "s" : ""} du registre necessitent une decision.`,
+          : `${count} point${count !== 1 ? "s" : ""} du registre necessitent une décision.`,
         target: {
           kind: "navigate",
           href: `${buildAffaireRegisterHubHref({
@@ -551,7 +551,7 @@ export function computeCockpitSuggestions(
     suggestions.push(
       createSuggestion({
         actionId: "prepare-validation",
-        label: "Preparer la validation",
+        label: "Préparer la validation",
         intent: "prepare_validation",
         preview: "Soumettre le chiffrage pour validation par la direction.",
         target: { kind: "open_surface", surfaceId: "approval-submit" },

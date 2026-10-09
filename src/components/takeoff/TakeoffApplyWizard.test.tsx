@@ -155,7 +155,7 @@ describe("TakeoffApplyWizard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Creez d'abord un lot ou un chapitre/i)).toBeInTheDocument();
+      expect(screen.getByText(/Créez d'abord un lot ou un chapitre/i)).toBeInTheDocument();
     });
     expect(screen.getByLabelText("Section cible")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Suivant" })).toBeDisabled();
@@ -229,7 +229,7 @@ describe("TakeoffApplyWizard", () => {
       expect(screen.getByText("Preview d'impact")).toBeDefined();
     });
 
-    const select = screen.getByDisplayValue("Regle auto") as HTMLSelectElement;
+    const select = screen.getByDisplayValue("Règle auto") as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "set_price" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Recalculer la preview" }));
@@ -271,7 +271,7 @@ describe("TakeoffApplyWizard", () => {
       expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled();
     });
 
-    fireEvent.change(screen.getByDisplayValue("Regle auto"), {
+    fireEvent.change(screen.getByDisplayValue("Règle auto"), {
       target: { value: "set_price" },
     });
 

@@ -277,7 +277,7 @@ type DraftLoaded = {
 const GENERATED_OUVRAGE_MODEL = "gemini-3-pro-preview";
 const GENERATED_OUVRAGE_PROMPT_VERSION = "est381-generated-ouvrages-v1";
 const GENERATED_OUVRAGE_PROMPT_THINKING_LEVEL = "medium" as const;
-const GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE = "A classer";
+const GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE = "À classer";
 const MAX_SOURCE_TEXT_LENGTH = 12_000;
 const MAX_REASON_LENGTH = 320;
 const MAX_SELECTION_LABEL_LENGTH = 180;
@@ -385,7 +385,7 @@ const generatedOuvrageInsertCandidateSchema = z.object({
   candidateId: z.string().uuid("candidateId invalide."),
   designation: z.string().trim().min(1, "La designation est requise.").max(500),
   unit: z.string().trim().max(64).nullable().optional(),
-  quantity: z.number().finite("Quantite invalide.").min(0).nullable().optional(),
+  quantity: z.number().finite("Quantité invalide.").min(0).nullable().optional(),
   lotId: z.string().uuid("lotId invalide.").nullable().optional(),
 });
 
@@ -394,7 +394,7 @@ const generatedOuvrageInsertInputSchema = z.object({
   draftId: z.string().uuid("draftId invalide."),
   acceptedCandidates: z
     .array(generatedOuvrageInsertCandidateSchema)
-    .min(1, "Au moins un ouvrage doit etre selectionne.")
+    .min(1, "Au moins un ouvrage doit être sélectionné.")
     .max(MAX_CANDIDATES, `Maximum ${MAX_CANDIDATES} ouvrages par insertion.`),
 });
 
@@ -422,8 +422,8 @@ const generatedOuvrageSubdetailComponentInputSchema = z.object({
   costType: generatedOuvrageSubdetailCostTypeSchema,
   designation: z.string().trim().min(1).max(500),
   unit: z.string().trim().max(64).nullable().optional(),
-  quantity: z.number().finite("Quantite invalide.").min(0),
-  unitCostHtCents: z.number().int("Cout unitaire invalide.").min(0),
+  quantity: z.number().finite("Quantité invalide.").min(0),
+  unitCostHtCents: z.number().int("Coût unitaire invalide.").min(0),
   lossCoeffBp: z.number().int("Perte invalide.").min(0).max(100000).default(0),
   yieldValue: z.number().finite("Rendement invalide.").positive().nullable().optional(),
   yieldUnit: z.string().trim().max(64).nullable().optional(),
@@ -439,7 +439,7 @@ const generatedOuvrageSubdetailComponentInputSchema = z.object({
 const generatedOuvrageReviewedCandidateSchema = z.object({
   designation: z.string().trim().min(1).max(500),
   unit: z.string().trim().max(64).nullable().optional(),
-  quantity: z.number().finite("Quantite invalide.").min(0).nullable().optional(),
+  quantity: z.number().finite("Quantité invalide.").min(0).nullable().optional(),
 });
 
 const generatedOuvrageSubdetailUpdateInputSchema = z.object({
@@ -875,7 +875,7 @@ async function assertDraftLockOwnedByCurrentUser(input: {
   }
 
   throw conflict(
-    "Cette version brouillon est deja verrouillee par un autre utilisateur.",
+    "Cette version brouillon est déjà verrouillée par un autre utilisateur.",
     { lockedByUserId: lock.user_id, expiresAt: lock.expires_at },
     "LOCK_OWNED_BY_OTHER"
   );
@@ -904,7 +904,7 @@ async function loadLotLabel(input: {
   }
 
   if ((data as { item_type?: string }).item_type !== "section") {
-    throw badRequest("Le lot selectionne doit etre un chapitre du devis.");
+    throw badRequest("Le lot selectionne doit être un chapitre du devis.");
   }
 
   return normalizeText((data as { title: string }).title, 180);
@@ -955,7 +955,7 @@ async function loadConfirmedBriefFragments(input: {
     const bulletBlocks = [
       ["scope", "Perimetre"],
       ["lots", "Lots du brief"],
-      ["assumptions", "Hypotheses confirmees"],
+      ["assumptions", "Hypothèses confirmées"],
       ["vigilance_points", "Points de vigilance"],
       ["missing_elements", "Éléments manquants"],
     ] as const;
@@ -1018,7 +1018,7 @@ async function loadHistoricalFragments(input: {
         parts.push(description);
       }
       if (typeof row.quantity === "number") {
-        parts.push(`Quantite historique: ${row.quantity}`);
+        parts.push(`Quantité historique: ${row.quantity}`);
       }
       return {
         sourceKind: "history" as const,
@@ -1198,7 +1198,7 @@ async function discardPendingGeneratedOuvrageDrafts(input: {
   const { data, error } = await query.select("id" as never);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible d'archiver les brouillons precedents.");
+    throw mapSupabaseError(error, "Impossible d'archiver les brouillons précédents.");
   }
 
   const discardedDraftIds = Array.isArray(data)
@@ -1219,7 +1219,7 @@ async function discardPendingGeneratedOuvrageDrafts(input: {
     .in("draft_id", discardedDraftIds);
 
   if (fragmentError) {
-    throw mapSupabaseError(fragmentError, "Impossible d'archiver les fragments precedents.");
+    throw mapSupabaseError(fragmentError, "Impossible d'archiver les fragments précédents.");
   }
 }
 
@@ -1281,7 +1281,7 @@ function buildGeneratedOuvragePrompt(input: {
         `kind=${fragment.source_kind}`,
         `label=${fragment.label}`,
         fragment.source_file_name ? `file=${fragment.source_file_name}` : null,
-        fragment.selection_label ? `selection=${fragment.selection_label}` : null,
+        fragment.selection_label ? `sélection=${fragment.selection_label}` : null,
       ].filter((value): value is string => Boolean(value));
       return [
         `- [${fragment.id}] ${metaParts.join(" | ")}`,
@@ -1291,8 +1291,8 @@ function buildGeneratedOuvragePrompt(input: {
     .join("\n\n");
 
   return [
-    "Tu aides un chiffreur BTP a proposer des ouvrages candidats a partir d'un texte source.",
-    "Reponse strictement structuree selon le schema JSON fourni.",
+    "Tu aides un chiffreur BTP à proposer des ouvrages candidats à partir d'un texte source.",
+    "Réponse strictement structuree selon le schema JSON fourni.",
     "Ne cree rien automatiquement, propose seulement des candidats revus par un humain.",
     `Contexte affaire: ${input.project.name}`,
     `Source principale: ${parseSourceKindLabel(input.sourceKind)}`,
@@ -1303,7 +1303,7 @@ function buildGeneratedOuvragePrompt(input: {
     "2. Utilise status=certain si la source est explicite et exploitable, plausible si une interpretation reste raisonnable, question si l'information manque ou est ambigue.",
     "3. sourceFragmentIds doit contenir uniquement des ids presents ci-dessous.",
     "4. Si aucun lot clair n'apparait, laisse lotLabel a null.",
-    "5. N'invente ni prix ni details absents.",
+    "5. N'invente ni prix ni détails absents.",
     "",
     "Fragments sources:",
     fragmentLines,
@@ -1395,7 +1395,7 @@ function buildFallbackCandidates(input: {
       sourceFragmentIds: [input.sourceFragmentId],
       reasoning: hasQuantity
         ? "Fallback heuristique base sur le texte source."
-        : "Information incomplete a clarifier en revue humaine.",
+        : "Information incomplete à clarifier en revue humaine.",
     });
   }
 
@@ -1408,7 +1408,7 @@ function buildFallbackCandidates(input: {
       confidence: 0.25,
       status: "question",
       sourceFragmentIds: [input.sourceFragmentId],
-      reasoning: "Aucune structure exploitable detectee automatiquement.",
+      reasoning: "Aucune structure exploitable détectée automatiquement.",
     });
   }
 
@@ -1594,7 +1594,7 @@ async function updateDraftProjection(input: {
     .single();
 
   if (error || !data) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le brouillon d'ouvrages.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le brouillon d'ouvrages.");
   }
 
   return data as GeneratedOuvrageDraftRow;
@@ -1995,13 +1995,13 @@ function buildGeneratedOuvrageRiskSignals(input: {
 
   if (input.candidate.ai_status === "question") {
     signals.push({
-      label: "L'ouvrage parent reste a clarifier avant chiffrage final.",
+      label: "L'ouvrage parent reste à clarifier avant chiffrage final.",
       severity: "critical",
       basis: "hypothesis",
     });
   } else if (input.candidate.ai_status === "plausible") {
     signals.push({
-      label: "Le sous-detail repose sur une interpretation plausible a confirmer.",
+      label: "Le sous-detail repose sur une interpretation plausible à confirmer.",
       severity: "warning",
       basis: "hypothesis",
     });
@@ -2009,7 +2009,7 @@ function buildGeneratedOuvrageRiskSignals(input: {
 
   if (input.quantity === null) {
     signals.push({
-      label: "Quantite parent absente: le cout reste indicatif.",
+      label: "Quantité parent absente: le coût reste indicatif.",
       severity: "warning",
       basis: "hypothesis",
     });
@@ -2017,7 +2017,7 @@ function buildGeneratedOuvrageRiskSignals(input: {
 
   if (!input.profileSourceKinds.includes("history")) {
     signals.push({
-      label: "Aucun historique proche n'a ete rattache au sous-detail.",
+      label: "Aucun historique proche n'a été rattaché au sous-detail.",
       severity: "info",
       basis: "inference",
     });
@@ -2025,7 +2025,7 @@ function buildGeneratedOuvrageRiskSignals(input: {
 
   if (!input.profileSourceKinds.includes("library")) {
     signals.push({
-      label: "Aucune bibliotheque interne exploitable n'a ete confirmee.",
+      label: "Aucune bibliotheque interne exploitable n'a été confirmée.",
       severity: "info",
       basis: "hypothesis",
     });
@@ -2159,8 +2159,8 @@ function generateInitialSubdetailComponents(input: {
         fragment,
         fragment.source_kind === "history" ? "inference" : "hypothesis",
         fragment.source_kind === "history"
-          ? "Historique interne de reference"
-          : "Bibliotheque interne de reference"
+          ? "Historique interne de référence"
+          : "Bibliotheque interne de référence"
       )
     ),
   ].slice(0, 6);
@@ -2194,11 +2194,11 @@ function generateInitialSubdetailComponents(input: {
       facts: [
         `Ouvrage parent: ${input.candidate.designation}`,
         input.candidate.quantity !== null
-          ? `Quantite parent: ${input.candidate.quantity} ${effectiveUnit}`
-          : `Unite parent: ${effectiveUnit}`,
+          ? `Quantité parent: ${input.candidate.quantity} ${effectiveUnit}`
+          : `Unité parent: ${effectiveUnit}`,
       ],
       hypotheses: [
-        "Cout materiau indicatif estime par heuristique metier a confirmer.",
+        "Coût materiau indicatif estime par heuristique métier à confirmer.",
       ],
       inferences: [
         `Confiance parent ${formatConfidenceLabel(input.candidate.confidence)} (${Math.round(
@@ -2220,20 +2220,20 @@ function generateInitialSubdetailComponents(input: {
       yieldValue: profile.yieldValue,
       yieldUnit: profile.yieldUnit,
       confidence: clampConfidence(input.candidate.confidence - 0.05),
-      sourceLabel: candidateSourceFragments[0]?.label ?? "Inference metier",
+      sourceLabel: candidateSourceFragments[0]?.label ?? "Inference métier",
       dsCents: computeComponentDsCents({
         quantity: laborQuantity,
         unitCostHtCents: profile.labor,
         lossCoeffBp: 0,
       }),
       facts: input.candidate.quantity !== null
-        ? [`Quantite parent exploitee pour la MO: ${input.candidate.quantity} ${effectiveUnit}`]
+        ? [`Quantité parent exploitee pour la MO: ${input.candidate.quantity} ${effectiveUnit}`]
         : [],
       hypotheses: [
-        "Rendement MO estime a partir du type d'ouvrage et doit etre valide.",
+        "Rendement MO estime à partir du type d'ouvrage et doit être validé.",
       ],
       inferences: [
-        `Presence de "${input.candidate.designation}" interpretee comme besoin de pose / execution.`,
+        `Présence de "${input.candidate.designation}" interpretee comme besoin de pose / execution.`,
       ],
       riskSignals: sharedRiskSignals,
       sources: [
@@ -2248,7 +2248,7 @@ function generateInitialSubdetailComponents(input: {
           mapSubdetailSource(
             fragment,
             "hypothesis",
-            "Reference interne utilisee pour le rendement"
+            "Référence interne utilisee pour le rendement"
           )
         ),
       ],
@@ -2260,7 +2260,7 @@ function generateInitialSubdetailComponents(input: {
       componentId: randomUUID(),
       status: "suggested",
       costType: "equipment",
-      designation: `Materiel de pose - ${input.candidate.designation}`,
+      designation: `Matériel de pose - ${input.candidate.designation}`,
       unit: effectiveUnit === "u" ? "u" : effectiveUnit,
       quantity: roundQuantity(Math.max(quantity * 0.05, 1)),
       unitCostHtCents: profile.equipment,
@@ -2268,7 +2268,7 @@ function generateInitialSubdetailComponents(input: {
       yieldValue: null,
       yieldUnit: null,
       confidence: clampConfidence(input.candidate.confidence - 0.12),
-      sourceLabel: extraReferenceFragments[0]?.label ?? "Hypothese de pose",
+      sourceLabel: extraReferenceFragments[0]?.label ?? "Hypothèse de pose",
       dsCents: computeComponentDsCents({
         quantity: roundQuantity(Math.max(quantity * 0.05, 1)),
         unitCostHtCents: profile.equipment,
@@ -2276,7 +2276,7 @@ function generateInitialSubdetailComponents(input: {
       }),
       facts: [],
       hypotheses: [
-        "Materiel de pose ajoute a titre indicatif pour couvrir les moyens d'execution.",
+        "Matériel de pose ajoute à titre indicatif pour couvrir les moyens d'execution.",
       ],
       inferences: [
         "Equipement deduit du type d'ouvrage, sans pricebook confirme.",
@@ -2286,7 +2286,7 @@ function generateInitialSubdetailComponents(input: {
         mapSubdetailSource(
           fragment,
           "hypothesis",
-          "Reference interne indicative"
+          "Référence interne indicative"
         )
       ),
     });
@@ -2839,7 +2839,7 @@ async function resolveGeneratedOuvrageTargetSection(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de rechercher la section de classement des ouvrages generes."
+      "Impossible de rechercher la section de classement des ouvrages générés."
     );
   }
 
@@ -2895,7 +2895,7 @@ async function rollbackInsertedGeneratedOuvrages(input: {
     if (deleteItemsError) {
       throw mapSupabaseError(
         deleteItemsError,
-        "Impossible de restaurer les lignes d'estimation apres un echec d'insertion."
+        "Impossible de restaurer les lignes d'estimation après un échec d'insertion."
       );
     }
   }
@@ -2909,7 +2909,7 @@ async function rollbackInsertedGeneratedOuvrages(input: {
     if (deleteAssembliesError) {
       throw mapSupabaseError(
         deleteAssembliesError,
-        "Impossible de restaurer les ouvrages composes apres un echec d'insertion."
+        "Impossible de restaurer les ouvrages composes après un échec d'insertion."
       );
     }
   }
@@ -2926,7 +2926,7 @@ async function rollbackInsertedGeneratedOuvrages(input: {
     if (revertCandidateError) {
       throw mapSupabaseError(
         revertCandidateError,
-        "Impossible de restaurer le statut d'un candidat d'ouvrage apres un echec d'insertion."
+        "Impossible de restaurer le statut d'un candidat d'ouvrage après un échec d'insertion."
       );
     }
   }
@@ -2992,7 +2992,7 @@ export async function generateOuvragesFromText(
     .single();
 
   if (draftError || !draftData) {
-    throw mapSupabaseError(draftError, "Impossible de creer le brouillon d'ouvrages.");
+    throw mapSupabaseError(draftError, "Impossible de créer le brouillon d'ouvrages.");
   }
 
   const draft = draftData as GeneratedOuvrageDraftRow;
@@ -3181,7 +3181,7 @@ export async function generateOuvragesFromText(
 
   if (!updatedDraft || !generation) {
     throw internalError(
-      "Le brouillon d'ouvrages genere est incomplet apres materialisation.",
+      "Le brouillon d'ouvrages genere est incomplet après materialisation.",
       { draftId: draft.id },
       "EST381_DRAFT_GENERATION_INCOMPLETE"
     );
@@ -3396,7 +3396,7 @@ export async function updateGeneratedOuvrageSubdetailDraft(
 
   if (candidate.resolution_status !== "pending") {
     throw conflict(
-      "Le sous-detail n'est editable que tant que l'ouvrage parent est en attente.",
+      "Le sous-detail n'est éditable que tant que l'ouvrage parent est en attente.",
       { candidateId: candidate.id, status: candidate.resolution_status },
       "EST383_CANDIDATE_NOT_PENDING"
     );
@@ -3510,7 +3510,7 @@ export async function updateGeneratedOuvrageSubdetailDraft(
 
   if (!reloaded.draft) {
     throw internalError(
-      "Le sous-detail n'a pas pu etre recharge apres sauvegarde.",
+      "Le sous-detail n'a pas pu être recharge après sauvegarde.",
       { draftId: parsed.draftId, candidateId: parsed.candidateId },
       "EST383_SUBDETAIL_RELOAD_MISSING"
     );
@@ -3552,7 +3552,7 @@ export async function insertGeneratedOuvrages(
   });
 
   if (loaded.draft.status === "discarded") {
-    throw conflict("Ce brouillon a deja ete rejete.", undefined, "EST381_DRAFT_DISCARDED");
+    throw conflict("Ce brouillon a déjà été rejete.", undefined, "EST381_DRAFT_DISCARDED");
   }
 
   const candidateById = new Map(
@@ -3594,7 +3594,7 @@ export async function insertGeneratedOuvrages(
 
     if (existingApplicationsByCandidateId.has(candidate.id)) {
       throw conflict(
-        "Ce candidat a deja ete applique.",
+        "Ce candidat a déjà été appliqué.",
         { candidateId: candidate.id },
         "EST381_CANDIDATE_ALREADY_APPLIED"
       );
@@ -3602,7 +3602,7 @@ export async function insertGeneratedOuvrages(
 
     if (typeof acceptedCandidate.quantity !== "number") {
       throw badRequest(
-        "La quantite doit etre renseignee avant l'insertion du candidat.",
+        "La quantité doit être renseignee avant l'insertion du candidat.",
         { candidateId: candidate.id },
         "EST381_CANDIDATE_QUANTITY_REQUIRED"
       );
@@ -3643,7 +3643,7 @@ export async function insertGeneratedOuvrages(
 
       if (!subdetail.draft || subdetail.items.length === 0) {
         throw conflict(
-          "Le sous-detail doit etre genere puis revu avant insertion.",
+          "Le sous-detail doit être généré puis revu avant insertion.",
           { candidateId: preparedCandidate.candidate.id },
           "EST383_SUBDETAIL_REQUIRED"
         );
@@ -3651,7 +3651,7 @@ export async function insertGeneratedOuvrages(
 
       if (subdetail.draft.status !== "reviewed") {
         throw conflict(
-          "Le sous-detail doit etre explicitement valide avant insertion.",
+          "Le sous-detail doit être explicitement valide avant insertion.",
           {
             candidateId: preparedCandidate.candidate.id,
             subdetailStatus: subdetail.draft.status,
@@ -3830,7 +3830,7 @@ export async function insertGeneratedOuvrages(
       if (assemblyError || !assemblyData) {
         throw mapSupabaseError(
           assemblyError,
-          "Impossible de creer l'ouvrage compose canonique."
+          "Impossible de créer l'ouvrage compose canonique."
         );
       }
 
@@ -3974,7 +3974,7 @@ export async function insertGeneratedOuvrages(
       if (updatedCandidateError || !updatedCandidateData) {
         throw mapSupabaseError(
           updatedCandidateError,
-          "Impossible de mettre a jour le statut du candidat d'ouvrage."
+          "Impossible de mettre à jour le statut du candidat d'ouvrage."
         );
       }
 
@@ -4047,7 +4047,7 @@ export async function insertGeneratedOuvrages(
 
   if (!updatedDraft) {
     throw internalError(
-      "Le brouillon d'ouvrages n'a pas pu etre actualise apres insertion.",
+      "Le brouillon d'ouvrages n'a pas pu être actualise après insertion.",
       { draftId: loaded.draft.id },
       "EST381_INSERT_DRAFT_UPDATE_MISSING"
     );
@@ -4116,7 +4116,7 @@ export async function rejectGeneratedOuvrageDraft(
   });
 
   if (loaded.draft.status === "discarded") {
-    throw conflict("Ce brouillon a deja ete rejete.", undefined, "EST381_DRAFT_DISCARDED");
+    throw conflict("Ce brouillon a déjà été rejete.", undefined, "EST381_DRAFT_DISCARDED");
   }
 
   const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
@@ -4154,7 +4154,7 @@ export async function rejectGeneratedOuvrageDraft(
   if (updatedCandidateError || !updatedCandidateData) {
     throw mapSupabaseError(
       updatedCandidateError,
-      "Impossible de mettre a jour le statut du candidat d'ouvrage."
+      "Impossible de mettre à jour le statut du candidat d'ouvrage."
     );
   }
 

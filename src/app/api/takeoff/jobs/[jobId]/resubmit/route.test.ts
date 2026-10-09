@@ -61,7 +61,7 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
       new TakeoffError({
         status: 403,
         code: TakeoffErrorCode.FORBIDDEN,
-        message: "Acces refuse.",
+        message: "Accès refuse.",
         retryable: false,
         jobId: JOB_ID,
       })
@@ -80,7 +80,7 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
     expect(response.status).toBe(403);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("FORBIDDEN");
-    expect(body.error?.message).toBe("Acces refuse.");
+    expect(body.error?.message).toBe("Accès refuse.");
     expect(vi.mocked(triggerTakeoffJobProcessing)).not.toHaveBeenCalled();
   });
 

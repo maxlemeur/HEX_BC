@@ -82,7 +82,7 @@ function isUuidLike(value: string) {
 
 function statusLabel(status: EstimateStatus) {
   if (status === "draft") return "Brouillon";
-  if (status === "sent") return "Envoye";
+  if (status === "sent") return "Envoyé";
   if (status === "accepted") return "Accepte";
   if (status === "archived") return "Archive";
   return status;
@@ -300,7 +300,7 @@ export default async function EstimateDiffPage({
   const currentVersionLabel = formatVersionLabel(currentDetails.version);
   const previousVersionLabel = previousDetails
     ? formatVersionLabel(compareVersionOption ?? previousDetails.version)
-    : "Version precedente";
+    : "Version précédente";
 
   const diffProject = currentDetails.version.estimate_projects;
   const diffProjectName =
@@ -331,7 +331,7 @@ export default async function EstimateDiffPage({
             className="btn btn-secondary btn-sm"
             href={`/dashboard/estimates/${versionId}/edit`}
           >
-            Editer
+            Éditer
           </Link>
           <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
             Liste
@@ -357,7 +357,7 @@ export default async function EstimateDiffPage({
             </div>
             <div>
               <label className="form-label mb-1" htmlFor="compare">
-                Version a comparer
+                Version à comparer
               </label>
               <select
                 id="compare"
@@ -423,7 +423,7 @@ export default async function EstimateDiffPage({
                   compareSearch,
                 })}
               >
-                Cote a cote
+                Cote à côté
               </Link>
             </div>
 
@@ -512,15 +512,15 @@ export default async function EstimateDiffPage({
 
         {compareParamIsInvalid ? (
           <p className="mt-3 text-xs text-warning">
-            Le parametre compare est invalide ou inaccessible. La comparaison a
-            bascule sur la version disponible la plus recente.
+            Le paramètre compare est invalide ou inaccessible. La comparaison a
+            bascule sur la version disponible la plus récente.
           </p>
         ) : null}
       </section>
 
       {!hasCompareOptions ? (
         <div className="dashboard-card p-6 text-sm text-slate-600">
-          Cette version n&apos;a pas d&apos;autre version du meme projet a comparer.
+          Cette version n&apos;a pas d&apos;autre version du même projet à comparer.
         </div>
       ) : null}
 

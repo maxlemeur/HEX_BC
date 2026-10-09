@@ -32,7 +32,7 @@ const LazyDataPreview = dynamic(
     ssr: false,
     loading: () => (
       <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
-        Chargement de l&apos;apercu…
+        Chargement de l&apos;aperçu…
       </div>
     ),
   },
@@ -205,7 +205,7 @@ export function PreviewStep({
           <div>
             <p className="font-medium">Mapping automatique applique</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Les colonnes ont ete associees automatiquement avec une confiance elevee.
+              Les colonnes ont été associées automatiquement avec une confiance élevée.
             </p>
           </div>
           {onEditMapping && (

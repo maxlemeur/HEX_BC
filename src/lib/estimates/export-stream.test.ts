@@ -628,7 +628,7 @@ describe("streamEstimateVersionXlsx", () => {
       (row) => row[0] === "Arrondi commercial"
     )?.[1];
     const amountDue = summaryRows.find(
-      (row) => row[0] === "Montant a payer"
+      (row) => row[0] === "Montant à payer"
     )?.[1];
 
     exportedLines.forEach((row) => {
@@ -732,7 +732,7 @@ describe("streamEstimateVersionXlsx", () => {
       (row) => row[0] === "Arrondi commercial"
     )?.[1];
     const amountDue = summaryRows.find(
-      (row) => row[0] === "Montant a payer"
+      (row) => row[0] === "Montant à payer"
     )?.[1];
 
     expect(toCents(line?.[5])).toBe(3333);

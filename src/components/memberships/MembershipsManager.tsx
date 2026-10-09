@@ -202,7 +202,7 @@ export function MembershipsManager() {
     event.preventDefault();
 
     if (!selectedUserId) {
-      setActionError("Selectionnez un utilisateur a ajouter.");
+      setActionError("Sélectionnez un utilisateur à ajouter.");
       return;
     }
 
@@ -224,7 +224,7 @@ export function MembershipsManager() {
 
       setSelectedUserId("");
       setSelectedRole("engineer");
-      setSuccess("Membre ajoute avec succes.");
+      setSuccess("Membre ajoute avec succès.");
       await loadMemberships(search);
     } catch (submitError) {
       setActionError(
@@ -253,13 +253,13 @@ export function MembershipsManager() {
         body: JSON.stringify({ role }),
       });
 
-      setSuccess("Role mis a jour avec succes.");
+      setSuccess("Rôle mis à jour avec succès.");
       await loadMemberships(search);
     } catch (updateError) {
       setActionError(
         updateError instanceof Error
           ? updateError.message
-          : "Impossible de modifier le role."
+          : "Impossible de modifier le rôle."
       );
     } finally {
       setUpdatingMembershipId(null);
@@ -281,7 +281,7 @@ export function MembershipsManager() {
         method: "DELETE",
       });
 
-      setSuccess("Membre supprime avec succes.");
+      setSuccess("Membre supprime avec succès.");
       await loadMemberships(search);
     } catch (deleteError) {
       setActionError(
@@ -315,12 +315,12 @@ export function MembershipsManager() {
         <div className="page-header">
           <h1 className="page-title">Membres du tenant</h1>
           <p className="page-description">
-            Gestion des membres reservee aux administrateurs du tenant.
+            Gestion des membres réservée aux administrateurs du tenant.
           </p>
         </div>
 
         <div className="alert alert-info">
-          Vous n&apos;avez pas les droits administrateur pour gerer les memberships.
+          Vous n&apos;avez pas les droits administrateur pour gérer les memberships.
         </div>
       </div>
     );
@@ -343,7 +343,7 @@ export function MembershipsManager() {
         <div>
           <h1 className="page-title">Membres du tenant</h1>
           <p className="page-description">
-            Gerer les membres et roles du tenant {tenantName ? `"${tenantName}"` : "actif"}.
+            Gérer les membres et rôles du tenant {tenantName ? `"${tenantName}"` : "actif"}.
           </p>
         </div>
         <button
@@ -394,7 +394,7 @@ export function MembershipsManager() {
 
           <div>
             <label className="form-label" htmlFor="membership-role">
-              Role tenant
+              Rôle tenant
             </label>
             <select
               id="membership-role"
@@ -439,8 +439,8 @@ export function MembershipsManager() {
             <thead>
               <tr>
                 <th>Membre</th>
-                <th>Role tenant</th>
-                <th>Par defaut</th>
+                <th>Rôle tenant</th>
+                <th>Par défaut</th>
                 <th>Depuis</th>
                 <th>Actions</th>
               </tr>

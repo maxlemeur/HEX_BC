@@ -150,7 +150,7 @@ export function useEstimateEditorExportController(input: {
 
     if (hadRequestError) {
       reportError(
-        "Certaines comparaisons fournisseurs n'ont pas pu etre chargees pour l'export."
+        "Certaines comparaisons fournisseurs n'ont pas pu être chargees pour l'export."
       );
     }
 

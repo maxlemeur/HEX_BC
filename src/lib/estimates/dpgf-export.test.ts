@@ -178,7 +178,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
       supply_types: [
         {
           id: "supply-1",
-          name: "Materiaux",
+          name: "Matériaux",
         },
       ],
       labor_roles: [
@@ -210,7 +210,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     const bytes = Buffer.from(await new Response(exported.stream).arrayBuffer());
     expect(bytes.byteLength).toBeGreaterThan(0);
 
-    const dataSheet = worksheets.find((sheet) => sheet.name === "Donnees");
+    const dataSheet = worksheets.find((sheet) => sheet.name === "Données");
     const metadataSheet = worksheets.find((sheet) => sheet.name === "Metadata");
 
     expect(dataSheet?.committed).toBe(true);
@@ -220,21 +220,21 @@ describe("streamEstimateVersionDpgfXlsx", () => {
       "AID",
       "Désignation",
       "Quantité",
-      "Unite",
+      "Unité",
       "Prix unitaire HT EUR",
       "Type FO",
       "K FO",
       "h MO",
       "K MO",
       "Majoration MO",
-      "Role MO",
-      "Categorie",
+      "Rôle MO",
+      "Catégorie",
       "h MO Atelier",
       "K MO Atelier",
-      "Role MO Atelier",
+      "Rôle MO Atelier",
       "h MO Chantier",
       "K MO Chantier",
-      "Role MO Chantier",
+      "Rôle MO Chantier",
     ]);
 
     const sectionRow = dataSheet?.rows[1] as unknown[];
@@ -249,7 +249,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(lineRow[3]).toBe(3);
     expect(lineRow[4]).toBe("m3");
     expect(lineRow[5]).toBe(125.5);
-    expect(lineRow[6]).toBe("Materiaux");
+    expect(lineRow[6]).toBe("Matériaux");
     expect(lineRow[7]).toBe(1.1);
     expect(lineRow[8]).toBe(4);
     expect(lineRow[9]).toBe(1.2);
@@ -344,7 +344,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     const bytes = Buffer.from(await new Response(exported.stream).arrayBuffer());
     expect(bytes.byteLength).toBeGreaterThan(0);
 
-    const dataSheet = worksheets.find((sheet) => sheet.name === "Donnees");
+    const dataSheet = worksheets.find((sheet) => sheet.name === "Données");
     const lineRow = dataSheet?.rows[1] as unknown[];
 
     expect(lineRow[8]).toBe(3.5);
@@ -365,7 +365,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     await new Response(disabledExport.stream).arrayBuffer();
 
     const disabledSheet = disabledHarness.worksheets.find(
-      (sheet) => sheet.name === "Donnees"
+      (sheet) => sheet.name === "Données"
     );
     const disabledLineRow = disabledSheet?.rows[1] as unknown[];
 
@@ -440,7 +440,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     });
     await new Response(exported.stream).arrayBuffer();
 
-    const lineRow = worksheets.find((sheet) => sheet.name === "Donnees")
+    const lineRow = worksheets.find((sheet) => sheet.name === "Données")
       ?.rows[1] as unknown[];
     expect(lineRow[5]).toBe(95);
     expect(lineRow[7]).toBe(1);

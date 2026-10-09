@@ -22,7 +22,7 @@ try {
   $text = Get-PageText -Session $Session
   Assert-Contains -Text $text -Expected "Chiffrages" -Message "Estimates list"
 
-  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title $title -Date "2026-02-02" -Validite "30"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title $title -Date "2026-02-02" -Validité "30"
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/$versionId"
   $text = Get-PageText -Session $Session

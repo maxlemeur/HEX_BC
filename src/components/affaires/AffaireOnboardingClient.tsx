@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { AnimatePresence } from "motion/react";
@@ -12,7 +11,8 @@ import {
 } from "@/components/affaires/AffaireProjectDetailsCard";
 import { BlueprintCreationAnimation } from "@/components/affaires/BlueprintCreationAnimation";
 import { ProjectIconPicker, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
-import { ChevronLeftIcon } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 
 const INITIAL_METADATA: AffaireProjectDetailsValues = {
   projectName: "",
@@ -65,8 +65,7 @@ export function AffaireOnboardingClient() {
   }, [redirectUrl, router]);
 
   return (
-    <div className="animate-fade-in">
-      <h1 className="sr-only">Nouvelle affaire</h1>
+    <div className="mx-auto max-w-5xl animate-fade-in">
       <AnimatePresence>
         {showAnimation && (
           <BlueprintCreationAnimation
@@ -75,45 +74,34 @@ export function AffaireOnboardingClient() {
           />
         )}
       </AnimatePresence>
-      {/* Top bar: breadcrumb + actions */}
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <nav aria-label="Fil d'Ariane">
-          <ol className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <li>
-              <Link
-                href="/dashboard/affaires"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-slate-600 transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <ChevronLeftIcon aria-hidden="true" size={16} />
-                Retour a la liste
-              </Link>
-            </li>
-            <li aria-hidden="true" className="text-slate-300">/</li>
-            <li className="truncate font-medium text-foreground-secondary">
-              Nouvelle affaire
-            </li>
-          </ol>
-        </nav>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="btn btn-ghost btn-lg"
-            onClick={() => router.push("/dashboard/affaires")}
-            disabled={saveBusy}
-          >
-            Annuler
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-lg"
-            onClick={handleCreate}
-            disabled={!hasProjectName || saveBusy}
-          >
-            Creer l&apos;affaire
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Nouvelle affaire"
+        description="Nommez l'affaire pour la créer : vous ajouterez ensuite les pièces (DPGF, plans, CCTP)."
+        breadcrumbs={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          { label: "Nouvelle affaire" },
+        ]}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={() => router.push("/dashboard/affaires")}
+              disabled={saveBusy}
+            >
+              Annuler
+            </Button>
+            <Button
+              size="lg"
+              onClick={handleCreate}
+              disabled={!hasProjectName}
+              loading={saveBusy}
+            >
+              Créer l&apos;affaire
+            </Button>
+          </>
+        }
+      />
 
       <AffaireProjectDetailsCard
         mode="edit"

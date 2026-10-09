@@ -33,10 +33,10 @@ export function TakeoffApplyPreviewTable({
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground sm:hidden">
-        Faites glisser le tableau horizontalement pour verifier chaque parametre.
+        Faites glisser le tableau horizontalement pour vérifier chaque paramètre.
       </p>
       <div
-        aria-label="Preview detaillee des lignes a appliquer"
+        aria-label="Preview détaillée des lignes à appliquer"
         className="max-h-[380px] overflow-auto rounded-xl border border-border"
         role="region"
         tabIndex={0}
@@ -48,7 +48,7 @@ export function TakeoffApplyPreviewTable({
             <th className="px-3 py-2">Impact</th>
             <th className="px-3 py-2">Provenance</th>
             <th className="px-3 py-2">Override</th>
-            <th className="px-3 py-2">Parametre</th>
+            <th className="px-3 py-2">Paramètre</th>
           </tr>
         </thead>
         <tbody>
@@ -62,7 +62,7 @@ export function TakeoffApplyPreviewTable({
                 <td className="px-3 py-2">
                   <p className="font-medium text-slate-800">{item.original.designation}</p>
                   <p className="text-xs text-muted-foreground">
-                    Apres: {item.transformed.designation}
+                    Après: {item.transformed.designation}
                   </p>
                 </td>
                 <td className="px-3 py-2 text-xs text-foreground-secondary">
@@ -98,7 +98,7 @@ export function TakeoffApplyPreviewTable({
                     onChange={(event) => onOverrideActionChange(item, event.target.value)}
                     disabled={isSubmitting}
                   >
-                    <option value={AUTO_OVERRIDE_VALUE}>Regle auto</option>
+                    <option value={AUTO_OVERRIDE_VALUE}>Règle auto</option>
                     {OVERRIDE_ACTION_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -175,11 +175,11 @@ export function TakeoffApplyPreviewTable({
                     />
                   )}
                   {(override?.action === "skip" || override?.action === "none") && (
-                    <span className="text-xs text-muted-foreground">Aucun parametre</span>
+                    <span className="text-xs text-muted-foreground">Aucun paramètre</span>
                   )}
                   {!override && (
                     <span className="text-xs text-muted-foreground">
-                      Utiliser la regle proposee
+                      Utiliser la règle proposee
                     </span>
                   )}
                 </td>

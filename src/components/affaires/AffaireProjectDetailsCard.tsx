@@ -114,7 +114,7 @@ export function AffaireProjectDetailsCard({
                 htmlFor="details-reference"
                 className="block text-xs font-semibold uppercase tracking-wider text-foreground-secondary"
               >
-                Reference
+                Référence
               </label>
               <input
                 id="details-reference"
@@ -173,7 +173,7 @@ export function AffaireProjectDetailsCard({
 
             <div className="min-w-0 pr-28 sm:pr-32 lg:pr-0">
               <h1 className="truncate font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                {renderValue(values.projectName, "Non renseigne")}
+                {renderValue(values.projectName, "Non renseigné")}
               </h1>
               <p className="mt-1 text-sm font-medium text-muted-foreground">
                 {projectTypeLabel}
@@ -187,7 +187,7 @@ export function AffaireProjectDetailsCard({
                 Client
               </dt>
               <dd className="mt-1 truncate text-sm font-medium text-foreground-secondary">
-                {renderValue(values.clientName, "Non renseigne")}
+                {renderValue(values.clientName, "Non renseigné")}
               </dd>
             </div>
             <div className="min-w-0 pl-4 lg:border-l lg:border-border lg:pl-5">

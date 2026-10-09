@@ -9,7 +9,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
-    let message = `Requete API en echec (HTTP ${response.status}).`;
+    let message = `Requête API en échec (HTTP ${response.status}).`;
     try {
       const payload = await response.json();
       const record = asRecord(payload);
@@ -31,7 +31,7 @@ export async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
     const message =
       nested && typeof nested.message === "string"
         ? nested.message
-        : "Reponse API invalide.";
+        : "Réponse API invalide.";
     throw new Error(message);
   }
 

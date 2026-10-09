@@ -37,7 +37,7 @@ async function getAdminClient() {
   const { supabase, userId, isTenantAdmin } = await getAuthenticatedTenantContext();
   if (!isTenantAdmin) {
     throw forbidden(
-      "La gestion des fournisseurs est reservee aux administrateurs."
+      "La gestion des fournisseurs est réservée aux administrateurs."
     );
   }
   return { supabase, userId };
@@ -68,7 +68,7 @@ export async function getSupplierUsage(supplierId: string) {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de verifier l'utilisation du fournisseur."
+      "Impossible de vérifier l'utilisation du fournisseur."
     );
   }
 
@@ -99,7 +99,7 @@ export async function createSupplier(input: CreateSupplierInput) {
     .single();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer le fournisseur.");
+    throw mapSupabaseError(error, "Impossible de créer le fournisseur.");
   }
 
   return { item: data };
@@ -110,7 +110,7 @@ export async function updateSupplier(input: UpdateSupplierInput) {
   const payload = compactRecord<SupplierUpdate>({ ...input.item });
 
   if (Object.keys(payload).length === 0) {
-    throw badRequest("Aucun champ de mise a jour fourni.");
+    throw badRequest("Aucun champ de mise à jour fourni.");
   }
 
   const { data, error } = await supabase
@@ -121,7 +121,7 @@ export async function updateSupplier(input: UpdateSupplierInput) {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour le fournisseur.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le fournisseur.");
   }
 
   if (!data) {

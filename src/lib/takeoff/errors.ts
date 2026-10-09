@@ -342,7 +342,7 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
 function getDefaultMessage(code: TakeoffErrorCode) {
   if (code === TakeoffErrorCode.AI_RATE_LIMIT) {
-    return "Le fournisseur IA refuse temporairement la requete (rate limit).";
+    return "Le fournisseur IA refuse temporairement la requête (rate limit).";
   }
 
   if (code === TakeoffErrorCode.AI_TIMEOUT) {
@@ -350,11 +350,11 @@ function getDefaultMessage(code: TakeoffErrorCode) {
   }
 
   if (code === TakeoffErrorCode.AI_SCHEMA) {
-    return "La reponse IA ne respecte pas le schema attendu.";
+    return "La réponse IA ne respecte pas le schema attendu.";
   }
 
   if (code === TakeoffErrorCode.AI_SAFETY) {
-    return "La reponse IA a ete bloquee par les filtres de securite.";
+    return "La réponse IA a été bloquee par les filtres de sécurité.";
   }
 
   if (code === TakeoffErrorCode.AI_PROVIDER) {
@@ -378,7 +378,7 @@ function getDefaultMessage(code: TakeoffErrorCode) {
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_TENANT_UNAUTHORIZED) {
-    return "Acces interdit aux ressources de ce tenant.";
+    return "Accès interdit aux ressources de ce tenant.";
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_FILE_REQUIRED) {
@@ -390,15 +390,15 @@ function getDefaultMessage(code: TakeoffErrorCode) {
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE) {
-    return "Le PDF est lisible mais ne contient pas assez d'elements exploitables.";
+    return "Le PDF est lisible mais ne contient pas assez d'éléments exploitables.";
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_RETRIABLE) {
-    return "Le job n'est pas dans un etat permettant la relance.";
+    return "Le job n'est pas dans un état permettant la relance.";
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_CANCELABLE) {
-    return "Le job n'est pas dans un etat permettant l'annulation.";
+    return "Le job n'est pas dans un état permettant l'annulation.";
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED) {

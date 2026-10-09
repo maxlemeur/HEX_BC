@@ -189,63 +189,63 @@ function resolveSource(input: {
     case "dpgf":
       return {
         kind: "dpgf" as const,
-        label: "DPGF importee",
+        label: "DPGF importée",
         detail: fileName
-          ? `Quantite reprise depuis ${fileName}.`
-          : "Quantite reprise depuis la DPGF importee.",
+          ? `Quantité reprise depuis ${fileName}.`
+          : "Quantité reprise depuis la DPGF importée.",
       };
     case "takeoff":
     case "takeoff_gemini":
       return {
         kind: "plan" as const,
-        label: "Plan / metre",
+        label: "Plan / métré",
         detail: fileName
-          ? `Quantite issue d'un metre sur plans depuis ${fileName}.`
-          : "Quantite issue d'un metre sur plans.",
+          ? `Quantité issue d'un métré sur plans depuis ${fileName}.`
+          : "Quantité issue d'un métré sur plans.",
       };
     case "generated_ouvrage":
       return {
         kind: "assembly" as const,
         label: "Ouvrage",
-        detail: "Quantite issue d'un ouvrage compose ou d'un ouvrage IA.",
+        detail: "Quantité issue d'un ouvrage compose ou d'un ouvrage IA.",
       };
     case "version_zero_draft":
       return {
         kind: "brief" as const,
         label: "Brief confirme",
-        detail: "Quantite issue d'une V0 materialisee a partir du brief confirme.",
+        detail: "Quantité issue d'une V0 materialisee à partir du brief confirme.",
       };
     case "ai_structure":
       if (provenanceTypes.has("brief") && provenanceTypes.has("cctp")) {
         return {
           kind: "mixed" as const,
           label: "Brief + CCTP",
-          detail: "Structure preliminaire issue du brief confirme et du CCTP principal.",
+          detail: "Structure préliminaire issue du brief confirme et du CCTP principal.",
         };
       }
       if (provenanceTypes.has("cctp")) {
         return {
           kind: "cctp" as const,
           label: "CCTP",
-          detail: "Structure preliminaire issue du CCTP principal.",
+          detail: "Structure préliminaire issue du CCTP principal.",
         };
       }
       if (provenanceTypes.has("brief")) {
         return {
           kind: "brief" as const,
           label: "Brief confirme",
-          detail: "Structure preliminaire issue du brief confirme.",
+          detail: "Structure préliminaire issue du brief confirme.",
         };
       }
       return {
         kind: "mixed" as const,
         label: "Structure IA",
-        detail: "Structure preliminaire issue d'une consolidation IA explicable.",
+        detail: "Structure préliminaire issue d'une consolidation IA explicable.",
       };
     default:
       return {
         kind: "unknown" as const,
-        label: "Source a confirmer",
+        label: "Source à confirmer",
         detail: "La provenance de cette ligne n'est pas encore normalisee.",
       };
   }
@@ -259,7 +259,7 @@ function resolveQtyStatus(input: {
     return {
       code: "missing",
       label: "Qte manquante",
-      detail: "Aucune quantite n'est renseignee sur cette ligne.",
+      detail: "Aucune quantité n'est renseignee sur cette ligne.",
     };
   }
 
@@ -269,19 +269,19 @@ function resolveQtyStatus(input: {
       return {
         code: "measured",
         label: "Qte metree",
-        detail: "Quantite issue d'un metre sur plans.",
+        detail: "Quantité issue d'un métré sur plans.",
       };
     case "dpgf":
       return {
         code: "imported_unverified",
-        label: "Qte importee non verifiee",
-        detail: "Quantite reprise du DPGF sans verification sur plans.",
+        label: "Qte importée non vérifiée",
+        detail: "Quantité reprise du DPGF sans vérification sur plans.",
       };
     case "generated_ouvrage":
       return {
         code: "provisional",
         label: "Qte provisionnelle",
-        detail: "Quantite composee ou estimee pour un ouvrage provisoire.",
+        detail: "Quantité composee ou estimee pour un ouvrage provisoire.",
       };
     case "manual":
     case "ai_structure":
@@ -289,13 +289,13 @@ function resolveQtyStatus(input: {
       return {
         code: "assumed",
         label: "Qte supposee",
-        detail: "Quantite issue d'une base amont ou d'une hypothese de travail.",
+        detail: "Quantité issue d'une base amont ou d'une hypothèse de travail.",
       };
     default:
       return {
         code: "to_confirm",
-        label: "Qte a confirmer",
-        detail: "Quantite renseignee mais encore a confirmer.",
+        label: "Qte à confirmer",
+        detail: "Quantité renseignee mais encore à confirmer.",
       };
   }
 }
@@ -310,7 +310,7 @@ function resolveConfidence(input: {
     return {
       label: "faible",
       score: null,
-      detail: "Confiance faible tant que la quantite n'est pas renseignee.",
+      detail: "Confiance faible tant que la quantité n'est pas renseignee.",
     };
   }
 
@@ -331,7 +331,7 @@ function resolveConfidence(input: {
     return {
       label,
       score: levelScore,
-      detail: `Confiance ${label} issue du niveau ${level ?? "non renseigne"} du metre.`,
+      detail: `Confiance ${label} issue du niveau ${level ?? "non renseigné"} du métré.`,
     };
   }
 

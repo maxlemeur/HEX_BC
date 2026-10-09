@@ -29,10 +29,10 @@ const CAUSE_TO_EXCEPTION_GROUP: Record<TakeoffRiskCauseCode, ExceptionGroupKey> 
 
 const EXCEPTION_GROUP_LABELS: Record<ExceptionGroupKey, string> = {
   price: "Prix",
-  quantities: "Quantites",
+  quantities: "Quantités",
   vat_conformity: "Conformite TVA",
   missing_proofs: "Preuves manquantes",
-  missing_documents: "Pieces manquantes",
+  missing_documents: "Pièces manquantes",
 };
 
 export { EXCEPTION_GROUP_LABELS };
@@ -76,7 +76,7 @@ function computeRelativeAge(requestedAt: string): string {
   const diffMs = Date.now() - new Date(requestedAt).getTime();
   const diffMinutes = Math.floor(diffMs / 60_000);
 
-  if (diffMinutes < 1) return "a l'instant";
+  if (diffMinutes < 1) return "à l'instant";
   if (diffMinutes < 60) return RELATIVE_TIME_FORMATTER.format(-diffMinutes, "minute");
 
   const diffHours = Math.floor(diffMinutes / 60);
@@ -236,7 +236,7 @@ export async function markApprovalQueueItemState(
   const { supabase, userId, tenantId, tenantRole } = await getAuthenticatedContext();
 
   if (tenantRole !== "admin" && tenantRole !== "director") {
-    throw new Error("Seuls les administrateurs et directeurs peuvent modifier l'etat de revue.");
+    throw new Error("Seuls les administrateurs et directeurs peuvent modifier l'état de revue.");
   }
 
   const { error } = await supabase
@@ -252,6 +252,6 @@ export async function markApprovalQueueItemState(
     );
 
   if (error) {
-    throw new Error(`Erreur lors de la mise a jour de l'etat: ${error.message}`);
+    throw new Error(`Erreur lors de la mise à jour de l'état: ${error.message}`);
   }
 }

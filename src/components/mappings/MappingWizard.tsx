@@ -79,12 +79,12 @@ const TARGET_FIELDS = [
   { value: "hex_code", label: "Référence article" },
   { value: "designation", label: "Désignation", required: true },
   { value: "quantity", label: "Quantité" },
-  { value: "unit", label: "Unite" },
+  { value: "unit", label: "Unité" },
   { value: "unit_price_ht", label: "Prix fourniture" },
   { value: "total_ht", label: "Montant HT" },
-  { value: "category", label: "Categorie" },
+  { value: "category", label: "Catégorie" },
   { value: "supply_type", label: "Type FO" },
-  { value: "supplier_ref", label: "Reference fournisseur" },
+  { value: "supplier_ref", label: "Référence fournisseur" },
   { value: "labor_hours", label: "Heures MO" },
   { value: "h_mo_majoration", label: "Majoration MO" },
   { value: "notes", label: "Notes" },
@@ -168,7 +168,7 @@ async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, "Requete API en echec."));
+    throw new Error(await extractErrorMessage(response, "Requête API en échec."));
   }
 
   const payload = (await response.json()) as unknown;
@@ -179,7 +179,7 @@ async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
     const message =
       errorRecord && typeof errorRecord.message === "string"
         ? errorRecord.message
-        : "Reponse API invalide.";
+        : "Réponse API invalide.";
     throw new Error(message);
   }
 
@@ -280,7 +280,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Impossible de charger les donnees de mapping."
+          : "Impossible de charger les données de mapping."
       );
     } finally {
       setIsLoading(false);
@@ -368,7 +368,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
         setError(
           previewError instanceof Error
             ? previewError.message
-            : "Impossible de charger l'apercu de mapping."
+            : "Impossible de charger l'aperçu de mapping."
         );
       } finally {
         if (requestId !== previewRequestIdRef.current) return;
@@ -446,14 +446,14 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
         }),
       });
 
-      setSuccess("Mapping enregistre avec succes. Vous pouvez passer a la liaison catalogue.");
+      setSuccess("Mapping enregistre avec succès. Vous pouvez passer à la liaison catalogue.");
       await loadBaseData();
       await refreshPreview(selectedImportId, visibleMapping, previewLimit);
     } catch (createError) {
       setError(
         createError instanceof Error
           ? createError.message
-          : "Impossible de creer le mapping."
+          : "Impossible de créer le mapping."
       );
     } finally {
       setIsSubmitting(false);
@@ -487,7 +487,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
               className="text-xs underline underline-offset-2 hover:no-underline"
               onClick={() => setShowAutoMapDetails((prev) => !prev)}
             >
-              {showAutoMapDetails ? "Masquer" : "Voir le detail"}
+              {showAutoMapDetails ? "Masquer" : "Voir le détail"}
             </button>
           </div>
           {showAutoMapDetails ? (
@@ -534,8 +534,8 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
         >
           <p className="font-medium">Mapping auto-valide</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Tous les champs requis sont mappes avec une confiance elevee.
-            Verifiez le mapping puis cliquez sur &laquo;Enregistrer le mapping&raquo;.
+            Tous les champs requis sont mappes avec une confiance élevée.
+            Vérifiez le mapping puis cliquez sur &laquo;Enregistrer le mapping&raquo;.
           </p>
         </div>
       )}

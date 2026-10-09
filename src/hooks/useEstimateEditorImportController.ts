@@ -28,9 +28,9 @@ import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 const LINKED_DPGF_LOAD_ERROR =
   "Impossible de charger la source DPGF de l'affaire.";
 const STALE_OPERATION_MESSAGE =
-  "La version active a change pendant l'operation.";
+  "La version active a change pendant l'opération.";
 const BARRIER_BLOCKED_MESSAGE =
-  "Les modifications locales doivent etre synchronisees avant cette operation.";
+  "Les modifications locales doivent être synchronisees avant cette opération.";
 
 export type EstimateEditorImportMutation =
   | "estimate-sections"
@@ -756,12 +756,12 @@ export function useEstimateEditorImportController({
         actionLabel: "importer les sections du devis",
         failureMessage: "Impossible d'importer les sections.",
         tokenRefreshFailureMessage:
-          "Impossible de rafraichir le jeton de version apres import de sections.",
+          "Impossible de rafraichir le jeton de version après import de sections.",
         execute: (versionId) => importEstimateSections(versionId, input),
         getResultVersionId: (result) => result.targetVersionId,
         getVersionToken: (result) => result.versionToken,
         buildSummary: (result) =>
-          `${result.importedSectionsCount} section(s) et ${result.importedLinesCount} ligne(s) importees.`,
+          `${result.importedSectionsCount} section(s) et ${result.importedLinesCount} ligne(s) importées.`,
       });
     },
     [runStructuralMutation]
@@ -794,13 +794,13 @@ export function useEstimateEditorImportController({
         actionLabel: "appliquer le brouillon de structure",
         failureMessage: "Impossible d'appliquer la preview de structure.",
         tokenRefreshFailureMessage:
-          "Impossible de rafraichir le jeton de version apres application de structure IA.",
+          "Impossible de rafraichir le jeton de version après application de structure IA.",
         execute: (versionId) =>
           applyEstimateStructureDraft(versionId, draftId, input),
         getResultVersionId: (result) => result.versionId,
         getVersionToken: (result) => result.versionToken,
         buildSummary: (result) =>
-          `${result.createdCount} section(s) creee(s), ${result.mergedCount} fusion(s), ${result.skippedCount} ignoree(s).`,
+          `${result.createdCount} section(s) créée(s), ${result.mergedCount} fusion(s), ${result.skippedCount} ignoree(s).`,
       }),
     [runStructuralMutation]
   );
@@ -810,23 +810,23 @@ export function useEstimateEditorImportController({
 
   const importLinkedDpgfSource = useCallback(async () => {
     if (!hasLinkedDpgfSource) {
-      reportError("Aucune source DPGF importable n'est liee a cette affaire.");
+      reportError("Aucune source DPGF importable n'est liée à cette affaire.");
       return;
     }
 
     try {
       await runStructuralMutation<ImportLinkedDpgfSourceResult>({
         kind: "linked-dpgf",
-        actionLabel: "importer la source DPGF liee",
+        actionLabel: "importer la source DPGF liée",
         failureMessage: "Impossible d'importer le DPGF source lie.",
         tokenRefreshFailureMessage:
-          "Impossible de rafraichir le jeton de version apres import du DPGF source.",
+          "Impossible de rafraichir le jeton de version après import du DPGF source.",
         execute: (versionId) => importLinkedDpgfSourceClient(versionId),
         getResultVersionId: (result) => result.targetVersionId,
         getVersionToken: (result) => result.versionToken,
         buildSummary: (result) => {
           const suffix = result.importedLinesCount > 1 ? "s" : "";
-          return `${result.importedLinesCount} ligne${suffix} importee${suffix} depuis le DPGF source.`;
+          return `${result.importedLinesCount} ligne${suffix} importée${suffix} depuis le DPGF source.`;
         },
       });
     } catch {

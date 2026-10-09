@@ -69,7 +69,7 @@ export function GeneratedOuvrageSourceForm({
           id="gen-source-text"
           name="sourceText"
           className="textarea textarea-bordered w-full min-h-[120px] text-sm"
-          placeholder="Collez ici le texte a analyser..."
+          placeholder="Collez ici le texte à analyser..."
           required
           disabled={isGenerating}
         />
@@ -96,7 +96,7 @@ export function GeneratedOuvrageSourceForm({
         <p className="mt-1 text-xs text-muted-foreground">
           Sans lot choisi, l&apos;ouvrage sera insere dans la section explicite
           {" "}
-          <span className="font-medium">A classer</span>.
+          <span className="font-medium">À classer</span>.
         </p>
       </div>
 

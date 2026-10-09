@@ -619,11 +619,11 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await ensureMapping(page, "total_ht", "total_ht");
 
     await expect(
-      page.getByRole("heading", { name: /Apercu des donnees mappees/i })
+      page.getByRole("heading", { name: /Aperçu des données mappees/i })
     ).toBeVisible();
     const previewSection = page
       .locator("section")
-      .filter({ has: page.getByRole("heading", { name: /Apercu des donnees mappees/i }) })
+      .filter({ has: page.getByRole("heading", { name: /Aperçu des données mappees/i }) })
       .first();
     await expect(previewSection.getByText("Validation", { exact: true })).toBeVisible();
     await expect(previewSection.getByText("Champs a completer", { exact: true })).toBeVisible();
@@ -646,7 +646,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(page.getByText(/Validation renforcee/i)).toBeVisible({ timeout: 30_000 });
     await expect(
       page.getByText(
-        /Le PDF rejoint le mapping standard uniquement apres approbation explicite/i
+        /Le PDF rejoint le mapping standard uniquement après approbation explicite/i
       )
     ).toBeVisible();
     await expect(
@@ -688,7 +688,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
     await page.getByRole("button", { name: "Lancer l'import" }).click();
 
-    await expect(page.getByRole("button", { name: /Suivant : Apercu/i })).toBeVisible({
+    await expect(page.getByRole("button", { name: /Suivant : Aperçu/i })).toBeVisible({
       timeout: 30_000,
     });
 
@@ -699,7 +699,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await ensureMapping(page, "unit_price_ht", "unit_price_ht");
     await ensureMapping(page, "total_ht", "total_ht");
 
-    await page.getByRole("button", { name: /Suivant : Apercu/i }).click();
+    await page.getByRole("button", { name: /Suivant : Aperçu/i }).click();
     await page.getByRole("button", { name: /Suivant : Confirmation/i }).click();
     await page.getByRole("button", { name: /Creer le chiffrage/i }).click();
 
@@ -738,7 +738,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
     await page.getByRole("button", { name: "Lancer l'import" }).click();
-    await expect(page.getByRole("button", { name: /Suivant : Apercu/i })).toBeVisible({
+    await expect(page.getByRole("button", { name: /Suivant : Aperçu/i })).toBeVisible({
       timeout: 30_000,
     });
 
@@ -749,7 +749,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await ensureMapping(page, "h_MO", "labor_hours");
     await ensureMapping(page, "commentaire", "notes");
 
-    await page.getByRole("button", { name: /Suivant : Apercu/i }).click();
+    await page.getByRole("button", { name: /Suivant : Aperçu/i }).click();
     await expect(page.getByText("Structure du DPGF")).toBeVisible();
     await expect(page.getByLabel("Type de Eaux usées")).toHaveValue("section");
     await expect(page.getByLabel("Type de EUEV")).toHaveValue("section");
@@ -848,12 +848,12 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     });
 
     await page.getByRole("button", { name: "Analyser" }).first().click();
-    await expect(page.getByRole("heading", { name: /Etape 1 - Charger le CSV/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Etape 2 - Associer les colonnes/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Etape 3 - Resoudre les inconnus/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Etape 4 - Importer/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 1 - Charger le CSV/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 2 - Associer les colonnes/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 3 - Resoudre les inconnus/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 4 - Importer/i })).toBeVisible();
     await expect(page.getByRole("cell", { name: /Fournisseur inconnu/i }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /Importer les lignes pretes/i })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /Importer les lignes prêtes/i })).toBeDisabled();
   });
 
   test("US-4.3 reports missing supplier coverage without inventing alternatives", async ({
@@ -1023,7 +1023,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
       .first();
 
     await expect(plansSection).toBeVisible();
-    await expect(plansSection.getByText("Statuts precedents conserves")).toBeVisible();
+    await expect(plansSection.getByText("Statuts précédents conserves")).toBeVisible();
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("1 en attente")).toBeVisible();
     await expect(plansSection.getByText("0 a corriger")).toBeVisible();
@@ -1038,15 +1038,15 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     const flowHierarchy = page
       .locator("section")
-      .filter({ has: page.getByText("Prochaine etape", { exact: true }) })
+      .filter({ has: page.getByText("Prochaine étape", { exact: true }) })
       .first();
 
     await expect(flowHierarchy).toBeVisible();
-    await expect(flowHierarchy.getByText("Documents a confirmer", { exact: true })).toBeVisible();
+    await expect(flowHierarchy.getByText("Documents à confirmer", { exact: true })).toBeVisible();
     await expect(
       flowHierarchy.getByRole("button", { name: "Pourquoi TIMAX hesite" })
     ).toBeVisible();
-    await expect(flowHierarchy.getByText("Blocages a traiter")).toBeVisible();
+    await expect(flowHierarchy.getByText("Blocages à traiter")).toBeVisible();
     await expect(
       flowHierarchy.getByRole("link", { name: "Ouvrir le fallback legacy" })
     ).toBeVisible();

@@ -47,7 +47,7 @@ export async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, "Requete API en echec."));
+    throw new Error(await extractErrorMessage(response, "Requête API en échec."));
   }
 
   const payload = (await response.json()) as unknown;
@@ -58,7 +58,7 @@ export async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
     const message =
       errorRecord && typeof errorRecord.message === "string"
         ? errorRecord.message
-        : "Reponse API invalide.";
+        : "Réponse API invalide.";
 
     throw new Error(message);
   }

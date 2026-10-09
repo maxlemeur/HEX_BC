@@ -52,7 +52,7 @@ export function SelectionStep({
           {isAssemblyOnlyWeakMode && selectedRootIds.length === 0 ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               Aucune suggestion defendable n&apos;est preselectionnee dans ce contexte.
-              Selectionnez manuellement un lot faible confiance si vous souhaitez poursuivre,
+              Sélectionnez manuellement un lot faible confiance si vous souhaitez poursuivre,
               ou enrichissez d&apos;abord les sources affaire.
             </div>
           ) : null}
@@ -87,7 +87,7 @@ export function SelectionStep({
                   ) : null}
                   {isWeakSignalNode(node) ? (
                     <p className="mt-1 text-xs text-danger">
-                      Suggestion issue des ouvrages seuls, non preselectionnee par defaut.
+                      Suggestion issue des ouvrages seuls, non preselectionnee par défaut.
                     </p>
                   ) : null}
                 </div>

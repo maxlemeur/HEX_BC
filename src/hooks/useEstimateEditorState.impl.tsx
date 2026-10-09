@@ -1470,7 +1470,7 @@ export function useEstimateEditorState({
         } catch (error) {
           if (!isCurrentSettingsSave()) return;
           if (!handleVersionConflict(error, { persistDraft: true })) {
-            setActionError("Impossible de mettre a jour les lignes.");
+            setActionError("Impossible de mettre à jour les lignes.");
           }
           return;
         }
@@ -1566,7 +1566,7 @@ export function useEstimateEditorState({
       try {
         await updateEstimateLaborRole(version.id, id, updates);
       } catch (error) {
-        setActionError(error instanceof Error ? error.message : "Impossible de mettre a jour le role.");
+        setActionError(error instanceof Error ? error.message : "Impossible de mettre à jour le rôle.");
         return;
       }
 
@@ -1655,7 +1655,7 @@ export function useEstimateEditorState({
         );
       } catch (error) {
         setMarginTiersError(
-          error instanceof Error ? error.message : "Erreur creation tranche."
+          error instanceof Error ? error.message : "Erreur création tranche."
         );
       } finally {
         setIsSavingMarginTiers(false);
@@ -1691,7 +1691,7 @@ export function useEstimateEditorState({
         setMarginTiersError(
           error instanceof Error
             ? error.message
-            : "Erreur mise a jour tranche."
+            : "Erreur mise à jour tranche."
         );
       } finally {
         setIsSavingMarginTiers(false);
@@ -2141,7 +2141,7 @@ export function useEstimateEditorState({
     conflictMessage: conflictState?.message ?? null,
     isDraftLockPending,
     isDraftLockedByOther,
-    draftLockedByOtherMessage: `Verrouille par ${lockHolderLabel}.`,
+    draftLockedByOtherMessage: `Verrouillé par ${lockHolderLabel}.`,
     isDraftLockAcquiring,
     isForcingDraftUnlock,
     isFlushInProgress,
@@ -2348,7 +2348,7 @@ export function useEstimateEditorState({
         if (!lockResult.acquired || !isOwnedByCurrentUser) {
           const holderName = lockResult.lock?.holderName?.trim() ?? "";
           const holder = holderName.length > 0 ? holderName : "un autre utilisateur";
-          setActionError(`La version cible est verrouillee par ${holder}.`);
+          setActionError(`La version cible est verrouillée par ${holder}.`);
           return;
         }
 

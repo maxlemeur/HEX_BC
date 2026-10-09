@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { FreshnessBadge, formatDate } from "@/components/catalogue/prices-manager/utils";
@@ -93,9 +94,9 @@ export function PricesTable({
             <li key={item.id} className="px-4 py-3 sm:px-6">
               <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <div className="min-w-0">
-                  <a href="/dashboard/suppliers" className="text-sm font-semibold text-primary hover:underline">
+                  <Link href="/dashboard/suppliers" className="text-sm font-semibold text-primary hover:underline">
                     {item._supplierName}
-                  </a>
+                  </Link>
                   <p className="break-words text-sm text-slate-800">{item._productName}</p>
                   <p className="mt-1 text-xs text-slate-600">
                     Réf. fournisseur : {item.supplier_sku || "non renseignée"}

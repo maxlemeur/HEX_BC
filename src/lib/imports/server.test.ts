@@ -571,7 +571,7 @@ describe("createImportFromJsonBody", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
-      message: 'Le payload DPGF PDF doit definir sourceKind="tabular_pdf".',
+      message: 'Le payload DPGF PDF doit définir sourceKind="tabular_pdf".',
     });
 
     expect(state.importInsertPayloads).toEqual([]);
@@ -631,7 +631,7 @@ describe("createImportFromJsonBody", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
-      message: 'Le payload DPGF PDF doit definir sourceKind="tabular_pdf".',
+      message: 'Le payload DPGF PDF doit définir sourceKind="tabular_pdf".',
     });
 
     expect(state.importInsertPayloads).toEqual([]);
@@ -779,7 +779,7 @@ describe("createImportFromMultipartFormData", () => {
         source_page: 1,
         table_index: 0,
         title: "NIRVANA - Lot CVC - DPGF",
-        headers: ["N°", "Designation des ouvrages", "Unite", "Qte", "P.U. HT", "Total HT"],
+        headers: ["N°", "Designation des ouvrages", "Unité", "Qte", "P.U. HT", "Total HT"],
         rows: [
           {
             row_index: 0,
@@ -848,7 +848,7 @@ describe("createImportFromMultipartFormData", () => {
         payload: {
           "N°": "CVC-001",
           "Designation des ouvrages": "Reseau eau glacee tube acier DN50",
-          Unite: "ml",
+          Unité: "ml",
           Qte: "42,5",
           "P.U. HT": "128,40",
           "Total HT": "5 457,00",
@@ -866,7 +866,7 @@ describe("createImportFromMultipartFormData", () => {
         payload: {
           "N°": "CVC-002",
           "Designation des ouvrages": "Calorifuge reseau primaire",
-          Unite: "ml",
+          Unité: "ml",
           Qte: "42,5",
           "P.U. HT": "24,00",
           "Total HT": "1 020,00",

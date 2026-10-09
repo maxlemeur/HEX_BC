@@ -76,14 +76,14 @@ const TAKEOFF_UPLOAD_RULES: Record<
     allowedMimeTypes: ["application/pdf"],
     accept: [".pdf", "application/pdf"].join(","),
     helperLabel: `Formats supportes: PDF - Max ${MAX_FILE_SIZE_LABEL}`,
-    intro: "Importez un PDF pour extraire automatiquement les tableaux et quantites.",
+    intro: "Importez un PDF pour extraire automatiquement les tableaux et quantités.",
   },
   C: {
     allowedExtensions: ["pdf"],
     allowedMimeTypes: ["application/pdf"],
     accept: [".pdf", "application/pdf"].join(","),
     helperLabel: `Formats supportes: PDF - Max ${MAX_FILE_SIZE_LABEL}`,
-    intro: "Importez un plan PDF pour generer une premiere pre-estimation exploitable.",
+    intro: "Importez un plan PDF pour générer une première pre-estimation exploitable.",
   },
 };
 
@@ -140,15 +140,15 @@ function resolveApiErrorMessage(error: unknown) {
   }
 
   if (error.status === 400) {
-    return "Requete invalide. Verifiez le fichier puis recommencez.";
+    return "Requête invalide. Vérifiez le fichier puis recommencez.";
   }
 
   if (error.status === 403) {
-    return "Acces refuse. Le module d'extraction est peut-etre desactive pour ce tenant.";
+    return "Accès refuse. Le module d'extraction est peut-être désactivé pour ce tenant.";
   }
 
   if (error.status === 409) {
-    return "Conflit detecte: cette extraction existe deja ou la cle d'idempotence est deja utilisee.";
+    return "Conflit detecte: cette extraction existe déjà ou la clé d'idempotence est déjà utilisee.";
   }
 
   if (error.status === 413) {
@@ -359,7 +359,7 @@ export function TakeoffUploadForm({
     }
 
     if (submitState === "error") {
-      return "Reessayer l'extraction";
+      return "Réessayer l'extraction";
     }
 
     return "Lancer l'extraction";
@@ -623,7 +623,7 @@ export function TakeoffUploadForm({
             }`}
             role="button"
             tabIndex={submitState === "loading" ? -1 : 0}
-            aria-label="Zone de depot pour l'extraction. Glissez un fichier ou appuyez pour selectionner."
+            aria-label="Zone de dépôt pour l'extraction. Glissez un fichier ou appuyez pour sélectionner."
             aria-disabled={submitState === "loading"}
             onClick={openFilePicker}
             onKeyDown={(event) => {
@@ -657,7 +657,7 @@ export function TakeoffUploadForm({
           >
             <p className="text-sm font-medium text-foreground-secondary">
               {dragActive
-                ? "Deposez le fichier ici"
+                ? "Déposez le fichier ici"
                 : "Glissez-deposez un fichier ou cliquez pour parcourir"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -722,7 +722,7 @@ export function TakeoffUploadForm({
               <div
                 className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
                   selectionWarning.severity === "critical"
-                    ? "border-warning/30 bg-warning/10 text-warning"
+                    ? "border-warning/30 bg-warning-subtle text-warning"
                     : "border-primary/20 bg-surface/70 text-foreground-secondary"
                 }`}
                 role={selectionWarning.severity === "critical" ? "alert" : "status"}

@@ -87,7 +87,7 @@ function revalidateQuickCreatePaths(projectId: string, versionId: string | null)
 
 function ensureEngineerOrAdmin(role: string) {
   if (role !== "engineer" && role !== "admin") {
-    throw new Error("Acces refuse: role non autorise pour cette action.");
+    throw new Error("Accès refuse: rôle non autorise pour cette action.");
   }
 }
 
@@ -174,7 +174,7 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
     });
 
     if (importRow.project_id) {
-      throw new Error("Cet import est deja lie a une autre affaire.");
+      throw new Error("Cet import est déjà lié a une autre affaire.");
     }
   }
 
@@ -205,7 +205,7 @@ export async function initializeAffaireDraft(
     })
     .safeParse(input);
   if (!parsed.success) {
-    throw new Error("Payload de creation affaire invalide.");
+    throw new Error("Payload de création affaire invalide.");
   }
 
   const context = await getQuickCreateContext();
@@ -238,7 +238,7 @@ export async function startAffaireManualEstimate(
 ): Promise<StartAffaireManualEstimateResult> {
   const parsed = startAffaireManualEstimateSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error("Payload de creation manuelle invalide.");
+    throw new Error("Payload de création manuelle invalide.");
   }
 
   const context = await getQuickCreateContext();
@@ -275,7 +275,7 @@ export async function startAffaireFromImport(
 ): Promise<StartAffaireFromImportResult> {
   const parsed = quickCreateAffaireSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error("Payload de creation affaire invalide.");
+    throw new Error("Payload de création affaire invalide.");
   }
 
   const { supabase, membership, userId, isTenantAdmin } =
@@ -312,7 +312,7 @@ export async function startAffaireFromImport(
   });
 
   if (importRow.project_id) {
-    throw new Error("Cet import est deja lie a une autre affaire.");
+    throw new Error("Cet import est déjà lié a une autre affaire.");
   }
 
   const normalizedMapping = mappingRecordSchema.parse(parsed.data.mapping ?? {});
@@ -390,7 +390,7 @@ export async function startAffaireFromImport(
       },
     });
   } catch (error) {
-    throw new Error("Impossible de creer l'affaire depuis l'import.", {
+    throw new Error("Impossible de créer l'affaire depuis l'import.", {
       cause: error,
     });
   }

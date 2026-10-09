@@ -69,8 +69,8 @@ const PHASE_MESSAGES: Record<DialogPhase, string> = {
   idle: "",
   uploading: "Upload en cours...",
   parsing: "Analyse du fichier...",
-  fetching_suggestions: "Verification du mapping...",
-  creating: "Creation de l'affaire...",
+  fetching_suggestions: "Vérification du mapping...",
+  creating: "Création de l'affaire...",
 };
 
 function MiniDropZone({
@@ -147,7 +147,7 @@ function MiniDropZone({
         <div className="flex flex-col items-center gap-1.5">
           <UploadIcon stroke="var(--slate-400)" strokeWidth="1.5" aria-hidden="true" size={20} />
           <p className="text-xs font-medium text-slate-600">
-            Deposez un fichier DPGF
+            Déposez un fichier DPGF
           </p>
           <p className="text-[10px] text-subtle-foreground">CSV, XLSX ou XLS</p>
         </div>
@@ -357,7 +357,7 @@ export function AffaireImportBootstrapSection({
         pendingImportIdRef.current = null;
         setPhase("idle");
         setServerError(
-          error instanceof Error ? error.message : "Erreur lors de la creation."
+          error instanceof Error ? error.message : "Erreur lors de la création."
         );
       }
     },
@@ -403,7 +403,7 @@ export function AffaireImportBootstrapSection({
     } else if (match.status === "failed" || match.status === "error") {
       pendingImportIdRef.current = null;
       setPhase("idle");
-      setServerError("Le fichier n'a pas pu etre analyse.");
+      setServerError("Le fichier n'a pas pu être analyse.");
     }
   }, [handleParsingComplete, imports, phase]);
 
@@ -427,7 +427,7 @@ export function AffaireImportBootstrapSection({
 
       pendingImportIdRef.current = null;
       setPhase("idle");
-      setServerError("Import introuvable apres l'upload. Veuillez reessayer.");
+      setServerError("Import introuvable après l'upload. Veuillez réessayer.");
     }, PARSING_IMPORT_LOOKUP_TIMEOUT_MS);
 
     return () => window.clearTimeout(timeoutId);
@@ -505,7 +505,7 @@ export function AffaireImportBootstrapSection({
           const mappingReady = await isImportMappingReady(selectedImportId);
           if (!mappingReady) {
             setServerError(
-              "Cet import n'est pas pret pour la creation rapide. Finalisez le mapping puis reessayez."
+              "Cet import n'est pas prêt pour la création rapide. Finalisez le mapping puis réessayez."
             );
             return;
           }
@@ -540,7 +540,7 @@ export function AffaireImportBootstrapSection({
       return;
     }
 
-    setServerError("Selectionnez un import existant ou deposez un fichier DPGF.");
+    setServerError("Sélectionnez un import existant ou déposez un fichier DPGF.");
   }
 
   return (
@@ -548,7 +548,7 @@ export function AffaireImportBootstrapSection({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-800">
-            Demarrer depuis un DPGF ou un import existant
+            Démarrer depuis un DPGF ou un import existant
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Parcours expert pour amorcer directement la structure du devis.

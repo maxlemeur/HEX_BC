@@ -42,7 +42,7 @@ export function ChangesSummarySection({
         <article className="rounded-xl border border-border bg-surface-subtle px-3 py-3">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Checklist</p>
           <p className="mt-1 text-sm text-foreground-secondary">
-            {changes.treatedItemsCount} traite(s), {changes.toDiscussCount} a discuter
+            {changes.treatedItemsCount} traite(s), {changes.toDiscussCount} à discuter
           </p>
         </article>
         <article className="rounded-xl border border-border bg-surface-subtle px-3 py-3">

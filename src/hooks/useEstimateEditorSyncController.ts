@@ -649,7 +649,7 @@ export function useEstimateEditorSyncController({
     : isDraftLockPending && !isDraftLockedByOther
       ? "Acquisition du verrou de brouillon en cours."
       : isDraftLockedByOther
-        ? `Verrouille par ${lockHolderLabel}.`
+        ? `Verrouillé par ${lockHolderLabel}.`
         : "Cette version est en lecture seule.";
 
   useEffect(() => {
@@ -1181,7 +1181,7 @@ export function useEstimateEditorSyncController({
 
       if (isFlushingBufferedUpdatesRef.current) {
         reportError(
-          "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+          "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
         );
         return false;
       }
@@ -1190,14 +1190,14 @@ export function useEstimateEditorSyncController({
 
       if (flushResult === "blocked") {
         reportError(
-          `Impossible de ${actionLabel} tant que les modifications locales ne sont pas synchronisees. Rechargez la version puis reessayez.`
+          `Impossible de ${actionLabel} tant que les modifications locales ne sont pas synchronisees. Rechargez la version puis réessayez.`
         );
         return false;
       }
 
       if (flushResult === "error") {
         reportError(
-          `Impossible de synchroniser les modifications locales avant de ${actionLabel}. Corrigez les erreurs puis reessayez.`
+          `Impossible de synchroniser les modifications locales avant de ${actionLabel}. Corrigez les erreurs puis réessayez.`
         );
         return false;
       }
@@ -1208,7 +1208,7 @@ export function useEstimateEditorSyncController({
           hasPendingTotalsSaveRef.current)
       ) {
         reportError(
-          "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+          "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
         );
         return false;
       }

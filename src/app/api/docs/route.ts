@@ -93,7 +93,7 @@ export async function GET(request: Request) {
         ok: false,
         error: {
           code: "NOT_FOUND",
-          message: "Documentation OpenAPI desactivee.",
+          message: "Documentation OpenAPI désactivée.",
         },
       },
       {

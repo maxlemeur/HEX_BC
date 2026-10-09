@@ -169,7 +169,7 @@ export function PlansStep({
       setPrepareError(
         error instanceof Error
           ? error.message
-          : "Impossible de preparer le jeu de plans."
+          : "Impossible de préparer le jeu de plans."
       );
     } finally {
       setIsPreparing(false);
@@ -208,7 +208,7 @@ export function PlansStep({
         );
       }
       setUploadSummaryWarning(
-        "Le compteur affiche une estimation locale. Verifiez les fichiers depuis la section Plans de votre affaire."
+        "Le compteur affiche une estimation locale. Vérifiez les fichiers depuis la section Plans de votre affaire."
       );
     }
   }, [planSet]);
@@ -240,7 +240,7 @@ export function PlansStep({
       {showSuccessBanner && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3" role="status">
           <CircleCheckBigIcon aria-hidden="true" className="shrink-0 text-green-600" size={20} />
-          <span className="text-sm font-medium text-green-800">Chiffrage cree avec succes</span>
+          <span className="text-sm font-medium text-green-800">Chiffrage cree avec succès</span>
         </div>
       )}
 
@@ -274,10 +274,10 @@ export function PlansStep({
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <PackageIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
-            <span className="text-xs font-semibold text-slate-800">Extraction de metres</span>
+            <span className="text-xs font-semibold text-slate-800">Extraction de métrés</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Les quantites sont extraites des plans pour alimenter le chiffrage.
+            Les quantités sont extraites des plans pour alimenter le chiffrage.
           </p>
         </div>
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
@@ -292,10 +292,10 @@ export function PlansStep({
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <SearchIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
-            <span className="text-xs font-semibold text-slate-800">Detection des ecarts</span>
+            <span className="text-xs font-semibold text-slate-800">Detection des écarts</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Les ecarts entre le DPGF et les plans sont identifies automatiquement.
+            Les écarts entre le DPGF et les plans sont identifies automatiquement.
           </p>
         </div>
       </div>
@@ -310,7 +310,7 @@ export function PlansStep({
                 className="btn btn-sm font-medium underline underline-offset-2 hover:no-underline"
                 onClick={() => void loadOrCreateDefaultPlanSet()}
               >
-                Reessayer
+                Réessayer
               </button>
             </div>
           </div>
@@ -348,7 +348,7 @@ export function PlansStep({
 
           {isUploadActive && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Upload en cours... terminez l&apos;envoi avant de quitter cette etape.
+              Upload en cours... terminez l&apos;envoi avant de quitter cette étape.
             </p>
           )}
 
@@ -409,10 +409,10 @@ export function PlansStep({
               ) : (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
                   <p className="text-xs font-medium text-foreground-secondary">
-                    Prochaine etape suggeree
+                    Prochaine étape suggeree
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Lancez une analyse de metres depuis le hub de votre affaire.
+                    Lancez une analyse de métrés depuis le hub de votre affaire.
                   </p>
                 </div>
               )}

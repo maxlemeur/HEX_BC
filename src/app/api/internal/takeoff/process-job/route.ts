@@ -9,8 +9,8 @@ import type { TakeoffJobAttemptTrigger } from "@/lib/takeoff/types";
 
 const workerPayloadSchema = z
   .object({
-    job_id: z.string().uuid("job_id doit etre un UUID valide."),
-    correlation_id: z.string().uuid("correlation_id doit etre un UUID valide.").optional(),
+    job_id: z.string().uuid("job_id doit être un UUID valide."),
+    correlation_id: z.string().uuid("correlation_id doit être un UUID valide.").optional(),
     trigger: z.enum(["create", "retry", "manual", "reconcile"]).optional(),
   })
   .strict();

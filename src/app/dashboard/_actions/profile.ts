@@ -38,7 +38,7 @@ export async function updateProfileUiMode(input: UpdateProfileUiModeInput) {
     .single();
 
   if (error || !data) {
-    throw new Error("Impossible de mettre a jour le mode d'interface.");
+    throw new Error("Impossible de mettre à jour le mode d'interface.");
   }
 
   revalidatePath("/dashboard");

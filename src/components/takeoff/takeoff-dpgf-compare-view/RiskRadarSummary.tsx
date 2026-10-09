@@ -96,7 +96,7 @@ export function RiskRadarSummary({
                 accent="text-slate-950"
               />
               <SummaryCard
-                label="A traiter"
+                label="À traiter"
                 value={riskRadar.summary.to_process_count}
                 accent="text-amber-700"
               />
@@ -133,7 +133,7 @@ export function RiskRadarSummary({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              A traiter
+              À traiter
             </p>
             <h3 className="mt-2 text-xl font-semibold text-slate-950">
               Signaux prioritaires
@@ -145,7 +145,7 @@ export function RiskRadarSummary({
         <div className="mt-4 space-y-3">
           {openRiskItems.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-4 text-sm text-slate-600">
-              Aucun signal ouvert a traiter.
+              Aucun signal ouvert à traiter.
             </div>
           ) : (
             openRiskItems.slice(0, 6).map((item) => (

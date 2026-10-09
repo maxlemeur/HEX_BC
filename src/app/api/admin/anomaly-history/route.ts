@@ -87,7 +87,7 @@ export async function GET(request: Request) {
 
     if (!profile || !tenantId || profile.tenant_role !== "admin") {
       return toErrorResponse(
-        forbidden("Acces reserve aux administrateurs.")
+        forbidden("Accès reserve aux administrateurs.")
       );
     }
 

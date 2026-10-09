@@ -55,7 +55,7 @@ export function EstimateApprovalCorrectionChecklistSection({
             {correctionChecklist.totalCount > 1 ? "s" : ""}
           </span>
           <span className="rounded-full bg-warning-light px-2 py-0.5 text-warning">
-            {correctionChecklist.pendingCount} a traiter
+            {correctionChecklist.pendingCount} à traiter
           </span>
         </div>
       </div>
@@ -109,7 +109,7 @@ export function EstimateApprovalCorrectionChecklistSection({
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className="btn btn-sm border-success bg-success/10 text-success hover:bg-success/20"
+                    className="btn btn-sm border-success bg-success-subtle text-success hover:bg-success/20"
                     disabled={isPending || item.status === "corrected"}
                     onClick={() => onUpdateItem(item.id, "corrected")}
                   >
@@ -121,7 +121,7 @@ export function EstimateApprovalCorrectionChecklistSection({
                     disabled={isPending || item.status === "to_discuss"}
                     onClick={() => onUpdateItem(item.id, "to_discuss")}
                   >
-                    Marquer a discuter
+                    Marquer à discuter
                   </button>
                 </div>
               ) : null}

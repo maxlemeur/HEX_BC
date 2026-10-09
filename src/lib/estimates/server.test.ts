@@ -509,7 +509,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
-      message: "La liste de mise a jour est obsolete.",
+      message: "La liste de mise à jour est obsolete.",
       details: {
         expected_count: 2,
         updated_count: 1,
@@ -615,7 +615,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
-      message: "La liste de mise a jour est obsolete.",
+      message: "La liste de mise à jour est obsolete.",
       details: {
         expected_count: 1,
       },
@@ -651,7 +651,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
-      message: "La liste de mise a jour est obsolete.",
+      message: "La liste de mise à jour est obsolete.",
       details: {
         expected_count: 2,
         updated_count: 1,
@@ -2007,7 +2007,7 @@ describe("estimate item source provenance", () => {
           source_version_number: 1,
           line_truth: expect.objectContaining({
             source: expect.objectContaining({
-              label: "Plan / metre",
+              label: "Plan / métré",
             }),
             qtyStatus: expect.objectContaining({
               code: "measured",
@@ -3084,7 +3084,7 @@ describe("estimate templates insertion", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
-      message: "Une ligne doit etre ajoutee sous une section.",
+      message: "Une ligne doit être ajoutée sous une section.",
     });
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -3137,7 +3137,7 @@ describe("estimate templates insertion", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
-      message: "Impossible de creer ce niveau: profondeur max 3.",
+      message: "Impossible de créer ce niveau: profondeur max 3.",
     });
     expect(supabase.rpc).not.toHaveBeenCalled();
   });

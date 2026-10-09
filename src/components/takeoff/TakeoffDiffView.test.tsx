@@ -99,10 +99,10 @@ describe("TakeoffDiffView", () => {
       />
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Cote a cote" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Cote à côté" })[0]);
     expect(screen.getAllByText("Extraction de comparaison").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Appliquer la selection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Appliquer la sélection" }));
 
     expect(onApplySelection).toHaveBeenCalledTimes(1);
     const selectedIds = onApplySelection.mock.calls[0]?.[0] as string[];

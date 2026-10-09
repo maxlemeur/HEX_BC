@@ -227,7 +227,7 @@ function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
       <thead>
         <tr>
           <th>Designation</th>
-          <th>Reference</th>
+          <th>Référence</th>
           <th class="num">Qte</th>
           <th class="num">P.U. HT</th>
           <th class="num">Total HT</th>

@@ -132,7 +132,7 @@ export function parseVersionZeroQuantityInput(value: string): {
   if (!normalized) {
     return {
       quantity: null,
-      error: "Quantite invalide. Utilisez un nombre positif, par exemple 1,5.",
+      error: "Quantité invalide. Utilisez un nombre positif, par exemple 1,5.",
     };
   }
 
@@ -140,7 +140,7 @@ export function parseVersionZeroQuantityInput(value: string): {
   if (!Number.isFinite(parsed) || parsed < 0) {
     return {
       quantity: null,
-      error: "Quantite invalide. Utilisez un nombre positif, par exemple 1,5.",
+      error: "Quantité invalide. Utilisez un nombre positif, par exemple 1,5.",
     };
   }
 

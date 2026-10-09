@@ -158,7 +158,7 @@ const NULL_LIKE_TOKENS = new Set<string>(["na", "n a", "null", "none", "vide"]);
 const FIELD_LABELS: Record<ClipboardTargetField, string> = {
   designation: "Désignation",
   quantity: "Quantité",
-  unit: "Unite",
+  unit: "Unité",
   unit_price_ht: "Prix unitaire HT",
   supply_type: "Type FO",
   k_fo: "K FO",
@@ -795,7 +795,7 @@ export function buildClipboardPreviewRows(
             : parsed;
 
         if (parsedValue < 0) {
-          reasons.push(`${FIELD_LABELS[field]} doit etre >= 0.`);
+          reasons.push(`${FIELD_LABELS[field]} doit être >= 0.`);
           continue;
         }
 

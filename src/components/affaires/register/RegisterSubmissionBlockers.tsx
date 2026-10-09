@@ -19,7 +19,7 @@ const BUSINESS_IMPACT_LABELS: Record<AffaireRegisterBusinessImpact, string> = {
   affects_hub_readiness: "Affecte le travail",
   blocks_submission: "Bloque la remise",
   affects_structure_generation: "Impacte la structure",
-  affects_takeoff: "Impacte le metre",
+  affects_takeoff: "Impacte le métré",
   requires_client_answer: "Réponse client attendue",
 };
 
@@ -62,7 +62,7 @@ function getBlockingEntryState(entry: AffaireRegisterEntry) {
     return {
       rank: entry.severity === "critical" ? 0 : 1,
       badgeLabel: "Revalidation requise",
-      badgeClass: "bg-danger/10 text-danger",
+      badgeClass: "bg-danger-subtle text-danger",
       message: "Une nouvelle revue ciblee est requise avant remise.",
       resolutionHint: "Pour debloquer: relancer la revue ciblee demandee.",
       actionLabel: "Voir les revalidations",
@@ -80,15 +80,15 @@ function getBlockingEntryState(entry: AffaireRegisterEntry) {
     return {
       rank: entry.status === "clarify_with_client" ? 3 : 2,
       badgeLabel: BUSINESS_IMPACT_LABELS.blocks_submission,
-      badgeClass: "bg-danger/10 text-danger",
+      badgeClass: "bg-danger-subtle text-danger",
       message:
         entry.status === "clarify_with_client"
           ? "Ce point bloque la remise tant qu'un retour client critique manque."
           : "Ce point bloque la remise tant qu'il reste ouvert.",
       resolutionHint:
         entry.kind === "missing_piece"
-          ? "Pour debloquer: ajouter la piece attendue ou requalifier ce manque."
-          : "Pour debloquer: traiter l'hypothese puis la faire sortir des ouverts.",
+          ? "Pour debloquer: ajouter la pièce attendue ou requalifier ce manque."
+          : "Pour debloquer: traiter l'hypothèse puis la faire sortir des ouverts.",
       actionLabel:
         entry.kind === "missing_piece" ? "Voir les pièces manquantes" : "Voir les hypothèses",
       filters: {
@@ -127,8 +127,8 @@ function getBlockingEntryState(entry: AffaireRegisterEntry) {
     return {
       rank: 6,
       badgeLabel: "Point critique ouvert",
-      badgeClass: "bg-danger/10 text-danger",
-      message: "Ce point critique reste a arbitrer avant remise.",
+      badgeClass: "bg-danger-subtle text-danger",
+      message: "Ce point critique reste à arbitrer avant remise.",
       resolutionHint: "Pour debloquer: arbitrer ce point puis le faire sortir des ouverts.",
       actionLabel:
         entry.kind === "missing_piece" ? "Voir les pièces manquantes" : "Voir les hypothèses",
@@ -278,8 +278,8 @@ export function RegisterSubmissionBlockers({
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {revalidationStages
-              ? `Impacts a revoir: ${revalidationStages}.`
-              : "Un additif ou une piece critique recue tardivement impose une nouvelle revue avant remise."}
+              ? `Impacts à revoir: ${revalidationStages}.`
+              : "Un additif ou une pièce critique reçue tardivement impose une nouvelle revue avant remise."}
           </p>
           <div className="mt-3">
             <button

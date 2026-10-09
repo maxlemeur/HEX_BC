@@ -114,14 +114,14 @@ function getPlanSetContextCopy(input: {
     return {
       badge: "Synchronise depuis le dossier",
       summary: `${input.fileCount} plan${input.fileCount > 1 ? "s" : ""} confirme${input.fileCount > 1 ? "s" : ""} repris depuis l'intake affaire.`,
-      detail: "Aucun reupload n'est necessaire pour lancer le metre sur ces plans.",
+      detail: "Aucun reupload n'est nécessaire pour lancer le métré sur ces plans.",
     };
   }
 
   return {
     badge: null,
-    summary: `${input.fileCount} plan${input.fileCount > 1 ? "s" : ""} disponible${input.fileCount > 1 ? "s" : ""} pour le metre.`,
-    detail: "Verifiez le jeu de plans retenu avant de lancer l'analyse.",
+    summary: `${input.fileCount} plan${input.fileCount > 1 ? "s" : ""} disponible${input.fileCount > 1 ? "s" : ""} pour le métré.`,
+    detail: "Vérifiez le jeu de plans retenu avant de lancer l'analyse.",
   };
 }
 
@@ -222,7 +222,7 @@ export function PlansMetresCard({
             Importez vos plans pour lancer l&apos;analyse
           </h3>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Les plans PDF permettent d&apos;extraire automatiquement les metres, de les comparer au DPGF et de detecter les ecarts.
+            Les plans PDF permettent d&apos;extraire automatiquement les métrés, de les comparer au DPGF et de detecter les écarts.
           </p>
           <div className="mt-5 flex items-center gap-3">
             <Link
@@ -273,7 +273,7 @@ export function PlansMetresCard({
     }
     if (exceptionCount > 0) {
       summarySegments.push(
-        `${exceptionCount} ecart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""}`
+        `${exceptionCount} écart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""}`
       );
     }
   }
@@ -348,7 +348,7 @@ export function PlansMetresCard({
               {continuitySnapshot.waitingCount} en attente
             </span>
             <span className="rounded-full bg-warning/10 px-2.5 py-1 font-medium text-warning">
-              {continuitySnapshot.actionRequiredCount} a corriger
+              {continuitySnapshot.actionRequiredCount} à corriger
             </span>
           </div>
 
@@ -462,7 +462,7 @@ export function PlansMetresCard({
               href={`/dashboard/affaires/${projectId}/plans`}
               className="btn btn-secondary btn-sm inline-flex"
             >
-              Verifier les plans
+              Vérifier les plans
             </Link>
           </>
         ) : null}

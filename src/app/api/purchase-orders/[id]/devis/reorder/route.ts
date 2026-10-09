@@ -78,14 +78,14 @@ export async function PATCH(
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
     return NextResponse.json(
-      { error: "Cette action est reservee aux administrateurs et aux chiffreurs." },
+      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
       { status: 403 }
     );
   }
 
   if (order.status === "canceled") {
     return NextResponse.json(
-      { error: "Les bons de commande annules ne peuvent plus etre reordonnes." },
+      { error: "Les bons de commande annules ne peuvent plus être reordonnes." },
       { status: 403 }
     );
   }
@@ -104,7 +104,7 @@ export async function PATCH(
 
   if (existing.length === 0) {
     return NextResponse.json(
-      { error: "Aucun devis a reordonner pour cette commande." },
+      { error: "Aucun devis à reordonner pour cette commande." },
       { status: 400 }
     );
   }

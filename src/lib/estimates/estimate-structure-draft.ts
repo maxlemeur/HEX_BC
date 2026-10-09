@@ -132,7 +132,7 @@ export function actionBadgeClass(action: EstimateStructureDraftNodeAction) {
 export function confidenceText(node: EstimateStructureDraftNode) {
   const score = Math.round(node.confidence * 100);
   if (node.confidenceLabel === "elevee") {
-    return `Confiance elevee (${score}%)`;
+    return `Confiance élevée (${score}%)`;
   }
   if (node.confidenceLabel === "moyenne") {
     return `Confiance moyenne (${score}%)`;
@@ -255,7 +255,7 @@ export function buildSourceCoverageSummary(
 
   if (availableNotUsedSources.length > 0) {
     statements.push(
-      `Fait: ${availableNotUsedSources.length} source(s) supplementaire(s) reste(nt) disponible(s) sans etre retenue(s).`,
+      `Fait: ${availableNotUsedSources.length} source(s) supplementaire(s) reste(nt) disponible(s) sans être retenue(s).`,
     );
   }
 
@@ -359,7 +359,7 @@ export function buildNodeMergeStates(input: {
     if (requestedAction === "skip") {
       nextParentContext = {
         kind: "ignored",
-        reason: "Le parent est ignore, son sous-arbre ne sera pas applique.",
+        reason: "Le parent est ignoré, son sous-arbre ne sera pas appliqué.",
       };
     } else if (requestedAction === "create") {
       nextParentContext = {

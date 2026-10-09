@@ -21,14 +21,14 @@ type Props = {
 
 const QUEUE_STATE_META = {
   sendable: { label: "Envoyable", variant: "success" },
-  ready_not_validated: { label: "Pret mais non valide", variant: "warning" },
+  ready_not_validated: { label: "Prêt mais non validé", variant: "warning" },
   blocked: { label: "Bloqué", variant: "error" },
   high_risk: { label: "Risque eleve", variant: "error" },
 } as const;
 
 function formatTargetDate(value: string | null) {
   if (!value) {
-    return "A confirmer";
+    return "À confirmer";
   }
 
   return new Date(value).toLocaleDateString("fr-FR", {
@@ -64,8 +64,8 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
         icon={
           <CalendarIcon strokeWidth="1.5" aria-hidden="true" size={26} />
         }
-        title="Aucun depart a prioriser cette semaine"
-        description="Les echeances detectees sont hors de la semaine courante ou deja stabilisees."
+        title="Aucun depart à prioriser cette semaine"
+        description="Les échéances détectées sont hors de la semaine courante ou déjà stabilisees."
       />
     );
   }
@@ -75,7 +75,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-foreground">
-            A envoyer cette semaine
+            À envoyer cette semaine
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Traitez en premier les dossiers proches de l&apos;envoi et encore fragiles.
@@ -91,7 +91,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-[0.14em] text-subtle-foreground">
               <th className="pb-3 pr-4">Affaire</th>
-              <th className="pb-3 pr-4">Etat</th>
+              <th className="pb-3 pr-4">État</th>
               <th className="pb-3 pr-4">Échéance</th>
               <th className="pb-3 pr-4">Montant</th>
               <th className="pb-3 pr-4">Score</th>
@@ -113,7 +113,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                       {item.projectName}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {item.clientName ?? "Client non precise"}
+                      {item.clientName ?? "Client non précise"}
                     </p>
                     {item.alerts[0] ? (
                       <p className="mt-2 max-w-xs text-xs text-slate-600">
@@ -140,7 +140,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                       <div className="flex items-center gap-2">
                         {item.reviewerState === "acceptable" ? (
                           <Badge variant="success" size="sm">
-                            Revue terminee
+                            Revue terminée
                           </Badge>
                         ) : null}
                         <ApprovalQueueStateActions

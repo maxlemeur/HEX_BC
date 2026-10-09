@@ -41,7 +41,7 @@ export type VersionZeroDraftDialogProps = {
 
 const FILTER_LABELS: Record<ReviewFilter, string> = {
   all: "Tout",
-  pending: "A revoir",
+  pending: "À revoir",
   accepted: "Valide",
   edited: "Edite",
   rejected: "Rejete",
@@ -254,7 +254,7 @@ export function VersionZeroDraftDialog({
       });
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Impossible de mettre a jour la ligne."
+        error instanceof Error ? error.message : "Impossible de mettre à jour la ligne."
       );
     } finally {
       isBusyRef.current = false;
@@ -274,7 +274,7 @@ export function VersionZeroDraftDialog({
     setErrorMessage(null);
     try {
       const canProceed = await ensureMutationCanProceed(
-        "materialiser la version zero"
+        "matérialiser la version zero"
       );
       if (!canProceed) {
         isBusyRef.current = false;
@@ -293,7 +293,7 @@ export function VersionZeroDraftDialog({
       onClose({ materialized: true });
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Impossible de materialiser la V0."
+        error instanceof Error ? error.message : "Impossible de matérialiser la V0."
       );
       isBusyRef.current = false;
       setIsBusy(false);
@@ -314,14 +314,14 @@ export function VersionZeroDraftDialog({
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
           <div className="space-y-2">
             <div className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
-              IA - a revoir
+              IA - à revoir
             </div>
             <div>
               <h2 className="text-xl font-semibold text-foreground">
                 Version zero assistee
               </h2>
               <p className="text-sm text-slate-600">
-                Fait: aucune suggestion n&apos;est appliquee sans validation humaine explicite.
+                Fait: aucune suggestion n&apos;est appliquée sans validation humaine explicite.
               </p>
             </div>
           </div>
@@ -353,7 +353,7 @@ export function VersionZeroDraftDialog({
                     Generation V0
                   </h3>
                   <p className="text-sm text-slate-600">
-                    Hypothese: la version courante est vide et un brief confirme est disponible.
+                    Hypothèse: la version courante est vide et un brief confirme est disponible.
                   </p>
                 </div>
                 <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -572,7 +572,7 @@ export function VersionZeroDraftDialog({
                                   onClick={() => void handleReviewLine(line, "edited")}
                                   disabled={isBusy || isMutationBlocked}
                                 >
-                                  Valider l&apos;edition
+                                  Valider l&apos;édition
                                 </button>
                               </div>
                             </div>
@@ -615,7 +615,7 @@ export function VersionZeroDraftDialog({
                                 />
                               </label>
                               <label className="text-sm">
-                                <span className="mb-1 block text-slate-600">Quantite</span>
+                                <span className="mb-1 block text-slate-600">Quantité</span>
                                 <input
                                   className="form-input w-full"
                                   name={`version-zero-quantity-${line.id}`}
@@ -634,7 +634,7 @@ export function VersionZeroDraftDialog({
                                 />
                               </label>
                               <label className="text-sm">
-                                <span className="mb-1 block text-slate-600">Unite</span>
+                                <span className="mb-1 block text-slate-600">Unité</span>
                                 <input
                                   className="form-input w-full"
                                   name={`version-zero-unit-${line.id}`}
@@ -663,7 +663,7 @@ export function VersionZeroDraftDialog({
                                 </ul>
                               </div>
                               <div className="rounded-xl border border-border bg-surface p-3 text-sm text-foreground-secondary">
-                                <div className="font-medium text-foreground">Hypotheses / inferences</div>
+                                <div className="font-medium text-foreground">Hypothèses / inferences</div>
                                 <ul className="mt-2 space-y-1">
                                   {[...line.hypotheses, ...line.inferences].map((entry) => (
                                     <li key={entry}>• {entry}</li>
@@ -702,7 +702,7 @@ export function VersionZeroDraftDialog({
                   onClick={() => void handleMaterialize()}
                   disabled={isBusy || isMutationBlocked || !canMaterialize}
                 >
-                  {isBusy ? "Application..." : "Materialiser dans le devis"}
+                  {isBusy ? "Application..." : "Matérialiser dans le devis"}
                 </button>
               </div>
             </div>

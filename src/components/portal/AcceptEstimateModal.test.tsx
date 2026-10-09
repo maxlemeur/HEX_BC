@@ -163,7 +163,7 @@ describe("AcceptEstimateModal", () => {
     const user = userEvent.setup();
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
-      json: () => Promise.resolve({ error: "Ce devis a deja ete traite." }),
+      json: () => Promise.resolve({ error: "Ce devis a déjà été traité." }),
     });
 
     const { props } = renderModal();
@@ -173,7 +173,7 @@ describe("AcceptEstimateModal", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Ce devis a deja ete traite."
+        "Ce devis a déjà été traité."
       );
     });
 

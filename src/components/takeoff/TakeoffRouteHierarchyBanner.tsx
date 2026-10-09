@@ -16,7 +16,7 @@ export function TakeoffRouteHierarchyBanner({
       : "border-warning/25 bg-warning/8";
   const badgeClassName =
     descriptor.classification === "principal"
-      ? "bg-success/12 text-success"
+      ? "bg-success-subtle text-success"
       : "bg-warning/14 text-warning";
 
   return (

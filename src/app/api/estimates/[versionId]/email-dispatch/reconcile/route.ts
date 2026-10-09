@@ -52,7 +52,7 @@ export async function POST(
       await getAuthenticatedTenantContext();
     if (!isTenantAdmin) {
       throw forbidden(
-        "Le rapprochement d'un envoi email est reserve aux administrateurs."
+        "Le rapprochement d'un envoi email est réservé aux administrateurs."
       );
     }
 

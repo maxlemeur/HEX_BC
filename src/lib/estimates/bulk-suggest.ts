@@ -134,8 +134,8 @@ const SUGGESTION_FIELDS: BulkSuggestionField[] = [
 ];
 
 const PREVIEW_FIELD_LABELS: Record<BulkSuggestPreviewField, string> = {
-  description: "Unite",
-  category_id: "Categorie",
+  description: "Unité",
+  category_id: "Catégorie",
   k_fo: "K FO",
   k_mo: "K MO",
 };

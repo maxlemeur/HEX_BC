@@ -356,7 +356,7 @@ export async function fetchTakeoffMappingRules(): Promise<TakeoffMappingRule[]> 
     {
       method: "GET",
     },
-    "Impossible de recuperer les regles de mapping takeoff."
+    "Impossible de récupérer les règles de mapping takeoff."
   );
 
   return response.mapping_rules;
@@ -374,7 +374,7 @@ export async function createTakeoffMappingRule(
       },
       body: JSON.stringify(input),
     },
-    "Impossible de creer la regle de mapping takeoff."
+    "Impossible de créer la règle de mapping takeoff."
   );
 
   return response.mapping_rule;
@@ -393,7 +393,7 @@ export async function updateTakeoffMappingRule(
       },
       body: JSON.stringify(input),
     },
-    "Impossible de mettre a jour la regle de mapping takeoff."
+    "Impossible de mettre à jour la règle de mapping takeoff."
   );
 
   return response.mapping_rule;
@@ -407,7 +407,7 @@ export async function deleteTakeoffMappingRule(
     {
       method: "DELETE",
     },
-    "Impossible de supprimer la regle de mapping takeoff."
+    "Impossible de supprimer la règle de mapping takeoff."
   );
 }
 
@@ -445,7 +445,7 @@ export async function createTakeoffJob(
       };
 
       if (input.signal.aborted) {
-        rejectOnce(new TakeoffApiError("Requete annulee.", 0, null, "ABORTED"));
+        rejectOnce(new TakeoffApiError("Requête annulée.", 0, null, "ABORTED"));
         return () => undefined;
       }
 
@@ -476,7 +476,7 @@ export async function createTakeoffJob(
 
     xhr.onabort = () => {
       cleanupAbortListener();
-      rejectOnce(new TakeoffApiError("Requete annulee.", 0, null, "ABORTED"));
+      rejectOnce(new TakeoffApiError("Requête annulée.", 0, null, "ABORTED"));
     };
 
     xhr.onload = () => {
@@ -489,7 +489,7 @@ export async function createTakeoffJob(
       if (xhr.status < 200 || xhr.status >= 300) {
         rejectOnce(
           new TakeoffApiError(
-            toErrorMessage(payload, "Impossible de creer le job takeoff."),
+            toErrorMessage(payload, "Impossible de créer le job takeoff."),
             xhr.status,
             extractErrorDetails(payload),
             extractErrorCode(payload),
@@ -502,7 +502,7 @@ export async function createTakeoffJob(
       try {
         const responsePayload = unwrapSuccessfulEnvelopePayload(
           payload,
-          "Impossible de creer le job takeoff."
+          "Impossible de créer le job takeoff."
         ) as TakeoffJobCreateResponse;
 
         resolveOnce(responsePayload);
@@ -514,7 +514,7 @@ export async function createTakeoffJob(
 
         rejectOnce(
           new TakeoffApiError(
-            "Impossible de lire la reponse du serveur.",
+            "Impossible de lire la réponse du serveur.",
             xhr.status,
             payload,
             null
@@ -537,7 +537,7 @@ export async function createTakeoffJob(
       cleanupAbortListener();
       rejectOnce(
         new TakeoffApiError(
-          "Impossible de demarrer l'upload du fichier.",
+          "Impossible de démarrer l'upload du fichier.",
           0,
           error,
           "UPLOAD_INIT_FAILED"
@@ -563,7 +563,7 @@ export async function fetchTakeoffJob(
   return requestTakeoffJson<TakeoffJobDetailResponse>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}${query ? `?${query}` : ""}`,
     { method: "GET", signal: options?.signal },
-    "Impossible de recuperer les details du job takeoff."
+    "Impossible de récupérer les détails du job takeoff."
   );
 }
 
@@ -700,7 +700,7 @@ export async function patchTakeoffItems(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     },
-    "Impossible de mettre a jour les items takeoff."
+    "Impossible de mettre à jour les items takeoff."
   );
 }
 
@@ -712,7 +712,7 @@ export async function fetchPlanSets(
   const response = await requestTakeoffJson<PlanSetsListResponse>(
     `/api/takeoff/plan-sets?estimate_version_id=${encodeURIComponent(versionId)}`,
     { method: "GET" },
-    "Impossible de recuperer les jeux de plans."
+    "Impossible de récupérer les jeux de plans."
   );
   return response.plan_sets;
 }
@@ -723,7 +723,7 @@ export async function fetchPlanSetsForProject(
   const response = await requestTakeoffJson<PlanSetsListResponse>(
     `/api/takeoff/plan-sets?project_id=${encodeURIComponent(projectId)}`,
     { method: "GET" },
-    "Impossible de recuperer les jeux de plans."
+    "Impossible de récupérer les jeux de plans."
   );
   return response.plan_sets;
 }
@@ -738,7 +738,7 @@ export async function createPlanSet(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible de creer le jeu de plans."
+    "Impossible de créer le jeu de plans."
   );
   return { ...response.plan_set, file_count: response.plan_set.file_count ?? 0, total_size_bytes: response.plan_set.total_size_bytes ?? 0 };
 }
@@ -759,7 +759,7 @@ export async function fetchPlanFiles(
   const response = await requestTakeoffJson<PlanFilesListResponse>(
     `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files`,
     { method: "GET" },
-    "Impossible de recuperer les fichiers de plan."
+    "Impossible de récupérer les fichiers de plan."
   );
   return response.plan_files;
 }
@@ -940,7 +940,7 @@ export async function saveTakeoffReviewDecision(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible d'enregistrer la decision de revue."
+    "Impossible d'enregistrer la décision de revue."
   );
 }
 
@@ -993,7 +993,7 @@ export async function updateTakeoffRiskAlertStatus(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible de mettre a jour le statut du risque."
+    "Impossible de mettre à jour le statut du risque."
   );
 }
 
@@ -1063,7 +1063,7 @@ export function uploadFileToSignedUrl(
       } else {
         rejectOnce(
           new TakeoffApiError(
-            "Echec de l'upload vers le stockage.",
+            "Échec de l'upload vers le stockage.",
             xhr.status,
             null,
             "STORAGE_UPLOAD_FAILED"
@@ -1081,7 +1081,7 @@ export function uploadFileToSignedUrl(
       cleanupAbortListener();
       rejectOnce(
         new TakeoffApiError(
-          "Impossible de demarrer l'upload du fichier.",
+          "Impossible de démarrer l'upload du fichier.",
           0,
           error,
           "UPLOAD_INIT_FAILED"
@@ -1119,6 +1119,6 @@ export async function fetchTakeoffActivityCenter(
   return requestTakeoffJson<TakeoffActivityCenterResponse>(
     `/api/takeoff/activity-center?${params.toString()}`,
     { method: "GET" },
-    "Impossible de charger le centre d'activite metres."
+    "Impossible de charger le centre d'activité métrés."
   );
 }

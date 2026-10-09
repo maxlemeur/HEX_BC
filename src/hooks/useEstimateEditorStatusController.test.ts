@@ -507,7 +507,7 @@ describe("useEstimateEditorStatusController route generations", () => {
 
     expect(harness.dependencies.applyUpdatedVersion).not.toHaveBeenCalled();
     expect(harness.result.current.state.error).toBe(
-      "Reponse de statut incoherente."
+      "Réponse de statut incoherente."
     );
   });
 });
@@ -687,7 +687,7 @@ describe("useEstimateEditorStatusController errors", () => {
       result: "noop" as const,
       hasPending: true,
       message:
-        "Synchronisation des modifications en cours. Reessayez dans quelques secondes.",
+        "Synchronisation des modifications en cours. Réessayez dans quelques secondes.",
     },
   ])(
     "reports a $result flush result without loading gating",
@@ -717,7 +717,7 @@ describe("useEstimateEditorStatusController errors", () => {
 
     expect(dependencies.flushBufferedItemUpdates).not.toHaveBeenCalled();
     expect(harness.result.current.state.error).toBe(
-      "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+      "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
     );
   });
 

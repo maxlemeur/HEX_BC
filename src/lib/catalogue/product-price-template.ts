@@ -185,7 +185,7 @@ function validateHeaders(
       row: 1,
       column,
       code: "INVALID_HEADERS",
-      message: `Les en-tetes de la feuille \"${sheetName}\" doivent etre exactement : ${expectedHeaders.join(", ")}.`,
+      message: `Les en-tetes de la feuille \"${sheetName}\" doivent être exactement : ${expectedHeaders.join(", ")}.`,
     });
     return null;
   }
@@ -217,7 +217,7 @@ function parseProducts(
         row: rowNumber,
         column: "reference",
         code: "PRODUCT_REFERENCE_REQUIRED",
-        message: "La reference du produit est obligatoire.",
+        message: "La référence du produit est obligatoire.",
       });
     } else {
       const normalized = normalizedReference(reference);
@@ -228,7 +228,7 @@ function parseProducts(
           row: rowNumber,
           column: "reference",
           code: "PRODUCT_REFERENCE_COLLISION",
-          message: `La reference \"${reference}\" entre en collision, sans distinction de casse, avec la ligne ${firstRow}.`,
+          message: `La référence \"${reference}\" entre en collision, sans distinction de casse, avec la ligne ${firstRow}.`,
         });
       } else {
         referenceRows.set(normalized, rowNumber);
@@ -251,7 +251,7 @@ function parseProducts(
         row: rowNumber,
         column: "prix_reference_ht",
         code: "PRODUCT_PRICE_INVALID",
-        message: "Le prix de reference HT doit etre un nombre superieur ou egal a 0.",
+        message: "Le prix de référence HT doit être un nombre supérieur ou egal a 0.",
       });
     }
 
@@ -304,7 +304,7 @@ function parsePrices(
         row: rowNumber,
         column: "reference_produit",
         code: "PRICE_PRODUCT_REFERENCE_REQUIRED",
-        message: "La reference produit est obligatoire.",
+        message: "La référence produit est obligatoire.",
       });
     }
 
@@ -324,7 +324,7 @@ function parsePrices(
         row: rowNumber,
         column: "prix_unitaire_ht",
         code: "SUPPLIER_PRICE_INVALID",
-        message: "Le prix fournisseur HT doit etre un nombre strictement superieur a 0.",
+        message: "Le prix fournisseur HT doit être un nombre strictement supérieur a 0.",
       });
     }
 
@@ -354,7 +354,7 @@ function parsePrices(
         row: rowNumber,
         column: "quantite_minimale",
         code: "PRICE_MIN_QUANTITY_INVALID",
-        message: "La quantite minimale doit etre un nombre strictement superieur a 0.",
+        message: "La quantité minimale doit être un nombre strictement supérieur a 0.",
       });
     }
 
@@ -380,7 +380,7 @@ function parsePrices(
           row: rowNumber,
           column: null,
           code: "SUPPLIER_PRICE_DUPLICATE",
-          message: `Ce tarif fournisseur est deja present a la ligne ${firstRow}.`,
+          message: `Ce tarif fournisseur est déjà present à la ligne ${firstRow}.`,
         });
       } else {
         priceKeys.set(duplicateKey, rowNumber);
@@ -446,7 +446,7 @@ export async function parseProductPriceTemplateWorkbook(
         row: 2,
         column: "B",
         code: "TEMPLATE_VERSION_INVALID",
-        message: `Version de template invalide : ${version ?? "absente"}. Versions acceptees : ${SUPPORTED_TEMPLATE_VERSIONS.join(", ")}.`,
+        message: `Version de template invalide : ${version ?? "absente"}. Versions acceptées : ${SUPPORTED_TEMPLATE_VERSIONS.join(", ")}.`,
       });
     }
   }

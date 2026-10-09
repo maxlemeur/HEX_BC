@@ -16,10 +16,10 @@ type StatusOption = { value: PurchaseOrderStatus; label: string };
 
 const STATUS_OPTIONS: StatusOption[] = [
   { value: "draft", label: "Brouillon" },
-  { value: "sent", label: "Envoyee" },
-  { value: "confirmed", label: "Confirmee" },
-  { value: "received", label: "Recue" },
-  { value: "canceled", label: "Annulee" },
+  { value: "sent", label: "Envoyée" },
+  { value: "confirmed", label: "Confirmée" },
+  { value: "received", label: "Reçue" },
+  { value: "canceled", label: "Annulée" },
 ];
 
 type PurchaseOrderStatusUpdaterProps = {
@@ -89,7 +89,7 @@ export function PurchaseOrderStatusUpdater({
               Enregistrement...
             </>
           ) : (
-            "Mettre a jour"
+            "Mettre à jour"
           )}
         </button>
       )}

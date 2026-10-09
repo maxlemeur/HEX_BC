@@ -191,7 +191,7 @@ describe("computeCockpitSuggestions", () => {
 
     expect(result.find((suggestion) => suggestion.intent === "review_intake")).toEqual(
       expect.objectContaining({
-        label: "Confirmer 1 piece a revoir",
+        label: "Confirmer 1 pièce à revoir",
         target: {
           kind: "navigate",
           href: "/dashboard/affaires/proj-42?intakeFilter=a_revoir#intake",
@@ -255,7 +255,7 @@ describe("computeCockpitSuggestions", () => {
 
     expect(result.find((suggestion) => suggestion.intent === "review_intake")).toEqual(
       expect.objectContaining({
-        label: "Confirmer 1 piece a revoir",
+        label: "Confirmer 1 pièce à revoir",
       }),
     );
   });
@@ -298,7 +298,7 @@ describe("computeCockpitSuggestions", () => {
           ],
           missingPieces: [
             { code: "missing_dpgf", label: "DPGF manquant", severity: "critical" },
-            { code: "missing_cctp", label: "CCTP non detecte", severity: "warning" },
+            { code: "missing_cctp", label: "CCTP non détecté", severity: "warning" },
           ],
           readiness: {
             reviewDocumentsCount: 1,
@@ -319,13 +319,13 @@ describe("computeCockpitSuggestions", () => {
 
     expect(result.find((suggestion) => suggestion.intent === "review_intake")).toEqual(
       expect.objectContaining({
-        label: "Confirmer 1 piece a revoir",
+        label: "Confirmer 1 pièce à revoir",
       }),
     );
     expect(result.find((suggestion) => suggestion.intent === "add_missing_pieces")).toEqual(
       expect.objectContaining({
-        label: "Ajouter 2 pieces manquantes",
-        preview: "1 piece reste vraiment manquante; 1 sera a reconfirmer apres review.",
+        label: "Ajouter 2 pièces manquantes",
+        preview: "1 pièce reste vraiment manquante; 1 sera à reconfirmer après review.",
       }),
     );
   });
@@ -474,7 +474,7 @@ describe("computeCockpitSuggestions", () => {
 
     expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toEqual(
       expect.objectContaining({
-        label: "Ouvrir la structure preliminaire",
+        label: "Ouvrir la structure préliminaire",
         target: {
           kind: "navigate",
           href: "/dashboard/estimates/version-1/edit?openStructureDraft=1",
@@ -527,7 +527,7 @@ describe("computeCockpitSuggestions", () => {
     expect(result.find((s) => s.intent === "list_hypotheses")).toEqual(
       expect.objectContaining({
         intent: "list_hypotheses",
-        label: "Traiter 2 hypotheses critiques",
+        label: "Traiter 2 hypothèses critiques",
         target: {
           kind: "navigate",
           href: "/dashboard/affaires/proj-42?registerStatus=open&registerSeverity=critical#register",
@@ -553,7 +553,7 @@ describe("computeCockpitSuggestions", () => {
       expect.objectContaining({
         intent: "list_hypotheses",
         label: "Traiter 2 clarifications client",
-        preview: "Des clarifications critiques restent a porter vers le client avant envoi.",
+        preview: "Des clarifications critiques restent à porter vers le client avant envoi.",
         target: {
           kind: "navigate",
           href: "/dashboard/affaires/proj-42?registerStatus=clarify_with_client#register",
@@ -660,7 +660,7 @@ describe("computeCockpitSuggestions", () => {
         intent: "list_hypotheses",
         label: "Relancer 1 revalidation critique",
         preview:
-          "Un additif ou une piece critique recue tardivement impose une revue ciblee: Revue documentaire + Readiness pre-remise.",
+          "Un additif ou une pièce critique reçue tardivement impose une revue ciblee: Revue documentaire + Readiness pré-remise.",
         target: {
           kind: "navigate",
           href:

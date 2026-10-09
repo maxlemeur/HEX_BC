@@ -123,7 +123,7 @@ export function TakeoffApplyWizardPreviewStep({
             <PreviewImpactCard
               label="Transformations"
               value={previewData.summary.transformed_count}
-              hint="regles ou mappings proposes"
+              hint="règles ou mappings proposes"
             />
             <PreviewImpactCard
               label="Overrides"
@@ -133,7 +133,7 @@ export function TakeoffApplyWizardPreviewStep({
             <PreviewImpactCard
               label="Hors mapping"
               value={previewData.summary.excluded_by_mapping_count}
-              hint="lignes qui ne seront pas injectees en l'etat"
+              hint="lignes qui ne seront pas injectees en l'état"
             />
           </div>
 
@@ -142,13 +142,13 @@ export function TakeoffApplyWizardPreviewStep({
               Provenance visible avant confirmation
             </p>
             <p className="mt-2 text-sm text-foreground-secondary">
-              Source du metre :{" "}
+              Source du métré :{" "}
               <span className="font-medium text-slate-800">
                 {sourceFileName ?? "job takeoff"}
               </span>
             </p>
             <p className="mt-1 text-sm text-slate-600">
-              Chaque ligne garde sa reference takeoff quand elle est disponible.
+              Chaque ligne garde sa référence takeoff quand elle est disponible.
             </p>
           </div>
 

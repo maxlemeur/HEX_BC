@@ -246,7 +246,7 @@ describe("estimate purchase order drafts", () => {
         }),
         makeLine({
           id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-          title: "Quantite decimale",
+          title: "Quantité decimale",
           quantity: 1.5,
           unit_price_ht_cents: 700,
           selected_supplier_price_id: "price-3",

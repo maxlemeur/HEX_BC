@@ -195,7 +195,7 @@ export function IntakeWorkspace({
 
       documentNode.scrollIntoView({ behavior: "auto", block: "center" });
       lastScrolledFocusKeyRef.current = focusKey;
-      setAnnouncement("Piece source ouverte dans le dossier.");
+      setAnnouncement("Pièce source ouverte dans le dossier.");
       return true;
     };
 
@@ -232,7 +232,7 @@ export function IntakeWorkspace({
       const elapsed = Date.now() - (autoRefreshStartRef.current ?? Date.now());
       if (elapsed > AUTO_REFRESH_MAX_MS) {
         clearInterval(interval);
-        setAnnouncement("La classification prend plus de temps que prevu. Rafraichissez la page manuellement.");
+        setAnnouncement("La classification prend plus de temps que prévu. Rafraichissez la page manuellement.");
         return;
       }
       router.refresh();
@@ -369,7 +369,7 @@ export function IntakeWorkspace({
   const progressLegend = useMemo(() => {
     const parts: string[] = [];
     if (classifiedCount > 0) parts.push(`${classifiedCount} valide${classifiedCount > 1 ? "s" : ""}`);
-    if (needsReviewCount > 0) parts.push(`${needsReviewCount} a confirmer`);
+    if (needsReviewCount > 0) parts.push(`${needsReviewCount} à confirmer`);
     if (processingCount > 0) parts.push(`${processingCount} en cours`);
     return parts.join(", ");
   }, [classifiedCount, needsReviewCount, processingCount]);
@@ -383,7 +383,7 @@ export function IntakeWorkspace({
     focusBriefBlock !== "summary" &&
     focusBriefBlock !== "project_object" &&
     focusBriefEntry !== null
-      ? `Element ${focusBriefEntry + 1}`
+      ? `Élément ${focusBriefEntry + 1}`
       : null;
   const focusBannerExcerpt = getFocusedBriefExcerpt(
     workspace?.briefDraft,
@@ -424,13 +424,13 @@ export function IntakeWorkspace({
                 onClick={toggleFilter}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
                   isFilterActive
-                    ? "bg-warning/10 text-warning ring-1 ring-warning/30"
+                    ? "bg-warning-subtle text-warning ring-1 ring-warning/30"
                     : "text-slate-600 hover:bg-muted"
                 }`}
                 aria-pressed={isFilterActive}
               >
                 <FunnelIcon aria-hidden="true" size={12} />
-                A revoir ({needsReviewCount})
+                À revoir ({needsReviewCount})
               </button>
             )}
 
@@ -575,10 +575,10 @@ export function IntakeWorkspace({
 
           {/* A confirmer */}
           {reviewDocs.length > 0 && (
-            <section aria-label="Documents a confirmer" className="mt-4">
+            <section aria-label="Documents à confirmer" className="mt-4">
               <div className="flex items-center gap-2 rounded-lg bg-amber-100 border border-amber-400 px-3 py-2 mb-2">
                 <TriangleAlertIcon className="shrink-0 text-amber-700" aria-hidden="true" size={16} />
-                <h3 className="text-xs font-semibold text-amber-900">A confirmer</h3>
+                <h3 className="text-xs font-semibold text-amber-900">À confirmer</h3>
                 <Badge variant="warning" size="sm">{reviewDocs.length}</Badge>
               </div>
               <div className="space-y-2">
@@ -658,14 +658,14 @@ export function IntakeWorkspace({
       {hasDocuments && triageComplete && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
           <CircleCheckBigIcon className="shrink-0" aria-hidden="true" size={16} />
-          Triage termine — Tous les documents sont valides.
+          Triage termine — Tous les documents sont validés.
         </div>
       )}
       {hasDocuments && !triageComplete && (needsReviewCount > 0 || processingCount > 0) && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
           <CircleAlertIcon className="shrink-0" aria-hidden="true" size={16} />
           <span>
-            Triage en cours — {needsReviewCount + processingCount} document{(needsReviewCount + processingCount) > 1 ? "s" : ""} restent a confirmer.
+            Triage en cours — {needsReviewCount + processingCount} document{(needsReviewCount + processingCount) > 1 ? "s" : ""} restent à confirmer.
             {!isFilterActive && needsReviewCount > 0 && (
               <button
                 type="button"

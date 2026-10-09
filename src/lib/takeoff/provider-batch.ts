@@ -226,7 +226,7 @@ export async function persistTakeoffProviderBatchSnapshot(
     throw toTakeoffError(
       mapSupabaseError(
         error as PostgrestError,
-        "Impossible de persister l'etat provider du batch takeoff et son historique."
+        "Impossible de persister l'état provider du batch takeoff et son historique."
       ),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,

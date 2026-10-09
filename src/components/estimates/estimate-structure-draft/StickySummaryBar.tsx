@@ -11,7 +11,7 @@ export function StickySummaryBar({ counts }: StickySummaryBarProps) {
         <span className="font-medium text-foreground-secondary">
           {counts.selectedLots} lot(s)
         </span>
-        <span className="text-emerald-700">{counts.createCount} creation(s)</span>
+        <span className="text-emerald-700">{counts.createCount} création(s)</span>
         <span className="text-amber-700">{counts.mergeCount} fusion(s)</span>
         <span className="text-muted-foreground">{counts.skipCount} ignore(s)</span>
         {counts.lowConfidenceCount > 0 && (

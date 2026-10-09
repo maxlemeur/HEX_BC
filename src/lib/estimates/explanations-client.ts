@@ -53,7 +53,7 @@ async function requestExplanation(
 
   const parsed = successEnvelopeSchema.safeParse(payload);
   if (!parsed.success) {
-    throw new Error("Reponse explication invalide.");
+    throw new Error("Réponse explication invalide.");
   }
 
   return parsed.data.data.explanation;

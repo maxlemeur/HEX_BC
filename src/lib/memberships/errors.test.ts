@@ -31,7 +31,7 @@ describe("mapSupabaseError", () => {
     ).toMatchObject({
       status: 403,
       code: "FORBIDDEN",
-      message: "Acces refuse.",
+      message: "Accès refuse.",
     });
 
     expect(

@@ -138,7 +138,7 @@ describe("estimate pdf route", () => {
       } as never);
       vi.mocked(markEstimatePdfProcessing).mockRejectedValueOnce(
         forbidden(
-          "Le PDF contractuel d'un devis transmis ne peut plus etre remplace.",
+          "Le PDF contractuel d'un devis transmis ne peut plus être remplace.",
           { status },
           "ESTIMATE_PDF_CONTRACT_IMMUTABLE"
         )

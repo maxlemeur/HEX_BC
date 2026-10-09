@@ -27,7 +27,7 @@ const EXCEPTION_GROUP_COLORS: Record<ExceptionGroupKey, string> = {
 
 const REVIEWER_STATE_BADGE: Record<ReviewerState, { label: string; variant: "neutral" | "warning" | "error" | "success" }> = {
   seen: { label: "Vu", variant: "neutral" },
-  review_laurent: { label: "A revoir", variant: "warning" },
+  review_laurent: { label: "À revoir", variant: "warning" },
   blocking: { label: "Bloquant", variant: "error" },
   acceptable: { label: "Acceptable", variant: "success" },
 };
@@ -177,7 +177,7 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
                 size="sm"
               >
                 {item.syntheticAlerts[0]?.status === "to_process"
-                  ? "A traiter"
+                  ? "À traiter"
                   : item.syntheticAlerts[0]?.status === "assumed"
                     ? "Assumee"
                     : "Fausse alerte"}

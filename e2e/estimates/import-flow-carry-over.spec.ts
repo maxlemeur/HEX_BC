@@ -373,7 +373,7 @@ test.describe("VNEXT US-6.1 - import flow carry-over", () => {
     await page.getByRole("button", { name: "Lancer l'import" }).click();
 
     await expect(
-      page.getByRole("button", { name: /Suivant : Apercu/i })
+      page.getByRole("button", { name: /Suivant : Aperçu/i })
     ).toBeVisible({ timeout: 60_000 });
 
     await ensureMapping(page, "hex_code", "hex_code");
@@ -383,7 +383,7 @@ test.describe("VNEXT US-6.1 - import flow carry-over", () => {
     await ensureMapping(page, "unit_price_ht", "unit_price_ht");
     await ensureMapping(page, "total_ht", "total_ht");
 
-    await page.getByRole("button", { name: /Suivant : Apercu/i }).click();
+    await page.getByRole("button", { name: /Suivant : Aperçu/i }).click();
     await page.getByRole("button", { name: /Suivant : Confirmation/i }).click();
 
     const carryOverCard = page
@@ -391,13 +391,13 @@ test.describe("VNEXT US-6.1 - import flow carry-over", () => {
       .filter({ has: page.getByText("Carry-over takeoff", { exact: true }) })
       .first();
 
-    await expect(carryOverCard).toContainText("Carry-over takeoff a surveiller depuis V1");
+    await expect(carryOverCard).toContainText("Carry-over takeoff à surveiller depuis V1");
     await expect(carryOverCard).toContainText(
-      "Certaines analyses suivent, d'autres restent en cours ou devront etre relancees."
+      "Certaines analyses suivent, d'autres restent en cours ou devront être relancees."
     );
     await expectMetricCardValue(carryOverCard, "Acquis", "1");
     await expectMetricCardValue(carryOverCard, "En cours", "1");
-    await expectMetricCardValue(carryOverCard, "A relancer", "1");
+    await expectMetricCardValue(carryOverCard, "À relancer", "1");
 
     await page.getByRole("button", { name: "Creer le chiffrage" }).click();
 
@@ -454,7 +454,7 @@ test.describe("VNEXT US-6.1 - import flow carry-over", () => {
     }
 
     await expect(
-      page.getByRole("heading", { name: /Editer le chiffrage|Éditer le chiffrage/i })
+      page.getByRole("heading", { name: /Éditer le chiffrage|Éditer le chiffrage/i })
     ).toBeVisible();
 
     await expect.poll(async () => fetchVersionNumber(page, targetVersionId), {

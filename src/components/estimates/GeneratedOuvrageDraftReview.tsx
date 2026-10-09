@@ -45,7 +45,7 @@ const STATUS_MESSAGES: Record<string, string> = {
   partially_applied:
     "Certains ouvrages ont déjà été insérés. Les ouvrages restants peuvent encore être revus.",
   discarded:
-    "Toutes les propositions ont ete rejetees ou ecartees.",
+    "Toutes les propositions ont été rejetees ou ecartees.",
 };
 
 export function GeneratedOuvrageDraftReview({
@@ -80,7 +80,7 @@ export function GeneratedOuvrageDraftReview({
         )}
         {summary.questionCount > 0 && (
           <Badge variant="error" size="sm">
-            {summary.questionCount} A clarifier
+            {summary.questionCount} À clarifier
           </Badge>
         )}
         {summary.pendingCount > 0 && (

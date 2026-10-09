@@ -391,7 +391,7 @@ function buildProofs(input: {
         : "inference";
 
     proofs.push({
-      proof_id: `decision:${input.appliedDecision.id}`,
+      proof_id: `décision:${input.appliedDecision.id}`,
       type: "comment",
       kind: decisionKind,
       label:

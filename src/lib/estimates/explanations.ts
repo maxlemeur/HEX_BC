@@ -478,7 +478,7 @@ function buildDeltaAmountFragment(impactSummary: EstimateExplanationImpactSummar
   const ttcDirection = getDeltaDirection(deltaTtc);
 
   if (typeof deltaHt !== "number" || typeof deltaTtc !== "number") {
-    return "Delta montant non renseigne";
+    return "Delta montant non renseigné";
   }
 
   if (htDirection === "stable" && ttcDirection === "stable") {
@@ -824,12 +824,12 @@ async function resolveConcurrentExplanationInsert(input: {
       }
 
       throw conflict(
-        "Une explication concurrente a ete creee, mais la nouvelle version reste introuvable."
+        "Une explication concurrente a été créée, mais la nouvelle version reste introuvable."
       );
     }
 
     if (activeRow.snapshot_fingerprint !== input.fingerprint) {
-      throw conflict("Une explication plus recente existe deja pour cette ligne.");
+      throw conflict("Une explication plus récente existe déjà pour cette ligne.");
     }
 
     const sourceRows = await listEstimateExplanationSourceRows({
@@ -847,7 +847,7 @@ async function resolveConcurrentExplanationInsert(input: {
     await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
   }
 
-  throw conflict("Une explication concurrente plus recente existe deja.");
+  throw conflict("Une explication concurrente plus récente existe déjà.");
 }
 
 function mapExplanationSnapshot(input: {
@@ -908,9 +908,9 @@ function buildFallbackNarrative(input: {
     const amountFragment =
       typeof currentPrice === "number"
         ? `Montant actuel ${formatEUR(currentPrice)} HT`
-        : "Montant actuel non renseigne";
+        : "Montant actuel non renseigné";
     const factFragment =
-      input.statements.facts[0]?.label ?? "Aucune preuve factuelle detaillee disponible";
+      input.statements.facts[0]?.label ?? "Aucune preuve factuelle détaillée disponible";
     const detail = [
       `${lineLabel}: ${amountFragment}.`,
       `Faits: ${
@@ -918,7 +918,7 @@ function buildFallbackNarrative(input: {
           ? input.statements.facts.map((entry) => entry.label).join(" · ")
           : "aucun"
       }.`,
-      `Hypotheses: ${
+      `Hypothèses: ${
         input.statements.hypotheses.length > 0
           ? input.statements.hypotheses.map((entry) => entry.label).join(" · ")
           : "aucune"
@@ -956,7 +956,7 @@ function buildFallbackNarrative(input: {
         ? input.statements.facts.map((entry) => entry.label).join(" · ")
         : "aucun"
     }.`,
-    `Hypotheses: ${
+    `Hypothèses: ${
       input.statements.hypotheses.length > 0
         ? input.statements.hypotheses.map((entry) => entry.label).join(" · ")
         : "aucune"
@@ -980,17 +980,17 @@ function buildFallbackNarrative(input: {
 
 function buildNarrativePrompt(input: NormalizedExplanationPayload) {
   return [
-    "ROLE",
+    "RÔLE",
     "Tu rediges une explication de prix/de delta pour un devis BTP.",
     "",
     "CONTRAINTES",
     "1. Ne jamais inventer de preuve ou de source.",
-    "2. Distinguer clairement faits, hypotheses et inferences.",
-    "3. Signaler l'incertitude quand des hypotheses ou inferences dominent.",
+    "2. Distinguer clairement faits, hypothèses et inferences.",
+    "3. Signaler l'incertitude quand des hypothèses ou inferences dominent.",
     "4. Rester explicatif et lisible par un humain, sans ton commercial.",
     "5. Retourner uniquement un JSON valide conforme au schema.",
     "",
-    "DONNEES NORMALISEES",
+    "DONNÉES NORMALISEES",
     JSON.stringify(input),
   ].join("\n");
 }
@@ -1118,7 +1118,7 @@ async function persistExplanationSnapshot(input: {
     if (supersedeError) {
       throw mapSupabaseError(
         supersedeError,
-        "Impossible de superseder l'explication precedente."
+        "Impossible de superseder l'explication précédente."
       );
     }
   }
@@ -1180,7 +1180,7 @@ async function persistExplanationSnapshot(input: {
   }
 
   if (!insertedData) {
-    throw internalError("L'explication persistee est introuvable apres insertion.");
+    throw internalError("L'explication persistee est introuvable après insertion.");
   }
 
   const insertedRow = rowSchema.parse(insertedData);
@@ -1196,7 +1196,7 @@ async function persistExplanationSnapshot(input: {
     if (linkError) {
       throw mapSupabaseError(
         linkError,
-        "Impossible de finaliser la supersession de l'explication precedente."
+        "Impossible de finaliser la supersession de l'explication précédente."
       );
     }
   }
@@ -1665,7 +1665,7 @@ function normalizeDeltaExplanationPayload(input: {
   if (marginBpDelta !== null && marginBpDelta !== 0) {
     pushStatement(facts, {
       label: `Delta de marge configuree ${(marginBpDelta / 100).toFixed(2)} points`,
-      source_label: "Parametres de version",
+      source_label: "Paramètres de version",
       confidence_score: 1,
     });
   }

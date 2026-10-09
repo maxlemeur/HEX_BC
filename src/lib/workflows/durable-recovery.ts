@@ -172,7 +172,7 @@ async function defaultIncrementRetryCount(
     .update({ [retryColumn(workflow)]: next })
     .eq("id", workflow.workId);
   if (error) {
-    throw new Error("Impossible d'enregistrer l'echec de reprise durable.", {
+    throw new Error("Impossible d'enregistrer l'échec de reprise durable.", {
       cause: error,
     });
   }
@@ -313,7 +313,7 @@ export async function recoverDurableWorkflows(
     }
   );
   if (recoveryError) {
-    throw new Error("Impossible de recuperer les jobs takeoff expires.", {
+    throw new Error("Impossible de récupérer les jobs takeoff expires.", {
       cause: recoveryError,
     });
   }
@@ -326,7 +326,7 @@ export async function recoverDurableWorkflows(
     }
   );
   if (dueError) {
-    throw new Error("Impossible de lister les workflows arrives a echeance.", {
+    throw new Error("Impossible de lister les workflows arrives a échéance.", {
       cause: dueError,
     });
   }

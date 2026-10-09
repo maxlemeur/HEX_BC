@@ -254,7 +254,7 @@ function backoffMs(attemptIndex: number) {
 
 function timeoutError(timeoutMs: number) {
   const seconds = Math.max(1, Math.round(timeoutMs / 1000));
-  const error = new Error(`Gemini timeout apres ${seconds}s.`);
+  const error = new Error(`Gemini timeout après ${seconds}s.`);
   (error as Error & { code?: string }).code = "ETIMEDOUT";
   return error;
 }
@@ -426,7 +426,7 @@ function parseStructuredProviderResponse<T>(input: {
     throw new TakeoffError({
       code: "AI_SCHEMA",
       retryable: false,
-      message: "La reponse Gemini est vide.",
+      message: "La réponse Gemini est vide.",
     });
   }
 
@@ -437,7 +437,7 @@ function parseStructuredProviderResponse<T>(input: {
     throw new TakeoffError({
       code: "AI_SCHEMA",
       retryable: false,
-      message: "La reponse Gemini n'est pas un JSON valide.",
+      message: "La réponse Gemini n'est pas un JSON valide.",
     });
   }
 
@@ -558,7 +558,7 @@ async function invokeGeminiApi(input: {
         }
       } catch {
         if (response.ok) {
-          throw new Error("Gemini a retourne une reponse JSON invalide.");
+          throw new Error("Gemini a retourne une réponse JSON invalide.");
         }
       }
     }
@@ -653,7 +653,7 @@ async function submitGeminiBatchApi(input: {
       }
     } catch {
       if (createResponse.ok) {
-        throw new Error("Gemini Batch API a retourne une reponse JSON invalide.");
+        throw new Error("Gemini Batch API a retourne une réponse JSON invalide.");
       }
     }
   }
@@ -764,7 +764,7 @@ async function pollGeminiBatchApiOnce(input: {
     batchState,
     isTerminalState,
     isTerminalState
-      ? `Batch Gemini termine avec l'etat ${batchState}.`
+      ? `Batch Gemini termine avec l'état ${batchState}.`
       : `Batch Gemini en transition vers ${batchState}.`
   );
 
@@ -813,7 +813,7 @@ async function pollGeminiBatchApiOnce(input: {
   }
 
   if (!inlineResponse) {
-    throw new Error("Gemini Batch API n'a retourne aucune reponse inline exploitable.");
+    throw new Error("Gemini Batch API n'a retourne aucune réponse inline exploitable.");
   }
 
   const candidateInfo = extractCandidateText(inlineResponse);
@@ -1024,7 +1024,7 @@ export async function submitGeminiBatchStructured<T>(
   throw new TakeoffError({
     code: "AI_PROVIDER",
     retryable: false,
-    message: "La soumission Gemini Batch a echoue apres epuisement des retries.",
+    message: "La soumission Gemini Batch a echoue après epuisement des retries.",
   });
 }
 
@@ -1087,7 +1087,7 @@ export async function pollGeminiBatchStructuredOnce<T>(
     throw new TakeoffError({
       code: "AI_PROVIDER",
       retryable: false,
-      message: "Etat batch Gemini inattendu lors de la reconciliation.",
+      message: "État batch Gemini inattendu lors de la reconciliation.",
     });
   }
 
@@ -1251,6 +1251,6 @@ export async function callGeminiStructured<T>(
   throw new TakeoffError({
     code: "AI_PROVIDER",
     retryable: false,
-    message: "L'appel Gemini a echoue apres epuisement des retries.",
+    message: "L'appel Gemini a echoue après epuisement des retries.",
   });
 }

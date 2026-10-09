@@ -841,7 +841,7 @@ export default function TakeoffReviewPage({
 
       if (failedCount > 0) {
         toast.warning({
-          title: `${failedCount} item(s) non sauvegarde(s)`,
+          title: `${failedCount} item(s) non sauvegardé(s)`,
           description: "Vérifiez les items en erreur.",
         });
       } else if (savedCount > 0) {
@@ -858,7 +858,7 @@ export default function TakeoffReviewPage({
                 ...item,
                 _dirty: true,
                 _saving: false,
-                _error: "Echec de sauvegarde.",
+                _error: "Échec de sauvegarde.",
               }
             : item
         )
@@ -1063,7 +1063,7 @@ export default function TakeoffReviewPage({
 
       if (patchEntries.length === 0) {
         toast.info({
-          title: "Aucun changement a appliquer",
+          title: "Aucun changement à appliquer",
           description: "La sélection correspond déjà à l'état actuel de l'extraction.",
         });
         return;
@@ -1081,11 +1081,11 @@ export default function TakeoffReviewPage({
 
         if (failedCount > 0) {
           setApplySelectionError(
-            `${failedCount} item(s) n'ont pas pu etre mis a jour pendant le cherry-pick.`
+            `${failedCount} item(s) n'ont pas pu être mis à jour pendant le cherry-pick.`
           );
           toast.warning({
             title: "Cherry-pick partiel",
-            description: "Certains items n'ont pas pu etre synchronises.",
+            description: "Certains items n'ont pas pu être synchronises.",
           });
         } else {
           toast.success({
@@ -1096,7 +1096,7 @@ export default function TakeoffReviewPage({
       } catch (error) {
         const message = isTakeoffApiError(error)
           ? error.message
-          : "Impossible d'appliquer la selection cherry-pick.";
+          : "Impossible d'appliquer la sélection cherry-pick.";
         setApplySelectionError(message);
         toast.error({
           title: "Erreur cherry-pick",
@@ -1187,7 +1187,7 @@ export default function TakeoffReviewPage({
     }
 
     if (hasDpgfBlocks) {
-      return "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels.";
+      return "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.";
     }
 
     if (hasGuardBlocks) {
@@ -1251,7 +1251,7 @@ export default function TakeoffReviewPage({
         setJobStatus("applied");
         toast.success({
           title: "Apply contrôlé terminé",
-          description: `${response.summary.created_count} cree(s), ${response.summary.updated_count} mis a jour, ${response.summary.ignored_count} ignore(s).`,
+          description: `${response.summary.created_count} cree(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignore(s).`,
         });
         if (!isAffaireContext) {
           router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
@@ -1409,16 +1409,16 @@ export default function TakeoffReviewPage({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-success">
-                Apply controle confirme
+                Apply contrôle confirme
               </p>
               <h2 className="mt-1 text-lg font-semibold text-foreground">
-                Le devis a ete enrichi depuis le metre source
+                Le devis a été enrichi depuis le métré source
               </h2>
               <p className="mt-2 text-sm text-foreground-secondary">
                 Source: {jobFileName ?? "job takeoff"} · Section: {applySuccess.targetSectionLabel}
               </p>
               <p className="mt-1 text-sm text-foreground-secondary">
-                Strategie: {applySuccess.strategy} · crees {applySuccess.createdCount} · mis a jour {applySuccess.updatedCount} · ignores {applySuccess.ignoredCount}
+                Stratégie: {applySuccess.strategy} · créés {applySuccess.createdCount} · mis à jour {applySuccess.updatedCount} · ignores {applySuccess.ignoredCount}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1429,7 +1429,7 @@ export default function TakeoffReviewPage({
                 href={`/dashboard/affaires/${projectId}/takeoff`}
                 className="btn btn-secondary btn-sm"
               >
-                Centre d&apos;activite metres
+                Centre d&apos;activité métrés
               </Link>
             </div>
           </div>
@@ -1506,7 +1506,7 @@ export default function TakeoffReviewPage({
           {isApplyReady ? (
             <span className="flex items-center gap-2 text-success">
               <CircleCheckIcon aria-hidden="true" className="h-4 w-4" />
-              Pret a appliquer ({includedItems.length} items)
+              Prêt à appliquer ({includedItems.length} items)
             </span>
           ) : (
             <span className="flex items-center gap-2 text-muted-foreground">
@@ -1524,7 +1524,7 @@ export default function TakeoffReviewPage({
             hasGuardBlocks
               ? "Complétez les preuves localisées ou la validation humaine avant d'appliquer"
               : !canOpenApplyWizard
-                ? "Resolves les problemes avant d'appliquer"
+                ? "Resolves les problèmes avant d'appliquer"
                 : "Appliquer les items au chiffrage"
           }
         >

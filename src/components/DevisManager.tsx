@@ -54,7 +54,7 @@ export function DevisManager({ orderId, initialItems, canManage }: DevisManagerP
                   Ajouter des documents
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Deposez vos devis fournisseurs (PDF, images, Excel)
+                  Déposez vos devis fournisseurs (PDF, images, Excel)
                 </p>
               </div>
             </div>

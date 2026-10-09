@@ -189,7 +189,7 @@ export async function loadTakeoffSource(input: {
       if (!sourcePath) {
         throw new TakeoffError({
           code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
-          message: "Le jeu de plans du job ne reference aucun chemin source.",
+          message: "Le jeu de plans du job ne référence aucun chemin source.",
           retryable: false,
           jobId: input.job.id,
           level: input.level,
@@ -203,7 +203,7 @@ export async function loadTakeoffSource(input: {
       if (error || !data) {
         throw new TakeoffError({
           code: TakeoffErrorCode.NOT_FOUND,
-          message: "Impossible de telecharger le fichier source du jeu de plans.",
+          message: "Impossible de télécharger le fichier source du jeu de plans.",
           details: error ?? { message: "Fichier source introuvable." },
           retryable: false,
           jobId: input.job.id,
@@ -279,7 +279,7 @@ export async function loadTakeoffSource(input: {
       if (!sourcePath) {
         throw new TakeoffError({
           code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
-          message: "Un fichier du jeu de plans ne reference aucun chemin source.",
+          message: "Un fichier du jeu de plans ne référence aucun chemin source.",
           retryable: false,
           jobId: input.job.id,
           level: input.level,
@@ -293,7 +293,7 @@ export async function loadTakeoffSource(input: {
       if (error || !data) {
         throw new TakeoffError({
           code: TakeoffErrorCode.NOT_FOUND,
-          message: "Impossible de telecharger un fichier du jeu de plans.",
+          message: "Impossible de télécharger un fichier du jeu de plans.",
           details: error ?? { message: "Fichier source introuvable." },
           retryable: false,
           jobId: input.job.id,
@@ -403,7 +403,7 @@ export async function loadTakeoffSource(input: {
   if (!sourcePath) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
-      message: "Le job takeoff ne reference aucun fichier source.",
+      message: "Le job takeoff ne référence aucun fichier source.",
       retryable: false,
       jobId: input.job.id,
       level: input.level,
@@ -421,7 +421,7 @@ export async function loadTakeoffSource(input: {
 
     throw new TakeoffError({
       code: isNotFound ? TakeoffErrorCode.NOT_FOUND : TakeoffErrorCode.INTERNAL_ERROR,
-      message: "Impossible de telecharger le fichier source takeoff.",
+      message: "Impossible de télécharger le fichier source takeoff.",
       details: error ?? { message: "Fichier source introuvable." },
       retryable: false,
       jobId: input.job.id,

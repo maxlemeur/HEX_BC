@@ -130,7 +130,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
           status: "failed",
           error_code: TakeoffErrorCode.AI_TIMEOUT,
           error_message:
-            "Le batch provider n'a pas atteint d'etat terminal apres epuisement des tentatives de reconciliation.",
+            "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
           provider_reconcile_due_at: null,
           provider_reconcile_lease_token: null,
           provider_reconcile_lease_expires_at: null,

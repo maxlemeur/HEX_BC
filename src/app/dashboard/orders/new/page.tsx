@@ -251,7 +251,7 @@ export default function NewOrderPage() {
     setFormError(null);
 
     if (!supplierId || !deliverySiteId) {
-      setFormError("Selectionnez un fournisseur et un chantier.");
+      setFormError("Sélectionnez un fournisseur et un chantier.");
       return;
     }
 
@@ -341,12 +341,12 @@ export default function NewOrderPage() {
             {creating ? (
               <>
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                Creation...
+                Création...
               </>
             ) : (
               <>
                 <PlusIcon aria-hidden="true" size={18} />
-                Creer le bon
+                Créer le bon
               </>
             )}
           </button>
@@ -368,7 +368,7 @@ export default function NewOrderPage() {
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-info">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-info/30 border-t-info"></div>
-            Chargement des donnees...
+            Chargement des données...
           </div>
         </div>
       )}

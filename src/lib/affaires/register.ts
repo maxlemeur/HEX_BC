@@ -100,8 +100,8 @@ export const AFFAIRE_REGISTER_KIND_LABELS: Record<
   AffaireRegisterEntryKind,
   string
 > = {
-  assumption: "Hypothese",
-  missing_piece: "Piece manquante",
+  assumption: "Hypothèse",
+  missing_piece: "Pièce manquante",
 };
 
 export const AFFAIRE_REGISTER_SEVERITY_LABELS: Record<
@@ -118,9 +118,9 @@ export const AFFAIRE_REGISTER_STATUS_LABELS: Record<
   string
 > = {
   open: "Ouverte",
-  validated: "Validee",
+  validated: "Validée",
   rejected: "Rejetee",
-  clarify_with_client: "A clarifier avec client",
+  clarify_with_client: "À clarifier avec client",
 };
 
 export const AFFAIRE_REGISTER_ORIGIN_LABELS: Record<
@@ -129,21 +129,21 @@ export const AFFAIRE_REGISTER_ORIGIN_LABELS: Record<
 > = {
   ai: "IA",
   manual: "Manuelle",
-  system: "Systeme",
+  system: "Système",
 };
 export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
   AffaireRegisterEventType,
   string
 > = {
-  created: "Entree creee",
+  created: "Entrée créée",
   synced: "Resynchronisee",
   status_changed: "Statut modifie",
-  follow_up_updated: "Pilotage metier mis a jour",
+  follow_up_updated: "Pilotage métier mis à jour",
   clarify_with_client_requested: "Clarification client demandee",
-  continued_with_hypothesis: "Continuation acceptee sous hypothese",
+  continued_with_hypothesis: "Continuation acceptée sous hypothèse",
   revalidation_requested: "Revalidation demandee",
-  deactivated: "Entree archivee",
-  reactivated: "Entree reactivee",
+  deactivated: "Entrée archivée",
+  reactivated: "Entrée reactivee",
 };
 
 export const AFFAIRE_REGISTER_SCOPE_LABELS: Record<
@@ -159,8 +159,8 @@ export const AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS: Record<
   AffaireRegisterRevalidationCause,
   string
 > = {
-  addendum_received: "Additif recu",
-  late_critical_piece: "Piece critique recue tardivement",
+  addendum_received: "Additif reçu",
+  late_critical_piece: "Pièce critique reçue tardivement",
   document_replaced: "Document remplace",
   manual_reopen: "Reouverture manuelle",
 };
@@ -172,25 +172,25 @@ export const AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS: Record<
   brief_review: "Revue du brief",
   plans_replay: "Relance plans",
   exceptions_review: "Revue des exceptions",
-  submission_readiness: "Readiness pre-remise",
+  submission_readiness: "Readiness pré-remise",
 };
 export const AFFAIRE_REGISTER_BUSINESS_IMPACT_LABELS: Record<
   AffaireRegisterBusinessImpact,
   string
 > = {
   affects_hub_readiness: "Impacte la readiness hub",
-  blocks_submission: "Bloque la pre-remise",
+  blocks_submission: "Bloque la pré-remise",
   affects_structure_generation: "Impacte la structure du devis",
-  affects_takeoff: "Impacte les plans et le metre",
-  requires_client_answer: "Necessite une reponse client",
+  affects_takeoff: "Impacte les plans et le métré",
+  requires_client_answer: "Necessite une réponse client",
 };
 export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_LABELS: Record<
   AffaireRegisterReviewExportSection,
   string
 > = {
-  hypothesis: "Hypotheses",
+  hypothesis: "Hypothèses",
   exclusion: "Exclusions",
-  missing_piece: "Pieces manquantes",
+  missing_piece: "Pièces manquantes",
   clarification: "Clarifications client",
   revalidation: "Revalidations",
 };
@@ -198,10 +198,10 @@ export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_DESCRIPTIONS: Record<
   AffaireRegisterReviewExportSection,
   string
 > = {
-  hypothesis: "Hypotheses ouvertes ou acceptees sous reserve pour poursuivre l'etude.",
+  hypothesis: "Hypothèses ouvertes ou acceptées sous reserve pour poursuivre l'étude.",
   exclusion:
     "Points explicitement ecartes du perimetre et a rendre visibles avant remise.",
-  missing_piece: "Pieces manquantes encore ouvertes a rendre visibles avant remise.",
+  missing_piece: "Pièces manquantes encore ouvertes a rendre visibles avant remise.",
   clarification: "Points qui attendent explicitement un retour client.",
   revalidation: "Points déjà résolus puis rouverts après additif ou pièce tardive.",
 };
@@ -670,10 +670,10 @@ export function buildAffaireRegisterContinuationHypothesisText(input: {
 }) {
   const normalized = normalizeAffaireRegisterText(input.entryText, 320).toLowerCase();
   if (!normalized) {
-    return "Continuation acceptee sous hypothese documentaire a confirmer avant remise.";
+    return "Continuation acceptée sous hypothèse documentaire à confirmer avant remise.";
   }
 
-  return `Continuation acceptee sans ${normalized}. Hypothese documentaire a confirmer avant remise.`;
+  return `Continuation acceptée sans ${normalized}. Hypothèse documentaire à confirmer avant remise.`;
 }
 
 export function buildAffaireRegisterBusinessLocation(input: {
@@ -1163,10 +1163,10 @@ export function buildAffaireRegisterReviewExport(input: {
       .filter(Boolean)
       .join(" - "),
     `Points exportes: ${rows.length}`,
-    `Critiques actives: ${criticalRows.length} - Bloquants pre-remise: ${blockingRows.length}`,
-    `Hypotheses: ${hypothesisCount} - Pieces manquantes: ${missingPieceCount} - Clarifications: ${clarificationCount} - Revalidations: ${revalidationCount} - Exclusions: ${exclusionCount}`,
+    `Critiques actives: ${criticalRows.length} - Bloquants pré-remise: ${blockingRows.length}`,
+    `Hypothèses: ${hypothesisCount} - Pièces manquantes: ${missingPieceCount} - Clarifications: ${clarificationCount} - Revalidations: ${revalidationCount} - Exclusions: ${exclusionCount}`,
     ...criticalRows.slice(0, 5).map((row) => {
-      const dueLabel = row.dueDate ? ` - echeance ${row.dueDate}` : "";
+      const dueLabel = row.dueDate ? ` - échéance ${row.dueDate}` : "";
       const ownerLabel = row.ownerName ? ` - responsable ${row.ownerName}` : "";
       return `- ${row.sectionLabel} / ${row.scopeLabel}: ${row.text}${ownerLabel}${dueLabel}`;
     }),

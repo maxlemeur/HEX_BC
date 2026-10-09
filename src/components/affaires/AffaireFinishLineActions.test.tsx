@@ -61,7 +61,7 @@ function makeFinishLineSummary(
           severity: "warning",
           count: 1,
           item_ids: [],
-          label: "Prix a revalider",
+          label: "Prix à revalider",
           description: "Certains prix datent.",
         },
       ],
@@ -76,7 +76,7 @@ function makeFinishLineSummary(
               severity: "warning",
               count: 1,
               item_ids: [],
-              label: "Prix a revalider",
+              label: "Prix à revalider",
               description: "Certains prix datent.",
             },
           ],
@@ -97,7 +97,7 @@ function makeFinishLineSummary(
           severity: "warning",
           count: 1,
           item_ids: [],
-          label: "Prix a revalider",
+          label: "Prix à revalider",
           description: "Certains prix datent.",
         },
       ],
@@ -178,7 +178,7 @@ describe("AffaireFinishLineActions", () => {
 
     expect(screen.getByText(/Version 1 · Envoi en cours/i)).toBeInTheDocument();
     expect(
-      screen.getAllByText(/Un envoi est deja reserve/i).length
+      screen.getAllByText(/Un envoi est déjà réservé/i).length
     ).toBeGreaterThan(0);
 
     const resumeButton = within(
@@ -216,12 +216,12 @@ describe("AffaireFinishLineActions", () => {
     const button = within(
       getLatestByTestId("affaire-finish-line-email")
     ).getByRole("button", {
-      name: /Preparer l'envoi/i,
+      name: /Préparer l'envoi/i,
     });
 
     expect(button).toBeDisabled();
     expect(
-      screen.getAllByText(/L'envoi email reste reserve aux versions brouillon ou envoyee/i)
+      screen.getAllByText(/L'envoi email reste reserve aux versions brouillon ou envoyée/i)
         .length
     ).toBeGreaterThan(0);
   });
@@ -289,11 +289,11 @@ describe("AffaireFinishLineActions", () => {
 
     expect(
       within(getLatestByTestId("affaire-finish-line-email")).getByRole("button", {
-        name: /Preparer l'envoi/i,
+        name: /Préparer l'envoi/i,
       })
     ).toBeDisabled();
     expect(
-      screen.getAllByText(/Generez d'abord le PDF ici, puis preparez l'email/i).length
+      screen.getAllByText(/Générez d'abord le PDF ici, puis préparez l'email/i).length
     ).toBeGreaterThan(0);
   });
 
@@ -367,7 +367,7 @@ describe("AffaireFinishLineActions", () => {
     ).toBeInTheDocument();
     expect(
       within(emailCard as HTMLElement).queryByText(
-        /Generez d'abord le PDF ici, puis preparez l'email/i
+        /Générez d'abord le PDF ici, puis préparez l'email/i
       )
     ).not.toBeInTheDocument();
   });
@@ -385,7 +385,7 @@ describe("AffaireFinishLineActions", () => {
               severity: "warning",
               count: 1,
               item_ids: [],
-              label: "Prix a revalider",
+              label: "Prix à revalider",
               description: "Certains prix datent.",
             },
           ],
@@ -400,7 +400,7 @@ describe("AffaireFinishLineActions", () => {
                   severity: "warning",
                   count: 1,
                   item_ids: [],
-                  label: "Prix a revalider",
+                  label: "Prix à revalider",
                   description: "Certains prix datent.",
                 },
               ],
@@ -435,16 +435,16 @@ describe("AffaireFinishLineActions", () => {
 
     expect(
       within(getLatestByTestId("affaire-finish-line-email")).getByRole("button", {
-        name: /Preparer l'envoi/i,
+        name: /Préparer l'envoi/i,
       })
     ).not.toBeDisabled();
     expect(
-      screen.getAllByText(/1 point reste a verifier avant l'envoi final/i).length
+      screen.getAllByText(/1 point reste à vérifier avant l'envoi final/i).length
     ).toBeGreaterThan(0);
     const emailCard = getLatestByTestId("affaire-finish-line-email").closest("article");
     expect(emailCard).not.toBeNull();
     expect(
-      within(emailCard as HTMLElement).getByText("Qualite devis · 1 reserve")
+      within(emailCard as HTMLElement).getByText("Qualité devis · 1 reserve")
     ).toBeInTheDocument();
   });
 
@@ -566,6 +566,6 @@ describe("AffaireFinishLineActions", () => {
     await waitFor(() => {
       expect(screen.getAllByRole("alert").some((element) => element.textContent?.includes("Export indisponible"))).toBe(true);
     });
-    expect(screen.getAllByText("PDF, email et BDC depuis le meme point").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("PDF, email et BDC depuis le même point").length).toBeGreaterThan(0);
   });
 });

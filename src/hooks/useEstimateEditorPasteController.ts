@@ -102,7 +102,7 @@ export function useEstimateEditorPasteController({
           row.designation.trim().length > 0
       );
       if (validRows.length === 0) {
-        reportError("Aucune ligne valide a inserer.");
+        reportError("Aucune ligne valide à inserer.");
         return;
       }
 
@@ -232,7 +232,7 @@ export function useEstimateEditorPasteController({
             );
             throw new Error(
               failedResult?.message ??
-                "Une operation de creation groupee a echoue."
+                "Une opération de création groupee a echoue."
             );
           }
           nextVersionToken = batchResult.versionToken.updated_at;
@@ -249,7 +249,7 @@ export function useEstimateEditorPasteController({
           for (let index = 0; index < payloadChunk.length; index += 1) {
             const createdItem = createdItemsByChunkIndex.get(index);
             if (!createdItem) {
-              throw new Error("Impossible de recuperer les lignes collees.");
+              throw new Error("Impossible de récupérer les lignes collees.");
             }
             createdItems.push(createdItem);
           }

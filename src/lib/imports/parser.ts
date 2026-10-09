@@ -269,7 +269,7 @@ const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
 function buildParseTimeoutError(timeoutMs: number) {
   const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
   return new Error(
-    `Delai de traitement depasse (${timeoutSeconds}s). Le fichier est peut-etre trop volumineux ou corrompu.`
+    `Delai de traitement depasse (${timeoutSeconds}s). Le fichier est peut-être trop volumineux ou corrompu.`
   );
 }
 
@@ -313,7 +313,7 @@ async function runWorkbookParseInWorker(
     worker.once("message", (message: unknown) => {
       settle(() => {
         if (!message || typeof message !== "object") {
-          reject(new Error("Reponse de parsing invalide."));
+          reject(new Error("Réponse de parsing invalide."));
           return;
         }
 

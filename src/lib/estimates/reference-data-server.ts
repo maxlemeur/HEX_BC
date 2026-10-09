@@ -159,7 +159,7 @@ export async function updateLaborRole(
   const { data: existingRole, error: existingRoleError } = await existingRoleQuery.single();
 
   if (existingRoleError || !existingRole) {
-    throw notFound("Role introuvable.");
+    throw notFound("Rôle introuvable.");
   }
 
   const payload: LaborRoleUpdate = {};
@@ -181,9 +181,9 @@ export async function updateLaborRole(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre a jour le role.");
+      throw mapSupabaseError(error, "Impossible de mettre à jour le rôle.");
     }
-    throw badRequest("Impossible de mettre a jour le role.");
+    throw badRequest("Impossible de mettre à jour le rôle.");
   }
 
   return {
@@ -203,7 +203,7 @@ async function getNextMarginTierPosition(
     .limit(1);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
+    throw mapSupabaseError(error, "Impossible de déterminer la prochaine position.");
   }
 
   return (data?.[0]?.position ?? 0) + 1;
@@ -213,7 +213,7 @@ export async function createMarginTier(input: CreateMarginTierInput) {
   const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
 
   if (!isTenantAdmin(tenantRole)) {
-    throw forbidden("Seul un administrateur peut gerer les tranches de marge.");
+    throw forbidden("Seul un administrateur peut gérer les tranches de marge.");
   }
 
   const position =
@@ -257,7 +257,7 @@ export async function updateMarginTier(
   const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
 
   if (!isTenantAdmin(tenantRole)) {
-    throw forbidden("Seul un administrateur peut gerer les tranches de marge.");
+    throw forbidden("Seul un administrateur peut gérer les tranches de marge.");
   }
 
   const { data: existing, error: existingError } = await supabase
@@ -294,11 +294,11 @@ export async function updateMarginTier(
       }
       throw conflict("Conflit de données.", error);
     }
-    throw mapSupabaseError(error, "Impossible de mettre a jour la tranche de marge.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour la tranche de marge.");
   }
 
   if (!data) {
-    throw badRequest("Impossible de mettre a jour la tranche de marge.");
+    throw badRequest("Impossible de mettre à jour la tranche de marge.");
   }
 
   return { margin_tier: data };
@@ -308,7 +308,7 @@ export async function deleteMarginTier(tierId: string) {
   const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
 
   if (!isTenantAdmin(tenantRole)) {
-    throw forbidden("Seul un administrateur peut gerer les tranches de marge.");
+    throw forbidden("Seul un administrateur peut gérer les tranches de marge.");
   }
 
   const { data: existing, error: existingError } = await supabase
@@ -416,7 +416,7 @@ export async function updateSuggestionRule(
   const { data: existingRule, error: existingRuleError } = await existingRuleQuery.single();
 
   if (existingRuleError || !existingRule) {
-    throw notFound("Regle introuvable.");
+    throw notFound("Règle introuvable.");
   }
 
   const categoryId =
@@ -456,9 +456,9 @@ export async function updateSuggestionRule(
 
   if (error || !data) {
     if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre a jour la regle.");
+      throw mapSupabaseError(error, "Impossible de mettre à jour la règle.");
     }
-    throw badRequest("Impossible de mettre a jour la regle.");
+    throw badRequest("Impossible de mettre à jour la règle.");
   }
 
   return {
@@ -523,7 +523,7 @@ export async function saveSuggestionRuleFeedback(
     await existingRuleQuery.single();
 
   if (existingRuleError || !existingRule) {
-    throw notFound("Regle introuvable.");
+    throw notFound("Règle introuvable.");
   }
 
   if (input.feedback === "reject") {
@@ -555,7 +555,7 @@ export async function saveSuggestionRuleFeedback(
     const { data, error } = await updateRuleQuery.select("*").maybeSingle();
 
     if (error) {
-      throw mapSupabaseError(error, "Impossible d'enregistrer le feedback de la regle.");
+      throw mapSupabaseError(error, "Impossible d'enregistrer le feedback de la règle.");
     }
 
     if (data) {
@@ -576,12 +576,12 @@ export async function saveSuggestionRuleFeedback(
     if (latestRuleError) {
       throw mapSupabaseError(
         latestRuleError,
-        "Impossible d'enregistrer le feedback de la regle."
+        "Impossible d'enregistrer le feedback de la règle."
       );
     }
 
     if (!latestRule) {
-      throw notFound("Regle introuvable.");
+      throw notFound("Règle introuvable.");
     }
 
     usageCount = toSuggestionUsageCount(

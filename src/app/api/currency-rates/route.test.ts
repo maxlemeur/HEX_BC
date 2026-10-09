@@ -160,7 +160,7 @@ describe("currency-rates route", () => {
 
   it("POST returns 403 when actor is not admin", async () => {
     vi.mocked(createCurrencyRateForTenant).mockRejectedValue(
-      forbidden("Acces reserve aux administrateurs du tenant.")
+      forbidden("Accès reserve aux administrateurs du tenant.")
     );
 
     const response = await POST(

@@ -22,9 +22,9 @@ describe("clipboard tsv parsing", () => {
   });
 
   it("supports quoted cells containing tabs", () => {
-    const matrix = parseTsvMatrix("Designation\tUnite\n\"Porte\tBois\"\tml");
+    const matrix = parseTsvMatrix("Designation\tUnité\n\"Porte\tBois\"\tml");
 
-    expect(matrix.headers).toEqual(["Designation", "Unite"]);
+    expect(matrix.headers).toEqual(["Designation", "Unité"]);
     expect(matrix.rows).toEqual([["Porte\tBois", "ml"]]);
   });
 });
@@ -35,7 +35,7 @@ describe("clipboard mapping suggestions", () => {
     const headers = [
       "Designation",
       "Quantité",
-      "Unite",
+      "Unité",
       "Prix unitaire HT (EUR)",
       "Type FO",
       "K FO",
@@ -48,7 +48,7 @@ describe("clipboard mapping suggestions", () => {
 
     expect(mapping["Designation"]).toBe("designation");
     expect(mapping["Quantité"]).toBe("quantity");
-    expect(mapping["Unite"]).toBe("unit");
+    expect(mapping["Unité"]).toBe("unit");
     expect(mapping["Prix unitaire HT (EUR)"]).toBe("unit_price_ht");
     expect(mapping["Type FO"]).toBe("supply_type");
     expect(mapping["K FO"]).toBe("k_fo");
@@ -90,7 +90,7 @@ describe("clipboard preview rows", () => {
   it("builds preview rows with valid and invalid reasons", () => {
     const matrix = parseTsvMatrix(
       [
-        "Designation\tQuantite\tUnite\tPrix unitaire HT (EUR)\tType FO\tK FO\th MO\tK MO\tMajoration MO (%)",
+        "Designation\tQuantité\tUnité\tPrix unitaire HT (EUR)\tType FO\tK FO\th MO\tK MO\tMajoration MO (%)",
         "Porte\t2\tu\t12,50\tBois\t1,1\t3\t1\t125",
         "\t1\tu\t10\tMetal\t1\t2\t1\t100",
         "Fenetre\tabc\tu\t10\tBois\t1\t2\t1\t100",
@@ -124,7 +124,7 @@ describe("clipboard preview rows", () => {
 
     expect(result.rows[4]?.lineNumber).toBe(6);
     expect(result.rows[4]?.status).toBe("invalid");
-    expect(result.rows[4]?.reasons).toContain("Prix unitaire HT doit etre >= 0.");
+    expect(result.rows[4]?.reasons).toContain("Prix unitaire HT doit être >= 0.");
   });
 
   it("flags rows when designation mapping is missing", () => {

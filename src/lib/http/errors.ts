@@ -151,13 +151,13 @@ function logRedactedDetails(apiError: HttpApiErrorLike, detailsLogScope?: string
   // K-01: Log internal details server-side only, never expose to client
   if (detailsLogScope) {
     console.error(
-      `[${detailsLogScope}] API error details (${apiError.code}):`,
+      `[${detailsLogScope}] API error détails (${apiError.code}):`,
       apiError.details
     );
     return;
   }
 
-  console.error("API error details", apiError.code, apiError.details);
+  console.error("API error détails", apiError.code, apiError.details);
 }
 
 export function buildErrorResponseBody(

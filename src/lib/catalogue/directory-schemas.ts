@@ -64,7 +64,7 @@ const productUpdateFieldsSchema = z
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [],
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
     });
   });
 
@@ -120,7 +120,7 @@ const supplierUpdateFieldsSchema = z
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [],
-      message: "Aucun champ de mise a jour fourni.",
+      message: "Aucun champ de mise à jour fourni.",
     });
   });
 

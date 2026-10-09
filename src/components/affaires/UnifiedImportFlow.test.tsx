@@ -122,7 +122,7 @@ function createDeferred<T>() {
 }
 
 async function advanceToConfirmation(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /Suivant : Apercu/i }));
+  await user.click(screen.getByRole("button", { name: /Suivant : Aperçu/i }));
   await user.click(
     await screen.findByRole("button", { name: /Suivant : Confirmation/i })
   );
@@ -343,7 +343,7 @@ describe("UnifiedImportFlow", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /Suivant : Apercu/i })
+        screen.getByRole("button", { name: /Suivant : Aperçu/i })
       ).toBeInTheDocument();
     });
 
@@ -383,7 +383,7 @@ describe("UnifiedImportFlow", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /Suivant : Apercu/i })
+        screen.getByRole("button", { name: /Suivant : Aperçu/i })
       ).toBeInTheDocument();
     });
 

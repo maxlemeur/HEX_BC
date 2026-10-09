@@ -98,7 +98,7 @@ describe("bulkDeleteDraftAffaires", () => {
         {
           projectId: PROJECT_B,
           reason: "failed",
-          message: "Aucun resultat de suppression n'a ete retourne.",
+          message: "Aucun résultat de suppression n'a été retourne.",
         },
       ],
     });

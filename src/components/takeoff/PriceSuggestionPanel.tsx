@@ -51,7 +51,7 @@ const SOURCE_KIND_LABELS: Record<TakeoffPriceSuggestionSourceKind, string> = {
   history: "Historique interne",
   pricebook: "Bordereau fournisseur",
   similar_item: "Ouvrage similaire",
-  external_reference: "Reference externe",
+  external_reference: "Référence externe",
 };
 
 const SOURCE_KIND_VARIANT: Record<
@@ -81,7 +81,7 @@ const CONFIDENCE_LABELS: Record<TakeoffPriceSuggestionConfidenceLabel, string> =
 
 const EVIDENCE_KIND_LABELS: Record<string, string> = {
   fact: "Fait",
-  hypothesis: "Hypothese",
+  hypothesis: "Hypothèse",
   inference: "Inference",
 };
 
@@ -545,7 +545,7 @@ export function PriceSuggestionPanel({
                 className="mt-3"
                 onClick={() => void handleRecalculate()}
               >
-                Reessayer
+                Réessayer
               </Button>
             </div>
           ) : null}
@@ -584,7 +584,7 @@ export function PriceSuggestionPanel({
               {isReviewed ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
                   <p className="text-xs font-medium text-emerald-800">
-                    Decision enregistree : {ACTION_LABELS[suggestion.selected_action!]}
+                    Décision enregistrée : {ACTION_LABELS[suggestion.selected_action!]}
                   </p>
                   {suggestion.selected_price_cents !== null ? (
                     <p className="mt-1 text-xs text-emerald-700">
@@ -607,7 +607,7 @@ export function PriceSuggestionPanel({
                 <p className="mt-1 text-lg font-semibold text-slate-950">
                   {suggestion.current_price_cents !== null
                     ? formatEUR(suggestion.current_price_cents)
-                    : "Non renseigne"}
+                    : "Non renseigné"}
                 </p>
               </div>
 
@@ -838,7 +838,7 @@ export function PriceSuggestionPanel({
 
             {isReviewed ? (
               <Badge variant="success" size="sm">
-                Decision enregistree
+                Décision enregistrée
               </Badge>
             ) : (
               <Button
@@ -850,7 +850,7 @@ export function PriceSuggestionPanel({
               >
                 {selectedAction
                   ? ACTION_LABELS[selectedAction]
-                  : "Selectionner une action"}
+                  : "Sélectionner une action"}
               </Button>
             )}
           </div>

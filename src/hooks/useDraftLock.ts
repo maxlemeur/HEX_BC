@@ -24,7 +24,7 @@ export const DRAFT_LOCK_ACQUIRE_RETRY_INTERVAL_MS = 5 * 1000;
 const HEARTBEAT_INTERVAL_MS = DRAFT_LOCK_HEARTBEAT_INTERVAL_MS;
 const ACQUIRE_RETRY_INTERVAL_MS = DRAFT_LOCK_ACQUIRE_RETRY_INTERVAL_MS;
 const DRAFT_LOCK_LOST_MESSAGE =
-  "Votre verrou d'edition a ete libere. Cette page est repassee en lecture seule le temps de le reprendre.";
+  "Votre verrou d'édition a été libere. Cette page est repassee en lecture seule le temps de le reprendre.";
 
 type UseDraftLockOptions = {
   versionId: string;
@@ -232,7 +232,7 @@ export function useDraftLock({
           setError(
             resolveDraftLockErrorMessage(
               releaseError,
-              "Impossible de liberer le verrou de brouillon."
+              "Impossible de libérer le verrou de brouillon."
             )
           );
         }

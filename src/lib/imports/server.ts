@@ -146,7 +146,7 @@ function unauthorized(message = "Unauthorized") {
   });
 }
 
-function forbidden(message = "Acces refuse.", details?: unknown, code = "FORBIDDEN") {
+function forbidden(message = "Accès refuse.", details?: unknown, code = "FORBIDDEN") {
   return new ImportsApiError({
     status: 403,
     code,
@@ -199,7 +199,7 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Impor
   const normalizedMessage = (error.message ?? "").toLowerCase();
 
   if (error.code === "42501" || normalizedMessage.includes("row-level security")) {
-    return forbidden("Acces refuse.", error, "FORBIDDEN");
+    return forbidden("Accès refuse.", error, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {
@@ -377,7 +377,7 @@ function resolveSourceKindInput(input: JsonRecord, rows: unknown[]): ImportSourc
   }
 
   if (hasTabularPdfMarkers(input, rows)) {
-    throw badRequest("Le payload DPGF PDF doit definir sourceKind=\"tabular_pdf\".");
+    throw badRequest("Le payload DPGF PDF doit définir sourceKind=\"tabular_pdf\".");
   }
 
   return "tabular";
@@ -619,7 +619,7 @@ function normalizeJsonRowsFromInput(
     );
     if (!approvedTables.has(approvedKey)) {
       throw badRequest(
-        `La ligne ${index + 1} reference un tableau PDF non approuve (${approvedKey}).`
+        `La ligne ${index + 1} référence un tableau PDF non approuve (${approvedKey}).`
       );
     }
 
@@ -693,12 +693,12 @@ export async function validateTabularPdfReviewFile(file: File) {
   validateImportFile(file);
 
   if (!isPdfImportFile(file)) {
-    throw unsupportedMediaType("Le fichier doit etre un PDF.");
+    throw unsupportedMediaType("Le fichier doit être un PDF.");
   }
 
   const header = await file.slice(0, 5).text();
   if (header !== "%PDF-") {
-    throw unsupportedMediaType("Le fichier doit etre un PDF valide.");
+    throw unsupportedMediaType("Le fichier doit être un PDF valide.");
   }
 }
 
@@ -735,7 +735,7 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
 function requireImportWriteRole(context: AuthenticatedContext) {
   if (context.tenantRole !== "admin" && context.tenantRole !== "engineer") {
     throw forbidden(
-      "Seuls les ingenieurs et administrateurs peuvent creer ou modifier un import DPGF."
+      "Seuls les ingenieurs et administrateurs peuvent créer ou modifier un import DPGF."
     );
   }
 }
@@ -781,11 +781,11 @@ async function createImportRecord(
     .single();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de creer l'import.");
+    throw mapSupabaseError(error, "Impossible de créer l'import.");
   }
 
   if (!data) {
-    throw internalError("Impossible de creer l'import.");
+    throw internalError("Impossible de créer l'import.");
   }
 
   return data as unknown as ImportRow;
@@ -846,7 +846,7 @@ async function insertRawRows(
 
     const { error } = await supabase.from("dpgf_rows_raw").insert(payload);
     if (error) {
-      throw mapSupabaseError(error, "Impossible d'enregistrer les lignes importees.");
+      throw mapSupabaseError(error, "Impossible d'enregistrer les lignes importées.");
     }
   }
 }
@@ -884,7 +884,7 @@ export async function listUserImports(options?: ListUserImportsOptions) {
   const { data, error } = await query;
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de recuperer les imports.");
+    throw mapSupabaseError(error, "Impossible de récupérer les imports.");
   }
 
   return data ?? [];
@@ -914,7 +914,7 @@ export async function createImportFromJsonBody(body: unknown) {
   const rawRows = rawRowsInput;
 
   if (!rawRows && !rawTablesInput) {
-    throw badRequest("Le champ rows est requis et doit etre un tableau.");
+    throw badRequest("Le champ rows est requis et doit être un tableau.");
   }
 
   const importMetadata = resolveJsonImportRecordMetadata(input, rawRows ?? [], sourceKind, {
@@ -947,7 +947,7 @@ export async function createImportFromJsonBody(body: unknown) {
     );
 
     if (rawTablesInput && sourceKind !== "tabular_pdf") {
-      throw badRequest('Le payload DPGF PDF doit definir sourceKind="tabular_pdf".');
+      throw badRequest('Le payload DPGF PDF doit définir sourceKind="tabular_pdf".');
     }
 
     if (sourceKind === "tabular_pdf" && rawTablesInput && approvedPdfTables.size === 0) {
@@ -1095,7 +1095,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
     });
 
   if (uploadError) {
-    throw badRequest("Impossible de televerser le fichier.", uploadError);
+    throw badRequest("Impossible de téléverser le fichier.", uploadError);
   }
 
   let importRecord: ImportRow | null = null;
@@ -1126,7 +1126,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
           const approvedTables = buildSuggestedApprovedPdfTables(review);
           if (approvedTables.size === 0) {
             throw badRequest(
-              "Aucun tableau exploitable n'a ete detecte dans ce PDF DPGF."
+              "Aucun tableau exploitable n'a été détecté dans ce PDF DPGF."
             );
           }
 

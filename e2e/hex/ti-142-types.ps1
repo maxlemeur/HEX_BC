@@ -17,7 +17,7 @@ $project = "E2E-HEX-TI142-$stamp"
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-142" -Date "2026-02-02" -Validite "30" | Out-Null
+  New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-142" -Date "2026-02-02" -Validité "30" | Out-Null
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre 1"
   Add-Line -Session $Session -Designation "Planches bois"

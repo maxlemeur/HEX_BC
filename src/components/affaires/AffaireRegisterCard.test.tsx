@@ -249,20 +249,20 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Ce que cela change")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Utilisez cette action quand un additif ou une piece critique recue tardivement rouvre ce point. La revalidation reste ciblee sur les etapes declarees."
+        "Utilisez cette action quand un additif ou une pièce critique reçue tardivement rouvre ce point. La revalidation reste ciblee sur les étapes declarees."
       )
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Cause de revalidation")).toHaveValue("addendum_received");
     expect(
-      screen.getByLabelText("Piece ou additif declenchant (facultatif)")
+      screen.getByLabelText("Pièce ou additif declenchant (facultatif)")
     ).toHaveValue("");
 
     await user.selectOptions(screen.getByLabelText("Cause de revalidation"), "late_critical_piece");
     await user.clear(
-      screen.getByLabelText("Piece ou additif declenchant (facultatif)")
+      screen.getByLabelText("Pièce ou additif declenchant (facultatif)")
     );
     await user.type(
-      screen.getByLabelText("Piece ou additif declenchant (facultatif)"),
+      screen.getByLabelText("Pièce ou additif declenchant (facultatif)"),
       "additif-cfo.pdf"
     );
     await user.type(
@@ -295,7 +295,7 @@ describe("AffaireRegisterCard", () => {
     expect(mockToast.success).toHaveBeenCalledWith({
       title: "Revalidation tracee",
       description:
-        "La reouverture ciblee a ete enregistree sans reset global du dossier.",
+        "La reouverture ciblee a été enregistrée sans reset global du dossier.",
     });
   });
 
@@ -480,15 +480,15 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
-    expect(screen.getByText("Ouverte · continuation sous hypothese")).toBeInTheDocument();
-    expect(screen.getByText("Continuation acceptee sous hypothese")).toBeInTheDocument();
-    expect(screen.getByText("Hypothese active")).toBeInTheDocument();
+    expect(screen.getByText("Ouverte · continuation sous hypothèse")).toBeInTheDocument();
+    expect(screen.getByText("Continuation acceptée sous hypothèse")).toBeInTheDocument();
+    expect(screen.getByText("Hypothèse active")).toBeInTheDocument();
     expect(
       screen.getByText(
         "Continuation acceptee sans CCTP CFO. Hypothese documentaire a confirmer avant remise."
       )
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Continuer avec hypothese/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continuer avec hypothèse/i })).not.toBeInTheDocument();
   });
 
   it("distinguishes true submission blockers from client follow-ups and links to the exact slice", async () => {
@@ -544,7 +544,7 @@ describe("AffaireRegisterCard", () => {
       screen.getByText("Ce point bloque la remise tant qu'il reste ouvert.")
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Pour debloquer: ajouter la piece attendue ou requalifier ce manque.")
+      screen.getByText("Pour debloquer: ajouter la pièce attendue ou requalifier ce manque.")
     ).toBeInTheDocument();
     expect(
       screen.getByText("La suite dépend encore d'un retour client explicite.")
@@ -613,7 +613,7 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Trace de revalidation")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Cause: Additif recu · Etapes a revoir: Readiness pre-remise · Piece declenchante: additif-cfo.pdf"
+        "Cause: Additif reçu · Étapes à revoir: Readiness pré-remise · Pièce declenchante: additif-cfo.pdf"
       )
     ).toBeInTheDocument();
   });

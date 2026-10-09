@@ -201,7 +201,7 @@ export function UnifiedImportFlow({
               Annuler l&apos;import ?
             </h3>
             <p className="mt-2 text-xs text-muted-foreground">
-              Votre progression sera perdue. Le fichier importe et le mapping en cours ne seront pas conserves.
+              Votre progression sera perdue. Le fichier importe et le mapping en cours ne seront pas conservés.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button

@@ -3432,7 +3432,7 @@ function parseEstimateTemplateDetail(payload: unknown): EstimateTemplateDetail {
   const templateEntity = extractEntity(root, ["template"]);
   const summary = parseEstimateTemplateSummaryEntity(templateEntity);
   if (!summary) {
-    throw new Error("Impossible de recuperer le template.");
+    throw new Error("Impossible de récupérer le template.");
   }
 
   const items = parseEstimateTemplateItems(
@@ -3512,7 +3512,7 @@ function parseEstimateAssemblyDetail(payload: unknown): EstimateAssemblyDetail {
   const assemblyEntity = extractEntity(root, ["assembly"]);
   const summary = parseEstimateAssemblySummaryEntity(assemblyEntity);
   if (!summary) {
-    throw new Error("Impossible de recuperer l'ouvrage.");
+    throw new Error("Impossible de récupérer l'ouvrage.");
   }
 
   const items = parseEstimateAssemblyItems(
@@ -3768,7 +3768,7 @@ export async function importEstimateSections(
 
   const parsed = parseImportEstimateSectionsResult(payload);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat de l'import.");
+    throw new Error("Impossible de lire le résultat de l'import.");
   }
 
   return parsed;
@@ -3848,7 +3848,7 @@ export async function applyEstimateStructureDraft(
 
   const parsed = parseApplyEstimateStructureDraftResult(payload);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat d'application.");
+    throw new Error("Impossible de lire le résultat d'application.");
   }
 
   return parsed;
@@ -3934,7 +3934,7 @@ export async function reviewVersionZeroLine(
         editedValues: input.editedValues ?? null,
       }),
     },
-    "Impossible de mettre a jour la ligne V0."
+    "Impossible de mettre à jour la ligne V0."
   );
 
   return parseVersionZeroReview(payload);
@@ -3949,7 +3949,7 @@ export async function materializeVersionZeroDraft(
     {
       method: "POST",
     },
-    "Impossible de materialiser la V0."
+    "Impossible de matérialiser la V0."
   );
 
   return parseVersionZeroReview(payload);
@@ -3970,12 +3970,12 @@ export async function importLinkedDpgfSource(
         sectionTitle: input.sectionTitle ?? null,
       }),
     },
-    "Impossible d'importer la source DPGF liee."
+    "Impossible d'importer la source DPGF liée."
   );
 
   const parsed = parseImportLinkedDpgfSourceResult(payload);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat de l'import DPGF.");
+    throw new Error("Impossible de lire le résultat de l'import DPGF.");
   }
 
   return parsed;
@@ -4197,7 +4197,7 @@ export async function fetchEstimateVersionEvents(
     {
       method: "GET",
     },
-    "Impossible de charger les evenements."
+    "Impossible de charger les événements."
   );
 
   return parseEstimateVersionEvents(payload);
@@ -4238,12 +4238,12 @@ export async function fetchEstimateApprovalDecisionJournal(
     {
       method: "GET",
     },
-    "Impossible de charger le journal de decision."
+    "Impossible de charger le journal de décision."
   );
 
   const parsed = parseEstimateApprovalDecisionJournal(payload);
   if (!parsed) {
-    throw new Error("Reponse journal d'approbation invalide.");
+    throw new Error("Réponse journal d'approbation invalide.");
   }
 
   return parsed;
@@ -4270,7 +4270,7 @@ export async function downloadEstimateApprovalDecisionJournalCsv(
   if (!response.ok) {
     const payload = await readJson(response);
     throw new EstimateApiError(
-      toErrorMessage(payload, "Impossible d'exporter le journal de decision."),
+      toErrorMessage(payload, "Impossible d'exporter le journal de décision."),
       response.status,
       extractErrorDetails(payload),
       extractErrorCode(payload)
@@ -4336,7 +4336,7 @@ export async function toggleEstimateOutlierDismissedFlag(
         dismissed: input.dismissed,
       }),
     },
-    "Impossible de mettre a jour le statut d'acceptation de l'outlier."
+    "Impossible de mettre à jour le statut d'acceptation de l'outlier."
   );
 
   return normalizeOutlierDismissedByItemId(payload);
@@ -4365,7 +4365,7 @@ export async function saveEstimateVersion(
 
   const entity = extractEntity(payload, ["version", "estimateVersion"]);
   if (!entity || !toStringValue(entity.updated_at)) {
-    throw new Error("Impossible de recuperer la version mise a jour.");
+    throw new Error("Impossible de récupérer la version mise à jour.");
   }
 
   return entity as EstimateVersionRow;
@@ -4407,12 +4407,12 @@ export async function bulkUpdateEstimateItems(
         ...(versionPatch ? { version_patch: versionPatch } : {}),
       }),
     },
-    "Impossible de mettre a jour les lignes."
+    "Impossible de mettre à jour les lignes."
   );
 
   const versionToken = parseVersionToken(payload);
   if (!versionToken) {
-    throw new Error("Impossible de recuperer le jeton de version.");
+    throw new Error("Impossible de récupérer le jeton de version.");
   }
 
   const root = getRootPayload(payload);
@@ -4507,7 +4507,7 @@ export async function createEstimateItem(
   if (options.onVersionToken) {
     const versionToken = parseVersionToken(payload);
     if (!versionToken) {
-      throw new Error("Impossible de recuperer le jeton de version.");
+      throw new Error("Impossible de récupérer le jeton de version.");
     }
     options.onVersionToken(versionToken);
   }
@@ -4532,7 +4532,7 @@ export async function updateEstimateItem(
         ...updates,
       }),
     },
-    "Impossible de mettre a jour la ligne."
+    "Impossible de mettre à jour la ligne."
   );
 }
 
@@ -4635,7 +4635,7 @@ function parseEstimateBatchOperationResult(
     op: opValue,
     status: "error",
     code: toStringValue(value.code) ?? "INTERNAL_ERROR",
-    message: toStringValue(value.message) ?? "Une operation batch a echoue.",
+    message: toStringValue(value.message) ?? "Une opération batch a echoue.",
     details: value.details,
   };
 }
@@ -4723,12 +4723,12 @@ export async function batchEstimateOperations(
         }),
       }),
     },
-    "Impossible d'executer les operations groupees."
+    "Impossible d'executer les opérations groupees."
   );
 
   const parsed = parseEstimateBatchResult(payload);
   if (!parsed) {
-    throw new Error("Impossible de recuperer le resultat des operations groupees.");
+    throw new Error("Impossible de récupérer le résultat des opérations groupees.");
   }
 
   return {
@@ -4804,12 +4804,12 @@ export async function updateEstimateStatus(
         force: options.force === true ? true : undefined,
       }),
     },
-    "Impossible de mettre a jour le statut."
+    "Impossible de mettre à jour le statut."
   );
 
   const entity = extractEntity(payload, ["version", "estimateVersion"]);
   if (!entity || !toStringValue(entity.updated_at)) {
-    throw new Error("Impossible de recuperer la version mise a jour.");
+    throw new Error("Impossible de récupérer la version mise à jour.");
   }
 
   return entity as EstimateVersionRow;
@@ -4897,7 +4897,7 @@ export async function fetchEstimatePdfStatus(
       {
         method: "GET",
       },
-      "Impossible de recuperer le statut du PDF."
+      "Impossible de récupérer le statut du PDF."
     );
 
     const parsed = parseEstimatePdfStatus(payload);
@@ -4940,12 +4940,12 @@ export async function fetchEstimatePurchaseOrderDraftPreparation(
     {
       method: "GET",
     },
-    "Impossible de preparer les brouillons de commandes."
+    "Impossible de préparer les brouillons de commandes."
   );
 
   const parsed = parseEstimatePurchaseOrderDraftPreparation(payload);
   if (!parsed) {
-    throw new Error("Impossible de lire la preparation des brouillons de commandes.");
+    throw new Error("Impossible de lire la préparation des brouillons de commandes.");
   }
 
   return parsed;
@@ -4977,7 +4977,7 @@ export async function createEstimatePurchaseOrderDrafts(
 
   const parsed = parseEstimatePurchaseOrderDraftCreationResult(payload);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat de creation des brouillons.");
+    throw new Error("Impossible de lire le résultat de création des brouillons.");
   }
 
   return parsed;
@@ -5080,7 +5080,7 @@ export async function releaseEstimateDraftLock(
       },
       options.force
         ? "Impossible de forcer le deverrouillage."
-        : "Impossible de liberer le verrou de brouillon."
+        : "Impossible de libérer le verrou de brouillon."
     );
 
     const released =
@@ -5167,7 +5167,7 @@ export async function updateEstimateLaborRole(
       },
       body: JSON.stringify(updates),
     },
-    "Impossible de mettre a jour le role."
+    "Impossible de mettre à jour le rôle."
   );
 }
 
@@ -5210,12 +5210,12 @@ export async function updateMarginTier(
       },
       body: JSON.stringify(updates),
     },
-    "Impossible de mettre a jour la tranche de marge."
+    "Impossible de mettre à jour la tranche de marge."
   );
 
   const entity = extractEntity(payload, ["margin_tier", "marginTier"]);
   if (!entity) {
-    throw new Error("Impossible de mettre a jour la tranche de marge.");
+    throw new Error("Impossible de mettre à jour la tranche de marge.");
   }
 
   return entity as MarginTier;
@@ -5281,7 +5281,7 @@ export async function updateEstimateSuggestionRule(
       },
       body: JSON.stringify(updates),
     },
-    "Impossible de mettre a jour la regle."
+    "Impossible de mettre à jour la règle."
   );
 
   const entity = extractEntity(payload, ["suggestion_rule", "suggestionRule", "rule"]);
@@ -5313,7 +5313,7 @@ export async function sendEstimateSuggestionRuleFeedback(
       },
       body: JSON.stringify(feedbackPayload),
     },
-    "Impossible d'enregistrer le feedback de la regle."
+    "Impossible d'enregistrer le feedback de la règle."
   );
 
   const entity = extractEntity(payload, ["suggestion_rule", "suggestionRule", "rule"]);
@@ -5357,7 +5357,7 @@ export async function trackEstimateSuggestionCorrections(
 
   const parsed = parseTrackEstimateSuggestionCorrectionsResult(result);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat de suivi des corrections.");
+    throw new Error("Impossible de lire le résultat de suivi des corrections.");
   }
 
   return parsed;
@@ -5397,7 +5397,7 @@ export async function reviewAdminSuggestionLearningProposal(
 
   const parsed = parseSuggestionLearningState(result);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat de revue.");
+    throw new Error("Impossible de lire le résultat de revue.");
   }
 
   return parsed;
@@ -5420,7 +5420,7 @@ export async function purgeAdminSuggestionLearnings(
 
   const parsed = parsePurgeAdminSuggestionLearningsResult(result);
   if (!parsed) {
-    throw new Error("Impossible de lire le resultat de purge.");
+    throw new Error("Impossible de lire le résultat de purge.");
   }
 
   return parsed;
@@ -5513,13 +5513,13 @@ export async function updateEstimateTemplate(
       },
       body: JSON.stringify(updates),
     },
-    "Impossible de mettre a jour le template."
+    "Impossible de mettre à jour le template."
   );
 
   const entity = extractEntity(payload, ["template"]);
   const parsed = parseEstimateTemplateSummaryEntity(entity);
   if (!parsed) {
-    throw new Error("Impossible de mettre a jour le template.");
+    throw new Error("Impossible de mettre à jour le template.");
   }
 
   return parsed;
@@ -5799,7 +5799,7 @@ export async function updateEstimateAssembly(
       },
       body: JSON.stringify(body),
     },
-    "Impossible de mettre a jour l'ouvrage."
+    "Impossible de mettre à jour l'ouvrage."
   );
 
   return parseEstimateAssemblyDetail(payload);

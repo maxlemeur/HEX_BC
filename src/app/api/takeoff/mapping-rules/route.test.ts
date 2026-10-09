@@ -154,7 +154,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
             const row = baseRule({
               id: raw?.id ?? "55555555-5555-4555-8555-555555555555",
               tenant_id: raw?.tenant_id ?? TENANT_ID,
-              name: raw?.name ?? "Nouvelle regle",
+              name: raw?.name ?? "Nouvelle règle",
               match_pattern: raw?.match_pattern ?? "acier",
               match_type: raw?.match_type ?? "contains",
               action: raw?.action ?? "rename",

@@ -328,7 +328,7 @@ export async function assertTakeoffEnabled(
 
   if (!enabled) {
     throw forbidden(
-      "Le module Takeoff est desactive pour ce tenant.",
+      "Le module Takeoff est désactivé pour ce tenant.",
       undefined,
       "TAKEOFF_MODULE_DISABLED"
     );

@@ -289,11 +289,11 @@ describe("EstimateEditorRow line cells", () => {
     // sont désormais concaténées dans un badge unique, dont seul le libellé
     // compact est visible. Le `.sr-only` doit donc toujours les annoncer toutes
     // les trois, sous peine de régresser l'accessibilité.
-    const screenReaderLabel = row.getByText(/DPGF importee/, {
+    const screenReaderLabel = row.getByText(/DPGF importée/, {
       selector: ".sr-only",
     });
     expect(screenReaderLabel).toHaveTextContent(
-      "DPGF importee — Qte importee non verifiee — Confiance moyenne"
+      "DPGF importée — Qte importée non vérifiée — Confiance moyenne"
     );
 
     // Le libellé visible reste compact et masqué aux lecteurs d'écran.

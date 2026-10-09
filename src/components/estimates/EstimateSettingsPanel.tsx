@@ -167,7 +167,7 @@ export function EstimateSettingsPanel({
           <div className="flex-1">
             <p className="font-semibold">Glossaire</p>
             <ul className="mt-1 space-y-0.5">
-              <li><strong>FO</strong> = Fourniture (materiaux, produits)</li>
+              <li><strong>FO</strong> = Fourniture (matériaux, produits)</li>
               <li><strong>MO</strong> = Main d&apos;oeuvre (travail, pose)</li>
               <li><strong>K</strong> = Coefficient multiplicateur</li>
               <li><strong>HT</strong> = Hors taxes / <strong>TTC</strong> = Toutes taxes comprises</li>
@@ -229,7 +229,7 @@ export function EstimateSettingsPanel({
 
         <div>
           <label className="form-label" htmlFor="estimate-validite">
-            Validite (jours)
+            Validité (jours)
           </label>
           <NumberInput
             id="estimate-validite"
@@ -389,7 +389,7 @@ export function EstimateSettingsPanel({
               />
               <p className="mb-3 text-xs text-muted-foreground">
                 {isFrozen
-                  ? "Barème actuel, présenté à titre d'information : il ne recalcule pas ce devis figé."
+                  ? "Barème actuel, présenté à titre d'information : il ne recalculé pas ce devis figé."
                   : settings.margin_tiers?.length
                   ? "Barème de votre organisation."
                   : "Barème par défaut, faute de tranches définies pour votre organisation."}
@@ -404,7 +404,7 @@ export function EstimateSettingsPanel({
                       className="estimate-summary__row"
                     >
                       <span>
-                        A partir de{" "}
+                        À partir de{" "}
                         {formatCurrency(tier.threshold_cents, settings.currency)}
                       </span>
                       <strong>x{formatMarginMultiplier(tier.multiplier)}</strong>
@@ -683,7 +683,7 @@ export function EstimateSettingsPanel({
                 Enregistrement...
               </>
             ) : (
-              "Enregistrer le parametrage"
+              "Enregistrer le paramétrage"
             )}
           </button>
         </div>

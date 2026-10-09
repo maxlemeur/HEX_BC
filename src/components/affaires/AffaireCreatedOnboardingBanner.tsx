@@ -18,7 +18,7 @@ export function AffaireCreatedOnboardingBanner({
     <div className="mb-4 animate-fade-in rounded-xl border border-primary/20 bg-primary/5 px-5 py-4">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm font-semibold text-primary">
-          Affaire creee ! Voici comment continuer :
+          Affaire créée ! Voici comment continuer :
         </p>
         <button
           type="button"
@@ -34,17 +34,17 @@ export function AffaireCreatedOnboardingBanner({
         <div className="animate-onboarding-pulse rounded-lg border border-primary/20 bg-surface px-4 py-3">
           <p className="text-xs font-semibold text-primary">1</p>
           <p className="mt-1 text-sm font-medium text-slate-800">
-            Deposez votre dossier
+            Déposez votre dossier
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Les pieces du dossier lancent le cadrage automatique.
+            Les pièces du dossier lancent le cadrage automatique.
           </p>
           <button
             type="button"
             onClick={onScrollToIntake}
             className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
-            Deposer
+            Déposer
             <ArrowRightIcon aria-hidden="true" size={14} />
           </button>
         </div>

@@ -128,7 +128,7 @@ function throwDispatchRpcError(
 
   if (message.includes("ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST")) {
     throw conflict(
-      "Cette tentative d'envoi est terminee. Relancez-la avec une nouvelle requete.",
+      "Cette tentative d'envoi est terminée. Relancez-la avec une nouvelle requête.",
       { code: error.code },
       "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST"
     );
@@ -144,7 +144,7 @@ function throwDispatchRpcError(
     message.includes("LEASE_INVALID")
   ) {
     throw conflict(
-      "Le workflow d'envoi a change. Rechargez le devis avant de reessayer.",
+      "Le workflow d'envoi a change. Rechargez le devis avant de réessayer.",
       { code: error.code },
       "ESTIMATE_EMAIL_DISPATCH_CONFLICT"
     );
@@ -156,7 +156,7 @@ function throwDispatchRpcError(
     message.includes("STATUS_FORBIDDEN")
   ) {
     throw forbidden(
-      "Acces a l'envoi du devis refuse.",
+      "Accès à l'envoi du devis refuse.",
       { code: error.code },
       "ESTIMATE_EMAIL_DISPATCH_FORBIDDEN"
     );
@@ -358,7 +358,7 @@ export async function completeEstimateEmailDispatch(input: {
       p_provider_id: input.providerId,
       p_sent_at: new Date().toISOString(),
     },
-    "L'email a ete accepte par le fournisseur, mais sa confirmation n'a pas pu etre enregistree."
+    "L'email a été accepté par le fournisseur, mais sa confirmation n'a pas pu être enregistrée."
   );
 }
 
@@ -380,7 +380,7 @@ export async function failEstimateEmailDispatch(input: {
       p_error_code: input.errorCode,
       p_error_message: input.errorMessage,
     },
-    "Impossible d'enregistrer l'echec de l'envoi."
+    "Impossible d'enregistrer l'échec de l'envoi."
   );
 }
 
@@ -441,7 +441,7 @@ export async function downloadFrozenEstimatePdf(
 
   if (error || !data) {
     throw internalError(
-      "Impossible de recuperer le PDF du devis pour l'email.",
+      "Impossible de récupérer le PDF du devis pour l'email.",
       error
     );
   }
@@ -488,7 +488,7 @@ export async function deliverEstimateEmailDispatch(input: {
 
   if (claimed.status === "unknown") {
     throw conflict(
-      "L'issue de cet envoi doit etre rapprochee avec le fournisseur avant toute reprise.",
+      "L'issue de cet envoi doit être rapprochee avec le fournisseur avant toute reprise.",
       { dispatch_id: claimed.id },
       "ESTIMATE_EMAIL_DELIVERY_UNKNOWN"
     );
@@ -527,7 +527,7 @@ export async function deliverEstimateEmailDispatch(input: {
       });
     }
     throw internalError(
-      "Impossible de verifier le PDF fige avant l'envoi.",
+      "Impossible de vérifier le PDF fige avant l'envoi.",
       { dispatch_id: claimed.id },
       claimed.attempt_count <= 1
         ? "ESTIMATE_EMAIL_PDF_UNAVAILABLE"
@@ -582,7 +582,7 @@ export async function deliverEstimateEmailDispatch(input: {
             errorMessage: error.message,
           });
           throw conflict(
-            "Le fournisseur refuse de rejouer cette cle avec certitude; rapprochement requis.",
+            "Le fournisseur refuse de rejouer cette clé avec certitude; rapprochement requis.",
             { dispatch_id: claimed.id },
             "ESTIMATE_EMAIL_DELIVERY_UNKNOWN"
           );
@@ -650,14 +650,14 @@ export async function deliverEstimateEmailDispatch(input: {
 
   if (deferred.status === "unknown") {
     throw conflict(
-      "La fenetre de rejeu automatique est expiree; rapprochement fournisseur requis.",
+      "La fenêtre de rejeu automatique est expiree; rapprochement fournisseur requis.",
       { dispatch_id: deferred.id },
       "ESTIMATE_EMAIL_DELIVERY_UNKNOWN"
     );
   }
 
   throw internalError(
-    "Le fournisseur email est temporairement indisponible. Reessayez avec la meme demande.",
+    "Le fournisseur email est temporairement indisponible. Réessayez avec la même demande.",
     { dispatch_id: deferred.id },
     "ESTIMATE_EMAIL_RETRYABLE"
   );
@@ -700,7 +700,7 @@ export async function listProblematicEstimateEmailDispatches(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de charger les envois email en echec."
+      "Impossible de charger les envois email en échec."
     );
   }
 
@@ -817,7 +817,7 @@ export async function drainEstimateEmailOutbox(
         result.failed += 1;
       } catch (error) {
         result.errors.push(
-          error instanceof Error ? error.message : "Echec de cloture outbox."
+          error instanceof Error ? error.message : "Échec de cloture outbox."
         );
       }
       continue;
@@ -846,7 +846,7 @@ export async function drainEstimateEmailOutbox(
     } catch (error) {
       result.failed += 1;
       result.errors.push(
-        error instanceof Error ? error.message : "Echec de replay outbox."
+        error instanceof Error ? error.message : "Échec de replay outbox."
       );
     }
   }
