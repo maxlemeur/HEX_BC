@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { readActiveTenantMembership } from "@/lib/auth/tenant-context";
+import { readActiveTenantMembership, readAuthenticatedUser } from "@/lib/auth/tenant-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeUiMode, type UiMode } from "@/lib/ui-mode";
 import type { Database } from "@/types/database";
@@ -21,10 +21,7 @@ export type UserProfile = {
 export const getSupabase = cache(async () => createSupabaseServerClient());
 
 export const requireUser = cache(async () => {
-  const supabase = await getSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await readAuthenticatedUser();
 
   if (!user) {
     redirect("/login");
@@ -35,18 +32,18 @@ export const requireUser = cache(async () => {
 
 export const getUserProfile = cache(async (userId: string) => {
   const supabase = await getSupabase();
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("id, full_name, phone, job_title, work_email, role, ui_mode")
-    .eq("id", userId)
-    .single();
+  const [{ data: profileData }, { membership, error: membershipError }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, full_name, phone, job_title, work_email, role, ui_mode")
+      .eq("id", userId)
+      .single(),
+    readActiveTenantMembership(supabase, userId),
+  ]);
 
   if (!profileData) {
     return null;
   }
-
-  const { membership, error: membershipError } =
-    await readActiveTenantMembership(supabase, userId);
 
   if (membershipError) {
     console.error("Unable to resolve active tenant membership", {

@@ -24,6 +24,7 @@ import {
 } from "@/lib/affaires/hub-dev-scenarios";
 import {
   fetchAffaireHubFinishLineSummary,
+  fetchAffaireHubCurrentVersion,
   fetchAffaireHubInitialData,
   fetchAffaireHubPlansSummary,
   fetchProjectVersionList,
@@ -109,12 +110,48 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     () => null
   );
   const intakeWorkspacePromise = fetchAffaireIntakeWorkspace(projectId);
+  const cockpitPreferencesPromise = fetchCockpitCommandPreferences(projectId);
+  const supportingDataPromise = fetchAffaireHubCurrentVersion(projectId).then((currentVersion) => {
+    const versionId = currentVersion?.id ?? null;
+    return Promise.allSettled([
+      versionId
+        ? fetchDirectionProjectSignals(projectId, versionId)
+        : Promise.resolve({ latestJobId: null, alerts: [] }),
+      fetchAffaireRegisterPage({
+        projectId, versionId, status: registerStatus, severity: registerSeverity,
+        kind: registerKind, revalidationRequired: registerRevalidationRequired,
+        cursor: registerCursor, focusEntryId: registerFocusEntryId,
+      }),
+      fetchAffaireRegisterScopeOptions({ projectId, versionId }),
+      versionId && currentVersion?.status === "draft" && isEstimateAiDraftEnabled()
+        ? fetchVersionZeroDraftSummary({ versionId })
+        : Promise.resolve(null),
+      versionId ? fetchAffaireHubFinishLineSummary(versionId) : Promise.resolve(null),
+    ]);
+  });
+  // Approval reads can persist a projection: keep them after the same successful
+  // initial load, while independent read-only sections overlap that initial work.
+  const approvalDataPromise = initialDataPromise.then(({ summary }) => {
+    const versionId = summary.currentVersion?.id ?? null;
+    return Promise.allSettled([
+      versionId ? getEstimateApprovalSummary(versionId) : Promise.resolve(null),
+      versionId
+        ? listEstimateApprovalDecisionJournal({
+            versionId, actorUserId: approvalJournalAuthor, decision: approvalJournalDecision,
+          })
+        : Promise.resolve(null),
+    ]);
+  });
 
-  const [initialDataResult, takeoffEnabledResult, intakeWorkspaceResult] =
+  const [initialDataResult, takeoffEnabledResult, intakeWorkspaceResult,
+    cockpitPreferencesResult, supportingDataResult, approvalDataResult] =
     await Promise.allSettled([
       initialDataPromise,
       takeoffEnabledPromise,
       intakeWorkspacePromise,
+      cockpitPreferencesPromise,
+      supportingDataPromise,
+      approvalDataPromise,
     ]);
 
   if (initialDataResult.status === "rejected") {
@@ -137,47 +174,20 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     marginAnalysisResult: marginResult,
   } = initialDataResult.value;
   const currentVersionId = summary.currentVersion?.id ?? null;
+  if (supportingDataResult.status === "rejected") {
+    throw supportingDataResult.reason;
+  }
+  if (approvalDataResult.status === "rejected") {
+    throw approvalDataResult.reason;
+  }
+  const [approvalSummaryResult, approvalJournalResult] = approvalDataResult.value;
   const [
-    approvalSummaryResult,
-    approvalJournalResult,
     directionSignalsResult,
     registerPageResult,
     registerScopeOptionsResult,
     versionZeroSummaryResult,
-    cockpitPreferencesResult,
     finishLineSummaryResult,
-  ] = await Promise.allSettled([
-    currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
-    currentVersionId
-      ? listEstimateApprovalDecisionJournal({
-          versionId: currentVersionId,
-          actorUserId: approvalJournalAuthor,
-          decision: approvalJournalDecision,
-        })
-      : Promise.resolve(null),
-    currentVersionId
-      ? fetchDirectionProjectSignals(projectId, currentVersionId)
-      : Promise.resolve({ latestJobId: null, alerts: [] }),
-    fetchAffaireRegisterPage({
-      projectId,
-      versionId: currentVersionId,
-      status: registerStatus,
-      severity: registerSeverity,
-      kind: registerKind,
-      revalidationRequired: registerRevalidationRequired,
-      cursor: registerCursor,
-      focusEntryId: registerFocusEntryId,
-    }),
-    fetchAffaireRegisterScopeOptions({
-      projectId,
-      versionId: currentVersionId,
-    }),
-    currentVersionId && summary.currentVersion?.status === "draft"
-      && isEstimateAiDraftEnabled() ? fetchVersionZeroDraftSummary({ versionId: currentVersionId })
-      : Promise.resolve(null),
-    fetchCockpitCommandPreferences(projectId),
-    currentVersionId ? fetchAffaireHubFinishLineSummary(currentVersionId) : Promise.resolve(null),
-  ]);
+  ] = supportingDataResult.value;
   const approvalSummary =
     approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;
   const approvalJournal =

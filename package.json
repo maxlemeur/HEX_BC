@@ -40,6 +40,7 @@
     "e2e:army:performance:grid": "node scripts/run-tester-army.mjs performance-grid",
     "e2e:army:performance:navigation": "node scripts/run-tester-army.mjs performance-navigation",
     "e2e:army:performance:navigation:live": "node scripts/run-tester-army.mjs performance-navigation-live",
+    "e2e:army:performance:affaire": "node scripts/run-tester-army.mjs performance-affaire",
     "e2e:rls": "vitest run --project=node src/lib/estimates/rls.e2e.test.ts",
     "supabase:validate": "node --import tsx scripts/validate-supabase-migrations.ts",
     "supabase:manifest:add": "node --import tsx scripts/add-supabase-migrations-to-manifest.ts",

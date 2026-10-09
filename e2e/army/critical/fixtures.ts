@@ -65,10 +65,15 @@ export async function restrictCriticalBrowser(browser: Browser, app: App) {
     }
     const readOnly = ["GET", "HEAD", "OPTIONS"].includes(route.request.method);
     const auth = url.origin === supabaseOrigin && url.pathname.startsWith("/auth/v1/");
+    // The affaire fiche's delivery-site selector reads this existing RLS-protected
+    // lookup directly. Allow only that read in the opt-in performance campaign.
+    const performanceLookup = process.env.E2E_ARMY_SUITE === "performance" && readOnly &&
+      url.origin === supabaseOrigin && url.pathname === "/rest/v1/delivery_sites";
     const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
-    if ((url.origin !== origin && !auth) || forbiddenMutation) {
+    if ((url.origin !== origin && !auth && !performanceLookup) || forbiddenMutation) {
       await route.abort();
-      throw new Error("Critical campaign blocked an external request or an email/status mutation.");
+      const safePath = url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]");
+      throw new Error(`Critical campaign blocked ${route.request.method} ${url.hostname}${safePath}; external request or email/status mutation.`);
     }
     await route.continue();
   });
@@ -76,7 +81,8 @@ export async function restrictCriticalBrowser(browser: Browser, app: App) {
 
 export async function recordEvidence(army: ArmyState, label: string, data: unknown) {
   if (!/^[a-z0-9-]+$/i.test(label)) throw new Error("Evidence label must be a simple filename.");
-  const directory = path.resolve(".e2e/army/critical/artifacts/business");
+  const suite = process.env.E2E_ARMY_SUITE === "performance" ? "performance" : "critical";
+  const directory = path.resolve(`.e2e/army/${suite}/artifacts/business`);
   await mkdir(directory, { recursive: true });
   const body = `${JSON.stringify({
     schemaVersion: "miaouffrage-army-business-1",

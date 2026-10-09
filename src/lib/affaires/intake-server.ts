@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
+import { cache } from "react";
 
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -2806,9 +2807,9 @@ export async function processAffaireIntakeUpload(uploadId: string) {
   }
 }
 
-export async function fetchAffaireIntakeWorkspace(
+export const fetchAffaireIntakeWorkspace = cache(async (
   projectId: string
-): Promise<AffaireIntakeWorkspace> {
+): Promise<AffaireIntakeWorkspace> => {
   const { context, project } = await requireAffaireProjectReadAccess(projectId);
 
   const { data: uploadData, error: uploadError } = await resolveSupabaseQuery<{
@@ -2922,7 +2923,7 @@ export async function fetchAffaireIntakeWorkspace(
     }),
     briefDraft: brief?.draft ?? null,
   };
-}
+});
 
 export async function updateAffaireBrief(input: {
   projectId: string;

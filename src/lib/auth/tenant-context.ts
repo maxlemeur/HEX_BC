@@ -4,6 +4,7 @@ import type {
   SupabaseClient,
   User,
 } from "@supabase/supabase-js";
+import { cache } from "react";
 
 import {
   forbidden,
@@ -44,7 +45,9 @@ type ActiveTenantMembershipLookup = {
  * Low-level authentication lookup for modules that still own their HTTP error
  * contract. Authentication policy lives here; error presentation stays local.
  */
-export async function readAuthenticatedUser(): Promise<AuthenticatedUserLookup> {
+// React clears this memoization for every server request. Repeated RSC readers
+// share the authenticated lookup; there is no process-wide user/tenant cache.
+export const readAuthenticatedUser = cache(async (): Promise<AuthenticatedUserLookup> => {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -52,16 +55,16 @@ export async function readAuthenticatedUser(): Promise<AuthenticatedUserLookup> 
   } = await supabase.auth.getUser();
 
   return { supabase, user, error };
-}
+});
 
 /**
  * Resolves the same active membership as public.current_tenant_id(): default
  * membership first, then oldest membership, while excluding inactive tenants.
  */
-export async function readActiveTenantMembership(
+export const readActiveTenantMembership = cache(async (
   supabase: ServerSupabaseClient,
   userId: string
-): Promise<ActiveTenantMembershipLookup> {
+): Promise<ActiveTenantMembershipLookup> => {
   const { data, error } = await supabase
     .from("tenant_memberships")
     .select(
@@ -77,12 +80,12 @@ export async function readActiveTenantMembership(
     membership: (data?.[0] as unknown as ActiveTenantMembership | undefined) ?? null,
     error,
   };
-}
+});
 
 /**
  * Canonical strict boundary for authenticated tenant-scoped server workflows.
  */
-export async function getAuthenticatedTenantContext(): Promise<AuthenticatedTenantContext> {
+export const getAuthenticatedTenantContext = cache(async (): Promise<AuthenticatedTenantContext> => {
   const { supabase, user, error: userError } = await readAuthenticatedUser();
 
   if (userError || !user) {
@@ -111,6 +114,6 @@ export async function getAuthenticatedTenantContext(): Promise<AuthenticatedTena
     isTenantAdmin: membership.role === "admin",
     membership,
   };
-}
+});
 
 export { getAuthenticatedTenantContext as getAuthenticatedContext };

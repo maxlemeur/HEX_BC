@@ -791,10 +791,10 @@ export function buildAffaireHubReadinessSnapshot(input: {
 const PLAN_FILE_SUM_BATCH_SIZE = 500;
 const AFFAIRE_PROJECT_VERSIONS_BATCH_SIZE = 1000;
 
-async function fetchAffaireHubProjectOrThrow(
+const fetchAffaireHubProjectOrThrow = cache(async (
   context: AffaireContext,
   projectId: string
-): Promise<AffaireHubProjectRow> {
+): Promise<AffaireHubProjectRow> => {
   let query = context.supabase
     .from("estimate_projects")
     .select("id, tenant_id, user_id, name, reference, client_name, site_address, is_archived")
@@ -818,7 +818,19 @@ async function fetchAffaireHubProjectOrThrow(
   }
 
   return project;
-}
+});
+
+const readAffaireHubCurrentVersion = cache(async (context: AffaireContext, projectId: string) =>
+  context.supabase
+    .from("estimate_versions")
+    .select("id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at")
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", projectId)
+    .order("version_number", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+);
 
 async function fetchAffaireHubSummaryWithContext(
   context: AffaireContext,
@@ -831,17 +843,7 @@ async function fetchAffaireHubSummaryWithContext(
       .eq("tenant_id", context.tenantId)
       .eq("project_id", project.id)
       .limit(1),
-    context.supabase
-      .from("estimate_versions")
-      .select(
-        "id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at"
-      )
-      .eq("tenant_id", context.tenantId)
-      .eq("project_id", project.id)
-      .order("version_number", { ascending: false })
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    readAffaireHubCurrentVersion(context, project.id),
     context.supabase
       .from("estimate_versions")
       .select(
@@ -1028,10 +1030,10 @@ async function fetchAffaireHubSummaryWithContext(
   };
 }
 
-async function fetchAffaireHubDpgfSourceWithContext(
+const fetchAffaireHubDpgfSourceWithContext = cache(async (
   context: AffaireContext,
   project: AffaireHubProjectRow
-): Promise<AffaireHubDpgfSourceResult> {
+): Promise<AffaireHubDpgfSourceResult> => {
   const { data: importData, error: importError } = await context.supabase
     .from("dpgf_imports")
     .select(
@@ -1095,7 +1097,7 @@ async function fetchAffaireHubDpgfSourceWithContext(
     rowCount: toSafeInteger(latestImport.row_count),
     mappedRowCount: mappedRowsCountResult.count ?? 0,
   };
-}
+});
 
 async function resolveTakeoffReviewVersionId(input: {
   context: AffaireContext;
@@ -1976,6 +1978,18 @@ export const fetchAffaireProjectBasic = cache(
     };
   }
 );
+
+export async function fetchAffaireHubCurrentVersion(
+  projectId: string
+): Promise<AffaireHubVersionRow | null> {
+  const context = await getAuthenticatedContext();
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  const result = await readAffaireHubCurrentVersion(context, project.id);
+  if (result.error) {
+    throw mapSupabaseError(result.error, "Impossible de charger la version courante.");
+  }
+  return result.data;
+}
 
 export async function fetchAffaireHubSummary(
   projectId: string

@@ -7,12 +7,13 @@ import nextEnv from "@next/env";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const mode = process.argv[2] ?? "smoke";
-if (!["smoke", "agent", "list", "critical", "critical-list", "performance", "performance-list", "performance-grid", "performance-navigation", "performance-navigation-live"].includes(mode)) {
-  throw new Error("Usage: node scripts/run-tester-army.mjs [smoke|agent|list|critical|critical-list|performance|performance-list|performance-grid|performance-navigation|performance-navigation-live] [runner flags]");
+if (!["smoke", "agent", "list", "critical", "critical-list", "performance", "performance-list", "performance-grid", "performance-navigation", "performance-navigation-live", "performance-affaire"].includes(mode)) {
+  throw new Error("Usage: node scripts/run-tester-army.mjs [smoke|agent|list|critical|critical-list|performance|performance-list|performance-grid|performance-navigation|performance-navigation-live|performance-affaire] [runner flags]");
 }
 const critical = mode.startsWith("critical");
 const performance = mode.startsWith("performance");
 const navigation = mode.startsWith("performance-navigation");
+const affaire = mode === "performance-affaire";
 const live = mode === "performance-navigation-live";
 const authenticated = critical || performance;
 const discoveryOnly = mode === "list" || mode.endsWith("-list");
@@ -27,7 +28,7 @@ for (let index = 0; index < extraArgs.length; index += 1) {
     if (!value || value.split(",").some((target) => !["chromium-desktop", "chromium-mobile"].includes(target))) {
       throw new Error("Choose chromium-desktop or chromium-mobile with --target.");
     }
-    if (navigation && value !== "chromium-desktop") throw new Error("Navigation diagnosis currently requires chromium-desktop.");
+    if ((navigation || affaire) && value !== "chromium-desktop") throw new Error("Navigation diagnosis currently requires chromium-desktop.");
   } else if (authenticated && (arg === "--grep" || arg.startsWith("--grep="))) {
     const value = arg === "--grep" ? extraArgs[++index] : arg.slice("--grep=".length);
     if (!value) throw new Error("--grep requires a test-title pattern.");
@@ -42,10 +43,10 @@ const args = [
   "--config",
   "e2e.config.ts",
   "--tag",
-  critical ? "critical" : navigation ? "navigation-performance" : mode === "performance-grid" ? "grid-performance" : performance ? "performance" : mode === "agent" ? "agent" : "smoke",
+  critical ? "critical" : affaire ? "affaire-performance" : navigation ? "navigation-performance" : mode === "performance-grid" ? "grid-performance" : performance ? "performance" : mode === "agent" ? "agent" : "smoke",
   "--exclude-tag",
   mode === "agent" ? "smoke" : "agent",
-  ...((mode === "agent" || critical || navigation) && !hasTarget ? ["--target", "chromium-desktop"] : []),
+  ...((mode === "agent" || critical || navigation || affaire) && !hasTarget ? ["--target", "chromium-desktop"] : []),
   ...(discoveryOnly ? ["--reporter", "json"] : []),
   ...extraArgs,
 ];
@@ -102,11 +103,11 @@ const manifest = {
   source: {},
   fixtures: {
     account: authenticated ? "configured E2E account, ordinary login UI" : "anonymous fresh browser context",
-    paths: navigation ? ["/login", "/dashboard/affaires", "/dashboard/orders", "/dashboard/referentiel", "/dashboard/products"] : mode === "performance-grid" ? ["/login", "/dashboard/affaires", "existing ARMY editor; browser-only synthetic read-only payload"] : performance ? ["/login", "/signup", "/dashboard/affaires", "/dashboard/products", "/dashboard/orders"] : critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
+    paths: affaire ? ["/login", "/dashboard/affaires", "new owned ARMY affaire; retained fixture receipt"] : navigation ? ["/login", "/dashboard/affaires", "/dashboard/orders", "/dashboard/referentiel", "/dashboard/products"] : mode === "performance-grid" ? ["/login", "/dashboard/affaires", "existing ARMY editor; browser-only synthetic read-only payload"] : performance ? ["/login", "/signup", "/dashboard/affaires", "/dashboard/products", "/dashboard/orders"] : critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
     submittedForms: authenticated,
     credentials: authenticated ? "opaque password; no JWT extraction or service role" : "none",
     appOrigin: null,
-    ...(performance ? { mutationScope: "ordinary login; read-only page visits and local input/scroll interactions" } : critical ? { mutationScope: "new ARMY drafts/imports only; retain evidence; no email or existing business mutations" } : {}),
+    ...(affaire ? { mutationScope: "one new owned ARMY draft and two priced lines; owned approval-read projections/audit allowed; retain fixture; no emails or existing business changes" } : performance ? { mutationScope: "ordinary login; read-only page visits and local input/scroll interactions" } : critical ? { mutationScope: "new ARMY drafts/imports only; retain evidence; no email or existing business mutations" } : {}),
   },
   telemetry: "disabled in child environment",
   tracePolicy: performance ? "off; authenticated metrics contain no cookies, headers or response bodies" : critical ? "anonymous access only; authenticated traces off because generated tokens are not SDK secrets" : "all anonymous attempts",
