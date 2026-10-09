@@ -2,68 +2,66 @@
 
 import type { PriceBookValidationResult } from "@/lib/catalogue/csv-import";
 
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+
+const COLUMN_COUNT = 7;
+
+function statusBadge(status: string): { label: string; variant: NonNullable<BadgeProps["variant"]> } {
+  if (status === "valid") return { label: "Valide", variant: "success" };
+  if (status === "ignored") return { label: "Ignorée (hors périmètre)", variant: "neutral" };
+  return { label: "À corriger", variant: "danger" };
+}
+
 export function PriceBookPreviewTable({
   validation,
 }: Readonly<{
   validation: PriceBookValidationResult;
 }>) {
   return (
-    <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-border px-6 py-4">
-        <h3 className="text-sm font-semibold text-slate-800">Aperçu - 10 premières lignes</h3>
+    <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card">
+      <div className="border-b border-border px-4 py-4 sm:px-6">
+        <h3 className="text-sm font-semibold text-foreground">Aperçu — 10 premières lignes</h3>
       </div>
 
-      <div className="table-scroll">
+      <div className="table-scroll relative overflow-x-auto" role="region" aria-label="Aperçu des lignes du fichier" tabIndex={0}>
         <table className="data-table">
           <thead>
             <tr>
-              <th>Ligne</th>
-              <th>Fournisseur</th>
-              <th>Produit</th>
-              <th>Prix</th>
-              <th>Devise</th>
-              <th>Statut</th>
-              <th>Motif</th>
+              <th scope="col">Ligne</th>
+              <th scope="col">Fournisseur</th>
+              <th scope="col">Produit</th>
+              <th scope="col">Prix</th>
+              <th scope="col">Devise</th>
+              <th scope="col">Statut</th>
+              <th scope="col">Motif</th>
             </tr>
           </thead>
           <tbody>
             {validation.previewRows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="text-center text-muted-foreground">
-                  Aucun aperçu disponible.
-                </td>
-              </tr>
+              <EmptyTableRow colSpan={COLUMN_COUNT} variant="compact" title="Aucun aperçu disponible" />
             ) : (
               validation.previewRows.map((row) => {
                 const supplierCsv = row.values.supplier_name;
                 const productCsv = row.values.product_reference || row.values.product_designation;
                 const supplierResolved = row.resolved?.supplier_name;
                 const productResolved = row.resolved?.product_name;
-
-                const badgeClass =
-                  row.status === "valid"
-                    ? "status-badge status-confirmed"
-                    : row.status === "ignored"
-                      ? "status-badge"
-                      : "status-badge status-canceled";
-
-                const badgeLabel =
-                  row.status === "valid"
-                    ? "Valide"
-                    : row.status === "ignored"
-                      ? "Ignoree (hors perimetre)"
-                      : "À corriger";
+                const badge = statusBadge(row.status);
 
                 return (
                   <tr key={`${row.lineNumber}-${row.values.unit_price}-${row.values.supplier_name}`}>
                     <td>{row.lineNumber}</td>
                     <td className="text-sm">
                       {supplierResolved ? (
-                        <span className="text-slate-800">
+                        <span className="inline-flex flex-wrap items-center gap-1 text-foreground">
                           {supplierResolved}
-                          <span className="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">OK</span>
+                          <Badge variant="success" size="sm">
+                            OK
+                          </Badge>
                           {row.metadata?.autofilledSupplier ? (
-                            <span className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">Auto</span>
+                            <Badge variant="warning" size="sm">
+                              Auto
+                            </Badge>
                           ) : null}
                         </span>
                       ) : supplierCsv ? (
@@ -74,9 +72,11 @@ export function PriceBookPreviewTable({
                     </td>
                     <td className="text-sm">
                       {productResolved ? (
-                        <span className="text-slate-800">
+                        <span className="inline-flex flex-wrap items-center gap-1 text-foreground">
                           {productResolved}
-                          <span className="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">OK</span>
+                          <Badge variant="success" size="sm">
+                            OK
+                          </Badge>
                         </span>
                       ) : productCsv ? (
                         <span className="text-danger">{productCsv}</span>
@@ -87,9 +87,11 @@ export function PriceBookPreviewTable({
                     <td>{row.values.unit_price || "-"}</td>
                     <td>{row.values.currency || "EUR"}</td>
                     <td>
-                      <span className={badgeClass}>{badgeLabel}</span>
+                      <Badge variant={badge.variant} size="sm">
+                        {badge.label}
+                      </Badge>
                     </td>
-                    <td className="text-sm text-slate-600">{row.reason ?? "-"}</td>
+                    <td className="text-sm text-foreground-secondary">{row.reason ?? "-"}</td>
                   </tr>
                 );
               })

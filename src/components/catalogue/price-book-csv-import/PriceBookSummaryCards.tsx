@@ -3,40 +3,28 @@
 import type { PriceBookValidationResult } from "@/lib/catalogue/csv-import";
 
 import { formatNumber } from "@/components/catalogue/price-book-csv-import/utils";
+import { cn } from "@/lib/utils";
 
 export function PriceBookSummaryCards({
   validation,
 }: Readonly<{
   validation: PriceBookValidationResult;
 }>) {
+  const cards = [
+    { label: "Total détecté", value: validation.totalRows, tone: "text-foreground" },
+    { label: "Importables", value: validation.acceptedRows, tone: "text-success" },
+    { label: "Ignorées (hors périmètre)", value: validation.ignoredRowsCount, tone: "text-foreground-secondary" },
+    { label: "À corriger", value: validation.rejectedRowsCount, tone: "text-danger" },
+  ];
+
   return (
-    <div className="grid gap-3 sm:grid-cols-4">
-      <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total detecte</p>
-        <p className="mt-1 text-base font-semibold text-foreground">
-          {formatNumber(validation.totalRows)}
-        </p>
-      </div>
-      <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Importables</p>
-        <p className="mt-1 text-base font-semibold text-success">
-          {formatNumber(validation.acceptedRows)}
-        </p>
-      </div>
-      <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          Ignorees (hors perimetre)
-        </p>
-        <p className="mt-1 text-base font-semibold text-foreground-secondary">
-          {formatNumber(validation.ignoredRowsCount)}
-        </p>
-      </div>
-      <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">À corriger</p>
-        <p className="mt-1 text-base font-semibold text-danger">
-          {formatNumber(validation.rejectedRowsCount)}
-        </p>
-      </div>
-    </div>
+    <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {cards.map((card) => (
+        <div key={card.label} className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
+          <dt className="text-micro uppercase tracking-wide text-muted-foreground">{card.label}</dt>
+          <dd className={cn("mt-1 text-base font-semibold", card.tone)}>{formatNumber(card.value)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

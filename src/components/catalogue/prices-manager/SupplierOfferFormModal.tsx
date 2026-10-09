@@ -9,7 +9,19 @@ import type {
 } from "@/components/catalogue/types";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { toEuroInput } from "@/components/catalogue/prices-manager/utils";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -453,7 +465,7 @@ export function SupplierOfferFormModal({
       setFormError(
         error instanceof Error
           ? error.message
-          : "Impossible d'enregistrer l'offre fournisseur.",
+          : "Impossible d’enregistrer l’offre fournisseur.",
       );
     } finally {
       setIsSaving(false);
@@ -461,29 +473,31 @@ export function SupplierOfferFormModal({
   }
 
   return (
-    <Modal.Root
+    <Dialog
       open={open}
-      onOpenChange={(nextOpen) => !nextOpen && handleClose()}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isSaving) handleClose();
+      }}
     >
-      <Modal.Content className="flex max-h-[min(94dvh,calc(100dvh-2rem))] max-w-5xl flex-col overflow-hidden p-0">
-        <Modal.Header className="mb-0 shrink-0 border-b border-border px-6 py-5">
-          <div>
-            <Modal.Title>
-              {isEditing
-                ? "Modifier l’offre fournisseur"
-                : "Ajouter un fournisseur / tarif"}
-            </Modal.Title>
-            <p className="mt-1 text-sm text-muted-foreground">
-              L&apos;article porte les caractéristiques communes ; la référence
-              et l&apos;URL appartiennent au fournisseur.
-            </p>
-          </div>
-          <Modal.Close disabled={isSaving}>Fermer</Modal.Close>
-        </Modal.Header>
+      <DialogContent
+        size="xl"
+        className="max-h-[min(94dvh,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-5xl sm:p-0"
+      >
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-14 sm:px-6 sm:py-5">
+          <DialogTitle>
+            {isEditing
+              ? "Modifier l’offre fournisseur"
+              : "Ajouter un fournisseur / tarif"}
+          </DialogTitle>
+          <DialogDescription>
+            L’article porte les caractéristiques communes ; la référence et l’URL appartiennent
+            au fournisseur.
+          </DialogDescription>
+        </DialogHeader>
 
-        <form className="flex min-h-0 flex-col" onSubmit={onSubmit}>
-          <Modal.Body className="min-h-0 space-y-5 overflow-y-auto px-6 py-5">
-            <section className="rounded-xl border border-border p-4">
+        <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
+          <DialogBody className="min-h-0 flex-1 gap-5 overflow-y-auto px-5 py-5 sm:px-6">
+            <section className="rounded-lg border border-border p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">
@@ -495,9 +509,9 @@ export function SupplierOfferFormModal({
                   </p>
                 </div>
                 {!isEditing && !defaultProductId ? (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
+                  <Button
+                    variant="outline"
+                    size="md"
                     onClick={() => {
                       if (productMode === "existing") {
                         setProductMode("new");
@@ -514,7 +528,7 @@ export function SupplierOfferFormModal({
                     {productMode === "existing"
                       ? "Créer un nouvel article"
                       : "Choisir un article existant"}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
 
@@ -525,7 +539,7 @@ export function SupplierOfferFormModal({
                     value={priceDraft.product_id}
                     label="Article *"
                     options={productOptions}
-                    placeholder="Rechercher une désignation ou une référence..."
+                    placeholder="Rechercher une désignation ou une référence…"
                     isLoading={isProductLoading}
                     disabled={isEditing || Boolean(defaultProductId)}
                     onQueryChange={(query) => {
@@ -609,7 +623,7 @@ export function SupplierOfferFormModal({
               )}
             </section>
 
-            <section className="rounded-xl border border-border p-4">
+            <section className="rounded-lg border border-border p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">
@@ -620,9 +634,9 @@ export function SupplierOfferFormModal({
                   </p>
                 </div>
                 {!isEditing ? (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
+                  <Button
+                    variant="outline"
+                    size="md"
                     onClick={() => {
                       if (supplierMode === "existing") {
                         setSupplierMode("new");
@@ -639,7 +653,7 @@ export function SupplierOfferFormModal({
                     {supplierMode === "existing"
                       ? "Créer un nouveau fournisseur"
                       : "Choisir un fournisseur existant"}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
 
@@ -649,7 +663,7 @@ export function SupplierOfferFormModal({
                   value={priceDraft.supplier_id}
                   label="Fournisseur *"
                   options={supplierOptions}
-                  placeholder="Rechercher un fournisseur..."
+                  placeholder="Rechercher un fournisseur…"
                   isLoading={isSupplierLoading}
                   disabled={isEditing}
                   onQueryChange={(query) => {
@@ -745,7 +759,7 @@ export function SupplierOfferFormModal({
                 </p>
               ) : null}
               {catalogItem ? (
-                <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                <p className="mt-2 rounded-lg border border-info-border bg-info-subtle px-3 py-2 text-xs text-foreground">
                   {isEditing
                     ? "La référence fournisseur et l’URL sont partagées par les tarifs de cet article chez ce fournisseur. Seul le tarif ouvert est modifié."
                     : "La référence fournisseur et l’URL de la fiche existante seront réutilisées. Pour les changer, ouvrez une offre depuis la liste."}
@@ -753,7 +767,7 @@ export function SupplierOfferFormModal({
               ) : null}
             </section>
 
-            <section className="rounded-xl border border-border p-4">
+            <section className="rounded-lg border border-border p-4">
               <h3 className="text-sm font-semibold text-foreground">
                 3. Tarif
               </h3>
@@ -773,10 +787,9 @@ export function SupplierOfferFormModal({
                   value={priceDraft.min_quantity}
                   onChange={(value) => updatePrice("min_quantity", value)}
                 />
-                <label className="space-y-1.5 text-xs font-semibold text-foreground-secondary">
+                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
                   Devise
-                  <select
-                    className="form-input form-select"
+                  <NativeSelect
                     value={priceDraft.currency}
                     onChange={(event) =>
                       updatePrice("currency", event.target.value)
@@ -785,7 +798,7 @@ export function SupplierOfferFormModal({
                     <option value="EUR">EUR - Euro</option>
                     <option value="USD">USD - Dollar US</option>
                     <option value="GBP">GBP - Livre sterling</option>
-                  </select>
+                  </NativeSelect>
                 </label>
                 <TextField
                   label="Valide du"
@@ -808,15 +821,20 @@ export function SupplierOfferFormModal({
                 />
                 {isEditing ? (
                   <div>
-                    <label className="space-y-1.5 text-xs font-semibold text-foreground-secondary">
+                    <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
                       Transport
-                      <select className="form-input form-select" aria-label="Transport"
-                        value={priceDraft.transport_mode} disabled={!canEditTransport}
-                        onChange={(event) => updatePrice("transport_mode", event.target.value as PriceDraft["transport_mode"])}>
+                      <NativeSelect
+                        aria-label="Transport"
+                        value={priceDraft.transport_mode}
+                        disabled={!canEditTransport}
+                        onChange={(event) =>
+                          updatePrice("transport_mode", event.target.value as PriceDraft["transport_mode"])
+                        }
+                      >
                         <option value="">À préciser</option>
                         <option value="included">Inclus</option>
                         <option value="excluded">Exclu</option>
-                      </select>
+                      </NativeSelect>
                     </label>
                     {!canEditTransport ? <p className="mt-1 text-xs text-muted-foreground">
                       Un administrateur peut préciser les conditions de transport.
@@ -834,37 +852,25 @@ export function SupplierOfferFormModal({
             <p className="text-xs text-muted-foreground">
               Validité maximale : six mois à partir de la date de début. Une fin non renseignée est calculée automatiquement.
             </p>
-            {formError ? (
-              <div className="alert alert-error" role="alert">
-                {formError}
-              </div>
-            ) : null}
-          </Modal.Body>
+            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+          </DialogBody>
 
-          <Modal.Footer className="mt-0 shrink-0 border-t border-border px-6 py-4">
-            <button
-              className="btn btn-secondary"
-              type="button"
-              disabled={isSaving}
-              onClick={handleClose}
-            >
+          <DialogFooter className="mt-0 shrink-0 border-t border-border px-5 py-4 sm:px-6">
+            <Button variant="outline" size="lg" disabled={isSaving} onClick={handleClose}>
               Annuler
-            </button>
-            <button
-              className="btn btn-primary"
+            </Button>
+            <Button
               type="submit"
-              disabled={isSaving || isCatalogItemLoading}
+              size="lg"
+              disabled={isCatalogItemLoading}
+              loading={isSaving}
             >
-              {isSaving
-                ? "Enregistrement..."
-                : isEditing
-                  ? "Enregistrer l’offre"
-                  : "Ajouter le fournisseur / tarif"}
-            </button>
-          </Modal.Footer>
+              {isEditing ? "Enregistrer l’offre" : "Ajouter le fournisseur / tarif"}
+            </Button>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -889,11 +895,10 @@ function TextField({
 }) {
   return (
     <label
-      className={`space-y-1.5 text-xs font-semibold text-foreground-secondary ${className}`}
+      className={`flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary ${className}`}
     >
       {label}
-      <input
-        className="form-input"
+      <Input
         type={type}
         value={value}
         disabled={disabled}
@@ -915,19 +920,15 @@ function SelectField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="space-y-1.5 text-xs font-semibold text-foreground-secondary">
+    <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
       {label}
-      <select
-        className="form-input form-select"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
+      <NativeSelect value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="u">Unité (u)</option>
         <option value="ml">Mètre linéaire (ml)</option>
         <option value="m2">Mètre carré (m²)</option>
         <option value="kg">Kilogramme (kg)</option>
         <option value="h">Heure (h)</option>
-      </select>
+      </NativeSelect>
     </label>
   );
 }

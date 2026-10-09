@@ -153,9 +153,9 @@ describe("PriceBookCsvImport", () => {
     analyzeSelectedFile();
 
     await waitFor(() => {
-      expect(container.textContent).toContain("Total detecte");
+      expect(container.textContent).toContain("Total détecté");
       expect(container.textContent).toContain("Importables");
-      expect(container.textContent).toContain("Ignorees (hors perimetre)");
+      expect(container.textContent).toContain("Ignorées (hors périmètre)");
       expect(container.textContent).toContain("À corriger");
     });
 
@@ -214,7 +214,7 @@ describe("PriceBookCsvImport", () => {
 
     await waitFor(() =>
       expect(container.textContent).toContain(
-        "Fournisseurs inconnus: 1 | Produits inconnus: 1"
+        "Fournisseurs inconnus : 1 · Produits inconnus : 1"
       )
     );
 

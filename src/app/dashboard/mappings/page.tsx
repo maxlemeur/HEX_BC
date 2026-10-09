@@ -1,4 +1,5 @@
 import { DpgfStepper } from "@/components/DpgfStepper";
+import { PageHeader } from "@/components/layout/page-header";
 import { MappingWizard } from "@/components/mappings/MappingWizard";
 
 type DashboardMappingsPageProps = {
@@ -25,13 +26,11 @@ export default async function DashboardMappingsPage({ searchParams }: DashboardM
 
   return (
     <div className="animate-fade-in">
+      <PageHeader
+        title="Mapping DPGF"
+        description="Associez les colonnes de votre fichier aux champs métier, puis enregistrez le mapping."
+      />
       <DpgfStepper importId={importId} />
-      <div className="page-header">
-        <h1 className="page-title">Mapping DPGF</h1>
-        <p className="page-description">
-          Associez les colonnes de votre fichier aux champs métier, puis validez le mapping.
-        </p>
-      </div>
 
       <MappingWizard initialImportId={importId} />
     </div>

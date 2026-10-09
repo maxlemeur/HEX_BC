@@ -4,22 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import {
-  ArchiveIcon,
-  DownloadIcon,
-  EllipsisIcon,
-  FileSpreadsheetIcon,
-  InfoIcon,
-  PencilIcon,
-  RefreshCwIcon,
-  RotateCcwIcon,
-  TagsIcon,
-  UploadIcon,
-  UsersIcon,
-} from "lucide-react";
+import { PlusIcon, RefreshCwIcon, TagsIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { ServerTableFilterBar } from "@/components/TableFilterBar";
 import type {
   FilterConfig,
@@ -28,41 +18,25 @@ import type {
   SortDirection,
   SortOption,
 } from "@/components/TableFilterBar";
+import { ProductCatalogueMenu } from "@/components/products/ProductCatalogueMenu";
 import { ProductCsvImport } from "@/components/products/ProductCsvImport";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
 import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
-import { Modal } from "@/components/ui-legacy/Modal";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
-import type { PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
-import { formatEUR } from "@/lib/money";
+import { ProductsPagination } from "@/components/products/ProductsPagination";
+import { ProductsTable } from "@/components/products/ProductsTable";
+import type { ProductCatalogueCounters, ProductView } from "@/components/products/product-view";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
+import { cn } from "@/lib/utils";
 
 import {
   ProductFormModal,
   type ProductPayload,
   type ProductRecord,
 } from "./ProductFormModal";
-
-type ProductView = ProductRecord & {
-  _status: "active" | "archived";
-  _priceStatus: "none" | PriceFreshnessLevel;
-  _supplierPriceCount: number;
-  _bestSupplierPriceCents: number | null;
-  _bestSupplierName: string | null;
-  _bestSupplierPriceUpdatedAt: string | null;
-  _referencePriceSourceOrderId: string | null;
-  _referencePriceSourceOrderReference: string | null;
-  _referencePriceSourceSupplierName: string | null;
-  _referencePriceSourceDate: string | null;
-};
 
 type ProductPageResponse = {
   items: ProductView[];
@@ -72,12 +46,7 @@ type ProductPageResponse = {
     totalItems: number;
     totalPages: number;
   };
-  counters: {
-    active: number;
-    covered: number;
-    withoutSupplierPrice: number;
-    stale: number;
-  };
+  counters: ProductCatalogueCounters;
   facets: {
     materials: string[];
     categories: string[];
@@ -110,63 +79,24 @@ const STATUS_OPTIONS = [
 ];
 
 const PRODUCT_PAGE_SIZES = [25, 50, 100] as const;
+type ProductPageSize = (typeof PRODUCT_PAGE_SIZES)[number];
 
-function formatDateOnly(value: string | null) {
-  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return value ?? "";
-  return `${match[3]}/${match[2]}/${match[1]}`;
-}
-
-function referencePriceSourceLabel(product: ProductView) {
-  if (product.reference_price_validation_id) {
-    return `Référence validée · pour ${product.reference_quantity} ${product.unit || "u"}`;
-  }
-  if (product.unit_price_cents === 0) return "À définir à partir des offres";
-  if (!product._referencePriceSourceOrderId) return "Saisie interne";
-
-  const source = [
-    product._referencePriceSourceSupplierName,
-    product._referencePriceSourceOrderReference,
-    formatDateOnly(product._referencePriceSourceDate),
-  ].filter(Boolean);
-
-  return `Dernier achat confirmé${source.length > 0 ? ` · ${source.join(" · ")}` : ""}`;
-}
+const EMPTY_COUNTERS: ProductCatalogueCounters = {
+  active: 0,
+  covered: 0,
+  withoutSupplierPrice: 0,
+  stale: 0,
+};
 
 function toOptions(values: string[]) {
   return values.map((value) => ({ value, label: value }));
-}
-
-function freshnessLabel(status: ProductView["_priceStatus"]) {
-  switch (status) {
-    case "fresh":
-      return "À jour";
-    case "aging":
-      return "À surveiller";
-    case "stale":
-      return "À revalider";
-    default:
-      return "Sans prix";
-  }
-}
-
-function freshnessClass(status: ProductView["_priceStatus"]) {
-  switch (status) {
-    case "fresh":
-      return "bg-emerald-50 text-emerald-700";
-    case "aging":
-      return "bg-amber-50 text-amber-700";
-    case "stale":
-      return "bg-rose-50 text-rose-700";
-    default:
-      return "bg-muted text-slate-600";
-  }
 }
 
 export default function ProductsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const confirm = useConfirm();
   const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(
     null,
   );
@@ -188,10 +118,8 @@ export default function ProductsPage() {
     Number.parseInt(searchParams.get("page") ?? "1", 10) || 1,
   );
   const sizeParam = Number.parseInt(searchParams.get("size") ?? "25", 10);
-  const pageSize = PRODUCT_PAGE_SIZES.includes(
-    sizeParam as (typeof PRODUCT_PAGE_SIZES)[number],
-  )
-    ? (sizeParam as (typeof PRODUCT_PAGE_SIZES)[number])
+  const pageSize: ProductPageSize = PRODUCT_PAGE_SIZES.includes(sizeParam as ProductPageSize)
+    ? (sizeParam as ProductPageSize)
     : 25;
   const sort = PRODUCT_SORT_OPTIONS.some(
     (option) => option.key === searchParams.get("sort"),
@@ -354,12 +282,7 @@ export default function ProductsPage() {
     [data?.facets.categories, data?.facets.materials, data?.facets.units],
   );
 
-  const stats = data?.counters ?? {
-    active: 0,
-    covered: 0,
-    withoutSupplierPrice: 0,
-    stale: 0,
-  };
+  const stats = data?.counters ?? EMPTY_COUNTERS;
   const pageStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = Math.min(page * pageSize, totalItems);
   const filterState: FilterState = {
@@ -448,9 +371,13 @@ export default function ProductsPage() {
   async function toggleArchive(product: ProductRecord) {
     const nextIsActive = !product.is_active;
     if (!nextIsActive) {
-      const confirmed = window.confirm(
-        `Archiver « ${product.designation} » ? Il ne sera plus proposé dans les nouveaux chiffrages, mais son historique sera conservé.`,
-      );
+      const confirmed = await confirm({
+        title: `Archiver « ${product.designation} » ?`,
+        description:
+          "Il ne sera plus proposé dans les nouveaux chiffrages, mais son historique sera conservé. Vous pourrez le restaurer à tout moment.",
+        confirmLabel: "Archiver",
+        tone: "danger",
+      });
       if (!confirmed) return;
     }
 
@@ -481,155 +408,49 @@ export default function ProductsPage() {
 
   return (
     <div className="animate-fade-in">
-      <HubBreadcrumb
-        hubHref="/dashboard/referentiel"
-        hubLabel="Référentiel"
-        currentLabel="Produits"
+      <PageHeader
+        className="sm:mb-6"
+        breadcrumbs={[
+          { label: "Référentiel", href: "/dashboard/referentiel" },
+          { label: "Produits" },
+        ]}
+        title="Produits & prix de référence"
+        meta={
+          <Badge variant="outline" className="font-mono">
+            {data ? `${stats.active.toLocaleString("fr-FR")} produits actifs` : "Chargement…"}
+          </Badge>
+        }
+        actions={
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button
+              size="lg"
+              className="min-h-11 flex-1 sm:flex-none"
+              leftIcon={<PlusIcon aria-hidden="true" />}
+              onClick={openCreateForm}
+            >
+              Ajouter
+            </Button>
+            <ProductCatalogueMenu
+              stats={stats}
+              onTemplateImport={openTemplateImport}
+              onCsvImport={openCsvImport}
+            />
+          </div>
+        }
       />
 
-      <div className="page-header product-catalogue-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
-        <h1 className="page-title flex flex-wrap items-baseline gap-2">
-          <span>Produits</span>
-          <span className="font-mono text-base font-medium tracking-normal text-subtle-foreground">
-            · {data ? stats.active.toLocaleString("fr-FR") : "…"}
-          </span>
-        </h1>
-
-        <div className="flex w-full gap-2 sm:w-auto">
-          <button
-            className="btn btn-primary btn-lg min-h-11 flex-1 sm:flex-none"
-            type="button"
-            onClick={openCreateForm}
-          >
-            Ajouter
-          </button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label="Ouvrir les actions du catalogue"
-              className="btn btn-secondary btn-lg min-h-11 min-w-11 !px-0"
-            >
-              <EllipsisIcon aria-hidden="true" className="size-5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="!w-80 max-w-[calc(100vw-2rem)] p-2"
-              sideOffset={8}
-            >
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="px-2 py-1.5 text-[11px] uppercase tracking-wide">
-                  État du catalogue
-                </DropdownMenuLabel>
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-2 pb-2 text-xs text-muted-foreground">
-                  <div>
-                    <dt>Actifs</dt>
-                    <dd className="font-mono font-semibold text-slate-800">
-                      {stats.active.toLocaleString("fr-FR")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Couverts</dt>
-                    <dd className="font-mono font-semibold text-emerald-700">
-                      {stats.covered.toLocaleString("fr-FR")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Sans tarif</dt>
-                    <dd className="font-mono font-semibold text-amber-700">
-                      {stats.withoutSupplierPrice.toLocaleString("fr-FR")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>À revalider</dt>
-                    <dd className="font-mono font-semibold text-rose-700">
-                      {stats.stale.toLocaleString("fr-FR")}
-                    </dd>
-                  </div>
-                </dl>
-              </DropdownMenuGroup>
-
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="flex items-center gap-2 px-2 py-1.5">
-                  <InfoIcon aria-hidden="true" className="size-4" />
-                  Règle de prix actuelle
-                </DropdownMenuLabel>
-                <p className="px-2 pb-2 text-xs leading-relaxed text-muted-foreground">
-                  Le prix de référence est validé explicitement à partir des
-                  offres comparables ou d’une saisie justifiée. Les nouveaux
-                  tarifs ne remplacent pas automatiquement ce prix ni les
-                  coûts des devis existants.
-                </p>
-              </DropdownMenuGroup>
-
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="px-2 py-1.5 text-[11px] uppercase tracking-wide">
-                  Imports
-                </DropdownMenuLabel>
-                <DropdownMenuItem
-                  className="min-h-10 px-2"
-                  onClick={openTemplateImport}
-                >
-                  <UploadIcon aria-hidden="true" />
-                  Importer produits et tarifs
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="min-h-10 px-2"
-                  onClick={openCsvImport}
-                >
-                  <FileSpreadsheetIcon aria-hidden="true" />
-                  Importer un CSV produits
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="min-h-10 px-2"
-                  render={<a download href={TEMPLATE_FILE_URL} />}
-                >
-                  <DownloadIcon aria-hidden="true" />
-                  Télécharger le modèle
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="min-h-10 px-2"
-                render={<Link href="/dashboard/suppliers" />}
-              >
-                <UsersIcon aria-hidden="true" />
-                Gérer les fournisseurs
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="min-h-10 px-2"
-                render={<Link href="/dashboard/prices" />}
-              >
-                <TagsIcon aria-hidden="true" />
-                Voir tous les tarifs
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      <div className="mb-5 space-y-3 empty:hidden">
+        {isOpeningProduct ? (
+          <LoadingState label="Ouverture de la fiche produit…" className="justify-start py-0" />
+        ) : null}
+        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+        {!isFormOpen && formError ? <Alert variant="danger">{formError}</Alert> : null}
       </div>
-
-      {isOpeningProduct ? (
-        <div className="mb-5 text-sm text-muted-foreground" role="status">
-          Ouverture de la fiche produit…
-        </div>
-      ) : null}
-      {successMessage ? (
-        <div className="alert alert-success mb-5" role="status">
-          {successMessage}
-        </div>
-      ) : null}
-      {!isFormOpen && formError ? (
-        <div className="alert alert-error mb-5" role="alert">
-          {formError}
-        </div>
-      ) : null}
 
       <ServerTableFilterBar
         compact
         searchValue={searchInput}
-        searchPlaceholder="Rechercher une référence, une matière, une nuance ou une dimension..."
+        searchPlaceholder="Rechercher une référence, une matière, une nuance ou une dimension…"
         filterState={filterState}
         filters={productFilters}
         sortOptions={PRODUCT_SORT_OPTIONS}
@@ -656,8 +477,12 @@ export default function ProductsPage() {
         }}
       />
 
-      <div
-        className={`dashboard-card overflow-hidden transition-opacity ${isValidating && data ? "opacity-70" : ""}`}
+      <section
+        aria-label="Base produits"
+        className={cn(
+          "min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card transition-opacity",
+          isValidating && data && "opacity-70"
+        )}
         aria-busy={isValidating}
       >
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
@@ -668,314 +493,90 @@ export default function ProductsPage() {
           </p>
           <div className="flex shrink-0 items-center gap-1">
             <Link
-              className="hidden min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-surface-subtle sm:inline-flex"
+              className={buttonVariants({
+                variant: "ghost",
+                size: "sm",
+                className: "hidden min-h-10 text-primary sm:inline-flex",
+              })}
               href="/dashboard/prices"
             >
-              <TagsIcon aria-hidden="true" className="size-4" />
+              <TagsIcon aria-hidden="true" />
               Tarifs fournisseurs
             </Link>
-            <button
-              aria-label={
-                isValidating
-                  ? "Actualisation en cours"
-                  : "Actualiser les produits"
-              }
-              className="inline-flex size-10 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-slate-800 disabled:cursor-wait disabled:opacity-60"
+            <IconButton
+              variant="outline"
+              size="icon-lg"
+              label={isValidating ? "Actualisation en cours" : "Actualiser les produits"}
               disabled={isValidating}
               onClick={() => void mutate()}
-              type="button"
-            >
-              <RefreshCwIcon
-                aria-hidden="true"
-                className={`size-4 ${isValidating ? "animate-spin" : ""}`}
-              />
-            </button>
+              icon={
+                <RefreshCwIcon
+                  aria-hidden="true"
+                  className={cn(isValidating && "animate-spin motion-reduce:animate-none")}
+                />
+              }
+            />
           </div>
         </div>
 
         {loadError ? (
-          <div className="alert alert-error m-4" role="alert">
-            {loadError instanceof Error
-              ? loadError.message
-              : "Impossible de charger la base produits."}
+          <div className="p-4">
+            <Alert variant="danger">
+              {loadError instanceof Error
+                ? loadError.message
+                : "Impossible de charger la base produits."}
+            </Alert>
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="data-table product-catalogue-table table-fixed md:table-auto">
-            <thead>
-              <tr>
-                <th className="hidden w-36 lg:table-cell" scope="col">
-                  Référence
-                </th>
-                <th className="w-[38%] sm:w-auto" scope="col">
-                  Désignation
-                </th>
-                <th className="hidden min-[700px]:table-cell" scope="col">
-                  Caractéristiques
-                </th>
-                <th className="w-[26%] text-right sm:w-auto" scope="col">
-                  Prix
-                </th>
-                <th className="w-[20%] sm:w-auto" scope="col">
-                  État
-                </th>
-                <th className="w-12 text-right" scope="col">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && !data ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="py-12 text-center text-muted-foreground"
-                  >
-                    Chargement de la base produits...
-                  </td>
-                </tr>
-              ) : globalTotal === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-14 text-center">
-                    <div className="mx-auto max-w-lg">
-                      <p className="text-lg font-semibold text-slate-800">
-                        Construisez votre première base articles
-                      </p>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Ajoutez un produit manuellement ou partez du modèle
-                        officiel pour importer produits et tarifs.
-                      </p>
-                      <div className="mt-5 flex flex-wrap justify-center gap-3">
-                        <button
-                          className="btn btn-primary"
-                          type="button"
-                          onClick={openCreateForm}
-                        >
-                          Ajouter un produit
-                        </button>
-                        <a
-                          className="btn btn-secondary"
-                          href={TEMPLATE_FILE_URL}
-                          download
-                        >
-                          Télécharger le modèle
-                        </a>
-                        <button
-                          className="btn btn-secondary"
-                          type="button"
-                          onClick={openTemplateImport}
-                        >
-                          Importer le modèle
-                        </button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ) : totalItems === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="py-12 text-center text-muted-foreground"
-                  >
-                    Aucun produit ne correspond aux filtres.
-                  </td>
-                </tr>
-              ) : (
-                products.map((product) => (
-                  <tr
-                    key={product.id}
-                    className={product.is_active ? undefined : "opacity-60"}
-                  >
-                    <td className="hidden lg:table-cell">
-                      <span className="break-all font-mono text-xs text-slate-600">
-                        {product.reference || "Sans référence"}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="break-words text-sm font-semibold leading-snug text-foreground">
-                        {product.designation}
-                      </div>
-                      <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground lg:hidden">
-                        {product.reference || "Sans référence"}
-                      </div>
-                      {!product.is_active ? (
-                        <span className="mt-1 inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-foreground-secondary">
-                          Archivé
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="hidden min-[700px]:table-cell">
-                      <div className="font-medium text-slate-800">
-                        {[product.material, product.grade]
-                          .filter(Boolean)
-                          .join(" ") || "Non renseigné"}
-                      </div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {[
-                          product.category,
-                          product.product_type,
-                          product.dimensions,
-                          product.standard,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "Sans caractéristique"}
-                      </div>
-                    </td>
-                    <td className="text-right">
-                      <div className="whitespace-nowrap font-mono text-xs font-semibold text-foreground sm:text-sm">
-                        {product.unit_price_cents === 0 && !product.reference_price_validation_id ? "Prix manquant" : formatEUR(product.unit_price_cents)}
-                        {product.unit_price_cents !== 0 || product.reference_price_validation_id ? <span className="ml-1 text-[10px] font-normal text-muted-foreground sm:text-xs">
-                          /{product.unit || "u"}
-                        </span> : null}
-                      </div>
-                      <div className="mt-0.5 hidden text-xs text-muted-foreground md:block">
-                        {referencePriceSourceLabel(product)}
-                      </div>
-                      <button type="button" className="mt-1 text-xs text-primary underline underline-offset-2"
-                        onClick={() => setReferenceProduct(product)} aria-label={`Examiner le prix de ${product.designation}`}>
-                        Examiner le prix
-                      </button>
-                      {product._bestSupplierPriceCents !== null ? (
-                        <div className="mt-1 text-[10px] text-emerald-700 sm:text-xs">
-                          Fournisseur{" "}
-                          {formatEUR(product._bestSupplierPriceCents)}
-                          <span className="hidden lg:inline">
-                            {` · ${product._bestSupplierName || "Non renseigné"}`}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="mt-1 text-[10px] text-subtle-foreground sm:text-xs">
-                          Aucun tarif
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className={`inline-flex max-w-full rounded-full px-2 py-1 text-[10px] font-semibold leading-tight sm:px-2.5 sm:text-xs ${freshnessClass(product._priceStatus)}`}
-                      >
-                        {freshnessLabel(product._priceStatus)}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          aria-label={`Actions pour ${product.designation}`}
-                          className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <EllipsisIcon aria-hidden="true" className="size-4" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="!w-48 p-1.5"
-                          sideOffset={4}
-                        >
-                          <DropdownMenuItem
-                            className="min-h-10 px-2"
-                            onClick={() => openEditForm(product)}
-                          >
-                            <PencilIcon aria-hidden="true" />
-                            Modifier
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="min-h-10 px-2"
-                            render={
-                              <Link
-                                href={`/dashboard/prices?product_id=${encodeURIComponent(product.id)}`}
-                              />
-                            }
-                          >
-                            <TagsIcon aria-hidden="true" />
-                            Voir les tarifs
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="min-h-10 px-2"
-                            disabled={updatingStatusId === product.id}
-                            onClick={() => void toggleArchive(product)}
-                          >
-                            {product.is_active ? (
-                              <ArchiveIcon aria-hidden="true" />
-                            ) : (
-                              <RotateCcwIcon aria-hidden="true" />
-                            )}
-                            {updatingStatusId === product.id
-                              ? "Mise à jour..."
-                              : product.is_active
-                                ? "Archiver"
-                                : "Restaurer"}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ProductsTable
+          products={products}
+          isInitialLoading={isLoading && !data}
+          isCatalogueEmpty={globalTotal === 0}
+          totalItems={totalItems}
+          updatingStatusId={updatingStatusId}
+          onCreate={openCreateForm}
+          onTemplateImport={openTemplateImport}
+          onEdit={openEditForm}
+          onReviewPrice={setReferenceProduct}
+          onToggleArchive={(product) => void toggleArchive(product)}
+        />
 
         {totalItems > 0 ? (
-          <div className="flex flex-col gap-4 border-t border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <span>Afficher</span>
-              {PRODUCT_PAGE_SIZES.map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors ${
-                    pageSize === size
-                      ? "bg-slate-900 text-white"
-                      : "bg-muted text-slate-600 hover:bg-slate-200"
-                  }`}
-                  onClick={() => updateUrl({ size: String(size) })}
-                >
-                  {size}
-                </button>
-              ))}
-              <span>par page</span>
-            </div>
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm min-h-11"
-                disabled={page <= 1}
-                onClick={() =>
-                  updateUrl(
-                    { page: String(Math.max(1, page - 1)) },
-                    { resetPage: false },
-                  )
-                }
-              >
-                Précédent
-              </button>
-              <span className="px-2 text-center text-xs text-muted-foreground">
-                {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm min-h-11"
-                disabled={page >= totalPages}
-                onClick={() =>
-                  updateUrl(
-                    { page: String(Math.min(totalPages, page + 1)) },
-                    { resetPage: false },
-                  )
-                }
-              >
-                Suivant
-              </button>
-            </div>
-          </div>
+          <ProductsPagination
+            page={page}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            pageSizes={PRODUCT_PAGE_SIZES}
+            onPageChange={(nextPage) =>
+              updateUrl({ page: String(nextPage) }, { resetPage: false })
+            }
+            onPageSizeChange={(size) => updateUrl({ size: String(size) })}
+          />
         ) : null}
-      </div>
+      </section>
 
-      <Modal.Root open={Boolean(referenceProduct)} onOpenChange={(open) => { if (!open) setReferenceProduct(null); }}>
-        <Modal.Content className="max-h-[90dvh] max-w-5xl overflow-y-auto">
-          <Modal.Header><Modal.Title>{referenceProduct?.designation}</Modal.Title><Modal.Close>Fermer</Modal.Close></Modal.Header>
-          {referenceProduct ? <ProductReferencePricePanel key={referenceProduct.id} productId={referenceProduct.id} onValidated={() => { void mutate(); }} /> : null}
-        </Modal.Content>
-      </Modal.Root>
+      <Dialog
+        open={Boolean(referenceProduct)}
+        onOpenChange={(open) => {
+          if (!open) setReferenceProduct(null);
+        }}
+      >
+        <DialogContent size="xl">
+          <DialogHeader>
+            <DialogTitle>{referenceProduct?.designation}</DialogTitle>
+          </DialogHeader>
+          {referenceProduct ? (
+            <ProductReferencePricePanel
+              key={referenceProduct.id}
+              productId={referenceProduct.id}
+              onValidated={() => {
+                void mutate();
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <ProductFormModal
         key={`${editingProduct?.id ?? "new"}:${isFormOpen ? "open" : "closed"}`}
         open={isFormOpen}

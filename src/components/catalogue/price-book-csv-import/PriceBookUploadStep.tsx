@@ -3,6 +3,11 @@
 import type { RefObject } from "react";
 
 import { ColumnMapper } from "@/components/mappings/ColumnMapper";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { controlSurface } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import type { PriceBookColumnMapping, PriceBookProfile } from "@/lib/catalogue/csv-import";
 import type { PriceBookValidationProgress } from "@/lib/catalogue/csv-import";
 
@@ -68,43 +73,48 @@ export function PriceBookUploadStep({
 }: Readonly<PriceBookUploadStepProps>) {
   return (
     <>
-      <div className="rounded-xl border border-border bg-surface px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {GUIDE_STEPS.map((step, index) => {
-            const stepNumber = index + 1;
-            const isActive = stepNumber === currentStep;
-            const isDone = stepNumber < currentStep;
+      <ol
+        aria-label="Étapes de l’import"
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-4 py-3"
+      >
+        {GUIDE_STEPS.map((step, index) => {
+          const stepNumber = index + 1;
+          const isActive = stepNumber === currentStep;
+          const isDone = stepNumber < currentStep;
 
-            return (
-              <span
-                key={step}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
-                  isDone
-                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                    : isActive
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-surface-subtle text-muted-foreground"
-                }`}
-              >
-                <span>{stepNumber}</span>
-                <span>{step}</span>
-              </span>
-            );
-          })}
-        </div>
-      </div>
+          return (
+            <li
+              key={step}
+              aria-current={isActive ? "step" : undefined}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+                isDone
+                  ? "border-success-border bg-success-subtle text-success"
+                  : isActive
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-surface-subtle text-muted-foreground"
+              )}
+            >
+              <span aria-hidden="true">{stepNumber}</span>
+              <span>{step}</span>
+              {isDone ? <span className="sr-only"> (terminée)</span> : null}
+            </li>
+          );
+        })}
+      </ol>
 
-      <div className="rounded-xl border border-border bg-surface-subtle p-4">
-        <h3 className="text-sm font-semibold text-slate-800">Étape 1 - Charger le CSV</h3>
+      <div className="rounded-lg border border-border bg-surface-subtle p-4">
+        <h3 className="text-sm font-semibold text-foreground">Étape 1 — Charger le CSV</h3>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
-          <div>
-            <label className="form-label" htmlFor="price-book-csv-input">
-              Fichier CSV
-            </label>
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="price-book-csv-input">Fichier CSV</FieldLabel>
             <input
               ref={fileInputRef}
               id="price-book-csv-input"
-              className="form-input h-auto py-3"
+              className={cn(
+                controlSurface,
+                "w-full px-3 py-2.5 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground"
+              )}
               type="file"
               accept={ACCEPTED_FILE_TYPES}
               onChange={(event) => {
@@ -114,62 +124,61 @@ export function PriceBookUploadStep({
             />
           </div>
 
-          <button
-            type="button"
-            className="btn btn-primary"
+          <Button
+            size="lg"
             onClick={() => void onAnalyzeFile()}
             disabled={!selectedFile || isBusy}
+            loading={isParsing}
           >
-            {isParsing ? "Analyse..." : "Analyser"}
-          </button>
+            Analyser
+          </Button>
 
-          <button
-            type="button"
-            className="btn btn-secondary"
+          <Button
+            variant="outline"
+            size="lg"
             onClick={onClearSelection}
             disabled={!selectedFile || isBusy}
           >
             Vider
-          </button>
+          </Button>
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          {selectedFile ? <p>{selectedFile.name}</p> : null}
+          {selectedFile ? <p className="min-w-0 break-all">{selectedFile.name}</p> : null}
           {sourceImportId ? (
-            <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+            <Badge variant="success" size="sm">
               Trace canonique liée
-            </span>
+            </Badge>
           ) : null}
-          {detectedEncoding ? <p>Encodage: {detectedEncoding}</p> : null}
+          {detectedEncoding ? <p>Encodage : {detectedEncoding}</p> : null}
           {detectedProfile ? (
-            <span className="rounded-full border border-primary bg-primary/10 px-2 py-0.5 text-primary">
+            <Badge variant="brand" size="sm">
               {getProfileLabel(detectedProfile)}
-            </span>
+            </Badge>
           ) : null}
-          <button
-            type="button"
-            className="text-xs text-primary underline hover:no-underline"
-            onClick={onDownloadCsvTemplate}
-          >
+          <Button variant="link" size="xs" className="text-xs underline" onClick={onDownloadCsvTemplate}>
             Télécharger un modèle CSV
-          </button>
+          </Button>
         </div>
       </div>
 
       {showProgress ? (
-        <div className="rounded-xl border border-border bg-surface p-4">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="font-medium text-slate-800">
-              {isParsing ? "Analyse du fichier en cours..." : "Validation des lignes en cours..."}
+        <div className="rounded-lg border border-border bg-surface p-4" role="status">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span className="font-medium text-foreground">
+              {isParsing ? "Analyse du fichier en cours…" : "Validation des lignes en cours…"}
             </span>
             <span className="text-muted-foreground">
-              {isParsing ? "Preparation..." : getProgressLabel(progress)}
+              {isParsing ? "Préparation…" : getProgressLabel(progress)}
             </span>
           </div>
 
-          <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
+          <div className="mt-3 h-2 w-full rounded-full bg-muted">
             <div
-              className={`h-2 rounded-full bg-primary ${isParsing ? "animate-pulse" : ""}`}
+              className={cn(
+                "h-2 rounded-full bg-primary",
+                isParsing && "animate-pulse motion-reduce:animate-none"
+              )}
               style={{ width: isParsing ? "100%" : `${progress?.percentage ?? 0}%` }}
             />
           </div>
@@ -177,8 +186,8 @@ export function PriceBookUploadStep({
       ) : null}
 
       {hasRows ? (
-        <div className="rounded-xl border border-border bg-surface-subtle p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Étape 2 - Associer les colonnes</h3>
+        <div className="rounded-lg border border-border bg-surface-subtle p-4">
+          <h3 className="text-sm font-semibold text-foreground">Étape 2 — Associer les colonnes</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             {formatNumber(rowsCount)} ligne(s) détectée(s), {autoMappedCount} colonne(s) associée(s)
             automatiquement.
@@ -197,16 +206,17 @@ export function PriceBookUploadStep({
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="btn btn-secondary"
+            <Button
+              variant="outline"
+              size="lg"
               onClick={() => void onRefreshPreview()}
               disabled={!canValidate || isBusy}
+              loading={isValidating}
             >
-              {isValidating ? "Validation..." : "Mettre à jour l'aperçu"}
-            </button>
+              Mettre à jour l’aperçu
+            </Button>
             <span className="text-xs text-muted-foreground">
-              Champs requis : Fournisseur, Prix unitaire, et Référence ou Designation produit.
+              Champs requis : Fournisseur, Prix unitaire, et Référence ou Désignation produit.
             </span>
           </div>
         </div>

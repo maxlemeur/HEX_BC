@@ -1,18 +1,19 @@
 import { DpgfStepper } from "@/components/DpgfStepper";
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { CatalogueManager } from "@/components/catalogue/CatalogueManager";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default function DashboardCataloguePage() {
   return (
     <div className="animate-fade-in">
-      <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Catalogue" />
+      <PageHeader
+        breadcrumbs={[
+          { label: "Référentiel", href: "/dashboard/referentiel" },
+          { label: "Catalogue" },
+        ]}
+        title="Catalogue"
+        description="Gérez les articles du catalogue et liez les lignes importées aux produits."
+      />
       <DpgfStepper />
-      <div className="page-header">
-        <h1 className="page-title">Catalogue</h1>
-        <p className="page-description">
-          Gérez les articles du catalogue et liez les lignes importées aux produits.
-        </p>
-      </div>
 
       <CatalogueManager />
     </div>

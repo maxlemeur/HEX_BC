@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { CheckIcon, CopyIcon, InboxIcon } from "lucide-react";
 
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import type { ImportListItem } from "@/hooks/useImportFlow";
 
 type ImportHistoryTableProps = {
@@ -10,6 +15,8 @@ type ImportHistoryTableProps = {
   items: ImportListItem[];
   onCopyImportId: (importId: string) => void | Promise<void>;
 };
+
+const COLUMN_COUNT = 6;
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
@@ -46,21 +53,21 @@ function statusLabel(status: string): string {
   }
 }
 
-function statusClass(status: string): string {
+function statusVariant(status: string): NonNullable<BadgeProps["variant"]> {
   switch (status) {
     case "pending":
-      return "status-badge status-draft";
+      return "neutral";
     case "parsing":
     case "processing":
-      return "status-badge status-sent";
+      return "info";
     case "parsed":
     case "imported":
     case "completed":
-      return "status-badge status-confirmed";
+      return "success";
     case "failed":
-      return "status-badge status-canceled";
+      return "danger";
     default:
-      return "status-badge status-archived";
+      return "outline";
   }
 }
 
@@ -71,79 +78,82 @@ export function ImportHistoryTable({
   onCopyImportId,
 }: ImportHistoryTableProps) {
   return (
-    <div className="table-scroll">
+    <div className="table-scroll relative overflow-x-auto" role="region" aria-label="Historique des imports" tabIndex={0}>
       <table className="data-table">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>Nom</th>
-            <th>Statut</th>
-            <th>Lignes</th>
-            <th>Date</th>
-            <th></th>
+            <th scope="col">ID</th>
+            <th scope="col">Nom</th>
+            <th scope="col">Statut</th>
+            <th scope="col">Lignes</th>
+            <th scope="col">Date</th>
+            <th scope="col">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {isLoadingImports ? (
             <tr>
-              <td colSpan={6} className="py-8 text-center">
-                <div className="flex items-center justify-center gap-2">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary"></div>
-                  <span className="text-sm text-muted-foreground">Chargement...</span>
-                </div>
+              <td colSpan={COLUMN_COUNT} className="p-0">
+                <LoadingState label="Chargement des imports…" className="py-8" />
               </td>
             </tr>
           ) : items.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                Aucun import trouvé.
-              </td>
-            </tr>
+            <EmptyTableRow
+              colSpan={COLUMN_COUNT}
+              variant="compact"
+              icon={<InboxIcon />}
+              title="Aucun import trouvé"
+              description="Modifiez le filtre ou la recherche, ou importez un nouveau fichier."
+            />
           ) : (
-            items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs text-slate-600">
-                      {item.id.slice(0, 8)}
-                    </code>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-primary hover:underline"
-                      onClick={() => void onCopyImportId(item.id)}
-                    >
-                      {copiedImportId === item.id ? "Copie" : "Copier"}
-                    </button>
-                  </div>
-                </td>
-                <td className="max-w-[280px]">
-                  <span className="block truncate font-medium text-slate-800">
-                    {item.fileName}
-                  </span>
-                </td>
-                <td>
-                  <span className={statusClass(item.status)}>
-                    {statusLabel(item.status)}
-                  </span>
-                </td>
-                <td className="font-mono text-foreground-secondary">
-                  {formatRowsCount(item.rowsCount)}
-                </td>
-                <td className="text-sm text-muted-foreground">
-                  {formatDate(item.createdAt)}
-                </td>
-                <td>
-                  {["parsed", "imported", "completed"].includes(item.status) ? (
-                    <Link
-                      href={`/dashboard/mappings?import_id=${item.id}`}
-                      className="text-xs font-medium text-primary hover:underline"
-                    >
-                      Continuer
-                    </Link>
-                  ) : null}
-                </td>
-              </tr>
-            ))
+            items.map((item) => {
+              const copied = copiedImportId === item.id;
+              return (
+                <tr key={item.id}>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-foreground-secondary">{item.id.slice(0, 8)}</code>
+                      <Button
+                        variant="link"
+                        size="xs"
+                        aria-label={copied ? "Identifiant copié" : `Copier l’identifiant de ${item.fileName}`}
+                        onClick={() => void onCopyImportId(item.id)}
+                        leftIcon={copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
+                      >
+                        {copied ? "Copié" : "Copier"}
+                      </Button>
+                    </div>
+                  </td>
+                  <td className="max-w-72">
+                    <span className="block truncate font-medium text-foreground" title={item.fileName}>
+                      {item.fileName}
+                    </span>
+                  </td>
+                  <td>
+                    <Badge variant={statusVariant(item.status)} size="sm">
+                      {statusLabel(item.status)}
+                    </Badge>
+                  </td>
+                  <td className="font-mono text-foreground-secondary">
+                    {formatRowsCount(item.rowsCount)}
+                  </td>
+                  <td className="text-sm text-muted-foreground">{formatDate(item.createdAt)}</td>
+                  <td>
+                    {["parsed", "imported", "completed"].includes(item.status) ? (
+                      <Link
+                        href={`/dashboard/mappings?import_id=${item.id}`}
+                        className={buttonVariants({ variant: "link", size: "xs" })}
+                        aria-label={`Continuer le mapping de ${item.fileName}`}
+                      >
+                        Continuer
+                      </Link>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>

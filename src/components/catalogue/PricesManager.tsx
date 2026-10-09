@@ -22,15 +22,19 @@ import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceL
 import { useSupplierPricesList } from "@/components/catalogue/prices-manager/useSupplierPricesList";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
 import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
+import { PageHeader } from "@/components/layout/page-header";
+import { StatCard, StatGrid } from "@/components/layout/stat-card";
+import { LoadingState } from "@/components/layout/loading-state";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
-import { ChevronDownIcon, PlusIcon, UploadIcon } from "lucide-react";
+import { ChevronDownIcon, DownloadIcon, FileSpreadsheetIcon, PlusIcon, UploadIcon } from "lucide-react";
 
 // --- Filter & Sort config ---
 
 const FRESHNESS_FILTER_OPTIONS = [
-  { value: "fresh", label: "À jour (< 30j)" },
-  { value: "aging", label: "Vieillissant (30-90j)" },
-  { value: "stale", label: "Ancien (> 90j)" },
+  { value: "fresh", label: "À jour (< 30 j)" },
+  { value: "aging", label: "Vieillissant (30–90 j)" },
+  { value: "stale", label: "Ancien (> 90 j)" },
 ];
 
 const PRICES_FILTERS: FilterConfig[] = [
@@ -50,7 +54,7 @@ const PRICES_SORT_OPTIONS: SortOption[] = [
   { key: "supplier", label: "Fournisseur", defaultDirection: "asc" },
   { key: "product", label: "Produit", defaultDirection: "asc" },
   { key: "unit_price_cents", label: "Prix HT" },
-  { key: "updated_at", label: "Dernière MAJ", defaultDirection: "desc" },
+  { key: "updated_at", label: "Dernière mise à jour", defaultDirection: "desc" },
 ];
 
 const PRICE_PAGE_SIZES = [25, 50, 100] as const;
@@ -206,32 +210,35 @@ export function PricesManager({
   return (
     <div className="space-y-6">
       {!embedded ? (
-        <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-          <div className="min-w-0">
-            <h1 className="page-title">Prix fournisseurs</h1>
-            <p className="page-description">
-              Gérez les tarifs de vos fournisseurs. Ajoutez-les un par un ou importez-les en masse depuis un fichier CSV.
-            </p>
-          </div>
-          <button
-            className="btn btn-primary btn-lg w-full shrink-0 sm:w-auto"
-            type="button"
-            onClick={openCreateForm}
-          >
-            <PlusIcon aria-hidden="true" size={20} />
-            Ajouter un fournisseur / tarif
-          </button>
-        </div>
+        <PageHeader
+          className="mb-0 sm:mb-0"
+          breadcrumbs={[
+            { label: "Tarifs", href: "/dashboard/tarifs" },
+            { label: "Prix fournisseurs" },
+          ]}
+          title="Prix fournisseurs"
+          description="Gérez les tarifs de vos fournisseurs. Ajoutez-les un par un ou importez-les en masse depuis un fichier CSV."
+          actions={
+            <Button
+              size="lg"
+              className="w-full sm:w-auto"
+              leftIcon={<PlusIcon aria-hidden="true" />}
+              onClick={openCreateForm}
+            >
+              Ajouter un fournisseur / tarif
+            </Button>
+          }
+        />
       ) : null}
 
       {productId ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info-border bg-info-subtle px-4 py-3 text-sm text-foreground">
+          <div className="min-w-0">
             <span className="font-semibold">Tarifs du produit :</span>{" "}
-            {focusedProductName ?? "chargement du produit..."}
+            {focusedProductName ?? "chargement du produit…"}
           </div>
           <Link
-            className="btn btn-secondary btn-sm"
+            className={buttonVariants({ variant: "outline", size: "md" })}
             href={`/dashboard/products?product_id=${encodeURIComponent(productId)}`}
           >
             Retour à la fiche produit
@@ -242,59 +249,80 @@ export function PricesManager({
       {productId ? <ProductReferencePricePanel key={productId} productId={productId} /> : null}
 
       {!embedded ? (
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-950">
+        <section
+          aria-labelledby="price-template-title"
+          className="rounded-lg border border-success-border bg-success-subtle px-4 py-4 text-sm sm:px-5"
+        >
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="max-w-3xl">
-              <h2 className="font-semibold">Modèle officiel produits + tarifs</h2>
-              <p className="mt-1 text-emerald-800">
+              <h2 id="price-template-title" className="font-semibold text-foreground">
+                Modèle officiel produits + tarifs
+              </h2>
+              <p className="mt-1 text-foreground-secondary">
                 Faites compléter un seul fichier par vos équipes, contrôlez son aperçu, puis enregistrez les produits et les prix fournisseurs ensemble.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <a className="btn btn-secondary btn-sm" href={TEMPLATE_FILE_URL} download>
+              <a
+                className={buttonVariants({ variant: "outline", size: "md" })}
+                href={TEMPLATE_FILE_URL}
+                download
+              >
+                <DownloadIcon aria-hidden="true" />
                 Télécharger le modèle
               </a>
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
+              <Button
+                size="md"
+                leftIcon={<FileSpreadsheetIcon aria-hidden="true" />}
                 onClick={() => setIsTemplateImportOpen(true)}
               >
                 Importer le modèle
-              </button>
+              </Button>
             </div>
           </div>
         </section>
       ) : null}
 
       {/* CSV Import - collapsible */}
-      <section className="dashboard-card overflow-hidden">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between px-6 py-4 text-left"
-          onClick={() => setIsCsvOpen((prev) => !prev)}
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <UploadIcon aria-hidden="true" stroke="var(--brand-blue)" strokeWidth="1.75" size={20} />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-slate-800">
-                Importer un fichier de prix (CSV)
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Importez vos prix depuis un fichier CSV avec un assistant guide en 5 étapes.
-              </p>
-            </div>
-          </div>
-          <ChevronDownIcon aria-hidden="true" stroke="var(--slate-400)" className={`transition-transform ${isCsvOpen ? "rotate-180" : ""}`} size={20} />
-        </button>
+      <section
+        aria-labelledby="price-csv-import-title"
+        className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
+      >
+        <h2 id="price-csv-import-title" className="m-0">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:px-6"
+            aria-expanded={isCsvOpen}
+            aria-controls="price-csv-import-panel"
+            onClick={() => setIsCsvOpen((prev) => !prev)}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              >
+                <UploadIcon className="size-5" strokeWidth={1.75} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">
+                  Importer un fichier de prix (CSV)
+                </span>
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Importez vos prix depuis un fichier CSV avec un assistant guidé en 5 étapes.
+                </span>
+              </span>
+            </span>
+            <ChevronDownIcon
+              aria-hidden="true"
+              className={`size-5 shrink-0 text-subtle-foreground transition-transform motion-reduce:transition-none ${isCsvOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+        </h2>
 
         {isCsvOpen ? (
-          <div className="border-t border-border">
+          <div id="price-csv-import-panel" className="border-t border-border">
             {isImportLookupsLoading ? (
-              <p className="px-6 py-8 text-sm text-muted-foreground" role="status">
-                Chargement des référentiels pour l’import...
-              </p>
+              <LoadingState label="Chargement des référentiels pour l’import…" />
             ) : (
               <PriceBookCsvImport
                 onImported={handleImported}
@@ -308,29 +336,17 @@ export function PricesManager({
 
       {/* Stats cards */}
       {data && stats.total > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total prix</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">{stats.total}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">À jour</p>
-            <p className="mt-1 text-lg font-semibold text-emerald-700">{stats.fresh}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Anciens (&gt; 90j)</p>
-            <p className="mt-1 text-lg font-semibold text-danger">{stats.stale}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Fournisseurs couverts</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">{stats.uniqueSuppliers}</p>
-          </div>
-        </div>
+        <StatGrid label="Synthèse des prix fournisseurs">
+          <StatCard label="Total prix" value={stats.total} />
+          <StatCard label="À jour" value={stats.fresh} tone="success" />
+          <StatCard label="Anciens (> 90 j)" value={stats.stale} tone="danger" />
+          <StatCard label="Fournisseurs couverts" value={stats.uniqueSuppliers} />
+        </StatGrid>
       ) : null}
 
       <ServerTableFilterBar
         searchValue={searchInput}
-        searchPlaceholder="Rechercher par fournisseur ou produit..."
+        searchPlaceholder="Rechercher par fournisseur ou produit…"
         filterState={filterState}
         filters={PRICES_FILTERS}
         sortOptions={PRICES_SORT_OPTIONS}

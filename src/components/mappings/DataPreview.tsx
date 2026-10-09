@@ -1,5 +1,11 @@
 "use client";
 
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { NativeSelect } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
+
 type MappingValidation = {
   is_valid: boolean;
   missing_required_fields: string[];
@@ -20,6 +26,8 @@ type DuplicatesSummary = {
   total_rows_impacted: number;
 };
 
+const PREVIEW_COLUMNS = 9;
+
 function normalizeCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
@@ -30,6 +38,10 @@ function normalizeCell(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function plural(count: number, singular: string, pluralForm: string) {
+  return `${count} ${count > 1 ? pluralForm : singular}`;
 }
 
 export function DataPreview({
@@ -48,13 +60,18 @@ export function DataPreview({
   onPreviewLimitChange?: (limit: number) => void;
 }) {
   return (
-    <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-border px-6 py-4">
+    <section
+      aria-labelledby="mapping-preview-title"
+      className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
+    >
+      <div className="border-b border-border px-4 py-4 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-800">Aperçu des données mappees</h2>
+          <div className="min-w-0">
+            <h2 id="mapping-preview-title" className="text-sm font-semibold text-foreground">
+              Aperçu des données mappées
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Vérification rapide des champs requis et detection des doublons.
+              Vérification rapide des champs requis et détection des doublons.
             </p>
           </div>
 
@@ -64,9 +81,10 @@ export function DataPreview({
               <label className="text-xs text-muted-foreground" htmlFor="preview-limit">
                 Lignes :
               </label>
-              <select
+              <NativeSelect
                 id="preview-limit"
-                className="form-input form-select form-input--sm w-auto"
+                size="sm"
+                wrapperClassName="w-auto"
                 value={previewLimit}
                 onChange={(event) => onPreviewLimitChange(Number(event.target.value))}
               >
@@ -74,85 +92,105 @@ export function DataPreview({
                 <option value={50}>50</option>
                 <option value={100}>100</option>
                 <option value={200}>200</option>
-              </select>
+              </NativeSelect>
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="grid gap-3 border-b border-border px-6 py-4 sm:grid-cols-3">
-        <div className={`rounded-xl border px-4 py-3 ${validation?.is_valid ? "border-success bg-emerald-50" : "border-border bg-surface-subtle"}`}>
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Validation</p>
-          <p className={`mt-1 text-sm font-semibold ${validation?.is_valid ? "text-emerald-700" : "text-slate-800"}`}>
-            {validation ? (validation.is_valid ? "Prêt à enregistrer" : "Mapping en cours\u2026") : "-"}
+      <div className="grid gap-3 border-b border-border px-4 py-4 sm:grid-cols-3 sm:px-6">
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-3",
+            validation?.is_valid ? "border-success-border bg-success-subtle" : "border-border bg-surface-subtle"
+          )}
+        >
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">Validation</p>
+          <p
+            className={cn(
+              "mt-1 text-sm font-semibold",
+              validation?.is_valid ? "text-success" : "text-foreground"
+            )}
+          >
+            {validation ? (validation.is_valid ? "Prêt à enregistrer" : "Mapping en cours…") : "—"}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Champs à compléter</p>
-          <p className="mt-1 text-sm font-semibold text-slate-800">
-            {validation ? validation.missing_required_fields.length : "-"}
+        <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">Champs à compléter</p>
+          <p className="mt-1 text-sm font-semibold text-foreground">
+            {validation ? validation.missing_required_fields.length : "—"}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Doublons</p>
-          <p className="mt-1 text-sm font-semibold text-slate-800">
-            {duplicates ? duplicates.total_groups : "-"}
+        <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">Doublons</p>
+          <p className="mt-1 text-sm font-semibold text-foreground">
+            {duplicates ? duplicates.total_groups : "—"}
           </p>
         </div>
       </div>
 
       {validation && validation.missing_required_fields.length > 0 ? (
-        <div className="alert alert-info m-4">
-          <p className="font-medium">Champs à compléter</p>
-          <ul className="mt-1 list-inside list-disc text-sm">
-            {validation.missing_required_fields.map((field) => (
-              <li key={field}>{field}</li>
-            ))}
-          </ul>
+        <div className="px-4 pt-4 sm:px-6">
+          <Alert variant="info">
+            <AlertTitle>Champs requis à mapper</AlertTitle>
+            <ul className="mt-1 list-inside list-disc text-sm text-foreground-secondary">
+              {validation.missing_required_fields.map((field) => (
+                <li key={field}>{field}</li>
+              ))}
+            </ul>
+          </Alert>
         </div>
       ) : null}
 
       {validation && validation.duplicate_target_assignments.length > 0 ? (
-        <div className="m-4 rounded-xl border border-warning/30 bg-warning-light px-4 py-3 text-sm text-warning">
-          <p className="font-medium">Cibles dupliquees</p>
-          <ul className="mt-1 list-inside list-disc">
-            {validation.duplicate_target_assignments.map((entry) => (
-              <li key={entry.target}>
-                <span className="font-medium">{entry.target}</span> assigne a : {entry.sources.join(", ")}
-              </li>
-            ))}
-          </ul>
+        <div className="px-4 pt-4 sm:px-6">
+          <Alert variant="warning">
+            <AlertTitle>Cibles dupliquées</AlertTitle>
+            <ul className="mt-1 list-inside list-disc text-foreground-secondary">
+              {validation.duplicate_target_assignments.map((entry) => (
+                <li key={entry.target}>
+                  <span className="font-medium">{entry.target}</span> assigné à : {entry.sources.join(", ")}
+                </li>
+              ))}
+            </ul>
+          </Alert>
         </div>
       ) : null}
 
-      <div className="table-scroll">
+      <div
+        className="table-scroll relative mt-4 overflow-x-auto border-t border-border-subtle"
+        role="region"
+        aria-label="Aperçu des lignes mappées"
+        tabIndex={0}
+      >
         <table className="data-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Référence article</th>
-              <th>Designation</th>
-              <th>Quantité</th>
-              <th>Unité</th>
-              <th>Prix fourniture</th>
-              <th>Type FO</th>
-              <th>Majoration MO</th>
-              <th>État</th>
+              <th scope="col">#</th>
+              <th scope="col">Référence article</th>
+              <th scope="col">Désignation</th>
+              <th scope="col">Quantité</th>
+              <th scope="col">Unité</th>
+              <th scope="col">Prix fourniture</th>
+              <th scope="col">Type FO</th>
+              <th scope="col">Majoration MO</th>
+              <th scope="col">État</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody aria-busy={isLoading || undefined}>
             {isLoading ? (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
-                  Chargement de l&apos;aperçu...
+                <td colSpan={PREVIEW_COLUMNS} className="py-8 text-center text-sm text-muted-foreground">
+                  <span role="status">Chargement de l’aperçu…</span>
                 </td>
               </tr>
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
-                  Aucun aperçu disponible.
-                </td>
-              </tr>
+              <EmptyTableRow
+                colSpan={PREVIEW_COLUMNS}
+                variant="compact"
+                title="Aucun aperçu disponible"
+                description="Sélectionnez un import et mappez au moins une colonne."
+              />
             ) : (
               rows.map((row) => {
                 const hasMissingRequired = row.missing_required_fields.length > 0;
@@ -168,13 +206,9 @@ export function DataPreview({
                     <td>{normalizeCell(row.mapped_row.supply_type)}</td>
                     <td>{normalizeCell(row.mapped_row.h_mo_majoration)}</td>
                     <td>
-                      <span
-                        className={
-                          hasMissingRequired ? "status-badge status-draft" : "status-badge status-confirmed"
-                        }
-                      >
+                      <Badge variant={hasMissingRequired ? "warning" : "success"} size="sm">
                         {hasMissingRequired ? "À compléter" : "OK"}
-                      </span>
+                      </Badge>
                     </td>
                   </tr>
                 );
@@ -185,10 +219,10 @@ export function DataPreview({
       </div>
 
       {duplicates ? (
-        <div className="border-t border-border px-6 py-4 text-xs text-muted-foreground">
+        <div className="border-t border-border px-4 py-4 text-xs text-muted-foreground sm:px-6">
           {duplicates.total_groups > 0
-            ? `${duplicates.total_groups} groupe(s) de doublons detecte(s), ${duplicates.total_rows_impacted} ligne(s) impactee(s).`
-            : "Aucun doublon detecte sur les lignes analysees."}
+            ? `${plural(duplicates.total_groups, "groupe de doublons détecté", "groupes de doublons détectés")}, ${plural(duplicates.total_rows_impacted, "ligne impactée", "lignes impactées")}.`
+            : "Aucun doublon détecté sur les lignes analysées."}
         </div>
       ) : null}
     </section>

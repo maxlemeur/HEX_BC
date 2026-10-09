@@ -133,9 +133,11 @@ describe("PricesManager paginé", () => {
   it("uses an accessible contrast color for the fresh-price counter", () => {
     render(createElement(PricesManager));
     const freshCounter = screen
-      .getByText("À jour", { selector: "p" })
-      .parentElement?.querySelector("p.text-lg");
-    expect(freshCounter).toHaveClass("text-emerald-700");
+      .getByText("À jour", { selector: "dt span" })
+      .closest("div")
+      ?.querySelector("dd");
+    // text-success is the emerald-700 token (#047857), AA on the white card.
+    expect(freshCounter).toHaveClass("text-success");
   });
 
   it("changes server pages through the URL", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { SupplierPriceFormState } from "@/components/catalogue/prices-manager/types";
+import { Badge } from "@/components/ui/badge";
 
 export const EMPTY_FORM: SupplierPriceFormState = {
   supplier_id: "",
@@ -37,24 +38,12 @@ export function FreshnessBadge({
   ageDays: number;
 }) {
   if (level === "fresh") {
-    return (
-      <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-        À jour
-      </span>
-    );
+    return <Badge variant="success">À jour</Badge>;
   }
 
   if (level === "aging") {
-    return (
-      <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
-        Vieillissant ({ageDays}j)
-      </span>
-    );
+    return <Badge variant="warning">Vieillissant ({ageDays} j)</Badge>;
   }
 
-  return (
-    <span className="inline-flex rounded-full border border-danger/30 bg-error-light px-2 py-0.5 text-xs font-medium text-danger">
-      Ancien ({ageDays}j)
-    </span>
-  );
+  return <Badge variant="danger">Ancien ({ageDays} j)</Badge>;
 }

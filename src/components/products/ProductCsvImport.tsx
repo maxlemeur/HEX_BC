@@ -2,9 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { LoadingState } from "@/components/layout/loading-state";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { controlSurface } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 
 import { parseProductCsv } from "./product-csv";
 import type { ProductCsvParseResult } from "./product-csv";
@@ -94,7 +106,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
       setError(
         refreshError instanceof Error
           ? refreshError.message
-          : "Les produits sont importés, mais la liste n'a pas pu être actualisee."
+          : "Les produits sont importés, mais la liste n’a pas pu être actualisée."
       );
     } finally {
       setIsImporting(false);
@@ -102,35 +114,24 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
   }
 
   return (
-    <Modal.Root
+    <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isImporting) onClose();
       }}
     >
-      <Modal.Content
-        className="max-w-5xl overflow-hidden p-0"
-        closeOnEscapeKey={!isImporting}
-        closeOnOverlayClick={!isImporting}
-      >
-        <div className="border-b border-border px-6 py-4">
-          <Modal.Header className="mb-0">
-            <div>
-              <Modal.Title>Importer des produits</Modal.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Chargez un CSV séparé par une virgule ou un point-virgule.
-              </p>
-            </div>
-            <Modal.Close disabled={isImporting} />
-          </Modal.Header>
-        </div>
+      <DialogContent size="xl" className="sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Importer des produits</DialogTitle>
+          <DialogDescription>Chargez un CSV séparé par une virgule ou un point-virgule.</DialogDescription>
+        </DialogHeader>
 
-        <div className="max-h-[calc(90vh-76px)] space-y-5 overflow-y-auto p-6">
-          <section className="rounded-xl border border-dashed border-border-strong bg-surface-subtle p-4">
-            <label className="block text-sm font-semibold text-slate-800" htmlFor="product-csv-file">
+        <DialogBody className="gap-5">
+          <section className="rounded-lg border border-dashed border-border-strong bg-surface-subtle p-4">
+            <label className="block text-sm font-semibold text-foreground" htmlFor="product-csv-file">
               Fichier CSV
             </label>
-            <p id="product-csv-help" className="mb-3 mt-1 text-xs text-muted-foreground">
+            <p id="product-csv-help" className="mt-1 mb-3 text-xs text-muted-foreground">
               La désignation est obligatoire. Colonnes reconnues : référence, famille, type,
               matière, nuance, dimensions, norme, unité, prix unitaire HT et TVA.
             </p>
@@ -142,24 +143,27 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               aria-describedby="product-csv-help"
               disabled={isReading || isImporting}
               onChange={onFileChange}
-              className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:font-medium file:text-primary-foreground hover:file:brightness-105"
+              className={cn(
+                controlSurface,
+                "block w-full px-3 py-2.5 text-sm file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-4 file:py-1.5 file:font-medium file:text-primary-foreground hover:file:brightness-105"
+              )}
             />
-            {fileName ? <p className="mt-2 text-xs text-muted-foreground">Fichier : {fileName}</p> : null}
+            {fileName ? <p className="mt-2 break-all text-xs text-muted-foreground">Fichier : {fileName}</p> : null}
           </section>
 
-          <div aria-live="polite">
-            {isReading ? <div className="alert alert-info">Analyse du fichier...</div> : null}
-            {error ? <div className="alert alert-error" role="alert">{error}</div> : null}
-            {success ? <div className="alert alert-success">{success}</div> : null}
+          <div aria-live="polite" className="space-y-3 empty:hidden">
+            {isReading ? <LoadingState label="Analyse du fichier…" className="justify-start py-0" /> : null}
+            {error ? <Alert variant="danger">{error}</Alert> : null}
+            {success ? <Alert variant="success">{success}</Alert> : null}
           </div>
 
           {result ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <dl className="grid gap-3 sm:grid-cols-3">
                 <SummaryCard label="Lignes valides" value={result.acceptedRows.length} tone="success" />
                 <SummaryCard label="Lignes rejetées" value={result.rejectedRows.length} tone="danger" />
                 <SummaryCard label="Séparateur détecté" value={result.delimiter === ";" ? "Point-virgule" : "Virgule"} />
-              </div>
+              </dl>
 
               {result.ignoredColumns.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -170,29 +174,34 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               {result.acceptedRows.length > 0 ? (
                 <section aria-labelledby="product-csv-preview-title">
                   <div className="mb-2 flex items-baseline justify-between gap-3">
-                    <h3 id="product-csv-preview-title" className="text-sm font-semibold text-slate-800">
+                    <h3 id="product-csv-preview-title" className="text-sm font-semibold text-foreground">
                       Aperçu des lignes valides
                     </h3>
                     <span className="text-xs text-muted-foreground">10 premières lignes</span>
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-border">
+                  <div
+                    className="relative overflow-x-auto rounded-lg border border-border"
+                    role="region"
+                    aria-label="Aperçu des lignes valides"
+                    tabIndex={0}
+                  >
                     <table className="w-full min-w-[760px] text-left text-sm">
                       <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
-                          <th className="px-3 py-2 font-semibold">Référence</th>
-                          <th className="px-3 py-2 font-semibold">Désignation</th>
-                          <th className="px-3 py-2 font-semibold">Famille</th>
-                          <th className="px-3 py-2 font-semibold">Matière / nuance</th>
-                          <th className="px-3 py-2 text-right font-semibold">Prix HT</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Référence</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Famille</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Matière / nuance</th>
+                          <th scope="col" className="px-3 py-2 text-right font-semibold">Prix HT</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border-subtle">
                         {result.acceptedRows.slice(0, 10).map((row, index) => (
                           <tr key={`${row.reference ?? row.designation}-${index}`}>
-                            <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.reference ?? "—"}</td>
-                            <td className="px-3 py-2 font-medium text-slate-800">{row.designation}</td>
-                            <td className="px-3 py-2 text-slate-600">{row.category ?? "—"}</td>
-                            <td className="px-3 py-2 text-slate-600">
+                            <td className="px-3 py-2 font-mono text-xs text-foreground-secondary">{row.reference ?? "—"}</td>
+                            <td className="px-3 py-2 font-medium text-foreground">{row.designation}</td>
+                            <td className="px-3 py-2 text-foreground-secondary">{row.category ?? "—"}</td>
+                            <td className="px-3 py-2 text-foreground-secondary">
                               {[row.material, row.grade].filter(Boolean).join(" · ") || "—"}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
@@ -208,24 +217,29 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
 
               {result.rejectedRows.length > 0 ? (
                 <section aria-labelledby="product-csv-rejected-title">
-                  <h3 id="product-csv-rejected-title" className="mb-2 text-sm font-semibold text-red-800">
+                  <h3 id="product-csv-rejected-title" className="mb-2 text-sm font-semibold text-danger">
                     Lignes rejetées
                   </h3>
-                  <div className="max-h-40 overflow-auto rounded-xl border border-red-200">
+                  <div
+                    className="relative max-h-40 overflow-auto rounded-lg border border-danger-border"
+                    role="region"
+                    aria-label="Lignes rejetées"
+                    tabIndex={0}
+                  >
                     <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-red-50 text-xs uppercase tracking-wide text-red-700">
+                      <thead className="sticky top-0 bg-danger-subtle text-xs uppercase tracking-wide text-danger">
                         <tr>
-                          <th className="px-3 py-2 font-semibold">Ligne</th>
-                          <th className="px-3 py-2 font-semibold">Désignation</th>
-                          <th className="px-3 py-2 font-semibold">Motif</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Ligne</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Motif</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-red-100">
+                      <tbody className="divide-y divide-danger-border">
                         {result.rejectedRows.map((row) => (
                           <tr key={row.line}>
-                            <td className="px-3 py-2 tabular-nums text-slate-600">{row.line}</td>
+                            <td className="px-3 py-2 tabular-nums text-foreground-secondary">{row.line}</td>
                             <td className="px-3 py-2 text-foreground-secondary">{row.designation || "—"}</td>
-                            <td className="px-3 py-2 text-red-700">{row.reasons.join(" ; ")}</td>
+                            <td className="px-3 py-2 text-danger">{row.reasons.join(" ; ")}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -235,25 +249,25 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               ) : null}
             </>
           ) : null}
+        </DialogBody>
 
-          <Modal.Footer className="border-t border-border pt-4">
-            <Button type="button" variant="ghost" disabled={isImporting} onClick={onClose}>
-              {success ? "Fermer" : "Annuler"}
+        <DialogFooter className="border-t border-border pt-4">
+          <Button variant="outline" size="lg" disabled={isImporting} onClick={onClose}>
+            {success ? "Fermer" : "Annuler"}
+          </Button>
+          {!success ? (
+            <Button
+              size="lg"
+              loading={isImporting}
+              disabled={!result || result.acceptedRows.length === 0 || isReading}
+              onClick={importProducts}
+            >
+              Importer {result?.acceptedRows.length ? `(${result.acceptedRows.length})` : ""}
             </Button>
-            {!success ? (
-              <Button
-                type="button"
-                loading={isImporting}
-                disabled={!result || result.acceptedRows.length === 0 || isReading}
-                onClick={importProducts}
-              >
-                Importer {result?.acceptedRows.length ? `(${result.acceptedRows.length})` : ""}
-              </Button>
-            ) : null}
-          </Modal.Footer>
-        </div>
-      </Modal.Content>
-    </Modal.Root>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -266,11 +280,11 @@ function SummaryCard({
   value: number | string;
   tone?: "neutral" | "success" | "danger";
 }>) {
-  const valueClass = tone === "success" ? "text-emerald-700" : tone === "danger" ? "text-red-700" : "text-slate-800";
+  const valueClass = tone === "success" ? "text-success" : tone === "danger" ? "text-danger" : "text-foreground";
   return (
-    <div className="rounded-xl border border-border bg-surface px-4 py-3">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-lg font-semibold ${valueClass}`}>{value}</p>
+    <div className="rounded-lg border border-border bg-surface px-4 py-3">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className={`mt-1 text-lg font-semibold ${valueClass}`}>{value}</dd>
     </div>
   );
 }

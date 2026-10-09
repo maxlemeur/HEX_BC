@@ -5,7 +5,18 @@ import { useEffect, useState } from "react";
 import { fetchApi } from "@/components/catalogue/api";
 import type { SupplierCatalogItem } from "@/components/catalogue/types";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui-legacy/Toast";
 
 type SupplierCatalogItemModalProps = {
@@ -50,7 +61,7 @@ export function SupplierCatalogItemModal({
       return;
     }
     if (!isHttpUrl(productUrl)) {
-      setError("L'URL fournisseur doit commencer par http:// ou https://.");
+      setError("L’URL fournisseur doit commencer par http:// ou https://.");
       return;
     }
 
@@ -82,63 +93,52 @@ export function SupplierCatalogItemModal({
   }
 
   return (
-    <Modal.Root
+    <Dialog
       open={item !== null}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={(open) => {
+        if (!open && !isSaving) onClose();
+      }}
     >
-      <Modal.Content className="max-w-xl">
-        <Modal.Header>
-          <div>
-            <Modal.Title>Modifier la fiche fournisseur</Modal.Title>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Ces informations s&apos;appliquent à tous les tarifs de{" "}
-              {item?._supplierName} pour {item?._productName}.
-            </p>
-          </div>
-        </Modal.Header>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>Modifier la fiche fournisseur</DialogTitle>
+          <DialogDescription>
+            Ces informations s’appliquent à tous les tarifs de {item?._supplierName} pour{" "}
+            {item?._productName}.
+          </DialogDescription>
+        </DialogHeader>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <label className="block space-y-1.5 text-xs font-semibold text-foreground-secondary">
-            Référence fournisseur
-            <input
-              className="form-input"
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor="supplier-item-sku">Référence fournisseur</FieldLabel>
+            <Input
+              id="supplier-item-sku"
               value={supplierSku}
               onChange={(event) => setSupplierSku(event.target.value)}
             />
-          </label>
-          <label className="block space-y-1.5 text-xs font-semibold text-foreground-secondary">
-            URL fournisseur
-            <input
-              className="form-input"
+          </div>
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor="supplier-item-url">URL fournisseur</FieldLabel>
+            <Input
+              id="supplier-item-url"
               type="url"
+              inputMode="url"
+              placeholder="https://"
               value={productUrl}
               onChange={(event) => setProductUrl(event.target.value)}
             />
-          </label>
-          {error ? (
-            <div className="alert alert-error" role="alert">
-              {error}
-            </div>
-          ) : null}
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              className="btn btn-secondary"
-              type="button"
-              disabled={isSaving}
-              onClick={onClose}
-            >
-              Annuler
-            </button>
-            <button
-              className="btn btn-primary"
-              type="submit"
-              disabled={isSaving}
-            >
-              {isSaving ? "Enregistrement..." : "Enregistrer la fiche"}
-            </button>
           </div>
+          {error ? <Alert variant="danger">{error}</Alert> : null}
+          <DialogFooter>
+            <Button variant="outline" size="lg" disabled={isSaving} onClick={onClose}>
+              Annuler
+            </Button>
+            <Button type="submit" size="lg" loading={isSaving}>
+              Enregistrer la fiche
+            </Button>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }

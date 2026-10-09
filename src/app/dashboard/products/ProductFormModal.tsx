@@ -1,11 +1,25 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ChevronDownIcon, XIcon } from "lucide-react";
 
-import { Modal } from "@/components/ui-legacy/Modal";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { parseEuroToCents } from "@/lib/money";
-import { ChevronDownIcon } from "lucide-react";
 
 export type ProductRecord = {
   id: string;
@@ -182,117 +196,84 @@ export function ProductFormModal({
     });
   }
 
+  function setField<K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content
-        className="max-h-[92vh] max-w-3xl overflow-hidden p-0"
-        closeOnEscapeKey={!isSaving}
-        closeOnOverlayClick={!isSaving}
-      >
-        <div className="border-b border-border px-6 py-5">
-          <Modal.Header className="mb-0">
-            <div>
-              <Modal.Title>{title}</Modal.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Une désignation suffit pour créer l’article. Tout le reste peut
-                être complété plus tard.
-              </p>
-            </div>
-            <Modal.Close
-              disabled={isSaving}
-              aria-label="Fermer le formulaire produit"
-            >
-              Fermer
-            </Modal.Close>
-          </Modal.Header>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" showCloseButton={false} className="gap-0 p-0 sm:p-0">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4 sm:px-6 sm:py-5">
+          <DialogHeader className="pr-0">
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>
+              Une désignation suffit pour créer l’article. Tout le reste peut être complété plus tard.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogClose
+            disabled={isSaving}
+            aria-label="Fermer le formulaire produit"
+            render={<Button variant="ghost" size="icon-sm" className="shrink-0" />}
+          >
+            <XIcon aria-hidden="true" />
+          </DialogClose>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <Modal.Body className="max-h-[calc(92vh-10rem)] overflow-y-auto px-6 py-5">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogBody className="min-h-0 flex-1 gap-6 overflow-y-auto px-5 py-5 sm:px-6">
             <fieldset>
-              <legend className="text-sm font-semibold text-slate-800">
-                Identification
-              </legend>
+              <legend className="text-sm font-semibold text-foreground">Identification</legend>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="form-label" htmlFor="product-reference">
-                    Référence
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-reference">Référence</FieldLabel>
+                  <Input
                     id="product-reference"
-                    className="form-input"
                     autoComplete="off"
                     placeholder="Ex. Tub.I4S.50"
+                    aria-describedby="product-reference-hint"
                     value={form.reference}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        reference: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("reference", event.target.value)}
                   />
-                  <p className="mt-1.5 text-xs text-muted-foreground">
+                  <FieldDescription id="product-reference-hint" className="text-xs">
                     Référence interne de l’article, distincte des références fournisseur.
-                  </p>
+                  </FieldDescription>
                   <ProductReferenceSuggestion
                     enabled={open && !isEditing}
                     value={form.reference}
-                    onUse={(reference) => setForm((current) => ({ ...current, reference }))}
+                    onUse={(reference) => setField("reference", reference)}
                   />
                 </div>
 
-                <div>
-                  <label className="form-label" htmlFor="product-designation">
-                    Désignation *
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-designation">Désignation *</FieldLabel>
+                  <Input
                     id="product-designation"
-                    className="form-input"
                     autoComplete="off"
                     placeholder="Ex. Tube inox 304L DN50"
                     required
                     value={form.designation}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        designation: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("designation", event.target.value)}
                   />
                 </div>
               </div>
             </fieldset>
 
-            <fieldset className="mt-6">
-              <legend className="text-sm font-semibold text-slate-800">
-                Classement
-              </legend>
+            <fieldset>
+              <legend className="text-sm font-semibold text-foreground">Classement</legend>
               <p className="mt-1 text-xs text-muted-foreground">
                 Ces deux champs pilotent les filtres du référentiel.
               </p>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="form-label" htmlFor="product-category">
-                    Famille
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-category">Famille</FieldLabel>
+                  <Input
                     id="product-category"
-                    className="form-input"
-                    list={
-                      categoryOptions.length > 0
-                        ? "product-category-options"
-                        : undefined
-                    }
+                    list={categoryOptions.length > 0 ? "product-category-options" : undefined}
                     placeholder="Ex. Tuyauterie"
                     value={form.category}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        category: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("category", event.target.value)}
                   />
                   {categoryOptions.length > 0 ? (
                     <datalist id="product-category-options">
@@ -303,26 +284,14 @@ export function ProductFormModal({
                   ) : null}
                 </div>
 
-                <div>
-                  <label className="form-label" htmlFor="product-material">
-                    Matière
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-material">Matière</FieldLabel>
+                  <Input
                     id="product-material"
-                    className="form-input"
-                    list={
-                      materialOptions.length > 0
-                        ? "product-material-options"
-                        : undefined
-                    }
+                    list={materialOptions.length > 0 ? "product-material-options" : undefined}
                     placeholder="Ex. Inox"
                     value={form.material}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        material: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("material", event.target.value)}
                   />
                   {materialOptions.length > 0 ? (
                     <datalist id="product-material-options">
@@ -335,205 +304,147 @@ export function ProductFormModal({
               </div>
             </fieldset>
 
-            <fieldset className="mt-6">
-              <legend className="text-sm font-semibold text-slate-800">
+            <fieldset>
+              <legend className="text-sm font-semibold text-foreground">
                 Unité et prix de référence
               </legend>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="form-label" htmlFor="product-unit">
-                    Unité
-                  </label>
-                  <select
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-unit">Unité</FieldLabel>
+                  <NativeSelect
                     id="product-unit"
-                    className="form-input form-select"
                     value={form.unit}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        unit: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("unit", event.target.value)}
                   >
                     <option value="u">Unité (u)</option>
                     <option value="ml">Mètre linéaire (ml)</option>
                     <option value="m2">Mètre carré (m²)</option>
                     <option value="kg">Kilogramme (kg)</option>
                     <option value="h">Heure (h)</option>
-                  </select>
+                  </NativeSelect>
                 </div>
 
-                <div>
-                  <label className="form-label" htmlFor="product-price">
-                    Prix de référence HT
-                  </label>
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-price">Prix de référence HT</FieldLabel>
                   <div className="relative">
-                    <input
+                    <Input
                       id="product-price"
-                      className="form-input"
+                      className="pr-12"
                       readOnly={isEditing}
                       inputMode="decimal"
                       placeholder="0,00"
-                      // `.form-input` impose padding:0 16px : la reserve pour le
-                      // suffixe ne peut pas passer par une utilitaire Tailwind.
-                      style={{ paddingRight: "3rem" }}
+                      aria-describedby="product-price-hint"
                       value={form.unit_price_euros}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          unit_price_euros: event.target.value,
-                        }))
-                      }
+                      onChange={(event) => setField("unit_price_euros", event.target.value)}
                     />
-                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-subtle-foreground">
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-sm text-subtle-foreground"
+                    >
                       EUR
                     </span>
                   </div>
-                  <p className="mt-1.5 text-xs text-muted-foreground">
+                  <FieldDescription id="product-price-hint" className="text-xs">
                     {isEditing
                       ? "Utilisez « Examiner le prix » dans le catalogue pour valider une moyenne fournisseur ou justifier un autre prix."
                       : "Prix initial facultatif. Les offres fournisseurs permettront ensuite de proposer une référence à valider."}
-                  </p>
+                  </FieldDescription>
                 </div>
               </div>
             </fieldset>
 
             <details
-              className="group mt-6 border-t border-border pt-4"
+              className="group border-t border-border pt-4"
               open={showTechnicalDetails}
-              onToggle={(event) =>
-                setShowTechnicalDetails(event.currentTarget.open)
-              }
+              onToggle={(event) => setShowTechnicalDetails(event.currentTarget.open)}
             >
               <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
                 <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-slate-800">
+                  <span className="block text-sm font-semibold text-foreground">
                     Détails techniques (optionnel)
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     Améliorent la recherche et les suggestions de tarifs.
                   </span>
                 </span>
-                <ChevronDownIcon aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+                <ChevronDownIcon
+                  aria-hidden="true"
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
+                />
               </summary>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="form-label" htmlFor="product-type">
-                    Type d’article
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-type">Type d’article</FieldLabel>
+                  <Input
                     id="product-type"
-                    className="form-input"
                     placeholder="Ex. Tube, coude, té"
                     value={form.product_type}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        product_type: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("product_type", event.target.value)}
                   />
                 </div>
 
-                <div>
-                  <label className="form-label" htmlFor="product-grade">
-                    Nuance
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-grade">Nuance</FieldLabel>
+                  <Input
                     id="product-grade"
-                    className="form-input"
                     placeholder="Ex. 304L"
                     value={form.grade}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        grade: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("grade", event.target.value)}
                   />
                 </div>
 
-                <div>
-                  <label className="form-label" htmlFor="product-dimensions">
-                    Dimensions
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-dimensions">Dimensions</FieldLabel>
+                  <Input
                     id="product-dimensions"
-                    className="form-input"
                     placeholder="Ex. DN50 · 60,3 × 2"
                     value={form.dimensions}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        dimensions: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("dimensions", event.target.value)}
                   />
                 </div>
 
-                <div>
-                  <label className="form-label" htmlFor="product-standard">
-                    Norme
-                  </label>
-                  <input
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-standard">Norme</FieldLabel>
+                  <Input
                     id="product-standard"
-                    className="form-input"
                     placeholder="Ex. EN 10217-7"
                     value={form.standard}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        standard: event.target.value,
-                      }))
-                    }
+                    onChange={(event) => setField("standard", event.target.value)}
                   />
                 </div>
               </div>
             </details>
 
             {isEditing ? (
-              <label className="mt-6 flex items-center gap-3 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
+              <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
                 <input
                   type="checkbox"
+                  className="size-4 accent-primary"
                   checked={form.is_active}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      is_active: event.target.checked,
-                    }))
-                  }
+                  onChange={(event) => setField("is_active", event.target.checked)}
                 />
                 Produit actif et proposé dans les recherches et chiffrages
               </label>
             ) : null}
 
-            {localError || error ? (
-              <div className="alert alert-error mt-5" role="alert">
-                {localError ?? error}
-              </div>
-            ) : null}
-          </Modal.Body>
+            {localError || error ? <Alert variant="danger">{localError ?? error}</Alert> : null}
+          </DialogBody>
 
-          <Modal.Footer className="mt-0 border-t border-border px-6 py-4">
-            <Modal.Close className="btn btn-secondary" disabled={isSaving}>
-              Annuler
-            </Modal.Close>
-            <button
-              className="btn btn-primary"
-              type="submit"
+          <DialogFooter className="mt-0 border-t border-border px-5 py-4 sm:px-6">
+            <DialogClose
               disabled={isSaving}
+              render={<Button variant="outline" size="lg" />}
             >
-              {isSaving
-                ? "Enregistrement..."
-                : isEditing
-                  ? "Enregistrer"
-                  : "Ajouter le produit"}
-            </button>
-          </Modal.Footer>
+              Annuler
+            </DialogClose>
+            <Button type="submit" size="lg" loading={isSaving}>
+              {isEditing ? "Enregistrer" : "Ajouter le produit"}
+            </Button>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }

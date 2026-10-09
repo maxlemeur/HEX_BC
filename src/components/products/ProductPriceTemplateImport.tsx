@@ -2,8 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { DownloadIcon } from "lucide-react";
+
+import { Alert } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { controlSurface } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   TEMPLATE_FILE_URL,
   type ProductPriceTemplateIssue,
@@ -153,7 +166,7 @@ export function ProductPriceTemplateImport({
       setError(
         importError instanceof Error
           ? importError.message
-          : "Impossible d'importer les produits et les tarifs."
+          : "Impossible d’importer les produits et les tarifs."
       );
     } finally {
       setIsImporting(false);
@@ -161,34 +174,25 @@ export function ProductPriceTemplateImport({
   }
 
   return (
-    <Modal.Root
+    <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !isBusy) onClose();
       }}
     >
-      <Modal.Content
-        className="max-w-6xl overflow-hidden p-0"
-        closeOnEscapeKey={!isBusy}
-        closeOnOverlayClick={!isBusy}
-      >
-        <div className="border-b border-border px-6 py-4">
-          <Modal.Header className="mb-0">
-            <div>
-              <Modal.Title>Importer des produits et tarifs</Modal.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Utilisez le modèle officiel pour ajouter votre catalogue en une seule opération.
-              </p>
-            </div>
-            <Modal.Close disabled={isBusy} aria-label="Fermer l'import du catalogue" />
-          </Modal.Header>
-        </div>
+      <DialogContent size="full" className="sm:max-w-6xl">
+        <DialogHeader>
+          <DialogTitle>Importer des produits et tarifs</DialogTitle>
+          <DialogDescription>
+            Utilisez le modèle officiel pour ajouter votre catalogue en une seule opération.
+          </DialogDescription>
+        </DialogHeader>
 
-        <Modal.Body className="max-h-[calc(90vh-76px)] overflow-y-auto p-6">
-          <section className="rounded-xl border border-border bg-surface-subtle p-4">
+        <DialogBody className="gap-5">
+          <section className="rounded-lg border border-border bg-surface-subtle p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">1. Préparer le fichier</h3>
+                <h3 className="text-sm font-semibold text-foreground">1. Préparer le fichier</h3>
                 <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
                   Complétez les feuilles Produits et Tarifs fournisseurs sans modifier leurs
                   en-têtes.
@@ -197,16 +201,17 @@ export function ProductPriceTemplateImport({
               <a
                 href={TEMPLATE_FILE_URL}
                 download
-                className="inline-flex h-9 items-center justify-center rounded-button border border-primary/20 px-4 text-sm font-medium text-primary transition hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className={buttonVariants({ variant: "secondary", size: "md" })}
               >
+                <DownloadIcon aria-hidden="true" />
                 Télécharger le modèle
               </a>
             </div>
           </section>
 
-          <section className="rounded-xl border border-dashed border-border-strong bg-surface p-4">
+          <section className="rounded-lg border border-dashed border-border-strong bg-surface p-4">
             <label
-              className="block text-sm font-semibold text-slate-800"
+              className="block text-sm font-semibold text-foreground"
               htmlFor="product-price-template-file"
             >
               2. Sélectionner le fichier XLSX
@@ -222,49 +227,43 @@ export function ProductPriceTemplateImport({
               aria-describedby="product-price-template-help"
               disabled={isBusy}
               onChange={handleFileChange}
-              className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:font-medium file:text-primary-foreground hover:file:brightness-105"
+              className={cn(
+                controlSurface,
+                "block w-full px-3 py-2.5 text-sm file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-4 file:py-1.5 file:font-medium file:text-primary-foreground hover:file:brightness-105"
+              )}
             />
             {fileName ? <p className="mt-2 text-xs text-muted-foreground">Fichier : {fileName}</p> : null}
           </section>
 
-          <div aria-live="polite" className="space-y-3">
+          <div aria-live="polite" className="space-y-3 empty:hidden">
             {isReading ? <ImportProgress label="Analyse du fichier…" value={45} /> : null}
             {isImporting ? <ImportProgress label="Enregistrement dans le catalogue…" value={75} /> : null}
-            {error ? (
-              <div className="alert alert-error" role="alert">
-                {error}
-              </div>
-            ) : null}
-            {success ? <div className="alert alert-success">Import terminé : {success}.</div> : null}
+            {error ? <Alert variant="danger">{error}</Alert> : null}
+            {success ? <Alert variant="success">Import terminé : {success}.</Alert> : null}
           </div>
 
           {result ? <TemplatePreview result={result} /> : null}
+        </DialogBody>
 
-          <Modal.Footer className="border-t border-border pt-4">
-            <Button type="button" variant="ghost" disabled={isBusy} onClick={onClose}>
-              {success ? "Fermer" : "Annuler"}
+        <DialogFooter className="border-t border-border pt-4">
+          <Button variant="outline" size="lg" disabled={isBusy} onClick={onClose}>
+            {success ? "Fermer" : "Annuler"}
+          </Button>
+          {!success ? (
+            <Button size="lg" loading={isImporting} disabled={!canImport} onClick={importTemplate}>
+              {"Confirmer l'import"}
             </Button>
-            {!success ? (
-              <Button
-                type="button"
-                loading={isImporting}
-                disabled={!canImport}
-                onClick={importTemplate}
-              >
-                {"Confirmer l'import"}
-              </Button>
-            ) : null}
-          </Modal.Footer>
-        </Modal.Body>
-      </Modal.Content>
-    </Modal.Root>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function TemplatePreview({ result }: Readonly<{ result: ProductPriceTemplateParseResult }>) {
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <dl className="grid gap-3 sm:grid-cols-3">
         <SummaryCard label="Produits prêts" value={result.products.length} tone="success" />
         <SummaryCard label="Tarifs prêts" value={result.prices.length} tone="success" />
         <SummaryCard
@@ -272,7 +271,7 @@ function TemplatePreview({ result }: Readonly<{ result: ProductPriceTemplatePars
           value={result.issues.length}
           tone={result.hasBlockingIssues ? "danger" : "neutral"}
         />
-      </div>
+      </dl>
 
       {result.version ? (
         <p className="text-xs text-muted-foreground">Version du modèle détectée : {result.version}</p>
@@ -283,7 +282,7 @@ function TemplatePreview({ result }: Readonly<{ result: ProductPriceTemplatePars
       {result.issues.length > 0 ? <IssuesPreview issues={result.issues} /> : null}
 
       {result.hasBlockingIssues ? (
-        <p className="text-sm font-medium text-red-700" role="status">
+        <p className="text-sm font-medium text-danger" role="status">
           {"Corrigez les anomalies bloquantes dans le fichier avant de confirmer l'import."}
         </p>
       ) : null}
@@ -295,32 +294,32 @@ function ProductsPreview({ products }: Readonly<{ products: ProductTemplateRow[]
   return (
     <section aria-labelledby="template-products-preview-title">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h3 id="template-products-preview-title" className="text-sm font-semibold text-slate-800">
+        <h3 id="template-products-preview-title" className="text-sm font-semibold text-foreground">
           Aperçu des produits
         </h3>
         <span className="text-xs text-muted-foreground">5 premières lignes</span>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-border">
+      <div className="relative overflow-x-auto rounded-lg border border-border" role="region" tabIndex={0} aria-labelledby="template-products-preview-title">
         <table
           aria-labelledby="template-products-preview-title"
           className="w-full min-w-[780px] text-left text-sm"
         >
           <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 font-semibold">Référence</th>
-              <th className="px-3 py-2 font-semibold">Désignation</th>
-              <th className="px-3 py-2 font-semibold">Famille</th>
-              <th className="px-3 py-2 font-semibold">Unité</th>
-              <th className="px-3 py-2 text-right font-semibold">Prix HT</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Référence</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Famille</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Unité</th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">Prix HT</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
             {products.slice(0, PREVIEW_ROWS_COUNT).map((product) => (
               <tr key={product.reference}>
-                <td className="px-3 py-2 font-mono text-xs text-slate-600">{product.reference}</td>
-                <td className="px-3 py-2 font-medium text-slate-800">{product.designation}</td>
-                <td className="px-3 py-2 text-slate-600">{product.category ?? "—"}</td>
-                <td className="px-3 py-2 text-slate-600">{product.unit}</td>
+                <td className="px-3 py-2 font-mono text-xs text-foreground-secondary">{product.reference}</td>
+                <td className="px-3 py-2 font-medium text-foreground">{product.designation}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{product.category ?? "—"}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{product.unit}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
                   {formatEuro(product.unit_price_cents)}
                 </td>
@@ -337,37 +336,37 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
   return (
     <section aria-labelledby="template-prices-preview-title">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h3 id="template-prices-preview-title" className="text-sm font-semibold text-slate-800">
+        <h3 id="template-prices-preview-title" className="text-sm font-semibold text-foreground">
           Aperçu des tarifs fournisseurs
         </h3>
         <span className="text-xs text-muted-foreground">5 premières lignes</span>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-border">
+      <div className="relative overflow-x-auto rounded-lg border border-border" role="region" tabIndex={0} aria-labelledby="template-prices-preview-title">
         <table
           aria-labelledby="template-prices-preview-title"
           className="w-full min-w-[820px] text-left text-sm"
         >
           <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 font-semibold">Produit</th>
-              <th className="px-3 py-2 font-semibold">Fournisseur</th>
-              <th className="px-3 py-2 font-semibold">Réf. fournisseur</th>
-              <th className="px-3 py-2 text-right font-semibold">Prix HT</th>
-              <th className="px-3 py-2 font-semibold">Date du prix</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Produit</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Fournisseur</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Réf. fournisseur</th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">Prix HT</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Date du prix</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
             {prices.slice(0, PREVIEW_ROWS_COUNT).map((price, index) => (
               <tr key={`${price.product_reference}-${price.supplier_name}-${price.supplier_sku ?? index}`}>
-                <td className="px-3 py-2 font-mono text-xs text-slate-600">
+                <td className="px-3 py-2 font-mono text-xs text-foreground-secondary">
                   {price.product_reference}
                 </td>
-                <td className="px-3 py-2 font-medium text-slate-800">{price.supplier_name}</td>
-                <td className="px-3 py-2 text-slate-600">{price.supplier_sku ?? "—"}</td>
+                <td className="px-3 py-2 font-medium text-foreground">{price.supplier_name}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{price.supplier_sku ?? "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
                   {formatCurrency(price.unit_price_cents, price.currency)}
                 </td>
-                <td className="px-3 py-2 text-slate-600">{formatDate(price.valid_from)}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{formatDate(price.valid_from)}</td>
               </tr>
             ))}
           </tbody>
@@ -380,29 +379,29 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
 function IssuesPreview({ issues }: Readonly<{ issues: ProductPriceTemplateIssue[] }>) {
   return (
     <section aria-labelledby="template-issues-title">
-      <h3 id="template-issues-title" className="mb-2 text-sm font-semibold text-red-800">
+      <h3 id="template-issues-title" className="mb-2 text-sm font-semibold text-danger">
         Anomalies détectées
       </h3>
-      <div className="max-h-48 overflow-auto rounded-xl border border-red-200">
+      <div className="relative max-h-48 overflow-auto rounded-lg border border-danger-border" role="region" tabIndex={0} aria-label="Anomalies détectées">
         <table
           aria-labelledby="template-issues-title"
           className="w-full min-w-[640px] text-left text-sm"
         >
-          <thead className="sticky top-0 bg-red-50 text-xs uppercase tracking-wide text-red-700">
+          <thead className="sticky top-0 bg-danger-subtle text-xs uppercase tracking-wide text-danger">
             <tr>
-              <th className="px-3 py-2 font-semibold">Feuille</th>
-              <th className="px-3 py-2 font-semibold">Ligne</th>
-              <th className="px-3 py-2 font-semibold">Message</th>
-              <th className="px-3 py-2 font-semibold">Niveau</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Feuille</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Ligne</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Message</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Niveau</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-red-100">
+          <tbody className="divide-y divide-danger-border">
             {issues.map((issue, index) => (
               <tr key={`${issue.sheet}-${issue.row ?? "sheet"}-${issue.code}-${index}`}>
                 <td className="px-3 py-2 text-foreground-secondary">{issue.sheet}</td>
-                <td className="px-3 py-2 tabular-nums text-slate-600">{issue.row ?? "—"}</td>
-                <td className="px-3 py-2 text-red-700">{issue.message}</td>
-                <td className="px-3 py-2 font-medium text-red-700">
+                <td className="px-3 py-2 tabular-nums text-foreground-secondary">{issue.row ?? "—"}</td>
+                <td className="px-3 py-2 text-danger">{issue.message}</td>
+                <td className="px-3 py-2 font-medium text-danger">
                   {issue.blocking ? "Bloquante" : "À vérifier"}
                 </td>
               </tr>
@@ -425,23 +424,23 @@ function SummaryCard({
 }>) {
   const valueClass =
     tone === "success"
-      ? "text-emerald-700"
+      ? "text-success"
       : tone === "danger"
-        ? "text-red-700"
-        : "text-slate-800";
+        ? "text-danger"
+        : "text-foreground";
 
   return (
-    <div className="rounded-xl border border-border bg-surface px-4 py-3">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-lg font-semibold ${valueClass}`}>{value}</p>
+    <div className="rounded-lg border border-border bg-surface px-4 py-3">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className={`mt-1 text-lg font-semibold ${valueClass}`}>{value}</dd>
     </div>
   );
 }
 
 function ImportProgress({ label, value }: Readonly<{ label: string; value: number }>) {
   return (
-    <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-      <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-blue-800">
+    <div className="rounded-lg border border-info-border bg-info-subtle p-3">
+      <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-info">
         <span>{label}</span>
         <span>{value} %</span>
       </div>
@@ -451,9 +450,9 @@ function ImportProgress({ label, value }: Readonly<{ label: string; value: numbe
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={value}
-        className="h-2 overflow-hidden rounded-full bg-blue-100"
+        className="h-2 overflow-hidden rounded-full bg-info-light"
       >
-        <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${value}%` }} />
+        <div className="h-full rounded-full bg-info transition-all motion-reduce:transition-none" style={{ width: `${value}%` }} />
       </div>
     </div>
   );
@@ -478,7 +477,7 @@ function formatDate(value: string) {
 }
 
 function formatApiError(payload: TemplateImportResponse | null) {
-  const message = payload?.error?.message ?? "Impossible d'importer les produits et les tarifs.";
+  const message = payload?.error?.message ?? "Impossible d’importer les produits et les tarifs.";
   const details = payload?.error?.details;
   if (typeof details === "string" && details.trim()) return `${message} ${details}`;
   return message;

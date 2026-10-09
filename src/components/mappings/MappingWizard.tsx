@@ -3,9 +3,16 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 
 import { ColumnMapper, type ColumnMapping } from "@/components/mappings/ColumnMapper";
 import { DataPreview } from "@/components/mappings/DataPreview";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useUiMode } from "@/hooks/useUiMode";
 import type {
   MappingAutoValidation,
@@ -186,6 +193,33 @@ async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
   return record.data as T;
 }
 
+type MappingSuggestionsResponse = {
+  suggestions: Record<string, string>;
+  source_columns: string[];
+  templates: TemplateItem[];
+  sample_values: Record<string, string[]>;
+  confidence_by_source: Record<string, MappingSuggestionConfidence>;
+  template_exact_match: MappingTemplateExactMatch | null;
+  auto_validation: MappingAutoValidation;
+};
+
+/**
+ * Read-only: `suggestions` and `preview` are RPC-style reads on POST /api/mappings (nothing is
+ * written until "Enregistrer le mapping"). They stay POST because the preview carries the mapping.
+ */
+function fetchMappingSuggestions(importId: string) {
+  return fetchApi<MappingSuggestionsResponse>("/api/mappings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "suggestions",
+      import_id: importId,
+    }),
+  });
+}
+
 export function MappingWizard({ initialImportId = null }: { initialImportId?: string | null }) {
   const { isSimplified } = useUiMode();
   const searchParams = useSearchParams();
@@ -225,6 +259,9 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     useState<MappingTemplateExactMatch | null>(null);
   const [autoValidation, setAutoValidation] =
     useState<MappingAutoValidation | null>(null);
+  // The preview waits for the suggestions of the selected import: previewing the empty
+  // mapping first only doubled the read requests on load.
+  const [suggestionsImportId, setSuggestionsImportId] = useState<string | null>(null);
   const previewRequestIdRef = useRef(0);
 
   const visibleMapping = useMemo(
@@ -287,26 +324,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     }
   }, [preferredImportId]);
 
-  const refreshSuggestions = useCallback(async (importId: string) => {
-    const data = await fetchApi<{
-      suggestions: Record<string, string>;
-      source_columns: string[];
-      templates: TemplateItem[];
-      sample_values: Record<string, string[]>;
-      confidence_by_source: Record<string, MappingSuggestionConfidence>;
-      template_exact_match: MappingTemplateExactMatch | null;
-      auto_validation: MappingAutoValidation;
-    }>("/api/mappings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        action: "suggestions",
-        import_id: importId,
-      }),
-    });
-
+  const applySuggestions = useCallback((data: MappingSuggestionsResponse) => {
     setSourceColumns(data.source_columns ?? []);
     setSampleValues(data.sample_values ?? {});
     setConfidenceBySource(data.confidence_by_source ?? {});
@@ -397,24 +415,34 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     setConfidenceBySource({});
     setTemplateExactMatch(null);
     setAutoValidation(null);
+    setSuggestionsImportId(null);
 
+    let cancelled = false;
     void (async () => {
       try {
-        await refreshSuggestions(selectedImportId);
+        const data = await fetchMappingSuggestions(selectedImportId);
+        if (!cancelled) applySuggestions(data);
       } catch (loadError) {
+        if (cancelled) return;
         setError(
           loadError instanceof Error
             ? loadError.message
             : "Impossible de charger les suggestions de mapping."
         );
+      } finally {
+        if (!cancelled) setSuggestionsImportId(selectedImportId);
       }
     })();
-  }, [selectedImportId, refreshSuggestions]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedImportId, applySuggestions]);
 
   useEffect(() => {
-    if (!selectedImportId) return;
+    if (!selectedImportId || suggestionsImportId !== selectedImportId) return;
     void refreshPreview(selectedImportId, visibleMapping, previewLimit);
-  }, [selectedImportId, visibleMapping, previewLimit, refreshPreview]);
+  }, [selectedImportId, suggestionsImportId, visibleMapping, previewLimit, refreshPreview]);
 
   useEffect(() => {
     if (sourceColumns.length === 0) return;
@@ -446,7 +474,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
         }),
       });
 
-      setSuccess("Mapping enregistre avec succès. Vous pouvez passer à la liaison catalogue.");
+      setSuccess("Mapping enregistré avec succès. Vous pouvez passer à la liaison catalogue.");
       await loadBaseData();
       await refreshPreview(selectedImportId, visibleMapping, previewLimit);
     } catch (createError) {
@@ -473,168 +501,170 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     );
   }
 
+  const mappedTargetCount = new Set(Object.values(visibleMapping)).size;
+
   return (
     <div className="space-y-6">
       {/* M-15: Auto-mapping notification — compact and collapsible */}
       {autoMappedCount > 0 ? (
-        <div className="rounded-xl border border-success bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          <div className="flex items-center justify-between gap-2">
+        <Alert variant="success">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-medium">
-              {autoMappedCount} colonne(s) pre-mappee(s) automatiquement
+              {autoMappedCount > 1
+                ? `${autoMappedCount} colonnes pré-mappées automatiquement`
+                : "1 colonne pré-mappée automatiquement"}
             </p>
-            <button
-              type="button"
-              className="text-xs underline underline-offset-2 hover:no-underline"
+            <Button
+              variant="link"
+              size="xs"
+              className="text-success"
+              aria-expanded={showAutoMapDetails}
               onClick={() => setShowAutoMapDetails((prev) => !prev)}
             >
-              {showAutoMapDetails ? "Masquer" : "Voir le détail"}
-            </button>
+              {showAutoMapDetails ? "Masquer le détail" : "Voir le détail"}
+            </Button>
           </div>
           {showAutoMapDetails ? (
-            <div className="mt-2 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="mt-2 grid gap-x-6 gap-y-1 text-xs text-foreground-secondary sm:grid-cols-2 lg:grid-cols-3">
               {autoMappedColumns.map(({ source, target }) => {
                 const targetLabel = TARGET_FIELDS.find((f) => f.value === target)?.label ?? target;
                 return (
-                  <div key={source}>
+                  <li key={source} className="min-w-0 break-words">
                     <span className="font-medium">{source}</span>
-                    {" "}&rarr;{" "}
+                    <span aria-hidden="true"> → </span>
+                    <span className="sr-only"> associée à </span>
                     <span>{targetLabel}</span>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           ) : null}
-        </div>
+        </Alert>
       ) : null}
 
       {/* UX2-010: Template exact match banner */}
-      {templateExactMatch && (
-        <div
-          className="rounded-xl border border-success/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-          role="status"
-          aria-label={`Mapping applique depuis le template ${templateExactMatch.name}`}
-        >
+      {templateExactMatch ? (
+        <Alert variant="success">
           <p className="font-medium">
-            Mapping applique depuis le template &laquo;{templateExactMatch.name}&raquo;
-            {templateExactMatch.supplier_name && (
-              <span className="ml-1 font-normal text-emerald-600">
+            Mapping appliqué depuis le modèle « {templateExactMatch.name} »
+            {templateExactMatch.supplier_name ? (
+              <span className="ml-1 font-normal text-foreground-secondary">
                 ({templateExactMatch.supplier_name})
               </span>
-            )}
+            ) : null}
           </p>
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
       {/* UX2-010: Auto-validated state (simplified mode) */}
-      {isSimplified && autoValidation?.can_auto_validate && (
-        <div
-          className="rounded-xl border border-info/20 bg-info/5 px-4 py-3 text-sm text-foreground-secondary"
-          role="status"
-          aria-label="Mapping auto-valide"
-        >
-          <p className="font-medium">Mapping auto-valide</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Tous les champs requis sont mappes avec une confiance élevée.
-            Vérifiez le mapping puis cliquez sur &laquo;Enregistrer le mapping&raquo;.
-          </p>
-        </div>
-      )}
+      {isSimplified && autoValidation?.can_auto_validate ? (
+        <Alert variant="info">
+          <AlertTitle>Mapping validé automatiquement</AlertTitle>
+          <AlertDescription className="text-xs">
+            Tous les champs requis sont mappés avec une confiance élevée. Vérifiez le mapping puis
+            cliquez sur « Enregistrer le mapping ».
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
-      <section className="dashboard-card p-6">
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div>
-            <label className="form-label" htmlFor="mapping-import-id">
-              Import source
-            </label>
-            <select
-              id="mapping-import-id"
-              className="form-input form-select"
-              value={selectedImportId}
-              onChange={(event) => setSelectedImportId(event.target.value)}
-              disabled={isLoading || imports.length === 0}
-            >
-              {imports.length === 0 ? (
-                <option value="">Aucun import disponible</option>
-              ) : (
-                imports.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.filename} - {item.row_count} lignes
+      <Card>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="flex min-w-0 flex-col gap-2">
+              <FieldLabel htmlFor="mapping-import-id">Import source</FieldLabel>
+              <NativeSelect
+                id="mapping-import-id"
+                value={selectedImportId}
+                onChange={(event) => setSelectedImportId(event.target.value)}
+                disabled={isLoading || imports.length === 0}
+              >
+                {imports.length === 0 ? (
+                  <option value="">Aucun import disponible</option>
+                ) : (
+                  imports.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.filename} — {item.row_count} lignes
+                    </option>
+                  ))
+                )}
+              </NativeSelect>
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-2">
+              <FieldLabel htmlFor="mapping-template-id">Modèle de mapping (optionnel)</FieldLabel>
+              <NativeSelect
+                id="mapping-template-id"
+                value={selectedTemplateId}
+                onChange={(event) => applyTemplate(event.target.value)}
+                disabled={isLoading || templates.length === 0}
+              >
+                <option value="">Aucun modèle — mapping manuel</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                    {template.supplier_name ? ` — ${template.supplier_name}` : ""}
+                    {template.is_default ? " (par défaut)" : ""}
                   </option>
-                ))
-              )}
-            </select>
+                ))}
+              </NativeSelect>
+            </div>
           </div>
 
+          {/* M-14: Hide template save fields when checkbox unchecked */}
           <div>
-            <label className="form-label" htmlFor="mapping-template-id">
-              Template existant (optionnel)
+            <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={saveAsTemplate}
+                onChange={(event) => setSaveAsTemplate(event.target.checked)}
+              />
+              Enregistrer aussi comme modèle de mapping
             </label>
-            <select
-              id="mapping-template-id"
-              className="form-input form-select"
-              value={selectedTemplateId}
-              onChange={(event) => applyTemplate(event.target.value)}
-              disabled={isLoading || templates.length === 0}
-            >
-              <option value="">Pas de template - mapping manuel</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                  {template.supplier_name ? ` - ${template.supplier_name}` : ""}
-                  {template.is_default ? " (defaut)" : ""}
-                </option>
-              ))}
-            </select>
+
+            {saveAsTemplate ? (
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="mapping-template-name">Nom du modèle</FieldLabel>
+                  <Input
+                    id="mapping-template-name"
+                    placeholder="Ex. DPGF plomberie standard"
+                    value={templateName}
+                    onChange={(event) => setTemplateName(event.target.value)}
+                  />
+                </div>
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="mapping-template-supplier">Fournisseur (optionnel)</FieldLabel>
+                  <Input
+                    id="mapping-template-supplier"
+                    placeholder="Ex. Cedeo"
+                    value={templateSupplierName}
+                    onChange={(event) => setTemplateSupplierName(event.target.value)}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
-        </div>
 
-        {/* M-14: Hide template save fields when checkbox unchecked */}
-        <div className="mt-4">
-          <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-            <input
-              type="checkbox"
-              checked={saveAsTemplate}
-              onChange={(event) => setSaveAsTemplate(event.target.checked)}
-            />
-            Sauvegarder aussi comme template
-          </label>
-
-          {saveAsTemplate ? (
-            <div className="mt-3 grid gap-4 lg:grid-cols-2">
-              <input
-                className="form-input"
-                placeholder="Nom du template"
-                value={templateName}
-                onChange={(event) => setTemplateName(event.target.value)}
-              />
-
-              <input
-                className="form-input"
-                placeholder="Fournisseur (optionnel)"
-                value={templateSupplierName}
-                onChange={(event) => setTemplateSupplierName(event.target.value)}
-              />
-            </div>
+          {error ? <Alert variant="danger">{error}</Alert> : null}
+          {success ? (
+            <Alert variant="success">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span>{success}</span>
+                {selectedImportId ? (
+                  <Link
+                    href={`/dashboard/catalogue?import_id=${selectedImportId}`}
+                    className={buttonVariants({ variant: "primary", size: "md" })}
+                  >
+                    Lier au catalogue
+                    <ArrowRightIcon aria-hidden="true" />
+                  </Link>
+                ) : null}
+              </div>
+            </Alert>
           ) : null}
-        </div>
-
-        {error ? <div className="alert alert-error mt-4">{error}</div> : null}
-        {success ? (
-          <div className="alert alert-success mt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span>{success}</span>
-              {selectedImportId ? (
-                <Link
-                  href={`/dashboard/catalogue?import_id=${selectedImportId}`}
-                  className="btn btn-primary btn-sm"
-                >
-                  Lier au catalogue
-                </Link>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </section>
+        </CardContent>
+      </Card>
 
       <ColumnMapper
         sourceColumns={sourceColumns}
@@ -655,38 +685,37 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
         onPreviewLimitChange={setPreviewLimit}
       />
 
-      {/* Spacer for sticky bottom bar */}
-      <div className="h-20" />
-
-      {/* Sticky bottom action bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-surface/95 px-6 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] backdrop-blur-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+      {/* Action bar, kept in view at the bottom of the content column */}
+      <div className="sticky bottom-0 z-20 -mx-3 border-t border-border bg-surface/95 px-3 py-3 shadow-[0_-2px_8px_rgb(15_23_42/0.06)] backdrop-blur-sm sm:-mx-6 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             href="/dashboard/imports"
-            className="btn btn-secondary"
+            className={buttonVariants({ variant: "outline", size: "lg" })}
           >
-            Retour a l&apos;import
+            <ArrowLeftIcon aria-hidden="true" />
+            Retour à l’import
           </Link>
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <span className="hidden text-xs text-muted-foreground sm:inline">
-              {(() => {
-                const mappedValues = Object.values(visibleMapping);
-                const mappedTargetSet = new Set(mappedValues);
-                return `${mappedTargetSet.size}/${TARGET_FIELDS.length} champs mappes`;
-              })()}
+              {mappedTargetCount}/{TARGET_FIELDS.length} champs mappés
             </span>
-            <button
-              type="button"
-              className="btn btn-primary"
+            <Button
+              size="lg"
               onClick={() => void handleCreateMapping()}
-              disabled={isSubmitting || !selectedImportId || !isMappingValid}
-              title={!isMappingValid ? "Mappez la Désignation et résolvez les conflits avant d'enregistrer." : undefined}
+              disabled={!selectedImportId || !isMappingValid}
+              loading={isSubmitting}
+              aria-describedby={!isMappingValid ? "mapping-save-hint" : undefined}
             >
-              {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
-            </button>
+              Enregistrer le mapping
+            </Button>
           </div>
         </div>
+        {!isMappingValid ? (
+          <p id="mapping-save-hint" className="mt-2 text-xs text-muted-foreground">
+            Mappez la Désignation et résolvez les conflits avant d’enregistrer.
+          </p>
+        ) : null}
       </div>
     </div>
   );

@@ -4,11 +4,23 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { ChevronDownIcon, PackageIcon, PencilIcon, SearchIcon, TrashIcon } from "lucide-react";
+
 import { fetchApi } from "@/components/catalogue/api";
-import { NumberInput } from "@/components/ui-legacy/NumberInput";
 import type { CatalogueItem } from "@/components/catalogue/types";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageSection } from "@/components/layout/page-section";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input, controlSizes, controlSurface } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NumberInput } from "@/components/ui-legacy/NumberInput";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
-import { CheckIcon, CircleAlertIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type CatalogueListResponse = {
   items: CatalogueItem[];
@@ -77,10 +89,13 @@ function formatTaxRate(bp: number | undefined | null): string {
 // M-17: Tab state for catalogue sections
 type CatalogueTab = "catalogue" | "liaison";
 
+const CATALOGUE_COLUMNS = 6;
+
 export function CatalogueManager() {
   // M-16: Accept ?import_id= query param
   const searchParams = useSearchParams();
   const importIdFromUrl = searchParams.get("import_id");
+  const confirm = useConfirm();
 
   const [activeTab, setActiveTab] = useState<CatalogueTab>(
     importIdFromUrl ? "liaison" : "catalogue"
@@ -175,6 +190,7 @@ export function CatalogueManager() {
     setError(null);
     setSuccess(null);
     setEditingId(item.id);
+    document.getElementById("catalogue-reference")?.focus();
     setFormState({
       reference: item.reference ?? item.hex_code ?? "",
       designation: item.designation ?? "",
@@ -267,10 +283,13 @@ export function CatalogueManager() {
   }
 
   async function onDelete(item: CatalogueItem) {
-    const articleLabel = item.designation;
-    if (!window.confirm(`Supprimer l'article "${articleLabel}" ?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: `Supprimer l’article « ${item.designation} » ?`,
+      description: "L’article sera retiré du catalogue. Cette suppression est définitive.",
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     setError(null);
     setSuccess(null);
@@ -341,148 +360,161 @@ export function CatalogueManager() {
     }
   }
 
+  const linkRate =
+    linkSummary && linkSummary.scanned_rows > 0
+      ? Math.round((linkSummary.linked_count / linkSummary.scanned_rows) * 100)
+      : null;
+
   return (
     <div className="space-y-6">
-      {/* M-17: Tab navigation to separate catalogue CRUD from liaison */}
-      <div className="flex gap-1 rounded-xl bg-muted p-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("catalogue")}
-          className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "catalogue"
-              ? "bg-surface text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground-secondary"
-          }`}
-        >
-          Catalogue articles
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("liaison")}
-          className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "liaison"
-              ? "bg-surface text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground-secondary"
-          }`}
-        >
-          Liaison lignes importées
-        </button>
-      </div>
+      {error ? <Alert variant="danger">{error}</Alert> : null}
+      {success && !linkSummary ? <Alert variant="success">{success}</Alert> : null}
 
-      {error ? <div className="alert alert-error">{error}</div> : null}
-      {success && !linkSummary ? <div className="alert alert-success">{success}</div> : null}
+      {/* M-17: Tabs separate the catalogue CRUD from the liaison */}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CatalogueTab)}>
+        <TabsList className="h-auto w-full">
+          <TabsTrigger value="catalogue" className="min-h-9 px-3">
+            Catalogue articles
+          </TabsTrigger>
+          <TabsTrigger value="liaison" className="min-h-9 px-3">
+            Liaison lignes importées
+          </TabsTrigger>
+        </TabsList>
 
-      {/* ===== CATALOGUE TAB ===== */}
-      {activeTab === "catalogue" ? (
-        <>
-          <section className="dashboard-card p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Catalogue articles</h2>
-                <p className="text-sm text-muted-foreground">
-                  Gérez les produits du catalogue (référence, désignation, prix unitaire).
-                </p>
-              </div>
-
+        {/* ===== CATALOGUE TAB ===== */}
+        <TabsContent value="catalogue" className="mt-4 space-y-6">
+          <PageSection
+            title="Catalogue articles"
+            description="Gérez les produits du catalogue (référence, désignation, prix unitaire)."
+            flush
+            actions={
               <form
-                className="flex w-full max-w-md items-center gap-2"
+                role="search"
+                className="flex w-full min-w-0 items-center gap-2 sm:w-auto"
                 onSubmit={(event) => {
                   event.preventDefault();
                   setSearchTerm(searchInput.trim());
                 }}
               >
-                <input
-                  className="form-input"
-                  placeholder="Rechercher (référence ou désignation)"
+                <Input
+                  type="search"
+                  size="sm"
+                  aria-label="Rechercher un article par référence ou désignation"
+                  className="sm:w-64"
+                  placeholder="Référence ou désignation…"
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
                 />
-                <button type="submit" className="btn btn-secondary">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="md"
+                  leftIcon={<SearchIcon aria-hidden="true" />}
+                >
                   Rechercher
-                </button>
+                </Button>
               </form>
-            </div>
-
-            <div className="mt-4 table-scroll">
+            }
+          >
+            <div
+              className="table-scroll relative overflow-x-auto"
+              role="region"
+              aria-label="Articles du catalogue"
+              tabIndex={0}
+            >
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Référence</th>
-                    <th>Désignation</th>
-                    <th>Prix HT</th>
+                    <th scope="col">Référence</th>
+                    <th scope="col">Désignation</th>
+                    <th scope="col" className="text-right">Prix HT</th>
                     {/* M-20: Display TVA as % */}
-                    <th>TVA</th>
-                    <th>Maj</th>
-                    <th className="text-right">Actions</th>
+                    <th scope="col" className="text-right">TVA</th>
+                    <th scope="col">Mise à jour</th>
+                    <th scope="col" className="text-right">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="text-center text-muted-foreground">
-                        Chargement...
+                      <td colSpan={CATALOGUE_COLUMNS} className="p-0">
+                        <LoadingState label="Chargement du catalogue…" className="py-8" />
                       </td>
                     </tr>
                   ) : items.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="text-center text-muted-foreground">
-                        Aucun article catalogue.
-                      </td>
-                    </tr>
+                    <EmptyTableRow
+                      colSpan={CATALOGUE_COLUMNS}
+                      variant="compact"
+                      icon={<PackageIcon />}
+                      title={searchTerm ? "Aucun article ne correspond à la recherche" : "Aucun article catalogue"}
+                      description={
+                        searchTerm
+                          ? "Modifiez la recherche pour voir plus de résultats."
+                          : "Ajoutez un article avec le formulaire ci-dessous ou liez les lignes d’un import."
+                      }
+                    />
                   ) : (
-                    items.map((item) => (
-                      <tr key={item.id}>
-                        <td className="font-medium text-foreground">
-                          {item.reference ?? item.hex_code ?? "-"}
-                        </td>
-                        <td>{item.designation || "-"}</td>
-                        <td>
-                          {typeof item.unit_price_cents === "number"
-                            ? formatEUR(item.unit_price_cents)
-                            : "-"}
-                        </td>
-                        {/* M-20: TVA in percentage */}
-                        <td>{formatTaxRate(item.tax_rate_bp)}</td>
-                        <td>{formatDateTime(item.updated_at ?? item.created_at)}</td>
-                        <td>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => onEdit(item)}
-                            >
-                              Modifier
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-danger btn-sm"
-                              onClick={() => void onDelete(item)}
-                            >
-                              Supprimer
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    items.map((item) => {
+                      const itemLabel = item.reference ?? item.hex_code ?? item.designation;
+                      return (
+                        <tr key={item.id}>
+                          <td className="font-medium text-foreground">
+                            {item.reference ?? item.hex_code ?? "-"}
+                          </td>
+                          <td>{item.designation || "-"}</td>
+                          <td className="text-right font-mono">
+                            {typeof item.unit_price_cents === "number"
+                              ? formatEUR(item.unit_price_cents)
+                              : "-"}
+                          </td>
+                          {/* M-20: TVA in percentage */}
+                          <td className="text-right">{formatTaxRate(item.tax_rate_bp)}</td>
+                          <td className="whitespace-nowrap text-muted-foreground">
+                            {formatDateTime(item.updated_at ?? item.created_at)}
+                          </td>
+                          <td>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={`Modifier l’article ${itemLabel}`}
+                                leftIcon={<PencilIcon aria-hidden="true" />}
+                                onClick={() => onEdit(item)}
+                              >
+                                Modifier
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                aria-label={`Supprimer l’article ${itemLabel}`}
+                                leftIcon={<TrashIcon aria-hidden="true" />}
+                                onClick={() => void onDelete(item)}
+                              >
+                                Supprimer
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
-          </section>
+          </PageSection>
 
-          <section className="dashboard-card p-6">
-            <h2 className="text-lg font-semibold text-foreground">
-              {editingItem ? "Modifier un article" : "Ajouter un article"}
-            </h2>
-
-            <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
-              <div>
-                <label className="form-label" htmlFor="catalogue-reference">
-                  Référence
-                </label>
-                <input
+          <PageSection
+            id="catalogue-form-title"
+            title={editingItem ? "Modifier un article" : "Ajouter un article"}
+          >
+            <form className="grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
+              <div className="flex min-w-0 flex-col gap-2">
+                <FieldLabel htmlFor="catalogue-reference">Référence *</FieldLabel>
+                <Input
                   id="catalogue-reference"
-                  className="form-input"
+                  autoComplete="off"
                   value={formState.reference}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, reference: event.target.value }))
@@ -491,13 +523,10 @@ export function CatalogueManager() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" htmlFor="catalogue-designation">
-                  Désignation
-                </label>
-                <input
+              <div className="flex min-w-0 flex-col gap-2">
+                <FieldLabel htmlFor="catalogue-designation">Désignation *</FieldLabel>
+                <Input
                   id="catalogue-designation"
-                  className="form-input"
                   value={formState.designation}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, designation: event.target.value }))
@@ -506,13 +535,11 @@ export function CatalogueManager() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" htmlFor="catalogue-unit-price">
-                  Prix unitaire HT (EUR)
-                </label>
-                <input
+              <div className="flex min-w-0 flex-col gap-2">
+                <FieldLabel htmlFor="catalogue-unit-price">Prix unitaire HT (EUR)</FieldLabel>
+                <Input
                   id="catalogue-unit-price"
-                  className="form-input"
+                  inputMode="decimal"
                   value={formState.unit_price_euros}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, unit_price_euros: event.target.value }))
@@ -521,13 +548,11 @@ export function CatalogueManager() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" htmlFor="catalogue-tax-rate-bp">
-                  Taux TVA
-                </label>
-                <input
+              <div className="flex min-w-0 flex-col gap-2">
+                <FieldLabel htmlFor="catalogue-tax-rate-bp">Taux de TVA</FieldLabel>
+                <Input
                   id="catalogue-tax-rate-bp"
-                  className="form-input"
+                  aria-describedby="catalogue-tax-rate-hint"
                   value={formState.tax_rate_bp}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, tax_rate_bp: event.target.value }))
@@ -535,14 +560,15 @@ export function CatalogueManager() {
                   inputMode="numeric"
                 />
                 {/* M-20: Helper text explaining bp */}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  En points de base (ex: 2000 = 20%, 550 = 5,5%)
-                </p>
+                <FieldDescription id="catalogue-tax-rate-hint" className="text-xs">
+                  En points de base (ex. 2000 = 20 %, 550 = 5,5 %).
+                </FieldDescription>
               </div>
 
-              <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary lg:col-span-2">
+              <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary lg:col-span-2">
                 <input
                   type="checkbox"
+                  className="size-4 accent-primary"
                   checked={formState.is_active}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, is_active: event.target.checked }))
@@ -552,220 +578,214 @@ export function CatalogueManager() {
               </label>
 
               <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
-                <button type="submit" className="btn btn-primary" disabled={isSaving}>
-                  {isSaving ? "Enregistrement..." : editingItem ? "Mettre à jour" : "Ajouter"}
-                </button>
+                <Button type="submit" size="lg" loading={isSaving}>
+                  {editingItem ? "Mettre à jour" : "Ajouter l’article"}
+                </Button>
 
                 {editingItem ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={resetForm}
-                    disabled={isSaving}
-                  >
+                  <Button variant="outline" size="lg" onClick={resetForm} disabled={isSaving}>
                     Annuler
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </form>
-          </section>
-        </>
-      ) : null}
+          </PageSection>
+        </TabsContent>
 
-      {/* ===== LIAISON TAB ===== */}
-      {activeTab === "liaison" ? (
-        <section className="dashboard-card p-6">
-          {/* M-22: French title */}
-          <h2 className="text-lg font-semibold text-foreground">
-            Liaison lignes importées &gt; catalogue
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Associe les lignes mappées par référence et désignation aux produits du catalogue.
-          </p>
+        {/* ===== LIAISON TAB ===== */}
+        <TabsContent value="liaison" className="mt-4">
+          <PageSection
+            title="Liaison des lignes importées au catalogue"
+            description="Associe les lignes mappées aux produits du catalogue par référence et désignation."
+          >
+            <div className="grid gap-4 lg:grid-cols-3">
+              {/* M-16: Dropdown instead of UUID input */}
+              <div className="flex min-w-0 flex-col gap-2 lg:col-span-2">
+                <FieldLabel htmlFor="catalogue-link-import-id">Import source</FieldLabel>
+                <NativeSelect
+                  id="catalogue-link-import-id"
+                  value={linkImportId}
+                  onChange={(event) => setLinkImportId(event.target.value)}
+                >
+                  <option value="">Sélectionnez un import…</option>
+                  {availableImports.map((imp) => (
+                    <option key={imp.id} value={imp.id}>
+                      {imp.filename} — {imp.row_count} lignes ({imp.status})
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-3">
-            {/* M-16: Dropdown instead of UUID input */}
-            <div className="lg:col-span-2">
-              <label className="form-label" htmlFor="catalogue-link-import-id">
-                Import source
-              </label>
-              <select
-                id="catalogue-link-import-id"
-                className="form-input form-select"
-                value={linkImportId}
-                onChange={(event) => setLinkImportId(event.target.value)}
-              >
-                <option value="">Sélectionnez un import...</option>
-                {availableImports.map((imp) => (
-                  <option key={imp.id} value={imp.id}>
-                    {imp.filename} - {imp.row_count} lignes ({imp.status})
-                  </option>
-                ))}
-              </select>
+              {/* M-21: Advanced options */}
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  aria-expanded={showAdvancedOptions}
+                  aria-controls="catalogue-link-advanced"
+                  onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                  rightIcon={
+                    <ChevronDownIcon
+                      aria-hidden="true"
+                      className={showAdvancedOptions ? "rotate-180 transition-transform" : "transition-transform"}
+                    />
+                  }
+                >
+                  Options avancées
+                </Button>
+              </div>
             </div>
 
-            {/* M-21: Advanced options */}
-            <div className="flex items-end">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            {showAdvancedOptions ? (
+              <div
+                id="catalogue-link-advanced"
+                className="mt-4 grid gap-4 rounded-lg border border-border bg-surface-subtle p-4 lg:grid-cols-2"
               >
-                {showAdvancedOptions ? "Masquer options" : "Options avancées"}
-              </button>
-            </div>
-          </div>
+                <div className="flex min-w-0 flex-col gap-2">
+                  {/* M-21: Renamed "Limite scan" */}
+                  <FieldLabel htmlFor="catalogue-link-limit">Nombre max de lignes à analyser</FieldLabel>
+                  <NumberInput
+                    id="catalogue-link-limit"
+                    className={cn(controlSurface, controlSizes.md, "w-full")}
+                    min={1}
+                    max={5000}
+                    value={linkLimit}
+                    parseValue={(value) => {
+                      const parsedValue = Number.parseInt(value, 10);
+                      return Number.isFinite(parsedValue) ? parsedValue : null;
+                    }}
+                    emptyValue={1}
+                    onValueChange={setLinkLimit}
+                  />
+                </div>
+                <div className="flex flex-col justify-end gap-2">
+                  <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={linkCreateMissing}
+                      onChange={(event) => setLinkCreateMissing(event.target.checked)}
+                    />
+                    Créer les articles manquants
+                  </label>
+                  <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={linkUpdatePayload}
+                      onChange={(event) => setLinkUpdatePayload(event.target.checked)}
+                    />
+                    Mettre à jour le payload mappé
+                  </label>
+                </div>
+              </div>
+            ) : null}
 
-          {showAdvancedOptions ? (
-            <div className="mt-4 grid gap-4 rounded-xl border border-border bg-surface-subtle p-4 lg:grid-cols-2">
-              <div>
-                {/* M-21: Renamed "Limite scan" */}
-                <label className="form-label" htmlFor="catalogue-link-limit">
-                  Nombre max de lignes à analyser
-                </label>
-                <NumberInput
-                  id="catalogue-link-limit"
-                  className="form-input"
-                  min={1}
-                  max={5000}
-                  value={linkLimit}
-                  parseValue={(value) => {
-                    const parsedValue = Number.parseInt(value, 10);
-                    return Number.isFinite(parsedValue) ? parsedValue : null;
-                  }}
-                  emptyValue={1}
-                  onValueChange={setLinkLimit}
+            <div className="mt-4">
+              {/* M-21: Renamed "Dry run" */}
+              <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={linkDryRun}
+                  onChange={(event) => setLinkDryRun(event.target.checked)}
                 />
-              </div>
-              <div className="flex flex-col justify-end gap-2">
-                <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-                  <input
-                    type="checkbox"
-                    checked={linkCreateMissing}
-                    onChange={(event) => setLinkCreateMissing(event.target.checked)}
-                  />
-                  Créer les articles manquants
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-                  <input
-                    type="checkbox"
-                    checked={linkUpdatePayload}
-                    onChange={(event) => setLinkUpdatePayload(event.target.checked)}
-                  />
-                  Mettre à jour le payload mappé
-                </label>
-              </div>
+                Simulation (sans modification)
+              </label>
             </div>
-          ) : null}
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            {/* M-21: Renamed "Dry run" */}
-            <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-              <input
-                type="checkbox"
-                checked={linkDryRun}
-                onChange={(event) => setLinkDryRun(event.target.checked)}
-              />
-              Simulation (sans modification)
-            </label>
-          </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button
+                variant="accent"
+                size="lg"
+                onClick={() => void onRunLinking()}
+                disabled={!linkImportId}
+                loading={isLinking}
+              >
+                Lancer la liaison
+              </Button>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="btn btn-accent"
-              onClick={() => void onRunLinking()}
-              disabled={isLinking || !linkImportId}
-            >
-              {isLinking ? "Traitement en cours..." : "Lancer la liaison"}
-            </button>
+              <Link
+                href="/dashboard/mappings"
+                className={buttonVariants({ variant: "outline", size: "lg" })}
+              >
+                Retour au mapping
+              </Link>
+            </div>
 
-            <Link href="/dashboard/mappings" className="btn btn-secondary">
-              Retour au mapping
-            </Link>
-          </div>
+            {/* M-18 + M-19: Detailed linking results */}
+            {linkSummary ? (
+              <div className="mt-6 space-y-4">
+                {/* M-19: Completion summary */}
+                <Alert variant={linkSummary.unmatched_count === 0 ? "success" : "warning"}>
+                  <AlertTitle className="text-foreground">
+                    {linkSummary.dry_run ? "Simulation terminée" : "Liaison terminée"}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {linkRate !== null ? `Taux de liaison : ${linkRate} %` : "Aucune ligne analysée"}
+                  </AlertDescription>
+                </Alert>
 
-          {/* M-18 + M-19: Detailed linking results */}
-          {linkSummary ? (
-            <div className="mt-6 space-y-4">
-              {/* M-19: Completion summary */}
-              <div className={`rounded-xl border p-4 ${
-                linkSummary.unmatched_count === 0
-                  ? "border-success bg-success-light"
-                  : "border-warning bg-warning-light"
-              }`}>
-                <div className="flex items-center gap-3">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                    linkSummary.unmatched_count === 0
-                      ? "bg-success text-white"
-                      : "bg-amber-400 text-white"
-                  }`}>
-                    {linkSummary.unmatched_count === 0 ? (
-                      <CheckIcon aria-hidden="true" size={20} />
-                    ) : (
-                      <CircleAlertIcon aria-hidden="true" size={20} />
+                {/* Summary counters */}
+                <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3 text-center">
+                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">Analysées</dt>
+                    <dd className="mt-1 text-lg font-bold text-foreground">{linkSummary.scanned_rows}</dd>
+                  </div>
+                  <div className="rounded-lg border border-success-border bg-success-subtle px-4 py-3 text-center">
+                    <dt className="text-micro uppercase tracking-wide text-success">Liées</dt>
+                    <dd className="mt-1 text-lg font-bold text-success">{linkSummary.linked_count}</dd>
+                  </div>
+                  <div className="rounded-lg border border-info-border bg-info-subtle px-4 py-3 text-center">
+                    <dt className="text-micro uppercase tracking-wide text-info">Créées au catalogue</dt>
+                    <dd className="mt-1 text-lg font-bold text-info">{linkSummary.created_catalogue_count}</dd>
+                  </div>
+                  <div
+                    className={cn(
+                      "rounded-lg border px-4 py-3 text-center",
+                      linkSummary.unmatched_count > 0
+                        ? "border-danger-border bg-danger-subtle"
+                        : "border-border bg-surface-subtle"
                     )}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground">
-                      {linkSummary.dry_run ? "Simulation terminée" : "Liaison terminée"}
-                    </p>
-                    <p className="text-sm text-slate-600">
-                      {linkSummary.scanned_rows > 0
-                        ? `Taux de liaison : ${Math.round((linkSummary.linked_count / linkSummary.scanned_rows) * 100)} %`
-                        : "Aucune ligne scannée"
-                      }
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Summary counters */}
-              <div className="grid gap-3 sm:grid-cols-4">
-                <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Scannées</p>
-                  <p className="mt-1 text-lg font-bold text-foreground">{linkSummary.scanned_rows}</p>
-                </div>
-                <div className="rounded-xl border border-success/30 bg-success-light px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-success">Liées</p>
-                  <p className="mt-1 text-lg font-bold text-success">{linkSummary.linked_count}</p>
-                </div>
-                <div className="rounded-xl border border-info/30 bg-info-light px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-info">Créées catalogue</p>
-                  <p className="mt-1 text-lg font-bold text-info">{linkSummary.created_catalogue_count}</p>
-                </div>
-                <div className={`rounded-xl border px-4 py-3 text-center ${
-                  linkSummary.unmatched_count > 0
-                    ? "border-danger/30 bg-error-light"
-                    : "border-border bg-surface-subtle"
-                }`}>
-                  <p className={`text-[11px] uppercase tracking-wide ${
-                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-muted-foreground"
-                  }`}>Sans match</p>
-                  <p className={`mt-1 text-lg font-bold ${
-                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-foreground"
-                  }`}>{linkSummary.unmatched_count}</p>
-                </div>
-              </div>
-
-              {/* M-19: Next step link */}
-              {!linkSummary.dry_run && linkSummary.linked_count > 0 ? (
-                <div className="flex items-center gap-3">
-                  <Link
-                    href="/dashboard/imports"
-                    className="btn btn-primary"
                   >
-                    Retour aux imports
-                  </Link>
-                  <p className="text-sm text-muted-foreground">
-                    Flux terminé. Vous pouvez lancer un nouvel import ou consulter le catalogue.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+                    <dt
+                      className={cn(
+                        "text-micro uppercase tracking-wide",
+                        linkSummary.unmatched_count > 0 ? "text-danger" : "text-muted-foreground"
+                      )}
+                    >
+                      Sans correspondance
+                    </dt>
+                    <dd
+                      className={cn(
+                        "mt-1 text-lg font-bold",
+                        linkSummary.unmatched_count > 0 ? "text-danger" : "text-foreground"
+                      )}
+                    >
+                      {linkSummary.unmatched_count}
+                    </dd>
+                  </div>
+                </dl>
+
+                {/* M-19: Next step link */}
+                {!linkSummary.dry_run && linkSummary.linked_count > 0 ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Link
+                      href="/dashboard/imports"
+                      className={buttonVariants({ variant: "primary", size: "lg" })}
+                    >
+                      Retour aux imports
+                    </Link>
+                    <p className="text-sm text-muted-foreground">
+                      Flux terminé. Vous pouvez lancer un nouvel import ou consulter le catalogue.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </PageSection>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

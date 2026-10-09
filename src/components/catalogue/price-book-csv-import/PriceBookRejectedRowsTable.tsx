@@ -12,20 +12,20 @@ export function PriceBookRejectedRowsTable({
   }
 
   return (
-    <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-border px-6 py-4">
-        <h3 className="text-sm font-semibold text-slate-800">Synthese des lignes à corriger</h3>
-        <p className="mt-1 text-xs text-muted-foreground">Ligne + motif de correction.</p>
+    <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card">
+      <div className="border-b border-border px-4 py-4 sm:px-6">
+        <h3 className="text-sm font-semibold text-foreground">Synthèse des lignes à corriger</h3>
+        <p className="mt-1 text-xs text-muted-foreground">Ligne et motif de correction.</p>
       </div>
 
-      <div className="table-scroll">
+      <div className="table-scroll relative overflow-x-auto" role="region" aria-label="Lignes à corriger" tabIndex={0}>
         <table className="data-table">
           <thead>
             <tr>
-              <th>Ligne</th>
-              <th>Code</th>
-              <th>Motif</th>
-              <th>Suggestion</th>
+              <th scope="col">Ligne</th>
+              <th scope="col">Code</th>
+              <th scope="col">Motif</th>
+              <th scope="col">Suggestion</th>
             </tr>
           </thead>
           <tbody>
@@ -42,8 +42,8 @@ export function PriceBookRejectedRowsTable({
       </div>
 
       {validation.rejectedRowsCount > 200 ? (
-        <div className="border-t border-border px-6 py-4 text-xs text-muted-foreground">
-          Liste tronquee aux 200 premières lignes à corriger.
+        <div className="border-t border-border px-4 py-4 text-xs text-muted-foreground sm:px-6">
+          Liste tronquée aux 200 premières lignes à corriger.
         </div>
       ) : null}
     </section>

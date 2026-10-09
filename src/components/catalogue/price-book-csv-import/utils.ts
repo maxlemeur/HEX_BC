@@ -15,20 +15,20 @@ export const ATOMIC_BULK_BATCH_SIZE = 5000;
 export const TARGET_FIELDS = [
   { value: "supplier_name", label: "Fournisseur", required: true },
   { value: "product_reference", label: "Référence produit" },
-  { value: "product_designation", label: "Designation produit" },
+  { value: "product_designation", label: "Désignation produit" },
   { value: "unit_price", label: "Prix unitaire", required: true },
   { value: "currency", label: "Devise" },
 ];
 
-export const GUIDE_STEPS = ["Charger", "Detection", "Associer", "Resoudre", "Importer"];
+export const GUIDE_STEPS = ["Charger", "Détection", "Associer", "Résoudre", "Importer"];
 
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("fr-FR").format(value);
 }
 
 export function getProgressLabel(progress: PriceBookValidationProgress | null): string {
-  if (!progress) return "0%";
-  return `${progress.percentage}% (${formatNumber(progress.processed)} / ${formatNumber(progress.total)})`;
+  if (!progress) return "0 %";
+  return `${progress.percentage} % (${formatNumber(progress.processed)} / ${formatNumber(progress.total)})`;
 }
 
 export function isCsvFile(file: File): boolean {
@@ -37,7 +37,7 @@ export function isCsvFile(file: File): boolean {
 
 export function getProfileLabel(profile: PriceBookProfile | null): string | null {
   if (!profile) return null;
-  if (profile === "mm_bdc") return "Format BDC detecte";
+  if (profile === "mm_bdc") return "Format BDC détecté";
   return "Format CSV standard";
 }
 

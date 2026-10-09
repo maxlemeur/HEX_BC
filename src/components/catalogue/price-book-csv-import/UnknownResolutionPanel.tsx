@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+
 type UnknownResolutionPanelProps = {
   unknownSuppliersCount: number;
   unknownProductsCount: number;
@@ -26,38 +28,40 @@ export function UnknownResolutionPanel({
   const hasUnknowns = unknownSuppliersCount > 0 || unknownProductsCount > 0;
 
   return (
-    <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-border px-6 py-4">
-        <h3 className="text-sm font-semibold text-slate-800">Étape 3 - Resoudre les inconnus</h3>
+    <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card">
+      <div className="border-b border-border px-4 py-4 sm:px-6">
+        <h3 className="text-sm font-semibold text-foreground">Étape 3 — Résoudre les inconnus</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Fournisseurs inconnus: {unknownSuppliersCount} | Produits inconnus: {unknownProductsCount}
+          Fournisseurs inconnus : {unknownSuppliersCount} · Produits inconnus : {unknownProductsCount}
         </p>
       </div>
-      <div className="px-6 py-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="btn btn-secondary"
+      <div className="flex flex-wrap gap-2 px-4 py-4 sm:px-6">
+        <Button
+          variant="outline"
+          size="lg"
           onClick={() => void onResolveAutomatically()}
-          disabled={isResolving || isCreatingMissing || isSubmitting || !hasUnknowns}
+          disabled={isCreatingMissing || isSubmitting || !hasUnknowns}
+          loading={isResolving}
         >
-          {isResolving ? "Resolution..." : "Resoudre automatiquement"}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary"
+          Résoudre automatiquement
+        </Button>
+        <Button
+          variant="outline"
+          size="lg"
           onClick={() => void onCreateMissing()}
-          disabled={isCreatingMissing || isResolving || isSubmitting || !hasUnknowns}
+          disabled={isResolving || isSubmitting || !hasUnknowns}
+          loading={isCreatingMissing}
         >
-          {isCreatingMissing ? "Creation..." : "Créer les inconnus"}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary"
+          Créer les inconnus
+        </Button>
+        <Button
+          variant="outline"
+          size="lg"
           onClick={onDownloadCorrectionsCsv}
           disabled={rejectedRowsCount === 0}
         >
           Exporter les corrections CSV
-        </button>
+        </Button>
       </div>
     </section>
   );

@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 import type {
   MappingConfidenceBand,
   MappingSuggestionConfidence,
@@ -28,36 +32,31 @@ const CONFIDENCE_LABELS: Record<MappingConfidenceBand, string> = {
   low: "Confiance faible",
 };
 
-const CONFIDENCE_COLORS: Record<MappingConfidenceBand, string> = {
-  high: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  medium: "bg-amber-100 text-amber-800 border-amber-200",
-  low: "bg-red-100 text-red-800 border-red-200",
+const CONFIDENCE_VARIANTS: Record<MappingConfidenceBand, NonNullable<BadgeProps["variant"]>> = {
+  high: "success",
+  medium: "warning",
+  low: "danger",
 };
 
 const ORIGIN_LABELS: Record<MappingSuggestionOrigin, string> = {
-  template: "Template",
-  memory: "Memoire",
+  template: "Modèle",
+  memory: "Mémoire",
   heuristic: "Heuristique",
 };
 
 function ConfidenceBadge({ confidence }: { confidence: MappingSuggestionConfidence }) {
   const label = CONFIDENCE_LABELS[confidence.band];
-  const colors = CONFIDENCE_COLORS[confidence.band];
   const originLabel = ORIGIN_LABELS[confidence.origin];
   const scorePercent = Math.round(confidence.score * 100);
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight ${colors}`}
-      role="status"
-      aria-label={`${label} (${scorePercent}%) - origine : ${originLabel}`}
-      title={`${scorePercent}% - ${originLabel}`}
-    >
+    <Badge variant={CONFIDENCE_VARIANTS[confidence.band]} size="sm">
       <span aria-hidden="true">
-        {confidence.band === "high" ? "\u2713" : confidence.band === "medium" ? "\u223C" : "\u2717"}
+        {confidence.band === "high" ? "✓" : confidence.band === "medium" ? "∼" : "✗"}
       </span>
       {label}
-    </span>
+      <span className="sr-only">{` (${scorePercent} %, origine : ${originLabel})`}</span>
+    </Badge>
   );
 }
 
@@ -158,6 +157,11 @@ export function ColumnMapper({
   const mappedCount = visibleMappings.length;
   const totalTargetFields = targetFields.length;
   const mappedTargetCount = mappedTargets.size;
+  const filters: Array<{ mode: FilterMode; label: string }> = [
+    { mode: "all", label: `Toutes (${sourceColumns.length})` },
+    { mode: "mapped", label: `Mappées (${mappedCount})` },
+    { mode: "unmapped", label: `Non mappées / ignorées (${sourceColumns.length - mappedCount})` },
+  ];
 
   function setMapping(sourceColumn: string, nextTarget: string) {
     if (disabled) return;
@@ -178,11 +182,16 @@ export function ColumnMapper({
   }
 
   return (
-    <section className="dashboard-card overflow-hidden">
+    <section
+      aria-labelledby="column-mapper-title"
+      className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
+    >
       <div className="border-b border-border">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-800">Mapping des colonnes</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+          <div className="min-w-0">
+            <h2 id="column-mapper-title" className="text-sm font-semibold text-foreground">
+              Mapping des colonnes
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Associez les colonnes source aux champs métier.
               <span className="ml-2 font-medium text-foreground-secondary">
@@ -192,53 +201,65 @@ export function ColumnMapper({
           </div>
 
           {/* Filter toggle */}
-          <div className="flex rounded-lg border border-border text-xs">
-            <button
-              type="button"
-              className={`px-2.5 py-1.5 transition-colors ${filterMode === "all" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-muted"}`}
-              onClick={() => setFilterMode("all")}
-            >
-              Toutes ({sourceColumns.length})
-            </button>
-            <button
-              type="button"
-              className={`border-l border-r border-border px-2.5 py-1.5 transition-colors ${filterMode === "mapped" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-muted"}`}
-              onClick={() => setFilterMode("mapped")}
-            >
-              Mappees ({mappedCount})
-            </button>
-            <button
-              type="button"
-              className={`px-2.5 py-1.5 transition-colors ${filterMode === "unmapped" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-muted"}`}
-              onClick={() => setFilterMode("unmapped")}
-            >
-              Non mappées / ignorées ({sourceColumns.length - mappedCount})
-            </button>
+          <div
+            role="group"
+            aria-label="Filtrer les colonnes"
+            className="flex max-w-full flex-wrap overflow-hidden rounded-control border border-border text-xs"
+          >
+            {filters.map((filter, index) => (
+              <button
+                key={filter.mode}
+                type="button"
+                aria-pressed={filterMode === filter.mode}
+                className={cn(
+                  "min-h-9 px-2.5 py-1.5 font-medium transition-colors focus-visible:relative focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
+                  index > 0 && "border-l border-border",
+                  filterMode === filter.mode
+                    ? "bg-foreground text-surface"
+                    : "text-foreground-secondary hover:bg-muted"
+                )}
+                onClick={() => setFilterMode(filter.mode)}
+              >
+                {filter.label}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* Full-width progress bar */}
-        <div className="h-2.5 w-full overflow-hidden bg-slate-200">
+        <div
+          role="progressbar"
+          aria-label="Champs métier mappés"
+          aria-valuemin={0}
+          aria-valuemax={totalTargetFields}
+          aria-valuenow={mappedTargetCount}
+          className="h-2.5 w-full overflow-hidden bg-muted"
+        >
           <div
-            className="h-full bg-success transition-all duration-300"
+            className="h-full bg-success transition-all duration-300 motion-reduce:transition-none"
             style={{ width: `${totalTargetFields > 0 ? (mappedTargetCount / totalTargetFields) * 100 : 0}%` }}
           />
         </div>
       </div>
 
       {sourceColumns.length === 0 ? (
-        <div className="px-6 py-8 text-sm text-muted-foreground">
+        <div className="px-4 py-8 text-sm text-muted-foreground sm:px-6">
           Aucune colonne détectée. Sélectionnez un import pour commencer.
         </div>
       ) : (
-        <div className="table-scroll">
+        <div
+          className="table-scroll relative overflow-x-auto"
+          role="region"
+          aria-label="Colonnes source et champs cibles"
+          tabIndex={0}
+        >
           <table className="data-table">
             <thead>
               <tr>
-                <th>Colonne source</th>
-                <th>Aperçu</th>
-                {confidenceBySource && <th>Confiance</th>}
-                <th>Champ cible</th>
+                <th scope="col">Colonne source</th>
+                <th scope="col">Aperçu</th>
+                {confidenceBySource && <th scope="col">Confiance</th>}
+                <th scope="col">Champ cible</th>
               </tr>
             </thead>
             <tbody>
@@ -258,17 +279,21 @@ export function ColumnMapper({
                       hasDuplicateConflict
                         ? "bg-warning-light"
                         : isMapped
-                          ? "bg-emerald-50/50"
+                          ? "bg-success-subtle/60"
                           : ""
                     }
                   >
                     <td>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`inline-block h-2 w-2 shrink-0 rounded-full ${isMapped ? "bg-success" : "bg-slate-300"}`}
-                          title={isMapped ? "Mappe" : "Non mappe"}
+                          aria-hidden="true"
+                          className={cn(
+                            "inline-block size-2 shrink-0 rounded-full",
+                            isMapped ? "bg-success" : "bg-border-strong"
+                          )}
                         />
-                        <span className="font-medium text-slate-800">{sourceColumn}</span>
+                        <span className="sr-only">{isMapped ? "Mappée : " : "Non mappée : "}</span>
+                        <span className="font-medium text-foreground">{sourceColumn}</span>
                       </div>
                     </td>
                     <td>
@@ -277,7 +302,7 @@ export function ColumnMapper({
                           {samples.join(", ")}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-300">-</span>
+                        <span className="text-xs text-subtle-foreground">—</span>
                       )}
                     </td>
                     {confidenceBySource && (
@@ -285,14 +310,17 @@ export function ColumnMapper({
                         {confidence ? (
                           <ConfidenceBadge confidence={confidence} />
                         ) : (
-                          <span className="text-xs text-slate-300">-</span>
+                          <span className="text-xs text-subtle-foreground">—</span>
                         )}
                       </td>
                     )}
                     <td>
-                      <div className="flex flex-col gap-1">
-                        <select
-                          className={`form-input form-select form-input--sm ${hasDuplicateConflict ? "!border-amber-400 !ring-amber-200" : ""}`}
+                      <div className="flex min-w-48 flex-col gap-1">
+                        <NativeSelect
+                          size="sm"
+                          aria-label={`Champ cible pour ${sourceColumn}`}
+                          aria-invalid={hasDuplicateConflict || undefined}
+                          className={cn(hasDuplicateConflict && "border-warning-border ring-3 ring-warning/20")}
                           value={currentTarget}
                           onChange={(event) => setMapping(sourceColumn, event.target.value)}
                           disabled={disabled}
@@ -304,25 +332,25 @@ export function ColumnMapper({
                               {target.required ? " *" : ""}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                         {isRequiredTarget ? (
-                          <span className="text-[11px] text-danger">
-                            Champ requis
-                          </span>
+                          <span className="text-micro text-danger">Champ requis</span>
                         ) : null}
                         {hasDuplicateConflict ? (
-                          <div className="flex items-center gap-2 text-[11px] text-warning">
+                          <div className="flex flex-wrap items-center gap-2 text-micro text-warning">
                             <span>
-                              Conflit : &laquo;{getTargetLabel(currentTarget)}&raquo; aussi assigne a {duplicateSources.filter((s) => s !== sourceColumn).join(", ")}
+                              Conflit : « {getTargetLabel(currentTarget)} » aussi assigné à{" "}
+                              {duplicateSources.filter((s) => s !== sourceColumn).join(", ")}
                             </span>
-                            <button
-                              type="button"
-                              className="font-medium underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 hover:no-underline"
+                            <Button
+                              variant="link"
+                              size="xs"
+                              className="text-micro text-warning"
                               onClick={() => setMapping(sourceColumn, "")}
                               disabled={disabled}
                             >
                               Retirer
-                            </button>
+                            </Button>
                           </div>
                         ) : null}
                       </div>
@@ -335,21 +363,16 @@ export function ColumnMapper({
         </div>
       )}
 
-      <div className="border-t border-border px-6 py-4 text-xs text-muted-foreground">
+      <div className="border-t border-border px-4 py-4 text-xs text-muted-foreground sm:px-6">
         {missingRequiredTargets.length === 0 ? (
-          <span className="text-success">
-            Tous les champs requis sont mappes.
-          </span>
+          <span className="text-success">Tous les champs requis sont mappés.</span>
         ) : (
           <span className="flex flex-wrap items-center gap-1.5">
             À mapper :
             {missingRequiredTargets.map((v) => (
-              <span
-                key={v}
-                className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              >
+              <Badge key={v} variant="warning" size="sm">
                 {targetFields.find((f) => f.value === v)?.label ?? v}
-              </span>
+              </Badge>
             ))}
           </span>
         )}

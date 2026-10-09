@@ -40,7 +40,7 @@ test.describe("EST-262 - import DPGF", () => {
 
     await page.getByRole("button", { name: /Enregistrer le mapping/i }).click();
 
-    const mappingSavedBanner = page.getByText(/Mapping enregistre avec succes/i);
+    const mappingSavedBanner = page.getByText(/Mapping enregistr[ée] avec succ[eè]s/i);
     const mappingMemoryErrorBanner = page.getByText(
       /Impossible de mettre a jour la memoire de mapping/i
     );
@@ -65,7 +65,7 @@ test.describe("EST-262 - import DPGF", () => {
     }
 
     await expect(page).toHaveURL(/\/dashboard\/catalogue\?import_id=/i);
-    await page.getByRole("button", { name: /Liaison lignes importees/i }).click();
+    await page.getByRole("tab", { name: /Liaison lignes import[ée]es/i }).click();
 
     await expect(page.locator("#catalogue-link-import-id")).toHaveValue(importId ?? "");
 
@@ -77,7 +77,7 @@ test.describe("EST-262 - import DPGF", () => {
     await page.getByRole("button", { name: /Lancer la liaison/i }).click();
 
     await expect(
-      page.getByText(/Simulation terminee|Liaison terminee/i)
+      page.getByText(/Simulation termin[ée]e|Liaison termin[ée]e/i)
     ).toBeVisible({ timeout: 60_000 });
   });
 });

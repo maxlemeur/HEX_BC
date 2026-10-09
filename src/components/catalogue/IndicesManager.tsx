@@ -1,9 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ChartLineIcon, PencilIcon, SearchIcon, TrashIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import type { MaterialIndex } from "@/components/catalogue/types";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageSection } from "@/components/layout/page-section";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 type IndicesListResponse = {
   items: MaterialIndex[];
@@ -27,12 +37,19 @@ const EMPTY_FORM: MaterialIndexFormState = {
   source: "",
 };
 
+const COLUMN_COUNT = 6;
+
 function formatDate(value: string | undefined | null) {
   if (!value) return "-";
   return value;
 }
 
+function indexCode(item: MaterialIndex) {
+  return item.index_code || item.code || "-";
+}
+
 export function IndicesManager() {
+  const confirm = useConfirm();
   const [items, setItems] = useState<MaterialIndex[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -109,19 +126,20 @@ export function IndicesManager() {
     });
     setError(null);
     setSuccess(null);
+    document.getElementById("index-code")?.focus();
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const parsedValue = Number(formState.index_value);
+    const parsedValue = Number(formState.index_value.replace(",", "."));
     if (!Number.isFinite(parsedValue) || parsedValue < 0) {
-      setError("Valeur d'indice invalide.");
+      setError("Valeur d’indice invalide.");
       return;
     }
 
     if (!formState.index_code.trim() || !formState.label.trim()) {
-      setError("index_code et label sont requis.");
+      setError("Le code et le libellé de l’indice sont requis.");
       return;
     }
 
@@ -129,55 +147,32 @@ export function IndicesManager() {
     setError(null);
     setSuccess(null);
 
+    const item = {
+      index_code: formState.index_code.trim(),
+      label: formState.label.trim(),
+      index_value: parsedValue,
+      index_date: formState.index_date || null,
+      unit: formState.unit.trim() || "base_100",
+      source: formState.source.trim() || null,
+    };
+
     try {
-      if (editingId) {
-        await fetchApi<{ item: MaterialIndex }>("/api/indices", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "update",
-            id: editingId,
-            item: {
-              index_code: formState.index_code.trim(),
-              label: formState.label.trim(),
-              index_value: parsedValue,
-              index_date: formState.index_date || null,
-              unit: formState.unit.trim() || "base_100",
-              source: formState.source.trim() || null,
-            },
-          }),
-        });
+      await fetchApi<{ item: MaterialIndex }>("/api/indices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(
+          editingId ? { action: "update", id: editingId, item } : { action: "create", item }
+        ),
+      });
 
-        setSuccess("Indice mis à jour.");
-      } else {
-        await fetchApi<{ item: MaterialIndex }>("/api/indices", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "create",
-            item: {
-              index_code: formState.index_code.trim(),
-              label: formState.label.trim(),
-              index_value: parsedValue,
-              index_date: formState.index_date || null,
-              unit: formState.unit.trim() || "base_100",
-              source: formState.source.trim() || null,
-            },
-          }),
-        });
-
-        setSuccess("Indice cree.");
-      }
-
+      setSuccess(editingId ? "Indice mis à jour." : "Indice créé.");
       resetForm();
       await loadItems();
     } catch (saveError) {
       setError(
-        saveError instanceof Error ? saveError.message : "Impossible d'enregistrer l'indice."
+        saveError instanceof Error ? saveError.message : "Impossible d’enregistrer l’indice."
       );
     } finally {
       setIsSaving(false);
@@ -185,9 +180,13 @@ export function IndicesManager() {
   }
 
   async function onDelete(item: MaterialIndex) {
-    if (!window.confirm("Supprimer cet indice ?")) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: `Supprimer l’indice ${indexCode(item)} ?`,
+      description: "Cette suppression est définitive.",
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     setError(null);
     setSuccess(null);
@@ -208,13 +207,13 @@ export function IndicesManager() {
         resetForm();
       }
 
-      setSuccess("Indice supprime.");
+      setSuccess("Indice supprimé.");
       await loadItems();
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "Impossible de supprimer l'indice."
+          : "Impossible de supprimer l’indice."
       );
     }
   }
@@ -225,7 +224,7 @@ export function IndicesManager() {
     try {
       parsedPayload = JSON.parse(bulkPayload);
     } catch {
-      setError("Le JSON de bulk upsert est invalide.");
+      setError("Le JSON de mise à jour en masse est invalide.");
       return;
     }
 
@@ -245,85 +244,97 @@ export function IndicesManager() {
         }),
       });
 
-      setSuccess(`Bulk upsert termine: ${result.upserted_count} lignes (${result.mode}).`);
+      setSuccess(
+        `Mise à jour en masse terminée : ${result.upserted_count} ligne${result.upserted_count > 1 ? "s" : ""} (${result.mode}).`
+      );
       await loadItems();
     } catch (bulkError) {
       setError(
         bulkError instanceof Error
           ? bulkError.message
-          : "Impossible d'executer le bulk upsert."
+          : "Impossible d’exécuter la mise à jour en masse."
       );
     } finally {
       setIsBulkRunning(false);
     }
   }
 
+  function updateField(key: keyof MaterialIndexFormState, value: string) {
+    setFormState((prev) => ({ ...prev, [key]: value }));
+  }
+
   return (
     <div className="space-y-6">
-      <section className="dashboard-card p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Indices matiere</h2>
-            <p className="text-sm text-muted-foreground">
-              CRUD + bulk upsert pour la base d&apos;indices.
-            </p>
-          </div>
+      {error ? <Alert variant="danger">{error}</Alert> : null}
+      {success ? <Alert variant="success">{success}</Alert> : null}
 
+      <PageSection
+        title="Liste des indices"
+        description="Valeurs de référence utilisées pour réviser les prix matière."
+        flush
+        actions={
           <form
-            className="flex w-full max-w-md items-center gap-2"
+            role="search"
+            className="flex w-full min-w-0 items-center gap-2 sm:w-auto"
             onSubmit={(event) => {
               event.preventDefault();
               setActiveSearch(search.trim());
             }}
           >
-            <input
-              className="form-input"
+            <Input
+              type="search"
+              size="sm"
+              aria-label="Rechercher un indice par code ou libellé"
+              className="sm:w-60"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Recherche code/label"
+              placeholder="Code ou libellé…"
             />
-            <button type="submit" className="btn btn-secondary">
+            <Button type="submit" variant="outline" size="md" leftIcon={<SearchIcon aria-hidden="true" />}>
               Rechercher
-            </button>
+            </Button>
           </form>
-        </div>
-
-        {error ? <div className="alert alert-error mt-4">{error}</div> : null}
-        {success ? <div className="alert alert-success mt-4">{success}</div> : null}
-
-        <div className="mt-4 table-scroll">
+        }
+      >
+        <div className="table-scroll relative overflow-x-auto" role="region" aria-label="Liste des indices" tabIndex={0}>
           <table className="data-table">
             <thead>
               <tr>
-                <th>Code</th>
-                <th>Label</th>
-                <th>Valeur</th>
-                <th>Date effet</th>
-                <th>Source</th>
-                <th className="text-right">Actions</th>
+                <th scope="col">Code</th>
+                <th scope="col">Libellé</th>
+                <th scope="col" className="text-right">Valeur</th>
+                <th scope="col">Date d’effet</th>
+                <th scope="col">Source</th>
+                <th scope="col" className="text-right">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted-foreground">
-                    Chargement...
+                  <td colSpan={COLUMN_COUNT} className="p-0">
+                    <LoadingState label="Chargement des indices…" className="py-8" />
                   </td>
                 </tr>
               ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center text-muted-foreground">
-                    Aucun indice disponible.
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={COLUMN_COUNT}
+                  variant="compact"
+                  icon={<ChartLineIcon />}
+                  title={activeSearch ? "Aucun indice ne correspond à la recherche" : "Aucun indice"}
+                  description={
+                    activeSearch
+                      ? "Modifiez la recherche pour voir plus de résultats."
+                      : "Ajoutez un indice avec le formulaire ci-dessous ou importez-les en masse."
+                  }
+                />
               ) : (
                 items.map((item) => (
                   <tr key={item.id}>
-                    <td className="font-semibold text-foreground">
-                      {item.index_code || item.code || "-"}
-                    </td>
+                    <td className="font-semibold text-foreground">{indexCode(item)}</td>
                     <td>{item.label || "-"}</td>
-                    <td>
+                    <td className="text-right font-mono">
                       {typeof item.index_value === "number"
                         ? item.index_value.toFixed(3)
                         : typeof item.value === "number"
@@ -334,20 +345,24 @@ export function IndicesManager() {
                     <td>{item.source || "-"}</td>
                     <td>
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Modifier l’indice ${indexCode(item)}`}
+                          leftIcon={<PencilIcon aria-hidden="true" />}
                           onClick={() => onEdit(item)}
                         >
                           Modifier
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Supprimer l’indice ${indexCode(item)}`}
+                          leftIcon={<TrashIcon aria-hidden="true" />}
                           onClick={() => void onDelete(item)}
                         >
                           Supprimer
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -356,146 +371,117 @@ export function IndicesManager() {
             </tbody>
           </table>
         </div>
-      </section>
+      </PageSection>
 
-      <section className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold text-foreground">
-          {editingId ? "Modifier un indice" : "Ajouter un indice"}
-        </h2>
-
-        <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
-          <div>
-            <label className="form-label" htmlFor="index-code">
-              Index code
-            </label>
-            <input
+      <PageSection
+        id="index-form-title"
+        title={editingId ? "Modifier un indice" : "Ajouter un indice"}
+      >
+        <form className="grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="index-code">Code de l’indice *</FieldLabel>
+            <Input
               id="index-code"
-              className="form-input"
               value={formState.index_code}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, index_code: event.target.value }))
-              }
+              onChange={(event) => updateField("index_code", event.target.value)}
+              placeholder="Ex. CU"
+              autoComplete="off"
               required
             />
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="index-label">
-              Label
-            </label>
-            <input
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="index-label">Libellé *</FieldLabel>
+            <Input
               id="index-label"
-              className="form-input"
               value={formState.label}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, label: event.target.value }))
-              }
+              onChange={(event) => updateField("label", event.target.value)}
+              placeholder="Ex. Cuivre"
               required
             />
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="index-value">
-              Valeur
-            </label>
-            <input
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="index-value">Valeur *</FieldLabel>
+            <Input
               id="index-value"
-              className="form-input"
+              inputMode="decimal"
               value={formState.index_value}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, index_value: event.target.value }))
-              }
+              onChange={(event) => updateField("index_value", event.target.value)}
+              placeholder="Ex. 112,4"
               required
             />
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="index-date">
-              Date effet
-            </label>
-            <input
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="index-date">Date d’effet</FieldLabel>
+            <Input
               id="index-date"
               type="date"
-              className="form-input"
               value={formState.index_date}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, index_date: event.target.value }))
-              }
+              onChange={(event) => updateField("index_date", event.target.value)}
             />
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="index-unit">
-              Unité
-            </label>
-            <input
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="index-unit">Unité</FieldLabel>
+            <Input
               id="index-unit"
-              className="form-input"
               value={formState.unit}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, unit: event.target.value }))
-              }
+              onChange={(event) => updateField("unit", event.target.value)}
             />
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="index-source">
-              Source
-            </label>
-            <input
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="index-source">Source</FieldLabel>
+            <Input
               id="index-source"
-              className="form-input"
               value={formState.source}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, source: event.target.value }))
-              }
+              onChange={(event) => updateField("source", event.target.value)}
+              placeholder="Ex. INSEE"
             />
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
-            <button type="submit" className="btn btn-primary" disabled={isSaving}>
-              {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour" : "Ajouter"}
-            </button>
+            <Button type="submit" size="lg" loading={isSaving}>
+              {editingId ? "Mettre à jour" : "Ajouter l’indice"}
+            </Button>
 
             {editingId ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={resetForm}
-                disabled={isSaving}
-              >
+              <Button variant="outline" size="lg" onClick={resetForm} disabled={isSaving}>
                 Annuler
-              </button>
+              </Button>
             ) : null}
           </div>
         </form>
-      </section>
+      </PageSection>
 
-      <section className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold text-foreground">Bulk upsert indices</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Envoi direct vers `/api/indices` action `bulk-upsert`.
-        </p>
-
-        <textarea
-          className="form-input form-textarea mt-4 font-mono text-xs"
-          value={bulkPayload}
-          onChange={(event) => setBulkPayload(event.target.value)}
-          spellCheck={false}
-          rows={12}
-        />
+      <PageSection
+        title="Mise à jour en masse"
+        description="Collez un tableau JSON d’indices : les codes existants sont mis à jour, les autres créés."
+      >
+        <div className="flex flex-col gap-2">
+          <FieldLabel htmlFor="indices-bulk-payload">Indices au format JSON</FieldLabel>
+          <Textarea
+            id="indices-bulk-payload"
+            className="font-mono text-xs"
+            aria-describedby="indices-bulk-hint"
+            value={bulkPayload}
+            onChange={(event) => setBulkPayload(event.target.value)}
+            spellCheck={false}
+            rows={12}
+          />
+          <FieldDescription id="indices-bulk-hint" className="text-xs">
+            Champs attendus : index_code, label, index_value, index_date, unit, source.
+          </FieldDescription>
+        </div>
 
         <div className="mt-4">
-          <button
-            type="button"
-            className="btn btn-accent"
-            onClick={() => void onBulkUpsert()}
-            disabled={isBulkRunning}
-          >
-            {isBulkRunning ? "Traitement..." : "Executer bulk upsert"}
-          </button>
+          <Button variant="accent" size="lg" onClick={() => void onBulkUpsert()} loading={isBulkRunning}>
+            Exécuter la mise à jour en masse
+          </Button>
         </div>
-      </section>
+      </PageSection>
     </div>
   );
 }

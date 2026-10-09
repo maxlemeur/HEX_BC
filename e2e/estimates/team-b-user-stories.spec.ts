@@ -619,17 +619,17 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await ensureMapping(page, "total_ht", "total_ht");
 
     await expect(
-      page.getByRole("heading", { name: /Aperçu des données mappees/i })
+      page.getByRole("heading", { name: /Aperçu des données mapp[ée]es/i })
     ).toBeVisible();
     const previewSection = page
       .locator("section")
-      .filter({ has: page.getByRole("heading", { name: /Aperçu des données mappees/i }) })
+      .filter({ has: page.getByRole("heading", { name: /Aperçu des données mapp[ée]es/i }) })
       .first();
     await expect(previewSection.getByText("Validation", { exact: true })).toBeVisible();
-    await expect(previewSection.getByText("Champs a completer", { exact: true })).toBeVisible();
+    await expect(previewSection.getByText("Champs à compléter", { exact: true })).toBeVisible();
     await expect(previewSection.getByText("Doublons", { exact: true })).toBeVisible();
     await expect(
-      previewSection.getByText(/groupe\(s\) de doublons detecte\(s\)|Aucun doublon detecte/i)
+      previewSection.getByText(/groupes? de doublons détectés?|Aucun doublon détecté/i)
     ).toBeVisible();
   });
 
@@ -643,7 +643,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await page.setInputFiles("#import-file-input", pdfFixturePath);
 
-    await expect(page.getByText(/Validation renforcee/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Validation renforc[ée]e/i)).toBeVisible({ timeout: 30_000 });
     await expect(
       page.getByText(
         /Le PDF rejoint le mapping standard uniquement après approbation explicite/i
@@ -683,7 +683,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await page.goto(`/dashboard/affaires/${projectId}`);
     await page.getByRole("button", { name: /Lancer l'import structure/i }).click();
-    await expect(page.getByText("Glissez-deposez votre fichier DPGF ici")).toBeVisible();
+    await expect(page.getByText("Glissez-déposez votre fichier DPGF ici")).toBeVisible();
 
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
     await page.getByRole("button", { name: "Lancer l'import" }).click();
@@ -734,7 +734,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
 
     await page.goto("/dashboard/affaires/" + projectId);
     await page.getByRole("button", { name: /Lancer l'import structure/i }).click();
-    await expect(page.getByText("Glissez-deposez votre fichier DPGF ici")).toBeVisible();
+    await expect(page.getByText("Glissez-déposez votre fichier DPGF ici")).toBeVisible();
 
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
     await page.getByRole("button", { name: "Lancer l'import" }).click();
@@ -945,7 +945,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(dialog.getByText("Déjà couverts", { exact: true })).toBeVisible();
     await expect(dialog.getByText("Tube cuivre 18").first()).toBeVisible();
 
-    await dialog.getByLabel(/Sélectionner toutes les préselections fournisseurs/i).check();
+    await dialog.getByLabel(/Sélectionner toutes les présélections fournisseurs/i).check();
     await dialog.getByRole("button", { name: /Appliquer la sélection/i }).click();
     await expect(dialog).toBeHidden({ timeout: 30_000 });
 
@@ -1007,7 +1007,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(page.locator("select").first().locator("option:checked")).toHaveText(
       /Best Supplier E2E/i
     );
-    await expect(page.getByRole("textbox", { name: /Designation/i }).first()).toHaveValue(
+    await expect(page.getByRole("textbox", { name: /D[ée]signation/i }).first()).toHaveValue(
       "Tube cuivre 18"
     );
   });
@@ -1026,7 +1026,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(plansSection.getByText("Statuts précédents conserves")).toBeVisible();
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("1 en attente")).toBeVisible();
-    await expect(plansSection.getByText("0 a corriger")).toBeVisible();
+    await expect(plansSection.getByText("0 à corriger")).toBeVisible();
     await expect(plansSection.getByText("En attente provider")).toBeVisible();
     await expect(plansSection.getByText("Analyse terminée")).toBeVisible();
   });
@@ -1044,7 +1044,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     await expect(flowHierarchy).toBeVisible();
     await expect(flowHierarchy.getByText("Documents à confirmer", { exact: true })).toBeVisible();
     await expect(
-      flowHierarchy.getByRole("button", { name: "Pourquoi TIMAX hesite" })
+      flowHierarchy.getByRole("button", { name: "Pourquoi TIMAX hésite" })
     ).toBeVisible();
     await expect(flowHierarchy.getByText("Blocages à traiter")).toBeVisible();
     await expect(

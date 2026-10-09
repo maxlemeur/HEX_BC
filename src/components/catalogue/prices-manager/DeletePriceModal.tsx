@@ -4,7 +4,17 @@ import { useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
-import { Modal } from "@/components/ui-legacy/Modal";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { formatEUR } from "@/lib/money";
 import { TrashIcon } from "lucide-react";
@@ -53,63 +63,46 @@ export function DeletePriceModal({
   }
 
   return (
-    <Modal.Root
+    <AlertDialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
+        if (!nextOpen && !isDeleting) {
           onClose();
         }
       }}
     >
-      <Modal.Content className="max-w-md">
-        <Modal.Header>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-danger/10">
-              <TrashIcon aria-hidden="true" stroke="var(--danger)" strokeWidth="1.75" size={20} />
-            </div>
-            <div>
-              <Modal.Title>Confirmer la suppression</Modal.Title>
-              <p className="text-sm text-muted-foreground">Cette action est irréversible.</p>
-            </div>
-          </div>
-        </Modal.Header>
-
-        {target ? (
-          <Modal.Body>
-            <p className="text-sm text-foreground-secondary">
-              Voulez-vous supprimer le prix de <strong>{target._supplierName}</strong> pour{" "}
-              <strong>{target._productName}</strong> (
-              {typeof target.unit_price_cents === "number" ? formatEUR(target.unit_price_cents) : "-"}) ?
-            </p>
-          </Modal.Body>
-        ) : null}
-
-        <Modal.Footer>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={onClose}
-            disabled={isDeleting}
-          >
-            Annuler
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={() => void confirmDelete()}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia className="bg-danger-subtle text-danger">
+            <TrashIcon aria-hidden="true" strokeWidth={1.75} />
+          </AlertDialogMedia>
+          <AlertDialogTitle>Supprimer ce tarif ?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {target ? (
               <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                Suppression...
+                Le prix de <strong className="text-foreground">{target._supplierName}</strong> pour{" "}
+                <strong className="text-foreground">{target._productName}</strong> (
+                {typeof target.unit_price_cents === "number" ? formatEUR(target.unit_price_cents) : "-"}) sera
+                supprimé. Cette action est irréversible.
               </>
             ) : (
-              "Supprimer"
+              "Cette action est irréversible."
             )}
-          </button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+          <Button
+            variant="danger-solid"
+            size="lg"
+            onClick={() => void confirmDelete()}
+            loading={isDeleting}
+          >
+            Supprimer
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

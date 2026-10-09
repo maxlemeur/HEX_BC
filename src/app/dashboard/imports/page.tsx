@@ -1,16 +1,15 @@
 import { DpgfStepper } from "@/components/DpgfStepper";
 import { ImportWizard } from "@/components/imports/ImportWizard";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default function DashboardImportsPage() {
   return (
     <div className="animate-fade-in">
+      <PageHeader
+        title="Import DPGF"
+        description="Décomposition du Prix Global et Forfaitaire — CSV, XLSX, XLS ou PDF tabulaire."
+      />
       <DpgfStepper />
-      <div className="page-header">
-        <h1 className="page-title">Import DPGF</h1>
-        <p className="page-description">
-          Décomposition du Prix Global et Forfaitaire — CSV, XLSX ou XLS.
-        </p>
-      </div>
 
       <ImportWizard />
     </div>

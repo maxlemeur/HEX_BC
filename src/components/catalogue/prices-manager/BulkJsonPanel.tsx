@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
+import { ChevronDownIcon } from "lucide-react";
+
 import { fetchApi } from "@/components/catalogue/api";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui-legacy/Toast";
 
 type BulkJsonPanelProps = {
@@ -69,42 +74,51 @@ export function BulkJsonPanel({ onCompleted }: Readonly<BulkJsonPanelProps>) {
   }
 
   return (
-    <section className="dashboard-card p-6">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between text-left"
-        onClick={() => setShowBulkJson((previous) => !previous)}
-      >
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Mode avancé</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Collez un tableau JSON pour créer plusieurs prix en une seule fois.
-          </p>
-        </div>
-        <span className="text-subtle-foreground text-lg">{showBulkJson ? "\u25B2" : "\u25BC"}</span>
-      </button>
+    <section
+      aria-labelledby="prices-bulk-json-title"
+      className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
+    >
+      <h2 id="prices-bulk-json-title" className="m-0">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:px-6"
+          aria-expanded={showBulkJson}
+          aria-controls="prices-bulk-json-panel"
+          onClick={() => setShowBulkJson((previous) => !previous)}
+        >
+          <span className="min-w-0">
+            <span className="block text-base font-semibold text-foreground">Mode avancé</span>
+            <span className="mt-1 block text-sm font-normal text-muted-foreground">
+              Collez un tableau JSON pour créer plusieurs prix en une seule fois.
+            </span>
+          </span>
+          <ChevronDownIcon
+            aria-hidden="true"
+            className={`size-5 shrink-0 text-subtle-foreground transition-transform motion-reduce:transition-none ${showBulkJson ? "rotate-180" : ""}`}
+          />
+        </button>
+      </h2>
 
       {showBulkJson ? (
-        <>
-          <textarea
-            className="form-input form-textarea mt-4 font-mono text-xs"
-            value={bulkPayload}
-            onChange={(event) => setBulkPayload(event.target.value)}
-            spellCheck={false}
-            rows={12}
-          />
+        <div id="prices-bulk-json-panel" className="border-t border-border px-4 py-4 sm:px-6">
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor="prices-bulk-json">Prix au format JSON</FieldLabel>
+            <Textarea
+              id="prices-bulk-json"
+              className="font-mono text-xs"
+              value={bulkPayload}
+              onChange={(event) => setBulkPayload(event.target.value)}
+              spellCheck={false}
+              rows={12}
+            />
+          </div>
 
           <div className="mt-4">
-            <button
-              type="button"
-              className="btn btn-accent"
-              onClick={() => void onBulkCreate()}
-              disabled={isBulkRunning}
-            >
-              {isBulkRunning ? "Traitement..." : "Lancer la création en masse"}
-            </button>
+            <Button variant="accent" size="lg" onClick={() => void onBulkCreate()} loading={isBulkRunning}>
+              Lancer la création en masse
+            </Button>
           </div>
-        </>
+        </div>
       ) : null}
     </section>
   );

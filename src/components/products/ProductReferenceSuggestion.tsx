@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { Button } from "@/components/ui/button";
 
 export function ProductReferenceSuggestion({ enabled, value, onUse }: {
   enabled: boolean;
@@ -21,12 +22,12 @@ export function ProductReferenceSuggestion({ enabled, value, onUse }: {
   }, [shouldSuggest]);
   if (!enabled) return null;
   return (
-    <div className="mt-1.5 space-y-1.5 text-xs text-slate-600">
+    <div className="space-y-1.5 text-xs text-foreground-secondary">
       <p>Une référence sera générée automatiquement si ce champ reste vide.</p>
       {shouldSuggest && suggestion ? (
         <div className="flex flex-wrap items-center gap-2">
           <span>Référence suggérée : <strong>{suggestion}</strong></span>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onUse(suggestion)}>Utiliser</button>
+          <Button variant="outline" size="sm" onClick={() => onUse(suggestion)}>Utiliser</Button>
           <span>Suggestion provisoire ; la référence enregistrée sera confirmée.</span>
         </div>
       ) : null}

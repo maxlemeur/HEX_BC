@@ -1,16 +1,14 @@
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { IndicesManager } from "@/components/catalogue/IndicesManager";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default function DashboardIndicesPage() {
   return (
     <div className="animate-fade-in">
-      <HubBreadcrumb hubHref="/dashboard/tarifs" hubLabel="Tarifs" currentLabel="Indices" />
-      <div className="page-header">
-        <h1 className="page-title">Indices matiere</h1>
-        <p className="page-description">
-          CRUD des indices matiere et opération bulk upsert pour mises à jour volumineuses.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: "Tarifs", href: "/dashboard/tarifs" }, { label: "Indices" }]}
+        title="Indices matière"
+        description="Créez, modifiez et mettez à jour en masse les indices de révision des prix matière."
+      />
 
       <IndicesManager />
     </div>

@@ -8,12 +8,13 @@ import { PriceBookUploadStep } from "@/components/catalogue/price-book-csv-impor
 import type { PriceBookCsvImportProps } from "@/components/catalogue/price-book-csv-import/types";
 import { UnknownResolutionPanel } from "@/components/catalogue/price-book-csv-import/UnknownResolutionPanel";
 import { usePriceBookCsvWorkflow } from "@/components/catalogue/price-book-csv-import/usePriceBookCsvWorkflow";
+import { Alert } from "@/components/ui/alert";
 
 export function PriceBookCsvImport(props: Readonly<PriceBookCsvImportProps>) {
   const workflow = usePriceBookCsvWorkflow(props);
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4 p-4 sm:p-6">
       <PriceBookUploadStep
         fileInputRef={workflow.fileInputRef}
         selectedFile={workflow.selectedFile}
@@ -40,8 +41,8 @@ export function PriceBookCsvImport(props: Readonly<PriceBookCsvImportProps>) {
         onDownloadCsvTemplate={workflow.downloadCsvTemplate}
       />
 
-      {workflow.error ? <div className="alert alert-error">{workflow.error}</div> : null}
-      {workflow.success ? <div className="alert alert-success">{workflow.success}</div> : null}
+      {workflow.error ? <Alert variant="danger">{workflow.error}</Alert> : null}
+      {workflow.success ? <Alert variant="success">{workflow.success}</Alert> : null}
 
       {workflow.canShowSummary && workflow.validation ? (
         <div className="space-y-4">

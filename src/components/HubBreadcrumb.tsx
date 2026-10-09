@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { ChevronLeftIcon } from "lucide-react";
 
+/**
+ * Legacy hub trail, kept for the affaire sub-pages. New pages use `PageHeader` breadcrumbs
+ * (`@/components/layout/breadcrumbs`).
+ */
 export function HubBreadcrumb({
   hubHref,
   hubLabel,
@@ -20,12 +24,12 @@ export function HubBreadcrumb({
         href={hubHref}
         className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:min-h-0"
       >
-        <ChevronLeftIcon aria-hidden="true" size={14} />
+        <ChevronLeftIcon aria-hidden="true" className="size-3.5" />
         {hubLabel}
       </Link>
       {intermediateHref && intermediateLabel && (
         <>
-          <span className="shrink-0 text-slate-300">/</span>
+          <span aria-hidden="true" className="shrink-0 text-subtle-foreground">/</span>
           <Link
             href={intermediateHref}
             className="inline-flex min-h-11 min-w-0 items-center truncate rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:min-h-0"
@@ -34,7 +38,7 @@ export function HubBreadcrumb({
           </Link>
         </>
       )}
-      <span className="shrink-0 text-slate-300">/</span>
+      <span aria-hidden="true" className="shrink-0 text-subtle-foreground">/</span>
       <span className="shrink-0 font-medium text-secondary-foreground" aria-current="page">{currentLabel}</span>
     </nav>
   );

@@ -11,8 +11,11 @@ import {
   type StatusFilter,
 } from "@/components/imports/importWizardHistory";
 import { useImportWizardFileStage } from "@/components/imports/useImportWizardFileStage";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useImportFlow } from "@/hooks/useImportFlow";
-import { ChevronDownIcon, ClockIcon } from "lucide-react";
+import { ChevronDownIcon, ClockIcon, RotateCwIcon } from "lucide-react";
 
 export function ImportWizard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,51 +129,64 @@ export function ImportWizard() {
 
       {canAccessHistory && !shouldShowHistory ? (
         <div className="text-center">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={false}
+            aria-controls="import-history"
             onClick={() => setShowHistory(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary"
+            leftIcon={<ClockIcon aria-hidden="true" strokeWidth={1.5} />}
+            rightIcon={<ChevronDownIcon aria-hidden="true" />}
           >
-            <ClockIcon aria-hidden="true" strokeWidth="1.5" size={14} />
             {imports.length > 0
-              ? `Voir l&apos;historique (${imports.length} import${imports.length > 1 ? "s" : ""})`
-              : "Voir l&apos;historique"}
-            <ChevronDownIcon aria-hidden="true" strokeWidth="2.5" size={12} />
-          </button>
+              ? `Voir l’historique (${imports.length} import${imports.length > 1 ? "s" : ""})`
+              : "Voir l’historique"}
+          </Button>
         </div>
       ) : null}
 
       {shouldShowHistory ? (
-        <section className="animate-fade-in dashboard-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-6 py-4">
+        <section
+          id="import-history"
+          aria-labelledby="import-history-title"
+          className="animate-fade-in min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
             <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-slate-800">
+              <h2 id="import-history-title" className="text-sm font-semibold text-foreground">
                 Historique
               </h2>
               {isPolling ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-info-light px-2.5 py-0.5 text-xs font-medium text-info">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-info"></span>
-                  Auto
-                </span>
+                <Badge variant="info" size="sm" dot>
+                  <span className="sr-only">Actualisation </span>Auto
+                </Badge>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
+              <Button
+                variant="outline"
+                size="md"
                 onClick={() => void refreshImports()}
                 disabled={isLoadingImports || isRefreshing}
+                leftIcon={
+                  <RotateCwIcon
+                    aria-hidden="true"
+                    className={isRefreshing ? "animate-spin motion-reduce:animate-none" : undefined}
+                  />
+                }
               >
-                {isRefreshing ? "..." : "Actualiser"}
-              </button>
+                Actualiser
+              </Button>
               {showHistory ? (
-                <button
-                  type="button"
-                  className="text-xs text-subtle-foreground hover:text-slate-600"
+                <Button
+                  variant="ghost"
+                  size="md"
+                  aria-expanded
+                  aria-controls="import-history"
                   onClick={() => setShowHistory(false)}
                 >
                   Masquer
-                </button>
+                </Button>
               ) : null}
             </div>
           </div>
@@ -183,7 +199,9 @@ export function ImportWizard() {
           />
 
           {loadError ? (
-            <div className="alert alert-error m-4">{loadError}</div>
+            <div className="px-4 pt-4 sm:px-6">
+              <Alert variant="danger">{loadError}</Alert>
+            </div>
           ) : null}
 
           <ImportHistoryTable

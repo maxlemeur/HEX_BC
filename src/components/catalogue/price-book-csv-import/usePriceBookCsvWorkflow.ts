@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { useConfirm } from "@/components/feedback/confirm-provider";
 import { useFileParser, type ParsedImportRow } from "@/hooks/useFileParser";
 import {
   detectPriceBookProfile,
@@ -42,6 +43,7 @@ export function usePriceBookCsvWorkflow({
 }: PriceBookCsvImportProps): UsePriceBookCsvWorkflowResult {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { parseFile } = useFileParser();
+  const confirm = useConfirm();
 
   const [selectedFile, setSelectedFileState] = useState<File | null>(null);
   const [rows, setRows] = useState<ParsedImportRow[]>([]);
@@ -199,7 +201,7 @@ export function usePriceBookCsvWorkflow({
     }
 
     if (!isCsvFile(selectedFile)) {
-      setError("Seuls les fichiers CSV sont supportes pour cet import.");
+      setError("Seuls les fichiers CSV sont pris en charge pour cet import.");
       return;
     }
 
@@ -213,7 +215,7 @@ export function usePriceBookCsvWorkflow({
     try {
       const parsed = await parseFile(selectedFile);
       if (parsed.parser !== "csv") {
-        throw new Error("Le format detecte n'est pas CSV.");
+        throw new Error("Le format détecté n’est pas CSV.");
       }
 
       const nextRows = parsed.rows;
@@ -286,7 +288,7 @@ export function usePriceBookCsvWorkflow({
   const resolveAutomatically = useCallback(async () => {
     if (!validation || !detectedProfile) return;
     if (unknownSuppliers.length === 0 && unknownProducts.length === 0) {
-      setError("Aucun fournisseur/produit inconnu à resoudre.");
+      setError("Aucun fournisseur ou produit inconnu à résoudre.");
       return;
     }
 
@@ -320,7 +322,7 @@ export function usePriceBookCsvWorkflow({
       });
 
       if (supplierReplacements.size === 0 && productReplacements.size === 0) {
-        setError("Aucune resolution automatique fiable n'a été trouvee.");
+        setError("Aucune résolution automatique fiable n’a été trouvée.");
         return;
       }
 
@@ -334,12 +336,12 @@ export function usePriceBookCsvWorkflow({
 
       setRows(nextRows);
       await runValidation(nextRows, mapping, detectedProfile, rowLineNumbers);
-      setSuccess("Resolution automatique appliquée.");
+      setSuccess("Résolution automatique appliquée.");
     } catch (resolveError) {
       setError(
         resolveError instanceof Error
           ? resolveError.message
-          : "Impossible de resoudre automatiquement les inconnus."
+          : "Impossible de résoudre automatiquement les inconnus."
       );
     } finally {
       setIsResolving(false);
@@ -364,16 +366,12 @@ export function usePriceBookCsvWorkflow({
 
     const suppliersCount = unknownSuppliers.length;
     const productsCount = unknownProducts.length;
-    const confirmMessage = `Créer ${suppliersCount} fournisseur(s) et ${productsCount} produit(s) ?`;
-
-    let shouldCreate = true;
-    if (typeof window !== "undefined" && typeof window.confirm === "function") {
-      try {
-        shouldCreate = window.confirm(confirmMessage);
-      } catch {
-        shouldCreate = true;
-      }
-    }
+    const shouldCreate = await confirm({
+      title: `Créer ${suppliersCount} fournisseur(s) et ${productsCount} produit(s) ?`,
+      description:
+        "Les fournisseurs et produits absents du référentiel seront créés, puis le fichier sera revalidé.",
+      confirmLabel: "Créer",
+    });
 
     if (!shouldCreate) {
       return;
@@ -404,7 +402,7 @@ export function usePriceBookCsvWorkflow({
       );
 
       setSuccess(
-        `Création assistee terminée: ${result.createdSuppliers.length} fournisseur(s), ${result.createdProducts.length} produit(s).`
+        `Création assistée terminée : ${result.createdSuppliers.length} fournisseur(s), ${result.createdProducts.length} produit(s).`
       );
     } catch (createError) {
       setError(
@@ -416,6 +414,7 @@ export function usePriceBookCsvWorkflow({
       setIsCreatingMissing(false);
     }
   }, [
+    confirm,
     detectedProfile,
     mapping,
     onLookupsUpdated,
@@ -467,7 +466,7 @@ export function usePriceBookCsvWorkflow({
       await onImported();
 
       setSuccess(
-        `Import termine: ${result.created_count} ligne(s) importée(s), ${validation.ignoredRowsCount} ignoree(s), ${validation.rejectedRowsCount} à corriger, ${duplicatesSkipped} déjà existante(s).`
+        `Import terminé : ${result.created_count} ligne(s) importée(s), ${validation.ignoredRowsCount} ignorée(s), ${validation.rejectedRowsCount} à corriger, ${duplicatesSkipped} déjà existante(s).`
       );
     } catch (submitError) {
       setError(

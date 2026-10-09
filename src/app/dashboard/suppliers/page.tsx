@@ -1,14 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
+import { BriefcaseIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
+import { ReferentielFormField } from "@/components/catalogue/ReferentielFormField";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyState, EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { SortOption } from "@/components/TableFilterBar";
-import { BriefcaseIcon, CircleXIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 type Supplier = {
   id: string;
@@ -62,12 +78,16 @@ const EMPTY_FORM: SupplierFormState = {
   payment_terms: "",
 };
 
+const TABLE_COLUMNS = 6;
+
 export default function SuppliersPage() {
+  const confirm = useConfirm();
   // Form state
   const [formState, setFormState] = useState<SupplierFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const nameFieldRef = useRef<HTMLInputElement | null>(null);
 
@@ -127,23 +147,6 @@ export default function SuppliersPage() {
     setIsFormOpen(true);
   }, []);
 
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const timeout = window.setTimeout(() => {
-      nameFieldRef.current?.focus();
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [isFormOpen]);
-
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [isFormOpen]);
-
   function updateField<K extends keyof SupplierFormState>(
     key: K,
     value: SupplierFormState[K]
@@ -191,319 +194,240 @@ export default function SuppliersPage() {
     }
   }
 
-  async function onDelete(supplierId: string) {
+  async function onDelete(supplier: Supplier) {
+    setPageError(null);
     try {
       const usage = await fetchApi<{ linked_orders_count: number }>(
-        `/api/suppliers?view=usage&id=${encodeURIComponent(supplierId)}`
+        `/api/suppliers?view=usage&id=${encodeURIComponent(supplier.id)}`
       );
       const linkedOrdersCount = usage.linked_orders_count;
       const hasLinkedOrders = linkedOrdersCount > 0;
       const isPlural = linkedOrdersCount > 1;
-      const confirmationMessage = hasLinkedOrders
-        ? `Ce fournisseur est utilisé dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archivé et retire de la liste active. Continuer ?`
-        : "Supprimer ce fournisseur ?";
 
-      if (!window.confirm(confirmationMessage)) {
-        return;
-      }
+      const confirmed = await confirm(
+        hasLinkedOrders
+          ? {
+              title: `Archiver « ${supplier.name} » ?`,
+              description: `Ce fournisseur est utilisé dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archivé et retiré de la liste active ; ses bons de commande sont conservés.`,
+              confirmLabel: "Archiver",
+              tone: "danger",
+            }
+          : {
+              title: `Supprimer « ${supplier.name} » ?`,
+              description: "Ce fournisseur n’est lié à aucun bon de commande : il sera supprimé du référentiel.",
+              confirmLabel: "Supprimer",
+              tone: "danger",
+            }
+      );
+      if (!confirmed) return;
 
       await fetchApi("/api/suppliers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", id: supplierId }),
+        body: JSON.stringify({ action: "delete", id: supplier.id }),
       });
       await mutate();
-      setFormError(null);
     } catch (error) {
-      setFormError(
+      setPageError(
         error instanceof Error ? error.message : "Suppression impossible."
       );
     }
   }
 
+  const emptyTitle = suppliers.length === 0 ? "Aucun fournisseur" : "Aucun résultat";
+  const emptyDescription =
+    suppliers.length === 0
+      ? "Ajoutez un fournisseur pour démarrer."
+      : "Modifiez vos filtres pour voir plus de résultats.";
+  const emptyIcon = suppliers.length === 0 ? <BriefcaseIcon /> : <SearchIcon />;
+  const emptyAction =
+    suppliers.length === 0 ? (
+      <Button leftIcon={<PlusIcon aria-hidden="true" />} onClick={openCreateForm}>
+        Ajouter un fournisseur
+      </Button>
+    ) : null;
+
   return (
     <div className="animate-fade-in">
-      <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Fournisseurs" />
-      {/* Page header */}
-      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-        <div>
-          <h1 className="page-title">Fournisseurs</h1>
-          <p className="page-description">
-            Gérez la liste de vos fournisseurs.
-          </p>
-        </div>
-        <button
-          className="btn btn-primary btn-lg w-full justify-center sm:w-auto"
-          type="button"
-          onClick={openCreateForm}
-        >
-          <PlusIcon aria-hidden="true" size={20} />
-          Ajouter un fournisseur
-        </button>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Référentiel", href: "/dashboard/referentiel" },
+          { label: "Fournisseurs" },
+        ]}
+        title="Fournisseurs"
+        description="Gérez la liste de vos fournisseurs et leurs coordonnées."
+        actions={
+          <Button
+            size="lg"
+            className="w-full sm:w-auto"
+            leftIcon={<PlusIcon aria-hidden="true" />}
+            onClick={openCreateForm}
+          >
+            Ajouter un fournisseur
+          </Button>
+        }
+      />
 
-      {!isFormOpen && formError ? (
-        <div className="alert alert-error mb-6">
-          <CircleXIcon aria-hidden="true" size={20} />
-          {formError}
-        </div>
+      {pageError ? (
+        <Alert variant="danger" className="mb-6">
+          {pageError}
+        </Alert>
       ) : null}
 
-      {isFormOpen ? (
-        createPortal(
-          <div
-            data-supplier-modal-root
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          >
-            <div className="absolute inset-0 bg-slate-900/40" />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="supplier-modal-title"
-              className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--brand-blue)"
-                    strokeWidth="1.75"
-                  >
-                    {editingId ? (
-                      <>
-                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                        <path d="m15 5 4 4" />
-                      </>
-                    ) : (
-                      <>
-                        <path d="M5 12h14" />
-                        <path d="M12 5v14" />
-                      </>
-                    )}
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="supplier-modal-title" className="text-lg font-semibold text-slate-800">
-                    {editingId ? "Modifier le fournisseur" : "Ajouter un fournisseur"}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {editingId
-                      ? "Mettez à jour les informations du fournisseur."
-                      : "Renseignez les informations du nouveau fournisseur."}
-                  </p>
-                </div>
-              </div>
-            </div>
+      <Dialog
+        open={isFormOpen}
+        onOpenChange={(open) => {
+          if (!open && !isSubmitting) closeForm();
+        }}
+      >
+        <DialogContent size="xl" initialFocus={nameFieldRef} data-supplier-modal-root>
+          <DialogHeader>
+            <DialogTitle>
+              {editingId ? "Modifier le fournisseur" : "Ajouter un fournisseur"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingId
+                ? "Mettez à jour les informations du fournisseur."
+                : "Renseignez les informations du nouveau fournisseur. Seul le nom est obligatoire."}
+            </DialogDescription>
+          </DialogHeader>
 
-            <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
-              <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto px-4 py-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-3">
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="form-label" htmlFor="supplier-name">Nom *</label>
-                <input
-                  ref={nameFieldRef}
-                  id="supplier-name"
-                  name="organization"
-                  autoComplete="organization"
-                  className="form-input"
-                  placeholder="Nom de l'entreprise"
-                  required
-                  value={formState.name}
-                  onChange={(event) => updateField("name", event.target.value)}
-                />
-              </div>
+          <form className="flex min-h-0 flex-col gap-4" onSubmit={onSubmit}>
+            <DialogBody className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <ReferentielFormField
+                ref={nameFieldRef}
+                id="supplier-name"
+                label="Nom *"
+                className="sm:col-span-2 lg:col-span-3"
+                name="organization"
+                autoComplete="organization"
+                placeholder="Nom de l’entreprise"
+                required
+                value={formState.name}
+                onChange={(event) => updateField("name", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-contact"
+                label="Contact"
+                name="contact-name"
+                autoComplete="name"
+                placeholder="Nom du contact"
+                value={formState.contact_name}
+                onChange={(event) => updateField("contact_name", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-phone"
+                label="Téléphone"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="01 00 00 00 00"
+                value={formState.phone}
+                onChange={(event) => updateField("phone", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-email"
+                label="Email"
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="contact@fournisseur.fr"
+                value={formState.email}
+                onChange={(event) => updateField("email", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-address"
+                label="Adresse"
+                className="sm:col-span-2 lg:col-span-3"
+                control={
+                  <Textarea
+                    id="supplier-address"
+                    name="street-address"
+                    autoComplete="street-address"
+                    className="min-h-20"
+                    placeholder="Adresse complète"
+                    value={formState.address}
+                    onChange={(event) => updateField("address", event.target.value)}
+                  />
+                }
+              />
+              <ReferentielFormField
+                id="supplier-postal"
+                label="Code postal"
+                name="postal-code"
+                autoComplete="postal-code"
+                placeholder="78120"
+                value={formState.postal_code}
+                onChange={(event) => updateField("postal_code", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-city"
+                label="Ville"
+                name="city"
+                autoComplete="address-level2"
+                placeholder="Rambouillet"
+                value={formState.city}
+                onChange={(event) => updateField("city", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-country"
+                label="Pays"
+                name="country"
+                autoComplete="country-name"
+                placeholder="France"
+                value={formState.country}
+                onChange={(event) => updateField("country", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-siret"
+                label="SIRET"
+                name="siret"
+                autoComplete="off"
+                placeholder="123 456 789 00000"
+                value={formState.siret}
+                onChange={(event) => updateField("siret", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-vat"
+                label="TVA intracommunautaire"
+                name="vat-number"
+                autoComplete="off"
+                placeholder="FR12345678901"
+                value={formState.vat_number}
+                onChange={(event) => updateField("vat_number", event.target.value)}
+              />
+              <ReferentielFormField
+                id="supplier-payment"
+                label="Conditions de paiement"
+                name="payment-terms"
+                autoComplete="off"
+                placeholder="À 30 jours fin de mois"
+                value={formState.payment_terms}
+                onChange={(event) => updateField("payment_terms", event.target.value)}
+              />
+            </DialogBody>
 
-              <div>
-                <label className="form-label" htmlFor="supplier-contact">Contact</label>
-                <input
-                  id="supplier-contact"
-                  name="contact-name"
-                  autoComplete="name"
-                  className="form-input"
-                  placeholder="Nom du contact"
-                  value={formState.contact_name}
-                  onChange={(event) => updateField("contact_name", event.target.value)}
-                />
-              </div>
+            {formError ? <Alert variant="danger">{formError}</Alert> : null}
 
-              <div>
-                <label className="form-label" htmlFor="supplier-phone">Téléphone</label>
-                <input
-                  id="supplier-phone"
-                  name="phone"
-                  type="tel"
-                  autoComplete="tel"
-                  className="form-input"
-                  placeholder="01 00 00 00 00"
-                  value={formState.phone}
-                  onChange={(event) => updateField("phone", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-email">Email</label>
-                <input
-                  id="supplier-email"
-                  name="email"
-                  className="form-input"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="contact@fournisseur.fr"
-                  type="email"
-                  value={formState.email}
-                  onChange={(event) => updateField("email", event.target.value)}
-                />
-              </div>
-
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="form-label" htmlFor="supplier-address">Adresse</label>
-                <textarea
-                  id="supplier-address"
-                  name="street-address"
-                  autoComplete="street-address"
-                  className="form-input form-textarea"
-                  placeholder="Adresse complete"
-                  value={formState.address}
-                  onChange={(event) => updateField("address", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-postal">Code postal</label>
-                <input
-                  id="supplier-postal"
-                  name="postal-code"
-                  autoComplete="postal-code"
-                  className="form-input"
-                  placeholder="78120"
-                  value={formState.postal_code}
-                  onChange={(event) => updateField("postal_code", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-city">Ville</label>
-                <input
-                  id="supplier-city"
-                  name="city"
-                  autoComplete="address-level2"
-                  className="form-input"
-                  placeholder="Rambouillet"
-                  value={formState.city}
-                  onChange={(event) => updateField("city", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-country">Pays</label>
-                <input
-                  id="supplier-country"
-                  name="country"
-                  autoComplete="country-name"
-                  className="form-input"
-                  placeholder="France"
-                  value={formState.country}
-                  onChange={(event) => updateField("country", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-siret">SIRET</label>
-                <input
-                  id="supplier-siret"
-                  name="siret"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="123 456 789 00000"
-                  value={formState.siret}
-                  onChange={(event) => updateField("siret", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-vat">TVA intracommunautaire</label>
-                <input
-                  id="supplier-vat"
-                  name="vat-number"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="FR12345678901"
-                  value={formState.vat_number}
-                  onChange={(event) => updateField("vat_number", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="supplier-payment">Conditions de paiement</label>
-                <input
-                  id="supplier-payment"
-                  name="payment-terms"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="A 30 jours fin de mois"
-                  value={formState.payment_terms}
-                  onChange={(event) => updateField("payment_terms", event.target.value)}
-                />
-              </div>
-
-              </div>
-
-              <div className="shrink-0 border-t border-border bg-surface px-4 py-3 sm:px-6 sm:py-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                {formError ? (
-                  <div className="alert alert-error flex-1">
-                    <CircleXIcon aria-hidden="true" size={18} />
-                    {formError}
-                  </div>
-                ) : (
-                  <span />
-                )}
-                <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
-                  <button
-                    className="btn btn-secondary w-full justify-center sm:w-auto"
-                    onClick={closeForm}
-                    type="button"
-                    disabled={isSubmitting}
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    className="btn btn-primary w-full justify-center sm:w-auto"
-                    disabled={isSubmitting}
-                    type="submit"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                        Enregistrement...
-                      </>
-                    ) : editingId ? (
-                      "Mettre à jour"
-                    ) : (
-                      "Ajouter"
-                    )}
-                  </button>
-                </div>
-                </div>
-              </div>
-            </form>
-            </div>
-          </div>,
-          document.body
-        )
-      ) : null}
+            <DialogFooter>
+              <Button variant="outline" size="lg" onClick={closeForm} disabled={isSubmitting}>
+                Annuler
+              </Button>
+              <Button type="submit" size="lg" loading={isSubmitting}>
+                {editingId ? "Mettre à jour" : "Ajouter"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Filter Bar */}
       <TableFilterBar
         data={suppliers}
         onDataChange={setDisplayedSuppliers}
         search={{
-          placeholder: "Rechercher par nom ou ville...",
+          placeholder: "Rechercher par nom ou ville…",
           fields: ["name", "city"],
         }}
         sortOptions={SUPPLIERS_SORT_OPTIONS}
@@ -511,69 +435,59 @@ export default function SuppliersPage() {
         showResultCount
       />
 
-      {/* Table card */}
-      <div className="dashboard-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
-          <h2 className="text-sm font-semibold text-slate-800">
-            Liste des fournisseurs
-          </h2>
-          <button
-            className="btn btn-secondary btn-sm"
+      <PageSection
+        title="Liste des fournisseurs"
+        flush
+        actions={
+          <Button
+            variant="outline"
+            size="md"
             disabled={isValidating}
             onClick={() => void mutate()}
-            type="button"
+            leftIcon={
+              <RotateCwIcon
+                aria-hidden="true"
+                className={isValidating ? "animate-spin motion-reduce:animate-none" : undefined}
+              />
+            }
           >
-            <RotateCwIcon aria-hidden="true" className={isValidating ? "animate-spin" : ""} size={16} />
-            {isValidating ? "Chargement..." : "Actualiser"}
-          </button>
-        </div>
-
+            {isValidating ? "Actualisation…" : "Actualiser"}
+          </Button>
+        }
+      >
         {loadError ? (
-          <div className="alert alert-error m-4">
-            <CircleXIcon aria-hidden="true" size={18} />
-            {loadError.message}
+          <div className="p-4">
+            <Alert variant="danger">{loadError.message}</Alert>
           </div>
         ) : null}
 
         <div className="xl:hidden">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-muted-foreground">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
-              Chargement...
-            </div>
+            <LoadingState label="Chargement des fournisseurs…" />
           ) : displayedSuppliers.length === 0 ? (
-            <div className="px-4 py-10 text-center">
-              <p className="font-medium text-foreground-secondary">
-                {suppliers.length === 0 ? "Aucun fournisseur" : "Aucun résultat"}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {suppliers.length === 0
-                  ? "Ajoutez un fournisseur pour démarrer."
-                  : "Modifiez vos filtres pour voir plus de résultats."}
-              </p>
-            </div>
+            <EmptyState
+              variant="plain"
+              icon={emptyIcon}
+              title={emptyTitle}
+              description={emptyDescription}
+              action={emptyAction}
+            />
           ) : (
-            <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
-              {displayedSuppliers.map((supplier, index) => (
-                <article
+            <ul className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+              {displayedSuppliers.map((supplier) => (
+                <li
                   key={supplier.id}
-                  className="min-w-0 animate-fade-in rounded-xl border border-border bg-surface p-4"
-                  style={{ animationDelay: `${index * 0.03}s` }}
+                  className="min-w-0 rounded-lg border border-border bg-surface p-4"
                 >
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="break-words font-semibold text-slate-800">
-                        {supplier.name}
-                      </h3>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {[supplier.city, supplier.country].filter(Boolean).join(", ") || "Localisation non renseignee"}
-                      </p>
-                    </div>
-                  </div>
+                  <h3 className="break-words font-semibold text-foreground">{supplier.name}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {[supplier.city, supplier.country].filter(Boolean).join(", ") ||
+                      "Localisation non renseignée"}
+                  </p>
 
                   <div className="mt-4 space-y-2 text-sm">
-                    <p className="text-slate-600">
-                      <span className="font-medium text-slate-800">Contact :</span>{" "}
+                    <p className="text-foreground-secondary">
+                      <span className="font-medium text-foreground">Contact :</span>{" "}
                       {supplier.contact_name ?? "Non renseigné"}
                     </p>
                     {supplier.email ? (
@@ -584,7 +498,7 @@ export default function SuppliersPage() {
                         {supplier.email}
                       </a>
                     ) : (
-                      <p className="text-subtle-foreground">Email non renseigné</p>
+                      <p className="text-muted-foreground">Email non renseigné</p>
                     )}
                     {supplier.phone ? (
                       <a
@@ -594,86 +508,72 @@ export default function SuppliersPage() {
                         {supplier.phone}
                       </a>
                     ) : (
-                      <p className="text-subtle-foreground">Téléphone non renseigné</p>
+                      <p className="text-muted-foreground">Téléphone non renseigné</p>
                     )}
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3">
-                    <button
-                      className="btn btn-secondary btn-sm w-full justify-center"
+                    <Button
+                      variant="outline"
+                      size="md"
+                      aria-label={`Modifier ${supplier.name}`}
                       onClick={() => openEditForm(supplier)}
-                      type="button"
                     >
                       Modifier
-                    </button>
-                    <button
-                      className="btn btn-danger btn-sm w-full justify-center"
-                      onClick={() => onDelete(supplier.id)}
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="md"
+                      aria-label={`Supprimer ${supplier.name}`}
+                      onClick={() => void onDelete(supplier)}
                     >
                       Supprimer
-                    </button>
+                    </Button>
                   </div>
-                </article>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
 
-        <div className="hidden overflow-x-auto xl:block">
+        <div
+          className="relative hidden overflow-x-auto xl:block"
+          role="region"
+          aria-label="Liste des fournisseurs"
+          tabIndex={0}
+        >
           <table className="data-table">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Contact</th>
-                <th>Ville</th>
-                <th>Email</th>
-                <th>Téléphone</th>
-                <th className="text-right">Actions</th>
+                <th scope="col">Nom</th>
+                <th scope="col">Contact</th>
+                <th scope="col">Ville</th>
+                <th scope="col">Email</th>
+                <th scope="col">Téléphone</th>
+                <th scope="col" className="text-right">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {displayedSuppliers.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
-                    {isLoading ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
-                        <span className="text-muted-foreground">Chargement...</span>
-                      </div>
-                    ) : suppliers.length === 0 ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                          <BriefcaseIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-foreground-secondary">Aucun fournisseur</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Cliquez sur le bouton Ajouter un fournisseur pour démarrer.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                          <SearchIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-foreground-secondary">Aucun résultat</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de résultats.</p>
-                        </div>
-                      </div>
-                    )}
+                  <td colSpan={TABLE_COLUMNS} className="p-0">
+                    <LoadingState label="Chargement des fournisseurs…" />
                   </td>
                 </tr>
+              ) : displayedSuppliers.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={TABLE_COLUMNS}
+                  icon={emptyIcon}
+                  title={emptyTitle}
+                  description={emptyDescription}
+                  action={emptyAction}
+                />
               ) : (
-                displayedSuppliers.map((supplier, index) => (
-                  <tr
-                    key={supplier.id}
-                    className="animate-fade-in"
-                    style={{ animationDelay: `${index * 0.03}s` }}
-                  >
-                    <td className="font-semibold text-slate-800">
-                      {supplier.name}
-                    </td>
+                displayedSuppliers.map((supplier) => (
+                  <tr key={supplier.id}>
+                    <td className="font-semibold text-foreground">{supplier.name}</td>
                     <td>{supplier.contact_name ?? "-"}</td>
                     <td>{supplier.city ?? "-"}</td>
                     <td>
@@ -691,22 +591,24 @@ export default function SuppliersPage() {
                     <td>{supplier.phone ?? "-"}</td>
                     <td className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          className="btn btn-secondary btn-sm"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Modifier ${supplier.name}`}
+                          leftIcon={<PencilIcon aria-hidden="true" />}
                           onClick={() => openEditForm(supplier)}
-                          type="button"
                         >
-                          <PencilIcon aria-hidden="true" size={14} />
                           Modifier
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => onDelete(supplier.id)}
-                          type="button"
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Supprimer ${supplier.name}`}
+                          leftIcon={<TrashIcon aria-hidden="true" />}
+                          onClick={() => void onDelete(supplier)}
                         >
-                          <TrashIcon aria-hidden="true" size={14} />
                           Supprimer
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -715,7 +617,7 @@ export default function SuppliersPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </PageSection>
     </div>
   );
 }

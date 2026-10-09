@@ -1,13 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import { MapPinIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
 
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
+import { ReferentielFormField } from "@/components/catalogue/ReferentielFormField";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyState, EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { SortOption } from "@/components/TableFilterBar";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { CircleXIcon, MapPinIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
 
 type DeliverySite = {
   id: string;
@@ -49,14 +67,18 @@ const EMPTY_FORM: DeliverySiteFormState = {
   contact_phone: "",
 };
 
+const TABLE_COLUMNS = 6;
+
 export default function SitesPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const confirm = useConfirm();
 
   // Form state
   const [formState, setFormState] = useState<DeliverySiteFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const nameFieldRef = useRef<HTMLInputElement | null>(null);
 
@@ -120,23 +142,6 @@ export default function SitesPage() {
     setIsFormOpen(true);
   }, []);
 
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const timeout = window.setTimeout(() => {
-      nameFieldRef.current?.focus();
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [isFormOpen]);
-
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [isFormOpen]);
-
   function updateField<K extends keyof DeliverySiteFormState>(
     key: K,
     value: DeliverySiteFormState[K]
@@ -178,36 +183,39 @@ export default function SitesPage() {
     closeForm();
   }
 
-  async function onDelete(siteId: string) {
+  async function onDelete(site: DeliverySite) {
+    setPageError(null);
     const { count, error: countError } = await supabase
       .from("purchase_orders")
       .select("id", { count: "exact", head: true })
-      .eq("delivery_site_id", siteId);
+      .eq("delivery_site_id", site.id);
 
     if (countError) {
-      setFormError(countError.message);
+      setPageError(countError.message);
       return;
     }
 
     const linkedOrdersCount = count ?? 0;
     const isPlural = linkedOrdersCount > 1;
-    const confirmationMessage =
-      linkedOrdersCount > 0
-        ? `Attention, en supprimant ce chantier, ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande lié${isPlural ? "s" : ""} sera${isPlural ? "ont" : ""} également supprimé${isPlural ? "s" : ""}.`
-        : "Supprimer ce chantier ?";
-
-    if (!window.confirm(confirmationMessage)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: `Supprimer le chantier « ${site.name} » ?`,
+      description:
+        linkedOrdersCount > 0
+          ? `Attention : ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande lié${isPlural ? "s" : ""} ser${isPlural ? "ont" : "a"} également supprimé${isPlural ? "s" : ""}. Cette suppression est définitive.`
+          : "Ce chantier n’est lié à aucun bon de commande. Cette suppression est définitive.",
+      confirmLabel: linkedOrdersCount > 0 ? "Supprimer le chantier et ses bons" : "Supprimer",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     if (linkedOrdersCount > 0) {
       const { error: linkedOrdersError } = await supabase
         .from("purchase_orders")
         .delete()
-        .eq("delivery_site_id", siteId);
+        .eq("delivery_site_id", site.id);
 
       if (linkedOrdersError) {
-        setFormError(linkedOrdersError.message);
+        setPageError(linkedOrdersError.message);
         return;
       }
     }
@@ -215,240 +223,171 @@ export default function SitesPage() {
     const { error } = await supabase
       .from("delivery_sites")
       .delete()
-      .eq("id", siteId);
+      .eq("id", site.id);
 
     if (error) {
-      setFormError(error.message);
+      setPageError(error.message);
       return;
     }
 
     await mutate();
-    setFormError(null);
   }
+
+  const emptyTitle = sites.length === 0 ? "Aucun chantier" : "Aucun résultat";
+  const emptyDescription =
+    sites.length === 0
+      ? "Ajoutez un chantier pour démarrer."
+      : "Modifiez vos filtres pour voir plus de résultats.";
+  const emptyIcon = sites.length === 0 ? <MapPinIcon /> : <SearchIcon />;
+  const emptyAction =
+    sites.length === 0 ? (
+      <Button variant="accent" leftIcon={<PlusIcon aria-hidden="true" />} onClick={openCreateForm}>
+        Ajouter un chantier
+      </Button>
+    ) : null;
 
   return (
     <div className="animate-fade-in">
-      <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Chantiers" />
-      {/* Page header */}
-      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-        <div>
-          <h1 className="page-title">Chantiers</h1>
-          <p className="page-description">
-            Gérez les sites de livraison et leurs contacts.
-          </p>
-        </div>
-        <button
-          className="btn btn-accent btn-lg w-full justify-center sm:w-auto"
-          type="button"
-          onClick={openCreateForm}
-        >
-          <PlusIcon aria-hidden="true" size={20} />
-          Ajouter un chantier
-        </button>
-      </div>
-
-      {!isFormOpen && formError ? (
-        <div className="alert alert-error mb-6">
-          <CircleXIcon aria-hidden="true" size={20} />
-          {formError}
-        </div>
-      ) : null}
-
-      {isFormOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40" />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="site-modal-title"
-            className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
+      <PageHeader
+        breadcrumbs={[
+          { label: "Référentiel", href: "/dashboard/referentiel" },
+          { label: "Chantiers" },
+        ]}
+        title="Chantiers"
+        description="Gérez les sites de livraison et leurs contacts."
+        actions={
+          <Button
+            variant="accent"
+            size="lg"
+            className="w-full sm:w-auto"
+            leftIcon={<PlusIcon aria-hidden="true" />}
+            onClick={openCreateForm}
           >
-            <div className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-orange/10">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--brand-orange)"
-                    strokeWidth="1.75"
-                  >
-                    {editingId ? (
-                      <>
-                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                        <path d="m15 5 4 4" />
-                      </>
-                    ) : (
-                      <>
-                        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-                        <circle cx="12" cy="10" r="3" />
-                      </>
-                    )}
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="site-modal-title" className="text-lg font-semibold text-slate-800">
-                    {editingId ? "Modifier le chantier" : "Ajouter un chantier"}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {editingId
-                      ? "Mettez à jour les informations du site de livraison."
-                      : "Renseignez les informations du nouveau chantier."}
-                  </p>
-                </div>
-              </div>
-            </div>
+            Ajouter un chantier
+          </Button>
+        }
+      />
 
-            <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
-              <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto px-4 py-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-3">
-              <div className="sm:col-span-2">
-                <label className="form-label" htmlFor="site-name">Nom du chantier *</label>
-                <input
-                  ref={nameFieldRef}
-                  id="site-name"
-                  name="site-name"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="Nom du chantier"
-                  required
-                  value={formState.name}
-                  onChange={(event) => updateField("name", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="site-project-code">Code projet</label>
-                <input
-                  id="site-project-code"
-                  name="project-code"
-                  autoComplete="off"
-                  className="form-input"
-                  placeholder="RESPINS"
-                  value={formState.project_code}
-                  onChange={(event) => updateField("project_code", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="site-contact">Contact sur site</label>
-                <input
-                  id="site-contact"
-                  name="contact-name"
-                  autoComplete="name"
-                  className="form-input"
-                  placeholder="Nom du contact"
-                  value={formState.contact_name}
-                  onChange={(event) => updateField("contact_name", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="site-phone">Téléphone du contact</label>
-                <input
-                  id="site-phone"
-                  name="contact-phone"
-                  type="tel"
-                  autoComplete="tel"
-                  className="form-input"
-                  placeholder="06 00 00 00 00"
-                  value={formState.contact_phone}
-                  onChange={(event) => updateField("contact_phone", event.target.value)}
-                />
-              </div>
-
-              <div className="lg:row-start-2">
-                <label className="form-label" htmlFor="site-postal">Code postal</label>
-                <input
-                  id="site-postal"
-                  name="postal-code"
-                  autoComplete="postal-code"
-                  className="form-input"
-                  placeholder="78120"
-                  value={formState.postal_code}
-                  onChange={(event) => updateField("postal_code", event.target.value)}
-                />
-              </div>
-
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="form-label" htmlFor="site-address">Adresse</label>
-                <textarea
-                  id="site-address"
-                  name="street-address"
-                  autoComplete="street-address"
-                  className="form-input form-textarea"
-                  placeholder="Adresse du chantier"
-                  value={formState.address}
-                  onChange={(event) => updateField("address", event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" htmlFor="site-city">Ville</label>
-                <input
-                  id="site-city"
-                  name="city"
-                  autoComplete="address-level2"
-                  className="form-input"
-                  placeholder="Rambouillet"
-                  value={formState.city}
-                  onChange={(event) => updateField("city", event.target.value)}
-                />
-              </div>
-
-              </div>
-
-              <div className="shrink-0 border-t border-border bg-surface px-4 py-3 sm:px-6 sm:py-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                {formError ? (
-                  <div className="alert alert-error flex-1">
-                    <CircleXIcon aria-hidden="true" size={18} />
-                    {formError}
-                  </div>
-                ) : (
-                  <span />
-                )}
-                <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
-                  <button
-                    className="btn btn-secondary w-full justify-center sm:w-auto"
-                    onClick={closeForm}
-                    type="button"
-                    disabled={isSubmitting}
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    className="btn btn-accent w-full justify-center sm:w-auto"
-                    disabled={isSubmitting}
-                    type="submit"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                        Enregistrement...
-                      </>
-                    ) : editingId ? (
-                      "Mettre à jour"
-                    ) : (
-                      "Ajouter"
-                    )}
-                  </button>
-                </div>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
+      {pageError ? (
+        <Alert variant="danger" className="mb-6">
+          {pageError}
+        </Alert>
       ) : null}
+
+      <Dialog
+        open={isFormOpen}
+        onOpenChange={(open) => {
+          if (!open && !isSubmitting) closeForm();
+        }}
+      >
+        <DialogContent size="xl" initialFocus={nameFieldRef}>
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Modifier le chantier" : "Ajouter un chantier"}</DialogTitle>
+            <DialogDescription>
+              {editingId
+                ? "Mettez à jour les informations du site de livraison."
+                : "Renseignez les informations du nouveau chantier. Seul le nom est obligatoire."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="flex min-h-0 flex-col gap-4" onSubmit={onSubmit}>
+            <DialogBody className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <ReferentielFormField
+                ref={nameFieldRef}
+                id="site-name"
+                label="Nom du chantier *"
+                className="sm:col-span-2"
+                name="site-name"
+                autoComplete="off"
+                placeholder="Nom du chantier"
+                required
+                value={formState.name}
+                onChange={(event) => updateField("name", event.target.value)}
+              />
+              <ReferentielFormField
+                id="site-project-code"
+                label="Code projet"
+                name="project-code"
+                autoComplete="off"
+                placeholder="RESPINS"
+                value={formState.project_code}
+                onChange={(event) => updateField("project_code", event.target.value)}
+              />
+              <ReferentielFormField
+                id="site-contact"
+                label="Contact sur site"
+                name="contact-name"
+                autoComplete="name"
+                placeholder="Nom du contact"
+                value={formState.contact_name}
+                onChange={(event) => updateField("contact_name", event.target.value)}
+              />
+              <ReferentielFormField
+                id="site-phone"
+                label="Téléphone du contact"
+                name="contact-phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="06 00 00 00 00"
+                value={formState.contact_phone}
+                onChange={(event) => updateField("contact_phone", event.target.value)}
+              />
+              <ReferentielFormField
+                id="site-address"
+                label="Adresse"
+                className="sm:col-span-2 lg:col-span-3"
+                control={
+                  <Textarea
+                    id="site-address"
+                    name="street-address"
+                    autoComplete="street-address"
+                    className="min-h-20"
+                    placeholder="Adresse du chantier"
+                    value={formState.address}
+                    onChange={(event) => updateField("address", event.target.value)}
+                  />
+                }
+              />
+              <ReferentielFormField
+                id="site-postal"
+                label="Code postal"
+                name="postal-code"
+                autoComplete="postal-code"
+                placeholder="78120"
+                value={formState.postal_code}
+                onChange={(event) => updateField("postal_code", event.target.value)}
+              />
+              <ReferentielFormField
+                id="site-city"
+                label="Ville"
+                name="city"
+                autoComplete="address-level2"
+                placeholder="Rambouillet"
+                value={formState.city}
+                onChange={(event) => updateField("city", event.target.value)}
+              />
+            </DialogBody>
+
+            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+
+            <DialogFooter>
+              <Button variant="outline" size="lg" onClick={closeForm} disabled={isSubmitting}>
+                Annuler
+              </Button>
+              <Button type="submit" variant="accent" size="lg" loading={isSubmitting}>
+                {editingId ? "Mettre à jour" : "Ajouter"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Filter Bar */}
       <TableFilterBar
         data={sites}
         onDataChange={setDisplayedSites}
         search={{
-          placeholder: "Rechercher par nom, code projet ou ville...",
+          placeholder: "Rechercher par nom, code projet ou ville…",
           fields: ["name", "project_code", "city"],
         }}
         sortOptions={SITES_SORT_OPTIONS}
@@ -456,74 +395,64 @@ export default function SitesPage() {
         showResultCount
       />
 
-      {/* Table card */}
-      <div className="dashboard-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
-          <h2 className="text-sm font-semibold text-slate-800">
-            Liste des chantiers
-          </h2>
-          <button
-            className="btn btn-secondary btn-sm"
+      <PageSection
+        title="Liste des chantiers"
+        flush
+        actions={
+          <Button
+            variant="outline"
+            size="md"
             disabled={isValidating}
             onClick={() => void mutate()}
-            type="button"
+            leftIcon={
+              <RotateCwIcon
+                aria-hidden="true"
+                className={isValidating ? "animate-spin motion-reduce:animate-none" : undefined}
+              />
+            }
           >
-            <RotateCwIcon aria-hidden="true" className={isValidating ? "animate-spin" : ""} size={16} />
-            {isValidating ? "Chargement..." : "Actualiser"}
-          </button>
-        </div>
-
+            {isValidating ? "Actualisation…" : "Actualiser"}
+          </Button>
+        }
+      >
         {loadError ? (
-          <div className="alert alert-error m-4">
-            <CircleXIcon aria-hidden="true" size={18} />
-            {loadError.message}
+          <div className="p-4">
+            <Alert variant="danger">{loadError.message}</Alert>
           </div>
         ) : null}
 
         <div className="xl:hidden">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-muted-foreground">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-brand-orange" />
-              Chargement...
-            </div>
+            <LoadingState label="Chargement des chantiers…" />
           ) : displayedSites.length === 0 ? (
-            <div className="px-4 py-10 text-center">
-              <p className="font-medium text-foreground-secondary">
-                {sites.length === 0 ? "Aucun chantier" : "Aucun résultat"}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {sites.length === 0
-                  ? "Ajoutez un chantier pour démarrer."
-                  : "Modifiez vos filtres pour voir plus de résultats."}
-              </p>
-            </div>
+            <EmptyState
+              variant="plain"
+              icon={emptyIcon}
+              title={emptyTitle}
+              description={emptyDescription}
+              action={emptyAction}
+            />
           ) : (
-            <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
-              {displayedSites.map((site, index) => (
-                <article
-                  key={site.id}
-                  className="min-w-0 animate-fade-in rounded-xl border border-border bg-surface p-4"
-                  style={{ animationDelay: `${index * 0.03}s` }}
-                >
+            <ul className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+              {displayedSites.map((site) => (
+                <li key={site.id} className="min-w-0 rounded-lg border border-border bg-surface p-4">
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="break-words font-semibold text-slate-800">
-                        {site.name}
-                      </h3>
+                      <h3 className="break-words font-semibold text-foreground">{site.name}</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {site.city ?? "Ville non renseignee"}
+                        {site.city ?? "Ville non renseignée"}
                       </p>
                     </div>
                     {site.project_code ? (
-                      <span className="max-w-[45%] shrink-0 truncate rounded-md bg-brand-orange/10 px-2 py-1 text-xs font-semibold text-brand-orange">
-                        {site.project_code}
-                      </span>
+                      <Badge variant="accent" className="max-w-[45%]">
+                        <span className="truncate">{site.project_code}</span>
+                      </Badge>
                     ) : null}
                   </div>
 
                   <div className="mt-4 space-y-2 text-sm">
-                    <p className="text-slate-600">
-                      <span className="font-medium text-slate-800">Contact :</span>{" "}
+                    <p className="text-foreground-secondary">
+                      <span className="font-medium text-foreground">Contact :</span>{" "}
                       {site.contact_name ?? "Non renseigné"}
                     </p>
                     {site.contact_phone ? (
@@ -534,89 +463,75 @@ export default function SitesPage() {
                         {site.contact_phone}
                       </a>
                     ) : (
-                      <p className="text-subtle-foreground">Téléphone non renseigné</p>
+                      <p className="text-muted-foreground">Téléphone non renseigné</p>
                     )}
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3">
-                    <button
-                      className="btn btn-secondary btn-sm w-full justify-center"
+                    <Button
+                      variant="outline"
+                      size="md"
+                      aria-label={`Modifier ${site.name}`}
                       onClick={() => openEditForm(site)}
-                      type="button"
                     >
                       Modifier
-                    </button>
-                    <button
-                      className="btn btn-danger btn-sm w-full justify-center"
-                      onClick={() => onDelete(site.id)}
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="md"
+                      aria-label={`Supprimer ${site.name}`}
+                      onClick={() => void onDelete(site)}
                     >
                       Supprimer
-                    </button>
+                    </Button>
                   </div>
-                </article>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
 
-        <div className="hidden overflow-x-auto xl:block">
+        <div
+          className="relative hidden overflow-x-auto xl:block"
+          role="region"
+          aria-label="Liste des chantiers"
+          tabIndex={0}
+        >
           <table className="data-table">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Code projet</th>
-                <th>Ville</th>
-                <th>Contact</th>
-                <th>Téléphone</th>
-                <th className="text-right">Actions</th>
+                <th scope="col">Nom</th>
+                <th scope="col">Code projet</th>
+                <th scope="col">Ville</th>
+                <th scope="col">Contact</th>
+                <th scope="col">Téléphone</th>
+                <th scope="col" className="text-right">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {displayedSites.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
-                    {isLoading ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-brand-orange"></div>
-                        <span className="text-muted-foreground">Chargement...</span>
-                      </div>
-                    ) : sites.length === 0 ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                          <MapPinIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-foreground-secondary">Aucun chantier</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Cliquez sur le bouton Ajouter un chantier pour démarrer.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                          <SearchIcon aria-hidden="true" stroke="var(--slate-400)" strokeWidth="1.5" />
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-foreground-secondary">Aucun résultat</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de résultats.</p>
-                        </div>
-                      </div>
-                    )}
+                  <td colSpan={TABLE_COLUMNS} className="p-0">
+                    <LoadingState label="Chargement des chantiers…" />
                   </td>
                 </tr>
+              ) : displayedSites.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={TABLE_COLUMNS}
+                  icon={emptyIcon}
+                  title={emptyTitle}
+                  description={emptyDescription}
+                  action={emptyAction}
+                />
               ) : (
-                displayedSites.map((site, index) => (
-                  <tr
-                    key={site.id}
-                    className="animate-fade-in"
-                    style={{ animationDelay: `${index * 0.03}s` }}
-                  >
-                    <td className="font-semibold text-slate-800">{site.name}</td>
+                displayedSites.map((site) => (
+                  <tr key={site.id}>
+                    <td className="font-semibold text-foreground">{site.name}</td>
                     <td>
                       {site.project_code ? (
-                        <span className="inline-flex items-center rounded-md bg-brand-orange/10 px-2 py-1 text-xs font-semibold text-brand-orange">
-                          {site.project_code}
-                        </span>
+                        <Badge variant="accent">{site.project_code}</Badge>
                       ) : (
                         "-"
                       )}
@@ -625,10 +540,7 @@ export default function SitesPage() {
                     <td>{site.contact_name ?? "-"}</td>
                     <td>
                       {site.contact_phone ? (
-                        <a
-                          href={`tel:${site.contact_phone}`}
-                          className="text-primary hover:underline"
-                        >
+                        <a href={`tel:${site.contact_phone}`} className="text-primary hover:underline">
                           {site.contact_phone}
                         </a>
                       ) : (
@@ -637,22 +549,24 @@ export default function SitesPage() {
                     </td>
                     <td className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          className="btn btn-secondary btn-sm"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Modifier ${site.name}`}
+                          leftIcon={<PencilIcon aria-hidden="true" />}
                           onClick={() => openEditForm(site)}
-                          type="button"
                         >
-                          <PencilIcon aria-hidden="true" size={14} />
                           Modifier
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => onDelete(site.id)}
-                          type="button"
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Supprimer ${site.name}`}
+                          leftIcon={<TrashIcon aria-hidden="true" />}
+                          onClick={() => void onDelete(site)}
                         >
-                          <TrashIcon aria-hidden="true" size={14} />
                           Supprimer
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -661,7 +575,7 @@ export default function SitesPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </PageSection>
     </div>
   );
 }
