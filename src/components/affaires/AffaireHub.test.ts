@@ -103,7 +103,7 @@ describe("getAffaireHubDominantIntent", () => {
         },
         {
           actionId: "legacy",
-          label: "Ouvrir le fallback legacy",
+          label: "Ouvrir l’ancien parcours",
           intent: "view_exceptions",
           preview: "",
           target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
@@ -160,7 +160,7 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
       },
       {
         actionId: "legacy",
-        label: "Ouvrir le fallback legacy",
+        label: "Ouvrir l’ancien parcours",
         intent: "view_exceptions",
         preview: "",
         target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },
@@ -219,7 +219,7 @@ describe("filterAffaireHubCommandBarSuggestions", () => {
       },
       {
         actionId: "legacy",
-        label: "Ouvrir le fallback legacy",
+        label: "Ouvrir l’ancien parcours",
         intent: "view_exceptions",
         preview: "",
         target: { kind: "navigate", href: "/dashboard/estimates/version-1/takeoff" },

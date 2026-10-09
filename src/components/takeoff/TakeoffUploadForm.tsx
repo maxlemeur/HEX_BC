@@ -163,7 +163,7 @@ function resolveApiErrorMessage(error: unknown) {
   }
 
   if (error.status === 0) {
-    return "Erreur reseau pendant l'envoi du fichier.";
+    return "Erreur réseau pendant l'envoi du fichier.";
   }
 
   return error.message || "Impossible de lancer l'extraction.";

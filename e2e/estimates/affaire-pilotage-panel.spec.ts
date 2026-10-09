@@ -960,11 +960,11 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText("Prochaine étape")).toBeVisible();
-    await expect(page.getByText("Reprise legacy")).toBeVisible();
+    await expect(page.getByText("Reprise par l’ancien parcours")).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Ouvrir le fallback legacy" })
+      page.getByRole("link", { name: "Ouvrir l’ancien parcours" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/takeoff`);
 
-    await expect(page.getByText("Un contexte estimate-first existe deja sur la V1.")).toBeVisible();
+    await expect(page.getByText("Un ancien parcours par chiffrage existe déjà sur la V1.")).toBeVisible();
   });
 });

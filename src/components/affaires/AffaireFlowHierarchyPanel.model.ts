@@ -942,8 +942,8 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const legacyAction = hasLegacyEntry
     ? toHrefAction({
         key: "legacy-fallback",
-        label: "Ouvrir le fallback legacy",
-        description: `Un contexte estimate-first existe déjà sur la V${input.currentVersion?.versionNumber ?? "?"}. Utilisez-le seulement comme reprise exceptionnelle.`,
+        label: "Ouvrir l’ancien parcours",
+        description: `Un ancien parcours par chiffrage existe déjà sur la V${input.currentVersion?.versionNumber ?? "?"}. Utilisez-le seulement comme reprise exceptionnelle.`,
         href: `/dashboard/estimates/${input.currentVersion?.id}/takeoff`,
         variant: "secondary",
       })

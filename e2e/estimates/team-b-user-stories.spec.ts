@@ -1048,7 +1048,7 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     ).toBeVisible();
     await expect(flowHierarchy.getByText("Blocages à traiter")).toBeVisible();
     await expect(
-      flowHierarchy.getByRole("link", { name: "Ouvrir le fallback legacy" })
+      flowHierarchy.getByRole("link", { name: "Ouvrir l’ancien parcours" })
     ).toBeVisible();
   });
 });

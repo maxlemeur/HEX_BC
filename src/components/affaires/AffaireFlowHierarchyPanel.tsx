@@ -1563,7 +1563,7 @@ export function AffaireFlowHierarchyPanel(
         <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/5 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-foreground">Reprise legacy</h3>
+              <h3 className="text-sm font-semibold text-foreground">Reprise par l’ancien parcours</h3>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {model.legacyAction.description}
               </p>

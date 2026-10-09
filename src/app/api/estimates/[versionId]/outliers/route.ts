@@ -244,7 +244,7 @@ async function loadDismissedByItemId(input: {
     .order("dismissed_at", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les outliers acceptes.");
+    throw mapSupabaseError(error, "Impossible de charger les valeurs atypiques acceptées.");
   }
 
   return buildDismissedMap(
