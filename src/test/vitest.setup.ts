@@ -13,6 +13,9 @@ afterEach(() => {
   cleanup();
 });
 
+// Base UI waits for CSS animations before unmounting popups; jsdom never runs them.
+(globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,

@@ -1,5 +1,7 @@
 "use client";
 
+import { ConfirmProvider } from "@/components/feedback/confirm-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "@/components/ui-legacy/Toast";
 
 export default function AppProviders({
@@ -7,5 +9,11 @@ export default function AppProviders({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <ToastProvider>{children}</ToastProvider>;
+  return (
+    <ToastProvider>
+      <TooltipProvider>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </TooltipProvider>
+    </ToastProvider>
+  );
 }

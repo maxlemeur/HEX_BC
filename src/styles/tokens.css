@@ -128,6 +128,29 @@
   --error: var(--danger);
   --error-light: #fee2e2;
   --info-light: #dbeafe;
+
+  /* Semantic aliases (UI polish). The raw palette above is read directly by the frozen
+     estimate grid (estimate-frozen.css): refine the UI through these aliases only. */
+  --foreground-secondary: var(--slate-700);
+  --subtle-foreground: var(--slate-400);
+  --danger-light: var(--error-light);
+  --success-subtle: #ecfdf5;
+  --success-border: #a7f3d0;
+  --warning-subtle: #fffbeb;
+  --warning-border: #fde68a;
+  --danger-subtle: #fef2f2;
+  --danger-border: #fecaca;
+  --info-subtle: #eff6ff;
+  --info-border: #bfdbfe;
+
+  /* Stacking scale. Base UI popups sit above the legacy Modal (z-[100]). */
+  --z-sticky: 30;
+  --z-topbar: 50;
+  --z-drawer: 60;
+  --z-dialog: 100;
+  --z-popover: 110;
+  --z-toast: 120;
+  --z-tooltip: 130;
 }
 
 /* Compact density profile */
@@ -188,6 +211,24 @@
 
   /* Error alias (consistency with Badge "error" variant) */
   --color-error: var(--error);
+
+  /* Semantic aliases (UI polish) */
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-danger-light: var(--danger-light);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-border: var(--success-border);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-border: var(--warning-border);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-border: var(--danger-border);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-border: var(--info-border);
+  /* Controls (buttons, inputs, selects) share the legacy .btn/.form-input radius. */
+  --radius-control: 10px;
+  /* 11px micro labels (replaces text-[11px]/[10px]; --font-size-2xs is already 12px). */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: var(--line-height-compact);
 
   --color-brand-blue: var(--brand-blue);
   --color-brand-blue-light: var(--brand-blue-light);
@@ -300,6 +341,18 @@
   --warning-light: rgb(245 158 11 / 0.2);
   --error-light: rgb(239 68 68 / 0.2);
   --info-light: rgb(59 130 246 / 0.2);
+
+  /* Semantic aliases (prepared for a later dark mode, not enabled). */
+  --foreground-secondary: #cbd5e1;
+  --subtle-foreground: #94a3b8;
+  --success-subtle: rgb(16 185 129 / 0.12);
+  --success-border: rgb(16 185 129 / 0.35);
+  --warning-subtle: rgb(245 158 11 / 0.12);
+  --warning-border: rgb(245 158 11 / 0.35);
+  --danger-subtle: rgb(239 68 68 / 0.12);
+  --danger-border: rgb(239 68 68 / 0.35);
+  --info-subtle: rgb(59 130 246 / 0.12);
+  --info-border: rgb(59 130 246 / 0.35);
 }
 
 @layer base {

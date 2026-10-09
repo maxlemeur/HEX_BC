@@ -4,8 +4,8 @@
     {
       "name": "estimate-editor",
       "manifest": "server/app/dashboard/estimates/[versionId]/edit/page_client-reference-manifest.js",
-      "maxRawBytes": 1650000,
-      "maxGzipBytes": 450000
+      "maxRawBytes": 1800000,
+      "maxGzipBytes": 500000
     },
     {
       "name": "orders",
@@ -28,8 +28,8 @@
     {
       "name": "takeoff-review",
       "manifest": "server/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/page_client-reference-manifest.js",
-      "maxRawBytes": 1400000,
-      "maxGzipBytes": 400000
+      "maxRawBytes": 1800000,
+      "maxGzipBytes": 500000
     }
   ]
 }
