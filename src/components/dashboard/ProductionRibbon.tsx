@@ -104,7 +104,14 @@ export function ProductionRibbonHeader({
       ) : null}
 
       {actions ? (
-        <div className="production-ribbon__actions">{actions}</div>
+        // The frozen `.production-ribbon__actions` rule is unlayered and beats Tailwind's
+        // utilities layer, hence the important `flex-wrap!`. Below 768px (frozen `min-width: 0`)
+        // actions wrap instead of overflowing, each capped to the row width despite the
+        // `shrink-0` of button variants. From 768px the frozen `min-width: max-content` is kept
+        // on purpose: the editor's metrics column is the one meant to compress there.
+        <div className="production-ribbon__actions flex-wrap! *:max-w-full">
+          {actions}
+        </div>
       ) : null}
     </div>
   );

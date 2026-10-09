@@ -16,7 +16,6 @@ import { LoadingState } from "@/components/layout/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
-import { cn } from "@/lib/utils";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
@@ -1280,10 +1279,7 @@ export default function TakeoffReviewPage({
               ) : null}
               <Link
                 href={backHref}
-                className={cn(
-                  buttonVariants({ variant: "outline" }),
-                  "h-auto min-h-9 shrink whitespace-normal py-1.5 text-center"
-                )}
+                className={buttonVariants({ variant: "outline" })}
               >
                 {backLabel}
               </Link>

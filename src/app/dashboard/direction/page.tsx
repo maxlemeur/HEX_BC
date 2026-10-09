@@ -38,7 +38,7 @@ export default async function DirectionDashboardRoute({ searchParams }: Props) {
 
   const tenantRole = profile?.tenant_role ?? null;
   logDirectionRoute(
-    `request tenant=${tenantId} rôle=${tenantRole ?? "none"}`
+    `request tenant=${tenantId} role=${tenantRole ?? "none"}`
   );
   if (tenantRole !== "admin" && tenantRole !== "director") {
     notFound();

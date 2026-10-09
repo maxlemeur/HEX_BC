@@ -1,68 +1,71 @@
-import { Skeleton } from "@/components/ui-legacy/Skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function AffaireHubSkeleton() {
   return (
-    <div className="animate-pulse">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-6">
-        <Skeleton width={60} height={14} />
-        <Skeleton width={8} height={14} />
-        <Skeleton width={80} height={14} />
-        <Skeleton width={8} height={14} />
-        <Skeleton width={120} height={14} />
-      </div>
-
-      {/* Header: title + actions */}
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <Skeleton width={280} height={28} />
-          <Skeleton width={180} height={16} className="mt-2" />
+    <div role="status" aria-live="polite" aria-busy="true">
+      <span className="sr-only">Chargement de l’affaire…</span>
+      <div aria-hidden="true">
+        {/* Breadcrumb */}
+        <div className="mb-6 flex items-center gap-2">
+          <Skeleton className="h-3.5 w-15" />
+          <Skeleton className="h-3.5 w-2" />
+          <Skeleton className="h-3.5 w-20" />
+          <Skeleton className="h-3.5 w-2" />
+          <Skeleton className="h-3.5 w-30 min-w-0" />
         </div>
-        <div className="flex gap-2">
-          <Skeleton width={100} height={36} className="rounded-lg" />
-          <Skeleton width={100} height={36} className="rounded-lg" />
-        </div>
-      </div>
 
-      {/* Financial summary card */}
-      <div className="rounded-lg border border-border bg-surface shadow-card p-5 mb-6">
-        <Skeleton width={140} height={16} className="mb-4" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }, (_, i) => (
-            <div key={i}>
-              <Skeleton width={80} height={12} className="mb-2" />
-              <Skeleton width={100} height={20} />
-            </div>
-          ))}
+        {/* Header: title + actions */}
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <Skeleton className="h-7 w-70 max-w-full" />
+            <Skeleton className="mt-2 h-4 w-45 max-w-full" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-25 rounded-lg" />
+            <Skeleton className="h-9 w-25 rounded-lg" />
+          </div>
         </div>
-      </div>
 
-      {/* Version timeline card */}
-      <div className="rounded-lg border border-border bg-surface shadow-card p-5 mb-6">
-        <Skeleton width={120} height={16} className="mb-4" />
-        <div className="space-y-4">
-          {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <Skeleton variant="circle" width={32} height={32} />
-              <div className="flex-1">
-                <Skeleton width={160} height={14} />
-                <Skeleton width={100} height={12} className="mt-1" />
+        {/* Financial summary card */}
+        <div className="mb-6 rounded-lg border border-border bg-surface p-5 shadow-card">
+          <Skeleton className="mb-4 h-4 w-35" />
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="min-w-0">
+                <Skeleton className="mb-2 h-3 w-20 max-w-full" />
+                <Skeleton className="h-5 w-25 max-w-full" />
               </div>
-              <Skeleton width={80} height={12} />
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* DPGF source + Quick actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-border bg-surface shadow-card p-5">
-          <Skeleton width={120} height={16} className="mb-3" />
-          <Skeleton variant="rect" height={48} />
+        {/* Version timeline card */}
+        <div className="mb-6 rounded-lg border border-border bg-surface p-5 shadow-card">
+          <Skeleton className="mb-4 h-4 w-30" />
+          <div className="space-y-4">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="size-8 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-3.5 w-40 max-w-full" />
+                  <Skeleton className="mt-1 h-3 w-25 max-w-full" />
+                </div>
+                <Skeleton className="h-3 w-20 shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="rounded-lg border border-border bg-surface shadow-card p-5">
-          <Skeleton width={120} height={16} className="mb-3" />
-          <Skeleton variant="rect" height={48} />
+
+        {/* DPGF source + Quick actions */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-border bg-surface p-5 shadow-card">
+            <Skeleton className="mb-3 h-4 w-30" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
+          <div className="rounded-lg border border-border bg-surface p-5 shadow-card">
+            <Skeleton className="mb-3 h-4 w-30" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
         </div>
       </div>
     </div>

@@ -24,6 +24,8 @@ import {
   toPersistedRuleThreshold,
 } from "@/lib/estimates/rule-threshold";
 
+import { DeleteRuleButton } from "./DeleteRuleButton";
+
 type RuleType =
   | "min_margin"
   | "max_discount"
@@ -509,9 +511,9 @@ export default async function AdminRulesPage() {
 
                               <form action={deleteRuleAction}>
                                 <input type="hidden" name="rule_id" value={rule.id} />
-                                <button type="submit" className={buttonVariants({ variant: "danger", size: "md" })}>
-                                  Supprimer
-                                </button>
+                                <DeleteRuleButton
+                                  ruleLabel={`${ruleLabel} · ${renderScopeTypeLabel(rule.scope_type)}`}
+                                />
                               </form>
                             </div>
                           </div>

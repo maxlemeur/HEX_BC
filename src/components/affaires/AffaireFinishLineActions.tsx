@@ -260,7 +260,9 @@ export function AffaireFinishLineActions({
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
                 <EstimatePdfDownloadButton
                   versionId={currentVersion.id}
-                  className={cn(buttonVariants({ variant: "outline", size: "md" }))}
+                  // Layout-only: a className already selects the outline/md button; self-start keeps
+                  // the auto width of its neighbours instead of stretching across the column.
+                  className="self-start"
                   label="Préparer le PDF"
                   processingLabel="Génération du PDF…"
                   showInlineError={false}
