@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
  * `.btn` → lg (density input height, 40px), `.btn-lg` → xl. `secondary` is the navy
  * outline of the legacy React Button; `outline` is the neutral `.btn-secondary`.
  */
-const buttonVariants = cva(
+const buttonCva = cva(
   "relative inline-flex shrink-0 items-center justify-center gap-2 rounded-control border border-transparent font-semibold whitespace-nowrap transition-[background-color,border-color,color,box-shadow,transform] duration-150 outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:not-aria-[haspopup]:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
@@ -48,8 +48,16 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * Class names for a house button; usable on <Link>. Merged with tailwind-merge so a variant's
+ * border/colour wins over the base `border-transparent` (plain cva concatenation lets CSS order decide).
+ */
+function buttonVariants(props?: Parameters<typeof buttonCva>[0]) {
+  return cn(buttonCva(props))
+}
+
 type ButtonProps = ButtonPrimitive.Props &
-  VariantProps<typeof buttonVariants> & {
+  VariantProps<typeof buttonCva> & {
     /** Keeps the width, shows a spinner and blocks repeated clicks. */
     loading?: boolean
     leftIcon?: React.ReactNode
