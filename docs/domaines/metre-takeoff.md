@@ -192,7 +192,7 @@ Deux couches de modes coexistent.
 - **Mode d'interface global** : `simplified` (défaut) ou `expert`, persisté sur `profiles.ui_mode` et en `localStorage` sous `timax-ui-mode` (`src/lib/ui-mode.ts:1-5` ; `src/hooks/useUiMode.ts:14-21`, `:63-88`).
 - **Mode de revue métier** : `assisted` | `production` | `validation` (`review/TakeoffReviewModeSwitch.tsx:9`, libellés « Assiste », « Production », « Validation » `:20-36`), porté par le paramètre d'URL `reviewMode` (`TakeoffReviewPage.tsx:248`). Défaut : `validation` si `from=approval` ou en contexte affaire, sinon `assisted` en mode simplifié et `production` en mode expert (`:252-256`) ; le paramètre est retiré de l'URL quand il vaut le défaut (`:271-282`).
 
-`src/components/takeoff/TakeoffReviewSimplified.tsx` n'a aucun importateur hors test : `grep -rn "TakeoffReviewSimplified" src/` hors `.test.` ne renvoie que ses propres déclarations. Le panneau assisté vivant est `review/AssistedReviewPanel.tsx`, qui ajoute un troisième état « marqué pour revue » (`:98-104`).
+Le panneau assisté `review/AssistedReviewPanel.tsx` propose un troisième état « marqué pour revue » (`:98-104`).
 
 Onglets du mode production : `tables`, `items`, `compare`, `dpgf` (`TakeoffReviewExpert.tsx:35`) ; en mode assisté l'onglet est forcé sur `items` (`TakeoffReviewPage.tsx:313`). Anomalies : `low_confidence` (`< 0,5`), `missing_evidence`, `zero_quantity` (`≤ 0`), `empty_designation` (`TakeoffReviewTable.tsx:31-35`, `:75-90`) ; bloquantes = désignation vide ou quantité ≤ 0 (`:92-94`). Filtres du mode validation : `priority` (défaut), `all`, `low_confidence`, `missing_evidence`, `anomalies`, `unverified`, `open_hypotheses`, `missing_source_context` (`ValidationReviewPanel.tsx:33-41`, `:222`) ; une hypothèse ouverte est une evidence présente, non vérifiée, de confiance nulle ou `< 0,8` (`:119-125`). Lots : `REVIEW_ITEMS_PAGE_SIZE = 200`, `DPGF_COMPARE_PAGE_SIZE = 200`, `AUTO_SAVE_DEBOUNCE_MS = 500`, `TAKEOFF_ITEM_PATCH_BATCH_MAX = 100` (`TakeoffReviewPage.tsx:135-141`).
 
@@ -259,7 +259,7 @@ Le détail (stratégies `append`/`replace`/`merge`, portées `section`/`version`
 - Le forçage admin exige une entrée d'audit `takeoff.apply.override` de moins de `15` minutes couvrant exactement les items bloqués, avec une justification de `10` à `500` caractères, consommée une seule fois via `takeoff_apply_override_consumptions`. Dans l'interface, la dérogation reste inactive tant que l'aperçu d'impact n'est pas à jour et cet impact reste visible malgré les blocages.
 - Après application, toute mutation d'item du job est refusée : `TAKEOFF_ITEM_APPLIED_JOB_IMMUTABLE` (`:51-52`).
 - `replace` sans section cible supprime **toutes** les lignes de la version (`…tkf013….sql:169-173`). Le fichier `supabase/migrations/20260718014058_protect_takeoff_replace_with_recovery.sql` est vide : `wc -c` renvoie `0`.
-- L'aperçu d'impact apparie en `merge` par clé exacte `designation` + `unit`, sans score (`apply-impact.ts:106-112`) ; les lignes créées portent `unit_price_ht_cents = 0` et `source_provider = 'takeoff'` (`…tkf013….sql:247`, `:254`). Traçabilité sur `estimate_items` : `source_provider`, `source_job_id`, `source_file_name`, `source_page` (`…tkf014_estimate_items_source_tracking.sql:3-7`).
+- Les lignes créées portent `unit_price_ht_cents = 0` et `source_provider = 'takeoff'` (`…tkf013….sql:247`, `:254`). Traçabilité sur `estimate_items` : `source_provider`, `source_job_id`, `source_file_name`, `source_page` (`…tkf014_estimate_items_source_tracking.sql:3-7`).
 
 ---
 

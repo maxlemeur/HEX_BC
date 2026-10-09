@@ -354,7 +354,7 @@ Côté HTTP, `P0001` est traduit en `409` « Ce devis a deja ete traite. » et t
 
 La référence est `C-AAMM-XXX`, séquence sur 3 chiffres issue de `order_number` (`src/lib/reference.ts:9-18`). Les commandes sont créées avec une référence temporaire puis mises à jour (`src/app/api/purchase-orders/route.ts:141-186`, `src/lib/estimates/purchase-order-drafts.ts:597-636`).
 
-Les totaux : `lineTotalHtCents = quantity × unitPriceHtCents`, `lineTaxCents = round(lineTotalHtCents × taxRateBp / 10000)`, `lineTotalTtcCents = HT + TVA`, puis somme simple par commande (`src/lib/order-calculations.ts:23-46`). `recalculateOrderTotals` relit les lignes en base et réécrit les trois totaux de l'en-tête (`src/lib/order-calculations.ts:54-89`).
+Les totaux : `lineTotalHtCents = quantity × unitPriceHtCents`, `lineTaxCents = round(lineTotalHtCents × taxRateBp / 10000)`, `lineTotalTtcCents = HT + TVA`, puis somme simple par commande (`src/lib/order-calculations.ts`).
 
 La modification d'un brouillon passe par `replace_purchase_order_draft` : la
 RPC verrouille le bon, vérifie qu'il est encore `draft`, applique le patch

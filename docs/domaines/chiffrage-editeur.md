@@ -1,5 +1,15 @@
 # Chiffrage & éditeur de devis
 
+## Saisie rapide des types FO/MO (2026-09-06)
+
+Les cellules Type FO et Type MO utilisent `EstimateTypeCombobox`, également dans les rôles atelier/chantier et l’éditeur mobile. La recherche est locale : code + libellé pour les types FO, libellé pour les rôles MO (qui n’ont pas de code métier), sans sensibilité à la casse ni aux accents. Les codes exacts et les préfixes sont prioritaires. Les suggestions FO affichent code et nom ; les suggestions MO affichent le nom et le taux applicable. Un rôle inactif n’est pas sélectionnable.
+
+La frappe et les flèches ne modifient jamais la ligne. Entrée valide un candidat parcouru, un code exact unique ou l’unique résultat, puis reprend la navigation verticale de la grille. Tab/Shift+Tab appliquent la même sélection déterministe et avancent/reculent ; une recherche ambiguë ou inconnue conserve la valeur antérieure. Échap et une perte de focus ordinaire annulent la recherche. Retirer une valeur nécessite de sélectionner explicitement « Aucun type » ou « Aucun rôle » ; effacer le texte de recherche ne suffit pas. Aucune référence n’est créée automatiquement.
+
+Seul un changement d’UUID validé appelle le patch de ligne existant avec `persist: true`, qui alimente le tampon de synchronisation et l’historique. La validation de la cellule n’est donc pas un accusé de sauvegarde serveur. Le chemin FO conserve le suivi des corrections de suggestions ; les calculs MO restent ceux de l’éditeur. L’ancien comportement qui mettait le Type FO à null après un nom incomplet au blur est supprimé.
+
+Tests : `EstimateTypeCombobox.test.tsx`, `type-search.test.ts`, `EstimateEditorRow.behavior.test.tsx`, `EstimateEditorRow.line-cells.test.tsx` et les suites existantes de navigation et synchronisation.
+
 > **Source : moteur, création et contrats relus au 2026-08-12 ; autres sections
 > issues de la photographie du 2026-07-29.** En cas de divergence, le code et
 > les migrations font foi et ce document doit être corrigé.

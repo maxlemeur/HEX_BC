@@ -4,6 +4,16 @@
 
 Périmètre : produits, fournisseurs, sites de livraison, types de fourniture, pricebook, indices matériaux, taux de change, barèmes de marge, imports de tarifs, fraîcheur des prix, suggestions de prix et présélection fournisseur. Les formules de marge, de coefficient global et d'arrondi ne sont pas reprises ici : voir [`../metier/regles-de-calcul.md`](../metier/regles-de-calcul.md).
 
+## Décision du 6 septembre 2026 — validité maximale des tarifs (TI-535)
+
+La [règle TI-535](https://linear.app/ti-max/issue/TI-535) remplace la possibilité historique d'une fin illimitée. Chaque tarif fournisseur possède une fin de validité comprise entre son début et **six mois calendaires après ce début**, inclus. Si le jour n'existe pas dans le mois cible, prendre son dernier jour : 31/08/2026 → 28/02/2027. Une durée plus courte reste autorisée.
+
+À la création, le début absent vaut la date du jour et la fin absente vaut début + six mois. En modification, une fin omise est conservée ; une fin explicitement vidée est recalculée. Une fenêtre invalide est refusée, y compris lors d'une modification partielle ou d'un import. La contrainte PostgreSQL protège les écritures directes et les RPC, sans changer les autorisations tenant/RLS.
+
+La migration `20260906110121_supplier_price_validity_six_months.sql` complète les fins absentes et plafonne les fins trop lointaines des tarifs existants, sans déplacer le début ni rafraîchir `updated_at`. Un tarif ancien peut donc rester expiré. Le calcul applicatif partagé est dans `src/lib/catalogue/price-validity.ts` ; les validations API sont dans `src/lib/catalogue/schemas.ts` et la saisie dans `SupplierOfferFormModal.tsx`.
+
+**Livraison :** migration préparée localement ; son application à une base partagée et le déploiement doivent être confirmés séparément. Tant qu'un ancien tarif n'est pas régularisé, la liste indique « fin à régulariser » plutôt qu'une date de fin inventée.
+
 ---
 
 ## 1. Modèle de données
@@ -107,7 +117,7 @@ Une troisième implémentation existe et n'est pas branchée : `priceFreshnessLe
 
 ## 5. Prix de référence produit : synchronisation automatique par trigger
 
-`products.unit_price_cents` est le prix de référence affiché partout. **Il est réécrit par la base sans action utilisateur** dès qu'un bon de commande d'achat change d'état.
+`products.unit_price_cents` est le prix de référence affiché partout. Les sections 5.1 à 5.3 décrivent la règle historique de synchronisation avec les achats. **TI-537 la remplace après activation de la migration décrite en 5.4** ; conserver ce descriptif pour comprendre les anciennes provenances.
 
 ### 5.1 Colonnes
 
@@ -130,6 +140,29 @@ Une troisième implémentation existe et n'est pas branchée : `priceFreshnessLe
 La fonction déclenchée sort tôt si ni `status` ni `order_date` n'ont changé (`:158-163`). La migration exécute un backfill immédiat sur tous les tenants (`:246-261`). `refresh_product_reference_prices` est révoquée pour `public`/`anon` et accordée à `authenticated` (`:444`, `:447`).
 
 **Restitution.** `catalogue_products_page` renvoie `reference_price_source_order_reference`, `reference_price_source_supplier_name` et `reference_price_source_date` (`:304-307`, `:337-341`), repris en `_referencePriceSource*` (`src/lib/catalogue/server.ts:849-864`). L'écran affiche `Saisie interne` ou `Dernier achat confirmé · <fournisseur> · <référence> · <date>` (`src/app/dashboard/products/page.tsx:102-112`) ; le formulaire avertit que modifier le montant le remplace par une saisie interne (`src/app/dashboard/products/ProductFormModal.tsx:392-396`).
+
+---
+
+### 5.4 Proposition fournisseur et validation — TI-537
+
+Décision du 6 septembre 2026 : [TI-537](https://linear.app/ti-max/issue/TI-537), complétée dans la conversation par « moyenne des derniers encore valables (< 6 mois), avec alerte si plus de 15 % ». La quantité de référence vient de [TI-536](https://linear.app/ti-max/issue/TI-536) ; la validation est réservée aux administrateurs du tenant actif, conformément au rôle de responsable de [TI-540](https://linear.app/ti-max/issue/TI-540).
+
+La migration `20260906145000_supplier_reference_price_proposals.sql` prépare ce nouveau fonctionnement. Elle n'a pas été appliquée à la base partagée dans cette intervention.
+
+- Moyenne arithmétique HT arrondie au centime, une offre par fournisseur, la plus récente parmi les offres comparables et applicables. Tri de récence : début de validité, mise à jour, quantité minimale puis identifiant pour départager.
+- Référence fournisseur renseignée, offre/fournisseur actifs, unité identique (sans conversion), EUR, quantité minimale inférieure ou égale à la quantité de référence et transport identique, explicitement renseigné. Les quantités par famille et les conditions de transport des anciens tarifs ne sont pas inventées.
+- Début atteint, fin explicite non dépassée et date du calcul strictement antérieure à début + six mois calendaires. Une ancienne fin absente n'autorise pas une offre de plus de six mois. Cette sélection reste protectrice avant l'activation séparée de TI-535 ; le plafond de validité en base reste le contrat de TI-535.
+- Alerte stricte `(max - min) / min > 0,15` : 10 € / 11,50 € sans alerte ; 10 € / 11,51 € avec alerte. La dispersion n'exclut aucune offre comparable.
+- Une source : proposition signalée « Une seule source ». Aucune offre : ancienne référence conservée et « à actualiser », ou état « Prix manquant » si aucune référence n'existe.
+- La moyenne reste une proposition. La validation explicite recalcule sous verrou, vérifie l'empreinte de la proposition et conserve auteur, date, quantité, unité, transport, justification éventuelle et instantané des offres. Une modification concurrente exige une actualisation.
+- Un prix manuel, y compris zéro, exige une justification dans ce parcours. Les anciens prix et les valeurs initiales créées par les parcours existants ne sont pas rétroactivement présentés comme des validations. Les modifications ultérieures du prix passent par la validation ; les achats ne le réécrivent plus. Les devis existants gardent leurs coûts.
+- Les modifications/suppressions de tarifs sont archivées dans `supplier_pricebook_history`. Les validations sont conservées dans `product_reference_price_validations`, en lecture seule pour les membres du tenant actif. Aucun rôle utilisateur existant n'a été modifié.
+
+**Cas fournisseur à zéro encore à arbitrer (TI-537)** : le calcul signale l'anomalie et suspend la moyenne, sans division par zéro ni décision silencieuse d'exclure définitivement l'offre. La question exclusion avec alerte / blocage jusqu'à correction reste ouverte. Un choix manuel explicite et justifié reste une décision humaine distincte.
+
+Interface : « Examiner le prix » dans le catalogue et panneau « Prix de référence » sur les tarifs d'un produit. `GET /api/catalogue/reference-price` expose le détail ; `POST` valide ou précise le transport d'une offre avec contrôle de version. Avant migration, le panneau affiche un état explicite d'indisponibilité (503), sans montant fictif.
+
+Validation locale et recette d'activation : [dossier TI-537](../catalogue-reference-price-ti537.md).
 
 ---
 

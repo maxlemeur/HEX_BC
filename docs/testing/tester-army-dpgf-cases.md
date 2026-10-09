@@ -1,0 +1,38 @@
+# Scénario critique DPGF TesterArmy
+
+Les défaillances et les observations ci-dessous sont définies avant l'écriture du scénario. Le test utilise une session `army`, une affaire neuve dont le nom commence par `ARMY-`, le navigateur réel, les routes de l'application et le Supabase courant explicitement autorisé pour ces données dédiées.
+
+| Défaillance réelle | Observation qui doit l'exposer |
+| --- | --- |
+| Le parseur CSV coupe une désignation contenant un point-virgule ou des guillemets, perd un accent, conserve le BOM ou interprète mal une virgule décimale. | CSV UTF-8 avec BOM et séparateur `;`, trois lignes dont un libellé cité et une quantité `2,5`. Aperçu API des lignes brutes et mappées, puis libellés, quantités et prix exacts dans le devis sauvegardé. |
+| Un mapping incomplet ou deux colonnes affectées à la désignation passent à l'étape suivante. | Effacer les associations, constater que « Suivant : Apercu » est désactivé, affecter deux colonnes à `designation`, constater le conflit et le blocage, puis corriger les associations. |
+| Le mapping choisi dans l'interface est remplacé, les lignes sont perdues/dupliquées, ou une quantité nulle est écartée. | Trois lignes sauvegardées exactement, avec quantités `2.5`, `1`, `0`, prix d'achat `1250`, `6500`, `725` centimes et unités `m`, `u`, `u`. La ligne à quantité zéro reste présente et vaut zéro. |
+| La confirmation ne matérialise qu'un mapping, crée dans une autre affaire ou modifie le devis initial. | Succès visible « Devis créé », nouvelle URL d'édition, version différente appartenant au même projet, version numéro 2 et comparaison de la version initiale avant/après. |
+| La conversion perd ou mélange la provenance DPGF. | Une section racine DPGF et trois lignes reliées à cette section. Chaque ligne conserve le nom du CSV, le même `import_id` et `mapping_id`, un `mapped_row_id` distinct et son `row_index` exact. L'import lu avec `project_id` appartient à la seule affaire du scénario. |
+| La création calcule avec de mauvais paramètres ou affiche un total qui ne correspond pas aux lignes. | Marge zéro, TVA 20 %, aucun arrondi/remise ; montants HT/TVA/TTC exacts des lignes et du devis : `9625`/`1925`/`11550` centimes au total. Relecture après rechargement de l'éditeur. |
+| L'autodétection prend une désignation contenant « quantité » pour l'en-tête et perd les lignes d'un CSV à colonnes opaques. | Variante du même parcours avec six en-têtes `h_<suffixe>_a` à `h_<suffixe>_f`, mapping manuel et trois lignes dont « Réserve à quantité zéro ». Les six colonnes, trois lignes brutes et trois lignes finales doivent être conservées, avec le même oracle financier et de provenance. |
+| Un passage dans le flux lie un catalogue existant ou produit un effet externe. | Aucun appel de liaison catalogue, envoi, invitation, changement de statut, téléversement de plans, extraction de jeton ni accès REST direct à Supabase dans ce scénario. Les données propres au test sont conservées pour vérification. |
+
+## Parcours et contrat réel
+
+1. `createEstimateViaWizard` crée une affaire et une version vierge ARMY par `/dashboard/estimates/new`, règle une marge fixe à zéro, TVA 20 % et aucun arrondi. Les IDs sont enregistrés avec `ownEstimate`.
+2. `/dashboard/affaires/:projectId?created=1` affiche le bandeau de création officiel pour une affaire neuve sans dossier ; son bouton « Importer la DPGF » ouvre `UnifiedImportFlow`. Il n'y a ni import de préparation ni reclassification forcée de document.
+3. Le fichier généré est donné à `browser.locator('input[type="file"]')` dans le flux, puis « Lancer l'import ». `useImportFlow` exécute le parser CSV et `POST /api/imports` persiste `dpgf_rows_raw`. Les en-têtes métier accentués portent un suffixe unique ; le mapping emploie les clés de source attendues explicitement, sans accents et avec `_`. Si l'interface propose un mapping automatique, « Modifier le mapping » donne accès au même contrôle explicite.
+4. Dans `ColumnMapper`, une ligne portant l'en-tête unique contient la combobox dont l'option vaut `hex_code`, `designation`, `quantity`, `unit`, `unit_price_ht` ou `total_ht`. Le test observe le blocage incomplet/doublon avant de choisir le mapping correct.
+5. `GET /api/imports?project_id=:projectId` lit seulement les imports du projet ARMY ; `POST /api/mappings` avec `action: "preview"` lit les lignes de cet import et vérifie le mapping attendu. Cet aperçu ne sauvegarde pas un mapping ni un catalogue.
+6. « Suivant : Confirmation » puis « Créer le chiffrage » appellent la vraie action `confirmUnifiedImportFlow`, qui sauvegarde les mappings puis passe par `persistCanonicalEstimateV2`. « Continuer », et éventuellement « Continuer sans ajouter de plans », conduisent à `/dashboard/estimates/:versionId/edit`.
+7. `readEstimate` lit seulement les deux versions possédées via `GET /api/estimates/:versionId`. La relecture confirme les valeurs, la hiérarchie, les totaux, la provenance et la conservation de la version initiale.
+
+Les routes de lecture et d'aperçu utilisées ici n'exigent pas de verrou de rédaction. La confirmation canonique crée une nouvelle version par son propre contrat serveur ; le scénario ne forge pas d'en-tête de verrou et ne force aucun verrou existant.
+
+La variante à colonnes opaques reprend un défaut observé avant correction dans le lot `.e2e/army/critical/runs/2026-10-02T17-31-04-861Z` : la dernière ligne devenait l'en-tête et l'import persisté contenait zéro ligne. Elle doit échouer sur ce code avant le correctif. Les en-têtes métier restent une variante distincte pour empêcher une correction qui forcerait toujours la première ligne ou ignorerait les préambules.
+
+## Artéfact répétable et limites
+
+Le CSV généré et son SHA-256 sont conservés sous `.e2e/army/critical/artifacts/fixtures/`. `recordEvidence` conserve avant le parcours les lignes attendues, le mapping et les IDs possédés ; après le parcours il conserve les observations brutes/mappées, les valeurs enregistrées et les résultats de conservation. Un bloc `finally` conserve l'étape atteinte et les IDs d'import observables même en cas d'échec. Le manifeste du runner contient la commande, la révision, le digest des changements locaux, l'environnement et les chemins d'artéfacts. Aucun mot de passe, cookie, jeton ou capture de session authentifiée n'est écrit dans ces preuves.
+
+Les traces du navigateur sont désactivées pour la campagne authentifiée : un ZIP Playwright pourrait contenir des jetons Supabase générés que la protection du mot de passe ne masque pas. La preuve métier de ce scénario est constituée du CSV et des JSON de résultats/identités, complétés par le rapport et le manifeste. Les traces du pilote anonyme restent une preuve distincte.
+
+Le CSV ordinaire n'a pas de provenance de page PDF : le scénario exige `source_page: null` et l'absence de `_timax_provenance`, tout en vérifiant sa provenance import/mapping. Il ne prouve pas l'extraction PDF, `sourceDocumentId`, le format XLS/XLSX, les hiérarchies Excel, les transactions concurrentes, l'isolation entre deux tenants ni le traitement Gemini du métré. Ces risques restent couverts séparément ou demandent leurs propres fixtures. Les scénarios Playwright actuels `e2e/estimates/import-dpgf.spec.ts` et `team-b-user-stories.spec.ts` couvrent notamment le mapping générique et la hiérarchie XLSX ; ils n'affirment pas toutes les valeurs et métadonnées CSV ci-dessus.
+
+Une session ARMY valide, un rôle autorisé à importer/créer des devis et un backend avec les migrations de création canonique sont des prérequis. Aucune base n'est lancée, modifiée ou remise à zéro par la préparation du scénario. Un échec de prérequis ou un test non exécuté ne constitue pas une preuve métier.

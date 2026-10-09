@@ -24,6 +24,15 @@
 
 Use current code, `package.json`, configuration, migrations, and focused documentation as operational truth. The root `README.md` is incomplete and is not sufficient by itself.
 
+## Testing Policy
+
+- Never write unit tests after you write code.
+- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
+- If you must test a system in isolation, first write down all the ways it could fail, then write the code.
+- Before implementing a change, define its observable failures and the E2E scenarios that expose them. Isolation is an exception: document the concrete failure that existing E2E assertions miss and why an E2E scenario cannot adequately reproduce it, then write the isolated regression before the implementation.
+- Keep isolation tests only when they detect a real uncovered failure, such as an authorization bypass, race, recovery failure, parser edge case, or data-integrity error. Do not add tests for trivial getters, static source text, mocked forwarding, or behavior already asserted by E2E.
+- E2E artifacts must record the command, source revision and local changes, environment, fixture identities, expected and actual results, and report or evidence paths sufficient to repeat and verify the run. Never include credentials or session tokens. A skipped test or failed setup is missing proof, not a pass.
+
 ## Architecture
 
 - `src/app/`: Next.js 16 App Router pages, layouts, server actions, and `api/**` handlers.
@@ -45,12 +54,14 @@ Use Node.js 24 LTS as pinned by `.nvmrc` and used by CI/Vercel.
 - Check: `npx eslint <touched-files>`, `npm run lint`, `npm run typecheck`, `npm test`.
 - Focus tests: `npm test -- path/to/file.test.ts`; add `--project=node` for server/domain tests or `--project=jsdom` for components/hooks.
 - E2E: choose `npm run e2e:pw:critical`, `npm run e2e:pw:ux`, or `npm run e2e:pw:takeoff-matrix` for the affected workflow.
+- TesterArmy pilot: `npm run e2e:army` runs anonymous desktop/mobile browser checks with `.e2e/army/manifest.json`, `report.json`, screenshots and traces. Read `docs/testing/tester-army.md` and the installed `node_modules/e2e/skills/e2e/` guides before extending it. `npm run e2e:army:agent` requires the runner's separate subscription login; the anonymous pilot does not prove authenticated workflows or replace the existing Playwright suites.
+- TesterArmy business cases: `npm run e2e:army:critical` uses the dedicated local test-account configuration and an explicitly authorized Supabase host. Read `docs/testing/tester-army-critical.md`; create only new ARMY drafts/imports and retain their identities and exact result artifacts. Authenticated traces stay off; a prepared SQL fix still requires separate authorization before application to shared Supabase.
 - RLS: use `npm run db:ci:local` after checking prerequisites in `e2e/README.md`. It creates and destroys its own ephemeral local stack. `e2e:rls` is internal to that runner; never provide remote secrets or bypass its local-runner checks.
 - OpenAPI/build: `npm run generate-openapi`, `npm run validate-openapi`, `npm run build`.
 
 Vitest uses `node` and `jsdom` projects. Legacy `e2e:hex`, `e2e:hex:all`, and feature-specific `e2e:hex:*` suites require a running app, `agent-browser`, and `pwsh` or `powershell`; verify prerequisites before blaming the product.
 
-Validate in this order as scope requires: focused tests and lint; typecheck; full Vitest; relevant E2E for UI, routing, auth, workflows, or RLS; build for release, routing, configuration, or OpenAPI work; `git diff --check`. Test warnings about fallback, portal, storage, or toasts may be intentional; prioritize failed assertions and exit codes, while investigating unexpected logs. Report unrelated global failures separately.
+Use relevant E2E as the primary behavioral validation for UI, routing, auth, workflows, or RLS and preserve its repeatable artifact. Run focused isolation regressions only for a documented E2E gap; run the retained Vitest suite when changing or pruning that coverage. Also run touched-file lint, typecheck, build for release, routing, configuration, or OpenAPI work, and `git diff --check` as scope requires. Test warnings about fallback, portal, storage, or toasts may be intentional; prioritize failed assertions and exit codes, while investigating unexpected logs. Report unrelated global failures separately.
 
 When routes or schemas change, update the OpenAPI generator, regenerate `openapi.json`, inspect its diff, and validate it. Missing public Supabase variables can cause environment-only build failures; never invent or expose secrets. Never print `.env.local`; required variables are documented in `.env.example` and `e2e/README.md`.
 
@@ -65,13 +76,13 @@ When routes or schemas change, update the OpenAPI generator, regenerate `openapi
 
 ## Supabase Changes
 
-Create a new timestamped migration; never rewrite a migration that may have run. Inspect schema, migration history, RLS, and server authorization first; add focused regressions; validate locally or in isolated PostgreSQL/Supabase; run relevant app and RLS tests; document limitations. Apply to shared or remote Supabase only when explicitly authorized. `supabase/schema.sql` is a non-executable comment pointer, not a dump; schema truth is `supabase/migrations/`. Do not publish a migration count or latest filename as a frozen contract.
+Create a new timestamped migration; never rewrite a migration that may have run. Inspect schema, migration history, RLS, and server authorization first; document failure modes and define the relevant E2E/RLS regressions before implementation, using isolation only for a documented E2E gap; validate locally or in isolated PostgreSQL/Supabase; run relevant app and RLS tests; document limitations. Apply to shared or remote Supabase only when explicitly authorized. `supabase/schema.sql` is a non-executable comment pointer, not a dump; schema truth is `supabase/migrations/`. Do not publish a migration count or latest filename as a frozen contract.
 
 Do not assume `supabase db reset` works: verify the CLI and baseline because legacy `001_add_job_title_to_profiles.sql` ordering has blocked canonical resets. If full local execution is unavailable, focused SQL regression or an isolated fixture is acceptable only with the limitation stated.
 
 ## Code and Publication
 
-Use strict TypeScript for exported APIs, 2-space indentation, semicolons, double quotes, and `@/` imports from `src/`. Use PascalCase components, `useX` hooks, lowercase route segments, and colocated `route.test.ts`, `module.test.ts`, or `Component.test.tsx` files. Keep route handlers thin; put reusable domain/integration logic in `src/lib/`. Add focused regression coverage for bugs and security boundaries.
+Use strict TypeScript for exported APIs, 2-space indentation, semicolons, double quotes, and `@/` imports from `src/`. Use PascalCase components, `useX` hooks, lowercase route segments, and colocated `route.test.ts`, `module.test.ts`, or `Component.test.tsx` files for justified isolation exceptions. Keep route handlers thin; put reusable domain/integration logic in `src/lib/`. Cover bugs and security boundaries with E2E-first regressions under the Testing Policy.
 
 For an explicitly authorized commit or push: re-run status, review the full scoped diff, stage only task-owned files, run `git diff --cached --check`, confirm validation, and reconcile with `origin/main` without force or loss of concurrent work. Use Conventional Commits with a ticket when available, for example `fix(EST-243): remove unused portal test imports`. An authorized PR must summarize the change, link the issue/story, list validation, include UI screenshots, and call out migrations, RLS, OpenAPI, environment changes, and limitations.
 

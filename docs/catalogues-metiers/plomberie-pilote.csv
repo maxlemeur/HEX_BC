@@ -1,0 +1,13 @@
+reference;designation;category;product_type;material;dimensions;unit
+PIL-PLB-001;Tube cuivre écroui diamètre extérieur 18 mm épaisseur 1 mm;Distribution eau;Tube;Cuivre;18 x 1 mm;m
+PIL-PLB-002;Tube cuivre écroui diamètre extérieur 22 mm épaisseur 1 mm;Distribution eau;Tube;Cuivre;22 x 1 mm;m
+PIL-PLB-003;Tube PER diamètre extérieur 16 mm épaisseur 1,5 mm;Distribution eau;Tube;PER;16 x 1,5 mm;m
+PIL-PLB-004;Tube PVC évacuation diamètre extérieur 40 mm;Évacuation;Tube;PVC;Ø 40 mm;m
+PIL-PLB-005;Tube PVC évacuation diamètre extérieur 50 mm;Évacuation;Tube;PVC;Ø 50 mm;m
+PIL-PLB-006;Coude PVC à coller 87 degrés diamètre 40 mm;Évacuation;Raccord;PVC;Ø 40 mm;u
+PIL-PLB-007;Manchon PVC à coller diamètre 40 mm;Évacuation;Raccord;PVC;Ø 40 mm;u
+PIL-PLB-008;Té PVC à coller 87 degrés diamètre 50 mm;Évacuation;Raccord;PVC;Ø 50 mm;u
+PIL-PLB-009;Vanne à boisseau sphérique laiton femelle femelle 15/21;Robinetterie;Vanne;Laiton;15/21;u
+PIL-PLB-010;Flexible sanitaire tressé femelle femelle 15/21 longueur 300 mm;Raccordement;Flexible;;15/21 - 300 mm;u
+PIL-PLB-011;Siphon lavabo sortie diamètre 32 mm entrée 33/42;Sanitaire;Siphon;;Sortie Ø 32 mm - entrée 33/42;u
+PIL-PLB-012;Collier de fixation pour tube diamètre extérieur 18 mm;Fixation;Collier;;Ø 18 mm;u
