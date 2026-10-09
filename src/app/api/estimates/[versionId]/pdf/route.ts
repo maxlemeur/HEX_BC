@@ -210,7 +210,7 @@ export async function GET(
           status: 500,
           code: "PDF_GENERATION_FAILED",
           message:
-            status.last_error ?? "La generation du PDF a echoue pour cette version.",
+            status.last_error ?? "La génération du PDF a échoué pour cette version.",
           details: status,
         });
       }
@@ -218,7 +218,7 @@ export async function GET(
       return jsonError({
         status: 404,
         code: "PDF_NOT_READY",
-        message: "Aucun PDF genere pour cette version.",
+        message: "Aucun PDF généré pour cette version.",
         details: status,
       });
     }
@@ -229,7 +229,7 @@ export async function GET(
 
     if (status.status === "failed") {
       throw internalError(
-        status.last_error ?? "La generation du PDF a echoue pour cette version.",
+        status.last_error ?? "La génération du PDF a échoué pour cette version.",
         status,
         "PDF_GENERATION_FAILED"
       );
@@ -239,7 +239,7 @@ export async function GET(
       throw conflict("Generation PDF en cours.", status, "PDF_NOT_READY");
     }
 
-    throw notFound("Aucun PDF genere pour cette version.", status, "PDF_NOT_READY");
+    throw notFound("Aucun PDF généré pour cette version.", status, "PDF_NOT_READY");
   } catch (error) {
     return toErrorResponse(error);
   }

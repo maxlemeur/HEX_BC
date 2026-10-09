@@ -240,7 +240,7 @@ export async function POST(
           );
 
           const resend = new Resend(apiKey);
-          const emailSubject = `Confirmation - Devis ${projectName} accepte`;
+          const emailSubject = `Confirmation – devis ${projectName} accepté`;
           const { data: emailResult, error: emailSendError } =
             await resend.emails.send({
               from: emailFrom,

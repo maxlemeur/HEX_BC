@@ -92,7 +92,7 @@ export async function POST(request: Request) {
         return ok(data, 201);
       }
       default:
-        throw badRequest("Action de mapping non supportee.");
+        throw badRequest("Action de mapping non prise en charge.");
     }
   } catch (error) {
     return toErrorResponse(error);
