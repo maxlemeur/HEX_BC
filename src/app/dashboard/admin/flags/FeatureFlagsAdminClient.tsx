@@ -1,7 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import { FlagIcon, RefreshCwIcon } from "lucide-react";
 import useSWR from "swr";
+
+import { EmptyState } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type FeatureFlagRecord = {
   tenant_id: string;
@@ -107,17 +119,22 @@ async function patchFeatureFlag(input: {
   return envelope.data.flag;
 }
 
-function badgeClass(enabled: boolean) {
-  return enabled
-    ? "inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success"
-    : "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600";
+function FlagStatus({ enabled }: { enabled: boolean }) {
+  return (
+    <Badge variant={enabled ? "success" : "neutral"} dot>
+      {enabled ? "Actif" : "Inactif"}
+    </Badge>
+  );
 }
 
-function FlagStatus({ enabled }: { enabled: boolean }) {
-  return <span className={badgeClass(enabled)}>{enabled ? "Actif" : "Inactif"}</span>;
-}
+const STATUS_FILTERS = [
+  ["all", "Tous"],
+  ["enabled", "Actifs"],
+  ["disabled", "Inactifs"],
+] as const;
 
 export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: string }>) {
+  const fieldId = useId();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(() => new Set());
@@ -246,10 +263,10 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
 
     return (
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-        <input
+        <Input
           type="text"
           aria-label={`Valeur de ${flag.flag_key}`}
-          className="form-input min-h-11 min-w-0 flex-1 text-sm"
+          className="min-h-11 flex-1 text-sm md:min-h-0"
           value={valueDraft}
           onChange={(event) =>
             setValueDrafts((current) => ({
@@ -260,15 +277,16 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
           placeholder="Valeur optionnelle"
           disabled={isUpdating}
         />
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="lg"
           aria-label={`Enregistrer la valeur de ${flag.flag_key}`}
-          className="btn btn-secondary min-h-11 shrink-0"
+          className="min-h-11 md:min-h-0"
           disabled={isUpdating || !hasChanged}
           onClick={() => void handleSaveValue(flag)}
         >
           {isUpdating ? "Mise à jour…" : "Enregistrer"}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -276,15 +294,16 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
   function renderToggle(flag: FeatureFlagRecord) {
     const isUpdating = updatingKeys.has(flag.flag_key);
     return (
-      <button
-        type="button"
+      <Button
+        variant={flag.enabled ? "outline" : "primary"}
+        size="lg"
         aria-label={`${flag.enabled ? "Désactiver" : "Activer"} ${flag.flag_key}`}
-        className={`${flag.enabled ? "btn btn-secondary" : "btn btn-primary"} min-h-11`}
+        className="min-h-11 md:min-h-0"
         disabled={isUpdating}
         onClick={() => void handleToggle(flag)}
       >
         {isUpdating ? "Mise à jour…" : flag.enabled ? "Désactiver" : "Activer"}
-      </button>
+      </Button>
     );
   }
 
@@ -293,143 +312,154 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="page-title">Fonctionnalités</h1>
-          <p className="page-description">
-            Activez ou désactivez les fonctionnalités disponibles pour l&apos;organisation.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-secondary min-h-11 w-full sm:w-auto"
-          onClick={() => void mutate()}
-          disabled={isValidating}
+      <PageHeader
+        breadcrumbs={[
+          { label: "Administration", href: "/dashboard/admin" },
+          { label: "Fonctionnalités" },
+        ]}
+        title="Fonctionnalités"
+        description="Activez ou désactivez les fonctionnalités disponibles pour l'organisation."
+        actions={
+          <Button
+            variant="outline"
+            size="lg"
+            className="min-h-11 w-full sm:w-auto"
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
+            onClick={() => void mutate()}
+            disabled={isValidating}
+          >
+            {isValidating ? "Actualisation…" : "Actualiser"}
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-6">
+        {actionError ? <Alert variant="danger">{actionError}</Alert> : null}
+        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+        {dirtyDraftCount > 0 ? (
+          <Alert variant="warning">
+            {dirtyDraftCount} modification{dirtyDraftCount > 1 ? "s" : ""} non enregistrée{dirtyDraftCount > 1 ? "s" : ""}. Les brouillons sont conservés pendant l&apos;actualisation.
+          </Alert>
+        ) : null}
+
+        <section
+          className="min-w-0 rounded-lg border border-border bg-surface p-4 shadow-card sm:p-5"
+          aria-labelledby={`${fieldId}-filters`}
         >
-          {isValidating ? "Actualisation…" : "Actualiser"}
-        </button>
-      </div>
-
-      {actionError ? <div className="alert alert-error mb-6" role="alert">{actionError}</div> : null}
-      {successMessage ? (
-        <div className="alert alert-success mb-6" role="status" aria-live="polite">
-          {successMessage}
-        </div>
-      ) : null}
-      {dirtyDraftCount > 0 ? (
-        <div className="alert alert-warning mb-6" role="status">
-          {dirtyDraftCount} modification{dirtyDraftCount > 1 ? "s" : ""} non enregistrée{dirtyDraftCount > 1 ? "s" : ""}. Les brouillons sont conservés pendant l&apos;actualisation.
-        </div>
-      ) : null}
-
-      <section className="dashboard-card mb-6 p-4 sm:p-5" aria-labelledby="feature-flags-filters">
-        <h2 id="feature-flags-filters" className="sr-only">Filtres des fonctionnalités</h2>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" htmlFor="feature-flag-search-input">
-              Rechercher une fonctionnalité
-            </label>
-            <input
-              id="feature-flag-search-input"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Ex. STALE_PRICE_DAYS"
-              className="form-input mt-2 min-h-11 w-full"
-              type="search"
-            />
+          <h2 id={`${fieldId}-filters`} className="sr-only">Filtres des fonctionnalités</h2>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div className="flex flex-col gap-2">
+              <FieldLabel htmlFor="feature-flag-search-input">
+                Rechercher une fonctionnalité
+              </FieldLabel>
+              <Input
+                id="feature-flag-search-input"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Ex. STALE_PRICE_DAYS"
+                className="min-h-11"
+                type="search"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <span id={`${fieldId}-status`} className="text-sm font-medium text-foreground">
+                État
+              </span>
+              <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`${fieldId}-status`}>
+                {STATUS_FILTERS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={statusFilter === value}
+                    className={cn(
+                      "min-h-11 rounded-control border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                      statusFilter === value
+                        ? "border-primary bg-info-subtle text-primary"
+                        : "border-border bg-surface text-foreground-secondary hover:bg-surface-subtle"
+                    )}
+                    onClick={() => setStatusFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">État</span>
-            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Filtrer par état">
-              {([
-                ["all", "Tous"],
-                ["enabled", "Actifs"],
-                ["disabled", "Inactifs"],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={statusFilter === value}
-                  className={`min-h-11 rounded-lg border px-3 py-2 text-sm font-medium ${
-                    statusFilter === value
-                      ? "border-primary bg-info-light text-primary"
-                      : "border-border bg-surface text-slate-600"
-                  }`}
-                  onClick={() => setStatusFilter(value)}
-                >
-                  {label}
-                </button>
+          <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
+            {filteredFlags.length} résultat{filteredFlags.length > 1 ? "s" : ""}
+          </p>
+        </section>
+
+        {isLoading ? (
+          <LoadingState label="Chargement des fonctionnalités…" className="min-h-60" />
+        ) : error ? (
+          <Alert variant="danger">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>{loadError}</span>
+              <Button variant="outline" size="lg" className="min-h-11" onClick={() => void mutate()}>
+                Réessayer
+              </Button>
+            </div>
+          </Alert>
+        ) : filteredFlags.length === 0 ? (
+          <EmptyState
+            icon={<FlagIcon />}
+            headingLevel={2}
+            title="Aucune fonctionnalité trouvée"
+            description="Modifiez la recherche ou le filtre d'état."
+          />
+        ) : (
+          <div aria-busy={isValidating} className={cn("transition-opacity", isValidating && "opacity-60")}>
+            <div className="space-y-3 md:hidden">
+              {filteredFlags.map((flag) => (
+                <Card key={flag.flag_key} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <code className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold text-foreground">{flag.flag_key}</code>
+                    <FlagStatus enabled={flag.enabled} />
+                  </div>
+                  <div className="mt-4">
+                    <span className="mb-1 block text-xs font-medium text-muted-foreground">Valeur</span>
+                    {renderValueEditor(flag)}
+                  </div>
+                  <div className="mt-4 flex justify-end">{renderToggle(flag)}</div>
+                </Card>
               ))}
             </div>
-          </div>
-        </div>
-        <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
-          {filteredFlags.length} résultat{filteredFlags.length > 1 ? "s" : ""}
-        </p>
-      </section>
 
-      {isLoading ? (
-        <div className="flex min-h-60 items-center justify-center" role="status">
-          <span className="text-muted-foreground">Chargement des fonctionnalités…</span>
-        </div>
-      ) : error ? (
-        <div className="alert alert-error flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" role="alert">
-          <span>{loadError}</span>
-          <button type="button" className="btn btn-secondary min-h-11" onClick={() => void mutate()}>
-            Réessayer
-          </button>
-        </div>
-      ) : filteredFlags.length === 0 ? (
-        <div className="dashboard-card px-4 py-10 text-center">
-          <p className="font-medium text-foreground">Aucune fonctionnalité trouvée</p>
-          <p className="mt-1 text-sm text-muted-foreground">Modifiez la recherche ou le filtre d&apos;état.</p>
-        </div>
-      ) : (
-        <div aria-busy={isValidating} className={isValidating ? "opacity-60 transition-opacity" : "transition-opacity"}>
-          <div className="space-y-3 md:hidden">
-            {filteredFlags.map((flag) => (
-              <article key={flag.flag_key} className="dashboard-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <code className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold text-slate-800">{flag.flag_key}</code>
-                  <FlagStatus enabled={flag.enabled} />
-                </div>
-                <div className="mt-4">
-                  <span className="mb-1 block text-xs font-medium text-muted-foreground">Valeur</span>
-                  {renderValueEditor(flag)}
-                </div>
-                <div className="mt-4 flex justify-end">{renderToggle(flag)}</div>
-              </article>
-            ))}
-          </div>
-
-          <div className="dashboard-card hidden overflow-hidden md:block">
-            <div className="overflow-x-auto">
-              <table className="data-table table-fixed">
-                <thead>
-                  <tr>
-                    <th scope="col" className="w-[28%]">Clé</th>
-                    <th scope="col" className="w-[42%]">Valeur</th>
-                    <th scope="col" className="w-[12%]">État</th>
-                    <th scope="col" className="w-[18%] text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredFlags.map((flag) => (
-                    <tr key={flag.flag_key}>
-                      <td className="align-top">
-                        <code className="block [overflow-wrap:anywhere] text-sm text-slate-800">{flag.flag_key}</code>
-                      </td>
-                      <td className="align-top">{renderValueEditor(flag)}</td>
-                      <td className="align-top"><FlagStatus enabled={flag.enabled} /></td>
-                      <td className="align-top text-right">{renderToggle(flag)}</td>
+            <Card className="hidden overflow-hidden md:block">
+              <div
+                role="region"
+                aria-label="Liste des fonctionnalités"
+                tabIndex={0}
+                className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+              >
+                <table className="data-table table-fixed">
+                  <thead>
+                    <tr>
+                      <th scope="col" className="w-[28%]">Clé</th>
+                      <th scope="col" className="w-[42%]">Valeur</th>
+                      <th scope="col" className="w-[12%]">État</th>
+                      <th scope="col" className="w-[18%] text-right">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredFlags.map((flag) => (
+                      <tr key={flag.flag_key}>
+                        <td className="align-top">
+                          <code className="block [overflow-wrap:anywhere] text-sm text-foreground">{flag.flag_key}</code>
+                        </td>
+                        <td className="align-top">{renderValueEditor(flag)}</td>
+                        <td className="align-top"><FlagStatus enabled={flag.enabled} /></td>
+                        <td className="align-top text-right">{renderToggle(flag)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { PlusIcon, SlidersHorizontalIcon } from "lucide-react";
 
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { getUserContext } from "@/lib/auth/server";
 import {
   createEstimateRuleForCurrentTenant,
@@ -33,7 +42,7 @@ const RULE_TYPE_OPTIONS: Array<{ value: RuleType; label: string }> = [
   { value: "dpgf_coverage_min", label: "Couverture DPGF minimum" },
   {
     value: "takeoff_evidence_coverage_min",
-    label: "Couverture preuves takeoff minimum",
+    label: "Couverture des preuves de métré minimum",
   },
   {
     value: "critical_exceptions_max",
@@ -255,240 +264,266 @@ export default async function AdminRulesPage() {
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header">
-        <h1 className="page-title">Règles d’approbation</h1>
-        <p className="page-description">
-          Configurez les garde-fous de marge/remise et les seuils d&apos;approbation.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Administration", href: "/dashboard/admin" },
+          { label: "Règles de contrôle" },
+        ]}
+        title="Règles de contrôle"
+        description="Configurez les garde-fous de marge et de remise ainsi que les seuils d'approbation."
+      />
 
-      <div className="dashboard-card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Nouvelle règle
-        </h2>
-        <form action={createRuleAction} className="grid gap-3 lg:grid-cols-6">
-          <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-muted-foreground">Type</span>
-            <select name="rule_type" defaultValue="require_approval" className="form-input h-10">
-              {RULE_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+      <div className="flex flex-col gap-6">
+        <PageSection title="Nouvelle règle">
+          <form action={createRuleAction} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 lg:items-start">
+            <Field>
+              <FieldLabel htmlFor="rule-create-type">Type</FieldLabel>
+              <NativeSelect id="rule-create-type" name="rule_type" defaultValue="require_approval">
+                {RULE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
 
-          <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-muted-foreground">Scope</span>
-            <select name="scope_type" defaultValue="global" className="form-input h-10">
-              {SCOPE_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <Field>
+              <FieldLabel htmlFor="rule-create-scope">Portée</FieldLabel>
+              <NativeSelect id="rule-create-scope" name="scope_type" defaultValue="global">
+                {SCOPE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
 
-          <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-muted-foreground">Scope ID</span>
-            <input
-              name="scope_id"
-              type="text"
-              className="form-input h-10"
-              placeholder="UUID optionnel"
-            />
-          </label>
+            <Field>
+              <FieldLabel htmlFor="rule-create-scope-id">Identifiant de portée</FieldLabel>
+              <Input
+                id="rule-create-scope-id"
+                name="scope_id"
+                type="text"
+                placeholder="UUID (facultatif)"
+              />
+            </Field>
 
-          <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-muted-foreground">Seuil</span>
-            <input
-              name="threshold_value"
-              type="number"
-              min="0"
-              step="0.01"
-              className="form-input h-10"
-              defaultValue={DEFAULT_APPROVAL_THRESHOLD_EUROS}
-              required
-            />
-            <span className="mt-1 block text-[11px] text-muted-foreground">
-              Pour une approbation, saisissez le montant en euros HT. La règle
-              se déclenche dès que ce seuil est atteint.
-            </span>
-          </label>
+            <Field>
+              <FieldLabel htmlFor="rule-create-threshold">Seuil</FieldLabel>
+              <Input
+                id="rule-create-threshold"
+                name="threshold_value"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={DEFAULT_APPROVAL_THRESHOLD_EUROS}
+                aria-describedby="rule-create-threshold-hint"
+                required
+              />
+              <FieldDescription id="rule-create-threshold-hint" className="text-xs">
+                Pour une approbation, saisissez le montant en euros HT. La règle
+                se déclenche dès que ce seuil est atteint.
+              </FieldDescription>
+            </Field>
 
-          <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-muted-foreground">Action</span>
-            <select name="action" defaultValue="require_approval" className="form-input h-10">
-              {ACTION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <Field>
+              <FieldLabel htmlFor="rule-create-action">Action</FieldLabel>
+              <NativeSelect id="rule-create-action" name="action" defaultValue="require_approval">
+                {ACTION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
 
-          <div className="flex items-end gap-3 lg:col-span-1">
-            <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-              <input name="is_active" type="checkbox" defaultChecked />
-              Active
-            </label>
-            <button type="submit" className="btn btn-primary ml-auto">
-              Ajouter
-            </button>
-          </div>
-        </form>
-      </div>
+            <div className="flex flex-wrap items-center gap-3 lg:mt-7">
+              <label className="inline-flex min-h-11 items-center gap-2 text-sm text-foreground-secondary">
+                <input name="is_active" type="checkbox" className="size-4 accent-primary" defaultChecked />
+                Active
+              </label>
+              <button type="submit" className={buttonVariants({ variant: "primary", size: "lg", className: "ml-auto" })}>
+                <PlusIcon aria-hidden="true" />
+                Ajouter la règle
+              </button>
+            </div>
+          </form>
+        </PageSection>
 
-      <div className="dashboard-card overflow-hidden">
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Règle</th>
-                <th>Scope</th>
-                <th>Scope ID</th>
-                <th>Seuil</th>
-                <th>Action</th>
-                <th>État</th>
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.length === 0 ? (
+        <PageSection title="Règles configurées" flush>
+          <div
+            role="region"
+            aria-label="Règles configurées"
+            tabIndex={0}
+            className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+          >
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-muted-foreground">
-                    Aucune règle configurée.
-                  </td>
+                  <th scope="col">Règle</th>
+                  <th scope="col">Portée</th>
+                  <th scope="col">Identifiant</th>
+                  <th scope="col">Seuil</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">État</th>
+                  <th scope="col" className="text-right">Actions</th>
                 </tr>
-              ) : (
-                rules.map((rule) => (
-                  <tr key={rule.id}>
-                    <td className="text-sm text-foreground-secondary">
-                      {renderRuleTypeLabel(rule.rule_type)}
-                    </td>
-                    <td className="text-sm text-foreground-secondary">
-                      {renderScopeTypeLabel(rule.scope_type)}
-                    </td>
-                    <td className="font-mono text-xs text-slate-600">
-                      {rule.scope_id ?? "—"}
-                    </td>
-                    <td className="text-sm text-foreground-secondary">
-                      {formatRuleThreshold(
-                        rule.rule_type,
-                        rule.threshold_value,
-                      )}
-                    </td>
-                    <td className="text-sm text-foreground-secondary">{renderActionLabel(rule.action)}</td>
-                    <td>
-                      {rule.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success">
-                          Active
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                          Inactive
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      <div className="flex flex-col items-end gap-2">
-                        <details className="dashboard-card w-full max-w-[760px] p-3 text-left">
-                          <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
-                            Éditer
-                          </summary>
-                          <form action={updateRuleAction} className="mt-3 grid gap-2 lg:grid-cols-6">
-                            <input type="hidden" name="rule_id" value={rule.id} />
-                            <select name="rule_type" defaultValue={rule.rule_type} className="form-input h-9 text-sm">
-                              {RULE_TYPE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <select name="scope_type" defaultValue={rule.scope_type} className="form-input h-9 text-sm">
-                              {SCOPE_TYPE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              name="scope_id"
-                              defaultValue={rule.scope_id ?? ""}
-                              className="form-input h-9 text-sm"
-                              placeholder="UUID optionnel"
-                            />
-                            <input
-                              name="threshold_value"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              defaultValue={toDisplayedRuleThreshold(
-                                rule.rule_type,
-                                rule.threshold_value,
-                              )}
-                              className="form-input h-9 text-sm"
-                              required
-                            />
-                            <select name="action" defaultValue={rule.action} className="form-input h-9 text-sm">
-                              {ACTION_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="flex items-center justify-between gap-2">
-                              <label className="inline-flex items-center gap-2 text-xs text-foreground-secondary">
-                                <input type="checkbox" name="is_active" defaultChecked={rule.is_active} />
-                                Actif
-                              </label>
-                              <button type="submit" className="btn btn-secondary btn-sm">
-                                Enregistrer
-                              </button>
+              </thead>
+              <tbody>
+                {rules.length === 0 ? (
+                  <EmptyTableRow
+                    colSpan={7}
+                    icon={<SlidersHorizontalIcon />}
+                    title="Aucune règle configurée"
+                    description="Ajoutez une règle pour encadrer les marges, les remises ou les approbations."
+                  />
+                ) : (
+                  rules.map((rule) => {
+                    const ruleLabel = renderRuleTypeLabel(rule.rule_type);
+                    return (
+                      <tr key={rule.id}>
+                        <td className="text-sm text-foreground-secondary">{ruleLabel}</td>
+                        <td className="text-sm text-foreground-secondary">
+                          {renderScopeTypeLabel(rule.scope_type)}
+                        </td>
+                        <td className="font-mono text-xs text-muted-foreground">
+                          {rule.scope_id ?? "—"}
+                        </td>
+                        <td className="text-sm text-foreground-secondary">
+                          {formatRuleThreshold(
+                            rule.rule_type,
+                            rule.threshold_value,
+                          )}
+                        </td>
+                        <td className="text-sm text-foreground-secondary">{renderActionLabel(rule.action)}</td>
+                        <td>
+                          <Badge variant={rule.is_active ? "success" : "neutral"} dot>
+                            {rule.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
+                        <td className="text-right">
+                          <div className="flex flex-col items-end gap-2">
+                            <details className="w-full max-w-[760px] rounded-lg border border-border bg-surface p-3 text-left shadow-card">
+                              <summary className="min-h-9 cursor-pointer rounded-control text-sm font-medium text-foreground-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                Modifier
+                              </summary>
+                              <form action={updateRuleAction} className="mt-3 grid gap-2 lg:grid-cols-6">
+                                <input type="hidden" name="rule_id" value={rule.id} />
+                                <NativeSelect
+                                  size="sm"
+                                  name="rule_type"
+                                  aria-label={`Type de la règle ${ruleLabel}`}
+                                  defaultValue={rule.rule_type}
+                                >
+                                  {RULE_TYPE_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                                <NativeSelect
+                                  size="sm"
+                                  name="scope_type"
+                                  aria-label={`Portée de la règle ${ruleLabel}`}
+                                  defaultValue={rule.scope_type}
+                                >
+                                  {SCOPE_TYPE_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                                <Input
+                                  size="sm"
+                                  name="scope_id"
+                                  aria-label={`Identifiant de portée de la règle ${ruleLabel}`}
+                                  defaultValue={rule.scope_id ?? ""}
+                                  placeholder="UUID (facultatif)"
+                                />
+                                <Input
+                                  size="sm"
+                                  name="threshold_value"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  aria-label={`Seuil de la règle ${ruleLabel}`}
+                                  defaultValue={toDisplayedRuleThreshold(
+                                    rule.rule_type,
+                                    rule.threshold_value,
+                                  )}
+                                  required
+                                />
+                                <NativeSelect
+                                  size="sm"
+                                  name="action"
+                                  aria-label={`Action de la règle ${ruleLabel}`}
+                                  defaultValue={rule.action}
+                                >
+                                  {ACTION_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="inline-flex items-center gap-2 text-xs text-foreground-secondary">
+                                    <input
+                                      type="checkbox"
+                                      name="is_active"
+                                      className="size-4 accent-primary"
+                                      defaultChecked={rule.is_active}
+                                    />
+                                    Active
+                                  </label>
+                                  <button type="submit" className={buttonVariants({ variant: "outline", size: "md" })}>
+                                    Enregistrer
+                                  </button>
+                                </div>
+                              </form>
+                            </details>
+
+                            <div className="inline-flex items-center gap-2">
+                              <form action={toggleRuleAction}>
+                                <input type="hidden" name="rule_id" value={rule.id} />
+                                <input type="hidden" name="rule_type" value={rule.rule_type} />
+                                <input type="hidden" name="scope_type" value={rule.scope_type} />
+                                <input type="hidden" name="scope_id" value={rule.scope_id ?? ""} />
+                                <input
+                                  type="hidden"
+                                  name="threshold_value"
+                                  value={toDisplayedRuleThreshold(
+                                    rule.rule_type,
+                                    rule.threshold_value,
+                                  )}
+                                />
+                                <input type="hidden" name="action" value={rule.action} />
+                                <input
+                                  type="hidden"
+                                  name="next_is_active"
+                                  value={rule.is_active ? "false" : "true"}
+                                />
+                                <button type="submit" className={buttonVariants({ variant: "outline", size: "md" })}>
+                                  {rule.is_active ? "Désactiver" : "Activer"}
+                                </button>
+                              </form>
+
+                              <form action={deleteRuleAction}>
+                                <input type="hidden" name="rule_id" value={rule.id} />
+                                <button type="submit" className={buttonVariants({ variant: "danger", size: "md" })}>
+                                  Supprimer
+                                </button>
+                              </form>
                             </div>
-                          </form>
-                        </details>
-
-                        <div className="inline-flex items-center gap-2">
-                          <form action={toggleRuleAction}>
-                            <input type="hidden" name="rule_id" value={rule.id} />
-                            <input type="hidden" name="rule_type" value={rule.rule_type} />
-                            <input type="hidden" name="scope_type" value={rule.scope_type} />
-                            <input type="hidden" name="scope_id" value={rule.scope_id ?? ""} />
-                            <input
-                              type="hidden"
-                              name="threshold_value"
-                              value={toDisplayedRuleThreshold(
-                                rule.rule_type,
-                                rule.threshold_value,
-                              )}
-                            />
-                            <input type="hidden" name="action" value={rule.action} />
-                            <input
-                              type="hidden"
-                              name="next_is_active"
-                              value={rule.is_active ? "false" : "true"}
-                            />
-                            <button type="submit" className="btn btn-secondary btn-sm">
-                              {rule.is_active ? "Désactiver" : "Activer"}
-                            </button>
-                          </form>
-
-                          <form action={deleteRuleAction}>
-                            <input type="hidden" name="rule_id" value={rule.id} />
-                            <button type="submit" className="btn btn-danger btn-sm">
-                              Supprimer
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </PageSection>
       </div>
     </div>
   );

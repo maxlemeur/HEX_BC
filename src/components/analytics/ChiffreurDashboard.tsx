@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, type ChangeEvent } from "react";
+import { Suspense, useCallback, useEffect, useTransition, type ChangeEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { FolderOpenIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { EmptyState } from "@/components/layout/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import { StatCard, StatGrid } from "@/components/layout/stat-card";
+import { Badge } from "@/components/ui/badge";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatEUR } from "@/lib/money";
 import type {
   AnalyticsPayload,
@@ -39,37 +46,14 @@ function formatDate(iso: string): string {
   });
 }
 
-// ---------------------------------------------------------------------------
-// KPI Card
-// ---------------------------------------------------------------------------
-
-function KpiCard({
-  label,
-  value,
-  suffix,
-  staggerClass,
-}: {
-  label: string;
-  value: string;
-  suffix?: string;
-  staggerClass: string;
-}) {
+function StatValue({ value, suffix }: { value: string; suffix?: string }) {
   return (
-    <div
-      className={`dashboard-card min-w-0 p-4 animate-fade-in sm:p-5 ${staggerClass}`}
-    >
-      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">
-        {label}
-      </p>
-      <p className="mt-2 break-words text-xl font-bold leading-tight text-foreground [overflow-wrap:anywhere] sm:text-2xl">
-        {value}
-        {suffix ? (
-          <span className="ml-1 text-sm font-medium text-subtle-foreground">
-            {suffix}
-          </span>
-        ) : null}
-      </p>
-    </div>
+    <span className="break-words [overflow-wrap:anywhere]">
+      {value}
+      {suffix ? (
+        <span className="ml-1 text-sm font-medium text-muted-foreground">{suffix}</span>
+      ) : null}
+    </span>
   );
 }
 
@@ -85,38 +69,29 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
   const accessibleSummary = trend
     .map(
       (point) =>
-        `${point.label}: ${point.createdCount} créé${point.createdCount > 1 ? "s" : ""}, ${point.acceptedCount} accepté${point.acceptedCount > 1 ? "s" : ""}`,
+        `${point.label} : ${point.createdCount} créé${point.createdCount > 1 ? "s" : ""}, ${point.acceptedCount} accepté${point.acceptedCount > 1 ? "s" : ""}`,
     )
-    .join("; ");
+    .join(" ; ");
 
   return (
-    <div className="dashboard-card p-4 animate-fade-in stagger-5 sm:p-5">
-      <h2 className="text-sm font-semibold text-foreground-secondary mb-4">
-        Tendance sur 6 mois
-      </h2>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span
-            className="inline-block h-3 w-3 rounded-sm"
-            style={{ background: "var(--brand-blue)" }}
-          />
-          Créés
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span
-            className="inline-block h-3 w-3 rounded-sm"
-            style={{ background: "var(--success)" }}
-          />
-          Acceptés
-        </span>
-      </div>
-
-      {/* Bar grid */}
+    <PageSection
+      title="Tendance sur 6 mois"
+      id="analytics-trend-title"
+      actions={
+        <div aria-hidden="true" className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-3 rounded-sm bg-brand-blue" />
+            Créés
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-3 rounded-sm bg-success" />
+            Acceptés
+          </span>
+        </div>
+      }
+    >
       <div
-        className="flex items-end gap-1.5 sm:gap-3"
-        style={{ height: 160 }}
+        className="flex h-40 items-end gap-1.5 sm:gap-3"
         role="img"
         aria-label={`Graphique de tendance sur 6 mois. ${accessibleSummary}`}
       >
@@ -125,39 +100,29 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
             key={point.key}
             className="flex min-w-0 flex-1 flex-col items-center gap-1"
           >
-            <div
-              className="flex items-end gap-1 w-full"
-              style={{ height: 130 }}
-            >
+            <div className="flex h-32 w-full items-end gap-1">
               <div
-                className="flex-1 rounded-t transition-all duration-300"
+                className="flex-1 rounded-t bg-brand-blue transition-all duration-300 motion-reduce:transition-none"
                 style={{
                   height: `${(point.createdCount / maxCount) * 100}%`,
-                  background: "var(--brand-blue)",
                   minHeight: point.createdCount > 0 ? 4 : 0,
                 }}
-                title={`${point.label}: ${point.createdCount} créé(s)`}
               />
               <div
-                className="flex-1 rounded-t transition-all duration-300"
+                className="flex-1 rounded-t bg-success transition-all duration-300 motion-reduce:transition-none"
                 style={{
                   height: `${(point.acceptedCount / maxCount) * 100}%`,
-                  background: "var(--success)",
                   minHeight: point.acceptedCount > 0 ? 4 : 0,
                 }}
-                title={`${point.label}: ${point.acceptedCount} accepté(s)`}
               />
             </div>
-            <span
-              className="block max-w-full truncate whitespace-nowrap text-[9px] text-subtle-foreground sm:text-[10px]"
-              title={point.label}
-            >
+            <span className="block max-w-full truncate whitespace-nowrap text-micro text-muted-foreground">
               {point.label}
             </span>
           </div>
         ))}
       </div>
-    </div>
+    </PageSection>
   );
 }
 
@@ -168,11 +133,12 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
 function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
   if (items.length === 0) {
     return (
-      <div className="dashboard-card p-8 text-center animate-fade-in stagger-6">
-        <p className="text-sm text-muted-foreground">
-          Aucune affaire récente.
-        </p>
-      </div>
+      <EmptyState
+        icon={<FolderOpenIcon aria-hidden="true" />}
+        headingLevel={2}
+        title="Aucune affaire récente"
+        description="Les affaires créées ou mises à jour apparaîtront ici."
+      />
     );
   }
 
@@ -184,14 +150,8 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
       : `/dashboard/affaires/${item.projectId}`;
 
   return (
-    <div className="dashboard-card overflow-hidden animate-fade-in stagger-6">
-      <div className="px-5 py-4 border-b border-border-subtle">
-        <h2 className="text-sm font-semibold text-foreground-secondary">
-          Top 10 affaires récentes
-        </h2>
-      </div>
-
-      <div
+    <PageSection title="Top 10 des affaires récentes" id="analytics-top-affaires-title" flush>
+      <ul
         className="divide-y divide-border-subtle md:hidden"
         data-testid="analytics-top-affaires-mobile"
       >
@@ -199,68 +159,72 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
           const targetHref = resolveTargetHref(item);
 
           return (
-            <Link
-              key={item.projectId}
-              href={targetHref}
-              className="block p-4 transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-            >
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-foreground">
-                    {item.projectName}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {item.projectClient ??
-                      item.projectReference ??
-                      "Client non renseigné"}
-                  </p>
+            <li key={item.projectId}>
+              <Link
+                href={targetHref}
+                className="block p-4 transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              >
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-foreground">
+                      {item.projectName}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {item.projectClient ??
+                        item.projectReference ??
+                        "Client non renseigné"}
+                    </p>
+                  </div>
+                  {item.currentStatus ? (
+                    <Badge
+                      variant={STATUS_BADGE_VARIANT[item.currentStatus] ?? "neutral"}
+                      size="sm"
+                      className="shrink-0"
+                    >
+                      V{item.currentVersionNumber} –{" "}
+                      {STATUS_LABEL[item.currentStatus] ?? item.currentStatus}
+                    </Badge>
+                  ) : null}
                 </div>
-                {item.currentStatus ? (
-                  <Badge
-                    variant={STATUS_BADGE_VARIANT[item.currentStatus] ?? "neutral"}
-                    size="sm"
-                    className="shrink-0 whitespace-nowrap"
-                  >
-                    V{item.currentVersionNumber} -{" "}
-                    {STATUS_LABEL[item.currentStatus] ?? item.currentStatus}
-                  </Badge>
-                ) : null}
-              </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-semibold text-foreground-secondary">
-                  {item.currentTotalHtCents != null
-                    ? formatEUR(item.currentTotalHtCents)
-                    : "Montant non renseigné"}
-                </span>
-                <span className="text-subtle-foreground">
-                  Mis à jour le {formatDate(item.currentUpdatedAt)}
-                </span>
-              </div>
-            </Link>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold tabular-nums text-foreground-secondary">
+                    {item.currentTotalHtCents != null
+                      ? formatEUR(item.currentTotalHtCents)
+                      : "Montant non renseigné"}
+                  </span>
+                  <span className="text-muted-foreground">
+                    Mis à jour le {formatDate(item.currentUpdatedAt)}
+                  </span>
+                </div>
+              </Link>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       <div
-        className="hidden overflow-x-auto md:block"
+        role="region"
+        aria-labelledby="analytics-top-affaires-title"
+        tabIndex={0}
+        className="relative hidden overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:block"
         data-testid="analytics-top-affaires-desktop"
       >
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-surface-subtle">
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Affaire
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Client
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Statut
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Total HT
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Mise à jour
               </th>
             </tr>
@@ -272,18 +236,18 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
               return (
                 <tr
                   key={item.projectId}
-                  className="border-b border-border-subtle transition-colors hover:bg-surface-subtle"
+                  className="border-b border-border-subtle transition-colors last:border-b-0 hover:bg-surface-subtle"
                 >
-                  <td className="px-4 py-3 font-medium text-foreground max-w-[200px] truncate">
+                  <td className="max-w-[200px] truncate px-4 py-3 font-medium text-foreground">
                     <Link
                       href={targetHref}
-                      className="rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                      className="rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                     >
                       {item.projectName}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[160px] truncate">
-                    {item.projectClient ?? "\u2014"}
+                  <td className="max-w-[160px] truncate px-4 py-3 text-foreground-secondary">
+                    {item.projectClient ?? "—"}
                   </td>
                   <td className="px-4 py-3">
                     {item.currentStatus ? (
@@ -293,21 +257,19 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
                         }
                         size="sm"
                       >
-                        V{item.currentVersionNumber} -{" "}
+                        V{item.currentVersionNumber} –{" "}
                         {STATUS_LABEL[item.currentStatus] ?? item.currentStatus}
                       </Badge>
                     ) : (
-                      <span className="text-xs text-slate-300">
-                        {"\u2014"}
-                      </span>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right font-medium text-foreground-secondary whitespace-nowrap">
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground-secondary">
                     {item.currentTotalHtCents != null
                       ? formatEUR(item.currentTotalHtCents)
-                      : "\u2014"}
+                      : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right text-subtle-foreground whitespace-nowrap">
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground">
                     {formatDate(item.currentUpdatedAt)}
                   </td>
                 </tr>
@@ -316,7 +278,7 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
           </tbody>
         </table>
       </div>
-    </div>
+    </PageSection>
   );
 }
 
@@ -332,6 +294,7 @@ function OwnerSelectorInner({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const currentOwner = searchParams.get("owner") ?? "all";
 
   const handleChange = useCallback(
@@ -340,17 +303,21 @@ function OwnerSelectorInner({
       const params = new URLSearchParams(searchParams.toString());
       params.set("owner", value);
       const query = params.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      startTransition(() => {
+        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      });
     },
     [router, pathname, searchParams],
   );
 
   return (
-    <select
+    <NativeSelect
       value={currentOwner}
       onChange={handleChange}
-      className="btn btn-secondary w-full min-w-0 max-w-full text-sm sm:w-auto"
+      size="sm"
+      wrapperClassName="w-full sm:w-64"
       aria-label="Filtrer par chiffreur"
+      aria-busy={isPending || undefined}
     >
       <option value="all">Tous les chiffreurs</option>
       {owners.map((o) => (
@@ -358,17 +325,13 @@ function OwnerSelectorInner({
           {o.ownerName} ({o.activeAffairesCount})
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 
 function OwnerSelector({ owners }: { owners: AnalyticsOwnerOption[] }) {
   return (
-    <Suspense
-      fallback={
-        <div className="h-10 w-full animate-pulse rounded-lg bg-slate-200/50 sm:w-48" />
-      }
-    >
+    <Suspense fallback={<Skeleton className="h-9 w-full sm:w-64" />}>
       <OwnerSelectorInner owners={owners} />
     </Suspense>
   );
@@ -401,60 +364,48 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
         "Mon activité";
 
   return (
-    <div className="animate-fade-in">
-      {/* Header */}
-      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="page-title">Tableau de bord</h1>
-          <p className="page-description">{scopeLabel}</p>
-        </div>
-        {scope.isAdmin && owners.length > 0 ? (
-          <OwnerSelector owners={owners} />
-        ) : null}
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Performances"
+        description={scopeLabel}
+        actions={
+          scope.isAdmin && owners.length > 0 ? <OwnerSelector owners={owners} /> : null
+        }
+      />
 
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
-        <KpiCard
+      <StatGrid label="Indicateurs clés">
+        <StatCard
           label="Affaires actives"
-          value={String(kpis.activeAffaires)}
-          staggerClass="stagger-1"
+          value={<StatValue value={String(kpis.activeAffaires)} />}
         />
-        <KpiCard
+        <StatCard
           label="CA accepté"
-          value={formatEUR(kpis.acceptedRevenueCents)}
-          staggerClass="stagger-2"
+          value={<StatValue value={formatEUR(kpis.acceptedRevenueCents)} />}
         />
-        <KpiCard
-          label="Taux d'acceptation"
-          value={String(kpis.acceptanceRate)}
-          suffix="%"
-          staggerClass="stagger-3"
+        <StatCard
+          label="Taux d’acceptation"
+          value={<StatValue value={String(kpis.acceptanceRate)} suffix="%" />}
         />
-        <KpiCard
+        <StatCard
           label="Délai avant 1re acceptation"
           value={
-            kpis.avgDaysToFirstAcceptance != null
-              ? String(kpis.avgDaysToFirstAcceptance)
-              : "\u2014"
+            <StatValue
+              value={
+                kpis.avgDaysToFirstAcceptance != null
+                  ? String(kpis.avgDaysToFirstAcceptance)
+                  : "—"
+              }
+              suffix={kpis.avgDaysToFirstAcceptance != null ? "jours" : undefined}
+            />
           }
-          suffix={kpis.avgDaysToFirstAcceptance != null ? "jours" : undefined}
-          staggerClass="stagger-4"
         />
-      </div>
+      </StatGrid>
 
-      {/* Trend */}
-      <div className="mt-6">
-        <TrendChart trend={trend} />
-      </div>
+      <TrendChart trend={trend} />
 
-      {/* Top affaires */}
-      <div className="mt-6">
-        <TopAffairesTable items={topAffaires} />
-      </div>
+      <TopAffairesTable items={topAffaires} />
 
-      {/* Generated at timestamp */}
-      <p className="mt-4 text-xs text-subtle-foreground text-right">
+      <p className="text-right text-xs text-muted-foreground">
         Mis à jour : {new Date(initialData.generatedAt).toLocaleString("fr-FR")}
       </p>
     </div>

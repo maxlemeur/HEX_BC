@@ -1,12 +1,22 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Trash2Icon } from "lucide-react";
 
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import { StatCard, StatGrid } from "@/components/layout/stat-card";
+import { Alert } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { getUserContext } from "@/lib/auth/server";
 import {
   drainProcurementStorageCleanupOutbox,
   type ProcurementStorageCleanupDrainResult,
 } from "@/lib/procurement/storage-cleanup-outbox";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +32,17 @@ type ProcurementCounts = {
   orderDocuments: number;
   suppliers: number;
   supplierPrices: number;
+};
+
+const ORDER_STATUS_BADGES: Record<
+  string,
+  { label: string; variant: NonNullable<BadgeProps["variant"]> }
+> = {
+  draft: { label: "Brouillon", variant: "neutral" },
+  sent: { label: "Envoyée", variant: "info" },
+  confirmed: { label: "Confirmée", variant: "brand" },
+  received: { label: "Reçue", variant: "success" },
+  canceled: { label: "Annulée", variant: "danger" },
 };
 
 type ProcurementResetResult = {
@@ -145,14 +166,14 @@ function buildQuery(params: Record<string, string | number>) {
 
 function parseProcurementResetResult(value: unknown): ProcurementResetResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("La base n'a pas renvoye le bilan du nettoyage achats.");
+    throw new Error("La base n'a pas renvoyé le bilan du nettoyage des achats.");
   }
 
   const record = value as Record<string, unknown>;
   const readCount = (key: keyof ProcurementResetResult) => {
     const count = record[key];
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
-      throw new Error("Le bilan du nettoyage achats est invalide.");
+      throw new Error("Le bilan du nettoyage des achats est invalide.");
     }
     return count;
   };
@@ -189,7 +210,7 @@ async function resetProcurementData(formData: FormData) {
   if (confirmation !== "SUPPRIMER") {
     redirect(
       `/dashboard/admin/procurement-reset?${buildQuery({
-        error: "Confirmation incorrecte.",
+        error: "Confirmation incorrecte : saisissez SUPPRIMER en majuscules.",
       })}`
     );
   }
@@ -275,150 +296,133 @@ export default async function ProcurementResetPage({
   const storageSkipped = firstParam(params, "storageSkipped") === "1";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">
-          Administration
-        </p>
-        <h1 className="mt-2 text-2xl font-bold text-foreground">
-          Nettoyage achats
-        </h1>
-        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Supprime les bons de commande, les lignes, les documents attaches, les
-          prix fournisseurs et les fournisseurs du tenant courant.
-        </p>
-      </div>
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        breadcrumbs={[
+          { label: "Administration", href: "/dashboard/admin" },
+          { label: "Nettoyage des achats" },
+        ]}
+        title="Nettoyage des achats"
+        description="Supprime les bons de commande, leurs lignes, les documents attachés, les prix fournisseurs et les fournisseurs de l'organisation courante."
+      />
 
-      {done ? (
-        <div className="alert alert-success">
-          Suppression terminée : {firstParam(params, "orders") ?? "0"} bon(s),
-          {" "}
-          {firstParam(params, "suppliers") ?? "0"} fournisseur(s) et{" "}
-          {firstParam(params, "prices") ?? "0"} prix fournisseur(s) supprimes.
-        </div>
-      ) : null}
+      <div className="flex flex-col gap-6 sm:gap-8">
+        {done ? (
+          <Alert variant="success">
+            Suppression terminée : {firstParam(params, "orders") ?? "0"} bon(s) de commande,{" "}
+            {firstParam(params, "suppliers") ?? "0"} fournisseur(s) et{" "}
+            {firstParam(params, "prices") ?? "0"} prix fournisseur(s) supprimés.
+          </Alert>
+        ) : null}
 
-      {done && (storagePending > 0 || storageFailed > 0 || storageSkipped) ? (
-        <div className="alert alert-warning">
-          Le nettoyage base est terminé. {storagePending} objet(s) Storage
-          restent dans la file durable et seront repris automatiquement.
-        </div>
-      ) : null}
+        {done && (storagePending > 0 || storageFailed > 0 || storageSkipped) ? (
+          <Alert variant="warning">
+            Le nettoyage de la base est terminé. {storagePending} objet(s) Storage
+            restent dans la file durable et seront repris automatiquement.
+          </Alert>
+        ) : null}
 
-      {error ? <div className="alert alert-error">{error}</div> : null}
+        {error ? <Alert variant="danger">{error}</Alert> : null}
 
-      <section className="dashboard-card p-6">
-        <h2 className="text-sm font-semibold text-foreground">
-          Données qui seront supprimées
-        </h2>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-lg border border-border p-4">
-            <p className="text-2xl font-bold text-foreground">{counts.orders}</p>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Bons
-            </p>
-          </div>
-          <div className="rounded-lg border border-border p-4">
-            <p className="text-2xl font-bold text-foreground">
-              {counts.orderItems}
-            </p>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Lignes
-            </p>
-          </div>
-          <div className="rounded-lg border border-border p-4">
-            <p className="text-2xl font-bold text-foreground">
-              {counts.orderDocuments}
-            </p>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Documents
-            </p>
-          </div>
-          <div className="rounded-lg border border-border p-4">
-            <p className="text-2xl font-bold text-foreground">
-              {counts.suppliers}
-            </p>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Fournisseurs
-            </p>
-          </div>
-          <div className="rounded-lg border border-border p-4">
-            <p className="text-2xl font-bold text-foreground">
-              {counts.supplierPrices}
-            </p>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Prix
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="dashboard-card p-6">
-          <h2 className="text-sm font-semibold text-foreground">
-            Derniers bons
+        <section aria-labelledby="procurement-reset-counts" className="space-y-3">
+          <h2 id="procurement-reset-counts" className="font-semibold text-foreground">
+            Données qui seront supprimées
           </h2>
-          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+          <StatGrid className="sm:grid-cols-3 lg:grid-cols-5">
+            <StatCard label="Bons de commande" value={counts.orders} />
+            <StatCard label="Lignes" value={counts.orderItems} />
+            <StatCard label="Documents" value={counts.orderDocuments} />
+            <StatCard label="Fournisseurs" value={counts.suppliers} />
+            <StatCard label="Prix fournisseurs" value={counts.supplierPrices} />
+          </StatGrid>
+        </section>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <PageSection title="Derniers bons de commande">
             {preview.orders.length > 0 ? (
-              preview.orders.map((order) => (
-                <div
-                  key={`${order.reference}-${order.created_at}`}
-                  className="flex items-center justify-between gap-4 rounded-lg bg-surface-subtle px-3 py-2"
-                >
-                  <span className="font-medium text-foreground">
-                    {order.reference}
-                  </span>
-                  <span>{order.status}</span>
-                </div>
-              ))
+              <ul className="space-y-2 text-sm">
+                {preview.orders.map((order) => {
+                  const status = ORDER_STATUS_BADGES[order.status] ?? {
+                    label: order.status,
+                    variant: "neutral" as const,
+                  };
+                  return (
+                    <li
+                      key={`${order.reference}-${order.created_at}`}
+                      className="flex items-center justify-between gap-4 rounded-lg bg-surface-subtle px-3 py-2"
+                    >
+                      <span className="min-w-0 [overflow-wrap:anywhere] font-medium text-foreground">
+                        {order.reference}
+                      </span>
+                      <Badge variant={status.variant} size="sm">
+                        {status.label}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
-              <p>Aucun bon de commande.</p>
+              <p className="text-sm text-muted-foreground">Aucun bon de commande.</p>
             )}
-          </div>
-        </div>
+          </PageSection>
 
-        <div className="dashboard-card p-6">
-          <h2 className="text-sm font-semibold text-foreground">
-            Derniers fournisseurs
-          </h2>
-          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+          <PageSection title="Derniers fournisseurs">
             {preview.suppliers.length > 0 ? (
-              preview.suppliers.map((supplier) => (
-                <div
-                  key={`${supplier.name}-${supplier.created_at}`}
-                  className="rounded-lg bg-surface-subtle px-3 py-2 font-medium text-foreground"
-                >
-                  {supplier.name}
-                </div>
-              ))
+              <ul className="space-y-2 text-sm">
+                {preview.suppliers.map((supplier) => (
+                  <li
+                    key={`${supplier.name}-${supplier.created_at}`}
+                    className="[overflow-wrap:anywhere] rounded-lg bg-surface-subtle px-3 py-2 font-medium text-foreground"
+                  >
+                    {supplier.name}
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <p>Aucun fournisseur.</p>
+              <p className="text-sm text-muted-foreground">Aucun fournisseur.</p>
             )}
-          </div>
+          </PageSection>
         </div>
-      </section>
 
-      <section className="dashboard-card border-red-200 bg-red-50 p-6">
-        <h2 className="text-sm font-semibold text-red-900">
-          Suppression definitive
-        </h2>
-        <p className="mt-2 text-sm text-red-800">
-          Cette action agit sur la base partagee avec la version en ligne. Elle
-          ne supprime pas les chantiers, les affaires, les devis clients, les
-          produits ni les utilisateurs.
-        </p>
-        <form action={resetProcurementData} className="mt-5 flex flex-col gap-3 sm:flex-row">
-          <input
-            className="input max-w-xs border-red-300 bg-surface"
-            name="confirmation"
-            placeholder="Tapez SUPPRIMER"
-            required
-          />
-          <button className="btn bg-red-700 text-white hover:bg-red-800" type="submit">
-            Supprimer achats et fournisseurs
-          </button>
-        </form>
-      </section>
+        <section
+          aria-labelledby="procurement-reset-danger"
+          className="rounded-lg border border-danger-border bg-danger-subtle p-4 sm:p-6"
+        >
+          <h2 id="procurement-reset-danger" className="font-semibold text-danger">
+            Suppression définitive
+          </h2>
+          <p className="mt-2 text-sm text-foreground-secondary">
+            Cette action agit sur la base partagée avec la version en ligne. Elle
+            ne supprime pas les chantiers, les affaires, les devis clients, les
+            produits ni les utilisateurs.
+          </p>
+          <form action={resetProcurementData} className="mt-5 flex flex-col gap-2">
+            <FieldLabel htmlFor="procurement-reset-confirmation">
+              Saisissez SUPPRIMER pour confirmer
+            </FieldLabel>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Input
+                id="procurement-reset-confirmation"
+                className="border-danger-border sm:max-w-xs"
+                name="confirmation"
+                placeholder="SUPPRIMER"
+                autoComplete="off"
+                required
+              />
+              <button
+                className={cn(
+                  buttonVariants({ variant: "danger-solid", size: "lg" }),
+                  "h-auto min-h-(--density-input-h) whitespace-normal py-2"
+                )}
+                type="submit"
+              >
+                <Trash2Icon aria-hidden="true" />
+                Supprimer les achats et les fournisseurs
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
     </div>
   );
 }

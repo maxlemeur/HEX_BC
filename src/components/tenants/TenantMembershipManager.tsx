@@ -1,11 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshCwIcon } from "lucide-react";
 
 import { useUserContext } from "@/components/UserContext";
-import type { Database } from "@/types/database";
-
-type TenantRole = Database["public"]["Enums"]["tenant_role"];
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import {
+  fetchMembershipApi,
+  formatMembershipDate,
+  MemberIdentity,
+  TenantRoleBadge,
+  TenantRoleSelect,
+  type TenantRole,
+} from "@/components/memberships/membership-shared";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui-legacy/Toast";
 
 type MembershipRecord = {
   id: string;
@@ -30,79 +44,12 @@ type TenantMembershipsResponse = {
   memberships: MembershipRecord[];
 };
 
-type ApiEnvelope<T> = {
-  ok?: boolean;
-  data?: T;
-  error?: {
-    message?: string;
-  };
-};
-
-const ROLE_LABELS: Record<TenantRole, string> = {
-  admin: "Administrateur",
-  engineer: "Ingenieur",
-  viewer: "Lecteur",
-  director: "Directeur",
-};
-
-function roleBadgeClass(role: TenantRole) {
-  if (role === "admin") {
-    return "inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary";
-  }
-
-  if (role === "engineer") {
-    return "inline-flex items-center rounded-full bg-warning-light px-2.5 py-0.5 text-xs font-medium text-warning";
-  }
-
-  if (role === "director") {
-    return "inline-flex items-center rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success";
-  }
-
-  return "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600";
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const envelope = payload as ApiEnvelope<unknown>;
-  return envelope.error?.message ?? fallback;
-}
-
-async function fetchApi<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, {
-    credentials: "same-origin",
-    ...init,
-  });
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-
-  if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Une erreur est survenue."));
-  }
-
-  const envelope = payload as ApiEnvelope<T>;
-  if (envelope?.data !== undefined) {
-    return envelope.data;
-  }
-
-  return payload as T;
-}
+const PAGE_TITLE = "Organisation et membres";
+const ERROR_TOAST_MS = 8000;
 
 export function TenantMembershipManager() {
   const { profile, tenantId } = useUserContext();
+  const toast = useToast();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -114,8 +61,6 @@ export function TenantMembershipManager() {
   const [memberships, setMemberships] = useState<MembershipRecord[]>([]);
 
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const canManageMemberships = profile?.tenant_role === "admin";
 
@@ -144,7 +89,7 @@ export function TenantMembershipManager() {
     setError(null);
 
     try {
-      const data = await fetchApi<TenantMembershipsResponse>("/api/tenants/memberships");
+      const data = await fetchMembershipApi<TenantMembershipsResponse>("/api/tenants/memberships");
 
       setTenantName(data.tenant.name);
       setCurrentUserId(data.current_user_id);
@@ -153,7 +98,7 @@ export function TenantMembershipManager() {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Impossible de charger les memberships du tenant."
+          : "Impossible de charger les membres de l’organisation."
       );
     } finally {
       setIsLoading(false);
@@ -168,12 +113,10 @@ export function TenantMembershipManager() {
   async function handleChangeRole(membership: MembershipRecord, role: TenantRole) {
     if (membership.role === role) return;
 
-    setActionError(null);
-    setSuccess(null);
     setUpdatingMembershipId(membership.id);
 
     try {
-      await fetchApi("/api/tenants/memberships", {
+      await fetchMembershipApi("/api/tenants/memberships", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -185,14 +128,14 @@ export function TenantMembershipManager() {
         }),
       });
 
-      setSuccess("Rôle mis à jour avec succès.");
+      toast.success({ title: "Rôle mis à jour." });
       await loadMemberships();
     } catch (updateError) {
-      setActionError(
-        updateError instanceof Error
-          ? updateError.message
-          : "Impossible de modifier le rôle du membre."
-      );
+      toast.error({
+        title: "Impossible de modifier le rôle du membre",
+        description: updateError instanceof Error ? updateError.message : undefined,
+        durationMs: ERROR_TOAST_MS,
+      });
     } finally {
       setUpdatingMembershipId(null);
     }
@@ -200,16 +143,14 @@ export function TenantMembershipManager() {
 
   async function handleSetDefault() {
     if (!ownMembership) {
-      setActionError("Votre membership dans ce tenant est introuvable.");
+      toast.error({ title: "Votre accès à cette organisation est introuvable." });
       return;
     }
 
-    setActionError(null);
-    setSuccess(null);
     setIsSettingDefault(true);
 
     try {
-      await fetchApi("/api/tenants/memberships", {
+      await fetchMembershipApi("/api/tenants/memberships", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -220,14 +161,14 @@ export function TenantMembershipManager() {
         }),
       });
 
-      setSuccess("Tenant par défaut mis à jour.");
+      toast.success({ title: "Organisation par défaut mise à jour." });
       await loadMemberships();
     } catch (defaultError) {
-      setActionError(
-        defaultError instanceof Error
-          ? defaultError.message
-          : "Impossible de mettre à jour le tenant par défaut."
-      );
+      toast.error({
+        title: "Impossible de définir l’organisation par défaut",
+        description: defaultError instanceof Error ? defaultError.message : undefined,
+        durationMs: ERROR_TOAST_MS,
+      });
     } finally {
       setIsSettingDefault(false);
     }
@@ -236,14 +177,11 @@ export function TenantMembershipManager() {
   if (!tenantId) {
     return (
       <div className="animate-fade-in">
-        <div className="page-header">
-          <h1 className="page-title">Tenant et membres</h1>
-          <p className="page-description">
-            Cette section n&apos;est disponible que pour les comptes rattaches a un tenant.
-          </p>
-        </div>
-
-        <div className="alert alert-info">Aucun tenant actif detecte.</div>
+        <PageHeader
+          title={PAGE_TITLE}
+          description="Cette section n’est disponible que pour les comptes rattachés à une organisation."
+        />
+        <Alert variant="info">Aucune organisation active détectée.</Alert>
       </div>
     );
   }
@@ -251,110 +189,111 @@ export function TenantMembershipManager() {
   if (!canManageMemberships) {
     return (
       <div className="animate-fade-in">
-        <div className="page-header">
-          <h1 className="page-title">Tenant et membres</h1>
-          <p className="page-description">
-            Gestion réservée aux administrateurs du tenant courant.
-          </p>
-        </div>
-
-        <div className="alert alert-info">
-          Vous n&apos;avez pas les droits administrateur pour gérer les memberships.
-        </div>
+        <PageHeader
+          title={PAGE_TITLE}
+          description="Gestion réservée aux administrateurs de l’organisation courante."
+        />
+        <Alert variant="info">
+          Vous n’avez pas les droits administrateur pour gérer les membres.
+        </Alert>
       </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="animate-fade-in flex min-h-[400px] items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
-          <span className="text-muted-foreground">Chargement...</span>
-        </div>
+      <div className="animate-fade-in">
+        <PageHeader title={PAGE_TITLE} />
+        <LoadingState label="Chargement de l’organisation…" className="min-h-[300px]" />
       </div>
     );
   }
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Tenant et membres</h1>
-          <p className="page-description">
-            Gérer les rôles du tenant {tenantName ? `"${tenantName}"` : "courant"}.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="btn btn-secondary"
+      <PageHeader
+        title={PAGE_TITLE}
+        description={
+          tenantName
+            ? `Gérer les rôles des membres de l’organisation « ${tenantName} ».`
+            : "Gérer les rôles des membres de l’organisation courante."
+        }
+        actions={
+          <Button
+            variant="outline"
+            size="lg"
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
+            loading={isRefreshing}
             onClick={() => void loadMemberships()}
-            disabled={isRefreshing}
           >
-            {isRefreshing ? "Actualisation..." : "Actualiser"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void handleSetDefault()}
-            disabled={isSettingDefault || isCurrentTenantDefault || !ownMembership}
-            title={isCurrentTenantDefault ? "Ce tenant est déjà votre tenant par défaut." : undefined}
-          >
-            {isSettingDefault
-              ? "Mise à jour..."
-              : isCurrentTenantDefault
-                ? "Tenant par défaut"
-                : "Définir par défaut"}
-          </button>
-        </div>
-      </div>
+            Actualiser
+          </Button>
+        }
+      />
 
-      {error ? <div className="alert alert-error mb-6">{error}</div> : null}
-      {actionError ? <div className="alert alert-error mb-6">{actionError}</div> : null}
-      {success ? <div className="alert alert-success mb-6">{success}</div> : null}
+      {error ? (
+        <Alert variant="danger" className="mb-6">
+          {error}
+        </Alert>
+      ) : null}
 
-      <div className="dashboard-card p-6 mb-8">
-        <h2 className="text-sm font-semibold text-slate-800 mb-2">Tenant courant</h2>
-        <div className="text-sm text-slate-600 space-y-1">
-          <p>
-            <span className="font-medium text-slate-800">Nom:</span> {tenantName || "-"}
-          </p>
-          <p>
-            <span className="font-medium text-slate-800">Votre membership:</span>{" "}
-            {ownMembership ? ROLE_LABELS[ownMembership.role] : "-"}
-          </p>
-          <p>
-            <span className="font-medium text-slate-800">Statut par défaut:</span>{" "}
-            {isCurrentTenantDefault ? "Oui" : "Non"}
-          </p>
-        </div>
-      </div>
+      <PageSection
+        title="Organisation courante"
+        className="mb-8"
+        actions={
+          isCurrentTenantDefault ? undefined : (
+            <Button
+              variant="secondary"
+              loading={isSettingDefault}
+              disabled={!ownMembership}
+              onClick={() => void handleSetDefault()}
+            >
+              Définir par défaut
+            </Button>
+          )
+        }
+      >
+        <dl className="grid gap-4 text-sm sm:grid-cols-3">
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-muted-foreground">Nom</dt>
+            <dd className="mt-1 break-words font-medium text-foreground">{tenantName || "—"}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-muted-foreground">Votre rôle</dt>
+            <dd className="mt-1">
+              {ownMembership ? <TenantRoleBadge role={ownMembership.role} /> : "—"}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-muted-foreground">Organisation par défaut</dt>
+            <dd className="mt-1 text-foreground">{isCurrentTenantDefault ? "Oui" : "Non"}</dd>
+          </div>
+        </dl>
+      </PageSection>
 
-      <div className="dashboard-card overflow-hidden">
-        <div className="border-b border-border px-6 py-4">
-          <h2 className="text-sm font-semibold text-slate-800">Membres du tenant</h2>
-        </div>
-
-        <div className="table-scroll">
-          <table className="data-table">
+      <PageSection title="Membres de l’organisation" flush>
+        <div
+          role="region"
+          aria-label="Liste des membres de l’organisation"
+          tabIndex={0}
+          className="relative overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+        >
+          <table className="data-table min-w-[44rem]">
             <thead>
               <tr>
-                <th>Membre</th>
-                <th>Fonction</th>
-                <th>Rôle tenant</th>
-                <th>Par défaut</th>
-                <th>Depuis</th>
+                <th scope="col">Membre</th>
+                <th scope="col">Fonction</th>
+                <th scope="col">Rôle</th>
+                <th scope="col">Par défaut</th>
+                <th scope="col">Depuis</th>
               </tr>
             </thead>
             <tbody>
               {memberships.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-10 text-center text-muted-foreground">
-                    Aucun membership dans ce tenant.
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={5}
+                  title="Aucun membre dans cette organisation"
+                />
               ) : (
                 memberships.map((membership) => {
                   const isUpdating = updatingMembershipId === membership.id;
@@ -363,54 +302,39 @@ export function TenantMembershipManager() {
                   return (
                     <tr key={membership.id}>
                       <td>
-                        <div className="flex flex-col">
-                          <span className="font-medium text-slate-800">
-                            {membership.user_full_name}
-                          </span>
-                          {membership.user_work_email ? (
-                            <span className="text-xs text-muted-foreground">
-                              {membership.user_work_email}
-                            </span>
-                          ) : null}
-                        </div>
+                        <MemberIdentity
+                          fullName={membership.user_full_name}
+                          email={membership.user_work_email}
+                          isSelf={isSelf}
+                        />
                       </td>
-                      <td className="text-sm text-slate-600">
-                        {membership.user_job_title || "-"}
+                      <td className="text-sm text-foreground-secondary">
+                        {membership.user_job_title || "—"}
                       </td>
                       <td>
-                        <div className="flex items-center gap-2">
-                          <span className={roleBadgeClass(membership.role)}>
-                            {ROLE_LABELS[membership.role]}
-                          </span>
-                          <select
-                            className="form-input form-input--sm max-w-[170px]"
+                        <div className="grid grid-cols-[7rem_10rem] items-center gap-2">
+                          <TenantRoleBadge role={membership.role} />
+                          <TenantRoleSelect
+                            size="sm"
+                            aria-label={`Rôle de ${membership.user_full_name}`}
                             value={membership.role}
                             disabled={isUpdating}
-                            onChange={(event) =>
-                              void handleChangeRole(membership, event.target.value as TenantRole)
-                            }
-                          >
-                            <option value="admin">Administrateur</option>
-                            <option value="engineer">Ingenieur</option>
-                            <option value="director">Directeur</option>
-                            <option value="viewer">Lecteur</option>
-                          </select>
+                            aria-busy={isUpdating || undefined}
+                            onValueChange={(role) => void handleChangeRole(membership, role)}
+                          />
                         </div>
-                        {isSelf ? (
-                          <p className="mt-1 text-xs text-muted-foreground">Vous</p>
-                        ) : null}
                       </td>
                       <td>
                         {membership.is_default ? (
-                          <span className="inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success">
+                          <Badge variant="success" size="sm">
                             Oui
-                          </span>
+                          </Badge>
                         ) : (
                           <span className="text-xs text-muted-foreground">Non</span>
                         )}
                       </td>
-                      <td className="text-sm text-muted-foreground">
-                        {formatDate(membership.created_at)}
+                      <td className="whitespace-nowrap text-sm text-muted-foreground">
+                        {formatMembershipDate(membership.created_at)}
                       </td>
                     </tr>
                   );
@@ -419,7 +343,7 @@ export function TenantMembershipManager() {
             </tbody>
           </table>
         </div>
-      </div>
+      </PageSection>
     </div>
   );
 }

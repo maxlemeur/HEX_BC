@@ -2,10 +2,11 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CheckIcon, CircleXIcon, PrinterIcon } from "lucide-react";
 
 import { AcceptEstimateModal } from "@/components/portal/AcceptEstimateModal";
 import { RejectEstimateModal } from "@/components/portal/RejectEstimateModal";
-import { CheckIcon, CircleXIcon, ClockIcon, XIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 type PortalActionsProps = {
   token: string;
@@ -14,18 +15,32 @@ type PortalActionsProps = {
   projectReference?: string | null;
 };
 
-function PortalPrintButton({ className = "" }: Readonly<{ className?: string }>) {
+/**
+ * UX-D : le client n'avait aucun moyen de conserver une trace de ce qu'il signe.
+ * L'impression navigateur produit une copie fidèle du document affiché — qui est
+ * celui du PDF envoyé, mise en page et CGV comprises.
+ */
+function PortalPrintButton({ className }: Readonly<{ className?: string }>) {
   return (
-    <button
+    <Button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-surface px-6 py-3 text-sm font-semibold text-foreground-secondary transition-colors hover:bg-surface-subtle ${className}`}
+      variant="outline"
+      size="lg"
+      className={className}
+      leftIcon={<PrinterIcon aria-hidden="true" />}
       onClick={() => window.print()}
     >
       Imprimer / Enregistrer en PDF
-    </button>
+    </Button>
   );
 }
 
+/**
+ * Actions du portail. Le statut de décision (accepté, refusé, expiré) est
+ * affiché une seule fois, dans l'en-tête (UX73) : ce bloc ne porte que les
+ * actions. Tant que le devis est en attente, Accepter / Refuser restent
+ * accessibles en bas de l'écran sur mobile pendant la lecture du document.
+ */
 export function PortalActions({
   token,
   status,
@@ -46,88 +61,50 @@ export function PortalActions({
     router.refresh();
   }, [router]);
 
-  if (status === "accepted") {
-    return (
-      <div className="space-y-3">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-              <CheckIcon stroke="#059669" strokeWidth="2.5" aria-hidden="true" size={16} />
-            </div>
-            <p className="text-sm font-medium text-emerald-800">
-              Ce devis a été accepté. Merci pour votre confiance.
-            </p>
-          </div>
-        </div>
-        <div className="flex justify-end print:hidden">
-          <PortalPrintButton />
-        </div>
-      </div>
-    );
-  }
-
-  if (status === "rejected") {
-    return (
-      <div className="space-y-3">
-        <div className="rounded-xl border border-border bg-surface-subtle px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200">
-              <XIcon stroke="var(--slate-500)" strokeWidth="2.5" aria-hidden="true" size={16} />
-            </div>
-            <p className="text-sm font-medium text-slate-600">
-              Ce devis a été refusé.
-            </p>
-          </div>
-        </div>
-        <div className="flex justify-end print:hidden">
-          <PortalPrintButton />
-        </div>
-      </div>
-    );
-  }
-
   if (status === "expired") {
+    return null;
+  }
+
+  if (status !== "pending") {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100">
-            <ClockIcon stroke="#d97706" strokeWidth="2.5" aria-hidden="true" size={16} />
-          </div>
-          <p className="text-sm font-medium text-amber-800">
-            Ce devis a expiré. Veuillez contacter votre interlocuteur.
-          </p>
-        </div>
+      <div className="flex justify-end print:hidden">
+        <PortalPrintButton className="w-full sm:w-auto" />
       </div>
     );
   }
 
-  // status === "pending"
   return (
     <>
-      <div className="flex flex-col gap-3 print:hidden sm:flex-row sm:justify-end">
-        {/*
-          UX-D : le client n avait aucun moyen de conserver une trace de ce
-          qu il signe. L impression navigateur produit une copie fidele du
-          document affiche — qui est desormais celui du PDF envoye, mise en
-          page et CGV comprises.
-        */}
-        <PortalPrintButton className="sm:mr-auto" />
-        <button
+      {/* Mobile : l'impression reste dans le flux, au-dessus de la barre de réponse. */}
+      <div className="print:hidden sm:hidden">
+        <PortalPrintButton className="w-full" />
+      </div>
+      {/*
+        Rendu au même niveau que l'en-tête et le document : `sticky` reste alors
+        visible en bas de l'écran pendant tout le défilement du devis.
+      */}
+      <div
+        className="sticky bottom-0 z-10 -mx-4 grid grid-cols-2 gap-2 border-t border-border bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_-6px_rgb(15_23_42/0.15)] print:hidden sm:static sm:mx-0 sm:flex sm:justify-end sm:gap-3 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none"
+      >
+        <PortalPrintButton className="hidden sm:mr-auto sm:inline-flex" />
+        <Button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-surface px-6 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+          variant="danger"
+          size="lg"
+          leftIcon={<CircleXIcon aria-hidden="true" />}
           onClick={() => setRejectModalOpen(true)}
         >
-          <CircleXIcon aria-hidden="true" size={16} />
-          Refuser le devis
-        </button>
-        <button
+          Refuser<span className="hidden sm:inline">&nbsp;le devis</span>
+        </Button>
+        <Button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+          size="lg"
+          className="bg-success text-success-foreground shadow-none hover:bg-success/90"
+          leftIcon={<CheckIcon aria-hidden="true" />}
           onClick={() => setAcceptModalOpen(true)}
         >
-          <CheckIcon aria-hidden="true" size={16} />
-          Accepter le devis
-        </button>
+          Accepter<span className="hidden sm:inline">&nbsp;le devis</span>
+        </Button>
       </div>
       <RejectEstimateModal
         open={rejectModalOpen}

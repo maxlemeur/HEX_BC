@@ -4,7 +4,33 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+/** Messages Supabase Auth (anglais) → français ; repli sur le message d'origine. */
+function toFrenchSignupError(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("already registered") || normalized.includes("already exists")) {
+    return "Un compte existe déjà pour cet email. Connectez-vous ou réinitialisez votre mot de passe.";
+  }
+  if (normalized.includes("password should be") || normalized.includes("weak password")) {
+    return "Mot de passe trop faible. Choisissez un mot de passe plus long ou plus varié.";
+  }
+  if (normalized.includes("invalid") && normalized.includes("email")) {
+    return "Adresse email invalide.";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("too many requests")) {
+    return "Trop de tentatives. Patientez quelques minutes avant de réessayer.";
+  }
+  if (normalized.includes("failed to fetch") || normalized.includes("network")) {
+    return "Connexion au service impossible. Vérifiez votre réseau et réessayez.";
+  }
+  return message;
+}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -30,13 +56,13 @@ export default function SignupPage() {
     setLoading(false);
 
     if (signUpError) {
-      setError(signUpError.message);
+      setError(toFrenchSignupError(signUpError.message));
       return;
     }
 
     if (data.user && !data.session) {
       setSuccess(
-        "Compte créé. Vérifiez votre email pour confirmer votre adresse, puis connectez-vous."
+        "Compte créé. Ouvrez le lien de confirmation reçu par email, puis connectez-vous."
       );
       return;
     }
@@ -46,20 +72,23 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 py-16 text-zinc-950">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-surface p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Créer un compte
-        </h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Utilisez un email professionnel pour créer votre accès.
+    <main className="flex min-h-screen flex-col items-center justify-center bg-surface-subtle px-4 py-12 sm:px-6 sm:py-16">
+      <p className="mb-6 flex items-center gap-3 text-2xl text-foreground">
+        <TimaxMark />
+        <TimaxWordmark />
+      </p>
+
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-card sm:p-8">
+        <h1 className="typo-h1 text-foreground">Créer un compte</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Utilisez votre email professionnel pour créer votre accès.
         </p>
 
-        <form className="mt-8 space-y-4" method="post" onSubmit={onSubmit}>
-          <label className="block">
-            <span className="text-sm font-medium">Email</span>
-            <input
-              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-surface px-3 text-sm outline-none focus:border-zinc-400"
+        <form className="mt-8 space-y-5" method="post" onSubmit={onSubmit}>
+          <Field>
+            <FieldLabel htmlFor="signup-email">Email</FieldLabel>
+            <Input
+              id="signup-email"
               autoComplete="email"
               inputMode="email"
               name="email"
@@ -69,12 +98,12 @@ export default function SignupPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-          </label>
+          </Field>
 
-          <label className="block">
-            <span className="text-sm font-medium">Mot de passe</span>
-            <input
-              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-surface px-3 text-sm outline-none focus:border-zinc-400"
+          <Field>
+            <FieldLabel htmlFor="signup-password">Mot de passe</FieldLabel>
+            <Input
+              id="signup-password"
               autoComplete="new-password"
               name="password"
               required
@@ -82,32 +111,31 @@ export default function SignupPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-          </label>
+          </Field>
 
           {error ? (
-            <p className="rounded-xl border border-danger/30 bg-error-light px-3 py-2 text-sm text-danger">
-              {error}
-            </p>
+            <Alert variant="danger">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
 
           {success ? (
-            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              {success}
-            </p>
+            <Alert variant="success">
+              <AlertDescription>{success}</AlertDescription>
+            </Alert>
           ) : null}
 
-          <button
-            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={loading}
-            type="submit"
-          >
-            {loading ? "Création..." : "Créer le compte"}
-          </button>
+          <Button className="w-full" size="lg" loading={loading} type="submit">
+            Créer le compte
+          </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-zinc-600">
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           Déjà un compte ?{" "}
-          <Link className="font-medium text-zinc-900 hover:underline" href="/login">
+          <Link
+            className="font-semibold text-primary underline-offset-4 hover:underline"
+            href="/login"
+          >
             Se connecter
           </Link>
         </p>
@@ -115,4 +143,3 @@ export default function SignupPage() {
     </main>
   );
 }
-

@@ -1438,6 +1438,7 @@ function Ensure-NoConsoleErrors {
 
 function Logout {
   param([string]$Session)
-  Invoke-AB $Session "find" "text" "Se deconnecter" "click" | Out-Null
+  # The sign-out control is an icon button named "Se déconnecter" (no visible text).
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Se d$([char]0x00E9)connecter" | Out-Null
   Wait-ForUrlContains -Session $Session -Needle "/login" | Out-Null
 }

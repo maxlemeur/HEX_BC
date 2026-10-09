@@ -72,18 +72,18 @@ describe("RiskAlertBanner", () => {
     const user = userEvent.setup();
     render(<RiskAlertBanner alerts={[ALERT]} />);
 
-    const trigger = screen.getByRole("button", { name: "Marquer assumee" });
+    const trigger = screen.getByRole("button", { name: "Marquer comme assumée" });
     await user.click(trigger);
 
     const noteField = screen.getByLabelText("Note de décision");
     expect(noteField).toHaveFocus();
     expect(
-      screen.getByRole("button", { name: /Confirmer l'hypothese/i })
+      screen.getByRole("button", { name: /Confirmer l’hypothèse/i })
     ).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Annuler" }));
 
     expect(screen.queryByLabelText("Note de décision")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Marquer assumee" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Marquer comme assumée" })).toHaveFocus();
   });
 });

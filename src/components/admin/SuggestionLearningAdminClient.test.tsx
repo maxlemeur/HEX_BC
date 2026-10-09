@@ -67,10 +67,12 @@ describe("SuggestionLearningAdminClient purge confirmation", () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue("12")).toBeInTheDocument();
     });
-    const title = screen.getByRole("heading", {
-      name: "Apprentissage des suggestions",
-    });
-    expect(title.closest(".page-header")).toHaveClass("flex-col", "sm:flex-row");
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Apprentissage des suggestions",
+      })
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Actualiser" })).toHaveClass(
       "w-full",
       "sm:w-auto"
@@ -78,8 +80,9 @@ describe("SuggestionLearningAdminClient purge confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Purger" }));
 
+    // Outside the ConfirmProvider, useConfirm falls back to window.confirm(title).
     expect(confirmMock).toHaveBeenCalledWith(
-      "Supprimer définitivement les corrections apprises de plus de 12 mois ? Cette action est irréversible."
+      "Supprimer définitivement les corrections apprises de plus de 12 mois ?"
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mutateLearningMock).not.toHaveBeenCalled();

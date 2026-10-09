@@ -1263,7 +1263,7 @@ function resolveViolationMessage(input: {
   } else if (input.rule.rule_type === "dpgf_coverage_min") {
     base = `Couverture DPGF ${formatPercentBp(input.actualValue)} sous le minimum ${formatPercentBp(input.thresholdValue)}.`;
   } else if (input.rule.rule_type === "takeoff_evidence_coverage_min") {
-    base = `Couverture preuves takeoff ${formatPercentBp(input.actualValue)} sous le minimum ${formatPercentBp(input.thresholdValue)}.`;
+    base = `Couverture des preuves de métré ${formatPercentBp(input.actualValue)} sous le minimum ${formatPercentBp(input.thresholdValue)}.`;
   } else if (input.rule.rule_type === "critical_exceptions_max") {
     base = `Exceptions critiques ${input.actualValue} au-dessus du maximum ${input.thresholdValue}.`;
   } else {
@@ -1562,7 +1562,7 @@ function resolveApprovalSummaryLabel(ruleType: ExtendedEstimateRuleType) {
   if (ruleType === "max_discount") return "Remise maximum";
   if (ruleType === "require_approval") return "Seuil montant HT";
   if (ruleType === "dpgf_coverage_min") return "Couverture DPGF minimum";
-  if (ruleType === "takeoff_evidence_coverage_min") return "Couverture preuves takeoff minimum";
+  if (ruleType === "takeoff_evidence_coverage_min") return "Couverture minimale des preuves de métré";
   if (ruleType === "critical_exceptions_max") return "Exceptions critiques maximum";
   return "Lignes sans preuve maximum";
 }

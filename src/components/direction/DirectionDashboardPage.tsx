@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Loader2Icon } from "lucide-react";
 
 import {
   RiskAlertBanner,
@@ -12,11 +13,17 @@ import {
 import {
   WeeklySendPriorityQueue,
 } from "@/components/direction/WeeklySendPriorityQueue";
+import { PageHeader } from "@/components/layout/page-header";
+import { StatCard, StatGrid } from "@/components/layout/stat-card";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import type { DirectionDashboardPageData } from "@/lib/direction/server";
 import type {
   DirectionDashboardQuery,
   DirectionDashboardHorizon,
 } from "@/lib/direction/schemas";
+import { cn } from "@/lib/utils";
 
 type Props = {
   data: DirectionDashboardPageData;
@@ -87,74 +94,58 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
     [pathname, router, searchParams]
   );
 
+  const summaryLabel = `${data.cards.length} dossier${data.cards.length > 1 ? "s" : ""} affiché${
+    data.cards.length > 1 ? "s" : ""
+  } sur ${data.pagination.totalCards}.`;
+
   return (
     <div className="space-y-6">
-      <header className="space-y-3">
-        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
-          <div>
-            <h1 className="typo-h1">Cockpit direction</h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Priorisez les arbitrages, gardez une vue claire des affaires
-              fragiles et renvoyez rapidement les dossiers à traiter.
-            </p>
-          </div>
+      <PageHeader
+        title="Cockpit direction"
+        description="Priorisez les arbitrages, gardez une vue claire des affaires fragiles et renvoyez rapidement les dossiers à traiter."
+      />
 
-          <div
-            className="grid gap-3 sm:grid-cols-3"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <article className="dashboard-card p-4">
-              <p className="typo-label text-subtle-foreground">
-                Portefeuille
-              </p>
-              <p className="mt-2 typo-kpi animate-count-up text-foreground">
-                {data.summary.totalAffaires}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                affaire{data.summary.totalAffaires > 1 ? "s" : ""} active
-                {data.summary.totalAffaires > 1 ? "s" : ""}
-              </p>
-            </article>
+      {/*
+        UX49 : pas de région live sur les indicateurs — ils ne sont plus relus à
+        chaque changement de filtre. Seul le court résumé sous les filtres est annoncé.
+      */}
+      <StatGrid label="Synthèse du portefeuille" className="lg:grid-cols-3">
+        <StatCard
+          label="Portefeuille"
+          value={data.summary.totalAffaires}
+          hint={`affaire${data.summary.totalAffaires > 1 ? "s actives" : " active"}`}
+        />
+        <StatCard
+          label="À surveiller"
+          tone="danger"
+          value={data.summary.criticalCount}
+          hint={`dossier${data.summary.criticalCount > 1 ? "s critiques" : " critique"}`}
+        />
+        <StatCard
+          label="Validation"
+          tone="info"
+          value={data.summary.validationPendingCount}
+          hint={`arbitrage${data.summary.validationPendingCount > 1 ? "s" : ""} en attente`}
+          className="col-span-2 lg:col-span-1"
+        />
+      </StatGrid>
 
-            <article className="dashboard-card p-4">
-              <p className="typo-label text-subtle-foreground">
-                À surveiller
-              </p>
-              <p className="mt-2 typo-kpi animate-count-up text-danger">
-                {data.summary.criticalCount}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                dossier{data.summary.criticalCount > 1 ? "s" : ""} critique
-                {data.summary.criticalCount > 1 ? "s" : ""}
-              </p>
-            </article>
-
-            <article className="dashboard-card p-4">
-              <p className="typo-label text-subtle-foreground">
-                Validation
-              </p>
-              <p className="mt-2 typo-kpi animate-count-up text-primary">
-                {data.summary.validationPendingCount}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                arbitrage{data.summary.validationPendingCount > 1 ? "s" : ""} en
-                attente
-              </p>
-            </article>
-          </div>
-        </div>
-      </header>
-
-      <section className="dashboard-card p-4">
+      <section
+        aria-labelledby="direction-filters-title"
+        className="rounded-lg border border-border bg-surface p-4 shadow-card"
+      >
+        <h2 id="direction-filters-title" className="sr-only">
+          Filtres
+        </h2>
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <label className="space-y-1.5">
-              <span className="block text-xs font-semibold text-foreground-secondary">
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="direction-owner-filter" className="text-xs font-semibold text-foreground-secondary">
                 Responsable
-              </span>
-              <select
-                className="form-input form-select form-input--sm w-full min-w-0"
+              </FieldLabel>
+              <NativeSelect
+                id="direction-owner-filter"
+                size="sm"
                 value={currentQuery.ownerUserId ?? ""}
                 onChange={(event) =>
                   startTransition(() => {
@@ -171,15 +162,16 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                     {option.label}
                   </option>
                 ))}
-              </select>
-            </label>
+              </NativeSelect>
+            </Field>
 
-            <label className="space-y-1.5">
-              <span className="block text-xs font-semibold text-foreground-secondary">
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="direction-lot-filter" className="text-xs font-semibold text-foreground-secondary">
                 Lot
-              </span>
-              <select
-                className="form-input form-select form-input--sm w-full min-w-0"
+              </FieldLabel>
+              <NativeSelect
+                id="direction-lot-filter"
+                size="sm"
                 value={currentQuery.lot ?? ""}
                 onChange={(event) =>
                   startTransition(() => {
@@ -196,25 +188,23 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                     {option}
                   </option>
                 ))}
-              </select>
-            </label>
+              </NativeSelect>
+            </Field>
 
-            <div className="space-y-1.5">
-              <span className="block text-xs font-semibold text-foreground-secondary">
+            <div role="group" aria-labelledby="direction-horizon-label" className="space-y-1.5">
+              <span id="direction-horizon-label" className="block text-xs font-semibold text-foreground-secondary">
                 Horizon
               </span>
               <div className="flex flex-wrap gap-2">
                 {HORIZON_OPTIONS.map((option) => {
                   const isActive = currentQuery.horizon === option.value;
                   return (
-                    <button
+                    <Button
                       key={option.value}
                       type="button"
-                      className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
-                        isActive
-                          ? "border-primary bg-primary text-white"
-                          : "border-border bg-surface text-slate-600 hover:border-border-strong hover:bg-surface-subtle"
-                      }`}
+                      size="sm"
+                      variant={isActive ? "primary" : "outline"}
+                      className="rounded-full shadow-none"
                       aria-pressed={isActive}
                       onClick={() =>
                         startTransition(() => {
@@ -226,17 +216,17 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                       }
                     >
                       {option.label}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
             </div>
           </div>
 
-          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-foreground-secondary">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary"
+              className="size-4 shrink-0 cursor-pointer rounded-sm border-border-strong accent-primary"
               checked={currentQuery.onlyExceptions}
               onChange={() =>
                 startTransition(() => {
@@ -251,61 +241,82 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
           </label>
         </div>
 
-        <p className="mt-3 text-xs text-subtle-foreground" aria-live="polite">
-          {isPending
-            ? "Mise à jour des filtres..."
-            : `${data.cards.length} dossier(s) sur ${data.pagination.totalCards} affichés.`}
+        <p
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          {isPending ? (
+            <>
+              <Loader2Icon aria-hidden="true" className="size-3.5 animate-spin motion-reduce:animate-none" />
+              Mise à jour des filtres…
+            </>
+          ) : (
+            summaryLabel
+          )}
         </p>
       </section>
 
-      <RiskAlertBanner alerts={data.alerts} />
+      <div
+        aria-busy={isPending}
+        className={cn(
+          "space-y-6 transition-opacity duration-150 motion-reduce:transition-none",
+          isPending && "opacity-60"
+        )}
+      >
+        <RiskAlertBanner alerts={data.alerts} />
 
-      <WeeklySendPriorityQueue
-        items={data.weeklyQueue}
-        ownerOptions={data.ownerOptions}
-      />
+        <WeeklySendPriorityQueue
+          items={data.weeklyQueue}
+          ownerOptions={data.ownerOptions}
+        />
 
-      <RiskPortfolioDashboard cards={data.cards} />
+        <RiskPortfolioDashboard cards={data.cards} />
 
-      {data.pagination.totalPages > 1 ? (
-        <section className="dashboard-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
-            Page {data.pagination.page} sur {data.pagination.totalPages}
-          </p>
+        {data.pagination.totalPages > 1 ? (
+          <nav
+            aria-label="Pagination du portefeuille"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-card sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p className="text-sm text-foreground-secondary">
+              Page {data.pagination.page} sur {data.pagination.totalPages}
+            </p>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={isPending || !data.pagination.hasPreviousPage}
-              onClick={() =>
-                startTransition(() => {
-                  const previousPage = Math.max(1, data.pagination.page - 1);
-                  updateParams({
-                    page: previousPage > 1 ? String(previousPage) : null,
-                  });
-                })
-              }
-            >
-              Précédent
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={isPending || !data.pagination.hasNextPage}
-              onClick={() =>
-                startTransition(() => {
-                  updateParams({
-                    page: String(data.pagination.page + 1),
-                  });
-                })
-              }
-            >
-              Suivant
-            </button>
-          </div>
-        </section>
-      ) : null}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending || !data.pagination.hasPreviousPage}
+                onClick={() =>
+                  startTransition(() => {
+                    const previousPage = Math.max(1, data.pagination.page - 1);
+                    updateParams({
+                      page: previousPage > 1 ? String(previousPage) : null,
+                    });
+                  })
+                }
+              >
+                Précédent
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending || !data.pagination.hasNextPage}
+                onClick={() =>
+                  startTransition(() => {
+                    updateParams({
+                      page: String(data.pagination.page + 1),
+                    });
+                  })
+                }
+              >
+                Suivant
+              </Button>
+            </div>
+          </nav>
+        ) : null}
+      </div>
     </div>
   );
 }

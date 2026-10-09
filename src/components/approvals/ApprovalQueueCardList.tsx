@@ -1,22 +1,27 @@
+import { SquareCheckBigIcon } from "lucide-react";
+
+import { EmptyState } from "@/components/layout/empty-state";
 import type { ApprovalQueueItem } from "@/lib/approvals/server";
 
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
 import { ApprovalQueueCard } from "./ApprovalQueueCard";
-import { SquareCheckBigIcon } from "lucide-react";
 
 type ApprovalQueueCardListProps = {
   items: ApprovalQueueItem[];
+  onlyExceptions?: boolean;
 };
 
-export function ApprovalQueueCardList({ items }: ApprovalQueueCardListProps) {
+export function ApprovalQueueCardList({ items, onlyExceptions = false }: ApprovalQueueCardListProps) {
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={
-          <SquareCheckBigIcon aria-hidden="true" strokeWidth="1.5" size={28} />
+        icon={<SquareCheckBigIcon aria-hidden="true" />}
+        headingLevel={2}
+        title={onlyExceptions ? "Aucune affaire avec exception" : "Aucune affaire en attente de revue"}
+        description={
+          onlyExceptions
+            ? "Décochez « Exceptions seulement » pour voir toutes les affaires soumises."
+            : "Toutes les affaires soumises ont été traitées."
         }
-        title="Aucune affaire en attente de revue"
-        description="Toutes les affaires soumises ont été traitees."
       />
     );
   }

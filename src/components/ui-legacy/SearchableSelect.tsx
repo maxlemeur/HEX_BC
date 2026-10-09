@@ -44,7 +44,7 @@ export function SearchableSelect({
   defaultValue = "",
   options,
   label,
-  placeholder = "Selectionner...",
+  placeholder = "Sélectionner…",
   helperText,
   error,
   emptyMessage = "Aucun résultat.",
@@ -231,7 +231,7 @@ export function SearchableSelect({
           >
             {filteredOptions.length === 0 ? (
               <p className="px-3 py-2 text-xs text-muted-foreground">
-                {isLoading ? "Recherche..." : emptyMessage}
+                {isLoading ? "Recherche…" : emptyMessage}
               </p>
             ) : (
               filteredOptions.map((option) => {

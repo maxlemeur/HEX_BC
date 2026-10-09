@@ -111,7 +111,7 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-[rgb(2_6_23_/_0.45)] pt-[15vh] transition-opacity sm:pt-[20vh]"
+      className="fixed inset-0 z-(--z-dialog) flex items-start justify-center bg-[rgb(2_6_23/0.45)] pt-[15vh] transition-opacity sm:pt-[20vh]"
       onMouseDown={() => close()}
     >
       {/* Panel */}
@@ -121,8 +121,8 @@ export function CommandPalette() {
         aria-modal="true"
         aria-label="Recherche rapide"
         className={cn(
-          "relative z-10 mx-4 flex w-full max-w-lg flex-col overflow-hidden rounded-xl",
-          "border border-border bg-surface shadow-2xl",
+          "relative z-10 mx-4 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl",
+          "border border-border bg-surface shadow-modal",
           "max-h-[min(480px,60vh)]"
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -139,7 +139,7 @@ export function CommandPalette() {
             type="text"
             role="combobox"
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-            placeholder="Rechercher une page, action..."
+            placeholder="Rechercher une page, une action…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Rechercher une page ou action"
@@ -155,7 +155,7 @@ export function CommandPalette() {
           <button
             type="button"
             aria-label="Fermer la recherche rapide"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange dark:hover:bg-slate-800"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={close}
           >
             <XIcon aria-hidden="true" size={18} />
@@ -179,7 +179,7 @@ export function CommandPalette() {
               const groupItems = group.items;
               return (
                 <div key={group.key} className="mb-1">
-                  <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wider text-muted-foreground">
                     <GroupIcon group={group.key} />
                     {group.label}
                   </div>
@@ -197,7 +197,7 @@ export function CommandPalette() {
                           "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                           isSelected
                             ? "bg-brand-orange/10 text-foreground"
-                            : "text-foreground hover:bg-muted dark:hover:bg-slate-800"
+                            : "text-foreground hover:bg-muted"
                         )}
                         onMouseEnter={() => setSelectedIndex(idx)}
                         onClick={() => execute(item)}

@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { CoinsIcon, PlusIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 import useSWR from "swr";
+
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type CurrencyRateRecord = {
   id: string;
@@ -219,7 +230,7 @@ function normalizeUpdateInput(draft: CurrencyRateDraft) {
 }
 
 function formatDateTime(value: string | null): string {
-  if (!value) return "-";
+  if (!value) return "—";
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return value;
   return new Intl.DateTimeFormat("fr-FR", {
@@ -353,6 +364,8 @@ async function deleteCurrencyRate(id: string) {
 }
 
 export function CurrencyRatesAdminClient() {
+  const confirm = useConfirm();
+  const fieldId = useId();
   const [filters, setFilters] = useState({
     from: "",
     to: "",
@@ -416,6 +429,10 @@ export function CurrencyRatesAdminClient() {
     });
   }
 
+  function updateCreateDraft(patch: Partial<CurrencyRateDraft>) {
+    setCreateDraft((current) => ({ ...current, ...patch }));
+  }
+
   async function handleCreate() {
     resetMessages();
     setCreating(true);
@@ -430,7 +447,7 @@ export function CurrencyRatesAdminClient() {
         source: "",
       }));
       setSuccessMessage(
-        `Taux ${payload.from_currency}/${payload.to_currency} cree avec succès.`
+        `Taux ${payload.from_currency}/${payload.to_currency} créé.`
       );
     } catch (createError) {
       setActionError(
@@ -472,9 +489,12 @@ export function CurrencyRatesAdminClient() {
   }
 
   async function handleDelete(rate: CurrencyRateRecord) {
-    const confirmed = window.confirm(
-      `Supprimer le taux ${rate.from_currency}/${rate.to_currency} ?`
-    );
+    const confirmed = await confirm({
+      title: `Supprimer le taux ${rate.from_currency}/${rate.to_currency} ?`,
+      description: "Le taux sera supprimé définitivement. Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     resetMessages();
@@ -484,7 +504,7 @@ export function CurrencyRatesAdminClient() {
       await deleteCurrencyRate(rate.id);
       await mutate();
       setSuccessMessage(
-        `Taux ${rate.from_currency}/${rate.to_currency} supprime.`
+        `Taux ${rate.from_currency}/${rate.to_currency} supprimé.`
       );
     } catch (deleteError) {
       setActionError(
@@ -499,340 +519,324 @@ export function CurrencyRatesAdminClient() {
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="page-title">Taux de change</h1>
-          <p className="page-description">
-            Gelez et maintenez les parités de devises pour les chiffrages multidevises.
-          </p>
-        </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Administration", href: "/dashboard/admin" },
+          { label: "Taux de change" },
+        ]}
+        title="Taux de change"
+        description="Gelez et maintenez les parités de devises pour les chiffrages multidevises."
+        actions={
+          <Button
+            variant="outline"
+            size="lg"
+            className="w-full sm:w-auto"
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
+            onClick={() => void mutate()}
+            disabled={isValidating}
+          >
+            {isValidating ? "Actualisation…" : "Actualiser"}
+          </Button>
+        }
+      />
 
-        <button
-          type="button"
-          className="btn btn-secondary w-full sm:w-auto"
-          onClick={() => void mutate()}
-          disabled={isValidating}
-        >
-          {isValidating ? "Actualisation..." : "Actualiser"}
-        </button>
-      </div>
+      <div className="flex flex-col gap-6">
+        {actionError ? <Alert variant="danger">{actionError}</Alert> : null}
+        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
 
-      {actionError ? (
-        <div className="alert alert-error mb-6" role="alert">
-          {actionError}
-        </div>
-      ) : null}
-      {successMessage ? (
-        <div className="alert alert-success mb-6" role="status" aria-live="polite">
-          {successMessage}
-        </div>
-      ) : null}
-
-      <div className="dashboard-card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Filtres
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">Devise source</span>
-            <input
-              type="text"
-              className="form-input h-10"
-              placeholder="Ex: EUR"
-              value={filters.from}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  from: event.target.value.toUpperCase(),
-                }))
-              }
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">Devise cible</span>
-            <input
-              type="text"
-              className="form-input h-10"
-              placeholder="Ex: USD"
-              value={filters.to}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  to: event.target.value.toUpperCase(),
-                }))
-              }
-            />
-          </label>
-          <label className="flex items-center gap-2 self-end pb-1">
-            <input
-              type="checkbox"
-              checked={filters.includeInactive}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  includeInactive: event.target.checked,
-                }))
-              }
-            />
-            <span className="text-sm text-foreground-secondary">Inclure inactifs</span>
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => setFilters({ from: "", to: "", includeInactive: false })}
-            >
-              Réinitialiser
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Nouveau taux
-        </h2>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-6">
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">From</span>
-            <input
-              className="form-input h-10"
-              type="text"
-              value={createDraft.from_currency}
-              onChange={(event) =>
-                setCreateDraft((current) => ({
-                  ...current,
-                  from_currency: event.target.value.toUpperCase(),
-                }))
-              }
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">To</span>
-            <input
-              className="form-input h-10"
-              type="text"
-              value={createDraft.to_currency}
-              onChange={(event) =>
-                setCreateDraft((current) => ({
-                  ...current,
-                  to_currency: event.target.value.toUpperCase(),
-                }))
-              }
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">Taux</span>
-            <input
-              className="form-input h-10"
-              type="text"
-              inputMode="decimal"
-              value={createDraft.rate}
-              onChange={(event) =>
-                setCreateDraft((current) => ({
-                  ...current,
-                  rate: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">Date effet</span>
-            <input
-              className="form-input h-10"
-              type="date"
-              value={createDraft.effective_date}
-              onChange={(event) =>
-                setCreateDraft((current) => ({
-                  ...current,
-                  effective_date: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">Source</span>
-            <input
-              className="form-input h-10"
-              type="text"
-              placeholder="BCE, ECB..."
-              value={createDraft.source}
-              onChange={(event) =>
-                setCreateDraft((current) => ({
-                  ...current,
-                  source: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <div className="flex items-end gap-2">
-            <label className="flex h-10 items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={createDraft.is_active}
+        <PageSection title="Filtres">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-filter-from`}>Devise source</FieldLabel>
+              <Input
+                id={`${fieldId}-filter-from`}
+                type="text"
+                placeholder="Ex. EUR"
+                value={filters.from}
                 onChange={(event) =>
-                  setCreateDraft((current) => ({
+                  setFilters((current) => ({
                     ...current,
-                    is_active: event.target.checked,
+                    from: event.target.value.toUpperCase(),
                   }))
                 }
               />
-              Actif
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-filter-to`}>Devise cible</FieldLabel>
+              <Input
+                id={`${fieldId}-filter-to`}
+                type="text"
+                placeholder="Ex. USD"
+                value={filters.to}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    to: event.target.value.toUpperCase(),
+                  }))
+                }
+              />
+            </Field>
+            <label className="flex min-h-11 items-center gap-2 text-sm text-foreground-secondary lg:min-h-(--density-input-h)">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={filters.includeInactive}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    includeInactive: event.target.checked,
+                  }))
+                }
+              />
+              Inclure inactifs
             </label>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => void handleCreate()}
-              disabled={creating}
+            <div>
+              <Button
+                variant="ghost"
+                size="md"
+                leftIcon={<RotateCcwIcon aria-hidden="true" />}
+                onClick={() => setFilters({ from: "", to: "", includeInactive: false })}
+              >
+                Réinitialiser
+              </Button>
+            </div>
+          </div>
+        </PageSection>
+
+        <PageSection title="Nouveau taux">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-create-from`}>Devise source</FieldLabel>
+              <Input
+                id={`${fieldId}-create-from`}
+                type="text"
+                className="font-mono uppercase"
+                value={createDraft.from_currency}
+                onChange={(event) =>
+                  updateCreateDraft({ from_currency: event.target.value.toUpperCase() })
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-create-to`}>Devise cible</FieldLabel>
+              <Input
+                id={`${fieldId}-create-to`}
+                type="text"
+                className="font-mono uppercase"
+                value={createDraft.to_currency}
+                onChange={(event) =>
+                  updateCreateDraft({ to_currency: event.target.value.toUpperCase() })
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-create-rate`}>Taux</FieldLabel>
+              <Input
+                id={`${fieldId}-create-rate`}
+                type="text"
+                inputMode="decimal"
+                className="font-mono"
+                value={createDraft.rate}
+                onChange={(event) => updateCreateDraft({ rate: event.target.value })}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-create-date`}>Date d&apos;effet</FieldLabel>
+              <Input
+                id={`${fieldId}-create-date`}
+                type="date"
+                value={createDraft.effective_date}
+                onChange={(event) => updateCreateDraft({ effective_date: event.target.value })}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${fieldId}-create-source`}>Source</FieldLabel>
+              <Input
+                id={`${fieldId}-create-source`}
+                type="text"
+                placeholder="Ex. BCE"
+                value={createDraft.source}
+                onChange={(event) => updateCreateDraft({ source: event.target.value })}
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex min-h-11 items-center gap-2 text-sm text-foreground-secondary">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={createDraft.is_active}
+                  onChange={(event) => updateCreateDraft({ is_active: event.target.checked })}
+                />
+                Actif
+              </label>
+              <Button
+                variant="primary"
+                size="lg"
+                leftIcon={<PlusIcon aria-hidden="true" />}
+                onClick={() => void handleCreate()}
+                disabled={creating}
+              >
+                {creating ? "Création…" : "Créer"}
+              </Button>
+            </div>
+          </div>
+        </PageSection>
+
+        {isLoading ? (
+          <LoadingState label="Chargement des taux de change…" className="min-h-60" />
+        ) : error ? (
+          <Alert variant="danger">{loadError}</Alert>
+        ) : (
+          <PageSection title="Taux enregistrés" flush>
+            <div
+              role="region"
+              aria-label="Taux de change enregistrés"
+              tabIndex={0}
+              className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
             >
-              {creating ? "Creation..." : "Créer"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="animate-fade-in flex min-h-[240px] items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
-            <span className="text-muted-foreground">Chargement...</span>
-          </div>
-        </div>
-      ) : error ? (
-        <div className="alert alert-error">{loadError}</div>
-      ) : (
-        <div className="dashboard-card overflow-hidden">
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Taux</th>
-                  <th>Date effet</th>
-                  <th>Source</th>
-                  <th>État</th>
-                  <th>Dernière MAJ</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.length === 0 ? (
+              <table className="data-table">
+                <thead>
                   <tr>
-                    <td colSpan={8} className="py-10 text-center text-muted-foreground">
-                      Aucun taux de change trouve.
-                    </td>
+                    <th scope="col">Source</th>
+                    <th scope="col">Cible</th>
+                    <th scope="col">Taux</th>
+                    <th scope="col">Date d&apos;effet</th>
+                    <th scope="col">Origine</th>
+                    <th scope="col">État</th>
+                    <th scope="col">Dernière mise à jour</th>
+                    <th scope="col" className="text-right">Actions</th>
                   </tr>
-                ) : (
-                  items.map((rate) => {
-                    const rowDraft = drafts[rate.id] ?? toRateDraft(rate);
-                    const isUpdating = updatingId === rate.id;
-                    const isDeleting = deletingId === rate.id;
+                </thead>
+                <tbody>
+                  {items.length === 0 ? (
+                    <EmptyTableRow
+                      colSpan={8}
+                      icon={<CoinsIcon />}
+                      title="Aucun taux de change trouvé"
+                      description="Créez un taux ou modifiez les filtres."
+                    />
+                  ) : (
+                    items.map((rate) => {
+                      const rowDraft = drafts[rate.id] ?? toRateDraft(rate);
+                      const isUpdating = updatingId === rate.id;
+                      const isDeleting = deletingId === rate.id;
+                      const pair = `${rate.from_currency}/${rate.to_currency}`;
 
-                    return (
-                      <tr key={rate.id}>
-                        <td>
-                          <input
-                            className="form-input h-9 w-24 font-mono text-sm uppercase"
-                            type="text"
-                            value={rowDraft.from_currency}
-                            readOnly
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="form-input h-9 w-24 font-mono text-sm uppercase"
-                            type="text"
-                            value={rowDraft.to_currency}
-                            readOnly
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="form-input h-9 w-32 font-mono text-sm"
-                            type="text"
-                            inputMode="decimal"
-                            value={rowDraft.rate}
-                            onChange={(event) =>
-                              updateRowDraft(rate.id, {
-                                rate: event.target.value,
-                              })
-                            }
-                          />
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            {formatRate(rate.rate)}
-                          </p>
-                        </td>
-                        <td>
-                          <input
-                            className="form-input h-9"
-                            type="date"
-                            value={rowDraft.effective_date}
-                            onChange={(event) =>
-                              updateRowDraft(rate.id, {
-                                effective_date: event.target.value,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="form-input h-9 min-w-[180px]"
-                            type="text"
-                            value={rowDraft.source}
-                            onChange={(event) =>
-                              updateRowDraft(rate.id, {
-                                source: event.target.value,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <label className="inline-flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={rowDraft.is_active}
+                      return (
+                        <tr key={rate.id}>
+                          <td>
+                            <Input
+                              size="sm"
+                              aria-label={`Devise source du taux ${pair}`}
+                              className="w-24 bg-surface-subtle font-mono uppercase"
+                              type="text"
+                              value={rowDraft.from_currency}
+                              readOnly
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              size="sm"
+                              aria-label={`Devise cible du taux ${pair}`}
+                              className="w-24 bg-surface-subtle font-mono uppercase"
+                              type="text"
+                              value={rowDraft.to_currency}
+                              readOnly
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              size="sm"
+                              aria-label={`Taux ${pair}`}
+                              className="w-32 font-mono"
+                              type="text"
+                              inputMode="decimal"
+                              value={rowDraft.rate}
                               onChange={(event) =>
                                 updateRowDraft(rate.id, {
-                                  is_active: event.target.checked,
+                                  rate: event.target.value,
                                 })
                               }
                             />
-                            {rowDraft.is_active ? "Actif" : "Inactif"}
-                          </label>
-                        </td>
-                        <td className="text-sm text-muted-foreground">
-                          {formatDateTime(rate.updated_at)}
-                        </td>
-                        <td>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => void handleUpdate(rate.id)}
-                              disabled={isUpdating || isDeleting}
-                            >
-                              {isUpdating ? "Sauvegarde..." : "Enregistrer"}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm text-danger"
-                              onClick={() => void handleDelete(rate)}
-                              disabled={isUpdating || isDeleting}
-                            >
-                              {isDeleting ? "Suppression..." : "Supprimer"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                            <p className="mt-1 text-micro text-muted-foreground">
+                              {formatRate(rate.rate)}
+                            </p>
+                          </td>
+                          <td>
+                            <Input
+                              size="sm"
+                              aria-label={`Date d'effet du taux ${pair}`}
+                              type="date"
+                              value={rowDraft.effective_date}
+                              onChange={(event) =>
+                                updateRowDraft(rate.id, {
+                                  effective_date: event.target.value,
+                                })
+                              }
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              size="sm"
+                              aria-label={`Source du taux ${pair}`}
+                              className="min-w-44"
+                              type="text"
+                              value={rowDraft.source}
+                              onChange={(event) =>
+                                updateRowDraft(rate.id, {
+                                  source: event.target.value,
+                                })
+                              }
+                            />
+                          </td>
+                          <td>
+                            <label className="inline-flex min-h-11 items-center gap-2 text-sm text-foreground-secondary">
+                              <input
+                                type="checkbox"
+                                className="size-4 accent-primary"
+                                checked={rowDraft.is_active}
+                                onChange={(event) =>
+                                  updateRowDraft(rate.id, {
+                                    is_active: event.target.checked,
+                                  })
+                                }
+                              />
+                              {rowDraft.is_active ? "Actif" : "Inactif"}
+                            </label>
+                          </td>
+                          <td className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDateTime(rate.updated_at)}
+                          </td>
+                          <td>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="md"
+                                onClick={() => void handleUpdate(rate.id)}
+                                disabled={isUpdating || isDeleting}
+                              >
+                                {isUpdating ? "Enregistrement…" : "Enregistrer"}
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="md"
+                                onClick={() => void handleDelete(rate)}
+                                disabled={isUpdating || isDeleting}
+                              >
+                                {isDeleting ? "Suppression…" : "Supprimer"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </PageSection>
+        )}
+      </div>
     </div>
   );
 }

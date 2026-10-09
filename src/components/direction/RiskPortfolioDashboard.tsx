@@ -1,10 +1,10 @@
 import Link from "next/link";
+import { ChartColumnIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Badge } from "@/components/ui/badge";
 import type { DirectionPortfolioCard } from "@/lib/direction/server";
 import { formatEUR } from "@/lib/money";
-import { ChartColumnIcon } from "lucide-react";
 
 type Props = {
   cards: DirectionPortfolioCard[];
@@ -23,7 +23,7 @@ const APPROVAL_VARIANT = {
   required: "warning",
   in_review: "info",
   approved: "success",
-  changes_requested: "error",
+  changes_requested: "danger",
 } as const;
 
 function formatPercent(value: number | null) {
@@ -55,7 +55,7 @@ function formatTargetDate(value: string | null) {
 
 function riskBadge(score: number) {
   if (score >= 70) {
-    return { label: "Critique", variant: "error" as const };
+    return { label: "Critique", variant: "danger" as const };
   }
 
   if (score >= 40) {
@@ -69,24 +69,23 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
   if (cards.length === 0) {
     return (
       <EmptyState
-        icon={
-          <ChartColumnIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-        }
-        title="Aucun dossier dans ce perimetre"
+        icon={<ChartColumnIcon aria-hidden="true" />}
+        headingLevel={2}
+        title="Aucun dossier dans ce périmètre"
         description="Essayez un autre horizon ou un autre responsable pour recharger le portefeuille."
       />
     );
   }
 
   return (
-    <section className="space-y-3">
+    <section aria-labelledby="direction-portfolio-title" className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-foreground">
-            Portefeuille marge, risque et completude
+          <h2 id="direction-portfolio-title" className="text-base font-semibold text-foreground">
+            Portefeuille : marge, risque et complétude
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Chaque carte donne un scan rapide, les points à surveiller et l&apos;entrée vers le cockpit affaire.
+            Chaque carte résume l’affaire, les points à surveiller et mène à son cockpit.
           </p>
         </div>
       </div>
@@ -99,12 +98,12 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
             <Link
               key={card.projectId}
               href={`/dashboard/affaires/${card.projectId}`}
-              className="dashboard-card block p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              className="block min-w-0 rounded-lg border border-border bg-surface p-4 shadow-card transition-shadow hover:shadow-card-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-5"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="truncate text-base font-semibold text-foreground">
+                    <h3 className="min-w-0 break-words text-base font-semibold text-foreground">
                       {card.projectName}
                     </h3>
                     <Badge variant={risk.variant} size="sm">
@@ -112,7 +111,7 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                     </Badge>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {card.clientName ?? "Client non précise"}
+                    {card.clientName ?? "Client non précisé"}
                     {card.ownerName ? ` · ${card.ownerName}` : ""}
                   </p>
                 </div>
@@ -121,73 +120,51 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                   <Badge variant={APPROVAL_VARIANT[card.approvalStatus]} size="sm">
                     {APPROVAL_LABEL[card.approvalStatus]}
                   </Badge>
-                  <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-slate-600">
+                  <Badge variant="outline" size="sm">
                     Échéance {formatTargetDate(card.sendTargetAt)}
-                  </span>
+                  </Badge>
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
-                    Montant HT
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-foreground">
-                    {formatEUR(card.amountHtCents)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
-                    Marge
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-foreground">
-                    {formatPercent(card.marginBp)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
-                    Couverture DPGF
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-foreground">
-                    {formatCoverage(card.coveragePercent)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
-                    Hypothèses
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-foreground">
-                    {card.openHypothesesCount}
-                  </p>
-                </div>
-              </div>
+              <dl className="mt-4 grid grid-cols-2 gap-3 2xl:grid-cols-4">
+                {[
+                  { label: "Montant HT", value: formatEUR(card.amountHtCents) },
+                  { label: "Marge", value: formatPercent(card.marginBp) },
+                  { label: "Couverture DPGF", value: formatCoverage(card.coveragePercent) },
+                  { label: "Hypothèses", value: card.openHypothesesCount },
+                ].map((metric) => (
+                  <div key={metric.label} className="min-w-0 rounded-control bg-surface-subtle px-3 py-3">
+                    <dt className="text-micro font-semibold uppercase tracking-wider text-muted-foreground">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-2 text-sm font-semibold tabular-nums text-foreground">
+                      {metric.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                <span className="rounded-full bg-muted px-2.5 py-1 font-medium">
-                  Score {card.riskScore}/100
-                </span>
-                <span className="rounded-full bg-muted px-2.5 py-1 font-medium">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <Badge variant="neutral">Score {card.riskScore}/100</Badge>
+                <Badge variant="neutral">
                   {card.exceptionCount} exception{card.exceptionCount > 1 ? "s" : ""}
-                </span>
+                </Badge>
                 {card.lotLabels.slice(0, 2).map((label) => (
-                  <span
-                    key={label}
-                    className="rounded-full border border-border px-2.5 py-1 text-xs font-medium"
-                  >
+                  <Badge key={label} variant="outline" className="max-w-full truncate">
                     {label}
-                  </span>
+                  </Badge>
                 ))}
               </div>
 
               {card.alerts.length > 0 ? (
-                <div className="mt-4 rounded-2xl border border-border bg-surface/80 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-subtle-foreground">
-                    Alerte synthetique
+                <div className="mt-4 rounded-control border border-border bg-surface-subtle p-3">
+                  <p className="text-micro font-semibold uppercase tracking-wider text-muted-foreground">
+                    Alerte de synthèse
                   </p>
                   <p className="mt-2 text-sm font-semibold text-foreground">
                     {card.alerts[0]?.label}
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-foreground-secondary">
                     {card.alerts[0]?.reasons[0] ?? "Ouvrez le cockpit pour arbitrer le dossier."}
                   </p>
                 </div>

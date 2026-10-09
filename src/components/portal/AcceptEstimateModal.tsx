@@ -2,9 +2,19 @@
 
 import { useCallback, useState } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
 import { SignaturePad } from "@/components/portal/SignaturePad";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type AcceptEstimateModalProps = {
   open: boolean;
@@ -67,7 +77,7 @@ export function AcceptEstimateModal({
             "error" in data &&
             typeof (data as Record<string, unknown>).error === "string"
               ? ((data as Record<string, unknown>).error as string)
-              : "Erreur lors de l'acceptation du devis.";
+              : "Erreur lors de l’acceptation du devis.";
           throw new Error(errorMessage);
         }
 
@@ -84,69 +94,59 @@ export function AcceptEstimateModal({
   );
 
   return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content className="max-w-lg">
-        <Modal.Header>
-          <Modal.Title>Accepter le devis</Modal.Title>
-          <Modal.Close disabled={isSubmitting} />
-        </Modal.Header>
-        <form onSubmit={handleSubmit}>
-          <Modal.Body>
-            <div className="space-y-5">
-              {/* Summary */}
-              <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {projectReference && (
-                      <span className="rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange">
-                        {projectReference}
-                      </span>
-                    )}
-                  </div>
-                  {totalTtcFormatted && (
-                    <span className="text-lg font-bold text-primary">
-                      {totalTtcFormatted}
-                    </span>
-                  )}
-                </div>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>Accepter le devis</DialogTitle>
+          <DialogDescription>
+            Votre réponse est définitive et sera transmise à votre interlocuteur.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <DialogBody>
+            {projectReference || totalTtcFormatted ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-subtle px-4 py-3">
+                {projectReference ? (
+                  <Badge variant="accent" className="rounded-control font-mono">
+                    {projectReference}
+                  </Badge>
+                ) : (
+                  <span />
+                )}
+                {totalTtcFormatted ? (
+                  <span className="text-lg font-bold tabular-nums text-primary">
+                    {totalTtcFormatted}
+                  </span>
+                ) : null}
               </div>
+            ) : null}
 
-              {/* Signature pad */}
-              <SignaturePad
-                onSign={setSignatureBase64}
-                onClear={() => setSignatureBase64(null)}
+            <SignaturePad
+              onSign={setSignatureBase64}
+              onClear={() => setSignatureBase64(null)}
+              disabled={isSubmitting}
+            />
+
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
                 disabled={isSubmitting}
+                className="mt-0.5 size-4 shrink-0 cursor-pointer rounded-sm border-border-strong accent-primary disabled:cursor-not-allowed"
               />
+              <span className="text-sm text-foreground-secondary">
+                J’accepte ce devis et ses conditions
+              </span>
+            </label>
 
-              {/* Terms checkbox */}
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={termsAccepted}
-                  onChange={(e) => setTermsAccepted(e.target.checked)}
-                  disabled={isSubmitting}
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-border-strong text-emerald-600 focus:ring-emerald-500"
-                />
-                <span className="text-sm text-foreground-secondary">
-                  J&apos;accepte ce devis et ses conditions
-                </span>
-              </label>
-
-              {/* Error */}
-              {formError && (
-                <div
-                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                  role="alert"
-                >
-                  {formError}
-                </div>
-              )}
-            </div>
-          </Modal.Body>
-          <Modal.Footer>
+            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+          </DialogBody>
+          <DialogFooter>
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
+              size="lg"
               onClick={onClose}
               disabled={isSubmitting}
             >
@@ -154,15 +154,16 @@ export function AcceptEstimateModal({
             </Button>
             <Button
               type="submit"
+              size="lg"
               loading={isSubmitting}
               disabled={!termsAccepted}
-              className="!bg-emerald-600 hover:!bg-emerald-700"
+              className="bg-success text-success-foreground shadow-none hover:bg-success/90"
             >
-              Confirmer l&apos;acceptation
+              Confirmer l’acceptation
             </Button>
-          </Modal.Footer>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }

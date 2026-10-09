@@ -292,7 +292,16 @@ export default async function PortalPage({ params }: PortalPageProps) {
         status={effectiveStatus}
       />
 
-      <div className="print:py-0">
+      {/*
+        Le document garde sa mise en page A4 : sur petit écran, il défile dans
+        sa propre zone plutôt que d'élargir toute la page.
+      */}
+      <div
+        role="region"
+        aria-label="Document du devis"
+        tabIndex={0}
+        className="relative overflow-x-auto rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring print:overflow-visible print:py-0"
+      >
         <EstimateDocument
           calcEngineVersion={calcEngineVersion}
           preserveStoredSnapshot={preserveStoredSnapshot}

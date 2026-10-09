@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2Icon } from "lucide-react";
 
 import type { ApprovalQueueItem } from "@/lib/approvals/server";
 import type {
@@ -14,6 +15,9 @@ import type {
   SortState,
 } from "@/components/TableFilterBar/types";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
+import { PageHeader } from "@/components/layout/page-header";
+import { cn } from "@/lib/utils";
+
 import { ApprovalQueueCardList } from "./ApprovalQueueCardList";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -109,48 +113,58 @@ export function ApprovalQueuePage({
     });
   }, [initialOnlyExceptions, onlyExceptions, updateParams]);
 
+  const count = initialData.length;
+  const countLabel = onlyExceptions
+    ? `${count} affaire${count !== 1 ? "s" : ""} avec exception en attente de revue`
+    : `${count} affaire${count !== 1 ? "s" : ""} en attente de revue`;
+
   return (
-    <div className="space-y-6" aria-busy={isPending}>
-      {isPending ? (
-        <p role="status" className="sr-only">
-          Actualisation de la file d’approbation…
-        </p>
-      ) : null}
-
-      <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
-        <div role="status" aria-live="polite" aria-atomic="true">
-          <h1 className="text-lg font-semibold text-slate-800">
-            File d&apos;approbation
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            <strong>{initialData.length}</strong> affaire{initialData.length !== 1 ? "s" : ""} en attente de revue
-          </p>
-        </div>
-
-        <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 sm:flex sm:items-center">
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
-            <input
-              type="checkbox"
-              name="onlyExceptions"
-              checked={onlyExceptions}
-              onChange={handleExceptionsToggle}
-              className="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary"
-            />
-            Exceptions seulement
-          </label>
-
-          <div className="min-w-0">
+    <div>
+      <PageHeader
+        title="Approbations"
+        description={
+          // Seul le décompte est annoncé quand le tri ou le filtre change.
+          <span role="status" aria-live="polite" aria-atomic="true">
+            {countLabel}
+          </span>
+        }
+        actions={
+          <>
+            {isPending ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2Icon aria-hidden="true" className="size-3.5 animate-spin motion-reduce:animate-none" />
+                Actualisation…
+              </span>
+            ) : null}
+            <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm text-foreground-secondary">
+              <input
+                type="checkbox"
+                name="onlyExceptions"
+                checked={onlyExceptions}
+                onChange={handleExceptionsToggle}
+                className="size-4 cursor-pointer rounded-sm border-border-strong accent-primary"
+              />
+              Exceptions seulement
+            </label>
             <SortControl
               options={SORT_OPTIONS}
               value={sortState}
               onSortChange={handleSortChange}
               onDirectionToggle={handleDirectionToggle}
             />
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <ApprovalQueueCardList items={initialData} />
+      <div
+        aria-busy={isPending}
+        className={cn(
+          "transition-opacity duration-150 motion-reduce:transition-none",
+          isPending && "pointer-events-none opacity-60"
+        )}
+      >
+        <ApprovalQueueCardList items={initialData} onlyExceptions={onlyExceptions} />
+      </div>
     </div>
   );
 }

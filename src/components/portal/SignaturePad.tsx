@@ -2,14 +2,30 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 type SignaturePadProps = {
   onSign: (base64: string) => void;
   onClear: () => void;
   disabled?: boolean;
 };
 
+type Point = { x: number; y: number };
+/** Points en pixels CSS, avec la largeur du canvas au moment du tracé. */
+type Stroke = { width: number; points: Point[] };
+
+// Encre de l'image PNG exportée (donnée de la signature, pas un style d'interface).
 const INK_COLOR = "#1e3a5f";
 const LINE_WIDTH = 2;
+const CANVAS_HEIGHT = 150;
+
+function applyInkStyle(ctx: CanvasRenderingContext2D) {
+  ctx.strokeStyle = INK_COLOR;
+  ctx.lineWidth = LINE_WIDTH;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+}
 
 export function SignaturePad({
   onSign,
@@ -19,31 +35,59 @@ export function SignaturePad({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
-  const hasStrokesRef = useRef(false);
+  const strokesRef = useRef<Stroke[]>([]);
+  const widthRef = useRef(0);
   const [isEmpty, setIsEmpty] = useState(true);
+
+  /**
+   * UX70 : redimensionner un canvas l'efface. Une rotation de l'écran perdait
+   * donc la signature en cours. Les traits sont conservés et retracés, réduits
+   * proportionnellement si la zone devient plus étroite.
+   */
+  const redrawStrokes = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+
+    for (const stroke of strokesRef.current) {
+      const [first, ...rest] = stroke.points;
+      if (!first) continue;
+      const scale = stroke.width > 0 ? Math.min(1, widthRef.current / stroke.width) : 1;
+      ctx.beginPath();
+      ctx.moveTo(first.x * scale, first.y * scale);
+      if (rest.length === 0) {
+        ctx.lineTo(first.x * scale + 0.01, first.y * scale);
+      }
+      for (const point of rest) {
+        ctx.lineTo(point.x * scale, point.y * scale);
+      }
+      ctx.stroke();
+    }
+  }, []);
 
   // Setup canvas size + context
   const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas || !container) return false;
 
     const dpr = window.devicePixelRatio || 1;
     const width = container.clientWidth;
-    const height = 150;
+    if (width === widthRef.current && canvas.width === Math.round(width * dpr)) {
+      return false;
+    }
+    widthRef.current = width;
 
     canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    canvas.height = CANVAS_HEIGHT * dpr;
     canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    canvas.style.height = `${CANVAS_HEIGHT}px`;
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.strokeStyle = INK_COLOR;
-    ctx.lineWidth = LINE_WIDTH;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    if (!ctx) return false;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    applyInkStyle(ctx);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -53,21 +97,20 @@ export function SignaturePad({
     if (!container) return;
 
     const observer = new ResizeObserver(() => {
-      setupCanvas();
-      // Clear strokes on resize (canvas is reset)
-      if (hasStrokesRef.current) {
-        hasStrokesRef.current = false;
-        setIsEmpty(true);
-        onClear();
+      if (!setupCanvas() || strokesRef.current.length === 0) return;
+      redrawStrokes();
+      const canvas = canvasRef.current;
+      if (canvas) {
+        onSign(canvas.toDataURL("image/png"));
       }
     });
     observer.observe(container);
 
     return () => observer.disconnect();
-  }, [setupCanvas, onClear]);
+  }, [setupCanvas, redrawStrokes, onSign]);
 
   const getPosition = useCallback(
-    (e: MouseEvent | TouchEvent): { x: number; y: number } | null => {
+    (e: MouseEvent | TouchEvent): Point | null => {
       const canvas = canvasRef.current;
       if (!canvas) return null;
 
@@ -86,13 +129,14 @@ export function SignaturePad({
     (e: MouseEvent | TouchEvent) => {
       if (disabled) return;
       e.preventDefault();
-      isDrawingRef.current = true;
 
       const pos = getPosition(e);
       if (!pos) return;
 
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx) return;
+      isDrawingRef.current = true;
+      strokesRef.current.push({ width: widthRef.current, points: [pos] });
       ctx.beginPath();
       ctx.moveTo(pos.x, pos.y);
     },
@@ -109,6 +153,7 @@ export function SignaturePad({
 
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx) return;
+      strokesRef.current.at(-1)?.points.push(pos);
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     },
@@ -118,7 +163,6 @@ export function SignaturePad({
   const endStroke = useCallback(() => {
     if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
-    hasStrokesRef.current = true;
     setIsEmpty(false);
 
     const canvas = canvasRef.current;
@@ -164,16 +208,13 @@ export function SignaturePad({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Re-apply context settings after clear
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.strokeStyle = INK_COLOR;
-    ctx.lineWidth = LINE_WIDTH;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    ctx.restore();
+    applyInkStyle(ctx);
 
-    hasStrokesRef.current = false;
+    strokesRef.current = [];
     setIsEmpty(true);
     onClear();
   }, [onClear]);
@@ -181,44 +222,50 @@ export function SignaturePad({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-foreground-secondary">
-          Signature <span className="text-subtle-foreground">(optionnel)</span>
-        </label>
-        {!isEmpty && (
-          <button
+        <p className="text-sm font-medium text-foreground-secondary">
+          Signature <span className="font-normal text-muted-foreground">(facultative)</span>
+        </p>
+        {!isEmpty ? (
+          <Button
             type="button"
-            className="text-xs font-medium text-muted-foreground underline hover:text-foreground-secondary"
+            variant="link"
+            size="xs"
+            className="text-muted-foreground hover:text-foreground"
             onClick={handleClear}
             disabled={disabled}
           >
-            Effacer
-          </button>
-        )}
+            Effacer la signature
+          </Button>
+        ) : null}
       </div>
       <div
         ref={containerRef}
-        className={`relative overflow-hidden rounded-lg border ${
-          disabled
-            ? "border-border bg-muted"
-            : "border-border-strong bg-surface-subtle"
-        }`}
+        className={cn(
+          "relative overflow-hidden rounded-lg border",
+          disabled ? "border-border bg-muted" : "border-border-strong bg-surface-subtle"
+        )}
       >
         <canvas
           ref={canvasRef}
           role="img"
           aria-label="Zone de signature"
-          className={`block w-full ${disabled ? "cursor-not-allowed opacity-50" : "cursor-crosshair"}`}
-          style={{ touchAction: "none" }}
+          className={cn(
+            "block w-full touch-none",
+            disabled ? "cursor-not-allowed opacity-50" : "cursor-crosshair"
+          )}
         />
-        {isEmpty && !disabled && (
+        {isEmpty && !disabled ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-subtle-foreground">
+            <span className="text-sm text-muted-foreground">
               Dessinez votre signature ici
             </span>
           </div>
-        )}
+        ) : null}
         {/* Sign-here line */}
-        <div className="pointer-events-none absolute bottom-4 left-6 right-6 border-b border-dashed border-border-strong" />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute right-6 bottom-4 left-6 border-b border-dashed border-border-strong"
+        />
       </div>
     </div>
   );

@@ -95,9 +95,8 @@ export default function LoginPipeNetwork() {
       <svg
         ref={svgRef}
         viewBox="0 0 800 600"
-        className="h-full w-full"
         preserveAspectRatio="xMidYMid slice"
-        style={{ transition: "transform 0.3s ease-out" }}
+        className="h-full w-full transition-transform duration-300 ease-out"
         aria-hidden="true"
       >
         <defs>
@@ -116,14 +115,14 @@ export default function LoginPipeNetwork() {
 
           {/* Orange gradient (brand) */}
           <linearGradient id="orangePacket" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#E8732F" />
-            <stop offset="100%" stopColor="#f5945a" />
+            <stop offset="0%" style={{ stopColor: "var(--brand-orange-light)" }} />
+            <stop offset="100%" style={{ stopColor: "var(--warning-border)" }} />
           </linearGradient>
 
           {/* Blue gradient (accent) */}
           <linearGradient id="bluePacket" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#60a5fa" />
+            <stop offset="0%" style={{ stopColor: "var(--info-border)" }} />
+            <stop offset="100%" style={{ stopColor: "var(--info-light)" }} />
           </linearGradient>
         </defs>
 
@@ -133,7 +132,7 @@ export default function LoginPipeNetwork() {
             key={`pipe-${i}`}
             d={d}
             fill="none"
-            stroke="rgba(255,255,255,0.05)"
+            className="stroke-white/5"
             strokeWidth={5}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -147,7 +146,7 @@ export default function LoginPipeNetwork() {
             cx={cx}
             cy={cy}
             r={4}
-            fill="rgba(255,255,255,0.08)"
+            className="fill-white/8"
           />
         ))}
 
@@ -172,5 +171,90 @@ export default function LoginPipeNetwork() {
           ))}
       </svg>
     </div>
+  );
+}
+
+/* ─── Right panel echo (light background) ─── */
+
+const ECHO_PIPES: {
+  d: string;
+  color: "orange" | "blue";
+  duration: number;
+  delay: number;
+  thin?: boolean;
+}[] = [
+  { d: "M -20 120 Q 80 120 80 200 Q 80 280 160 280 H 300", color: "orange", duration: 6, delay: 0 },
+  { d: "M 600 -20 V 100 Q 600 140 640 140 H 820", color: "blue", duration: 5, delay: 1.5 },
+  { d: "M 820 500 H 650 Q 620 500 620 530 V 700 Q 620 740 580 740 H 400", color: "orange", duration: 7, delay: 0.5 },
+  { d: "M 200 820 V 680 Q 200 650 230 650 H 380", color: "blue", duration: 5.5, delay: 2, thin: true },
+];
+
+const ECHO_DOTS: { cx: number; cy: number; r: number; delay: string }[] = [
+  { cx: 80, cy: 200, r: 3.5, delay: "0s" },
+  { cx: 600, cy: 100, r: 3.5, delay: "-1s" },
+  { cx: 620, cy: 530, r: 3.5, delay: "-2s" },
+  { cx: 200, cy: 680, r: 3.5, delay: "-1.5s" },
+  { cx: 160, cy: 280, r: 3, delay: "-0.5s" },
+  { cx: 640, cy: 140, r: 3, delay: "-2.5s" },
+];
+
+/** Decorative echo of the brand-panel network behind the login form. */
+export function LoginPipeEcho() {
+  return (
+    <svg
+      className="absolute inset-0 h-full w-full"
+      viewBox="0 0 800 800"
+      preserveAspectRatio="xMidYMid slice"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="rightOrangeFlow" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style={{ stopColor: "var(--brand-orange)" }} />
+          <stop offset="100%" style={{ stopColor: "var(--brand-orange-light)" }} />
+        </linearGradient>
+        <linearGradient id="rightBlueFlow" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style={{ stopColor: "var(--info)" }} />
+          <stop offset="100%" style={{ stopColor: "var(--info-border)" }} />
+        </linearGradient>
+      </defs>
+
+      {ECHO_PIPES.map(({ d, color, duration, delay, thin }) => (
+        <g key={d}>
+          <path
+            d={d}
+            fill="none"
+            className={thin ? "stroke-primary/5" : "stroke-primary/7"}
+            strokeWidth={thin ? 2 : 2.5}
+            strokeLinecap="round"
+          />
+          <path
+            className="right-pipe-flow"
+            d={d}
+            pathLength={1}
+            fill="none"
+            stroke={`url(#${color === "blue" ? "rightBlueFlow" : "rightOrangeFlow"})`}
+            strokeWidth={thin ? 1.5 : 2}
+            strokeLinecap="round"
+            strokeDasharray={thin ? "0.1 0.9" : "0.08 0.92"}
+            style={{
+              opacity: color === "orange" && delay === 0 ? 0.13 : 0.11,
+              animation: `pipeFlow ${duration}s linear ${delay}s infinite`,
+            }}
+          />
+        </g>
+      ))}
+
+      {/* Junction dots with pulse */}
+      {ECHO_DOTS.map(({ cx, cy, r, delay }) => (
+        <circle
+          key={`${cx}-${cy}`}
+          cx={cx}
+          cy={cy}
+          r={r}
+          className="right-dot-pulse fill-primary"
+          style={{ animationDelay: delay }}
+        />
+      ))}
+    </svg>
   );
 }

@@ -2,8 +2,19 @@
 
 import { useCallback, useState } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 
 type RejectEstimateModalProps = {
   open: boolean;
@@ -71,63 +82,50 @@ export function RejectEstimateModal({
   );
 
   return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content className="max-w-md">
-        <Modal.Header>
-          <Modal.Title>Refuser le devis</Modal.Title>
-          <Modal.Close disabled={isSubmitting} />
-        </Modal.Header>
-        <form onSubmit={handleSubmit}>
-          <Modal.Body>
-            <div className="space-y-4">
-              <p className="text-sm text-slate-600">
-                Êtes-vous sûr de vouloir refuser ce devis ? Cette action est
-                définitive.
-              </p>
-              <div>
-                <label
-                  htmlFor="reject-reason"
-                  className="mb-1.5 block text-sm font-medium text-foreground-secondary"
-                >
-                  Motif du refus{" "}
-                  <span className="text-subtle-foreground">(optionnel)</span>
-                </label>
-                <textarea
-                  id="reject-reason"
-                  className="form-textarea w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-subtle-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  rows={3}
-                  placeholder="Indiquez la raison de votre refus..."
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  disabled={isSubmitting}
-                />
-              </div>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Refuser le devis</DialogTitle>
+          <DialogDescription>
+            Êtes-vous sûr de vouloir refuser ce devis ? Cette action est
+            définitive.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <DialogBody>
+            <Field>
+              <FieldLabel htmlFor="reject-reason">
+                Motif du refus{" "}
+                <span className="font-normal text-muted-foreground">(facultatif)</span>
+              </FieldLabel>
+              <Textarea
+                id="reject-reason"
+                rows={3}
+                placeholder="Indiquez la raison de votre refus…"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={isSubmitting}
+              />
+            </Field>
 
-              {formError && (
-                <div
-                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                  role="alert"
-                >
-                  {formError}
-                </div>
-              )}
-            </div>
-          </Modal.Body>
-          <Modal.Footer>
+            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+          </DialogBody>
+          <DialogFooter>
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
+              size="lg"
               onClick={onClose}
               disabled={isSubmitting}
             >
               Annuler
             </Button>
-            <Button type="submit" variant="danger" loading={isSubmitting}>
+            <Button type="submit" variant="danger-solid" size="lg" loading={isSubmitting}>
               Confirmer le refus
             </Button>
-          </Modal.Footer>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }

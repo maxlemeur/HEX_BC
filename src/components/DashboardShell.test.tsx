@@ -38,7 +38,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/components/SignOutButton", () => ({
-  SignOutButton: () => <button type="button">Se deconnecter</button>,
+  SignOutButton: () => <button type="button">Se déconnecter</button>,
 }));
 
 vi.mock("@/components/UserContext", () => ({
@@ -187,7 +187,7 @@ describe("DashboardShell universal topbar navigation", () => {
     expect(document.body.style.overflow).toBe("hidden");
     await waitFor(() => expect(closeButton).toHaveFocus());
 
-    const signOutButton = screen.getByRole("button", { name: "Se deconnecter" });
+    const signOutButton = screen.getByRole("button", { name: "Se déconnecter" });
     signOutButton.focus();
     await user.keyboard("{Tab}");
     expect(closeButton).toHaveFocus();

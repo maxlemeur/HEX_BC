@@ -1,14 +1,17 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import LoginPipeNetwork from "@/components/LoginPipeNetwork";
-import { FileUpIcon, LoaderCircleIcon, ReceiptIcon } from "lucide-react";
+import { FileSpreadsheetIcon, FileUpIcon, ReceiptIcon } from "lucide-react";
+
+import LoginPipeNetwork, { LoginPipeEcho } from "@/components/LoginPipeNetwork";
+import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /* ─── Animation variants ─── */
 
@@ -43,74 +46,59 @@ const brandItemVariants = {
   },
 };
 
-const formPanelVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { duration: 0.4, delay: 0.2 },
-  },
-};
-
-const formContainerVariants = {
-  hidden: {},
-  visible: {
-    transition: { staggerChildren: 0.08, delayChildren: 0.5 },
-  },
-};
-
-const formItemVariants = {
-  hidden: (reduced: boolean) => ({
-    opacity: 0,
-    y: reduced ? 0 : 16,
-  }),
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const },
-  },
-};
-
 const errorVariants = {
-  hidden: { opacity: 0, height: 0, marginTop: 0 },
+  hidden: { opacity: 0, height: 0 },
   visible: {
     opacity: 1,
     height: "auto",
-    marginTop: 16,
     x: [0, -8, 8, -4, 4, 0],
     transition: { duration: 0.4, x: { duration: 0.4, ease: "easeOut" } },
   },
   exit: {
     opacity: 0,
     height: 0,
-    marginTop: 0,
     transition: { duration: 0.2 },
   },
 };
+
+const errorVariantsReduced = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1 },
+  exit: { opacity: 0 },
+};
+
+/** Messages Supabase Auth (anglais) → français ; repli sur le message d'origine. */
+function toFrenchAuthError(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("invalid login credentials")) {
+    return "Email ou mot de passe incorrect.";
+  }
+  if (normalized.includes("email not confirmed")) {
+    return "Adresse email non confirmée. Ouvrez le lien reçu par email, puis reconnectez-vous.";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("too many requests")) {
+    return "Trop de tentatives. Patientez quelques minutes avant de réessayer.";
+  }
+  if (normalized.includes("failed to fetch") || normalized.includes("network")) {
+    return "Connexion au service impossible. Vérifiez votre réseau et réessayez.";
+  }
+  return message;
+}
 
 /* ─── Feature bullets ─── */
 
 const features = [
   {
-    icon: (
-      <ReceiptIcon aria-hidden="true" size={20} />
-    ),
-    text: "Chiffrage projet, devis et bons de commande en quelques clics",
+    Icon: ReceiptIcon,
+    text: "Chiffrage d’affaires, devis et bons de commande en quelques clics",
   },
   {
-    icon: (
-      <FileUpIcon aria-hidden="true" size={20} />
-    ),
+    Icon: FileUpIcon,
     text: "Import DPGF, prix fournisseurs et indices matière automatisés",
   },
   {
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3" />
-        <path d="M21 12H11" /><path d="M21 16H11" /><path d="M21 20H11" />
-        <rect x="7" y="12" width="4" height="8" rx="1" />
-      </svg>
-    ),
-    text: "Export Excel multi-feuilles, PDF et suivi temps réel",
+    Icon: FileSpreadsheetIcon,
+    text: "Export Excel multi-feuilles, PDF et suivi en temps réel",
   },
 ];
 
@@ -141,7 +129,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (signInError) {
-      setError(signInError.message);
+      setError(toFrenchAuthError(signInError.message));
       return;
     }
 
@@ -157,195 +145,102 @@ export default function LoginPage() {
         variants={brandPanelVariants}
         initial="hidden"
         animate="visible"
-        className="relative flex w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-[#1E3A5F] via-[#1a3355] to-[#152a45] px-8 py-12 text-white sm:px-12 lg:w-[45%] lg:min-h-screen lg:px-16 lg:py-20"
+        className="relative flex w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-brand-blue to-brand-blue-dark px-6 py-10 text-white sm:px-12 sm:py-12 lg:min-h-screen lg:w-[45%] lg:px-16 lg:py-20"
       >
         {/* Animated pipe network background */}
         <LoginPipeNetwork />
 
         {/* Dark scrim — improves text legibility over pipes */}
-        <div className="absolute inset-0 z-[1] bg-gradient-to-r from-[rgba(21,42,69,0.85)] via-[rgba(21,42,69,0.6)] to-[rgba(21,42,69,0.3)]" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-[1] bg-gradient-to-r from-brand-blue-dark/85 via-brand-blue-dark/60 to-brand-blue-dark/30"
+        />
 
         {/* Brand content */}
         <motion.div
           variants={brandContentVariants}
           initial="hidden"
           animate="visible"
-          className="relative z-10"
-          style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}
+          className="relative z-10 [text-shadow:0_1px_6px_rgb(0_0_0/0.4)]"
         >
-          {/* Logo */}
-          <motion.div custom={reduced} variants={brandItemVariants} className="mb-6 lg:mb-8">
-            <div className="inline-flex h-14 w-32 items-center justify-center overflow-hidden rounded-2xl bg-surface/95 p-2 shadow-lg shadow-black/10 lg:h-16 lg:w-40 lg:rounded-3xl">
-              <Image
-                src="/logo-hydro-express.jpg"
-                alt="Hydro Express"
-                width={160}
-                height={70}
-                className="h-full w-full object-contain"
-                priority
-              />
-            </div>
-          </motion.div>
-
-          {/* Brand name */}
-          <motion.h1
+          {/* Brand — the page keeps a single h1: the form heading. */}
+          <motion.p
             custom={reduced}
             variants={brandItemVariants}
-            className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl"
+            className="flex items-center gap-3 text-2xl sm:text-3xl lg:text-4xl"
           >
-            TIMAX
-          </motion.h1>
+            <TimaxMark className="size-10 text-xl lg:size-12 lg:text-2xl" />
+            <TimaxWordmark />
+          </motion.p>
 
           {/* Tagline */}
           <motion.p
             custom={reduced}
             variants={brandItemVariants}
-            className="mt-2 text-sm font-medium text-white/80 sm:text-base lg:mt-3 lg:text-lg"
+            className="mt-3 text-sm font-medium text-white/85 sm:text-base lg:text-lg"
           >
-            Chiffrage et gestion des commandes
+            Chiffrage BTP : affaires, métrés, devis et bons de commande
           </motion.p>
 
           {/* Separator */}
           <motion.div
             custom={reduced}
             variants={brandItemVariants}
-            className="mt-6 h-1 w-16 rounded-full bg-gradient-to-r from-[#E8732F] to-[#E8732F]/40 lg:mt-8 lg:w-20"
+            aria-hidden="true"
+            className="mt-6 h-1 w-16 rounded-full bg-gradient-to-r from-brand-orange-light to-brand-orange-light/40 lg:mt-8 lg:w-20"
           />
 
           {/* Feature bullets — hidden on tablet, shown on desktop */}
-          <div className="mt-8 hidden space-y-4 lg:block">
-            {features.map((feature, i) => (
-              <motion.div
-                key={i}
+          <ul className="mt-8 hidden space-y-4 lg:block">
+            {features.map(({ Icon, text }) => (
+              <motion.li
+                key={text}
                 custom={reduced}
                 variants={brandItemVariants}
                 className="flex items-center gap-3 text-sm text-white/90"
               >
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/10">
-                  {feature.icon}
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10">
+                  <Icon aria-hidden="true" className="size-5" />
                 </span>
-                <span>{feature.text}</span>
-              </motion.div>
+                <span>{text}</span>
+              </motion.li>
             ))}
-          </div>
+          </ul>
         </motion.div>
       </motion.div>
 
       {/* ───────── RIGHT PANEL — Form ───────── */}
-      <motion.div
-        variants={formPanelVariants}
-        initial="hidden"
-        animate="visible"
-        className="relative flex w-full flex-1 items-center justify-center overflow-hidden bg-[#f8fafc] px-6 py-12 sm:px-10 lg:w-[55%] lg:px-16"
-      >
-        {/* Decorative pipe fragments — animated echo of left panel */}
-        <svg
-          className="absolute inset-0 h-full w-full"
-          viewBox="0 0 800 800"
-          preserveAspectRatio="xMidYMid slice"
-          aria-hidden="true"
-        >
-          <defs>
-            <linearGradient id="rightOrangeFlow" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#E8732F" />
-              <stop offset="100%" stopColor="#f5945a" />
-            </linearGradient>
-            <linearGradient id="rightBlueFlow" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#3b82f6" />
-              <stop offset="100%" stopColor="#60a5fa" />
-            </linearGradient>
-          </defs>
+      {/*
+        Sans animation JS : le formulaire est visible et utilisable dès le HTML
+        serveur, avant l'hydratation (le fondu est en CSS).
+      */}
+      <div className="relative flex w-full flex-1 items-start justify-center overflow-hidden bg-surface-subtle px-4 py-10 sm:px-10 sm:py-12 lg:w-[55%] lg:items-center lg:px-16">
+        <LoginPipeEcho />
 
-          {/* ── Pipe 1: top-left curve ── */}
-          <path
-            d="M -20 120 Q 80 120 80 200 Q 80 280 160 280 H 300"
-            fill="none" stroke="rgba(30,58,95,0.07)" strokeWidth="2.5" strokeLinecap="round"
-          />
-          <path
-            className="right-pipe-flow"
-            d="M -20 120 Q 80 120 80 200 Q 80 280 160 280 H 300"
-            pathLength={1} fill="none" stroke="url(#rightOrangeFlow)" strokeWidth="2" strokeLinecap="round"
-            strokeDasharray="0.08 0.92" style={{ opacity: 0.13, animation: "pipeFlow 6s linear 0s infinite" }}
-          />
-
-          {/* ── Pipe 2: top-right drop ── */}
-          <path
-            d="M 600 -20 V 100 Q 600 140 640 140 H 820"
-            fill="none" stroke="rgba(30,58,95,0.07)" strokeWidth="2.5" strokeLinecap="round"
-          />
-          <path
-            className="right-pipe-flow"
-            d="M 600 -20 V 100 Q 600 140 640 140 H 820"
-            pathLength={1} fill="none" stroke="url(#rightBlueFlow)" strokeWidth="2" strokeLinecap="round"
-            strokeDasharray="0.08 0.92" style={{ opacity: 0.11, animation: "pipeFlow 5s linear 1.5s infinite" }}
-          />
-
-          {/* ── Pipe 3: right side descent ── */}
-          <path
-            d="M 820 500 H 650 Q 620 500 620 530 V 700 Q 620 740 580 740 H 400"
-            fill="none" stroke="rgba(30,58,95,0.07)" strokeWidth="2.5" strokeLinecap="round"
-          />
-          <path
-            className="right-pipe-flow"
-            d="M 820 500 H 650 Q 620 500 620 530 V 700 Q 620 740 580 740 H 400"
-            pathLength={1} fill="none" stroke="url(#rightOrangeFlow)" strokeWidth="2" strokeLinecap="round"
-            strokeDasharray="0.08 0.92" style={{ opacity: 0.11, animation: "pipeFlow 7s linear 0.5s infinite" }}
-          />
-
-          {/* ── Pipe 4: bottom-left rise ── */}
-          <path
-            d="M 200 820 V 680 Q 200 650 230 650 H 380"
-            fill="none" stroke="rgba(30,58,95,0.055)" strokeWidth="2" strokeLinecap="round"
-          />
-          <path
-            className="right-pipe-flow"
-            d="M 200 820 V 680 Q 200 650 230 650 H 380"
-            pathLength={1} fill="none" stroke="url(#rightBlueFlow)" strokeWidth="1.5" strokeLinecap="round"
-            strokeDasharray="0.1 0.9" style={{ opacity: 0.11, animation: "pipeFlow 5.5s linear 2s infinite" }}
-          />
-
-          {/* Junction dots with pulse */}
-          <circle cx="80" cy="200" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "0s" }} />
-          <circle cx="600" cy="100" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-1s" }} />
-          <circle cx="620" cy="530" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-2s" }} />
-          <circle cx="200" cy="680" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-1.5s" }} />
-          <circle cx="160" cy="280" r="3" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-0.5s" }} />
-          <circle cx="640" cy="140" r="3" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-2.5s" }} />
-        </svg>
-
-        <motion.form
-          variants={formContainerVariants}
-          initial="hidden"
-          animate="visible"
-          className="relative w-full max-w-md space-y-6"
+        <form
+          className="relative w-full max-w-md space-y-6 animate-in fade-in-0 duration-500 motion-reduce:animate-none"
           method="post"
           onSubmit={onSubmit}
         >
           {/* Heading */}
           <div>
-            <motion.h1
-              custom={reduced}
-              variants={formItemVariants}
-              className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl"
-            >
+            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               Connexion
-            </motion.h1>
-            <motion.p
-              custom={reduced}
-              variants={formItemVariants}
-              className="mt-2 text-sm text-muted-foreground sm:text-base"
-            >
-              Connectez-vous pour accéder au tableau de bord.
-            </motion.p>
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+              Connectez-vous pour accéder à votre espace.
+            </p>
           </div>
 
           {/* Email */}
-          <motion.label custom={reduced} variants={formItemVariants} className="block">
-            <span className="text-sm font-semibold text-secondary-foreground">Email</span>
-            <motion.input
-              whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="mt-2 h-12 w-full rounded-xl border border-border bg-surface px-4 text-sm outline-none transition-colors hover:border-border-strong focus:border-[#1E3A5F]"
+          <div className="space-y-2">
+            <Label htmlFor="email" className="font-semibold text-foreground-secondary">
+              Email
+            </Label>
+            <Input
+              id="email"
+              size="lg"
+              className="h-12 bg-surface"
               autoComplete="email"
               inputMode="email"
               name="email"
@@ -355,16 +250,17 @@ export default function LoginPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-          </motion.label>
+          </div>
 
           {/* Password */}
-          <motion.label custom={reduced} variants={formItemVariants} className="block">
-            <span className="text-sm font-semibold text-secondary-foreground">Mot de passe</span>
-            <div className="relative mt-2">
-              <motion.input
-                whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
-                transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="h-12 w-full rounded-xl border border-border bg-surface px-4 pr-24 text-sm outline-none transition-colors hover:border-border-strong focus:border-[#1E3A5F]"
+          <div className="space-y-2">
+            <Label htmlFor="password" className="font-semibold text-foreground-secondary">
+              Mot de passe
+            </Label>
+            <div className="relative">
+              <Input
+                size="lg"
+                className="h-12 bg-surface pr-24"
                 autoComplete="current-password"
                 id="password"
                 name="password"
@@ -373,74 +269,55 @@ export default function LoginPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
-              <button
+              <Button
                 aria-controls="password"
                 aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 aria-pressed={showPassword}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-sm font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                variant="ghost"
+                size="sm"
+                className="absolute top-1/2 right-2 -translate-y-1/2"
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? "Masquer" : "Afficher"}
-              </button>
+              </Button>
             </div>
-          </motion.label>
+          </div>
 
           {/* Error */}
           <AnimatePresence mode="wait">
-            {error && (
+            {error ? (
               <motion.p
                 key="error"
-                variants={errorVariants}
+                variants={reduced ? errorVariantsReduced : errorVariants}
                 initial="hidden"
                 animate="visible"
                 exit="exit"
                 role="alert"
-                aria-live="assertive"
-                className="overflow-hidden rounded-xl border border-danger/30 bg-error-light px-4 py-3 text-sm font-medium text-danger"
+                className="overflow-hidden rounded-control border border-danger-border bg-danger-subtle px-4 py-3 text-sm font-medium text-danger"
               >
                 {error}
               </motion.p>
-            )}
+            ) : null}
           </AnimatePresence>
 
           {/* Submit */}
-          <motion.button
-            custom={reduced}
-            variants={formItemVariants}
-            whileHover={{ scale: 1.02, backgroundColor: "#2d4a6f" }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1E3A5F] text-sm font-semibold text-white shadow-lg shadow-[#1E3A5F]/20 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={loading}
-            type="submit"
-          >
-            {loading ? (
-              <>
-                <LoaderCircleIcon aria-hidden="true" className="h-4 w-4 animate-spin" />
-                Connexion en cours...
-              </>
-            ) : (
-              "Se connecter"
-            )}
-          </motion.button>
+          <Button size="xl" className="w-full" loading={loading} type="submit">
+            Se connecter
+          </Button>
 
           {/* Signup link */}
-          <motion.p
-            custom={reduced}
-            variants={formItemVariants}
-            className="text-center text-sm text-muted-foreground"
-          >
+          <p className="text-center text-sm text-muted-foreground">
             Pas de compte ?{" "}
             <Link
-              className="font-semibold text-[#1E3A5F] transition-colors hover:text-[#E8732F] hover:underline"
+              className="font-semibold text-primary underline-offset-4 transition-colors hover:text-brand-orange-dark hover:underline"
               href="/signup"
             >
               Créer un compte
             </Link>
-          </motion.p>
-        </motion.form>
-      </motion.div>
+          </p>
+        </form>
+      </div>
     </main>
   );
 }

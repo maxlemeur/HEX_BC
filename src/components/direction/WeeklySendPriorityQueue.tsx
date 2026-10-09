@@ -1,18 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { CalendarIcon } from "lucide-react";
 
 import { assignDirectionProjectOwnerAction } from "@/app/dashboard/_actions/direction";
 import { ApprovalQueueStateActions } from "@/components/approvals/ApprovalQueueStateActions";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { EmptyState } from "@/components/layout/empty-state";
+import { PageSection } from "@/components/layout/page-section";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { useToast } from "@/components/ui-legacy/Toast";
 import type {
   DirectionOwnerOption,
   DirectionWeeklyQueueItem,
 } from "@/lib/direction/server";
 import { formatEUR } from "@/lib/money";
-import { CalendarIcon } from "lucide-react";
 
 type Props = {
   items: DirectionWeeklyQueueItem[];
@@ -22,8 +26,8 @@ type Props = {
 const QUEUE_STATE_META = {
   sendable: { label: "Envoyable", variant: "success" },
   ready_not_validated: { label: "Prêt mais non validé", variant: "warning" },
-  blocked: { label: "Bloqué", variant: "error" },
-  high_risk: { label: "Risque eleve", variant: "error" },
+  blocked: { label: "Bloqué", variant: "danger" },
+  high_risk: { label: "Risque élevé", variant: "danger" },
 } as const;
 
 function formatTargetDate(value: string | null) {
@@ -40,64 +44,52 @@ function formatTargetDate(value: string | null) {
 
 export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>) {
   const [isPending, startTransition] = useTransition();
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const toast = useToast();
   const [selectedOwnerByProjectId, setSelectedOwnerByProjectId] = useState<
     Record<string, string>
   >(() =>
     Object.fromEntries(items.map((item) => [item.projectId, item.ownerUserId]))
   );
 
-  useEffect(() => {
-    if (!feedback) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => setFeedback(null), 3000);
-    return () => window.clearTimeout(timer);
-  }, [feedback]);
-
   const topItems = useMemo(() => items.slice(0, 8), [items]);
 
   if (topItems.length === 0) {
     return (
       <EmptyState
-        icon={
-          <CalendarIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-        }
-        title="Aucun depart à prioriser cette semaine"
-        description="Les échéances détectées sont hors de la semaine courante ou déjà stabilisees."
+        icon={<CalendarIcon aria-hidden="true" />}
+        headingLevel={2}
+        title="Aucun départ à prioriser cette semaine"
+        description="Les échéances détectées sont hors de la semaine courante ou déjà stabilisées."
       />
     );
   }
 
   return (
-    <section className="dashboard-card p-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            À envoyer cette semaine
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Traitez en premier les dossiers proches de l&apos;envoi et encore fragiles.
-          </p>
-        </div>
-        <p className="text-xs text-subtle-foreground" aria-live="polite">
-          {feedback ?? ""}
-        </p>
-      </div>
-
-      <div className="mt-4 overflow-x-auto">
+    <PageSection
+      title="À envoyer cette semaine"
+      id="direction-weekly-queue"
+      description="Traitez en premier les dossiers proches de l’envoi et encore fragiles."
+      flush
+    >
+      <div
+        role="region"
+        aria-labelledby="direction-weekly-queue"
+        tabIndex={0}
+        className="relative overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+      >
         <table className="w-full min-w-[940px] text-sm">
           <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-[0.14em] text-subtle-foreground">
-              <th className="pb-3 pr-4">Affaire</th>
-              <th className="pb-3 pr-4">État</th>
-              <th className="pb-3 pr-4">Échéance</th>
-              <th className="pb-3 pr-4">Montant</th>
-              <th className="pb-3 pr-4">Score</th>
-              <th className="pb-3 pr-4">Revue</th>
-              <th className="pb-3 pr-4">Responsable</th>
-              <th className="pb-3 text-right">Cockpit</th>
+            <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-4 py-3">Affaire</th>
+              <th scope="col" className="py-3 pr-4">État</th>
+              <th scope="col" className="py-3 pr-4">Échéance</th>
+              <th scope="col" className="py-3 pr-4">Montant</th>
+              <th scope="col" className="py-3 pr-4">Score</th>
+              <th scope="col" className="py-3 pr-4">Revue</th>
+              <th scope="col" className="py-3 pr-4">Responsable</th>
+              <th scope="col" className="py-3 pr-4 text-right">
+                <span className="sr-only">Ouvrir l’affaire</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -105,34 +97,35 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
               const selectedOwner =
                 selectedOwnerByProjectId[item.projectId] ?? item.ownerUserId;
               const queueMeta = QUEUE_STATE_META[item.queueState];
+              const ownerSelectId = `direction-owner-${item.projectId}`;
 
               return (
-                <tr key={item.projectId} className="border-b border-border-subtle align-top">
-                  <td className="py-4 pr-4">
+                <tr key={item.projectId} className="border-b border-border-subtle align-top last:border-b-0">
+                  <th scope="row" className="px-4 py-4 text-left font-normal">
                     <p className="font-semibold text-foreground">
                       {item.projectName}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {item.clientName ?? "Client non précise"}
+                      {item.clientName ?? "Client non précisé"}
                     </p>
                     {item.alerts[0] ? (
-                      <p className="mt-2 max-w-xs text-xs text-slate-600">
+                      <p className="mt-2 max-w-xs text-xs text-foreground-secondary">
                         {item.alerts[0].label}
                       </p>
                     ) : null}
-                  </td>
+                  </th>
                   <td className="py-4 pr-4">
                     <Badge variant={queueMeta.variant} size="sm">
                       {queueMeta.label}
                     </Badge>
                   </td>
-                  <td className="py-4 pr-4 text-slate-600">
+                  <td className="py-4 pr-4 text-foreground-secondary">
                     {formatTargetDate(item.sendTargetAt)}
                   </td>
-                  <td className="py-4 pr-4 font-medium text-foreground-secondary">
+                  <td className="py-4 pr-4 font-medium tabular-nums text-foreground-secondary">
                     {formatEUR(item.amountHtCents)}
                   </td>
-                  <td className="py-4 pr-4 text-foreground-secondary">
+                  <td className="py-4 pr-4 tabular-nums text-foreground-secondary">
                     {item.riskScore}/100
                   </td>
                   <td className="py-4 pr-4">
@@ -149,15 +142,19 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                         />
                       </div>
                     ) : (
-                      <span className="text-xs text-subtle-foreground">
+                      <span className="text-xs text-muted-foreground">
                         Pas de cycle ouvert
                       </span>
                     )}
                   </td>
                   <td className="py-4 pr-4">
                     <div className="flex min-w-[240px] items-center gap-2">
-                      <select
-                        className="form-input form-select form-input--sm"
+                      <label htmlFor={ownerSelectId} className="sr-only">
+                        Responsable de {item.projectName}
+                      </label>
+                      <NativeSelect
+                        id={ownerSelectId}
+                        size="sm"
                         value={selectedOwner}
                         onChange={(event) =>
                           setSelectedOwnerByProjectId((current) => ({
@@ -171,33 +168,37 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                             {option.label}
                           </option>
                         ))}
-                      </select>
-                      <button
+                      </NativeSelect>
+                      <Button
                         type="button"
-                        className="btn btn-secondary btn-sm whitespace-nowrap"
+                        variant="outline"
                         disabled={isPending || selectedOwner === item.ownerUserId}
                         onClick={() =>
                           startTransition(async () => {
+                            const ownerLabel =
+                              ownerOptions.find((option) => option.userId === selectedOwner)?.label ??
+                              "ce responsable";
                             try {
                               await assignDirectionProjectOwnerAction({
                                 projectId: item.projectId,
                                 ownerUserId: selectedOwner,
                               });
-                              setFeedback(`Affaire réassignée à ${ownerOptions.find((option) => option.userId === selectedOwner)?.label ?? "ce responsable"}.`);
+                              toast.success({ title: `Affaire réassignée à ${ownerLabel}.` });
                             } catch {
-                              setFeedback("Impossible de modifier le responsable.");
+                              toast.error({ title: "Impossible de modifier le responsable." });
                             }
                           })
                         }
                       >
                         Assigner
-                      </button>
+                      </Button>
                     </div>
                   </td>
-                  <td className="py-4 text-right">
+                  <td className="py-4 pr-4 text-right">
                     <Link
                       href={`/dashboard/affaires/${item.projectId}`}
-                      className="inline-flex rounded-full border border-border px-3 py-2 text-xs font-medium text-foreground-secondary transition hover:border-border-strong hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                      aria-label={`Ouvrir l’affaire ${item.projectName}`}
                     >
                       Ouvrir
                     </Link>
@@ -208,6 +209,6 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
           </tbody>
         </table>
       </div>
-    </section>
+    </PageSection>
   );
 }

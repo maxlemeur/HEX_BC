@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { RefreshCwIcon, SparklesIcon } from "lucide-react";
 import useSWR from "swr";
+
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import { Alert } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type SuggestionLearningFieldName =
   | "description"
@@ -202,27 +214,14 @@ function getProposalKey(proposal: SuggestionLearningProposal) {
   return `${proposal.rule_id}:${proposal.field_name}:${proposal.corrected_value ?? "__null__"}`;
 }
 
-function getStatusLabel(proposal: SuggestionLearningProposal) {
-  if (proposal.review_status === "approved") return "Validée";
-  if (proposal.review_status === "rejected") return "Rejetée";
-  if (!proposal.is_active) return "Inactive";
-  return "À traiter";
-}
-
-function getStatusClass(proposal: SuggestionLearningProposal) {
-  if (proposal.review_status === "approved") {
-    return "inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success";
-  }
-
-  if (proposal.review_status === "rejected") {
-    return "inline-flex items-center rounded-full bg-danger-light px-2.5 py-0.5 text-xs font-medium text-danger";
-  }
-
-  if (!proposal.is_active) {
-    return "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600";
-  }
-
-  return "inline-flex items-center rounded-full bg-brand-orange-light px-2.5 py-0.5 text-xs font-medium text-brand-orange";
+function getStatusBadge(proposal: SuggestionLearningProposal): {
+  label: string;
+  variant: NonNullable<BadgeProps["variant"]>;
+} {
+  if (proposal.review_status === "approved") return { label: "Validée", variant: "success" };
+  if (proposal.review_status === "rejected") return { label: "Rejetée", variant: "danger" };
+  if (!proposal.is_active) return { label: "Inactive", variant: "neutral" };
+  return { label: "À traiter", variant: "accent" };
 }
 
 function formatDateTime(value: string) {
@@ -244,16 +243,16 @@ async function fetchSuggestionLearnings(route: string): Promise<SuggestionLearni
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de charger suggestion learning."));
+    throw new Error(resolveErrorMessage(payload, "Impossible de charger l'apprentissage des suggestions."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Réponse suggestion learning invalide.");
+    throw new Error("Réponse de l'apprentissage des suggestions invalide.");
   }
 
   const envelope = payload as ApiEnvelope<SuggestionLearningState>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.proposals)) {
-    throw new Error(resolveErrorMessage(payload, "Réponse suggestion learning invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
   }
 
   return envelope.data;
@@ -274,16 +273,16 @@ async function fetchFeatureFlags([
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de charger les feature flags."));
+    throw new Error(resolveErrorMessage(payload, "Impossible de charger les fonctionnalités."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Réponse feature flags invalide.");
+    throw new Error("Réponse des fonctionnalités invalide.");
   }
 
   const envelope = payload as ApiEnvelope<FeatureFlagsResponse>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.flags)) {
-    throw new Error(resolveErrorMessage(payload, "Réponse feature flags invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse des fonctionnalités invalide."));
   }
 
   return envelope.data;
@@ -314,12 +313,12 @@ async function patchReview(input: {
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Réponse suggestion learning invalide.");
+    throw new Error("Réponse de l'apprentissage des suggestions invalide.");
   }
 
   const envelope = payload as ApiEnvelope<SuggestionLearningState>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.proposals)) {
-    throw new Error(resolveErrorMessage(payload, "Réponse suggestion learning invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
   }
 
   return envelope.data;
@@ -356,16 +355,16 @@ async function patchFeatureFlag(input: {
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de mettre à jour le feature flag."));
+    throw new Error(resolveErrorMessage(payload, "Impossible de mettre à jour la fonctionnalité."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Réponse feature flags invalide.");
+    throw new Error("Réponse des fonctionnalités invalide.");
   }
 
   const envelope = payload as ApiEnvelope<{ flag: FeatureFlagRecord }>;
   if (!envelope.ok || !envelope.data?.flag) {
-    throw new Error(resolveErrorMessage(payload, "Réponse feature flags invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse des fonctionnalités invalide."));
   }
 
   return envelope.data.flag;
@@ -385,12 +384,12 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
     throw new Error(
-      resolveErrorMessage(payload, "Impossible de purger les données suggestion learning.")
+      resolveErrorMessage(payload, "Impossible de purger les corrections apprises.")
     );
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Réponse suggestion learning invalide.");
+    throw new Error("Réponse de l'apprentissage des suggestions invalide.");
   }
 
   const envelope = payload as ApiEnvelope<SuggestionLearningPurgeResult>;
@@ -400,7 +399,7 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
     typeof envelope.data.deleted_count !== "number" ||
     !Array.isArray(envelope.data.proposals)
   ) {
-    throw new Error(resolveErrorMessage(payload, "Réponse suggestion learning invalide."));
+    throw new Error(resolveErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
   }
 
   return envelope.data;
@@ -409,6 +408,8 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
 export function SuggestionLearningAdminClient({
   tenantId,
 }: Readonly<{ tenantId: string }>) {
+  const confirm = useConfirm();
+  const fieldId = useId();
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
@@ -634,9 +635,12 @@ export function SuggestionLearningAdminClient({
       return;
     }
 
-    const confirmed = window.confirm(
-      `Supprimer définitivement les corrections apprises de plus de ${retentionMonths} mois ? Cette action est irréversible.`
-    );
+    const confirmed = await confirm({
+      title: `Supprimer définitivement les corrections apprises de plus de ${retentionMonths} mois ?`,
+      description: "Cette action est irréversible.",
+      confirmLabel: "Purger",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     setIsPurging(true);
@@ -656,231 +660,219 @@ export function SuggestionLearningAdminClient({
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="page-title">Apprentissage des suggestions</h1>
-          <p className="page-description">
-            Administrez les corrections apprises et la configuration de l&apos;organisation.
-          </p>
-        </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Administration", href: "/dashboard/admin" },
+          { label: "Apprentissage des suggestions" },
+        ]}
+        title="Apprentissage des suggestions"
+        description="Administrez les corrections apprises et la configuration de l'organisation."
+        actions={
+          <Button
+            variant="outline"
+            size="lg"
+            className="w-full sm:w-auto"
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
+            onClick={() => void handleRefresh()}
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? "Actualisation…" : "Actualiser"}
+          </Button>
+        }
+      />
 
-        <button
-          type="button"
-          className="btn btn-secondary w-full sm:w-auto"
-          onClick={() => void handleRefresh()}
-          disabled={isRefreshing}
+      <div className="flex flex-col gap-6">
+        {actionError ? <Alert variant="danger">{actionError}</Alert> : null}
+        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+
+        <PageSection
+          title="Configuration de l'organisation"
+          description="Les paramètres sont stockés dans les fonctionnalités de l'organisation."
         >
-          {isRefreshing ? "Actualisation..." : "Actualiser"}
-        </button>
-      </div>
-
-      {actionError ? (
-        <div className="alert alert-error mb-6" role="alert">
-          {actionError}
-        </div>
-      ) : null}
-      {successMessage ? (
-        <div className="alert alert-success mb-6" role="status" aria-live="polite">
-          {successMessage}
-        </div>
-      ) : null}
-
-      <section className="dashboard-card p-5 mb-6">
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-foreground">
-            Configuration de l&apos;organisation
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Les paramètres sont stockés dans les fonctionnalités de l&apos;organisation.
-          </p>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-          <div className="space-y-4">
-            <div className="rounded-xl border border-border p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4">
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">
                     Activer l&apos;apprentissage
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Flag {FEATURE_FLAG_LEARNING_ENABLED}
+                    Fonctionnalité{" "}
+                    <code className="[overflow-wrap:anywhere] font-mono">
+                      {FEATURE_FLAG_LEARNING_ENABLED}
+                    </code>
                   </p>
                 </div>
-                <span
-                  className={
-                    config.enabled
-                      ? "inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success"
-                      : "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600"
-                  }
-                >
+                <Badge variant={config.enabled ? "success" : "neutral"} dot>
                   {config.enabled ? "Actif" : "Inactif"}
-                </span>
+                </Badge>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor={`${fieldId}-threshold`}>Seuil N</FieldLabel>
+                  <Input
+                    id={`${fieldId}-threshold`}
+                    type="number"
+                    min={MIN_THRESHOLD}
+                    max={MAX_THRESHOLD}
+                    value={thresholdDraft}
+                    onChange={(event) => setThresholdDraft(event.target.value)}
+                    disabled={isConfigSaving}
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor={`${fieldId}-retention`}>Rétention (mois)</FieldLabel>
+                  <Input
+                    id={`${fieldId}-retention`}
+                    type="number"
+                    min={MIN_RETENTION_MONTHS}
+                    max={MAX_RETENTION_MONTHS}
+                    value={retentionMonthsDraft}
+                    onChange={(event) => setRetentionMonthsDraft(event.target.value)}
+                    disabled={isConfigSaving}
+                  />
+                </Field>
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="form-label">
-                Seuil N
-                <input
-                  type="number"
-                  min={MIN_THRESHOLD}
-                  max={MAX_THRESHOLD}
-                  className="form-input mt-1"
-                  value={thresholdDraft}
-                  onChange={(event) => setThresholdDraft(event.target.value)}
-                  disabled={isConfigSaving}
-                />
-              </label>
-
-              <label className="form-label">
-                Rétention (mois)
-                <input
-                  type="number"
-                  min={MIN_RETENTION_MONTHS}
-                  max={MAX_RETENTION_MONTHS}
-                  className="form-input mt-1"
-                  value={retentionMonthsDraft}
-                  onChange={(event) => setRetentionMonthsDraft(event.target.value)}
-                  disabled={isConfigSaving}
-                />
-              </label>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant={config.enabled ? "danger" : "primary"}
+                size="lg"
+                onClick={() => void handleToggleLearning()}
+                disabled={isConfigSaving || isPurging}
+              >
+                {config.enabled
+                  ? "Désactiver l'apprentissage"
+                  : "Activer l'apprentissage"}
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => void handleSaveConfig()}
+                disabled={isConfigSaving || isPurging}
+              >
+                {isConfigSaving
+                  ? "Enregistrement…"
+                  : "Enregistrer le seuil et la rétention"}
+              </Button>
+              <Button
+                variant="danger"
+                size="lg"
+                onClick={() => void handlePurge()}
+                disabled={isConfigSaving || isPurging}
+              >
+                {isPurging ? "Purge…" : "Purger"}
+              </Button>
             </div>
           </div>
+        </PageSection>
 
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              className={config.enabled ? "btn btn-danger" : "btn btn-primary"}
-              onClick={() => void handleToggleLearning()}
-              disabled={isConfigSaving || isPurging}
-            >
-              {config.enabled
-                ? "Désactiver l'apprentissage"
-                : "Activer l'apprentissage"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => void handleSaveConfig()}
-              disabled={isConfigSaving || isPurging}
-            >
-              {isConfigSaving
-                ? "Enregistrement..."
-                : "Enregistrer le seuil et la rétention"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={() => void handlePurge()}
-              disabled={isConfigSaving || isPurging}
-            >
-              {isPurging ? "Purge..." : "Purger"}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="dashboard-card overflow-hidden">
-        <div className="table-scroll">
+        <PageSection title="Corrections apprises" flush>
           {isLoading ? (
-            <div className="animate-fade-in flex min-h-[260px] items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
-                <span className="text-muted-foreground">Chargement...</span>
-              </div>
-            </div>
+            <LoadingState label="Chargement des corrections apprises…" className="min-h-60" />
           ) : loadError ? (
-            <div className="p-5">
-              <div className="alert alert-error">{loadError}</div>
+            <div className="p-4 sm:p-5">
+              <Alert variant="danger">{loadError}</Alert>
             </div>
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Règle</th>
-                  <th>Champ</th>
-                  <th>Valeur originale échantillon</th>
-                  <th>Valeur corrigée</th>
-                  <th>Occurrences</th>
-                  <th>Statut</th>
-                  <th>Dernière occurrence</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {proposals.length === 0 ? (
+            <div
+              role="region"
+              aria-label="Corrections apprises"
+              tabIndex={0}
+              className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+            >
+              <table className="data-table">
+                <thead>
                   <tr>
-                    <td colSpan={8} className="py-10 text-center text-muted-foreground">
-                      Aucune suggestion apprise pour le tenant.
-                    </td>
+                    <th scope="col">Règle</th>
+                    <th scope="col">Champ</th>
+                    <th scope="col">Valeur originale (exemple)</th>
+                    <th scope="col">Valeur corrigée</th>
+                    <th scope="col">Occurrences</th>
+                    <th scope="col">Statut</th>
+                    <th scope="col">Dernière occurrence</th>
+                    <th scope="col" className="text-right">Actions</th>
                   </tr>
-                ) : (
-                  proposals.map((proposal) => {
-                    const proposalKey = getProposalKey(proposal);
-                    const isUpdatingRow = activeRowKey === proposalKey;
+                </thead>
+                <tbody>
+                  {proposals.length === 0 ? (
+                    <EmptyTableRow
+                      colSpan={8}
+                      icon={<SparklesIcon />}
+                      title="Aucune suggestion apprise"
+                      description="Les corrections répétées des chiffreurs de l'organisation apparaîtront ici."
+                    />
+                  ) : (
+                    proposals.map((proposal) => {
+                      const proposalKey = getProposalKey(proposal);
+                      const isUpdatingRow = activeRowKey === proposalKey;
+                      const status = getStatusBadge(proposal);
 
-                    return (
-                      <tr key={proposalKey}>
-                        <td className="font-mono text-xs text-foreground-secondary">
-                          {proposal.rule_id}
-                        </td>
-                        <td>{FIELD_LABELS[proposal.field_name]}</td>
-                        <td>
-                          <div className="space-y-1">
-                            <p>{proposal.sample_original_value ?? "-"}</p>
-                            {proposal.sample_item_title ? (
-                              <p className="text-xs text-muted-foreground">
-                                Item: {proposal.sample_item_title}
-                              </p>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td>{proposal.corrected_value ?? "(vide)"}</td>
-                        <td>{proposal.correction_count}</td>
-                        <td>
-                          <span className={getStatusClass(proposal)}>
-                            {getStatusLabel(proposal)}
-                          </span>
-                        </td>
-                        <td>{formatDateTime(proposal.last_seen_at)}</td>
-                        <td>
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              className="btn btn-primary btn-sm"
-                              onClick={() => void handleReview(proposal, "approve")}
-                              disabled={isUpdatingRow}
-                            >
-                              Valider
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-danger btn-sm"
-                              onClick={() => void handleReview(proposal, "reject")}
-                              disabled={isUpdatingRow}
-                            >
-                              Rejeter
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => void handleReview(proposal, "reset")}
-                              disabled={isUpdatingRow}
-                            >
-                              Réinitialiser
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                      return (
+                        <tr key={proposalKey}>
+                          <td className="font-mono text-xs text-foreground-secondary">
+                            {proposal.rule_id}
+                          </td>
+                          <td>{FIELD_LABELS[proposal.field_name]}</td>
+                          <td>
+                            <div className="space-y-1">
+                              <p>{proposal.sample_original_value ?? "—"}</p>
+                              {proposal.sample_item_title ? (
+                                <p className="text-xs text-muted-foreground">
+                                  Ligne : {proposal.sample_item_title}
+                                </p>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td>{proposal.corrected_value ?? "(vide)"}</td>
+                          <td className="tabular-nums">{proposal.correction_count}</td>
+                          <td>
+                            <Badge variant={status.variant} dot>
+                              {status.label}
+                            </Badge>
+                          </td>
+                          <td className="whitespace-nowrap">{formatDateTime(proposal.last_seen_at)}</td>
+                          <td>
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="primary"
+                                size="md"
+                                onClick={() => void handleReview(proposal, "approve")}
+                                disabled={isUpdatingRow}
+                              >
+                                Valider
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="md"
+                                onClick={() => void handleReview(proposal, "reject")}
+                                disabled={isUpdatingRow}
+                              >
+                                Rejeter
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="md"
+                                onClick={() => void handleReview(proposal, "reset")}
+                                disabled={isUpdatingRow}
+                              >
+                                Réinitialiser
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
-      </section>
+        </PageSection>
+      </div>
     </div>
   );
 }

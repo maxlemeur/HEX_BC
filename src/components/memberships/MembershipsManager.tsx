@@ -1,13 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCwIcon, UserPlusIcon } from "lucide-react";
 
 import { useUserContext } from "@/components/UserContext";
-import { Badge } from "@/components/ui-legacy/Badge";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageSection } from "@/components/layout/page-section";
+import {
+  fetchMembershipApi,
+  formatMembershipDate,
+  MemberIdentity,
+  TenantRoleBadge,
+  TenantRoleSelect,
+  type TenantRole,
+} from "@/components/memberships/membership-shared";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui-legacy/SearchableSelect";
-import type { Database } from "@/types/database";
-
-type TenantRole = Database["public"]["Enums"]["tenant_role"];
+import { useToast } from "@/components/ui-legacy/Toast";
 
 type MembershipRecord = {
   id: string;
@@ -41,69 +57,20 @@ type MembershipsResponse = {
   candidates: CandidateRecord[];
 };
 
-type ApiEnvelope<T> = {
-  ok?: boolean;
-  data?: T;
-  error?: {
-    message?: string;
-  };
-};
+const PAGE_TITLE = "Membres de l’organisation";
+const SEARCH_DEBOUNCE_MS = 250;
+const ERROR_TOAST_MS = 8000;
 
-const ROLE_LABELS: Record<TenantRole, string> = {
-  admin: "Administrateur",
-  engineer: "Ingenieur",
-  viewer: "Lecteur",
-  director: "Directeur",
-};
-
-function roleBadgeVariant(role: TenantRole): "info" | "warning" | "neutral" | "success" {
-  if (role === "admin") return "info";
-  if (role === "engineer") return "warning";
-  if (role === "director") return "success";
-  return "neutral";
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const envelope = payload as ApiEnvelope<unknown>;
-  return envelope.error?.message ?? fallback;
-}
-
-async function fetchApi<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, {
-    credentials: "same-origin",
-    ...init,
-  });
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-
-  if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Une erreur est survenue."));
-  }
-
-  const envelope = payload as ApiEnvelope<T>;
-  if (envelope?.data !== undefined) {
-    return envelope.data;
-  }
-
-  return payload as T;
+function describeCandidates(count: number) {
+  if (count === 0) return "Aucun profil disponible pour cette recherche.";
+  if (count === 1) return "1 profil disponible.";
+  return `${count} profils disponibles.`;
 }
 
 export function MembershipsManager() {
   const { profile, tenantId } = useUserContext();
+  const confirm = useConfirm();
+  const toast = useToast();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -121,8 +88,7 @@ export function MembershipsManager() {
   const [selectedRole, setSelectedRole] = useState<TenantRole>("engineer");
 
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const latestRequestRef = useRef(0);
 
   const canManageMemberships = profile?.tenant_role === "admin";
 
@@ -134,26 +100,25 @@ export function MembershipsManager() {
       candidates.map((candidate) => ({
         value: candidate.id,
         label: candidate.work_email
-          ? `${candidate.full_name} - ${candidate.work_email}`
+          ? `${candidate.full_name} — ${candidate.work_email}`
           : candidate.full_name,
         keywords: [candidate.full_name, candidate.work_email ?? ""],
       })),
     [candidates]
   );
 
+  // The first load keeps the full-page loading state; later loads (search, refresh, after an
+  // action) only flag `isRefreshing`, so the search field stays mounted and keeps its focus.
   const loadMemberships = useCallback(
-    async (searchValue: string, options?: { initial?: boolean }) => {
+    async (searchValue: string) => {
       if (!canManageMemberships || !tenantId) {
         setIsLoading(false);
         return;
       }
 
-      if (options?.initial) {
-        setIsLoading(true);
-      } else {
-        setIsRefreshing(true);
-      }
-
+      const requestId = latestRequestRef.current + 1;
+      latestRequestRef.current = requestId;
+      setIsRefreshing(true);
       setError(null);
 
       try {
@@ -163,9 +128,10 @@ export function MembershipsManager() {
         }
 
         const query = params.toString();
-        const data = await fetchApi<MembershipsResponse>(
+        const data = await fetchMembershipApi<MembershipsResponse>(
           `/api/memberships${query ? `?${query}` : ""}`
         );
+        if (requestId !== latestRequestRef.current) return;
 
         setTenantName(data.tenant.name);
         setMemberships(data.memberships);
@@ -181,37 +147,42 @@ export function MembershipsManager() {
           return stillExists ? previousSelectedUserId : "";
         });
       } catch (loadError) {
+        if (requestId !== latestRequestRef.current) return;
         setError(
           loadError instanceof Error
             ? loadError.message
-            : "Impossible de charger les memberships."
+            : "Impossible de charger les membres de l’organisation."
         );
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (requestId === latestRequestRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [canManageMemberships, tenantId]
   );
 
   useEffect(() => {
-    void loadMemberships(search, { initial: true });
+    const timer = window.setTimeout(
+      () => void loadMemberships(search),
+      search ? SEARCH_DEBOUNCE_MS : 0
+    );
+    return () => window.clearTimeout(timer);
   }, [loadMemberships, search]);
 
   async function handleAddMembership(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!selectedUserId) {
-      setActionError("Sélectionnez un utilisateur à ajouter.");
+      toast.error({ title: "Sélectionnez un utilisateur à ajouter." });
       return;
     }
 
-    setActionError(null);
-    setSuccess(null);
     setIsSubmitting(true);
 
     try {
-      await fetchApi("/api/memberships", {
+      await fetchMembershipApi("/api/memberships", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -224,14 +195,14 @@ export function MembershipsManager() {
 
       setSelectedUserId("");
       setSelectedRole("engineer");
-      setSuccess("Membre ajoute avec succès.");
+      toast.success({ title: "Membre ajouté." });
       await loadMemberships(search);
     } catch (submitError) {
-      setActionError(
-        submitError instanceof Error
-          ? submitError.message
-          : "Impossible d'ajouter le membre."
-      );
+      toast.error({
+        title: "Impossible d’ajouter le membre",
+        description: submitError instanceof Error ? submitError.message : undefined,
+        durationMs: ERROR_TOAST_MS,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -240,12 +211,10 @@ export function MembershipsManager() {
   async function handleChangeRole(membership: MembershipRecord, role: TenantRole) {
     if (membership.role === role) return;
 
-    setActionError(null);
-    setSuccess(null);
     setUpdatingMembershipId(membership.id);
 
     try {
-      await fetchApi(`/api/memberships/${membership.id}`, {
+      await fetchMembershipApi(`/api/memberships/${membership.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -253,42 +222,44 @@ export function MembershipsManager() {
         body: JSON.stringify({ role }),
       });
 
-      setSuccess("Rôle mis à jour avec succès.");
+      toast.success({ title: "Rôle mis à jour." });
       await loadMemberships(search);
     } catch (updateError) {
-      setActionError(
-        updateError instanceof Error
-          ? updateError.message
-          : "Impossible de modifier le rôle."
-      );
+      toast.error({
+        title: "Impossible de modifier le rôle",
+        description: updateError instanceof Error ? updateError.message : undefined,
+        durationMs: ERROR_TOAST_MS,
+      });
     } finally {
       setUpdatingMembershipId(null);
     }
   }
 
   async function handleDeleteMembership(membership: MembershipRecord) {
-    const confirmed = window.confirm(
-      `Supprimer ${membership.user_full_name} du tenant ?`
-    );
+    const confirmed = await confirm({
+      title: `Retirer ${membership.user_full_name} de l’organisation ?`,
+      description:
+        "Cette personne n’aura plus accès aux affaires ni aux devis de l’organisation. Vous pourrez l’ajouter de nouveau plus tard.",
+      confirmLabel: "Retirer",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
-    setActionError(null);
-    setSuccess(null);
     setDeletingMembershipId(membership.id);
 
     try {
-      await fetchApi(`/api/memberships/${membership.id}`, {
+      await fetchMembershipApi(`/api/memberships/${membership.id}`, {
         method: "DELETE",
       });
 
-      setSuccess("Membre supprime avec succès.");
+      toast.success({ title: "Membre retiré de l’organisation." });
       await loadMemberships(search);
     } catch (deleteError) {
-      setActionError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Impossible de supprimer le membre."
-      );
+      toast.error({
+        title: "Impossible de retirer le membre",
+        description: deleteError instanceof Error ? deleteError.message : undefined,
+        durationMs: ERROR_TOAST_MS,
+      });
     } finally {
       setDeletingMembershipId(null);
     }
@@ -297,14 +268,11 @@ export function MembershipsManager() {
   if (!tenantId) {
     return (
       <div className="animate-fade-in">
-        <div className="page-header">
-          <h1 className="page-title">Membres du tenant</h1>
-          <p className="page-description">
-            Cette section n&apos;est disponible que pour les comptes rattaches a un tenant.
-          </p>
-        </div>
-
-        <div className="alert alert-info">Aucun tenant actif detecte.</div>
+        <PageHeader
+          title={PAGE_TITLE}
+          description="Cette section n’est disponible que pour les comptes rattachés à une organisation."
+        />
+        <Alert variant="info">Aucune organisation active détectée.</Alert>
       </div>
     );
   }
@@ -312,146 +280,156 @@ export function MembershipsManager() {
   if (!canManageMemberships) {
     return (
       <div className="animate-fade-in">
-        <div className="page-header">
-          <h1 className="page-title">Membres du tenant</h1>
-          <p className="page-description">
-            Gestion des membres réservée aux administrateurs du tenant.
-          </p>
-        </div>
-
-        <div className="alert alert-info">
-          Vous n&apos;avez pas les droits administrateur pour gérer les memberships.
-        </div>
+        <PageHeader
+          title={PAGE_TITLE}
+          description="Gestion des membres réservée aux administrateurs de l’organisation."
+        />
+        <Alert variant="info">
+          Vous n’avez pas les droits administrateur pour gérer les membres.
+        </Alert>
       </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="animate-fade-in flex min-h-[400px] items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
-          <span className="text-muted-foreground">Chargement...</span>
-        </div>
+      <div className="animate-fade-in">
+        <PageHeader title={PAGE_TITLE} />
+        <LoadingState label="Chargement des membres…" className="min-h-[300px]" />
       </div>
     );
   }
 
+  const searchHint =
+    search.trim().length < 2
+      ? "Saisissez au moins 2 caractères pour rechercher des profils."
+      : describeCandidates(candidates.length);
+
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
-          <h1 className="page-title">Membres du tenant</h1>
-          <p className="page-description">
-            Gérer les membres et rôles du tenant {tenantName ? `"${tenantName}"` : "actif"}.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => void loadMemberships(search)}
-          disabled={isRefreshing}
-        >
-          {isRefreshing ? "Actualisation..." : "Actualiser"}
-        </button>
-      </div>
+      <PageHeader
+        title={PAGE_TITLE}
+        description={
+          tenantName
+            ? `Ajouter des membres à l’organisation « ${tenantName} » et gérer leurs rôles.`
+            : "Ajouter des membres à l’organisation active et gérer leurs rôles."
+        }
+        actions={
+          <Button
+            variant="outline"
+            size="lg"
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
+            loading={isRefreshing}
+            onClick={() => void loadMemberships(search)}
+          >
+            Actualiser
+          </Button>
+        }
+      />
 
-      {error ? <div className="alert alert-error mb-6">{error}</div> : null}
-      {actionError ? <div className="alert alert-error mb-6">{actionError}</div> : null}
-      {success ? <div className="alert alert-success mb-6">{success}</div> : null}
+      {error ? (
+        <Alert variant="danger" className="mb-6">
+          {error}
+        </Alert>
+      ) : null}
 
-      <div className="dashboard-card p-6 mb-8">
-        <h2 className="text-sm font-semibold text-slate-800 mb-4">
-          Ajouter un membre
-        </h2>
-
+      <PageSection title="Ajouter un membre" className="mb-8">
         <form className="grid gap-4 sm:grid-cols-4" onSubmit={handleAddMembership}>
-          <div className="sm:col-span-2">
-            <label className="form-label" htmlFor="membership-search">
-              Rechercher un utilisateur
-            </label>
-            <input
+          <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
+            <FieldLabel htmlFor="membership-search">Rechercher un utilisateur</FieldLabel>
+            <Input
               id="membership-search"
-              className="form-input"
-              placeholder="Nom ou email (min. 2 caracteres)"
+              type="search"
+              size="lg"
+              autoComplete="off"
+              placeholder="Nom ou email (2 caractères min.)"
+              aria-describedby="membership-search-hint"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
 
-          <div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <FieldLabel htmlFor="membership-user">Utilisateur</FieldLabel>
             <SearchableSelect
               id="membership-user"
               name="membership-user"
-              label="Utilisateur"
-              placeholder="Selectionner..."
+              placeholder="Sélectionner…"
+              emptyMessage="Aucun profil trouvé."
               options={candidateOptions}
               value={selectedUserId}
               onValueChange={setSelectedUserId}
+              isLoading={isRefreshing}
               required
             />
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="membership-role">
-              Rôle tenant
-            </label>
-            <select
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <FieldLabel htmlFor="membership-role">Rôle</FieldLabel>
+            <TenantRoleSelect
               id="membership-role"
-              className="form-input"
+              size="lg"
               value={selectedRole}
-              onChange={(event) => setSelectedRole(event.target.value as TenantRole)}
-            >
-              <option value="admin">Administrateur</option>
-              <option value="engineer">Ingenieur</option>
-              <option value="director">Directeur</option>
-              <option value="viewer">Lecteur</option>
-            </select>
+              onValueChange={setSelectedRole}
+            />
           </div>
 
-          <div className="sm:col-span-4 flex items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
-              {search.trim().length < 2
-                ? "Saisissez au moins 2 caracteres pour rechercher des profils."
-                : `${candidates.length} candidat(s) disponible(s).`}
+          <div className="flex flex-col gap-3 sm:col-span-4 sm:flex-row sm:items-center sm:justify-between">
+            <p
+              id="membership-search-hint"
+              className="text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              {searchHint}
             </p>
-            <button className="btn btn-primary" type="submit" disabled={isSubmitting || !selectedUserId}>
-              {isSubmitting ? "Ajout..." : "Ajouter"}
-            </button>
+            <Button
+              type="submit"
+              size="lg"
+              leftIcon={<UserPlusIcon aria-hidden="true" />}
+              loading={isSubmitting}
+              disabled={!selectedUserId}
+            >
+              Ajouter le membre
+            </Button>
           </div>
         </form>
 
         {selectedCandidate ? (
-          <div className="mt-4 rounded-xl border border-border bg-surface-subtle p-3 text-xs text-slate-600">
-            Ajout en cours: <span className="font-medium">{selectedCandidate.full_name}</span>
-            {selectedCandidate.work_email ? ` (${selectedCandidate.work_email})` : ""}
-          </div>
+          <p className="mt-4 rounded-control border border-border bg-surface-subtle p-3 text-xs text-foreground-secondary">
+            Sélection : <span className="font-medium text-foreground">{selectedCandidate.full_name}</span>
+            {selectedCandidate.work_email ? (
+              <span className="break-all"> ({selectedCandidate.work_email})</span>
+            ) : null}
+          </p>
         ) : null}
-      </div>
+      </PageSection>
 
-      <div className="dashboard-card overflow-hidden">
-        <div className="border-b border-border px-6 py-4">
-          <h2 className="text-sm font-semibold text-slate-800">Membres existants</h2>
-        </div>
-
-        <div className="table-scroll">
-          <table className="data-table">
+      <PageSection title="Membres existants" flush>
+        <div
+          role="region"
+          aria-label="Liste des membres de l’organisation"
+          tabIndex={0}
+          className="relative overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+        >
+          <table className="data-table min-w-[44rem]">
             <thead>
               <tr>
-                <th>Membre</th>
-                <th>Rôle tenant</th>
-                <th>Par défaut</th>
-                <th>Depuis</th>
-                <th>Actions</th>
+                <th scope="col">Membre</th>
+                <th scope="col">Rôle</th>
+                <th scope="col">Par défaut</th>
+                <th scope="col">Depuis</th>
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {memberships.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-10 text-center text-muted-foreground">
-                    Aucun membership.
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={5}
+                  title="Aucun membre"
+                  description="Recherchez un utilisateur ci-dessus pour l’ajouter à l’organisation."
+                />
               ) : (
                 memberships.map((membership) => {
                   const isSelf = membership.user_id === currentUserId;
@@ -461,38 +439,23 @@ export function MembershipsManager() {
                   return (
                     <tr key={membership.id}>
                       <td>
-                        <div className="flex flex-col">
-                          <span className="font-medium text-slate-800">
-                            {membership.user_full_name}
-                          </span>
-                          {membership.user_work_email ? (
-                            <span className="text-xs text-muted-foreground">
-                              {membership.user_work_email}
-                            </span>
-                          ) : null}
-                        </div>
+                        <MemberIdentity
+                          fullName={membership.user_full_name}
+                          email={membership.user_work_email}
+                          isSelf={isSelf}
+                        />
                       </td>
                       <td>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={roleBadgeVariant(membership.role)} size="sm">
-                            {ROLE_LABELS[membership.role]}
-                          </Badge>
-                          <select
-                            className="form-input form-input--sm max-w-[170px]"
+                        <div className="grid grid-cols-[7rem_10rem] items-center gap-2">
+                          <TenantRoleBadge role={membership.role} />
+                          <TenantRoleSelect
+                            size="sm"
+                            aria-label={`Rôle de ${membership.user_full_name}`}
                             value={membership.role}
                             disabled={isUpdating}
-                            onChange={(event) =>
-                              void handleChangeRole(
-                                membership,
-                                event.target.value as TenantRole
-                              )
-                            }
-                          >
-                            <option value="admin">Administrateur</option>
-                            <option value="engineer">Ingenieur</option>
-                            <option value="director">Directeur</option>
-                            <option value="viewer">Lecteur</option>
-                          </select>
+                            aria-busy={isUpdating || undefined}
+                            onValueChange={(role) => void handleChangeRole(membership, role)}
+                          />
                         </div>
                       </td>
                       <td>
@@ -504,23 +467,23 @@ export function MembershipsManager() {
                           <span className="text-xs text-muted-foreground">Non</span>
                         )}
                       </td>
-                      <td className="text-sm text-muted-foreground">
-                        {formatDate(membership.created_at)}
+                      <td className="whitespace-nowrap text-sm text-muted-foreground">
+                        {formatMembershipDate(membership.created_at)}
                       </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => void handleDeleteMembership(membership)}
-                          disabled={isDeleting || isSelf}
-                          title={
-                            isSelf
-                              ? "Vous ne pouvez pas supprimer votre propre membership"
-                              : undefined
-                          }
-                        >
-                          {isDeleting ? "Suppression..." : "Supprimer"}
-                        </button>
+                      <td className="text-right">
+                        {isSelf ? (
+                          <span className="text-xs text-muted-foreground">Votre accès</span>
+                        ) : (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            loading={isDeleting}
+                            aria-label={`Retirer ${membership.user_full_name} de l’organisation`}
+                            onClick={() => void handleDeleteMembership(membership)}
+                          >
+                            Retirer
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -529,7 +492,7 @@ export function MembershipsManager() {
             </tbody>
           </table>
         </div>
-      </div>
+      </PageSection>
     </div>
   );
 }

@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
 import { updateDirectionAlertStatusAction } from "@/app/dashboard/_actions/direction";
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui-legacy/Toast";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import type { TakeoffRiskStatus } from "@/lib/takeoff/types";
+import { cn } from "@/lib/utils";
 
 type Props = {
   alerts: DirectionSyntheticAlert[];
@@ -16,12 +21,12 @@ type Props = {
 const LEVEL_VARIANT = {
   info: "info",
   warning: "warning",
-  critical: "error",
+  critical: "danger",
 } as const;
 
 const STATUS_LABEL = {
   to_process: "À traiter",
-  assumed: "Assumee",
+  assumed: "Assumée",
   false_positive: "Fausse alerte",
 } as const;
 
@@ -48,7 +53,8 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
     null
   );
   const [note, setNote] = useState("");
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const toast = useToast();
+  const headingId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const activeTriggerKeyRef = useRef<string | null>(null);
@@ -61,15 +67,6 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
 
     textareaRef.current?.focus();
   }, [editorKey]);
-
-  useEffect(() => {
-    if (!feedback) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => setFeedback(null), 3000);
-    return () => window.clearTimeout(timer);
-  }, [feedback]);
 
   const visibleAlerts = useMemo(
     () => (compact ? alerts.slice(0, 2) : alerts.slice(0, 4)),
@@ -112,9 +109,9 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
           alertIds: alert.alertIds,
           status: "to_process",
         });
-        setFeedback(`Statut remis a "À traiter" pour ${alert.projectName}.`);
+        toast.success({ title: `Alerte remise « À traiter » pour ${alert.projectName}.` });
       } catch {
-        setFeedback("Impossible de mettre à jour cette alerte.");
+        toast.error({ title: "Impossible de mettre à jour cette alerte." });
       }
     });
   }
@@ -135,31 +132,32 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
           status: nextStatus,
           reviewNote: note.trim(),
         });
-        setFeedback(`Statut mis à jour pour ${alert.projectName}.`);
+        toast.success({ title: `Statut mis à jour pour ${alert.projectName}.` });
         closeEditor();
       } catch {
-        setFeedback("Impossible de mettre à jour cette alerte.");
+        toast.error({ title: "Impossible de mettre à jour cette alerte." });
       }
     });
   }
 
   return (
-    <section className={`dashboard-card ${compact ? "p-4" : "p-5"}`}>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            Alertes de portefeuille
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Les signaux ci-dessous regroupent les dossiers qui demandent un arbitrage clair.
-          </p>
-        </div>
-        <p className="text-xs text-subtle-foreground" aria-live="polite">
-          {feedback ?? ""}
+    <section
+      aria-labelledby={headingId}
+      className={cn(
+        "min-w-0 rounded-lg border border-border bg-surface shadow-card",
+        compact ? "p-4" : "p-4 sm:p-5"
+      )}
+    >
+      <div>
+        <h2 id={headingId} className="text-base font-semibold text-foreground">
+          Alertes de portefeuille
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Les signaux ci-dessous regroupent les dossiers qui demandent un arbitrage clair.
         </p>
       </div>
 
-      <div className={`mt-4 grid gap-3 ${compact ? "" : "lg:grid-cols-2"}`}>
+      <div className={cn("mt-4 grid gap-3", !compact && "lg:grid-cols-2")}>
         {visibleAlerts.map((alert) => {
           const isEditing = editorKey === alert.alertKey;
           const href = buildAlertHref(alert);
@@ -169,10 +167,10 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
           return (
             <article
               key={alert.alertKey}
-              className="rounded-2xl border border-border bg-surface-subtle/70 p-4"
+              className="min-w-0 rounded-control border border-border bg-surface-subtle p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-2">
+                <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={LEVEL_VARIANT[alert.level]} size="sm">
                       {alert.level === "critical"
@@ -193,23 +191,17 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                     <h3 className="text-sm font-semibold text-foreground">
                       {alert.label}
                     </h3>
-                    <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground-secondary marker:text-subtle-foreground">
                       {alert.reasons.map((reason) => (
-                        <li key={reason} className="flex gap-2">
-                          <span aria-hidden="true" className="mt-0.5 text-subtle-foreground">
-                            •
-                          </span>
-                          <span>{reason}</span>
+                        <li key={reason} className="break-words">
+                          {reason}
                         </li>
                       ))}
                     </ul>
                   </div>
                 </div>
 
-                <Link
-                  href={href}
-                  className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground-secondary transition hover:border-border-strong hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                >
+                <Link href={href} className={buttonVariants({ variant: "outline", size: "sm" })}>
                   Ouvrir la revue
                 </Link>
               </div>
@@ -218,50 +210,50 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                 <div className="mt-4 border-t border-border pt-4">
                   {isEditing && nextStatus ? (
                     <div className="space-y-3">
-                      <label className="space-y-1.5">
-                        <span className="block text-xs font-semibold text-foreground-secondary">
+                      <Field className="gap-1.5">
+                        <FieldLabel
+                          htmlFor={`${alert.alertKey}-note`}
+                          className="text-xs font-semibold text-foreground-secondary"
+                        >
                           Note de décision
-                        </span>
-                        <textarea
+                        </FieldLabel>
+                        <Textarea
+                          id={`${alert.alertKey}-note`}
                           ref={textareaRef}
                           value={note}
                           onChange={(event) => setNote(event.target.value)}
                           rows={3}
-                          className="form-input w-full resize-none"
-                          placeholder="Expliquez pourquoi cette alerte est assumee ou fausse."
+                          className="min-h-20 resize-none text-sm"
+                          placeholder="Expliquez pourquoi cette alerte est assumée ou fausse."
                         />
-                      </label>
+                      </Field>
                       <div className="flex flex-wrap gap-2">
-                        <button
+                        <Button
                           type="button"
-                          disabled={isPending || note.trim().length === 0}
-                          className="btn btn-primary btn-sm"
+                          disabled={note.trim().length === 0}
+                          loading={isPending}
                           onClick={() => handleConfirm(alert)}
                         >
-                          Confirmer {nextStatus === "assumed" ? "l'hypothese" : "le faux positif"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={closeEditor}
-                        >
+                          {nextStatus === "assumed" ? "Confirmer l’hypothèse" : "Confirmer la fausse alerte"}
+                        </Button>
+                        <Button type="button" variant="outline" onClick={closeEditor}>
                           Annuler
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      <button
+                      <Button
                         type="button"
-                        className="btn btn-secondary btn-sm"
+                        variant="outline"
                         disabled={isPending}
                         onClick={() => handleReset(alert)}
                       >
                         Marquer à traiter
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="btn btn-secondary btn-sm"
+                        variant="outline"
                         ref={(node) => registerTriggerRef(assumedTriggerKey, node)}
                         disabled={isPending}
                         onClick={() => {
@@ -270,11 +262,11 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                           setNextStatus("assumed");
                         }}
                       >
-                        Marquer assumee
-                      </button>
-                      <button
+                        Marquer comme assumée
+                      </Button>
+                      <Button
                         type="button"
-                        className="btn btn-secondary btn-sm"
+                        variant="outline"
                         ref={(node) => registerTriggerRef(falsePositiveTriggerKey, node)}
                         disabled={isPending}
                         onClick={() => {
@@ -283,8 +275,8 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                           setNextStatus("false_positive");
                         }}
                       >
-                        Marquer fausse alerte
-                      </button>
+                        Marquer comme fausse alerte
+                      </Button>
                     </div>
                   )}
                 </div>

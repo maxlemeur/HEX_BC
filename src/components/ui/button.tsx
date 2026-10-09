@@ -76,15 +76,24 @@ function Button({
       {...props}
     >
       {loading ? (
-        <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center">
-          <Loader2 className="animate-spin motion-reduce:animate-none" />
-        </span>
-      ) : null}
-      <span className={cn("contents", loading && "invisible")}>
-        {leftIcon}
-        {children}
-        {rightIcon}
-      </span>
+        <>
+          <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center">
+            <Loader2 className="animate-spin motion-reduce:animate-none" />
+          </span>
+          {/* Transparent, not hidden: keeps the width and the accessible name while loading. */}
+          <span className="inline-flex items-center gap-[inherit] opacity-0">
+            {leftIcon}
+            {children}
+            {rightIcon}
+          </span>
+        </>
+      ) : (
+        <>
+          {leftIcon}
+          {children}
+          {rightIcon}
+        </>
+      )}
     </ButtonPrimitive>
   )
 }
