@@ -1,9 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 
 type PurchaseOrderStatus =
   | "draft"
@@ -26,15 +29,20 @@ type PurchaseOrderStatusUpdaterProps = {
   orderId: string;
   status: PurchaseOrderStatus;
   onSaved?: () => void;
+  /** Lets a visible label (e.g. a dialog field) name the select instead of the default aria-label. */
+  selectId?: string;
+  className?: string;
 };
 
 export function PurchaseOrderStatusUpdater({
   orderId,
   status,
   onSaved,
+  selectId,
+  className,
 }: PurchaseOrderStatusUpdaterProps) {
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [value, setValue] = useState<PurchaseOrderStatus>(status);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,23 +58,24 @@ export function PurchaseOrderStatusUpdater({
 
     setSaving(false);
 
-  if (updateError) {
-    setError(updateError.message);
-    return;
-  }
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
 
-  router.refresh();
-  onSaved?.();
-}
+    router.refresh();
+    onSaved?.();
+  }
 
   const hasChanged = value !== status;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select
-        className="form-input form-select h-11 w-auto min-w-[140px] text-sm"
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      <NativeSelect
+        id={selectId}
         name="order-status"
-        aria-label="Statut de la commande"
+        aria-label={selectId ? undefined : "Statut de la commande"}
+        wrapperClassName="w-auto min-w-40"
         value={value}
         onChange={(event) => setValue(event.target.value as PurchaseOrderStatus)}
       >
@@ -75,26 +84,16 @@ export function PurchaseOrderStatusUpdater({
             {option.label}
           </option>
         ))}
-      </select>
-      {hasChanged && (
-        <button
-          className="btn btn-primary btn-sm"
-          disabled={saving}
-          onClick={onSave}
-          type="button"
-        >
-          {saving ? (
-            <>
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-              Enregistrement...
-            </>
-          ) : (
-            "Mettre à jour"
-          )}
-        </button>
-      )}
+      </NativeSelect>
+      {hasChanged ? (
+        <Button variant="primary" size="lg" loading={saving} onClick={onSave} type="button">
+          Mettre à jour
+        </Button>
+      ) : null}
       {error ? (
-        <span className="text-sm text-danger">{error}</span>
+        <p role="alert" className="w-full text-sm text-danger">
+          {error}
+        </p>
       ) : null}
     </div>
   );

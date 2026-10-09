@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
+import { PlusIcon } from "lucide-react";
 
 import {
   PurchaseOrderDocument,
@@ -15,7 +15,10 @@ import {
   DeliverySiteCreateModal,
   type DeliverySiteCreateResult,
 } from "@/components/DeliverySiteCreateModal";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { SupplierCreateModal, type SupplierCreateResult } from "@/components/SupplierCreateModal";
+import { Alert } from "@/components/ui/alert";
 import { useUserContext } from "@/components/UserContext";
 import {
   computeLineTotals,
@@ -23,7 +26,10 @@ import {
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ChevronLeftIcon, CircleXIcon, PlusIcon } from "lucide-react";
+
+import { OrderDocumentViewport } from "../_components/OrderDocumentViewport";
+import { OrderFormActions } from "../_components/OrderFormActions";
+import { useDeliveryDateState } from "../_components/use-delivery-date-state";
 
 type SupplierOption = SupplierCreateResult;
 
@@ -54,7 +60,7 @@ export default function NewOrderPage() {
 
   const [supplierId, setSupplierId] = useState<string>("");
   const [deliverySiteId, setDeliverySiteId] = useState<string>("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
+  const deliveryDate = useDeliveryDateState();
   const [notes, setNotes] = useState<string>("");
   const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
   const [creating, setCreating] = useState(false);
@@ -108,7 +114,6 @@ export default function NewOrderPage() {
 
   const loadError = suppliersError ?? sitesError;
   const isLoading = isSuppliersLoading || isSitesLoading;
-  const displayError = formError ?? (loadError ? loadError.message : null);
 
   // Get selected supplier and site data
   const selectedSupplier: SupplierData | null = useMemo(() => {
@@ -281,17 +286,24 @@ export default function NewOrderPage() {
 
     setCreating(true);
 
-    const response = await fetch("/api/purchase-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        supplierId,
-        deliverySiteId,
-        expectedDeliveryDate: expectedDeliveryDate || null,
-        notes: notes.trim() || null,
-        items: cleanedItems,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/purchase-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplierId,
+          deliverySiteId,
+          expectedDeliveryDate: deliveryDate.payloadValue,
+          notes: notes.trim() || null,
+          items: cleanedItems,
+        }),
+      });
+    } catch {
+      setCreating(false);
+      setFormError("Impossible de créer le bon de commande : vérifiez votre connexion.");
+      return;
+    }
 
     setCreating(false);
 
@@ -303,7 +315,7 @@ export default function NewOrderPage() {
     }
 
     if (!response.ok || !result?.id) {
-      setFormError(result?.error ?? "Impossible de créer le bon.");
+      setFormError(result?.error ?? "Impossible de créer le bon de commande.");
       return;
     }
 
@@ -312,105 +324,75 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted">
-      {/* Action bar - sticky at top */}
-      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          {/* Left: Back and title */}
-          <div className="flex items-center gap-4">
-            <Link
-              className="btn btn-ghost btn-sm"
-              href="/dashboard/orders"
-            >
-              <ChevronLeftIcon aria-hidden="true" size={18} />
-              Annuler
-            </Link>
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-            <span className="hidden text-sm font-semibold text-foreground-secondary sm:block">
-              Nouveau bon de commande
-            </span>
-          </div>
+    <div className="mx-auto max-w-5xl animate-fade-in">
+      <PageHeader
+        breadcrumbs={[
+          { label: "Bons de commande", href: "/dashboard/orders" },
+          { label: "Nouveau" },
+        ]}
+        title="Nouveau bon de commande"
+        description="Choisissez le fournisseur et le chantier, puis saisissez les lignes à commander directement sur le document."
+      />
 
-          {/* Right: Create button */}
-          <button
-            className="btn btn-accent btn-lg"
-            disabled={creating || isLoading}
-            form="order-form"
-            type="submit"
-          >
-            {creating ? (
-              <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                Création...
-              </>
-            ) : (
-              <>
-                <PlusIcon aria-hidden="true" size={18} />
-                Créer le bon
-              </>
-            )}
-          </button>
-        </div>
-      </div>
+      {loadError ? (
+        <Alert variant="danger" className="mb-4">
+          {loadError.message}
+        </Alert>
+      ) : null}
 
-      {/* Error message */}
-      {displayError && (
-        <div className="mx-auto max-w-4xl px-4 pt-6">
-          <div className="alert alert-error">
-            <CircleXIcon aria-hidden="true" size={18} />
-            {displayError}
-          </div>
-        </div>
-      )}
+      {isLoading ? (
+        <LoadingState label="Chargement des fournisseurs et des chantiers…" className="py-4" />
+      ) : null}
 
-      {/* Loading indicator */}
-      {isLoading && (
-        <div className="mx-auto max-w-4xl px-4 pt-6">
-          <div className="alert alert-info">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-info/30 border-t-info"></div>
-            Chargement des données...
-          </div>
-        </div>
-      )}
+      <form id="order-form" onSubmit={onCreateOrder} aria-label="Nouveau bon de commande">
+        <OrderDocumentViewport label="Bon de commande à compléter">
+          <PurchaseOrderDocument
+            editable={true}
+            issuerName={userProfile?.full_name ?? "Chargement…"}
+            issuerRole={userProfile?.job_title ?? ""}
+            issuerPhone={userProfile?.phone ?? undefined}
+            issuerEmail={userProfile?.work_email ?? undefined}
+            orderDate={new Date().toISOString()}
+            supplier={selectedSupplier}
+            supplierId={supplierId}
+            onSupplierChange={setSupplierId}
+            supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
+            onSupplierCreate={() => setIsSupplierModalOpen(true)}
+            isSupplierCreateDisabled={creating || isLoading}
+            deliverySite={selectedSite}
+            deliverySiteId={deliverySiteId}
+            onDeliverySiteChange={setDeliverySiteId}
+            siteOptions={sites.map((s) => ({
+              id: s.id,
+              name: s.name,
+              project_code: s.project_code,
+            }))}
+            onDeliverySiteCreate={() => setIsDeliverySiteModalOpen(true)}
+            isDeliverySiteCreateDisabled={creating || isLoading}
+            expectedDeliveryDate={deliveryDate.documentValue}
+            onExpectedDeliveryDateChange={deliveryDate.onDocumentChange}
+            notes={notes}
+            onNotesChange={setNotes}
+            items={documentItems}
+            onItemChange={handleItemChange}
+            onItemRemove={removeItem}
+            onItemAdd={addItem}
+            totalHtCents={orderTotals.totalHtCents}
+            totalTaxCents={orderTotals.totalTaxCents}
+            totalTtcCents={orderTotals.totalTtcCents}
+          />
+        </OrderDocumentViewport>
 
-      {/* WYSIWYG Document */}
-      <form id="order-form" onSubmit={onCreateOrder} className="py-8">
-        <PurchaseOrderDocument
-          editable={true}
-          issuerName={userProfile?.full_name ?? "Chargement..."}
-          issuerRole={userProfile?.job_title ?? ""}
-          issuerPhone={userProfile?.phone ?? undefined}
-          issuerEmail={userProfile?.work_email ?? undefined}
-          orderDate={new Date().toISOString()}
-          supplier={selectedSupplier}
-          supplierId={supplierId}
-          onSupplierChange={setSupplierId}
-          supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
-          onSupplierCreate={() => setIsSupplierModalOpen(true)}
-          isSupplierCreateDisabled={creating || isLoading}
-          deliverySite={selectedSite}
-          deliverySiteId={deliverySiteId}
-          onDeliverySiteChange={setDeliverySiteId}
-          siteOptions={sites.map((s) => ({
-            id: s.id,
-            name: s.name,
-            project_code: s.project_code,
-          }))}
-          onDeliverySiteCreate={() => setIsDeliverySiteModalOpen(true)}
-          isDeliverySiteCreateDisabled={creating || isLoading}
-          expectedDeliveryDate={expectedDeliveryDate}
-          onExpectedDeliveryDateChange={setExpectedDeliveryDate}
-          notes={notes}
-          onNotesChange={setNotes}
-          items={documentItems}
-          onItemChange={handleItemChange}
-          onItemRemove={removeItem}
-          onItemAdd={addItem}
-          totalHtCents={orderTotals.totalHtCents}
-          totalTaxCents={orderTotals.totalTaxCents}
-          totalTtcCents={orderTotals.totalTtcCents}
+        <OrderFormActions
+          cancelHref="/dashboard/orders"
+          submitLabel="Créer le bon de commande"
+          submitIcon={<PlusIcon aria-hidden="true" />}
+          loading={creating}
+          disabled={isLoading}
+          error={formError}
         />
       </form>
+
       <SupplierCreateModal
         open={isSupplierModalOpen}
         onClose={() => setIsSupplierModalOpen(false)}

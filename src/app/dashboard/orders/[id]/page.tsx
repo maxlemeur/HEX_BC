@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { PencilIcon, PrinterIcon } from "lucide-react";
+
 import { DeleteOrderButton } from "@/components/DeleteOrderButton";
 import { type DevisItem } from "@/components/DevisList";
 import { DevisManager } from "@/components/DevisManager";
+import { PageHeader } from "@/components/layout/page-header";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import {
   PurchaseOrderDocument,
@@ -11,8 +14,11 @@ import {
   type DeliverySiteData,
   type OrderItemData,
 } from "@/components/PurchaseOrderDocument";
+import { buttonVariants } from "@/components/ui/button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ChevronLeftIcon, DownloadIcon, PencilIcon } from "lucide-react";
+
+import { OrderDocumentViewport } from "../_components/OrderDocumentViewport";
+import { formatOrderDate, statusClass, statusLabel } from "../_components/orders-model";
 
 type PurchaseOrderStatus =
   | "draft"
@@ -180,69 +186,55 @@ export default async function OrderPage({
     })
   );
 
+  const isDraft = order.status === "draft";
+
   return (
-    <div className="min-h-screen bg-muted">
-      {/* Action bar */}
-      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-          {/* Left: Back button and reference */}
-          <div className="flex items-center gap-4">
-            <Link
-              className="btn btn-ghost btn-sm"
-              href="/dashboard/orders"
-            >
-              <ChevronLeftIcon aria-hidden="true" size={18} />
-              Retour
-            </Link>
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-            <div className="hidden sm:block">
-              <span className="text-sm font-medium text-muted-foreground">Bon de commande</span>
-              <span className="ml-2 rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange">
-                {order.reference}
-              </span>
-            </div>
-          </div>
-
-          {/* Right: Actions */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Status updater */}
-            <PurchaseOrderStatusUpdater
-              orderId={order.id}
-              status={order.status}
-            />
-
-            {/* Edit button - only for draft orders */}
-            {order.status === "draft" && (
+    <div className="mx-auto max-w-5xl animate-fade-in">
+      <PageHeader
+        className="no-print"
+        breadcrumbs={[
+          { label: "Bons de commande", href: "/dashboard/orders" },
+          { label: order.reference },
+        ]}
+        eyebrow="Bon de commande"
+        title={<span className="font-mono">{order.reference}</span>}
+        meta={
+          <>
+            <span className={statusClass(order.status)}>{statusLabel(order.status)}</span>
+            {supplier ? <span className="font-medium text-foreground-secondary">{supplier.name}</span> : null}
+            <span aria-hidden="true" className="text-subtle-foreground">·</span>
+            <span className="text-muted-foreground">
+              Livraison : {formatOrderDate(order.expected_delivery_date)}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            <PurchaseOrderStatusUpdater orderId={order.id} status={order.status} />
+            {isDraft ? (
               <Link
-                className="btn btn-accent"
+                className={buttonVariants({ variant: "accent", size: "lg" })}
                 href={`/dashboard/orders/${order.id}/edit`}
               >
-                <PencilIcon aria-hidden="true" size={16} />
+                <PencilIcon aria-hidden="true" />
                 Modifier
               </Link>
-            )}
-
+            ) : null}
             <Link
-              className="btn btn-primary"
+              className={buttonVariants({ variant: "primary", size: "lg" })}
               href={`/dashboard/orders/${order.id}/print?print=1`}
             >
-              <DownloadIcon aria-hidden="true" size={16} />
+              <PrinterIcon aria-hidden="true" />
               Imprimer / PDF
             </Link>
+            {isDraft ? (
+              <DeleteOrderButton orderId={order.id} orderReference={order.reference} />
+            ) : null}
+          </>
+        }
+      />
 
-            {/* Delete button - only for draft orders */}
-            {order.status === "draft" && (
-              <DeleteOrderButton
-                orderId={order.id}
-                orderReference={order.reference}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Purchase Order Document */}
-      <div className="py-8">
+      <OrderDocumentViewport label={`Bon de commande ${order.reference}`}>
         <PurchaseOrderDocument
           editable={false}
           issuerName={userProfile?.full_name ?? "Utilisateur"}
@@ -260,9 +252,9 @@ export default async function OrderPage({
           totalTaxCents={order.total_tax_cents}
           totalTtcCents={order.total_ttc_cents}
         />
-      </div>
+      </OrderDocumentViewport>
 
-      <div className="mx-auto w-full max-w-[210mm] px-4 pb-10">
+      <div className="no-print mx-auto mt-4 w-full max-w-[210mm]">
         <DevisManager
           orderId={order.id}
           initialItems={devisItems}

@@ -19,10 +19,30 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  DownloadIcon,
+  EyeIcon,
+  FileTextIcon,
+  GripVerticalIcon,
+  LockIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
+
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { IconButton } from "@/components/ui/icon-button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 import { FileTypeIcon, getFileTypeLabel } from "./FileTypeIcon";
 import { DevisPreviewModal, isPreviewableType } from "./DevisPreviewModal";
-import { FileTextIcon, GripVerticalIcon, LockIcon, LucideDownload, LucideEye, LucidePencil, PlusIcon, Trash2Icon } from "lucide-react";
 
 export type DevisItem = {
   id: string;
@@ -76,50 +96,14 @@ function formatDate(value: string) {
   }).format(date);
 }
 
-function DocumentIcon({ className }: { className?: string }) {
-  return (
-    <FileTextIcon aria-hidden="true" className={className} strokeWidth="1.5" />
-  );
-}
-
-function GripIcon({ className }: { className?: string }) {
-  return (
-    <GripVerticalIcon aria-hidden="true" className={className} />
-  );
-}
-
-function EyeIcon({ className }: { className?: string }) {
-  return (
-    <LucideEye aria-hidden="true" className={className} />
-  );
-}
-
-function DownloadIcon({ className }: { className?: string }) {
-  return (
-    <LucideDownload aria-hidden="true" className={className} />
-  );
-}
-
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <Trash2Icon aria-hidden="true" className={className} />
-  );
-}
-
-function PencilIcon({ className }: { className?: string }) {
-  return (
-    <LucidePencil aria-hidden="true" className={className} />
-  );
-}
-
 function SkeletonCard() {
   return (
-    <div className="animate-pulse rounded-xl border border-border-subtle bg-surface p-5">
+    <div className="rounded-lg border border-border-subtle bg-surface p-4">
       <div className="flex items-start gap-4">
-        <div className="h-12 w-12 rounded-xl bg-muted" />
+        <Skeleton className="size-12 rounded-lg" />
         <div className="flex-1 space-y-3">
-          <div className="h-4 w-3/4 rounded-lg bg-muted" />
-          <div className="h-3 w-1/2 rounded-lg bg-surface-subtle" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2" />
         </div>
       </div>
     </div>
@@ -132,7 +116,6 @@ type SortableRowProps = {
   isEditing: boolean;
   isSaving: boolean;
   isRemoving: boolean;
-  isConfirmingDelete: boolean;
   editingName: string;
   editInputRef: React.RefObject<HTMLInputElement | null>;
   onEditingNameChange: (value: string) => void;
@@ -140,9 +123,7 @@ type SortableRowProps = {
   onStartEditing: () => void;
   onCancelEditing: () => void;
   onRename: () => void;
-  onRequestDelete: () => void;
-  onCancelDelete: () => void;
-  onConfirmDelete: () => void;
+  onDelete: () => void;
   onPreview: () => void;
 };
 
@@ -152,7 +133,6 @@ function SortableDevisRow({
   isEditing,
   isSaving,
   isRemoving,
-  isConfirmingDelete,
   editingName,
   editInputRef,
   onEditingNameChange,
@@ -160,9 +140,7 @@ function SortableDevisRow({
   onStartEditing,
   onCancelEditing,
   onRename,
-  onRequestDelete,
-  onCancelDelete,
-  onConfirmDelete,
+  onDelete,
   onPreview,
 }: SortableRowProps) {
   const {
@@ -187,194 +165,124 @@ function SortableDevisRow({
     <li
       ref={setNodeRef}
       style={style}
-      role="listitem"
-      aria-label={`Devis: ${item.name}`}
-      className={`group relative rounded-xl border bg-surface transition-all duration-200 ${
-        isDragging
-          ? "border-brand-orange shadow-xl shadow-[var(--brand-orange)]/10"
-          : "border-border-subtle hover:border-border hover:shadow-md"
-      }`}
+      className={cn(
+        "relative rounded-lg border bg-surface transition-[border-color,box-shadow] duration-200",
+        isDragging ? "border-brand-orange shadow-lg" : "border-border-subtle hover:border-border hover:shadow-sm"
+      )}
     >
-      {/* Main content area */}
-      <div className="flex items-start gap-5 p-5">
-        {/* Drag handle - subtle on the left */}
-        {canManage && !isEditing && (
+      <div className="flex items-start gap-3 p-4 sm:gap-4">
+        {canManage && !isEditing ? (
           <button
             type="button"
-            className="mt-1 flex-shrink-0 cursor-grab rounded-lg p-1.5 text-slate-300 opacity-0 transition-all duration-200 hover:bg-surface-subtle hover:text-muted-foreground group-hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary"
+            className="mt-2 inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:cursor-grabbing"
             {...attributes}
             {...listeners}
-            aria-label="Glisser pour reordonner"
+            aria-label={`Déplacer ${item.name}`}
           >
-            <GripIcon className="h-4 w-4" />
+            <GripVerticalIcon aria-hidden="true" className="size-4" />
           </button>
-        )}
+        ) : null}
 
-        {/* File icon - larger and more prominent */}
-        <div className="flex-shrink-0">
-          <FileTypeIcon mimeType={item.mimeType} filename={item.originalFilename} className="!h-12 !w-12 !rounded-xl" />
-        </div>
+        <FileTypeIcon mimeType={item.mimeType} filename={item.originalFilename} className="!h-12 !w-12 !rounded-lg" />
 
-        {/* File info */}
         <div className="min-w-0 flex-1">
           {isEditing ? (
-            <div className="flex items-center gap-3">
-              <input
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
                 ref={editInputRef}
-                className="form-input h-10 flex-1"
+                size="sm"
+                className="min-w-40 flex-1"
                 value={editingName}
                 onChange={(event) => onEditingNameChange(event.target.value)}
                 onKeyDown={onKeyDown}
                 disabled={isSaving}
                 aria-label="Nouveau nom du devis"
-                placeholder="Nom du document..."
+                placeholder="Nom du document…"
               />
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={onRename}
-                type="button"
-                disabled={isSaving}
-              >
-                {isSaving ? "..." : "Enregistrer"}
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={onCancelEditing}
-                type="button"
-                disabled={isSaving}
-              >
+              <Button variant="primary" size="md" onClick={onRename} loading={isSaving}>
+                Enregistrer
+              </Button>
+              <Button variant="ghost" size="md" onClick={onCancelEditing} disabled={isSaving}>
                 Annuler
-              </button>
+              </Button>
             </div>
           ) : (
             <>
-              {/* Title row */}
-              <div className="flex items-center gap-3">
-                <h4
-                  className={`truncate text-base font-semibold text-slate-800 ${
-                    canManage ? "cursor-pointer hover:text-primary" : ""
-                  }`}
-                  title={canManage ? "Double-cliquez pour renommer" : item.name}
+              <div className="flex min-w-0 items-center gap-2">
+                <p
+                  className={cn(
+                    "truncate text-base font-semibold text-foreground",
+                    canManage && "cursor-text hover:text-primary"
+                  )}
                   onDoubleClick={canManage ? onStartEditing : undefined}
                 >
                   {item.name}
-                </h4>
-                <span className="flex-shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                </p>
+                <Badge variant="neutral" size="sm">
                   {fileTypeLabel}
-                </span>
+                </Badge>
               </div>
 
-              {/* Meta info row */}
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                <span className="truncate font-mono text-xs" title={item.originalFilename}>
-                  {item.originalFilename}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-1 w-1 rounded-full bg-slate-300" />
-                  {formatFileSize(item.fileSizeBytes)}
-                </span>
-                {item.createdAt && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1 w-1 rounded-full bg-slate-300" />
-                    {formatDate(item.createdAt)}
-                  </span>
-                )}
-              </div>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                <span className="max-w-full truncate font-mono text-xs">{item.originalFilename}</span>
+                <span>{formatFileSize(item.fileSizeBytes)}</span>
+                {item.createdAt ? <span>{formatDate(item.createdAt)}</span> : null}
+              </p>
             </>
           )}
         </div>
       </div>
 
-      {/* Actions bar - separate section at bottom */}
-      {!isEditing && (
-        <div className="flex items-center justify-between border-t border-slate-50 bg-surface-subtle/50 px-5 py-3">
-          {isConfirmingDelete ? (
-            <div className="flex w-full items-center justify-between">
-              <span className="text-sm font-medium text-danger">
-                Confirmer la suppression ?
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-danger px-3 text-sm font-medium text-white transition-colors hover:bg-danger"
-                  onClick={onConfirmDelete}
-                  type="button"
-                  disabled={isRemoving}
-                  aria-label="Confirmer la suppression"
-                >
-                  {isRemoving ? "..." : "Supprimer"}
-                </button>
-                <button
-                  className="inline-flex h-8 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-muted"
-                  onClick={onCancelDelete}
-                  type="button"
-                  disabled={isRemoving}
-                  aria-label="Annuler la suppression"
-                >
-                  Annuler
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Primary actions - left side */}
-              <div className="flex items-center gap-2">
-                {isPreviewableType(item.mimeType, item.originalFilename) && (
-                  <button
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-muted hover:text-slate-800 disabled:opacity-50"
-                    onClick={onPreview}
-                    type="button"
-                    disabled={!item.downloadUrl}
-                    aria-label={`Aperçu ${item.name}`}
-                  >
-                    <EyeIcon className="h-4 w-4" />
-                    <span>Aperçu</span>
-                  </button>
-                )}
-                <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-white transition-colors hover:bg-brand-blue-light disabled:opacity-50"
-                  onClick={() => {
-                    if (item.downloadUrl) {
-                      window.open(item.downloadUrl, "_blank", "noopener,noreferrer");
-                    }
-                  }}
-                  type="button"
-                  disabled={!item.downloadUrl}
-                  aria-label={`Télécharger ${item.name}`}
-                >
-                  <DownloadIcon className="h-4 w-4" />
-                  <span>Télécharger</span>
-                </button>
-              </div>
+      {!isEditing ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle bg-surface-subtle px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            {isPreviewableType(item.mimeType, item.originalFilename) ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<EyeIcon aria-hidden="true" />}
+                onClick={onPreview}
+                disabled={!item.downloadUrl}
+                aria-label={`Aperçu de ${item.name}`}
+              >
+                Aperçu
+              </Button>
+            ) : null}
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<DownloadIcon aria-hidden="true" />}
+              onClick={() => {
+                if (item.downloadUrl) {
+                  window.open(item.downloadUrl, "_blank", "noopener,noreferrer");
+                }
+              }}
+              disabled={!item.downloadUrl}
+              aria-label={`Télécharger ${item.name}`}
+            >
+              Télécharger
+            </Button>
+          </div>
 
-              {/* Secondary actions - right side, only if can manage */}
-              {canManage && (
-                <div className="flex items-center gap-1">
-                  <button
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-subtle-foreground transition-colors hover:bg-muted hover:text-slate-600 disabled:opacity-50"
-                    onClick={onStartEditing}
-                    type="button"
-                    disabled={isRemoving}
-                    aria-label={`Renommer ${item.name}`}
-                    title="Renommer"
-                  >
-                    <PencilIcon className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-subtle-foreground transition-colors hover:bg-danger-light hover:text-danger disabled:opacity-50"
-                    onClick={onRequestDelete}
-                    type="button"
-                    disabled={isRemoving}
-                    aria-label={`Supprimer ${item.name}`}
-                    title="Supprimer"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+          {canManage ? (
+            <div className="flex items-center gap-1">
+              <IconButton
+                label={`Renommer ${item.name}`}
+                icon={<PencilIcon aria-hidden="true" />}
+                onClick={onStartEditing}
+                disabled={isRemoving}
+              />
+              <IconButton
+                label={`Supprimer ${item.name}`}
+                icon={<Trash2Icon aria-hidden="true" />}
+                className="hover:bg-danger-subtle hover:text-danger"
+                onClick={onDelete}
+                loading={isRemoving}
+              />
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </li>
   );
 }
@@ -386,6 +294,7 @@ export function DevisList({
   onAddClick,
 }: DevisListProps) {
   const apiUrl = `/api/purchase-orders/${orderId}/devis`;
+  const confirm = useConfirm();
   const { data, error, isLoading, mutate } = useSWR<DevisApiResponse>(
     apiUrl,
     fetcher,
@@ -398,7 +307,6 @@ export function DevisList({
   const [editingName, setEditingName] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<DevisItem | null>(null);
   const [optimisticItems, setOptimisticItems] = useState<DevisItem[] | null>(null);
@@ -432,7 +340,6 @@ export function DevisList({
     setEditingId(item.id);
     setEditingName(item.name);
     setActionError(null);
-    setConfirmingDeleteId(null);
   }
 
   function cancelEditing() {
@@ -477,30 +384,29 @@ export function DevisList({
       cancelEditing();
     } else if (event.key === "Enter") {
       event.preventDefault();
-      handleRename(item);
+      void handleRename(item);
     }
   }
 
-  function requestDelete(item: DevisItem) {
-    setConfirmingDeleteId(item.id);
+  async function handleDelete(item: DevisItem) {
     setEditingId(null);
     setActionError(null);
-  }
 
-  function cancelDelete() {
-    setConfirmingDeleteId(null);
-  }
+    const confirmed = await confirm({
+      title: "Supprimer ce document ?",
+      description: `« ${item.name} » sera retiré du bon de commande.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
-  async function confirmDelete(item: DevisItem) {
     setRemovingId(item.id);
-    setActionError(null);
 
     const response = await fetch(`${apiUrl}/${item.id}`, {
       method: "DELETE",
     });
 
     setRemovingId(null);
-    setConfirmingDeleteId(null);
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as
@@ -539,7 +445,7 @@ export function DevisList({
         const payload = (await response.json().catch(() => null)) as
           | { error?: string }
           | null;
-        setActionError(payload?.error ?? "Erreur lors du reordonnancement.");
+        setActionError(payload?.error ?? "Erreur lors du réordonnancement.");
         setOptimisticItems(null);
         return;
       }
@@ -547,124 +453,96 @@ export function DevisList({
       await mutate();
       setOptimisticItems(null);
     } catch {
-      setActionError("Erreur lors du reordonnancement.");
+      setActionError("Erreur lors du réordonnancement.");
       setOptimisticItems(null);
     }
   }
 
+  const description =
+    items.length === 0
+      ? "Aucun document joint à ce bon de commande."
+      : canManage && items.length > 1
+        ? "Glissez les documents pour modifier leur ordre."
+        : `${items.length} document${items.length > 1 ? "s" : ""} joint${items.length > 1 ? "s" : ""}`;
+
   return (
-    <div className="rounded-2xl bg-surface p-6 shadow-sm ring-1 ring-slate-100">
-      {/* Header */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h3 className="text-xl font-semibold tracking-tight text-slate-800">
-              Documents joints
-            </h3>
-            {items.length > 0 && (
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-primary/10 px-2 text-xs font-semibold text-primary">
+    <Card>
+      <CardHeader className="items-center">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">Documents joints</CardTitle>
+            {items.length > 0 ? (
+              <Badge variant="brand" size="sm">
                 {items.length}
-              </span>
-            )}
+              </Badge>
+            ) : null}
           </div>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            {items.length === 0
-              ? "Aucun document attache à cette commande"
-              : canManage && items.length > 1
-                ? "Glissez les éléments pour modifier l'ordre"
-                : `${items.length} document${items.length > 1 ? "s" : ""} attache${items.length > 1 ? "s" : ""}`}
-          </p>
+          <CardDescription className="text-sm">{description}</CardDescription>
         </div>
-        {!canManage && items.length > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            <LockIcon aria-hidden="true" className="h-3.5 w-3.5" />
+        {!canManage && items.length > 0 ? (
+          <Badge variant="neutral">
+            <LockIcon aria-hidden="true" />
             Lecture seule
-          </span>
-        )}
-      </div>
+          </Badge>
+        ) : null}
+      </CardHeader>
 
-      {/* Error states */}
-      {error && (
-        <div className="mb-6 rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
-          {error.message}
-        </div>
-      )}
+      <CardContent className="space-y-4">
+        {error ? <Alert variant="danger">{error.message}</Alert> : null}
+        {actionError ? <Alert variant="danger">{actionError}</Alert> : null}
 
-      {actionError && (
-        <div className="mb-6 rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
-          {actionError}
-        </div>
-      )}
-
-      {/* Loading state */}
-      {isLoading && items.length === 0 ? (
-        <div className="space-y-4">
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      ) : null}
-
-      {/* Empty state */}
-      {items.length === 0 && !isLoading ? (
-        <div className="rounded-2xl border-2 border-dashed border-border bg-gradient-to-b from-slate-50 to-white px-8 py-12 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
-            <DocumentIcon className="h-8 w-8 text-subtle-foreground" />
+        {isLoading && items.length === 0 ? (
+          <div className="space-y-3" role="status" aria-label="Chargement des documents…">
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
-          <h4 className="mt-5 text-base font-semibold text-foreground-secondary">
-            Aucun document
-          </h4>
-          <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
-            Ajoutez vos devis fournisseurs pour les conserver avec la commande
-          </p>
-          {canManage && onAddClick && (
-            <button
-              className="btn btn-primary mt-6"
-              type="button"
-              onClick={onAddClick}
-            >
-              <PlusIcon aria-hidden="true" className="h-4 w-4" />
-              Ajouter un document
-            </button>
-          )}
-        </div>
-      ) : items.length > 0 ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <ul
-              role="list"
-              aria-label="Liste des devis attaches"
-              className="space-y-4"
-            >
-              {items.map((item) => (
-                <SortableDevisRow
-                  key={item.id}
-                  item={item}
-                  canManage={canManage}
-                  isEditing={editingId === item.id}
-                  isSaving={savingId === item.id}
-                  isRemoving={removingId === item.id}
-                  isConfirmingDelete={confirmingDeleteId === item.id}
-                  editingName={editingName}
-                  editInputRef={editInputRef}
-                  onEditingNameChange={setEditingName}
-                  onKeyDown={(e) => handleKeyDown(e, item)}
-                  onStartEditing={() => startEditing(item)}
-                  onCancelEditing={cancelEditing}
-                  onRename={() => handleRename(item)}
-                  onRequestDelete={() => requestDelete(item)}
-                  onCancelDelete={cancelDelete}
-                  onConfirmDelete={() => confirmDelete(item)}
-                  onPreview={() => setPreviewItem(item)}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
-      ) : null}
+        ) : null}
+
+        {items.length === 0 && !isLoading ? (
+          <EmptyState
+            icon={<FileTextIcon aria-hidden="true" />}
+            title="Aucun document"
+            description="Ajoutez vos devis fournisseurs pour les conserver avec le bon de commande."
+            action={
+              canManage && onAddClick ? (
+                <Button variant="primary" size="lg" leftIcon={<PlusIcon aria-hidden="true" />} onClick={onAddClick}>
+                  Ajouter un document
+                </Button>
+              ) : null
+            }
+          />
+        ) : items.length > 0 ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+              <ul aria-label="Documents joints" className="space-y-3">
+                {items.map((item) => (
+                  <SortableDevisRow
+                    key={item.id}
+                    item={item}
+                    canManage={canManage}
+                    isEditing={editingId === item.id}
+                    isSaving={savingId === item.id}
+                    isRemoving={removingId === item.id}
+                    editingName={editingName}
+                    editInputRef={editInputRef}
+                    onEditingNameChange={setEditingName}
+                    onKeyDown={(e) => handleKeyDown(e, item)}
+                    onStartEditing={() => startEditing(item)}
+                    onCancelEditing={cancelEditing}
+                    onRename={() => void handleRename(item)}
+                    onDelete={() => void handleDelete(item)}
+                    onPreview={() => setPreviewItem(item)}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        ) : null}
+      </CardContent>
 
       <DevisPreviewModal
         key={previewItem?.id ?? "devis-preview-closed"}
@@ -672,6 +550,6 @@ export function DevisList({
         onClose={() => setPreviewItem(null)}
         devis={previewItem}
       />
-    </div>
+    </Card>
   );
 }

@@ -2,25 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSWRConfig } from "swr";
+import { CircleCheckIcon, CloudUploadIcon, XIcon } from "lucide-react";
 
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import { Input } from "@/components/ui/input";
 import {
   MAX_FILE_SIZE_LABEL,
   validateFileForUpload,
 } from "@/lib/file-validation";
+import { cn } from "@/lib/utils";
+
 import { FileTypeIcon } from "./FileTypeIcon";
-import { CircleCheckIcon, CloudUploadIcon, LoaderCircleIcon, LucideX } from "lucide-react";
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <CircleCheckIcon className={className} aria-hidden="true" />
-  );
-}
-
-function XIcon({ className }: { className?: string }) {
-  return (
-    <LucideX className={className} aria-hidden="true" />
-  );
-}
 
 type UploadItem = {
   id: string;
@@ -70,7 +64,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
   }, [successCount, clearSuccess]);
 
   function generateId() {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   }
 
   function handleFiles(files: FileList | File[]) {
@@ -190,7 +184,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
       xhr.onerror = () => {
         setUploadQueue((prev) =>
           prev.map((i) =>
-            i.id === item.id ? { ...i, status: "error", error: "Erreur reseau" } : i
+            i.id === item.id ? { ...i, status: "error", error: "Erreur réseau" } : i
           )
         );
         resolve(false);
@@ -213,7 +207,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
 
     setIsUploading(true);
     setGlobalError(null);
-    setAnnouncement(`Envoi de ${pendingItems.length} fichier(s) en cours...`);
+    setAnnouncement(`Envoi de ${pendingItems.length} fichier(s) en cours…`);
 
     let successfulUploads = 0;
 
@@ -245,16 +239,20 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         className="hidden"
         type="file"
         multiple
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={handleInputChange}
       />
 
       {/* Drop zone */}
       <div
-        className={`relative overflow-hidden rounded-xl border-2 border-dashed transition-all duration-200 ${
+        className={cn(
+          "relative overflow-hidden rounded-lg border-2 border-dashed transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           dragActive
             ? "border-brand-orange bg-brand-orange/5"
-            : "border-border bg-surface hover:border-border-strong hover:bg-surface-subtle"
-        } ${!canManage ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+            : "border-border bg-surface hover:border-border-strong hover:bg-surface-subtle",
+          canManage ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+        )}
         onDragEnter={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -288,163 +286,150 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         }}
       >
         <div className="flex flex-col items-center px-6 py-10 text-center">
-          <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl transition-colors ${
-            dragActive ? "bg-brand-orange/10" : "bg-muted"
-          }`}>
-            <CloudUploadIcon aria-hidden="true" className={`h-7 w-7 transition-colors ${dragActive ? "text-brand-orange" : "text-subtle-foreground"}`} strokeWidth="1.5" />
+          <div
+            className={cn(
+              "mb-4 flex size-14 items-center justify-center rounded-lg transition-colors",
+              dragActive ? "bg-brand-orange/10 text-brand-orange-dark" : "bg-muted text-muted-foreground"
+            )}
+          >
+            <CloudUploadIcon aria-hidden="true" className="size-7" strokeWidth="1.5" />
           </div>
           <p className="text-sm font-medium text-foreground-secondary">
             {dragActive ? "Déposez vos fichiers" : "Glissez vos fichiers ici"}
           </p>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            ou <span className="font-medium text-primary hover:underline">parcourez</span> votre ordinateur
+            ou <span className="font-medium text-primary">parcourez</span> votre ordinateur
           </p>
-          <p className="mt-3 text-xs text-subtle-foreground">
+          <p className="mt-3 text-xs text-muted-foreground">
             PDF, images, Excel, emails · Max {MAX_FILE_SIZE_LABEL} par fichier
           </p>
         </div>
       </div>
 
       {/* Upload queue */}
-      {hasItems && (
+      {hasItems ? (
         <div className="mt-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-foreground-secondary">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground-secondary">
               Fichiers sélectionnés
-              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium text-slate-600">
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium text-foreground-secondary">
                 {uploadQueue.length}
               </span>
             </h4>
-            {completedCount > 0 && (
-              <button
-                type="button"
-                className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground-secondary"
-                onClick={clearCompleted}
-              >
-                Effacer termines
-              </button>
-            )}
+            {completedCount > 0 ? (
+              <Button variant="ghost" size="xs" onClick={clearCompleted}>
+                Retirer les fichiers envoyés
+              </Button>
+            ) : null}
           </div>
 
-          <div className="space-y-3">
+          <ul className="space-y-3">
             {uploadQueue.map((item) => (
-              <div
+              <li
                 key={item.id}
-                className={`flex items-center gap-4 rounded-xl border p-4 transition-all ${
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border p-3 transition-colors sm:gap-4 sm:p-4",
                   item.status === "success"
-                    ? "border-success/20 bg-success-light/50"
+                    ? "border-success-border bg-success-subtle"
                     : item.status === "error"
-                      ? "border-danger/20 bg-danger-light/50"
+                      ? "border-danger-border bg-danger-subtle"
                       : "border-border-subtle bg-surface"
-                }`}
+                )}
               >
-                <FileTypeIcon mimeType={item.file.type} filename={item.file.name} className="!h-11 !w-11 !rounded-xl" />
+                <FileTypeIcon mimeType={item.file.type} filename={item.file.name} className="!h-11 !w-11 !rounded-lg" />
 
                 <div className="min-w-0 flex-1">
                   {item.status === "pending" ? (
-                    <input
+                    <Input
                       type="text"
-                      className="form-input h-9 w-full text-sm"
+                      size="sm"
                       value={item.customName}
                       onChange={(e) => updateItemName(item.id, e.target.value)}
                       disabled={isUploading}
-                      placeholder="Nom du document..."
+                      placeholder="Nom du document…"
+                      aria-label={`Nom du document pour ${item.file.name}`}
                     />
                   ) : (
-                    <div className="truncate text-sm font-medium text-slate-800">
-                      {item.customName}
-                    </div>
+                    <p className="truncate text-sm font-medium text-foreground">{item.customName}</p>
                   )}
 
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatFileSize(item.file.size)}</span>
-                    {item.status === "uploading" && (
-                      <span className="font-medium text-brand-orange">{item.progress}%</span>
-                    )}
-                    {item.status === "success" && (
+                    {item.status === "uploading" ? (
+                      <span className="font-medium text-brand-orange-dark">{item.progress} %</span>
+                    ) : null}
+                    {item.status === "success" ? (
                       <span className="flex items-center gap-1 font-medium text-success">
-                        <CheckIcon className="h-3.5 w-3.5" />
-                        Termine
+                        <CircleCheckIcon aria-hidden="true" className="size-3.5" />
+                        Envoyé
                       </span>
-                    )}
-                    {item.status === "error" && (
+                    ) : null}
+                    {item.status === "error" ? (
                       <span className="font-medium text-danger">{item.error}</span>
-                    )}
+                    ) : null}
                   </div>
 
-                  {item.status === "uploading" && (
-                    <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                  {item.status === "uploading" ? (
+                    <div
+                      className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                      role="progressbar"
+                      aria-label={`Envoi de ${item.customName}`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={item.progress}
+                    >
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-brand-orange to-brand-orange-light transition-all duration-300"
+                        className="h-full rounded-full bg-brand-orange transition-[width] duration-300 motion-reduce:transition-none"
                         style={{ width: `${item.progress}%` }}
                       />
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="flex items-center">
-                  {item.status === "success" && (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10">
-                      <CheckIcon className="h-4 w-4 text-success" />
-                    </div>
-                  )}
-                  {(item.status === "pending" || item.status === "error") && (
-                    <button
-                      type="button"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-subtle-foreground transition-colors hover:bg-muted hover:text-slate-600"
+                  {item.status === "success" ? (
+                    <CircleCheckIcon aria-hidden="true" className="size-5 text-success" />
+                  ) : null}
+                  {item.status === "pending" || item.status === "error" ? (
+                    <IconButton
+                      label={`Retirer ${item.customName}`}
+                      icon={<XIcon aria-hidden="true" />}
                       onClick={() => removeItem(item.id)}
                       disabled={isUploading}
-                      aria-label={`Retirer ${item.customName}`}
-                    >
-                      <XIcon className="h-4 w-4" />
-                    </button>
-                  )}
+                    />
+                  ) : null}
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
 
-          {pendingCount > 0 && (
-            <button
-              className="btn btn-accent w-full"
-              type="button"
+          {pendingCount > 0 ? (
+            <Button
+              variant="accent"
+              size="lg"
+              className="w-full"
               onClick={handleUploadAll}
-              disabled={!canManage || isUploading}
+              disabled={!canManage}
+              loading={isUploading}
+              leftIcon={<CloudUploadIcon aria-hidden="true" />}
             >
-              {isUploading ? (
-                <>
-                  <LoaderCircleIcon aria-hidden="true" className="h-4 w-4 animate-spin" />
-                  Envoi en cours...
-                </>
-              ) : (
-                <>
-                  <CloudUploadIcon aria-hidden="true" className="h-4 w-4" />
-                  Envoyer {pendingCount} fichier{pendingCount > 1 ? "s" : ""}
-                </>
-              )}
-            </button>
-          )}
+              Envoyer {pendingCount} fichier{pendingCount > 1 ? "s" : ""}
+            </Button>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
-      {/* Success message */}
-      {successCount > 0 && (
-        <div className="mt-5 flex items-center gap-3 rounded-xl border border-success/20 bg-success-light px-4 py-3">
-          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
-            <CheckIcon className="h-4 w-4 text-success" />
-          </div>
-          <span className="text-sm font-medium text-success">
-            {successCount} fichier{successCount > 1 ? "s" : ""} ajoute{successCount > 1 ? "s" : ""} avec succès
-          </span>
-        </div>
-      )}
+      {successCount > 0 ? (
+        <Alert variant="success" className="mt-5">
+          {successCount} fichier{successCount > 1 ? "s" : ""} ajouté{successCount > 1 ? "s" : ""} avec succès
+        </Alert>
+      ) : null}
 
-      {/* Error message */}
-      {globalError && (
-        <div className="mt-5 rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger whitespace-pre-line">
+      {globalError ? (
+        <Alert variant="danger" className="mt-5 whitespace-pre-line">
           {globalError}
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
       {/* Screen reader announcement */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">

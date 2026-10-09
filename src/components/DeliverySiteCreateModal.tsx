@@ -2,9 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Input } from "@/components/ui-legacy/Input";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type DeliverySiteCreateResult = {
@@ -66,15 +76,6 @@ export function DeliverySiteCreateModal({
     });
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    if (typeof window === "undefined") return;
-    const timeout = window.setTimeout(() => {
-      nameRef.current?.focus();
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [open]);
-
   function updateField<K extends keyof DeliverySiteFormState>(
     key: K,
     value: DeliverySiteFormState[K]
@@ -123,128 +124,125 @@ export function DeliverySiteCreateModal({
   }
 
   return (
-    <Modal.Root
+    <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
+        if (!nextOpen && !isSubmitting) {
           onClose();
         }
       }}
     >
-      <Modal.Content className="max-w-3xl overflow-hidden p-0" closeOnOverlayClick={!isSubmitting}>
-        <div className="border-b border-border px-6 py-4">
-          <Modal.Header className="mb-0">
-            <div>
-              <Modal.Title>Nouveau chantier</Modal.Title>
-              <p className="text-sm text-muted-foreground">
-                Ajoutez une adresse de livraison sans quitter le bon de commande.
-              </p>
-            </div>
-            <Modal.Close disabled={isSubmitting} />
-          </Modal.Header>
-        </div>
+      <DialogContent size="lg" initialFocus={nameRef}>
+        <DialogHeader>
+          <DialogTitle>Nouveau chantier</DialogTitle>
+          <DialogDescription>Ajoutez une adresse de livraison sans quitter le bon de commande.</DialogDescription>
+        </DialogHeader>
 
-        <form
-          className="grid max-h-[calc(90vh-80px)] gap-5 overflow-y-auto p-6 sm:grid-cols-2"
-          onSubmit={onSubmit}
-        >
-          <Input
-            ref={nameRef}
-            id="modal-site-name"
-            name="site-name"
-            autoComplete="organization"
-            label="Nom du chantier *"
-            placeholder="BBD2"
-            required
-            value={formState.name}
-            onChange={(event) => updateField("name", event.target.value)}
-          />
+        <form className="flex min-h-0 flex-col gap-5" onSubmit={onSubmit}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="modal-site-name">
+                Nom du chantier <span aria-hidden="true" className="text-danger">*</span>
+              </FieldLabel>
+              <Input
+                ref={nameRef}
+                id="modal-site-name"
+                name="site-name"
+                autoComplete="organization"
+                placeholder="BBD2"
+                required
+                value={formState.name}
+                onChange={(event) => updateField("name", event.target.value)}
+              />
+            </Field>
 
-          <Input
-            id="modal-site-project-code"
-            name="project-code"
-            autoComplete="off"
-            label="Code projet"
-            placeholder="BBD2"
-            value={formState.project_code}
-            onChange={(event) => updateField("project_code", event.target.value)}
-          />
+            <Field>
+              <FieldLabel htmlFor="modal-site-project-code">Code projet</FieldLabel>
+              <Input
+                id="modal-site-project-code"
+                name="project-code"
+                autoComplete="off"
+                placeholder="BBD2"
+                value={formState.project_code}
+                onChange={(event) => updateField("project_code", event.target.value)}
+              />
+            </Field>
 
-          <div className="space-y-1.5 sm:col-span-2">
-            <label className="block text-xs font-semibold text-foreground-secondary" htmlFor="modal-site-address">
-              Adresse
-            </label>
-            <textarea
-              id="modal-site-address"
-              name="street-address"
-              autoComplete="street-address"
-              className="form-input form-textarea"
-              placeholder="Adresse complete"
-              value={formState.address}
-              onChange={(event) => updateField("address", event.target.value)}
-            />
+            <Field className="sm:col-span-2">
+              <FieldLabel htmlFor="modal-site-address">Adresse</FieldLabel>
+              <Textarea
+                id="modal-site-address"
+                name="street-address"
+                autoComplete="street-address"
+                placeholder="Adresse complète"
+                className="min-h-20"
+                value={formState.address}
+                onChange={(event) => updateField("address", event.target.value)}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="modal-site-postal">Code postal</FieldLabel>
+              <Input
+                id="modal-site-postal"
+                name="postal-code"
+                autoComplete="postal-code"
+                placeholder="78120"
+                value={formState.postal_code}
+                onChange={(event) => updateField("postal_code", event.target.value)}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="modal-site-city">Ville</FieldLabel>
+              <Input
+                id="modal-site-city"
+                name="city"
+                autoComplete="address-level2"
+                placeholder="Rambouillet"
+                value={formState.city}
+                onChange={(event) => updateField("city", event.target.value)}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="modal-site-contact">Contact sur site</FieldLabel>
+              <Input
+                id="modal-site-contact"
+                name="contact-name"
+                autoComplete="name"
+                placeholder="Nom du contact"
+                value={formState.contact_name}
+                onChange={(event) => updateField("contact_name", event.target.value)}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="modal-site-phone">Téléphone</FieldLabel>
+              <Input
+                id="modal-site-phone"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="01 00 00 00 00"
+                value={formState.contact_phone}
+                onChange={(event) => updateField("contact_phone", event.target.value)}
+              />
+            </Field>
           </div>
 
-          <Input
-            id="modal-site-postal"
-            name="postal-code"
-            autoComplete="postal-code"
-            label="Code postal"
-            placeholder="78120"
-            value={formState.postal_code}
-            onChange={(event) => updateField("postal_code", event.target.value)}
-          />
+          {formError ? <Alert variant="danger">{formError}</Alert> : null}
 
-          <Input
-            id="modal-site-city"
-            name="city"
-            autoComplete="address-level2"
-            label="Ville"
-            placeholder="Rambouillet"
-            value={formState.city}
-            onChange={(event) => updateField("city", event.target.value)}
-          />
-
-          <Input
-            id="modal-site-contact"
-            name="contact-name"
-            autoComplete="name"
-            label="Contact sur site"
-            placeholder="Nom du contact"
-            value={formState.contact_name}
-            onChange={(event) => updateField("contact_name", event.target.value)}
-          />
-
-          <Input
-            id="modal-site-phone"
-            name="phone"
-            type="tel"
-            autoComplete="tel"
-            label="Téléphone"
-            placeholder="01 00 00 00 00"
-            value={formState.contact_phone}
-            onChange={(event) => updateField("contact_phone", event.target.value)}
-          />
-
-          <div className="flex flex-wrap items-center justify-between gap-4 pt-2 sm:col-span-2">
-            {formError ? (
-              <div className="alert alert-error flex-1" role="alert">
-                {formError}
-              </div>
-            ) : (
-              <span />
-            )}
-            <div className="flex items-center gap-3">
-              <Button variant="secondary" type="button" disabled={isSubmitting} onClick={onClose}>
-                Annuler
-              </Button>
-              <Button loading={isSubmitting} type="submit">
-                {isSubmitting ? "Enregistrement..." : "Ajouter"}
-              </Button>
-            </div>
-          </div>
+          <DialogFooter className="mt-0">
+            <Button variant="outline" size="lg" type="button" disabled={isSubmitting} onClick={onClose}>
+              Annuler
+            </Button>
+            <Button variant="primary" size="lg" loading={isSubmitting} type="submit">
+              Ajouter le chantier
+            </Button>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }

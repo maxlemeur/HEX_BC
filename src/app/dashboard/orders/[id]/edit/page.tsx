@@ -4,13 +4,17 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import { SaveIcon } from "lucide-react";
 
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   PurchaseOrderDocument,
   type OrderItemData,
   type SupplierData,
   type DeliverySiteData,
 } from "@/components/PurchaseOrderDocument";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useUserContext } from "@/components/UserContext";
 import {
   computeLineTotals,
@@ -18,7 +22,10 @@ import {
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ChevronLeftIcon, CircleXIcon, SaveIcon } from "lucide-react";
+
+import { OrderDocumentViewport } from "../../_components/OrderDocumentViewport";
+import { OrderFormActions } from "../../_components/OrderFormActions";
+import { useDeliveryDateState } from "../../_components/use-delivery-date-state";
 
 type SupplierOption = {
   id: string;
@@ -103,7 +110,8 @@ export default function EditOrderPage() {
 
   const [supplierId, setSupplierId] = useState<string>("");
   const [deliverySiteId, setDeliverySiteId] = useState<string>("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
+  const deliveryDate = useDeliveryDateState();
+  const resetDeliveryDate = deliveryDate.reset;
   const [notes, setNotes] = useState<string>("");
   const [items, setItems] = useState<DraftItem[]>([]);
   const [orderDate, setOrderDate] = useState<string>("");
@@ -154,7 +162,7 @@ export default function EditOrderPage() {
     queueMicrotask(() => {
       setSupplierId(order.supplier_id);
       setDeliverySiteId(order.delivery_site_id);
-      setExpectedDeliveryDate(order.expected_delivery_date ?? "");
+      resetDeliveryDate(order.expected_delivery_date);
       setNotes(order.notes ?? "");
       setOrderDate(order.order_date);
       setReference(order.reference);
@@ -165,7 +173,7 @@ export default function EditOrderPage() {
       );
       setInitialized(true);
     });
-  }, [order, orderItems, initialized]);
+  }, [order, orderItems, initialized, resetDeliveryDate]);
 
   // Check if order is draft
   const isDraft = order?.status === "draft";
@@ -214,7 +222,6 @@ export default function EditOrderPage() {
 
   const loadError = suppliersError ?? sitesError ?? orderError ?? itemsError;
   const isLoading = isSuppliersLoading || isSitesLoading || isOrderLoading || isItemsLoading;
-  const displayError = formError ?? (loadError ? (loadError as Error).message : null);
 
   // Get selected supplier and site data
   const selectedSupplier: SupplierData | null = useMemo(() => {
@@ -367,17 +374,24 @@ export default function EditOrderPage() {
 
     setSaving(true);
 
-    const response = await fetch(`/api/purchase-orders/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        supplierId,
-        deliverySiteId,
-        expectedDeliveryDate: expectedDeliveryDate || null,
-        notes: notes.trim() || null,
-        items: cleanedItems,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`/api/purchase-orders/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplierId,
+          deliverySiteId,
+          expectedDeliveryDate: deliveryDate.payloadValue,
+          notes: notes.trim() || null,
+          items: cleanedItems,
+        }),
+      });
+    } catch {
+      setSaving(false);
+      setFormError("Impossible d’enregistrer le bon de commande : vérifiez votre connexion.");
+      return;
+    }
 
     setSaving(false);
 
@@ -397,135 +411,102 @@ export default function EditOrderPage() {
     router.refresh();
   }
 
-  // Show error if order is not draft
+  const detailHref = id ? `/dashboard/orders/${id}` : "/dashboard/orders";
+  const displayReference = reference || order?.reference || "";
+  const breadcrumbs = [
+    { label: "Bons de commande", href: "/dashboard/orders" },
+    ...(displayReference ? [{ label: displayReference, href: detailHref }] : []),
+    { label: "Modifier" },
+  ];
+
+  // Only draft orders can be edited.
   if (order && !isDraft) {
     return (
-      <div className="min-h-screen bg-muted">
-        <div className="border-b border-border bg-surface/80 backdrop-blur-md">
-          <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 py-4">
-            <Link
-              className="btn btn-ghost btn-sm"
-              href={id ? `/dashboard/orders/${id}` : "/dashboard/orders"}
-            >
-              <ChevronLeftIcon aria-hidden="true" size={18} />
-              Retour
+      <div className="mx-auto max-w-5xl animate-fade-in">
+        <PageHeader
+          breadcrumbs={breadcrumbs}
+          eyebrow="Modification"
+          title={<span className="font-mono">{order.reference}</span>}
+        />
+        <Alert variant="warning">
+          <AlertTitle>Ce bon de commande n’est plus modifiable.</AlertTitle>
+          <AlertDescription>
+            Seuls les bons de commande en brouillon peuvent être modifiés.{" "}
+            <Link href={detailHref} className="font-medium text-primary underline underline-offset-4">
+              Retour au bon de commande
             </Link>
-          </div>
-        </div>
-        <div className="mx-auto max-w-4xl px-4 pt-6">
-          <div className="alert alert-error">
-            <CircleXIcon aria-hidden="true" size={18} />
-            Seuls les bons de commande en brouillon peuvent être modifiés.
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-muted">
-      {/* Action bar - sticky at top */}
-      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          {/* Left: Back and title */}
-          <div className="flex items-center gap-4">
-            <Link
-              className="btn btn-ghost btn-sm"
-              href={id ? `/dashboard/orders/${id}` : "/dashboard/orders"}
-            >
-              <ChevronLeftIcon aria-hidden="true" size={18} />
-              Annuler
-            </Link>
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-            <span className="hidden text-sm font-semibold text-foreground-secondary sm:block">
-              Modifier le bon de commande
-            </span>
-            {reference && (
-              <span className="hidden rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange sm:inline-block">
-                {reference}
-              </span>
-            )}
-          </div>
+    <div className="mx-auto max-w-5xl animate-fade-in">
+      <PageHeader
+        breadcrumbs={breadcrumbs}
+        eyebrow="Modification"
+        title={
+          displayReference ? <span className="font-mono">{displayReference}</span> : "Modifier le bon de commande"
+        }
+        description="Modifiez le fournisseur, le chantier ou les lignes, puis enregistrez le brouillon."
+      />
 
-          {/* Right: Save button */}
-          <button
-            className="btn btn-accent btn-lg"
-            disabled={saving || isLoading || !initialized}
-            form="order-form"
-            type="submit"
-          >
-            {saving ? (
-              <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                Enregistrement...
-              </>
-            ) : (
-              <>
-                <SaveIcon aria-hidden="true" size={18} />
-                Enregistrer
-              </>
-            )}
-          </button>
-        </div>
-      </div>
+      {loadError ? (
+        <Alert variant="danger" className="mb-4">
+          {(loadError as Error).message}
+        </Alert>
+      ) : null}
 
-      {/* Error message */}
-      {displayError && (
-        <div className="mx-auto max-w-4xl px-4 pt-6">
-          <div className="alert alert-error">
-            <CircleXIcon aria-hidden="true" size={18} />
-            {displayError}
-          </div>
-        </div>
-      )}
+      {isLoading ? <LoadingState label="Chargement du bon de commande…" className="py-4" /> : null}
 
-      {/* Loading indicator */}
-      {isLoading && (
-        <div className="mx-auto max-w-4xl px-4 pt-6">
-          <div className="alert alert-info">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-info/30 border-t-info"></div>
-            Chargement des données...
-          </div>
-        </div>
-      )}
+      {initialized ? (
+        <form id="order-form" onSubmit={onSaveOrder} aria-label={`Modifier le bon de commande ${reference}`}>
+          <OrderDocumentViewport label={`Bon de commande ${reference} en cours de modification`}>
+            <PurchaseOrderDocument
+              editable={true}
+              issuerName={userProfile?.full_name ?? "Chargement…"}
+              issuerRole={userProfile?.job_title ?? ""}
+              issuerPhone={userProfile?.phone ?? undefined}
+              issuerEmail={userProfile?.work_email ?? undefined}
+              orderDate={orderDate || new Date().toISOString()}
+              reference={reference}
+              supplier={selectedSupplier}
+              supplierId={supplierId}
+              onSupplierChange={setSupplierId}
+              supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
+              deliverySite={selectedSite}
+              deliverySiteId={deliverySiteId}
+              onDeliverySiteChange={setDeliverySiteId}
+              siteOptions={sites.map((s) => ({
+                id: s.id,
+                name: s.name,
+                project_code: s.project_code,
+              }))}
+              expectedDeliveryDate={deliveryDate.documentValue}
+              onExpectedDeliveryDateChange={deliveryDate.onDocumentChange}
+              notes={notes}
+              onNotesChange={setNotes}
+              items={documentItems}
+              onItemChange={handleItemChange}
+              onItemRemove={removeItem}
+              onItemAdd={addItem}
+              totalHtCents={orderTotals.totalHtCents}
+              totalTaxCents={orderTotals.totalTaxCents}
+              totalTtcCents={orderTotals.totalTtcCents}
+            />
+          </OrderDocumentViewport>
 
-      {/* WYSIWYG Document */}
-      {initialized && (
-        <form id="order-form" onSubmit={onSaveOrder} className="py-8">
-          <PurchaseOrderDocument
-            editable={true}
-            issuerName={userProfile?.full_name ?? "Chargement..."}
-            issuerRole={userProfile?.job_title ?? ""}
-            issuerPhone={userProfile?.phone ?? undefined}
-            issuerEmail={userProfile?.work_email ?? undefined}
-            orderDate={orderDate || new Date().toISOString()}
-            reference={reference}
-            supplier={selectedSupplier}
-            supplierId={supplierId}
-            onSupplierChange={setSupplierId}
-            supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
-            deliverySite={selectedSite}
-            deliverySiteId={deliverySiteId}
-            onDeliverySiteChange={setDeliverySiteId}
-            siteOptions={sites.map((s) => ({
-              id: s.id,
-              name: s.name,
-              project_code: s.project_code,
-            }))}
-            expectedDeliveryDate={expectedDeliveryDate}
-            onExpectedDeliveryDateChange={setExpectedDeliveryDate}
-            notes={notes}
-            onNotesChange={setNotes}
-            items={documentItems}
-            onItemChange={handleItemChange}
-            onItemRemove={removeItem}
-            onItemAdd={addItem}
-            totalHtCents={orderTotals.totalHtCents}
-            totalTaxCents={orderTotals.totalTaxCents}
-            totalTtcCents={orderTotals.totalTtcCents}
+          <OrderFormActions
+            cancelHref={detailHref}
+            submitLabel="Enregistrer"
+            submitIcon={<SaveIcon aria-hidden="true" />}
+            loading={saving}
+            disabled={isLoading}
+            error={formError}
           />
         </form>
-      )}
+      ) : null}
     </div>
   );
 }

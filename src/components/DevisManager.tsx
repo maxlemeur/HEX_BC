@@ -1,28 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
+import { ChevronDownIcon, CloudUploadIcon } from "lucide-react";
+
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 import { DevisUploader } from "./DevisUploader";
 import { DevisList, type DevisItem } from "./DevisList";
-import { ChevronDownIcon, CloudUploadIcon, LucidePlus } from "lucide-react";
-
-function ChevronIcon({ className, expanded }: { className?: string; expanded: boolean }) {
-  return (
-    <ChevronDownIcon aria-hidden="true" className={`${className} transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
-  );
-}
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <LucidePlus aria-hidden="true" className={className} />
-  );
-}
-
-function UploadCloudIcon({ className }: { className?: string }) {
-  return (
-    <CloudUploadIcon aria-hidden="true" className={className} />
-  );
-}
 
 type DevisManagerProps = {
   orderId: string;
@@ -34,86 +19,55 @@ export function DevisManager({ orderId, initialItems, canManage }: DevisManagerP
   const [showUploader, setShowUploader] = useState(
     canManage && initialItems.length === 0
   );
+  const uploaderId = useId();
 
   return (
-    <div className="space-y-6">
-      {/* Upload section - collapsible */}
-      {canManage && (
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm transition-all duration-300">
+    <div className="space-y-4">
+      {canManage ? (
+        <Card className="overflow-hidden">
           <button
             type="button"
-            className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-surface-subtle"
-            onClick={() => setShowUploader(!showUploader)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:px-5"
+            onClick={() => setShowUploader((current) => !current)}
+            aria-expanded={showUploader}
+            aria-controls={showUploader ? uploaderId : undefined}
           >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-orange/10">
-                <UploadCloudIcon className="h-5 w-5 text-brand-orange" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-slate-800">
-                  Ajouter des documents
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Déposez vos devis fournisseurs (PDF, images, Excel)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {!showUploader && (
-                <span className="hidden rounded-full bg-brand-orange/10 px-3 py-1 text-xs font-medium text-brand-orange sm:inline-flex">
-                  <PlusIcon className="mr-1 h-3.5 w-3.5" />
-                  Ajouter
+            <span className="flex min-w-0 items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-orange/10 text-brand-orange-dark"
+              >
+                <CloudUploadIcon className="size-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-semibold text-foreground">Ajouter des documents</span>
+                <span className="block text-sm text-muted-foreground">
+                  Déposez vos devis fournisseurs (PDF, images, Excel, emails)
                 </span>
+              </span>
+            </span>
+            <ChevronDownIcon
+              aria-hidden="true"
+              className={cn(
+                "size-5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+                showUploader && "rotate-180"
               )}
-              <ChevronIcon className="h-5 w-5 text-subtle-foreground" expanded={showUploader} />
-            </div>
+            />
           </button>
 
-          {showUploader && (
-            <div className="border-t border-border-subtle bg-gradient-to-b from-slate-50 to-white p-6">
-              <DevisUploaderInline orderId={orderId} />
+          {showUploader ? (
+            <div id={uploaderId} className="border-t border-border-subtle bg-surface-subtle p-4 sm:p-5">
+              <DevisUploader orderId={orderId} canManage />
             </div>
-          )}
-        </div>
-      )}
+          ) : null}
+        </Card>
+      ) : null}
 
-      {/* Documents list */}
-      <DevisListInline
-        orderId={orderId}
-        initialItems={initialItems}
-        canManage={canManage}
-        onAddClick={() => setShowUploader(true)}
-      />
-    </div>
-  );
-}
-
-function DevisUploaderInline({ orderId }: { orderId: string }) {
-  return (
-    <div className="-m-5">
-      <DevisUploader orderId={orderId} canManage={true} />
-    </div>
-  );
-}
-
-function DevisListInline({
-  orderId,
-  initialItems,
-  canManage,
-  onAddClick,
-}: {
-  orderId: string;
-  initialItems: DevisItem[];
-  canManage: boolean;
-  onAddClick: () => void;
-}) {
-  return (
-    <div className="-m-5">
       <DevisList
         orderId={orderId}
         initialItems={initialItems}
         canManage={canManage}
-        onAddClick={onAddClick}
+        onAddClick={showUploader ? undefined : () => setShowUploader(true)}
       />
     </div>
   );

@@ -2,10 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { createPortal } from "react-dom";
+import { DownloadIcon, XIcon } from "lucide-react";
+
+import { LoadingState } from "@/components/layout/loading-state";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 import type { DevisItem } from "./DevisList";
-import { LucideDownload, XIcon } from "lucide-react";
 
 type DevisPreviewModalProps = {
   open: boolean;
@@ -50,27 +60,6 @@ type ParsedEmailResponse = {
     size?: number | null;
   }> | null;
 };
-
-function CloseIcon({ className }: { className?: string }) {
-  return (
-    <XIcon aria-hidden="true" className={className} />
-  );
-}
-
-function DownloadIcon({ className }: { className?: string }) {
-  return (
-    <LucideDownload aria-hidden="true" className={className} />
-  );
-}
-
-function LoadingSpinner() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3">
-      <div className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-brand-orange" />
-      <p className="text-sm text-muted-foreground">Chargement...</p>
-    </div>
-  );
-}
 
 function isPreviewableType(mimeType: string, filename?: string): boolean {
   const normalizedFilename = filename?.toLowerCase();
@@ -192,16 +181,6 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeAttachmentId, setActiveAttachmentId] = useState<string | null>(null);
-  const portalTarget = typeof document !== "undefined" ? document.body : null;
-
-  useEffect(() => {
-    if (!open) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [open]);
 
   const mimeType = devis?.mimeType ?? "";
   const originalFilename = devis?.originalFilename ?? "";
@@ -227,7 +206,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
   );
 
   const emailPreview = emailPreviewData ?? null;
-  const previewError = error ?? (emailPreviewError ? "Impossible de lire l'email." : null);
+  const previewError = error ?? (emailPreviewError ? "Impossible de lire l’email." : null);
   const isPreviewLoading = isEmail ? isEmailPreviewLoading : loading;
 
   function handleLoad() {
@@ -275,195 +254,173 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   }
 
-  if (!open || !devis || !portalTarget) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col" role="dialog" aria-modal="true" aria-labelledby="devis-preview-title">
-      <div className="absolute inset-0 bg-slate-900/80" />
-
-      <div className="relative z-10 flex h-full flex-col">
-        <header className="flex items-center justify-between border-b border-white/10 bg-slate-900 px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <h2 id="devis-preview-title" className="truncate text-lg font-semibold text-white">
-              {devis.name}
-            </h2>
-            <p className="text-sm text-subtle-foreground">
-              {devis.originalFilename}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/20"
-              type="button"
-              onClick={handleDownload}
-              disabled={!devis.downloadUrl}
-            >
-              <DownloadIcon className="h-4 w-4" />
-              Télécharger
-            </button>
-            <button
-              className="flex items-center justify-center rounded-lg bg-white/10 p-2 text-white transition hover:bg-white/20"
-              type="button"
-              onClick={onClose}
-              aria-label="Fermer"
-            >
-              <CloseIcon className="h-5 w-5" />
-            </button>
-          </div>
-        </header>
-
-        <div className="flex flex-1 items-center justify-center overflow-auto bg-slate-800 p-4">
-          {!canPreview ? (
-            <div className="text-center">
-              <p className="text-lg font-medium text-white">
-                Aperçu non disponible
-              </p>
-              <p className="mt-2 text-sm text-subtle-foreground">
-                Ce type de fichier ({devis.mimeType}) ne peut pas être previsualise.
-              </p>
-              <button
-                className="btn btn-primary mt-4"
-                type="button"
+  return (
+    <Dialog
+      open={open && devis !== null}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+    >
+      {devis ? (
+        <DialogContent
+          size="full"
+          showCloseButton={false}
+          className="h-[calc(100dvh-2rem)] gap-0 overflow-hidden p-0 sm:p-0"
+        >
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate">{devis.name}</DialogTitle>
+              <DialogDescription className="truncate font-mono text-xs">{devis.originalFilename}</DialogDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="md"
+                leftIcon={<DownloadIcon aria-hidden="true" />}
                 onClick={handleDownload}
                 disabled={!devis.downloadUrl}
               >
-                <DownloadIcon className="h-4 w-4" />
-                Télécharger le fichier
-              </button>
+                Télécharger
+              </Button>
+              <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fermer l’aperçu" />}>
+                <XIcon aria-hidden="true" />
+              </DialogClose>
             </div>
-          ) : (
-            <>
-              {isPreviewLoading && <LoadingSpinner />}
+          </header>
 
-              {previewError && (
-                <div className="text-center">
-                  <p className="text-lg font-medium text-white">{previewError}</p>
-                  <button
-                    className="btn btn-primary mt-4"
-                    type="button"
-                    onClick={handleDownload}
-                  >
-                    Télécharger à la place
-                  </button>
-                </div>
-              )}
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted p-4">
+            {!canPreview ? (
+              <div className="text-center">
+                <p className="text-lg font-medium text-foreground">Aperçu non disponible</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Ce type de fichier ({devis.mimeType}) ne peut pas être prévisualisé.
+                </p>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="mt-4"
+                  leftIcon={<DownloadIcon aria-hidden="true" />}
+                  onClick={handleDownload}
+                  disabled={!devis.downloadUrl}
+                >
+                  Télécharger le fichier
+                </Button>
+              </div>
+            ) : (
+              <>
+                {isPreviewLoading ? <LoadingState label="Chargement de l’aperçu…" /> : null}
 
-              {isEmail && emailPreview && !isPreviewLoading && !previewError && (
-                <div className="w-full max-w-5xl space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                    <div className="text-base font-semibold text-white">
-                      {emailPreview.subject}
-                    </div>
-                    <div className="mt-3 space-y-1 text-xs text-slate-300">
-                      {emailPreview.from && (
-                        <div className="flex flex-wrap gap-2">
-                          <span className="text-subtle-foreground">De :</span>
-                          <span className="break-all text-slate-100">{emailPreview.from}</span>
-                        </div>
-                      )}
-                      {emailPreview.to && (
-                        <div className="flex flex-wrap gap-2">
-                          <span className="text-subtle-foreground">A :</span>
-                          <span className="break-all text-slate-100">{emailPreview.to}</span>
-                        </div>
-                      )}
-                      {emailPreview.date && (
-                        <div className="flex flex-wrap gap-2">
-                          <span className="text-subtle-foreground">Date :</span>
-                          <span className="text-slate-100">{emailPreview.date}</span>
-                        </div>
-                      )}
-                    </div>
+                {previewError ? (
+                  <div className="text-center">
+                    <p className="text-lg font-medium text-foreground">{previewError}</p>
+                    <Button variant="primary" size="lg" className="mt-4" onClick={handleDownload}>
+                      Télécharger à la place
+                    </Button>
                   </div>
+                ) : null}
 
-                  {emailPreview.text ? (
-                    <div className="rounded-xl bg-surface p-5 text-sm text-foreground shadow-lg">
-                      <pre className="whitespace-pre-wrap leading-relaxed">
-                        {emailPreview.text}
-                      </pre>
-                    </div>
-                  ) : emailPreview.html ? (
-                    <iframe
-                      title={devis.name}
-                      className="h-[70vh] w-full rounded-xl bg-surface shadow-lg"
-                      sandbox=""
-                      referrerPolicy="no-referrer"
-                      srcDoc={buildEmailHtmlDocument(emailPreview.html)}
-                      onLoad={handleLoad}
-                    />
-                  ) : (
-                    <div className="rounded-xl bg-white/5 p-6 text-center text-sm text-slate-200">
-                      Aucun contenu d&apos;email à afficher.
-                    </div>
-                  )}
-
-                  {emailPreview.attachments.length > 0 && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                      <div className="text-sm font-semibold text-white">
-                        Pièces jointes ({emailPreview.attachments.length})
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {emailPreview.attachments.map((attachment) => (
-                          <div
-                            key={attachment.id}
-                            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm text-white">
-                                {attachment.filename}
-                              </div>
-                              <div className="mt-0.5 text-xs text-subtle-foreground">
-                                {attachment.mimeType}
-                                {attachment.size > 0 ? ` · ${formatAttachmentSize(attachment.size)}` : ""}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20 disabled:opacity-50"
-                                type="button"
-                                onClick={() => {
-                                  if (!isAttachmentPreviewable(attachment) || !attachment.content) return;
-                                  setActiveAttachmentId((current) =>
-                                    current === attachment.id ? null : attachment.id
-                                  );
-                                }}
-                                disabled={!attachment.content || !isAttachmentPreviewable(attachment)}
-                              >
-                                Aperçu
-                              </button>
-                              <button
-                                className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20 disabled:opacity-50"
-                                type="button"
-                                onClick={() => handleAttachmentDownload(attachment)}
-                                disabled={!attachment.content}
-                              >
-                                Télécharger
-                              </button>
-                            </div>
+                {isEmail && emailPreview && !isPreviewLoading && !previewError ? (
+                  <div className="w-full max-w-5xl space-y-4 self-start">
+                    <div className="rounded-lg border border-border bg-surface p-4 text-sm">
+                      <p className="text-base font-semibold text-foreground">{emailPreview.subject}</p>
+                      <dl className="mt-3 space-y-1 text-xs">
+                        {emailPreview.from ? (
+                          <div className="flex flex-wrap gap-2">
+                            <dt className="text-muted-foreground">De :</dt>
+                            <dd className="break-all text-foreground-secondary">{emailPreview.from}</dd>
                           </div>
-                        ))}
-                      </div>
+                        ) : null}
+                        {emailPreview.to ? (
+                          <div className="flex flex-wrap gap-2">
+                            <dt className="text-muted-foreground">À :</dt>
+                            <dd className="break-all text-foreground-secondary">{emailPreview.to}</dd>
+                          </div>
+                        ) : null}
+                        {emailPreview.date ? (
+                          <div className="flex flex-wrap gap-2">
+                            <dt className="text-muted-foreground">Date :</dt>
+                            <dd className="text-foreground-secondary">{emailPreview.date}</dd>
+                          </div>
+                        ) : null}
+                      </dl>
                     </div>
-                  )}
 
-                  {activeAttachment && activeAttachmentUrl && isAttachmentPreviewable(activeAttachment) && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-white">
-                          Aperçu de la pièce jointe
-                        </div>
-                        <button
-                          className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20"
-                          type="button"
-                          onClick={() => setActiveAttachmentId(null)}
-                        >
-                          Fermer
-                        </button>
+                    {emailPreview.text ? (
+                      <div className="rounded-lg border border-border bg-surface p-5 text-sm text-foreground shadow-card">
+                        <pre className="whitespace-pre-wrap font-sans leading-relaxed">{emailPreview.text}</pre>
                       </div>
-                        <p className="mt-1 text-xs text-subtle-foreground">
-                          {activeAttachment.filename}
+                    ) : emailPreview.html ? (
+                      <iframe
+                        title={devis.name}
+                        className="h-[70vh] w-full rounded-lg border border-border bg-surface shadow-card"
+                        sandbox=""
+                        referrerPolicy="no-referrer"
+                        srcDoc={buildEmailHtmlDocument(emailPreview.html)}
+                        onLoad={handleLoad}
+                      />
+                    ) : (
+                      <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted-foreground">
+                        Aucun contenu d’email à afficher.
+                      </div>
+                    )}
+
+                    {emailPreview.attachments.length > 0 ? (
+                      <div className="rounded-lg border border-border bg-surface p-4 text-sm">
+                        <p className="text-sm font-semibold text-foreground">
+                          Pièces jointes ({emailPreview.attachments.length})
                         </p>
+                        <ul className="mt-3 space-y-2">
+                          {emailPreview.attachments.map((attachment) => (
+                            <li
+                              key={attachment.id}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-subtle px-3 py-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm text-foreground">{attachment.filename}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {attachment.mimeType}
+                                  {attachment.size > 0 ? ` · ${formatAttachmentSize(attachment.size)}` : ""}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  aria-pressed={activeAttachmentId === attachment.id}
+                                  onClick={() => {
+                                    if (!isAttachmentPreviewable(attachment) || !attachment.content) return;
+                                    setActiveAttachmentId((current) =>
+                                      current === attachment.id ? null : attachment.id
+                                    );
+                                  }}
+                                  disabled={!attachment.content || !isAttachmentPreviewable(attachment)}
+                                >
+                                  Aperçu
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleAttachmentDownload(attachment)}
+                                  disabled={!attachment.content}
+                                >
+                                  Télécharger
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {activeAttachment && activeAttachmentUrl && isAttachmentPreviewable(activeAttachment) ? (
+                      <div className="rounded-lg border border-border bg-surface p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-foreground">Aperçu de la pièce jointe</p>
+                          <Button variant="ghost" size="sm" onClick={() => setActiveAttachmentId(null)}>
+                            Fermer
+                          </Button>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{activeAttachment.filename}</p>
                         <div className="mt-3 rounded-lg bg-surface">
                           {activeAttachment.mimeType.startsWith("image/") ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -472,45 +429,51 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                               alt={activeAttachment.filename}
                               className="max-h-[70vh] w-full object-contain"
                             />
-                        ) : (
-                          <iframe
-                            src={`${activeAttachmentUrl}#toolbar=1&navpanes=0`}
-                            title={activeAttachment.filename}
-                            className="h-[70vh] w-full rounded-lg bg-surface"
-                          />
-                        )}
+                          ) : (
+                            <iframe
+                              src={`${activeAttachmentUrl}#toolbar=1&navpanes=0`}
+                              title={activeAttachment.filename}
+                              className="h-[70vh] w-full rounded-lg bg-surface"
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    ) : null}
+                  </div>
+                ) : null}
 
-              {isImage && devis.downloadUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={devis.downloadUrl}
-                  alt={devis.name}
-                  className={`max-h-full max-w-full object-contain ${isPreviewLoading || previewError ? "hidden" : ""}`}
-                  onLoad={handleLoad}
-                  onError={handleError}
-                />
-              )}
+                {isImage && devis.downloadUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={devis.downloadUrl}
+                    alt={devis.name}
+                    className={cn(
+                      "max-h-full max-w-full object-contain",
+                      (isPreviewLoading || previewError) && "hidden"
+                    )}
+                    onLoad={handleLoad}
+                    onError={handleError}
+                  />
+                ) : null}
 
-              {isPdf && devis.downloadUrl && (
-                <iframe
-                  src={`${devis.downloadUrl}#toolbar=1&navpanes=0`}
-                  title={devis.name}
-                  className={`h-full w-full rounded-lg bg-surface ${isPreviewLoading || previewError ? "hidden" : ""}`}
-                  onLoad={handleLoad}
-                  onError={handleError}
-                />
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>,
-    portalTarget
+                {isPdf && devis.downloadUrl ? (
+                  <iframe
+                    src={`${devis.downloadUrl}#toolbar=1&navpanes=0`}
+                    title={devis.name}
+                    className={cn(
+                      "h-full w-full rounded-lg bg-surface",
+                      (isPreviewLoading || previewError) && "hidden"
+                    )}
+                    onLoad={handleLoad}
+                    onError={handleError}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      ) : null}
+    </Dialog>
   );
 }
 

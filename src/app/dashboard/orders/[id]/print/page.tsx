@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { PrintButton } from "@/components/PrintButton";
 import { PrintTitle } from "@/components/PrintTitle";
 import {
@@ -9,8 +9,10 @@ import {
   type DeliverySiteData,
   type OrderItemData,
 } from "@/components/PurchaseOrderDocument";
+import { Badge } from "@/components/ui/badge";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ChevronLeftIcon } from "lucide-react";
+
+import { OrderDocumentViewport } from "../../_components/OrderDocumentViewport";
 
 type Supplier = {
   name: string;
@@ -175,51 +177,43 @@ export default async function OrderPrintPage({
   const printTitle = sanitizeFilename(rawTitle);
 
   return (
-    <div className="min-h-screen bg-muted print:bg-surface">
+    <div className="mx-auto max-w-5xl print:max-w-none">
       <PrintTitle title={printTitle} />
-      {/* Print controls - hidden in print */}
-      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              className="btn btn-ghost btn-sm"
-              href={`/dashboard/orders/${order.id}`}
-            >
-              <ChevronLeftIcon aria-hidden="true" size={18} />
-              Retour
-            </Link>
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-            <span className="hidden text-sm font-semibold text-foreground-secondary sm:block">
-              Aperçu avant impression
-            </span>
-            <span className="hidden rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange sm:inline-block">
-              {order.reference}
-            </span>
-          </div>
-          <PrintButton autoPrint={autoPrint} />
-        </div>
-      </div>
-
-      {/* Print Document */}
-      <div className="py-8 print:py-0">
-        <PurchaseOrderDocument
-        editable={false}
-        issuerName={userProfile?.full_name ?? "Utilisateur"}
-        issuerRole={userProfile?.job_title ?? ""}
-        issuerPhone={userProfile?.phone ?? undefined}
-        issuerEmail={userProfile?.work_email ?? undefined}
-        orderDate={order.order_date}
-        reference={order.reference}
-        supplier={supplier}
-        deliverySite={deliverySite}
-        expectedDeliveryDate={order.expected_delivery_date}
-        notes={order.notes}
-        items={orderItems}
-        totalHtCents={order.total_ht_cents}
-        totalTaxCents={order.total_tax_cents}
-        totalTtcCents={order.total_ttc_cents}
+      <PageHeader
+        className="no-print"
+        breadcrumbs={[
+          { label: "Bons de commande", href: "/dashboard/orders" },
+          { label: order.reference, href: `/dashboard/orders/${order.id}` },
+          { label: "Impression" },
+        ]}
+        title="Aperçu avant impression"
+        meta={
+          <Badge variant="outline" className="font-mono">
+            {order.reference}
+          </Badge>
+        }
+        actions={<PrintButton autoPrint={autoPrint} />}
       />
-      </div>
+
+      <OrderDocumentViewport label={`Bon de commande ${order.reference}, aperçu avant impression`}>
+        <PurchaseOrderDocument
+          editable={false}
+          issuerName={userProfile?.full_name ?? "Utilisateur"}
+          issuerRole={userProfile?.job_title ?? ""}
+          issuerPhone={userProfile?.phone ?? undefined}
+          issuerEmail={userProfile?.work_email ?? undefined}
+          orderDate={order.order_date}
+          reference={order.reference}
+          supplier={supplier}
+          deliverySite={deliverySite}
+          expectedDeliveryDate={order.expected_delivery_date}
+          notes={order.notes}
+          items={orderItems}
+          totalHtCents={order.total_ht_cents}
+          totalTaxCents={order.total_tax_cents}
+          totalTtcCents={order.total_ttc_cents}
+        />
+      </OrderDocumentViewport>
       <div className="print-page-footer" aria-hidden>
         <span className="print-page-counter" />
       </div>
