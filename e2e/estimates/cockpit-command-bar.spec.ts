@@ -390,7 +390,7 @@ test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {
     await page.goto(`/dashboard/affaires/${projectId}`);
 
     await expect(page.locator(".cockpit-command-strip")).toBeVisible();
-    await clickCockpitAction(page, "Confirmer 1 piece a revoir");
+    await clickCockpitAction(page, "Confirmer 1 pièce à revoir");
 
     await expect(page).toHaveURL(
       new RegExp(`/dashboard/affaires/${projectId}\\?intakeFilter=a_revoir`),

@@ -399,7 +399,7 @@ test.describe("VNEXT US-6.1 - import flow carry-over", () => {
     await expectMetricCardValue(carryOverCard, "En cours", "1");
     await expectMetricCardValue(carryOverCard, "À relancer", "1");
 
-    await page.getByRole("button", { name: "Creer le chiffrage" }).click();
+    await page.getByRole("button", { name: "Créer le chiffrage" }).click();
 
     const importFinishedBanner = page.getByText("Import terminé");
     await expect.poll(async () => {

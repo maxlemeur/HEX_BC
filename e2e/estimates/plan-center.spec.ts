@@ -74,7 +74,7 @@ test.describe("V3-006 — Plan Center affaire", () => {
     const breadcrumb = page.locator("nav[aria-label=\"Fil d'Ariane\"]");
     await expect(breadcrumb).toBeVisible();
     await expect(breadcrumb.getByText("Affaires")).toBeVisible();
-    await expect(breadcrumb.getByText(projectName)).toBeVisible();
+    await expect(breadcrumb.getByRole("link", { name: projectName })).toBeVisible();
     await expect(breadcrumb.getByText("Plans", { exact: true })).toBeVisible();
 
     // 4. Verify empty state

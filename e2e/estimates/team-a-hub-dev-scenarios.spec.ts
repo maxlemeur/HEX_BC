@@ -41,7 +41,7 @@ test.describe("Team A hub synthetic dev scenarios", () => {
       ).first(),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Traiter 1 hypothese ouverte" }),
+      page.getByRole("button", { name: "Traiter 1 hypothèse ouverte" }),
     ).toBeVisible();
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);

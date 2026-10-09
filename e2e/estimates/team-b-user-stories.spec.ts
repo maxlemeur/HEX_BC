@@ -848,10 +848,10 @@ test.describe("VNEXT Team B - user stories e2e", () => {
     });
 
     await page.getByRole("button", { name: "Analyser" }).first().click();
-    await expect(page.getByRole("heading", { name: /Étape 1 - Charger le CSV/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Étape 2 - Associer les colonnes/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Étape 3 - Resoudre les inconnus/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Étape 4 - Importer/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 1 [—-] Charger le CSV/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 2 [—-] Associer les colonnes/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 3 [—-] Résoudre les inconnus/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 4 [—-] Importer/i })).toBeVisible();
     await expect(page.getByRole("cell", { name: /Fournisseur inconnu/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Importer les lignes prêtes/i })).toBeDisabled();
   });

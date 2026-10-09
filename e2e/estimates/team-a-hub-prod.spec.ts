@@ -26,7 +26,7 @@ test.describe("Team A hub prod coverage", () => {
       page.getByText("Le mode manuel reste disponible"),
     ).toBeVisible();
     await expect(
-      page.getByText("Vous pouvez ouvrir le devis sans DPGF et completer la structure plus tard."),
+      page.getByText("Vous pouvez ouvrir le devis sans DPGF et compléter la structure plus tard."),
     ).toBeVisible();
   });
 });

@@ -749,10 +749,10 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
 
     let pilotageSection = await openAffaireHub(page, projectId);
 
-    await expect(pilotageSection).toContainText("1 point critique a arbitrer");
-    await expect(pilotageSection).toContainText("Ajouter 4 pieces manquantes");
+    await expect(pilotageSection).toContainText("1 point critique à arbitrer");
+    await expect(pilotageSection).toContainText("Ajouter 4 pièces manquantes");
     await expect(pilotageSection.getByRole("button", { name: "Ouvrir le brief" })).toBeVisible();
-    await expect(pilotageSection).toContainText("1 ecart majeur sur les metres");
+    await expect(pilotageSection).toContainText("1 écart majeur sur les métrés");
     await expect(
       pilotageSection.getByRole("link", { name: "Ouvrir le registre" })
     ).toHaveAttribute(
@@ -817,7 +817,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(pilotageSection).toContainText("Prêt à commander");
     await expect(pilotageSection).toContainText("PDF · 1 blocage");
     await expect(pilotageSection).toContainText("Prix manquant");
-    await expect(pilotageSection).toContainText("1 ligne a arbitrer");
+    await expect(pilotageSection).toContainText("1 ligne à arbitrer");
     await expect(
       pilotageSection.getByRole("link", { name: "Reprendre le devis" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit`);
@@ -926,7 +926,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await pilotageSection
       .getByRole("combobox", { name: "Chantier de livraison" })
       .selectOption(siteId);
-    await clickWithin(pilotageSection, "button", "Creer le brouillon");
+    await clickWithin(pilotageSection, "button", "Créer le brouillon");
 
     await expect(pilotageSection.getByText("Brouillons créés")).toBeVisible();
     await expect(
