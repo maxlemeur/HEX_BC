@@ -44,7 +44,7 @@ const HOME_ITEM: NavItem = {
 
 const AFFAIRES_ITEM: NavItem = {
   href: "/dashboard/affaires",
-  label: "Mes affaires",
+  label: "Affaires",
   icon: (
     <FolderIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
@@ -52,7 +52,7 @@ const AFFAIRES_ITEM: NavItem = {
 
 export const TAKEOFF_NAV_ITEM: NavItem = {
   href: "/dashboard/takeoff",
-  label: "Métrés plans",
+  label: "Métrés",
   navId: "takeoff",
   icon: (
     <BuildingIcon aria-hidden="true" strokeWidth="1.75" size={20} />
@@ -61,7 +61,7 @@ export const TAKEOFF_NAV_ITEM: NavItem = {
 
 const ORDERS_ITEM: NavItem = {
   href: "/dashboard/orders",
-  label: "Mes commandes",
+  label: "Bons de commande",
   icon: (
     <FileTextIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
@@ -102,7 +102,7 @@ const APPROVALS_ITEM: NavItem = {
 
 const DIRECTION_ITEM: NavItem = {
   href: "/dashboard/direction",
-  label: "Vue direction",
+  label: "Cockpit direction",
   navId: "direction",
   icon: (
     <AsteriskIcon aria-hidden="true" strokeWidth="1.75" size={20} />
@@ -130,7 +130,7 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
 
   groups.push({ key: "accueil", label: "Accueil", items: [HOME_ITEM] });
 
-  // --- Mes affaires (all roles) ---
+  // --- Affaires (all roles) ---
   const affairesItems: NavItem[] = [AFFAIRES_ITEM];
   if (featureFlags.takeoffEnabled) {
     const takeoffHref = input.lastAffaireId
@@ -138,7 +138,7 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
       : "/dashboard/takeoff";
     affairesItems.push({ ...TAKEOFF_NAV_ITEM, href: takeoffHref });
   }
-  groups.push({ key: "affaires", label: "Mes affaires", items: affairesItems });
+  groups.push({ key: "affaires", label: "Affaires", items: affairesItems });
 
   // --- Commandes (all roles) ---
   groups.push({ key: "commandes", label: "Commandes", items: [ORDERS_ITEM] });

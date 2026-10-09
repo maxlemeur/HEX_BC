@@ -8,6 +8,8 @@ import type { UserProfile } from "@/lib/auth/server";
 type UserContextValue = {
   userEmail: string;
   tenantId: string | null;
+  /** Display name of the active organisation (null when unknown). */
+  tenantName: string | null;
   profile: UserProfile | null;
   setProfile: Dispatch<SetStateAction<UserProfile | null>>;
 };
@@ -17,10 +19,12 @@ const UserContext = createContext<UserContextValue | null>(null);
 export function UserProvider({
   initialUserEmail,
   initialProfile,
+  tenantName = null,
   children,
 }: Readonly<{
   initialUserEmail: string;
   initialProfile: UserProfile | null;
+  tenantName?: string | null;
   children: React.ReactNode;
 }>) {
   const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
@@ -29,10 +33,11 @@ export function UserProvider({
     () => ({
       userEmail: initialUserEmail,
       tenantId: profile?.tenant_id ?? null,
+      tenantName,
       profile,
       setProfile,
     }),
-    [initialUserEmail, profile]
+    [initialUserEmail, profile, tenantName]
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

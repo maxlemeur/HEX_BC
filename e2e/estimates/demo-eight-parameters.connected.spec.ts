@@ -366,7 +366,7 @@ test("TI-576 PATCH d'un AID tiered conserve sa valeur et les montants", async ({
     `/api/estimates/${versionId}/batch` && response.request().method() === "POST");
   await aidField.fill(menuAid);
   await aidField.press("Enter");
-  await page.getByRole("link", { name: "Mes affaires", exact: true }).first().click();
+  await page.getByRole("link", { name: "Affaires", exact: true }).first().click();
   await page.waitForURL(/\/dashboard\/affaires(?:$|[/?#])/);
   const aidMenuResponse = await aidMenuSave;
   expect(aidMenuResponse.ok()).toBe(true);

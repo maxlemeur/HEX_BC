@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -13,6 +12,7 @@ import {
 } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { useUserContext } from "@/components/UserContext";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
 import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
@@ -23,12 +23,9 @@ import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
 import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active";
-import {
-  getDashboardNavigationMode,
-  isProductionWorkspaceRoute,
-} from "@/lib/navigation/dashboard-navigation-mode";
+import { isProductionWorkspaceRoute } from "@/lib/navigation/dashboard-navigation-mode";
 import { initStore } from "@/lib/stores/last-affaire-store";
-import { KeyboardIcon, MenuIcon, XIcon } from "lucide-react";
+import { KeyboardIcon, XIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Text-editing guard (shared with useCommandPalette)
@@ -52,8 +49,6 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
     )
   );
 }
-
-const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
 const DRAWER_FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -120,15 +115,18 @@ export function DashboardShell({
   appVersion,
   children,
   displayName,
+  tenantName = null,
 }: Readonly<{
   appBuildId: string | null;
   appVersion: string;
   children: React.ReactNode;
   displayName: string;
+  /** Active organisation, shown next to the product name. */
+  tenantName?: string | null;
 }>) {
   const pathname = usePathname();
-  const navigationMode = getDashboardNavigationMode(pathname);
-  const isWorkspace = navigationMode === "workspace";
+  // The navigation is always the workspace top bar + drawer (see dashboard-navigation-mode.ts).
+  const navigationMode = "workspace" as const;
   const isProductionWorkspace = isProductionWorkspaceRoute(pathname);
   const userInitials = buildInitials(displayName);
   const { enabled: isSidebarFlagIndicatorEnabled } = useFeatureFlag(
@@ -156,8 +154,6 @@ export function DashboardShell({
     setLastAffaire(currentAffaireId, profile?.id ?? null);
   }, [currentAffaireId, profile?.id]);
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -193,29 +189,6 @@ export function DashboardShell({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [drawerOpen]);
 
-  useEffect(() => {
-    try {
-      setCollapsed(localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true");
-    } catch {
-      setCollapsed(false);
-    } finally {
-      setHasLoadedCollapsedPreference(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!hasLoadedCollapsedPreference) {
-      return;
-    }
-
-    try {
-      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
-    } catch {
-      // Ignore persistence failures to keep navigation usable.
-    }
-  }, [collapsed, hasLoadedCollapsedPreference]);
-
-  const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback((restoreFocus = false) => {
     setDrawerOpen(false);
@@ -284,23 +257,6 @@ export function DashboardShell({
   }, [closeDrawer, drawerOpen]);
 
   useEffect(() => {
-    if (isWorkspace || typeof window.matchMedia !== "function") {
-      return;
-    }
-
-    const desktopQuery = window.matchMedia("(min-width: 1024px)");
-    const closeOnDesktop = (event: MediaQueryListEvent | MediaQueryList) => {
-      if (event.matches) {
-        setDrawerOpen(false);
-      }
-    };
-
-    closeOnDesktop(desktopQuery);
-    desktopQuery.addEventListener("change", closeOnDesktop);
-    return () => desktopQuery.removeEventListener("change", closeOnDesktop);
-  }, [isWorkspace]);
-
-  useEffect(() => {
     if (previousPathnameRef.current === pathname) {
       return;
     }
@@ -358,9 +314,9 @@ export function DashboardShell({
           href="/dashboard"
           prefetch={false}
           className="dashboard-global-topbar__brand"
-          aria-label="Hydro Express — Accueil"
+          aria-label={`TIMAX${tenantName ? ` — ${tenantName}` : ""} — Accueil`}
         >
-          <span>Hydro Express</span>
+          <TimaxWordmark tenantName={tenantName} tenantClassName="hidden xl:inline" />
         </Link>
 
         <WorkspaceGlobalNavigation />
@@ -386,36 +342,10 @@ export function DashboardShell({
           </Link>
         </div>
       </header>
-      {!isWorkspace ? (
-        <div
-          className="no-print pointer-events-none fixed inset-x-0 top-0 z-30 h-16 border-b border-border/80 bg-background/95 backdrop-blur lg:hidden"
-          aria-hidden="true"
-        />
-      ) : null}
-
-      {/* Mobile hamburger button for persistent-navigation screens. */}
-      {!isWorkspace ? (
-        <button
-          ref={menuButtonRef}
-          type="button"
-          className={`no-print fixed left-3 top-2.5 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-white shadow-lg transition-opacity lg:hidden ${
-            drawerOpen ? "pointer-events-none opacity-0" : "opacity-100"
-          }`}
-          onClick={openDrawer}
-          aria-label="Ouvrir le menu"
-          aria-expanded={drawerOpen}
-          aria-controls="dashboard-sidebar"
-          aria-hidden={drawerOpen || undefined}
-          tabIndex={drawerOpen ? -1 : 0}
-        >
-          <MenuIcon aria-hidden="true" size={20} />
-        </button>
-      ) : null}
-
-      {/* Modal backdrop: mobile on standard screens, all widths in workspaces. */}
+      {/* Drawer backdrop. */}
       {drawerOpen ? (
         <div
-          className={`fixed inset-0 z-[55] bg-black/40${isWorkspace ? "" : " lg:hidden"}`}
+          className="fixed inset-0 z-[55] bg-black/40"
           onClick={() => closeDrawer(true)}
           aria-hidden="true"
         />
@@ -429,9 +359,7 @@ export function DashboardShell({
         role={drawerOpen ? "dialog" : undefined}
         aria-modal={drawerOpen ? "true" : undefined}
         aria-label={drawerOpen ? "Navigation principale" : undefined}
-        className={`no-print dashboard-sidebar fixed left-0 top-0 z-[60] flex h-screen flex-col${
-          isWorkspace ? " dashboard-sidebar--overlay" : ""
-        }${collapsed && !isWorkspace ? " dashboard-sidebar--collapsed" : ""}`}
+        className="no-print dashboard-sidebar dashboard-sidebar--overlay fixed left-0 top-0 z-[60] flex h-screen flex-col"
       >
         <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
           <Link
@@ -440,19 +368,11 @@ export function DashboardShell({
             className="sidebar-logo-link flex items-center gap-3 min-w-0"
             onClick={() => setDrawerOpen(false)}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
-              <Image
-                src="/logo-hydro-express.jpg"
-                alt="Hydro Express"
-                width={28}
-                height={28}
-                className="h-7 w-7 rounded-md"
-              />
-            </div>
-            <div className="sidebar-label">
-              <span className="block text-base font-bold text-white">Hydro Express</span>
-              <span className="block text-[11px] font-medium text-white/50">
-                Gestion des commandes
+            <TimaxMark className="size-10 rounded-xl text-lg" />
+            <div className="sidebar-label min-w-0">
+              <span className="block font-display text-base font-extrabold tracking-tight text-white">TIMAX</span>
+              <span className="block truncate text-micro font-medium text-white/60">
+                {tenantName ?? "Chiffrage BTP"}
               </span>
               {isSidebarFlagIndicatorEnabled ? (
                 <span className="mt-1 inline-flex items-center rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
@@ -464,46 +384,12 @@ export function DashboardShell({
           <button
             ref={drawerCloseButtonRef}
             type="button"
-            className={`ml-auto h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
-              isWorkspace ? "flex" : "flex lg:hidden"
-            }`}
+            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             onClick={() => closeDrawer(true)}
             aria-label="Fermer le menu"
           >
             <XIcon aria-hidden="true" size={20} />
           </button>
-          {!isWorkspace ? (
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              className="sidebar-toggle"
-              aria-label={collapsed ? "Déployer le menu" : "Replier le menu"}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                {collapsed ? (
-                  <>
-                    <polyline points="13 17 18 12 13 7" />
-                    <polyline points="6 17 11 12 6 7" />
-                  </>
-                ) : (
-                  <>
-                    <polyline points="11 17 6 12 11 7" />
-                    <polyline points="18 17 13 12 18 7" />
-                  </>
-                )}
-              </svg>
-            </button>
-          ) : null}
         </div>
         <nav
           className="mt-4 min-h-0 flex-1 overflow-y-auto px-4 pb-4"
@@ -525,7 +411,7 @@ export function DashboardShell({
                       prefetch={false}
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
-                      title={collapsed && !isWorkspace ? item.label : item.title}
+                      title={item.title}
                       onClick={() => {
                         if (drawerOpen) {
                           closeDrawer(active);
@@ -555,19 +441,16 @@ export function DashboardShell({
           >
             <KeyboardIcon aria-hidden="true" strokeWidth="1.75" className="shrink-0" size={16} />
             <span className="sidebar-label">Raccourcis</span>
-            <kbd className="sidebar-label ml-auto rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/50">
+            <kbd className="sidebar-label ml-auto rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-micro font-medium text-white/50">
               ?
             </kbd>
           </button>
 
-          <div className={`sidebar-footer-profile flex items-center gap-3 rounded-xl bg-white/5 p-3 transition-all duration-200 ${
-            collapsed && !isWorkspace ? "lg:flex-col lg:gap-2 lg:p-2" : ""
-          }`}>
+          <div className="sidebar-footer-profile flex items-center gap-3 rounded-xl bg-white/5 p-3">
             <Link
               href="/dashboard/profile"
               prefetch={false}
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
-              title={collapsed && !isWorkspace ? displayName || "Compte" : undefined}
               onClick={() => setDrawerOpen(false)}
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange text-sm font-bold text-white">
@@ -602,16 +485,7 @@ export function DashboardShell({
         id="dashboard-main-content"
         tabIndex={-1}
         data-density={density}
-        className={`min-w-0 min-h-0 flex-1 pl-0 transition-[padding-left] duration-300 ease-in-out focus:outline-none ${
-          isWorkspace ? "lg:pl-0" : "lg:pl-[var(--sidebar-offset)]"
-        }`}
-        style={{
-          ["--sidebar-offset" as string]: isWorkspace
-            ? "0px"
-            : collapsed
-              ? "var(--sidebar-collapsed-width)"
-              : "var(--sidebar-width)",
-        }}
+        className="min-w-0 min-h-0 flex-1 focus:outline-none"
       >
         <div
           className={`mx-auto w-full px-3 pb-6 sm:px-6 sm:pb-8 ${
@@ -622,7 +496,7 @@ export function DashboardShell({
         >
           {children}
         </div>
-        <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-[10px] font-medium tracking-wide text-subtle-foreground sm:px-6">
+        <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-micro font-medium tracking-wide text-subtle-foreground sm:px-6">
           <p
             role="note"
             aria-label={`Version de l'application ${appVersion}${

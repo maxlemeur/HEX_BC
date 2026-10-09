@@ -15,8 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hydro Express - Gestion des commandes",
-  description: "Application interne de gestion des bons de commande",
+  title: {
+    default: "TIMAX",
+    template: "%s · TIMAX",
+  },
+  description: "Chiffrage BTP : affaires, métrés, devis et bons de commande.",
 };
 
 export const viewport: Viewport = {

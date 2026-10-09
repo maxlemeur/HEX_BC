@@ -1,9 +1,9 @@
-import { useId } from "react";
-
 import { cn } from "@/lib/utils";
 
 type PageSectionProps = {
   title: React.ReactNode;
+  /** Heading id; derived from a string title when omitted. */
+  id?: string;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   headingLevel?: 2 | 3;
@@ -15,8 +15,18 @@ type PageSectionProps = {
   className?: string;
 };
 
+function slugify(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export function PageSection({
   title,
+  id,
   description,
   actions,
   headingLevel = 2,
@@ -25,7 +35,7 @@ export function PageSection({
   children,
   className,
 }: PageSectionProps) {
-  const headingId = useId();
+  const headingId = id ?? (typeof title === "string" ? `section-${slugify(title)}` : undefined);
   const Heading = `h${headingLevel}` as const;
   const isCard = variant === "card";
 

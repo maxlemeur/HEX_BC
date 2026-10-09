@@ -571,7 +571,7 @@ export function EstimateEditorToolbar({
   }`;
   const breadcrumbs = projectId
     ? [
-        { label: "Mes affaires", href: "/dashboard/affaires" },
+        { label: "Affaires", href: "/dashboard/affaires" },
         {
           label: projectName || "Affaire",
           href: `/dashboard/affaires/${projectId}`,

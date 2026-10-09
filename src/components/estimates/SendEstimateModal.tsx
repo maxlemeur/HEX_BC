@@ -6,6 +6,7 @@ import { Button } from "@/components/ui-legacy/Button";
 import { Input } from "@/components/ui-legacy/Input";
 import { Modal } from "@/components/ui-legacy/Modal";
 import { useToast } from "@/components/ui-legacy/Toast";
+import { useOptionalUserContext } from "@/components/UserContext";
 
 type SendEstimateModalProps = {
   open: boolean;
@@ -16,13 +17,14 @@ type SendEstimateModalProps = {
   onSent?: () => void;
 };
 
-const DEFAULT_MESSAGE = `Bonjour,
+function buildDefaultMessage(tenantName: string | null) {
+  return `Bonjour,
 
 Veuillez trouver ci-joint notre devis pour votre projet.
-Vous pouvez le consulter directement en ligne via le lien inclus dans cet email.
+Vous pouvez le consulter directement en ligne via le lien inclus dans cet e-mail.
 
-Cordialement,
-L'equipe Hydro Express`;
+Cordialement,${tenantName ? `\nL'équipe ${tenantName}` : ""}`;
+}
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -111,7 +113,8 @@ export function SendEstimateModal({
   const [to, setTo] = useState(defaultRecipient);
   const [ccRaw, setCcRaw] = useState("");
   const [subject, setSubject] = useState(defaultSubject);
-  const [message, setMessage] = useState(DEFAULT_MESSAGE);
+  const tenantName = useOptionalUserContext()?.tenantName ?? null;
+  const [message, setMessage] = useState(() => buildDefaultMessage(tenantName));
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const idempotencyKeyRef = useRef<string | null>(null);

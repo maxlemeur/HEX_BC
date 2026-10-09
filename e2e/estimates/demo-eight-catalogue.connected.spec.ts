@@ -375,7 +375,7 @@ test("TI-579/580 offre retenue, sauvegarde à la navigation et coût conservé a
   await captureBusinessScreen(page, testInfo, "comparaison-alpha-beta");
   await beta.getByRole("button", { name: "Retenir cette offre", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByRole("link", { name: "Mes affaires", exact: true }).first().click();
+  await page.getByRole("link", { name: "Affaires", exact: true }).first().click();
   await page.waitForURL(/\/dashboard\/affaires(?:$|[/?#])/);
   const afterNavigation = await assertRetained(page, versionId, lineId, offers[1].id, 1200);
   await page.goto(`/dashboard/estimates/${versionId}/edit`);

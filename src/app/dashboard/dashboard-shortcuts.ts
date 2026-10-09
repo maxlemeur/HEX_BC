@@ -33,7 +33,7 @@ export function buildDashboardShortcuts(
       },
       {
         href: "/dashboard/direction",
-        label: "Vue direction",
+        label: "Cockpit direction",
         description: "Piloter le portefeuille et les risques",
       }
     );

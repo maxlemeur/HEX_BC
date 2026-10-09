@@ -50,7 +50,7 @@ export function PageHeader({
           ) : null}
           <div className="min-w-0">
             {eyebrow ? (
-              <p className="mb-1 text-micro font-semibold uppercase tracking-wider text-brand-orange">
+              <p className="mb-1 text-micro font-semibold uppercase tracking-wider text-brand-orange-dark">
                 {eyebrow}
               </p>
             ) : null}

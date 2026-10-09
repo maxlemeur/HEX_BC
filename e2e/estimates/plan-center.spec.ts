@@ -73,7 +73,7 @@ test.describe("V3-006 — Plan Center affaire", () => {
     // 3. Verify breadcrumb 3 levels
     const breadcrumb = page.locator("nav[aria-label=\"Fil d'Ariane\"]");
     await expect(breadcrumb).toBeVisible();
-    await expect(breadcrumb.getByText("Mes affaires")).toBeVisible();
+    await expect(breadcrumb.getByText("Affaires")).toBeVisible();
     await expect(breadcrumb.getByText(projectName)).toBeVisible();
     await expect(breadcrumb.getByText("Plans", { exact: true })).toBeVisible();
 

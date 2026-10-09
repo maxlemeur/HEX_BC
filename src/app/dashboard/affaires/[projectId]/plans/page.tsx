@@ -54,7 +54,7 @@ export default async function AffairePlansPage({ params }: Props) {
     <div className="min-w-0">
       <HubBreadcrumb
         hubHref="/dashboard/affaires"
-        hubLabel="Mes affaires"
+        hubLabel="Affaires"
         intermediateHref={`/dashboard/affaires/${projectId}`}
         intermediateLabel={project.name}
         currentLabel="Plans"

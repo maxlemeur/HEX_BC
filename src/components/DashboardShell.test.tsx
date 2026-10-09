@@ -72,19 +72,19 @@ vi.mock("@/lib/navigation/build-nav-groups", () => ({
   buildNavGroups: () => [
     {
       key: "affaires",
-      label: "Mes affaires",
+      label: "Affaires",
       items: [
         {
           navId: "affaires",
           href: "/dashboard/affaires",
-          label: "Mes affaires",
+          label: "Affaires",
           title: "Gerer les affaires",
           icon: null,
         },
         {
           navId: "takeoff",
           href: "/dashboard/affaires/project-1/takeoff",
-          label: "Métrés plans",
+          label: "Métrés",
           title: "Ouvrir les métrés",
           icon: null,
         },
@@ -144,7 +144,7 @@ describe("DashboardShell universal topbar navigation", () => {
     await user.keyboard("{ArrowDown}");
 
     const affairesMenu = await screen.findByRole("menu", {
-      name: "Mes affaires",
+      name: "Affaires",
     });
     const menuItems = within(affairesMenu).getAllByRole("menuitem");
     await waitFor(() => expect(menuItems[0]).toHaveFocus());
@@ -153,7 +153,7 @@ describe("DashboardShell universal topbar navigation", () => {
     await user.keyboard("{Escape}");
 
     await waitFor(() => expect(affairesTrigger).toHaveFocus());
-    expect(screen.queryByRole("menu", { name: "Mes affaires" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Affaires" })).toBeNull();
   });
 
   it("opens an accessible overlay menu, traps focus and restores it on Escape", async () => {

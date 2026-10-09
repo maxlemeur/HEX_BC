@@ -91,7 +91,7 @@ export default async function AffaireTakeoffPage({ params }: Props) {
         ribbonHeader={
           <ProductionRibbonHeader
             breadcrumbs={[
-              { label: "Mes affaires", href: "/dashboard/affaires" },
+              { label: "Affaires", href: "/dashboard/affaires" },
               {
                 label: project.name,
                 href: `/dashboard/affaires/${projectId}`,

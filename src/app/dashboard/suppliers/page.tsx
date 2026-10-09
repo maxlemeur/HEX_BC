@@ -229,7 +229,7 @@ export default function SuppliersPage() {
         <div>
           <h1 className="page-title">Fournisseurs</h1>
           <p className="page-description">
-            Gérez la liste des fournisseurs Hydro Express.
+            Gérez la liste de vos fournisseurs.
           </p>
         </div>
         <button

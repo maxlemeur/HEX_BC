@@ -35,7 +35,7 @@ export function AffaireBreadcrumb({
         className="hidden items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:inline-flex"
       >
         <ChevronLeftIcon aria-hidden="true" size={14} />
-        Mes affaires
+        Affaires
       </Link>
       <span className="hidden text-slate-300 sm:inline">/</span>
       <Link

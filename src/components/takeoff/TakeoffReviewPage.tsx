@@ -1327,7 +1327,7 @@ export default function TakeoffReviewPage({
           breadcrumbs={
             isAffaireContext
               ? [
-                  { label: "Mes affaires", href: "/dashboard/affaires" },
+                  { label: "Affaires", href: "/dashboard/affaires" },
                   {
                     label: "Métrés",
                     href: `/dashboard/affaires/${projectId}/takeoff`,
