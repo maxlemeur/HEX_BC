@@ -1,16 +1,25 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useState } from "react";
 
 import { FileDownIcon } from "lucide-react";
 
-import { EstimatePdfLayoutModal } from "@/components/estimates/EstimatePdfLayoutModal";
 import { Button } from "@/components/ui/button";
 import {
   fetchEstimatePdfStatus,
   requestEstimatePdfGeneration,
 } from "@/lib/estimates/client";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
+
+// The layout dialog only opens on click: keep it out of the bundles of the pages showing the button.
+const EstimatePdfLayoutModal = dynamic(
+  () =>
+    import("@/components/estimates/EstimatePdfLayoutModal").then((module) => ({
+      default: module.EstimatePdfLayoutModal,
+    })),
+  { ssr: false, loading: () => null }
+);
 
 type EstimatePdfDownloadButtonProps = {
   versionId: string;

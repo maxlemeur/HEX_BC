@@ -4,20 +4,13 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 
-import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
-import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
-import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
-import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
-import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
-import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
-import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -44,19 +37,68 @@ type EstimateEditorPageProps = {
   autoOpenSettingsSection?: SettingsSection | null;
 };
 
-const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
-const MemoizedEstimateEditorDrawer = memo(EstimateEditorDrawer);
-const MemoizedEstimateEditorTable = memo(EstimateEditorTable);
+// Dialogs and the settings drawer only open on demand: they load after hydration instead of
+// weighing on the editor's initial bundle (performance budget in config/performance-budgets.json).
 const VersionZeroDraftDialog = dynamic(
   () =>
     import("@/components/estimates/VersionZeroDraftDialog").then((module) => ({
       default: module.VersionZeroDraftDialog,
     })),
-  {
-    ssr: false,
-    loading: () => null,
-  }
+  { ssr: false, loading: () => null }
 );
+const BulkSuggestDialog = dynamic(
+  () =>
+    import("@/components/estimates/BulkSuggestDialog").then((module) => ({
+      default: module.BulkSuggestDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
+const GeneratedOuvrageDialog = dynamic(
+  () =>
+    import("@/components/estimates/GeneratedOuvrageDialog").then((module) => ({
+      default: module.GeneratedOuvrageDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
+const EstimateStructureDraftDialog = dynamic(
+  () =>
+    import("@/components/estimates/EstimateStructureDraftDialog").then((module) => ({
+      default: module.EstimateStructureDraftDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
+const ImportFromEstimateDialog = dynamic(
+  () =>
+    import("@/components/estimates/ImportFromEstimateDialog").then((module) => ({
+      default: module.ImportFromEstimateDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
+const EstimateSendGatingDialog = dynamic(
+  () =>
+    import("@/components/estimates/EstimateSendGatingDialog").then((module) => ({
+      default: module.EstimateSendGatingDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
+const SupplierPreselectionDialog = dynamic(
+  () =>
+    import("@/components/estimates/SupplierPreselectionDialog").then((module) => ({
+      default: module.SupplierPreselectionDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
+const EstimateEditorDrawer = dynamic(
+  () =>
+    import("@/components/estimates/editor/EstimateEditorDrawer").then((module) => ({
+      default: module.EstimateEditorDrawer,
+    })),
+  { ssr: false, loading: () => null }
+);
+
+const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
+const MemoizedEstimateEditorDrawer = memo(EstimateEditorDrawer);
+const MemoizedEstimateEditorTable = memo(EstimateEditorTable);
 
 export function EstimateEditorPage({
   versionId,

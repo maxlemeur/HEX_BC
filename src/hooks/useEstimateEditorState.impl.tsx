@@ -13,21 +13,21 @@ import {
   type ComponentProps,
 } from "react";
 
-import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
+import type { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
-import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
-import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
-import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
-import { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
+import type { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
+import type { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
+import type { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
+import type { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
-import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
+import type { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
 import {
   EstimateEditorTable,
   type EstimateSectionDuplicateTarget,
 } from "@/components/estimates/EstimateEditorTable";
-import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
-import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
+import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
+import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import type { DiscountMode, EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import {
   EstimateSettingsSummaryBar,

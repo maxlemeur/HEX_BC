@@ -4,12 +4,23 @@ import dynamic from "next/dynamic";
 import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
-import { EstimateExplanationPanel } from "@/components/estimates/EstimateExplanationPanel";
 import { usePopover } from "@/hooks/usePopover";
 import { SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS } from "@/lib/takeoff/source-badge";
 
 const TakeoffLineEvidencePanel = dynamic(
   () => import("@/components/takeoff/TakeoffLineEvidencePanel"),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+);
+
+// Opens on demand from every line row: keep it out of the estimate editor bundle.
+const EstimateExplanationPanel = dynamic(
+  () =>
+    import("@/components/estimates/EstimateExplanationPanel").then((module) => ({
+      default: module.EstimateExplanationPanel,
+    })),
   {
     ssr: false,
     loading: () => null,

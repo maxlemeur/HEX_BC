@@ -1,11 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
-import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { Button } from "@/components/ui/button";
 import type { AutoSaveStatus } from "@/hooks/useAutoSave";
@@ -13,6 +13,15 @@ import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability"
 import type { EstimateExportMode } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
+
+// Rendered inside the "Plus d’actions" menu only: load it when the menu opens.
+const SaveAsTemplateButton = dynamic(
+  () =>
+    import("@/components/estimates/SaveAsTemplateButton").then((module) => ({
+      default: module.SaveAsTemplateButton,
+    })),
+  { ssr: false, loading: () => null }
+);
 
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 
