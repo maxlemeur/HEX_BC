@@ -10,7 +10,11 @@ import {
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
-import { Button } from "@/components/ui-legacy/Button";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDelayedLoadingIndicator } from "@/hooks/useDelayedLoadingIndicator";
 import {
   fetchPlanSetsForProject,
@@ -26,13 +30,13 @@ type ProjectPlanCenterProps = {
 
 function SkeletonCard() {
   return (
-    <div className="dashboard-card animate-pulse p-5">
+    <Card className="p-5" aria-hidden="true">
       <div className="flex items-center gap-4">
-        <div className="h-5 w-48 rounded bg-slate-200" />
-        <div className="ml-auto h-4 w-24 rounded bg-slate-200" />
+        <Skeleton className="h-5 w-48 max-w-[60%]" />
+        <Skeleton className="ml-auto h-4 w-24" />
       </div>
-      <div className="mt-3 h-4 w-32 rounded bg-slate-200" />
-    </div>
+      <Skeleton className="mt-3 h-4 w-32" />
+    </Card>
   );
 }
 
@@ -106,18 +110,18 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
     <section>
       {/* Metrics bar */}
       {!isLoading && !error && sets && sets.length > 0 && (
-        <div className="mb-6 flex flex-wrap items-center gap-6 text-sm text-slate-600">
+        <div className="mb-6 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
           <span>
-            <strong className="text-slate-800">{totalSets}</strong>{" "}
+            <strong className="text-foreground">{totalSets}</strong>{" "}
             {totalSets === 1 ? "jeu" : "jeux"}
           </span>
           <span>
-            <strong className="text-slate-800">{totalFiles}</strong>{" "}
+            <strong className="text-foreground">{totalFiles}</strong>{" "}
             {totalFiles === 1 ? "fichier" : "fichiers"} au total
           </span>
           {totalSizeBytes > 0 ? (
             <span>
-              <strong className="text-slate-800">
+              <strong className="text-foreground">
                 {formatFileSize(totalSizeBytes)}
               </strong>{" "}
               au total
@@ -130,8 +134,8 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
       {!isLoading && !error && sets && sets.length > 0 && (
         <div className="mb-6 flex justify-stretch sm:justify-end">
           <Button
-            className="h-11 w-full sm:h-8 sm:w-auto"
-            size="sm"
+            variant="primary"
+            className="h-11 w-full sm:h-9 sm:w-auto"
             onClick={() => {
               setCreateError(null);
               setModalOpen(true);
@@ -145,7 +149,7 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
       {/* Loading skeleton */}
       {isLoading && (
         <div className="space-y-4" role="status" aria-live="polite">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted-foreground">
             {isSlowLoading
               ? "Le chargement prend plus de temps que prévu…"
               : "Chargement des jeux de plans…"}
@@ -158,44 +162,39 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
 
       {/* Error state */}
       {error && !isLoading && (
-        <div className="alert alert-error" role="alert">
-          <p>
+        <Alert variant="danger">
+          <AlertDescription>
             {isTakeoffApiError(error)
               ? error.message
               : "Impossible de charger les jeux de plans."}
-          </p>
-          <button
-            type="button"
-            className="mt-2 text-sm font-semibold underline"
-            onClick={() => mutate()}
-          >
+          </AlertDescription>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => mutate()}>
             Réessayer
-          </button>
-        </div>
+          </Button>
+        </Alert>
       )}
 
       {/* Empty state */}
       {!isLoading && !error && sets && sets.length === 0 && (
-        <div className="dashboard-card flex flex-col items-center justify-center px-4 py-10 text-center sm:px-6 sm:py-16">
-          <FolderPlusIcon className="mb-4 h-12 w-12 text-slate-300" strokeWidth={1.5} aria-hidden="true" />
-          <h3 className="text-base font-semibold text-slate-800">
-            Aucun jeu de plans
-          </h3>
-          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-            Un jeu de plans regroupe vos fichiers PDF pour le métré.
-            Commencez par en créer un.
-          </p>
-          <Button
-            className="mt-6 h-11 w-full sm:h-8 sm:w-auto"
-            size="sm"
-            onClick={() => {
-              setCreateError(null);
-              setModalOpen(true);
-            }}
-          >
-            Créer mon premier jeu de plans
-          </Button>
-        </div>
+        <EmptyState
+          headingLevel={2}
+          className="px-4 py-10 sm:px-6 sm:py-16"
+          icon={<FolderPlusIcon aria-hidden="true" />}
+          title="Aucun jeu de plans"
+          description="Un jeu de plans regroupe vos fichiers PDF pour le métré. Commencez par en créer un."
+          action={
+            <Button
+              variant="primary"
+              className="h-11 w-full sm:h-9 sm:w-auto"
+              onClick={() => {
+                setCreateError(null);
+                setModalOpen(true);
+              }}
+            >
+              Créer mon premier jeu de plans
+            </Button>
+          }
+        />
       )}
 
       {/* Set list */}

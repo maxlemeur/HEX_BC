@@ -85,12 +85,12 @@ export function ReviewProgressBar({
           <span className="font-medium text-foreground-secondary">
             {acceptedCount}
           </span>{" "}
-          <span className="text-muted-foreground">acceptes</span>
+          <span className="text-muted-foreground">acceptés</span>
         </span>
 
         {markedForReviewCount > 0 && (
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-warning" />
+            <span aria-hidden="true" className="inline-block size-2.5 rounded-full bg-warning" />
             <span className="font-medium text-foreground-secondary">
               {markedForReviewCount}
             </span>{" "}
@@ -103,11 +103,11 @@ export function ReviewProgressBar({
           <span className="font-medium text-foreground-secondary">
             {rejectedCount}
           </span>{" "}
-          <span className="text-muted-foreground">rejetes</span>
+          <span className="text-muted-foreground">rejetés</span>
         </span>
 
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-300" />
+          <span aria-hidden="true" className="inline-block size-2.5 rounded-full bg-border-strong" />
           <span className="font-medium text-foreground-secondary">
             {pendingCount}
           </span>{" "}

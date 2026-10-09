@@ -275,13 +275,13 @@ describe("TakeoffApplyWizard", () => {
       target: { value: "set_price" },
     });
 
-    expect(screen.getByText(/Les ajustements ont change/i)).toBeInTheDocument();
+    expect(screen.getByText(/Les ajustements ont changé/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Suivant" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Recalculer la preview" }));
 
     await waitFor(() => {
-      expect(screen.queryByText(/Les ajustements ont change/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Les ajustements ont changé/i)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled();
     });
   });

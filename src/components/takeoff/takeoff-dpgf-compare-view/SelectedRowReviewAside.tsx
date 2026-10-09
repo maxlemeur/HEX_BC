@@ -1,7 +1,7 @@
 "use client";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type {
   TakeoffDpgfComparisonProof,
   TakeoffDpgfComparisonRow,
@@ -28,6 +28,8 @@ import {
   formatProofConfidence,
   getDecisionImpactText,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
+import { FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 
 type RiskActionTarget = {
   alertId: string;
@@ -46,8 +48,8 @@ function ProofList({
   if (proofs.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-4">
-        <p className="text-sm font-medium text-slate-800">{label}</p>
-        <p className="mt-2 text-sm text-slate-600">Aucun élément.</p>
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="mt-2 text-sm text-muted-foreground">Aucun élément.</p>
       </div>
     );
   }
@@ -77,14 +79,14 @@ function ProofList({
             ) : null}
           </div>
           {proof.type !== "plan_zone" ? (
-            <p className="mt-2 text-xs text-slate-600">Source : {proof.source}</p>
+            <p className="mt-2 text-xs text-muted-foreground">Source : {proof.source}</p>
           ) : null}
           <p className="mt-1 text-xs text-muted-foreground">
             {formatProofConfidence(proof.confidence_score)}
           </p>
           {proof.note ? (
             proof.type === "comment" ? (
-              <blockquote className="mt-2 border-l-2 border-emerald-300 pl-3 text-sm italic leading-6 text-foreground-secondary">
+              <blockquote className="mt-2 border-l-2 border-success-border pl-3 text-sm italic leading-6 text-foreground-secondary">
                 {proof.note}
               </blockquote>
             ) : (
@@ -154,7 +156,7 @@ export function SelectedRowReviewAside({
     <aside className="xl:sticky xl:top-6 xl:self-start">
       {!selectedRow ? (
         <div className="rounded-[28px] border border-border bg-surface p-6 shadow-sm">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted-foreground">
             Sélectionnez une ligne pour afficher les preuves, hypothèses et décisions.
           </p>
         </div>
@@ -165,10 +167,10 @@ export function SelectedRowReviewAside({
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 Revue détaillée
               </p>
-              <h3 className="mt-2 text-xl font-semibold text-slate-950">
+              <h3 className="mt-2 text-xl font-semibold text-foreground">
                 {selectedRow.line_label}
               </h3>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Position {selectedRow.dpgf.position}
                 {selectedRow.dpgf.source_file_name ? ` · ${selectedRow.dpgf.source_file_name}` : ""}
                 {selectedRow.dpgf.source_page ? ` · ligne ${selectedRow.dpgf.source_page}` : ""}
@@ -184,10 +186,10 @@ export function SelectedRowReviewAside({
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 Matching
               </p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
+              <p className="mt-2 text-lg font-semibold text-foreground">
                 {Math.round(selectedRow.matching_score * 100)}%
               </p>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Mode: {selectedRow.matched_by ?? "aucun"}
               </p>
             </div>
@@ -195,12 +197,12 @@ export function SelectedRowReviewAside({
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 Suggestion IA
               </p>
-              <p className="mt-2 text-sm font-semibold text-slate-950">
+              <p className="mt-2 text-sm font-semibold text-foreground">
                 {selectedRow.suggested_decision
                   ? DECISION_LABELS[selectedRow.suggested_decision]
                   : "Aucune suggestion"}
               </p>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Confiance globale {formatConfidence(selectedRow.confidence_score)}
               </p>
             </div>
@@ -212,12 +214,12 @@ export function SelectedRowReviewAside({
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Radar ligne
                 </p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">
+                <p className="mt-2 text-sm font-semibold text-foreground">
                   {selectedRow.risk
                     ? `${RISK_SEVERITY_LABELS[selectedRow.risk.severity]} · ${selectedRow.risk.score}/100`
                     : "Aucun signal spécifique sur cette ligne"}
                 </p>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {selectedRow.risk?.causes.length
                     ? selectedRow.risk.causes.join(" · ")
                     : "Le radar complet reste visible dans la file À traiter."}
@@ -232,7 +234,7 @@ export function SelectedRowReviewAside({
 
             <div className="mt-4 space-y-3">
               {selectedLineRiskItems.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-surface p-4 text-sm text-slate-600">
+                <div className="rounded-2xl border border-dashed border-border bg-surface p-4 text-sm text-muted-foreground">
                   Aucun signal de risque persistant sur cette ligne.
                 </div>
               ) : (
@@ -251,7 +253,7 @@ export function SelectedRowReviewAside({
                             {RISK_STATUS_LABELS[item.status]}
                           </Badge>
                         </div>
-                        <p className="mt-2 text-sm font-semibold text-slate-950">
+                        <p className="mt-2 text-sm font-semibold text-foreground">
                           {item.cause_label}
                         </p>
                       </div>
@@ -263,7 +265,7 @@ export function SelectedRowReviewAside({
                     {item.reason_labels.length > 0 ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {item.reason_labels.map((reason) => (
-                          <Badge key={reason} variant="neutral" size="sm">
+                          <Badge key={reason} variant="neutral" size="sm" className="h-auto max-w-full whitespace-normal py-0.5 text-left">
                             {reason}
                           </Badge>
                         ))}
@@ -291,14 +293,14 @@ export function SelectedRowReviewAside({
                                 {entry.label}
                               </p>
                             </div>
-                            <p className="mt-1 text-xs text-slate-600">
+                            <p className="mt-1 text-xs text-muted-foreground">
                               {entry.source}
                               {entry.confidence_score !== null
                                 ? ` · ${formatProofConfidence(entry.confidence_score)}`
                                 : ""}
                             </p>
                             {entry.note ? (
-                              <p className="mt-1 text-xs leading-5 text-slate-600">
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
                                 {entry.note}
                               </p>
                             ) : null}
@@ -308,7 +310,7 @@ export function SelectedRowReviewAside({
                     ) : null}
 
                     {item.review_note ? (
-                      <p className="mt-3 text-xs leading-5 text-slate-600">
+                      <p className="mt-3 text-xs leading-5 text-muted-foreground">
                         Note humaine : {item.review_note}
                       </p>
                     ) : null}
@@ -357,7 +359,7 @@ export function SelectedRowReviewAside({
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Décision humaine appliquée
                 </p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">
+                <p className="mt-2 text-sm font-semibold text-foreground">
                   {selectedRow.applied_decision
                     ? DECISION_LABELS[selectedRow.applied_decision.decision]
                     : "Aucune décision appliquée"}
@@ -383,10 +385,10 @@ export function SelectedRowReviewAside({
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-subtle px-4 py-3">
               <div>
-                <p className="text-sm font-semibold text-slate-950">
+                <p className="text-sm font-semibold text-foreground">
                   Traçabilité persistée
                 </p>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Provenance détaillée, historique et remplacements de preuves.
                 </p>
               </div>
@@ -422,7 +424,7 @@ export function SelectedRowReviewAside({
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Arbitrage humain
                 </p>
-                <p className="mt-2 text-sm text-slate-600">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Sélection explicite obligatoire avant application.
                 </p>
               </div>
@@ -443,20 +445,20 @@ export function SelectedRowReviewAside({
             </div>
 
             {draftDecision ? (
-              <p className="mt-2 rounded-xl bg-surface-subtle px-3 py-2 text-xs text-slate-600">
+              <p className="mt-2 rounded-xl bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
                 {getDecisionImpactText(draftDecision, selectedRow)}
               </p>
             ) : null}
 
             <div className="mt-4">
-              <label className="form-label" htmlFor="dpgf-review-reason">
+              <FieldLabel className="mb-1.5" htmlFor="dpgf-review-reason">
                 Justification humaine
-              </label>
-              <textarea
+              </FieldLabel>
+              <Textarea
                 id="dpgf-review-reason"
                 name="dpgf_review_reason"
                 autoComplete="off"
-                className="form-input min-h-[120px] py-3"
+                className="min-h-[120px] py-3"
                 value={decisionReason}
                 placeholder="Distinguer les faits observés, les hypothèses retenues et les corrections manuelles à faire…"
                 onChange={(event) => onDecisionReasonChange(event.target.value)}

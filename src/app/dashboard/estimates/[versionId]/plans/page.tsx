@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { PlanCenter } from "@/components/takeoff/PlanCenter";
 import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { getUserContext } from "@/lib/auth/server";
@@ -9,6 +10,7 @@ import {
   buildTakeoffRouteHierarchy,
   fetchTakeoffVersionProjectContext,
 } from "@/lib/takeoff/route-hierarchy";
+import { buttonVariants } from "@/components/ui/button";
 
 export default async function PlanCenterPage({
   params,
@@ -34,20 +36,18 @@ export default async function PlanCenterPage({
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Plan Center</h1>
-          <p className="page-description">
-            Organisez vos plans PDF en jeux avant de lancer une extraction.
-          </p>
-        </div>
-        <Link
-          href={`/dashboard/estimates/${versionId}`}
-          className="btn btn-secondary btn-sm"
-        >
-          Retour au chiffrage
-        </Link>
-      </div>
+      <PageHeader
+        title="Plans"
+        description="Organisez vos plans PDF en jeux avant de lancer une extraction."
+        actions={
+          <Link
+            href={`/dashboard/estimates/${versionId}`}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            Retour au chiffrage
+          </Link>
+        }
+      />
 
       <TakeoffDeprecationBanner descriptor={routeDescriptor} />
 

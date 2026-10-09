@@ -6,6 +6,7 @@ import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import { GuardPanel } from "./GuardPanel";
 import { PreviewImpactCard } from "./PreviewImpactCard";
 import { strategyDescription, strategyLabel, type TakeoffApplyStrategy } from "./shared";
+import { Alert } from "@/components/ui/alert";
 
 export function TakeoffApplyWizardConfirmationStep({
   guardBlocking,
@@ -71,7 +72,7 @@ export function TakeoffApplyWizardConfirmationStep({
             <p className="text-xs font-semibold text-info">
               Confiance moyenne (non bloquante)
             </p>
-            <p className="mt-1 text-xs text-slate-600">
+            <p className="mt-1 text-xs text-muted-foreground">
               {guardResult.medium_items.length} item
               {guardResult.medium_items.length > 1 ? "s ont" : " a"} un score
               compris entre {Math.round(guardResult.threshold * 100)} % et moins
@@ -85,7 +86,7 @@ export function TakeoffApplyWizardConfirmationStep({
           className={`rounded-xl border p-4 text-sm ${
             guardBlocking
               ? "border-warning bg-warning-light"
-              : "border-success/20 bg-success/5"
+              : "border-success-border bg-success-subtle"
           }`}
         >
           <p
@@ -95,10 +96,10 @@ export function TakeoffApplyWizardConfirmationStep({
           >
             {guardBlocking ? "Impact avant dérogation" : "Confirmation finale"}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-800">
+          <p className="mt-2 text-sm font-semibold text-foreground">
             Vérifiez une dernière fois l&apos;impact avant d&apos;écrire dans le devis.
           </p>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-muted-foreground">
             {guardBlocking
               ? "Les blocages restent actifs. Cet aperçu décrit néanmoins l’impact exact d’une éventuelle dérogation."
               : "L’application reste manuelle. Rien n’est injecté tant que vous ne confirmez pas."}
@@ -129,7 +130,7 @@ export function TakeoffApplyWizardConfirmationStep({
         </div>
 
         <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm">
-          <p className="font-semibold text-slate-800">Récapitulatif</p>
+          <p className="font-semibold text-foreground">Récapitulatif</p>
           <p className="mt-2 text-foreground-secondary">
             Version cible : {targetVersionLabel ?? "brouillon actuellement ouvert"}
             {targetVersionLabel ? " (brouillon)" : ""}
@@ -150,15 +151,15 @@ export function TakeoffApplyWizardConfirmationStep({
       </div>
 
       {includedCount === 0 && (
-        <div className="alert alert-info">
+        <Alert variant="info">
           Aucun item inclus n&apos;est disponible pour application.
-        </div>
+        </Alert>
       )}
 
       {!hasPreviewReady && (
-        <div className="alert alert-error" role="alert">
+        <Alert variant="danger">
           Un aperçu d&apos;impact à jour est requis avant toute application ou dérogation.
-        </div>
+        </Alert>
       )}
     </div>
   );

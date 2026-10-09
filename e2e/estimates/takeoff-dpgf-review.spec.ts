@@ -712,7 +712,7 @@ test.describe("V3-010 — DPGF review page", () => {
       page.getByRole("heading", { name: "Revue des exceptions & preuves" })
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Centre d'activite metres" })
+      page.getByRole("link", { name: "Centre d'activité métrés" })
     ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
     await expect(
       page.getByRole("radio", { name: /Validation/ })
@@ -781,7 +781,7 @@ test.describe("V3-010 — DPGF review page", () => {
     await page.getByRole("button", { name: "Suivant" }).click();
 
     await expect(page.getByText("Preview d'impact")).toBeVisible();
-    await expect(page.getByText("Source du metre :")).toBeVisible();
+    await expect(page.getByText("Source du métré :")).toBeVisible();
     await expect(page.getByText(takeoffFileName).first()).toBeVisible();
     await expect(page.getByText("page 7")).toBeVisible();
     await expect(page.getByText("Hors mapping").first()).toBeVisible();
@@ -924,7 +924,7 @@ test.describe("V3-010 — DPGF review page", () => {
 
     await expect(page.getByText("Lien manuel mis à jour")).toBeVisible();
     await expect(
-      page.getByText("Chargement de la comparaison DPGF vs Takeoff...")
+      page.getByText("Chargement de la comparaison DPGF vs métré…")
     ).toHaveCount(0);
     await page.getByRole("button", { name: "Tout" }).click();
     await expect(cloisonRow).toBeVisible();

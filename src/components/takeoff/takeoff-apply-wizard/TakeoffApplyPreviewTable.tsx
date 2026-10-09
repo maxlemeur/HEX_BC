@@ -12,6 +12,9 @@ import {
   OVERRIDE_ACTION_OPTIONS,
   summarizeAction,
 } from "./shared";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Input, controlSizes, controlSurface } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type PreviewItem = TakeoffPreviewConversionResponse["items"][number];
 
@@ -42,7 +45,7 @@ export function TakeoffApplyPreviewTable({
         tabIndex={0}
       >
       <table className="min-w-[760px] text-sm">
-        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-slate-600">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-3 py-2">Item</th>
             <th className="px-3 py-2">Impact</th>
@@ -60,13 +63,13 @@ export function TakeoffApplyPreviewTable({
             return (
               <tr key={item.item_id} className="border-t border-border align-top">
                 <td className="px-3 py-2">
-                  <p className="font-medium text-slate-800">{item.original.designation}</p>
+                  <p className="font-medium text-foreground">{item.original.designation}</p>
                   <p className="text-xs text-muted-foreground">
                     Après: {item.transformed.designation}
                   </p>
                 </td>
                 <td className="px-3 py-2 text-xs text-foreground-secondary">
-                  <p className="font-medium text-slate-800">
+                  <p className="font-medium text-foreground">
                     {summarizeAction(item)}
                   </p>
                   <p className="mt-1 text-muted-foreground">
@@ -76,7 +79,7 @@ export function TakeoffApplyPreviewTable({
                 <td className="px-3 py-2 text-xs text-foreground-secondary">
                   {source ? (
                     <>
-                      <p className="font-medium text-slate-800">
+                      <p className="font-medium text-foreground">
                         {source.source_file_name ?? "Source takeoff"}
                       </p>
                       <p className="mt-1 text-muted-foreground">
@@ -92,8 +95,8 @@ export function TakeoffApplyPreviewTable({
                   )}
                 </td>
                 <td className="px-3 py-2">
-                  <select
-                    className="form-input form-select w-full"
+                  <NativeSelect
+                    size="sm" className="w-full"
                     value={selectedAction}
                     onChange={(event) => onOverrideActionChange(item, event.target.value)}
                     disabled={isSubmitting}
@@ -104,12 +107,12 @@ export function TakeoffApplyPreviewTable({
                         {option.label}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </td>
                 <td className="px-3 py-2">
                   {override?.action === "rename" && (
-                    <input
-                      className="form-input w-full"
+                    <Input
+                      size="sm" className="w-full"
                       value={override.action_params.designation}
                       onChange={(event) =>
                         onOverrideParamChange(item.item_id, {
@@ -124,7 +127,7 @@ export function TakeoffApplyPreviewTable({
                   {override?.action === "set_price" && (
                     <NumberInput
                       min={0}
-                      className="form-input w-full"
+                      className={cn(controlSurface, controlSizes.sm, "w-full")}
                       value={override.action_params.unit_price_cents}
                       parseValue={(value) => {
                         const parsedValue = Number.parseInt(value, 10);
@@ -145,8 +148,8 @@ export function TakeoffApplyPreviewTable({
                     />
                   )}
                   {override?.action === "set_category" && (
-                    <input
-                      className="form-input w-full"
+                    <Input
+                      size="sm" className="w-full"
                       placeholder="UUID category"
                       value={override.action_params.category_id}
                       onChange={(event) =>
@@ -160,8 +163,8 @@ export function TakeoffApplyPreviewTable({
                     />
                   )}
                   {override?.action === "apply_assembly" && (
-                    <input
-                      className="form-input w-full"
+                    <Input
+                      size="sm" className="w-full"
                       placeholder="UUID assembly"
                       value={override.action_params.assembly_id}
                       onChange={(event) =>

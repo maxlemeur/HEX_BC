@@ -31,6 +31,8 @@ import {
   type WizardStep,
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
+import { buttonVariants } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 
 export type {
   TakeoffApplyStrategy,
@@ -419,16 +421,16 @@ export function TakeoffApplyWizard({
 
           </div>
           {submitError && (
-            <div className="alert alert-error mt-3" role="alert">
+            <Alert variant="danger" className="mt-3">
               {submitError}
-            </div>
+            </Alert>
           )}
         </Modal.Body>
 
         <Modal.Footer>
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
+            className={buttonVariants({ variant: "outline" })}
             onClick={() => handleOpenChange(false)}
             disabled={isSubmitting}
           >
@@ -438,7 +440,7 @@ export function TakeoffApplyWizard({
           {canGoBack && (
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={buttonVariants({ variant: "outline" })}
               onClick={() => setStep(isPreset ? 1 : ((step - 1) as WizardStep))}
               disabled={isSubmitting}
             >
@@ -449,7 +451,7 @@ export function TakeoffApplyWizard({
           {canProceed ? (
             <button
               type="button"
-              className="btn btn-primary btn-sm"
+              className={buttonVariants({ variant: "primary" })}
               onClick={() => setStep(isPreset ? 4 : ((step + 1) as WizardStep))}
               disabled={
                 isSubmitting ||
@@ -462,11 +464,11 @@ export function TakeoffApplyWizard({
           ) : (
             <button
               type="button"
-              className="btn btn-primary btn-sm"
+              className={buttonVariants({ variant: "primary" })}
               onClick={() => void handleConfirm()}
               disabled={!canConfirm}
             >
-              {isSubmitting ? "Application..." : "Confirmer l'application"}
+              {isSubmitting ? "Application…" : "Confirmer l'application"}
             </button>
           )}
         </Modal.Footer>

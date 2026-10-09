@@ -33,11 +33,11 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm transition hover:border-border-strong">
       {/* PDF icon */}
-      <FileIcon className="h-5 w-5 shrink-0 text-red-500" strokeWidth={1.5} aria-hidden="true" />
+      <FileIcon className="h-5 w-5 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
 
       {/* File info */}
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-slate-800">
+        <p className="truncate font-medium text-foreground">
           {file.file_name}
         </p>
         <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">

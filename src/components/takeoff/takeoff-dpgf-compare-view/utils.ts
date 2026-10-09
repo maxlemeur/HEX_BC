@@ -39,7 +39,7 @@ export function getDecisionImpactText(
     case "keep_dpgf":
       return `Quantité retenue : ${formatNumber(row.dpgf_quantity)} ${unit}`.trim();
     case "keep_takeoff":
-      if (row.takeoff_quantity === null) return "Quantité takeoff non consolidée";
+      if (row.takeoff_quantity === null) return "Quantité métrée non consolidée";
       return `Quantité retenue : ${formatNumber(row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
     case "manual_fix":
       return "Vous devrez saisir la quantité corrigée manuellement.";

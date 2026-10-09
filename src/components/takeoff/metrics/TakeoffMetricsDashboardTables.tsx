@@ -20,12 +20,12 @@ import {
 } from "./takeoff-metrics-formatters";
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {
-  completed: "bg-emerald-100 text-emerald-700",
+  completed: "bg-success-light text-success",
   applied: "bg-info-light text-info",
-  failed: "bg-error-light text-danger",
-  canceled: "bg-secondary text-muted-foreground",
-  processing: "bg-amber-100 text-warning",
-  pending: "bg-secondary text-slate-600",
+  failed: "bg-danger-light text-danger",
+  canceled: "bg-muted text-muted-foreground",
+  processing: "bg-warning-light text-warning",
+  pending: "bg-muted text-muted-foreground",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -38,7 +38,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const classes = STATUS_BADGE_CLASSES[status] ?? "bg-secondary text-muted-foreground";
+  const classes = STATUS_BADGE_CLASSES[status] ?? "bg-muted text-muted-foreground";
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>
       {STATUS_LABELS[status] ?? status}
@@ -68,7 +68,7 @@ export function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) 
   }
 
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Top codes erreur" tabIndex={0}>
       <table className="w-full min-w-[400px] text-sm">
         <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
@@ -103,7 +103,7 @@ export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
   }
 
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Extractions récentes" tabIndex={0}>
       <table className="w-full min-w-[700px] text-sm">
         <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
@@ -123,7 +123,7 @@ export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
                 <StatusBadge status={job.status} />
               </td>
               <td className="px-4 py-3 font-semibold">{job.level}</td>
-              <td className="px-4 py-3 text-slate-600">{job.model ?? "-"}</td>
+              <td className="px-4 py-3 text-muted-foreground">{job.model ?? "-"}</td>
               <td className="px-4 py-3 text-right">{formatDurationMs(job.durationMs)}</td>
               <td className="px-4 py-3 text-right">{formatCostCents(job.costCents)}</td>
               <td className="px-4 py-3 text-right">
@@ -150,7 +150,7 @@ export function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }
   }
 
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Coût par niveau" tabIndex={0}>
       <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
@@ -193,7 +193,7 @@ export function CorrectionEventsTable({
   }
 
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Corrections enregistrées" tabIndex={0}>
       <table className="w-full min-w-[420px] text-sm">
         <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
@@ -228,7 +228,7 @@ export function CorrectionByLevelTable({
   }
 
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Lecture métier par niveau" tabIndex={0}>
       <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>

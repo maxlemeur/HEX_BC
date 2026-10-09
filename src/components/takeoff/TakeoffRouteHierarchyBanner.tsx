@@ -1,7 +1,10 @@
 import Link from "next/link";
 
-import type { TakeoffRouteHierarchyDescriptor } from "@/lib/takeoff/route-hierarchy";
 import { ChevronDownIcon } from "lucide-react";
+
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import type { TakeoffRouteHierarchyDescriptor } from "@/lib/takeoff/route-hierarchy";
 
 type TakeoffRouteHierarchyBannerProps = {
   descriptor: TakeoffRouteHierarchyDescriptor;
@@ -12,12 +15,12 @@ export function TakeoffRouteHierarchyBanner({
 }: TakeoffRouteHierarchyBannerProps) {
   const toneClassName =
     descriptor.classification === "principal"
-      ? "border-success/20 bg-success/5"
-      : "border-warning/25 bg-warning/8";
+      ? "border-success-border bg-success-subtle"
+      : "border-warning-border bg-warning-subtle";
   const badgeClassName =
     descriptor.classification === "principal"
-      ? "bg-success-subtle text-success"
-      : "bg-warning/14 text-warning";
+      ? "bg-success-light text-success"
+      : "bg-warning-light text-warning";
 
   return (
     <aside aria-label="Aide sur le parcours de métrés" className="mb-4 max-w-full">
@@ -35,11 +38,11 @@ export function TakeoffRouteHierarchyBanner({
               {descriptor.title}
             </span>
           </span>
-          <ChevronDownIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+          <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
         </summary>
 
         <div className="border-t border-border px-3 pb-4 pt-3 sm:px-4">
-          <p className="break-words text-sm leading-6 text-slate-600">
+          <p className="break-words text-sm leading-6 text-muted-foreground">
             {descriptor.description}
           </p>
           <p className="mt-2 break-words text-xs font-medium leading-5 text-muted-foreground">
@@ -49,7 +52,10 @@ export function TakeoffRouteHierarchyBanner({
           {descriptor.targetHref && descriptor.targetLabel ? (
             <Link
               href={descriptor.targetHref}
-              className="btn btn-secondary btn-sm mt-3 min-h-11 w-full whitespace-normal text-center sm:min-h-0 sm:w-auto"
+              className={cn(
+                buttonVariants({ variant: "outline" }),
+                "mt-3 h-auto min-h-11 w-full whitespace-normal py-1.5 text-center sm:min-h-9 sm:w-auto"
+              )}
             >
               {descriptor.targetLabel}
             </Link>

@@ -22,6 +22,9 @@ import {
 } from "@/lib/takeoff/client";
 import { validateTakeoffPdfUploadMetadata } from "@/lib/takeoff/pdf-validation";
 import { LoaderCircleIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Alert } from "@/components/ui/alert";
 
 const TAKEOFF_LEVEL_OPTIONS = [
   {
@@ -144,11 +147,11 @@ function resolveApiErrorMessage(error: unknown) {
   }
 
   if (error.status === 403) {
-    return "Accès refuse. Le module d'extraction est peut-être désactivé pour ce tenant.";
+    return "Accès refusé. Le module d'extraction est peut-être désactivé pour cette organisation.";
   }
 
   if (error.status === 409) {
-    return "Conflit detecte: cette extraction existe déjà ou la clé d'idempotence est déjà utilisee.";
+    return "Conflit détecté : cette extraction existe déjà ou la clé d'idempotence est déjà utilisée.";
   }
 
   if (error.status === 413) {
@@ -207,7 +210,7 @@ function validateTakeoffFileSupport(
   allowedLevels: TakeoffLevel[]
 ): string | null {
   if (!file) {
-    return "Aucun fichier selectionne.";
+    return "Aucun fichier sélectionné.";
   }
 
   if (file.size <= 0) {
@@ -476,7 +479,7 @@ export function TakeoffUploadForm({
     setStableIdempotencyKey(
       shouldKeepExistingKey ? stableIdempotencyKey : generateIdempotencyKey(file)
     );
-    setAnnouncement(file ? `Fichier ${file.name} selectionne.` : "");
+    setAnnouncement(file ? `Fichier ${file.name} sélectionné.` : "");
   }
 
   function handleLevelChange(nextLevel: TakeoffLevel) {
@@ -487,7 +490,7 @@ export function TakeoffUploadForm({
     setManuallySelectedLevel(true);
     setSelectedLevel(nextLevel);
     resetTransientState();
-    setAnnouncement(`Niveau ${nextLevel} selectionne.`);
+    setAnnouncement(`Niveau ${nextLevel} sélectionné.`);
   }
 
   function openFilePicker() {
@@ -513,7 +516,7 @@ export function TakeoffUploadForm({
     if (!isTakeoffLevelCompatible(recommendation, selectedLevel)) {
       const message =
         selectionWarning?.message ??
-        "Le niveau choisi n'est pas compatible avec le document detecte.";
+        "Le niveau choisi n'est pas compatible avec le document détecté.";
       notifySubmittingChange(false);
       setSubmitState("error");
       setErrorMessage(message);
@@ -524,7 +527,7 @@ export function TakeoffUploadForm({
     if (!selectedFile) {
       notifySubmittingChange(false);
       setSubmitState("error");
-      setErrorMessage("Aucun fichier selectionne.");
+      setErrorMessage("Aucun fichier sélectionné.");
       return;
     }
 
@@ -581,7 +584,9 @@ export function TakeoffUploadForm({
   }
 
   const Wrapper = compact ? "div" : "section";
-  const wrapperClassName = compact ? "space-y-6" : "dashboard-card p-6 sm:p-8";
+  const wrapperClassName = compact
+    ? "space-y-6"
+    : "min-w-0 rounded-lg border border-border bg-surface p-4 text-foreground shadow-card sm:p-8";
 
   return (
     <Wrapper className={wrapperClassName}>
@@ -612,14 +617,14 @@ export function TakeoffUploadForm({
         />
 
         <div>
-          <label htmlFor={fileInputId} className="form-label">
+          <FieldLabel htmlFor={fileInputId} className="mb-1.5">
             Fichier source
-          </label>
+          </FieldLabel>
           <div
             className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
               dragActive
                 ? "border-primary bg-primary/5"
-                : "border-border-strong bg-surface-subtle hover:border-slate-400"
+                : "border-border-strong bg-surface-subtle hover:border-subtle-foreground"
             }`}
             role="button"
             tabIndex={submitState === "loading" ? -1 : 0}
@@ -658,7 +663,7 @@ export function TakeoffUploadForm({
             <p className="text-sm font-medium text-foreground-secondary">
               {dragActive
                 ? "Déposez le fichier ici"
-                : "Glissez-deposez un fichier ou cliquez pour parcourir"}
+                : "Glissez-déposez un fichier ou cliquez pour parcourir"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {uploadRules.helperLabel}
@@ -671,7 +676,7 @@ export function TakeoffUploadForm({
             <h3 className="text-sm font-semibold text-foreground-secondary">
               Recap fichier
             </h3>
-            <dl className="mt-2 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">
+            <dl className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
               <div>
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   Nom
@@ -699,7 +704,7 @@ export function TakeoffUploadForm({
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Detection document
             </p>
-            <p className="mt-1 text-sm font-semibold text-slate-800">
+            <p className="mt-1 text-sm font-semibold text-foreground">
               {TAKEOFF_DOCUMENT_CLASS_LABELS[recommendation.documentClass]}
             </p>
             <p className="mt-2 text-sm text-foreground-secondary">
@@ -722,7 +727,7 @@ export function TakeoffUploadForm({
               <div
                 className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
                   selectionWarning.severity === "critical"
-                    ? "border-warning/30 bg-warning-subtle text-warning"
+                    ? "border-warning-border bg-warning-subtle text-warning"
                     : "border-primary/20 bg-surface/70 text-foreground-secondary"
                 }`}
                 role={selectionWarning.severity === "critical" ? "alert" : "status"}
@@ -735,7 +740,7 @@ export function TakeoffUploadForm({
 
         {!compact && (
           <fieldset>
-            <legend className="form-label mb-2">Niveau d&apos;extraction</legend>
+            <legend className="mb-2 text-sm font-medium text-foreground">Niveau d&apos;extraction</legend>
             <div className="grid gap-3 sm:grid-cols-3">
               {TAKEOFF_LEVEL_OPTIONS.filter((option) =>
                 normalizedAllowedLevels.includes(option.level)
@@ -761,7 +766,7 @@ export function TakeoffUploadForm({
                       disabled={isDisabled}
                       onChange={() => handleLevelChange(option.level)}
                     />
-                    <span className="text-sm text-slate-800">
+                    <span className="text-sm text-foreground">
                       <span className="font-medium">{option.label}</span>
                       <span className="ml-2 text-muted-foreground">
                         {option.description}
@@ -782,7 +787,7 @@ export function TakeoffUploadForm({
         {(submitState === "loading" || uploadProgress > 0) && (
           <div>
             <div
-              className="h-2 w-full overflow-hidden rounded-full bg-slate-200"
+              className="h-2 w-full overflow-hidden rounded-full bg-border"
               aria-label={`Progression upload ${uploadProgress}%`}
             >
               <div
@@ -797,20 +802,15 @@ export function TakeoffUploadForm({
         )}
 
         {errorMessage ? (
-          <div
-            id="takeoff-upload-error"
-            className="alert alert-error"
-            role="alert"
-            aria-live="assertive"
-          >
+          <Alert id="takeoff-upload-error" variant="danger" aria-live="assertive">
             {errorMessage}
-          </div>
+          </Alert>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            className="btn btn-primary"
+            className={buttonVariants({ variant: "primary", size: "lg" })}
             disabled={!canSubmit}
           >
             {submitState === "loading" ? (

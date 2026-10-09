@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   detectAnomalies,
 } from "@/components/takeoff/TakeoffReviewTable";
@@ -48,7 +48,7 @@ const FILTER_OPTIONS: Array<{ value: ValidationFilter; label: string }> = [
   { value: "all", label: "Tous les signaux" },
   { value: "low_confidence", label: "Confiance faible" },
   { value: "missing_evidence", label: "Sans preuve" },
-  { value: "missing_source_context", label: "Source incomplete" },
+  { value: "missing_source_context", label: "Source incomplète" },
   { value: "anomalies", label: "Anomalies" },
   { value: "unverified", label: "Non vérifiés" },
   { value: "open_hypotheses", label: "Hypothèses ouvertes" },
@@ -59,7 +59,7 @@ const ISSUE_LABELS: Record<string, string> = {
   missing_evidence: "Aucune preuve liée",
   missing_source_context: "Source ou page manquante",
   zero_quantity: "Quantité nulle",
-  empty_designation: "Designation manquante",
+  empty_designation: "Désignation manquante",
   unverified: "Validation manuelle requise",
   open_hypotheses: "Hypothèse ouverte",
 };
@@ -169,11 +169,11 @@ function matchesFilter(flagged: FlaggedItem, filter: ValidationFilter): boolean 
 
 function getConfidenceBadgeVariant(
   confidence: number | null
-): "success" | "warning" | "error" | "neutral" {
+): "success" | "warning" | "danger" | "neutral" {
   if (confidence === null) return "neutral";
   if (confidence >= 0.8) return "success";
   if (confidence >= 0.5) return "warning";
-  return "error";
+  return "danger";
 }
 
 function formatConfidenceLabel(confidence: number | null) {
@@ -204,14 +204,14 @@ function buildStatusMessage(input: {
   }
 
   if (input.summary.priorityCount > 0) {
-    return "Commencez par les exceptions critiques: preuves manquantes, source incomplete et faible confiance.";
+    return "Commencez par les exceptions critiques : preuves manquantes, source incomplète et faible confiance.";
   }
 
   if (input.summary.flaggedCount > 0) {
     if (input.canOpenApplyWizard) {
       return "Le métré peut être appliqué. Des contrôles humains restent recommandés mais ne bloquent pas cette étape.";
     }
-    return "Les exceptions principales sont levees. Finalisez les validations humaines restantes.";
+    return "Les exceptions principales sont levées. Finalisez les validations humaines restantes.";
   }
 
   return "La revue est propre. Vous pouvez passer à l'étape suivante sans dispersion.";
@@ -324,18 +324,17 @@ export function ValidationReviewPanel({
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={
-          <CircleCheckIcon aria-hidden="true" strokeWidth={1.5} className="h-7 w-7" />
-        }
+        icon={<CircleCheckIcon aria-hidden="true" />}
         title="Aucun item à valider"
-        description="Le releve ne contient aucun item."
+        description="Le relevé ne contient aucun item."
+        headingLevel={2}
       />
     );
   }
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-warning/20 bg-warning/5 p-4">
+      <section className="rounded-2xl border border-warning-border bg-warning-subtle p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-warning">
@@ -367,7 +366,7 @@ export function ValidationReviewPanel({
             label="À traiter d'abord"
             value={summary.priorityCount}
             tone={summary.priorityCount > 0 ? "warning" : "success"}
-            hint="preuves manquantes, faible confiance, source incomplete"
+            hint="preuves manquantes, faible confiance, source incomplète"
           />
           <PriorityCard
             label="Sans preuve"
@@ -376,7 +375,7 @@ export function ValidationReviewPanel({
             hint="items à documenter avant arbitrage"
           />
           <PriorityCard
-            label="Source incomplete"
+            label="Source incomplète"
             value={summary.missingSourceContext}
             tone={summary.missingSourceContext > 0 ? "warning" : "success"}
             hint="fichier ou page non consultable"
@@ -384,7 +383,7 @@ export function ValidationReviewPanel({
           <PriorityCard
             label="Faible à vérifier"
             value={summary.lowConfidence}
-            tone={summary.lowConfidence > 0 ? "error" : "success"}
+            tone={summary.lowConfidence > 0 ? "danger" : "success"}
             hint="validation humaine requise"
           />
         </div>
@@ -394,13 +393,13 @@ export function ValidationReviewPanel({
         <section
           className={`rounded-lg border px-4 py-3 text-sm ${
             hasSaveErrors
-              ? "border-danger/20 bg-danger/5 text-danger"
+              ? "border-danger-border bg-danger-subtle text-danger"
               : "border-primary/20 bg-primary/5 text-foreground-secondary"
           }`}
           role="status"
         >
           {hasSaveErrors
-            ? "Certaines décisions n'ont pas pu être sauvegardees. Reprenez les lignes en erreur avant de continuer."
+            ? "Certaines décisions n'ont pas pu être sauvegardées. Reprenez les lignes en erreur avant de continuer."
             : "Sauvegarde automatique en cours. Les décisions seront confirmées dans quelques instants."}
         </section>
       )}
@@ -409,10 +408,10 @@ export function ValidationReviewPanel({
         <section className="rounded-lg border border-border bg-surface p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">
+              <h2 className="text-sm font-semibold text-foreground">
                 Rapprochement DPGF
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Gardez les cas simples hors du chemin. Ouvrez seulement les lignes sans preuve, à confirmer ou à lier manuellement.
               </p>
             </div>
@@ -424,7 +423,7 @@ export function ValidationReviewPanel({
           </div>
 
           {dpgfLoading ? (
-            <p className="mt-3 text-sm text-muted-foreground">Chargement des écarts DPGF...</p>
+            <p className="mt-3 text-sm text-muted-foreground">Chargement des écarts DPGF…</p>
           ) : dpgfError ? (
             <p className="mt-3 text-sm text-danger">{dpgfError}</p>
           ) : dpgfSummary ? (
@@ -471,8 +470,8 @@ export function ValidationReviewPanel({
       )}
 
       <section className="rounded-lg border border-border bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-800">
-          Resume de validation
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
+          Résumé de validation
         </h2>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7">
@@ -485,13 +484,13 @@ export function ValidationReviewPanel({
                 ? "success"
                 : summary.coveragePct >= 50
                   ? "warning"
-                  : "error"
+                  : "danger"
             }
           />
           <SummaryCard
             label="Confiance faible"
             value={summary.lowConfidence}
-            variant={summary.lowConfidence === 0 ? "success" : "error"}
+            variant={summary.lowConfidence === 0 ? "success" : "danger"}
           />
           <SummaryCard
             label="Sans preuve"
@@ -501,7 +500,7 @@ export function ValidationReviewPanel({
           <SummaryCard
             label="Anomalies"
             value={summary.withAnomalies}
-            variant={summary.withAnomalies === 0 ? "success" : "error"}
+            variant={summary.withAnomalies === 0 ? "success" : "danger"}
           />
           <SummaryCard
             label="Hypothèses ouvertes"
@@ -509,44 +508,50 @@ export function ValidationReviewPanel({
             variant={summary.openHypotheses === 0 ? "success" : "warning"}
           />
           <SummaryCard
-            label="Valides"
+            label="Validés"
             value={`${summary.verified} / ${summary.total}`}
             variant={summary.unverified === 0 ? "success" : "neutral"}
           />
         </div>
 
         {summary.total === 0 ? (
-          <p className="mt-3 text-sm text-slate-600" role="status">
-            Tous les items sont exclus. Reintegrez au moins un item pour pouvoir appliquer l&apos;extraction.
+          <p className="mt-3 text-sm text-muted-foreground" role="status">
+            Tous les items sont exclus. Réintégrez au moins un item pour pouvoir appliquer l&apos;extraction.
           </p>
         ) : summary.flaggedCount === 0 ? (
           <p className="mt-3 text-sm font-medium text-success" role="status">
-            Tous les items sont conformes. La revue peut passer a l&apos;étape suivante.
+            Tous les items sont conformes. La revue peut passer à l&apos;étape suivante.
           </p>
         ) : canOpenApplyWizard && summary.priorityCount === 0 ? (
-          <p className="mt-3 text-sm text-slate-600" role="status">
+          <p className="mt-3 text-sm text-muted-foreground" role="status">
             {summary.flaggedCount} contrôle{summary.flaggedCount > 1 ? "s" : ""} humain{summary.flaggedCount > 1 ? "s" : ""} reste{summary.flaggedCount > 1 ? "nt" : ""} recommandé{summary.flaggedCount > 1 ? "s" : ""}. L&apos;application n&apos;est pas bloquée.
           </p>
         ) : (
-          <p className="mt-3 text-sm text-slate-600" role="status">
-            {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} necessite{summary.flaggedCount > 1 ? "nt" : ""} une vérification,
+          <p className="mt-3 text-sm text-muted-foreground" role="status">
+            {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} nécessite{summary.flaggedCount > 1 ? "nt" : ""} une vérification,
             dont {summary.priorityCount} prioritaire{summary.priorityCount > 1 ? "s" : ""}.
           </p>
         )}
       </section>
 
       {flaggedItems.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Filtrer :</span>
+        <div
+          role="group"
+          aria-labelledby="validation-filter-label"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <span id="validation-filter-label" className="text-xs font-medium text-muted-foreground">
+            Filtrer :
+          </span>
           {FILTER_OPTIONS.map((option) => (
             <button
               key={option.value}
               type="button"
               onClick={() => setFilter(option.value)}
-              className={`min-h-11 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:min-h-0 ${
+              className={`min-h-11 rounded-control px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:min-h-8 ${
                 filter === option.value
-                  ? "bg-slate-800 text-white"
-                  : "bg-muted text-slate-600 hover:bg-slate-200"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-foreground-secondary hover:bg-border"
               }`}
               aria-pressed={filter === option.value}
             >
@@ -573,7 +578,7 @@ export function ValidationReviewPanel({
         </div>
       ) : flaggedItems.length > 0 ? (
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted-foreground">
-          Aucun item ne correspond au filtre selectionne.
+          Aucun item ne correspond au filtre sélectionné.
         </div>
       ) : null}
 
@@ -581,11 +586,11 @@ export function ValidationReviewPanel({
         <section className="rounded-lg border border-border bg-surface p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">
+              <h2 className="text-sm font-semibold text-foreground">
                 Items exclus
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Gardez les exclusions visibles ici pour pouvoir les reintegrer sans quitter la revue validation.
+              <p className="mt-1 text-sm text-muted-foreground">
+                Gardez les exclusions visibles ici pour pouvoir les réintégrer sans quitter la revue validation.
               </p>
             </div>
             <Badge variant="neutral" size="sm">
@@ -612,11 +617,11 @@ export function ValidationReviewPanel({
 
       <section className="rounded-lg border border-border bg-surface px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-slate-600">
+          <p id="validation-next-step" className="text-sm text-muted-foreground">
             Prochaine étape :{" "}
-            <span className="font-medium text-slate-800">
+            <span className="font-medium text-foreground">
               {canOpenApplyWizard
-                ? "L'apply contrôle est prêt. Vérifiez l'impact puis confirmez."
+                ? "L'apply contrôlé est prêt. Vérifiez l'impact puis confirmez."
                 : (applyReadinessMessage ?? statusMessage)}
             </span>
           </p>
@@ -627,9 +632,9 @@ export function ValidationReviewPanel({
                 size="sm"
                 onClick={onOpenApplyWizard}
                 disabled={!canOpenApplyWizard}
-                title={canOpenApplyWizard ? "Ouvrir l'apply contrôle" : (applyReadinessMessage ?? statusMessage)}
+                aria-describedby="validation-next-step"
               >
-                Ouvrir l&apos;apply contrôle
+                Ouvrir l&apos;apply contrôlé
               </Button>
             ) : null}
             {onOpenDpgfExceptions ? (
@@ -658,20 +663,21 @@ function PriorityCard({
   label: string;
   value: number;
   hint: string;
-  tone: "success" | "warning" | "error";
+  tone: "success" | "warning" | "danger";
 }) {
-  const toneClass =
-    tone === "success"
-      ? "border-success/15 bg-success/5 text-success"
-      : tone === "error"
-        ? "border-danger/15 bg-danger/5 text-danger"
-        : "border-warning/15 bg-warning/5 text-warning";
+  const toneClass = {
+    success: { border: "border-success-border", value: "text-success" },
+    warning: { border: "border-warning-border", value: "text-warning" },
+    danger: { border: "border-danger-border", value: "text-danger" },
+  }[tone];
 
   return (
-    <div className={`rounded-xl border px-3 py-3 ${toneClass}`}>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] opacity-80">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs opacity-80">{hint}</p>
+    <div className={`rounded-xl border bg-surface px-3 py-3 ${toneClass.border}`}>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-foreground-secondary">
+        {label}
+      </p>
+      <p className={`mt-2 text-2xl font-semibold ${toneClass.value}`}>{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -683,13 +689,13 @@ function SummaryCard({
 }: {
   label: string;
   value: number | string;
-  variant: "success" | "warning" | "error" | "neutral";
+  variant: "success" | "warning" | "danger" | "neutral";
 }) {
   const colorMap = {
     success: "text-success",
     warning: "text-warning",
-    error: "text-danger",
-    neutral: "text-slate-800",
+    danger: "text-danger",
+    neutral: "text-foreground",
   };
 
   return (
@@ -750,13 +756,13 @@ function ValidationItemRow({
               </Badge>
             ) : (
               <Badge variant="success" size="sm">
-                Verifie
+                Vérifié
               </Badge>
             )}
           </div>
 
           <p className="mt-3 text-sm font-semibold text-foreground">
-            {item.designation || "(sans designation)"}
+            {item.designation || "(sans désignation)"}
           </p>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -772,12 +778,12 @@ function ValidationItemRow({
             ) : item.source_page !== null ? (
               <span>page {item.source_page}</span>
             ) : (
-              <span>Source non localisee</span>
+              <span>Source non localisée</span>
             )}
           </div>
 
           <div className="mt-3 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-foreground-secondary">
-            {item.evidence ? item.evidence : "Aucune preuve textuelle n'est renseignee pour cet item."}
+            {item.evidence ? item.evidence : "Aucune preuve textuelle n'est renseignée pour cet item."}
           </div>
 
           {(item._saving || item._error) && (
@@ -787,7 +793,7 @@ function ValidationItemRow({
               }`}
               role="status"
             >
-              {item._error ? item._error : "Sauvegarde en cours..."}
+              {item._error ? item._error : "Sauvegarde en cours…"}
             </p>
           )}
         </div>
@@ -796,7 +802,7 @@ function ValidationItemRow({
           {issues.map((issue) => (
             <Badge
               key={issue}
-              variant={PRIORITY_ISSUES.has(issue) ? "error" : "warning"}
+              variant={PRIORITY_ISSUES.has(issue) ? "danger" : "warning"}
               size="sm"
             >
               {ISSUE_LABELS[issue] ?? issue}
@@ -826,7 +832,7 @@ function ValidationItemRow({
             onClick={() => onIncludeItem?.(item.id)}
             disabled={!onIncludeItem}
           >
-            Reintegrer
+            Réintégrer
           </Button>
         ) : (
           <Button

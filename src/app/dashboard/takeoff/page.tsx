@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { EmptyState } from "@/components/layout/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { fetchAffaireList } from "@/lib/affaires/server";
 import { getUserContext } from "@/lib/auth/server";
-import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 
@@ -55,53 +59,59 @@ export default async function TakeoffPage({ searchParams }: Props) {
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Métrés — Analyse de plans</h1>
-          <p className="page-description">
-            Sélectionnez une affaire pour accéder au suivi des analyses et lancer de nouveaux
-            métrés.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/dashboard/affaires"
-            prefetch={false}
-            className="btn btn-secondary btn-sm"
-          >
-            Retour aux affaires
-          </Link>
-          <Link
-            href="/dashboard/affaires/new"
-            prefetch={false}
-            className="btn btn-primary btn-sm"
-          >
-            Nouvelle affaire
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Métrés — Analyse de plans"
+        description="Sélectionnez une affaire pour accéder au suivi des analyses et lancer de nouveaux métrés."
+        actions={
+          <>
+            <Link
+              href="/dashboard/affaires"
+              prefetch={false}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              Retour aux affaires
+            </Link>
+            <Link
+              href="/dashboard/affaires/new"
+              prefetch={false}
+              className={buttonVariants({ variant: "primary" })}
+            >
+              Nouvelle affaire
+            </Link>
+          </>
+        }
+      />
 
       <TakeoffDeprecationBanner
         descriptor={buildTakeoffRouteHierarchy({ kind: "dashboard_takeoff_legacy" })}
       />
 
       {items.length === 0 ? (
-        <div className="dashboard-card mt-6 p-6">
-          <p className="text-sm text-foreground-secondary">
-            Aucune affaire disponible pour lancer une analyse de plans.
-          </p>
-        </div>
+        <EmptyState
+          className="mt-6"
+          headingLevel={2}
+          title="Aucune affaire disponible"
+          description="Créez une affaire pour lancer une analyse de plans."
+        />
       ) : (
-        <div className="dashboard-card mt-6 overflow-hidden">
-          <div className="overflow-x-auto">
+        <Card className="mt-6 overflow-hidden">
+          <div
+            className="relative overflow-x-auto"
+            role="region"
+            aria-label="Affaires disponibles pour le métré"
+            tabIndex={0}
+          >
             <table className="w-full min-w-[600px] text-sm">
+              <caption className="sr-only">Affaires disponibles pour le métré</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th scope="col" className="px-4 py-3 font-semibold">Projet</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Version</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Statut</th>
-                  <th scope="col" className="px-4 py-3 font-semibold">MAJ</th>
-                  <th scope="col" className="px-4 py-3 font-semibold text-right">Action</th>
+                  <th scope="col" className="px-4 py-3 font-semibold">Mise à jour</th>
+                  <th scope="col" className="px-4 py-3 text-right font-semibold">
+                    <span className="sr-only">Action</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -119,11 +129,11 @@ export default async function TakeoffPage({ searchParams }: Props) {
                       className="border-b border-border-subtle align-top"
                     >
                       <td className="px-4 py-4">
-                        <p className="font-semibold text-slate-800">{item.projectName}</p>
+                        <p className="font-semibold text-foreground">{item.projectName}</p>
                         <p className="text-xs text-muted-foreground">
                           {item.projectReference ?? "Sans référence"}
                           {item.projectClient
-                            ? ` - ${item.projectClient}`
+                            ? ` · ${item.projectClient}`
                             : ""}
                         </p>
                       </td>
@@ -140,7 +150,8 @@ export default async function TakeoffPage({ searchParams }: Props) {
                         <Link
                           href={targetHref}
                           prefetch={false}
-                          className="btn btn-secondary btn-sm"
+                          className={buttonVariants({ variant: "outline", size: "sm" })}
+                          aria-label={`${item.currentVersionId ? "Ouvrir les métrés" : "Ouvrir l’affaire"} ${item.projectName}`}
                         >
                           {item.currentVersionId ? "Ouvrir les métrés" : "Ouvrir l’affaire"}
                         </Link>
@@ -156,13 +167,13 @@ export default async function TakeoffPage({ searchParams }: Props) {
               <Link
                 href={`/dashboard/takeoff?cursor=${encodeURIComponent(result.nextCursor)}`}
                 prefetch={false}
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
               >
                 Affaires suivantes
               </Link>
             </div>
           ) : null}
-        </div>
+        </Card>
       )}
     </div>
   );

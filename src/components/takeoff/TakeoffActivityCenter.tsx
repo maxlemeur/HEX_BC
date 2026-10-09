@@ -27,6 +27,10 @@ import {
 import TakeoffJobsTable from "./TakeoffJobsTable";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Card } from "@/components/ui/card";
 
 type Props = {
   projectId: string;
@@ -306,7 +310,7 @@ export default function TakeoffActivityCenter({
           <div className="sm:hidden">
             <button
               type="button"
-              className="btn btn-secondary min-h-11 w-full justify-between px-4"
+              className={cn(buttonVariants({ variant: "outline", size: "lg" }), "min-h-11 w-full justify-between px-4")}
               aria-expanded={filtersExpanded}
               aria-controls="takeoff-analysis-filters"
               onClick={() => setFiltersExpanded((expanded) => !expanded)}
@@ -332,9 +336,9 @@ export default function TakeoffActivityCenter({
             >
               Version
             </label>
-            <select
+            <NativeSelect
               id="filter-version"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
               value={selectedVersion}
               onChange={(e) =>
                 updateParams({ version: e.target.value, offset: null })
@@ -346,7 +350,7 @@ export default function TakeoffActivityCenter({
                   V{v.version_number}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -356,9 +360,9 @@ export default function TakeoffActivityCenter({
             >
               Lot
             </label>
-            <select
+            <NativeSelect
               id="filter-lot"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
               value={selectedLot}
               onChange={(e) =>
                 updateParams({ lot: e.target.value, offset: null })
@@ -369,7 +373,7 @@ export default function TakeoffActivityCenter({
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -379,9 +383,9 @@ export default function TakeoffActivityCenter({
             >
               Jeu de plans
             </label>
-            <select
+            <NativeSelect
               id="filter-planSet"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
               value={selectedPlanSet}
               onChange={(e) =>
                 updateParams({ planSet: e.target.value, offset: null })
@@ -393,7 +397,7 @@ export default function TakeoffActivityCenter({
                   {ps.name}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -403,9 +407,9 @@ export default function TakeoffActivityCenter({
             >
               Statut
             </label>
-            <select
+            <NativeSelect
               id="filter-status"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
               value={selectedStatus}
               onChange={(e) =>
                 updateParams({ status: e.target.value, offset: null })
@@ -416,7 +420,7 @@ export default function TakeoffActivityCenter({
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -426,9 +430,9 @@ export default function TakeoffActivityCenter({
             >
               Niveau
             </label>
-            <select
+            <NativeSelect
               id="filter-level"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
               value={selectedLevel}
               onChange={(e) =>
                 updateParams({ level: e.target.value, offset: null })
@@ -439,7 +443,7 @@ export default function TakeoffActivityCenter({
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -449,9 +453,9 @@ export default function TakeoffActivityCenter({
             >
               Période
             </label>
-            <select
+            <NativeSelect
               id="filter-period"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[120px]"
               value={selectedPeriod}
               onChange={(e) =>
                 updateParams({ period: e.target.value, offset: null })
@@ -462,7 +466,7 @@ export default function TakeoffActivityCenter({
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </div>
         </div>
@@ -477,7 +481,7 @@ export default function TakeoffActivityCenter({
         {activeTab === "jobs" &&
           (isLoading ? (
             <div role="status" aria-live="polite">
-              <p className="mb-3 text-sm text-slate-600">
+              <p className="mb-3 text-sm text-muted-foreground">
                 {isSlowLoading
                   ? "Le chargement prend plus de temps que prévu…"
                   : "Chargement des analyses…"}
@@ -485,21 +489,21 @@ export default function TakeoffActivityCenter({
               <JobsTableSkeleton />
             </div>
           ) : error ? (
-            <section className="dashboard-card mt-4 p-6">
-              <h2 className="text-xl font-black text-slate-800">
+            <Card className="mt-4 p-6">
+              <h2 className="text-xl font-black text-foreground">
                 {resolveErrorTitle(errorStatus)}
               </h2>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-muted-foreground">
                 {errorMessage}
               </p>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm mt-4"
+                className={cn(buttonVariants({ variant: "outline" }), "mt-4")}
                 onClick={() => void mutate()}
               >
                 Réessayer
               </button>
-            </section>
+            </Card>
           ) : data ? (
             <TakeoffJobsTable
               projectId={projectId}

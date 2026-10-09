@@ -1,7 +1,7 @@
 "use client";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { TakeoffApiError } from "@/lib/takeoff/client";
 import { isTakeoffApiError } from "@/lib/takeoff/client";
 import type { TakeoffRiskAlert, TakeoffRiskRadarResponse } from "@/lib/takeoff/types";
@@ -30,7 +30,7 @@ function SummaryCard({
   accent: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface/90 p-4 shadow-sm">
+    <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
       <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${accent}`}>{value}</p>
     </div>
@@ -55,14 +55,14 @@ export function RiskRadarSummary({
   onRiskAction,
 }: Readonly<RiskRadarSummaryProps>) {
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-      <div className="rounded-[28px] border border-border bg-surface p-5 shadow-sm">
+    <section className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
+      <div className="min-w-0 rounded-[28px] border border-border bg-surface p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               Radar affaire
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-slate-950">
+            <h3 className="mt-2 text-xl font-semibold text-foreground">
               Risque explicable sur la version
             </h3>
           </div>
@@ -74,7 +74,7 @@ export function RiskRadarSummary({
         </div>
 
         {riskRadarLoading ? (
-          <p className="mt-3 text-sm text-slate-600">Chargement du radar de risque…</p>
+          <p className="mt-3 text-sm text-muted-foreground">Chargement du radar de risque…</p>
         ) : riskRadarError ? (
           <p className="mt-3 text-sm text-danger">
             {isTakeoffApiError(riskRadarError)
@@ -83,7 +83,7 @@ export function RiskRadarSummary({
           </p>
         ) : riskRadar ? (
           <>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Causes dominantes :{" "}
               {riskRadar.summary.top_causes.length > 0
                 ? riskRadar.summary.top_causes.join(" · ")
@@ -93,22 +93,22 @@ export function RiskRadarSummary({
               <SummaryCard
                 label="Projet"
                 value={riskRadar.summary.project_score}
-                accent="text-slate-950"
+                accent="text-foreground"
               />
               <SummaryCard
                 label="À traiter"
                 value={riskRadar.summary.to_process_count}
-                accent="text-amber-700"
+                accent="text-warning"
               />
               <SummaryCard
-                label="Assumes"
+                label="Assumés"
                 value={riskRadar.summary.assumed_count}
-                accent="text-emerald-700"
+                accent="text-success"
               />
               <SummaryCard
                 label="Critiques"
                 value={riskRadar.summary.critical_count}
-                accent="text-rose-700"
+                accent="text-danger"
               />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -117,8 +117,11 @@ export function RiskRadarSummary({
                   <Badge
                     key={`${lot.scope_id ?? lot.scope_label}`}
                     variant={RISK_SEVERITY_VARIANT[lot.severity]}
+                    className="max-w-full"
                   >
-                    {lot.scope_label} · {lot.score}/100
+                    <span className="truncate">
+                      {lot.scope_label} · {lot.score}/100
+                    </span>
                   </Badge>
                 ))
               ) : (
@@ -129,13 +132,13 @@ export function RiskRadarSummary({
         ) : null}
       </div>
 
-      <div className="rounded-[28px] border border-border bg-surface p-5 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 rounded-[28px] border border-border bg-surface p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               À traiter
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-slate-950">
+            <h3 className="mt-2 text-xl font-semibold text-foreground">
               Signaux prioritaires
             </h3>
           </div>
@@ -144,7 +147,7 @@ export function RiskRadarSummary({
 
         <div className="mt-4 space-y-3">
           {openRiskItems.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-4 text-sm text-slate-600">
+            <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
               Aucun signal ouvert à traiter.
             </div>
           ) : (
@@ -163,10 +166,10 @@ export function RiskRadarSummary({
                         {RISK_STATUS_LABELS[item.status]}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-sm font-semibold text-slate-950">
+                    <p className="mt-2 break-words text-sm font-semibold text-foreground">
                       {item.scope_label}
                     </p>
-                    <p className="mt-1 text-xs text-slate-600">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {item.cause_label} · {item.risk_score}/100
                     </p>
                     {item.reason_labels[0] ? (
@@ -180,7 +183,7 @@ export function RiskRadarSummary({
                       variant="secondary"
                       onClick={() => onOpenLine(item.line_id as string)}
                     >
-                      Ouvrir
+                      Ouvrir la ligne
                     </Button>
                   ) : null}
                 </div>

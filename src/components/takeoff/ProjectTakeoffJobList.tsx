@@ -31,9 +31,13 @@ import {
   resolveTakeoffJobsRefreshInterval,
   resolveTakeoffMaxNavigablePagesByOffset,
 } from "@/components/takeoff/takeoff-job-list-shared";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { EmptyState } from "@/components/layout/empty-state";
 import TakeoffExceptionsTab from "@/components/takeoff/TakeoffExceptionsTab";
 import { FileTextIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { FieldLabel } from "@/components/ui/field";
+import { Card } from "@/components/ui/card";
 
 type Props = {
   projectId: string;
@@ -209,12 +213,12 @@ export default function ProjectTakeoffJobList({
 
   if (error && !data) {
     return (
-      <section className="dashboard-card mt-6 p-6">
-        <h2 className="text-xl font-black text-slate-800">
+      <Card className="mt-6 p-6">
+        <h2 className="text-xl font-black text-foreground">
           {resolveErrorTitle(errorStatus)}
         </h2>
-        <p className="mt-2 text-sm text-slate-600">{errorMessage}</p>
-      </section>
+        <p className="mt-2 text-sm text-muted-foreground">{errorMessage}</p>
+      </Card>
     );
   }
 
@@ -229,18 +233,18 @@ export default function ProjectTakeoffJobList({
 
   return (
     <section className="mt-6 space-y-4 animate-fade-in">
-      <section className="dashboard-card p-5 sm:p-6">
+      <Card className="p-5 sm:p-6">
         <div className="grid gap-4 md:grid-cols-4">
           <div>
-            <label
-              className="form-label"
+            <FieldLabel
+              className="mb-1.5"
               htmlFor="takeoff-version-filter"
             >
               Version
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-version-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={versionFilter}
               onChange={(event) => {
                 setVersionFilter(
@@ -254,19 +258,19 @@ export default function ProjectTakeoffJobList({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label
-              className="form-label"
+            <FieldLabel
+              className="mb-1.5"
               htmlFor="takeoff-status-filter"
             >
               Statut
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-status-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={statusFilter}
               onChange={(event) => {
                 setStatusFilter(
@@ -280,19 +284,19 @@ export default function ProjectTakeoffJobList({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label
-              className="form-label"
+            <FieldLabel
+              className="mb-1.5"
               htmlFor="takeoff-level-filter"
             >
               Niveau
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-level-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={levelFilter}
               onChange={(event) => {
                 setLevelFilter(
@@ -306,19 +310,19 @@ export default function ProjectTakeoffJobList({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label
-              className="form-label"
+            <FieldLabel
+              className="mb-1.5"
               htmlFor="takeoff-period-filter"
             >
               Période
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-period-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={periodFilter}
               onChange={(event) => {
                 setPeriodFilter(
@@ -332,18 +336,18 @@ export default function ProjectTakeoffJobList({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <CounterCard label="Total" value={counters.total} />
           <CounterCard label="En cours" value={counters.processing} />
-          <CounterCard label="Termines" value={counters.completed} />
-          <CounterCard label="Echoues" value={counters.failed} />
-          <CounterCard label="Annules" value={counters.canceled} />
+          <CounterCard label="Terminés" value={counters.completed} />
+          <CounterCard label="Échoués" value={counters.failed} />
+          <CounterCard label="Annulés" value={counters.canceled} />
         </div>
-      </section>
+      </Card>
 
       {actionError ? (
         <div
@@ -357,8 +361,8 @@ export default function ProjectTakeoffJobList({
       {isLoading && !data ? <JobsTableSkeleton /> : null}
 
       {!isLoading || data ? (
-        <section className="dashboard-card overflow-hidden">
-          <div className="table-scroll">
+        <Card className="overflow-hidden">
+          <div className="table-scroll" role="region" aria-label="Extractions" tabIndex={0}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -376,12 +380,10 @@ export default function ProjectTakeoffJobList({
                   <tr>
                     <td colSpan={7} className="p-0">
                       <EmptyState
-                        icon={
-                          <FileTextIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-                        }
+                        variant="plain"
+                        icon={<FileTextIcon aria-hidden="true" />}
                         title="Aucune extraction"
-                        description="Aucune extraction trouvee pour ces filtres."
-                        className="py-10"
+                        description="Aucune extraction trouvée pour ces filtres."
                       />
                     </td>
                   </tr>
@@ -451,7 +453,7 @@ export default function ProjectTakeoffJobList({
                           )}
                         </td>
                         <td>
-                          <div className="font-medium text-slate-800">
+                          <div className="font-medium text-foreground">
                             {job.source_file_name ??
                               "Fichier inconnu"}
                           </div>
@@ -476,16 +478,16 @@ export default function ProjectTakeoffJobList({
                           <div className="flex flex-wrap gap-2">
                             <Link
                               href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
-                              className="btn btn-secondary btn-sm"
+                              className={buttonVariants({ variant: "outline" })}
                             >
                               Détail
                             </Link>
                             {reviewEnabled ? (
                               <Link
                                 href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                               >
-                                Review
+                                Revue
                               </Link>
                             ) : null}
                             {compareEnabled ? (
@@ -493,7 +495,7 @@ export default function ProjectTakeoffJobList({
                                 href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}&view=compare&compareWith=${encodeURIComponent(
                                   compareCandidate.id
                                 )}`}
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                               >
                                 Comparer
                               </Link>
@@ -501,7 +503,7 @@ export default function ProjectTakeoffJobList({
                             {canRetry || pendingAction === "retry" ? (
                               <button
                                 type="button"
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                                 onClick={() => {
                                   void handleAction(
                                     job.id,
@@ -514,14 +516,14 @@ export default function ProjectTakeoffJobList({
                                 }
                               >
                                 {pendingAction === "retry"
-                                  ? "Relance..."
+                                  ? "Relance…"
                                   : "Relancer"}
                               </button>
                             ) : null}
                             {canCancel || pendingAction === "cancel" ? (
                               <button
                                 type="button"
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                                 onClick={() => {
                                   void handleAction(
                                     job.id,
@@ -534,7 +536,7 @@ export default function ProjectTakeoffJobList({
                                 }
                               >
                                 {pendingAction === "cancel"
-                                  ? "Annulation..."
+                                  ? "Annulation…"
                                   : "Annuler"}
                               </button>
                             ) : null}
@@ -561,9 +563,9 @@ export default function ProjectTakeoffJobList({
               >
                 Page size
               </label>
-              <select
+              <NativeSelect
                 id="takeoff-page-size"
-                className="form-input form-select form-input--sm h-9 min-w-[88px]"
+                size="sm" className="h-9 min-w-[88px]"
                 value={pageSize}
                 onChange={(event) => {
                   const next = Number.parseInt(
@@ -587,11 +589,11 @@ export default function ProjectTakeoffJobList({
                     {value}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
 
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
                 onClick={() =>
                   setCurrentPage((value) =>
                     Math.max(1, value - 1)
@@ -601,12 +603,12 @@ export default function ProjectTakeoffJobList({
               >
                 Précédent
               </button>
-              <span className="text-sm text-slate-600">
+              <span className="text-sm text-muted-foreground">
                 Page {effectivePage} / {totalPages}
               </span>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
                 onClick={() =>
                   setCurrentPage((value) =>
                     Math.min(totalPages, value + 1)
@@ -618,10 +620,10 @@ export default function ProjectTakeoffJobList({
               </button>
             </div>
           </div>
-        </section>
+        </Card>
       ) : null}
 
-      <section className="dashboard-card p-5 sm:p-6">
+      <Card className="p-5 sm:p-6">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-foreground">
@@ -638,7 +640,7 @@ export default function ProjectTakeoffJobList({
           projectId={projectId}
           versionId={versionFilter === "all" ? null : versionFilter}
         />
-      </section>
+      </Card>
     </section>
   );
 }

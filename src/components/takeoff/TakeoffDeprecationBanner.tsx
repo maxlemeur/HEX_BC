@@ -1,7 +1,11 @@
 import Link from "next/link";
-
-import type { TakeoffRouteHierarchyDescriptor } from "@/lib/takeoff/route-hierarchy";
 import { InfoIcon } from "lucide-react";
+
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import type { TakeoffRouteHierarchyDescriptor } from "@/lib/takeoff/route-hierarchy";
 
 export function TakeoffDeprecationBanner({
   descriptor,
@@ -24,31 +28,37 @@ export function TakeoffDeprecationBanner({
     descriptor?.provenanceLabel ?? "Provenance du chemin : legacy estimate-first";
 
   return (
-    <div className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3">
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">
-            Legacy estimate-first
-          </span>
-          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-800">
-            Flux principal: affaire
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <InfoIcon aria-hidden="true" className="shrink-0" size={18} />
-          <p className="text-sm">
-            <strong>Cette vue reste un fallback legacy.</strong> {resolvedDescription}
+    <Alert variant="info" role="note" hideIcon className="mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="warning" size="sm" className="uppercase tracking-[0.12em]">
+              Ancien parcours
+            </Badge>
+            <Badge variant="success" size="sm" className="uppercase tracking-[0.12em]">
+              Flux principal : affaire
+            </Badge>
+          </div>
+          <div className="flex items-start gap-2">
+            <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            <p className="text-sm text-foreground-secondary">
+              <strong className="text-foreground">Cette vue reste un parcours de secours.</strong>{" "}
+              {resolvedDescription}
+            </p>
+          </div>
+          <p className="text-micro font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            {resolvedProvenanceLabel}
           </p>
         </div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-          {resolvedProvenanceLabel}
-        </p>
+        {resolvedTargetHref ? (
+          <Link
+            href={resolvedTargetHref}
+            className={cn(buttonVariants({ variant: "outline" }), "h-auto min-h-9 shrink-0 whitespace-normal py-1.5 text-left")}
+          >
+            {resolvedTargetLabel}
+          </Link>
+        ) : null}
       </div>
-      {resolvedTargetHref ? (
-        <Link href={resolvedTargetHref} className="btn btn-secondary btn-sm shrink-0">
-          {resolvedTargetLabel}
-        </Link>
-      ) : null}
-    </div>
+    </Alert>
   );
 }

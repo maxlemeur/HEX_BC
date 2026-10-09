@@ -9,10 +9,15 @@ import {
   fetchTakeoffRiskRadar,
   listTakeoffJobs,
 } from "@/lib/takeoff/client";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/layout/empty-state";
 import { JobsTableSkeleton } from "./takeoff-job-list-shared";
 import { CircleAlertIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { NativeSelect } from "@/components/ui/native-select";
+import { FieldLabel } from "@/components/ui/field";
+import { Card } from "@/components/ui/card";
 
 type Props = {
   projectId: string;
@@ -29,14 +34,14 @@ const SEVERITY_LABELS = {
 const STATUS_LABELS = {
   all: "Tous statuts",
   to_process: "À traiter",
-  assumed: "Assume",
+  assumed: "Assumé",
   false_positive: "Faux positif",
 } as const;
 
 const SEVERITY_VARIANTS = {
   info: "info",
   warning: "warning",
-  critical: "error",
+  critical: "danger",
 } as const;
 
 const STATUS_VARIANTS = {
@@ -146,9 +151,8 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
   if (!latestJob || !radarData || radarData.items.length === 0) {
     return (
       <EmptyState
-        icon={
-          <CircleAlertIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-        }
+        headingLevel={2}
+        icon={<CircleAlertIcon aria-hidden="true" />}
         title="Aucune exception"
         description="Aucun signal de risque ne remonte pour cette version."
       />
@@ -161,25 +165,25 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
     <div>
       <div className="mb-4 flex flex-wrap gap-3">
         <Badge variant="warning">{summary.to_process_count} à traiter</Badge>
-        <Badge variant="success">{summary.assumed_count} assumes</Badge>
-        <Badge variant="error">{summary.critical_count} critiques</Badge>
+        <Badge variant="success">{summary.assumed_count} assumés</Badge>
+        <Badge variant="danger">{summary.critical_count} critiques</Badge>
         <Badge variant="info">Score affaire {summary.project_score}/100</Badge>
-        <Badge variant="neutral">
+        <Badge variant="neutral" className="h-auto max-w-full whitespace-normal py-0.5 text-left">
           {summary.top_causes.length > 0
             ? summary.top_causes.join(" · ")
             : "Aucune cause dominante"}
         </Badge>
       </div>
 
-      <section className="dashboard-card mb-4 p-4">
+      <Card className="mb-4 p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end lg:flex lg:flex-wrap">
           <div className="min-w-0">
-            <label htmlFor="exceptions-severity-filter" className="form-label">
+            <FieldLabel htmlFor="exceptions-severity-filter" className="mb-1.5">
               Severite
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="exceptions-severity-filter"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[180px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[180px]"
               value={severityFilter}
               onChange={(event) => {
                 const nextValue = event.target.value as typeof severityFilter;
@@ -193,16 +197,16 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                   {label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="min-w-0">
-            <label htmlFor="exceptions-status-filter" className="form-label">
+            <FieldLabel htmlFor="exceptions-status-filter" className="mb-1.5">
               Statut
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="exceptions-status-filter"
-              className="form-input form-select form-input--sm h-11 w-full min-w-0 sm:h-9 lg:min-w-[180px]"
+              size="sm" className="h-11 w-full min-w-0 sm:h-9 lg:min-w-[180px]"
               value={statusFilter}
               onChange={(event) => {
                 const nextValue = event.target.value as typeof statusFilter;
@@ -216,15 +220,15 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                   {label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-1">
             {radarData.items.length} signal(s)
-            {isFilterPending ? " · filtrage..." : ""}
+            {isFilterPending ? " · filtrage…" : ""}
           </p>
         </div>
-      </section>
+      </Card>
 
       <div className="space-y-3 sm:hidden">
         {radarData.items.map((item) => (
@@ -249,7 +253,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
               {item.cause_label}
             </h3>
             {item.reason_labels[0] ? (
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {item.reason_labels[0]}
               </p>
             ) : null}
@@ -261,7 +265,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             {item.line_id ? (
               <Link
                 href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.id}/review?versionId=${latestJob.estimate_version_id}&line=${item.line_id}`}
-                className="btn btn-secondary btn-sm mt-4 w-full justify-center"
+                className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full justify-center")}
               >
                 Revoir ce signal
               </Link>
@@ -274,8 +278,8 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
         ))}
       </div>
 
-      <section className="dashboard-card hidden overflow-hidden sm:block">
-        <div className="overflow-x-auto">
+      <Card className="hidden overflow-hidden sm:block">
+        <div className="relative overflow-x-auto" role="region" aria-label="Exceptions" tabIndex={0}>
           <table className="data-table w-full">
             <thead>
               <tr>
@@ -290,7 +294,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             <tbody>
               {radarData.items.map((item) => (
                 <tr key={item.alert_id}>
-                  <td className="font-medium text-slate-800">
+                  <td className="font-medium text-foreground">
                     {item.scope_label}
                   </td>
                   <td>
@@ -317,7 +321,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                   </td>
                   <td>
                     {item.provenance[0] ? (
-                      <div className="text-xs text-slate-600">
+                      <div className="text-xs text-muted-foreground">
                         <p>{item.provenance[0].label}</p>
                         <p className="text-muted-foreground">
                           {item.provenance[0].source}
@@ -331,7 +335,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                     {item.line_id ? (
                       <Link
                         href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.id}/review?versionId=${latestJob.estimate_version_id}&line=${item.line_id}`}
-                        className="btn btn-secondary btn-sm"
+                        className={buttonVariants({ variant: "outline" })}
                       >
                         Revoir
                       </Link>
@@ -346,7 +350,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             </tbody>
           </table>
         </div>
-      </section>
+      </Card>
     </div>
   );
 }

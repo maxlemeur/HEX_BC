@@ -3,6 +3,8 @@
 import {
   type SectionOption,
 } from "./shared";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Alert } from "@/components/ui/alert";
 
 export function TakeoffApplyWizardTargetStep({
   targetVersionLabel,
@@ -27,12 +29,12 @@ export function TakeoffApplyWizardTargetStep({
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Cible d&apos;application
         </p>
-        <p className="mt-2 text-sm font-semibold text-slate-800">
+        <p className="mt-2 text-sm font-semibold text-foreground">
           {targetVersionLabel
             ? `${targetVersionLabel} — brouillon actuellement ouvert`
             : "Brouillon actuellement ouvert"}
         </p>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-muted-foreground">
           Les quantités seront injectées dans cette section après confirmation finale. La racine du devis n&apos;est jamais proposée comme cible.
         </p>
       </div>
@@ -44,9 +46,9 @@ export function TakeoffApplyWizardTargetStep({
         >
           Section cible
         </label>
-        <select
+        <NativeSelect
           id="takeoff-target-section"
-          className="form-input form-select mt-1 w-full"
+          size="sm" className="mt-1 w-full"
           value={targetSectionId ?? ""}
           onChange={(event) => {
             onTargetSectionChange(event.target.value || null);
@@ -61,17 +63,17 @@ export function TakeoffApplyWizardTargetStep({
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
 
       {isLoadingSections && (
-        <div className="alert alert-info">Chargement des sections...</div>
+        <Alert variant="info">Chargement des sections…</Alert>
       )}
-      {sectionsError && <div className="alert alert-error">{sectionsError}</div>}
+      {sectionsError && <Alert variant="danger">{sectionsError}</Alert>}
       {!isLoadingSections && !sectionsError && sectionOptions.length === 0 && (
-        <div className="alert alert-info">
+        <Alert variant="info">
           Créez d&apos;abord un lot ou un chapitre dans le devis pour y rattacher les lignes du métré.
-        </div>
+        </Alert>
       )}
     </div>
   );

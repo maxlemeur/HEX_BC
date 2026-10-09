@@ -9,6 +9,9 @@ import {
 } from "@/lib/takeoff/guards";
 
 import { confidenceColor, formatConfidencePercent } from "./shared";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
 
 export function GuardPanel({
   guardResult,
@@ -47,13 +50,13 @@ export function GuardPanel({
         {onReturnToReview ? (
           <button
             type="button"
-            className="btn btn-secondary btn-sm mt-3"
+            className={cn(buttonVariants({ variant: "outline" }), "mt-3")}
             onClick={onReturnToReview}
           >
             Retour à la revue
           </button>
         ) : reviewHref ? (
-          <Link href={reviewHref} className="btn btn-secondary btn-sm mt-3 inline-flex">
+          <Link href={reviewHref} className={cn(buttonVariants({ variant: "outline" }), "mt-3 inline-flex")}>
             Ouvrir la revue des preuves
           </Link>
         ) : null}
@@ -61,7 +64,7 @@ export function GuardPanel({
 
       <div className="max-h-[200px] overflow-auto rounded-xl border border-border">
         <table className="min-w-full text-sm">
-          <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-slate-600">
+          <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Désignation</th>
               <th className="px-3 py-2">Blocage</th>
@@ -74,10 +77,10 @@ export function GuardPanel({
                 key={blocked.item_id}
                 className="border-t border-border"
               >
-                <td className="px-3 py-2 text-slate-800">
+                <td className="px-3 py-2 text-foreground">
                   {blocked.designation}
                 </td>
-                <td className="px-3 py-2 text-xs text-slate-600">
+                <td className="px-3 py-2 text-xs text-muted-foreground">
                   {blocked.reasons
                     .map((reason) => APPLY_GUARD_REASON_LABELS[reason])
                     .join(" · ")}
@@ -98,7 +101,7 @@ export function GuardPanel({
           <p className="text-xs font-semibold text-info">
             Confiance moyenne (non bloquante)
           </p>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-muted-foreground">
             {guardResult.medium_items.length} item
             {guardResult.medium_items.length > 1 ? "s ont" : " a"} une confiance
             comprise entre {Math.round(guardResult.threshold * 100)} % et 80 %.
@@ -108,7 +111,7 @@ export function GuardPanel({
             <summary className="cursor-pointer text-xs text-info">
               Voir les items ({guardResult.medium_items.length})
             </summary>
-            <ul className="mt-1 space-y-1 text-xs text-slate-600">
+            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
               {guardResult.medium_items.map((medium) => (
                 <li key={medium.item_id} className="flex items-center justify-between">
                   <span>{medium.designation}</span>
@@ -127,7 +130,7 @@ export function GuardPanel({
           <p className="text-xs font-semibold text-danger">
             Dérogation administrateur
           </p>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-muted-foreground">
             Cette dérogation contourne les blocages ci-dessus. Elle exige une
             justification précise, sera enregistrée dans le journal d&apos;audit et
             ne remplace pas les preuves manquantes.
@@ -138,10 +141,10 @@ export function GuardPanel({
           >
             Justification de la dérogation
           </label>
-          <textarea
+          <Textarea
             id={justificationId}
             name="takeoff-apply-override-justification"
-            className="form-input mt-2 w-full text-sm"
+            className="mt-2 w-full text-sm"
             rows={2}
             placeholder="Expliquez le contrôle réalisé et le risque accepté…"
             value={overrideJustification}
@@ -154,7 +157,7 @@ export function GuardPanel({
           </p>
           <button
             type="button"
-            className="btn btn-sm mt-2 border-danger bg-danger text-white hover:opacity-90"
+            className={cn(buttonVariants({ variant: "danger-solid" }), "mt-2")}
             onClick={onOverrideConfirm}
             disabled={
               !canOverride || justificationLength < 10 || justificationLength > 500

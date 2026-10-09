@@ -4,13 +4,16 @@ import Link from "next/link";
 import useSWR from "swr";
 
 import { listTakeoffJobs } from "@/lib/takeoff/client";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { EmptyState } from "@/components/layout/empty-state";
 import {
   formatTimestamp,
   formatCount,
   JobsTableSkeleton,
 } from "./takeoff-job-list-shared";
 import { ClockIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
 
 type Props = {
   projectId: string;
@@ -38,11 +41,10 @@ export default function TakeoffApplicationHistoryTab({
   if (jobs.length === 0) {
     return (
       <EmptyState
-        icon={
-          <ClockIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-        }
+        headingLevel={2}
+        icon={<ClockIcon aria-hidden="true" />}
         title="Aucune application"
-        description="Aucune extraction n'a encore été appliquée au devis."
+        description="Aucune extraction n’a encore été appliquée au devis."
       />
     );
   }
@@ -69,11 +71,11 @@ export default function TakeoffApplicationHistoryTab({
               </span>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Applique le {formatTimestamp(job.created_at)}
+              Appliqué le {formatTimestamp(job.created_at)}
             </p>
             <Link
               href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
-              className="btn btn-secondary btn-sm mt-4 w-full justify-center"
+              className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full justify-center")}
             >
               Voir le détail
             </Link>
@@ -81,7 +83,12 @@ export default function TakeoffApplicationHistoryTab({
         ))}
       </div>
 
-      <div className="dashboard-card hidden overflow-x-auto sm:block">
+      <Card
+        className="relative hidden overflow-x-auto sm:block"
+        role="region"
+        aria-label="Historique des applications"
+        tabIndex={0}
+      >
         <table className="data-table w-full">
         <thead>
           <tr>
@@ -104,7 +111,7 @@ export default function TakeoffApplicationHistoryTab({
               <td>
                 <Link
                   href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
-                  className="btn btn-secondary btn-sm"
+                  className={buttonVariants({ variant: "outline" })}
                 >
                   Détail
                 </Link>
@@ -113,7 +120,7 @@ export default function TakeoffApplicationHistoryTab({
           ))}
         </tbody>
         </table>
-      </div>
+      </Card>
     </>
   );
 }

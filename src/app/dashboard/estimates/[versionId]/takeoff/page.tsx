@@ -10,6 +10,7 @@ import {
   buildTakeoffRouteHierarchy,
   fetchTakeoffVersionProjectContext,
 } from "@/lib/takeoff/route-hierarchy";
+import { buttonVariants } from "@/components/ui/button";
 
 export default async function TakeoffJobsPage({
   params,
@@ -48,7 +49,7 @@ export default async function TakeoffJobsPage({
           actions={
             <Link
               href={`/dashboard/estimates/${versionId}`}
-              className="btn btn-secondary btn-sm"
+              className={buttonVariants({ variant: "outline" })}
             >
               Retour au chiffrage
             </Link>

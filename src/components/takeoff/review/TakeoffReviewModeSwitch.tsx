@@ -20,8 +20,8 @@ type TakeoffReviewModeSwitchProps = {
 const MODE_OPTIONS: { value: ReviewMode; label: string; description: string }[] = [
   {
     value: "assisted",
-    label: "Assiste",
-    description: "Revue guidee carte par carte",
+    label: "Assisté",
+    description: "Revue guidée carte par carte",
   },
   {
     value: "production",

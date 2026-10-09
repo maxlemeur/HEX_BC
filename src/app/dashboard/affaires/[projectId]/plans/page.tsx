@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
+import { PageHeader } from "@/components/layout/page-header";
 import { ProjectPlanCenter } from "@/components/takeoff/ProjectPlanCenter";
 import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 import { getUserContext } from "@/lib/auth/server";
@@ -52,20 +52,15 @@ export default async function AffairePlansPage({ params }: Props) {
 
   return (
     <div className="min-w-0">
-      <HubBreadcrumb
-        hubHref="/dashboard/affaires"
-        hubLabel="Affaires"
-        intermediateHref={`/dashboard/affaires/${projectId}`}
-        intermediateLabel={project.name}
-        currentLabel="Plans"
+      <PageHeader
+        breadcrumbs={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          { label: project.name, href: `/dashboard/affaires/${projectId}` },
+          { label: "Plans" },
+        ]}
+        title="Plans"
+        description="Organisez vos plans PDF en jeux pour le métré de cette affaire."
       />
-
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-foreground">Plans</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Organisez vos plans PDF en jeux pour le métré de cette affaire.
-        </p>
-      </div>
 
       <TakeoffRouteHierarchyBanner
         descriptor={buildTakeoffRouteHierarchy({ kind: "affaire_plans" })}

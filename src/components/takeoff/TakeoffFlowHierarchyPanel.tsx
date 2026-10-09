@@ -40,7 +40,7 @@ function getCardClassName(input: {
   }
 
   if (input.kind === "legacy") {
-    return "border-warning/20 bg-warning/5";
+    return "border-warning-border bg-warning-subtle";
   }
 
   return "border-border bg-surface";
@@ -55,7 +55,7 @@ export function TakeoffFlowHierarchyPanel({
       <details className="group max-w-full overflow-hidden rounded-xl border border-border bg-surface-subtle/70">
         <summary className="grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-surface/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
           <span className="min-w-0">
-            <span className="block break-words text-sm font-semibold leading-5 text-slate-800">
+            <span className="block break-words text-sm font-semibold leading-5 text-foreground">
               Comment s’organise un métré ?
             </span>
             {legacyPlanSetCount > 0 ? (
@@ -79,21 +79,21 @@ export function TakeoffFlowHierarchyPanel({
               })}`}
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h3 className="break-words text-sm font-semibold text-slate-800">
+                <h3 className="break-words text-sm font-semibold text-foreground">
                   {card.label}
                 </h3>
                 {card.kind === currentKind ? (
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-micro font-medium text-primary">
                     Page actuelle
                   </span>
                 ) : null}
                 {card.kind === "legacy" ? (
-                  <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+                  <span className="rounded-full bg-warning-light px-2 py-0.5 text-micro font-medium text-warning">
                     Dossiers existants
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1.5 break-words text-sm leading-5 text-slate-600 sm:mt-2 sm:leading-6">
+              <p className="mt-1.5 break-words text-sm leading-5 text-muted-foreground sm:mt-2 sm:leading-6">
                 {card.summary}
               </p>
             </section>

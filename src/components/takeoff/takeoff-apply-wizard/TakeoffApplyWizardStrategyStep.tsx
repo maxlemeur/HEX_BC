@@ -13,7 +13,7 @@ export function TakeoffApplyWizardStrategyStep({
 }) {
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border border-info/20 bg-info/5 p-4">
+      <div className="rounded-xl border border-info-border bg-info-subtle p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-info">
           Stratégie d&apos;application
         </p>
@@ -26,7 +26,7 @@ export function TakeoffApplyWizardStrategyStep({
           key={option.value}
           className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${
             strategy === option.value
-              ? "border-info bg-info/5"
+              ? "border-info bg-info-subtle"
               : "border-border"
           }`}
         >
@@ -39,10 +39,10 @@ export function TakeoffApplyWizardStrategyStep({
             disabled={isSubmitting}
           />
           <span>
-            <span className="block text-sm font-semibold text-slate-800">
+            <span className="block text-sm font-semibold text-foreground">
               {option.label}
             </span>
-            <span className="mt-1 block text-sm text-slate-600">
+            <span className="mt-1 block text-sm text-muted-foreground">
               {option.description}
             </span>
             <span className="mt-2 block text-xs font-medium text-foreground-secondary">

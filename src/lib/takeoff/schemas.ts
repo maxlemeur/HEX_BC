@@ -85,7 +85,7 @@ export const TakeoffTableSchema = z
 
 export const TakeoffItemSchema = z
   .object({
-    designation: requiredTextSchema.max(500, "Designation trop longue."),
+    designation: requiredTextSchema.max(500, "Désignation trop longue."),
     quantity: positiveQuantitySchema,
     unit: requiredTextSchema.max(64, "Unité trop longue."),
     category: optionalNullableTextSchema.optional(),
@@ -216,7 +216,7 @@ export const takeoffMappingRuleActionSchema = z.enum([
 
 const takeoffRenameActionParamsSchema = z
   .object({
-    designation: requiredTextSchema.max(500, "Designation trop longue."),
+    designation: requiredTextSchema.max(500, "Désignation trop longue."),
   })
   .strict();
 
@@ -582,7 +582,7 @@ export const takeoffApplyRequestSchema = z
 
 const takeoffMappingPreviewStateSchema = z
   .object({
-    designation: requiredTextSchema.max(500, "Designation trop longue."),
+    designation: requiredTextSchema.max(500, "Désignation trop longue."),
     quantity: positiveQuantitySchema,
     unit: requiredTextSchema.max(64, "Unité trop longue."),
     is_excluded: z.boolean(),

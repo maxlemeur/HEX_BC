@@ -33,6 +33,10 @@ import {
   resolveTakeoffJobsRefreshInterval,
   resolveTakeoffMaxNavigablePagesByOffset,
 } from "@/components/takeoff/takeoff-job-list-shared";
+import { buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { FieldLabel } from "@/components/ui/field";
+import { Card } from "@/components/ui/card";
 
 type TakeoffJobListProps = {
   versionId: string;
@@ -161,12 +165,12 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
 
   if (error && !data) {
     return (
-      <section className="dashboard-card mt-6 p-6">
-        <h2 className="text-xl font-black text-slate-800">
+      <Card className="mt-6 p-6">
+        <h2 className="text-xl font-black text-foreground">
           {resolveErrorTitle(errorStatus)}
         </h2>
-        <p className="mt-2 text-sm text-slate-600">{errorMessage}</p>
-      </section>
+        <p className="mt-2 text-sm text-muted-foreground">{errorMessage}</p>
+      </Card>
     );
   }
 
@@ -181,15 +185,15 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
 
   return (
     <section className="mt-6 space-y-4 animate-fade-in">
-      <section className="dashboard-card p-5 sm:p-6">
+      <Card className="p-5 sm:p-6">
         <div className="grid gap-4 md:grid-cols-3">
           <div>
-            <label className="form-label" htmlFor="takeoff-status-filter">
+            <FieldLabel className="mb-1.5" htmlFor="takeoff-status-filter">
               Statut
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-status-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={statusFilter}
               onChange={(event) => {
                 setStatusFilter(event.target.value as StatusFilterValue);
@@ -201,16 +205,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label className="form-label" htmlFor="takeoff-level-filter">
+            <FieldLabel className="mb-1.5" htmlFor="takeoff-level-filter">
               Niveau
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-level-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={levelFilter}
               onChange={(event) => {
                 setLevelFilter(event.target.value as LevelFilterValue);
@@ -222,16 +226,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label className="form-label" htmlFor="takeoff-period-filter">
+            <FieldLabel className="mb-1.5" htmlFor="takeoff-period-filter">
               Période
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="takeoff-period-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={periodFilter}
               onChange={(event) => {
                 setPeriodFilter(event.target.value as PeriodFilterValue);
@@ -243,18 +247,18 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <CounterCard label="Total" value={counters.total} />
           <CounterCard label="En cours" value={counters.processing} />
-          <CounterCard label="Termines" value={counters.completed} />
-          <CounterCard label="Echoues" value={counters.failed} />
-          <CounterCard label="Annules" value={counters.canceled} />
+          <CounterCard label="Terminés" value={counters.completed} />
+          <CounterCard label="Échoués" value={counters.failed} />
+          <CounterCard label="Annulés" value={counters.canceled} />
         </div>
-      </section>
+      </Card>
 
       {actionError ? (
         <div
@@ -268,8 +272,8 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
       {isLoading && !data ? <JobsTableSkeleton /> : null}
 
       {!isLoading || data ? (
-        <section className="dashboard-card overflow-hidden">
-          <div className="table-scroll">
+        <Card className="overflow-hidden">
+          <div className="table-scroll" role="region" aria-label="Extractions" tabIndex={0}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -328,7 +332,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                     return (
                       <tr key={job.id}>
                         <td>
-                          <div className="font-medium text-slate-800">
+                          <div className="font-medium text-foreground">
                             {job.source_file_name ?? "Fichier inconnu"}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
@@ -349,16 +353,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                           <div className="flex flex-wrap gap-2">
                             <Link
                               href={`/dashboard/estimates/${versionId}/takeoff/${job.id}`}
-                              className="btn btn-secondary btn-sm"
+                              className={buttonVariants({ variant: "outline" })}
                             >
                               Détail
                             </Link>
                             {reviewEnabled ? (
                               <Link
                                 href={`/dashboard/estimates/${versionId}/takeoff/${job.id}/review`}
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                               >
-                                Review
+                                Revue
                               </Link>
                             ) : null}
                             {compareEnabled ? (
@@ -366,7 +370,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                                 href={`/dashboard/estimates/${versionId}/takeoff/${job.id}/review?view=compare&compareWith=${encodeURIComponent(
                                   compareCandidate.id
                                 )}`}
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                               >
                                 Comparer
                               </Link>
@@ -374,25 +378,25 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                             {canRetry || pendingAction === "retry" ? (
                               <button
                                 type="button"
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                                 onClick={() => {
                                   void handleAction(job.id, "retry");
                                 }}
                                 disabled={!canRetry || Boolean(pendingAction)}
                               >
-                                {pendingAction === "retry" ? "Relance..." : "Relancer"}
+                                {pendingAction === "retry" ? "Relance…" : "Relancer"}
                               </button>
                             ) : null}
                             {canCancel || pendingAction === "cancel" ? (
                               <button
                                 type="button"
-                                className="btn btn-secondary btn-sm"
+                                className={buttonVariants({ variant: "outline" })}
                                 onClick={() => {
                                   void handleAction(job.id, "cancel");
                                 }}
                                 disabled={!canCancel || Boolean(pendingAction)}
                               >
-                                {pendingAction === "cancel" ? "Annulation..." : "Annuler"}
+                                {pendingAction === "cancel" ? "Annulation…" : "Annuler"}
                               </button>
                             ) : null}
                           </div>
@@ -415,9 +419,9 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               <label className="text-xs font-semibold text-muted-foreground" htmlFor="takeoff-page-size">
                 Page size
               </label>
-              <select
+              <NativeSelect
                 id="takeoff-page-size"
-                className="form-input form-select form-input--sm h-9 min-w-[88px]"
+                size="sm" className="h-9 min-w-[88px]"
                 value={pageSize}
                 onChange={(event) => {
                   const next = Number.parseInt(event.target.value, 10);
@@ -433,22 +437,22 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                     {value}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
 
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
                 onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
                 disabled={effectivePage <= 1}
               >
                 Précédent
               </button>
-              <span className="text-sm text-slate-600">
+              <span className="text-sm text-muted-foreground">
                 Page {effectivePage} / {totalPages}
               </span>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
                 onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
                 disabled={effectivePage >= totalPages}
               >
@@ -456,7 +460,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               </button>
             </div>
           </div>
-        </section>
+        </Card>
       ) : null}
     </section>
   );

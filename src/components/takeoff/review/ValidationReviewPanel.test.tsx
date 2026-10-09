@@ -43,12 +43,12 @@ describe("ValidationReviewPanel", () => {
 
     expect(
       screen.getByText(
-        "Tous les items sont exclus. Reintegrez au moins un item pour pouvoir appliquer l'extraction."
+        "Tous les items sont exclus. Réintégrez au moins un item pour pouvoir appliquer l'extraction."
       )
     ).toBeDefined();
     expect(
       screen.queryByText(
-        "Tous les items sont conformes. La revue peut passer a l'étape suivante."
+        "Tous les items sont conformes. La revue peut passer à l'étape suivante."
       )
     ).toBeNull();
   });
@@ -89,7 +89,7 @@ describe("ValidationReviewPanel", () => {
     );
 
     expect(screen.getByText("Items exclus")).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: "Reintegrer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Réintégrer" }));
     expect(includeItem).toHaveBeenCalledWith("excluded-1");
   });
 
@@ -162,7 +162,7 @@ describe("ValidationReviewPanel", () => {
 
     expect(
       screen.getByText(
-        "Tous les items sont conformes. La revue peut passer a l'étape suivante."
+        "Tous les items sont conformes. La revue peut passer à l'étape suivante."
       )
     ).toBeInTheDocument();
     expect(screen.getByText("Faible à vérifier")).toBeInTheDocument();

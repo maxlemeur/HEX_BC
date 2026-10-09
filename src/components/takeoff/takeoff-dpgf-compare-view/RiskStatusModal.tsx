@@ -1,9 +1,11 @@
 "use client";
 
-import { Button } from "@/components/ui-legacy/Button";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui-legacy/Modal";
 
 import { RISK_STATUS_LABELS } from "@/components/takeoff/takeoff-dpgf-compare-view/constants";
+import { FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 
 type RiskActionTarget = {
   alertId: string;
@@ -40,23 +42,23 @@ export function RiskStatusModal({
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               Signal cible
             </p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">
+            <p className="mt-2 text-sm font-semibold text-foreground">
               {riskActionTarget?.causeLabel ?? "Signal"}
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-muted-foreground">
               {riskActionTarget?.scopeLabel ?? "Scope inconnu"} ·{" "}
               {riskActionTarget ? RISK_STATUS_LABELS[riskActionTarget.status] : "Statut"}
             </p>
           </div>
           <div className="mt-4">
-            <label className="form-label" htmlFor="risk-review-note">
+            <FieldLabel className="mb-1.5" htmlFor="risk-review-note">
               Note humaine obligatoire
-            </label>
-            <textarea
+            </FieldLabel>
+            <Textarea
               id="risk-review-note"
               name="risk_review_note"
               autoComplete="off"
-              className="form-input min-h-[140px] py-3"
+              className="min-h-[140px] py-3"
               value={riskReviewNote}
               placeholder="Distinguer le fait observe, l'hypothèse retenue et la raison de l'arbitrage humain."
               onChange={(event) => onRiskReviewNoteChange(event.target.value)}

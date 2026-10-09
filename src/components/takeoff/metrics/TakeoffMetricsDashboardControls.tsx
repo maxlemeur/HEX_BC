@@ -2,11 +2,12 @@
 
 import type { TakeoffLevel, TakeoffMetricsPeriod } from "@/lib/takeoff/types";
 import { TAKEOFF_METRICS_PERIODS } from "@/lib/takeoff/types";
+import { NativeSelect } from "@/components/ui/native-select";
 
-const PERIOD_LABELS: Record<TakeoffMetricsPeriod, string> = {
-  "7d": "7j",
-  "30d": "30j",
-  "90d": "90j",
+const PERIOD_LABELS: Record<TakeoffMetricsPeriod, { short: string; long: string }> = {
+  "7d": { short: "7j", long: "7 jours" },
+  "30d": { short: "30j", long: "30 jours" },
+  "90d": { short: "90j", long: "90 jours" },
 };
 
 const LEVEL_FILTER_OPTIONS: Array<{ value: "all" | TakeoffLevel; label: string }> = [
@@ -24,19 +25,21 @@ export function PeriodSelector({
   onChange: (period: TakeoffMetricsPeriod) => void;
 }) {
   return (
-    <div className="inline-flex gap-1 rounded-full bg-muted p-1">
+    <div role="group" aria-label="Période" className="inline-flex gap-1 rounded-full bg-muted p-1">
       {TAKEOFF_METRICS_PERIODS.map((period) => (
         <button
           key={period}
           type="button"
           onClick={() => onChange(period)}
-          className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+          aria-pressed={value === period}
+          aria-label={PERIOD_LABELS[period].long}
+          className={`min-h-8 rounded-full px-3 py-1 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
             value === period
-              ? "bg-surface text-slate-800 shadow-sm"
+              ? "bg-surface text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground-secondary"
           }`}
         >
-          {PERIOD_LABELS[period]}
+          {PERIOD_LABELS[period].short}
         </button>
       ))}
     </div>
@@ -51,10 +54,12 @@ export function LevelSelector({
   onChange: (value: "all" | TakeoffLevel) => void;
 }) {
   return (
-    <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+    <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
       Niveau
-      <select
-        className="rounded-md border border-border-strong bg-surface px-2 py-1 text-xs font-medium text-foreground-secondary"
+      <NativeSelect
+        size="sm"
+        wrapperClassName="w-auto"
+        className="text-xs"
         value={value}
         onChange={(event) => onChange(event.target.value as "all" | TakeoffLevel)}
       >
@@ -63,7 +68,7 @@ export function LevelSelector({
             {option.label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </label>
   );
 }

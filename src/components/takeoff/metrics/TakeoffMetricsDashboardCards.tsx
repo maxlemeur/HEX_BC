@@ -6,12 +6,14 @@ import type {
   TakeoffPilotGoNoGoCriterion,
 } from "@/lib/takeoff/pilot-metrics";
 
+import { Badge } from "@/components/ui/badge";
+
 import { formatPercent } from "./takeoff-metrics-formatters";
 
 type MetricCardVariant = "default" | "success" | "danger" | "warning";
 
 const VARIANT_CLASSES: Record<MetricCardVariant, string> = {
-  default: "text-slate-800",
+  default: "text-foreground",
   success: "text-success",
   danger: "text-danger",
   warning: "text-warning",
@@ -76,15 +78,9 @@ export function PilotStatusBadge({
   killSwitchEnabled: boolean;
 }) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-        killSwitchEnabled
-          ? "bg-success-subtle text-success"
-          : "bg-danger-subtle text-danger"
-      }`}
-    >
+    <Badge variant={killSwitchEnabled ? "success" : "danger"} dot>
       {killSwitchEnabled ? "Pilote actif" : "Pilote coupé"}
-    </span>
+    </Badge>
   );
 }
 
@@ -94,21 +90,16 @@ function PilotCriterionStatusBadge({
   status: TakeoffPilotGoNoGoCriterion["status"];
 }) {
   return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-        status === "pass"
-          ? "bg-success-subtle text-success"
-          : status === "inconclusive"
-            ? "bg-warning-subtle text-warning"
-            : "bg-danger-subtle text-danger"
-      }`}
+    <Badge
+      size="sm"
+      variant={status === "pass" ? "success" : status === "inconclusive" ? "warning" : "danger"}
     >
       {status === "pass"
         ? "OK"
         : status === "inconclusive"
           ? "Inconclusif"
           : "Hors cible"}
-    </span>
+    </Badge>
   );
 }
 
@@ -119,10 +110,10 @@ export function PilotDecisionCard({
 }) {
   const variantClass =
     data.status === "go"
-      ? "border-success/20 bg-success/5"
+      ? "border-success-border bg-success-subtle"
       : data.status === "watch" || data.status === "inconclusive"
-        ? "border-warning/20 bg-warning/5"
-        : "border-danger/20 bg-danger/5";
+        ? "border-warning-border bg-warning-subtle"
+        : "border-danger-border bg-danger-subtle";
   const labelClass =
     data.status === "go"
       ? "text-success"
@@ -138,17 +129,17 @@ export function PilotDecisionCard({
             Décision go/no-go
           </p>
           <p className={`mt-2 text-2xl font-black ${labelClass}`}>{data.label}</p>
-          <p className="mt-2 text-sm text-slate-600">{data.summary}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{data.summary}</p>
         </div>
       </div>
       <ul className="mt-4 space-y-2 sm:hidden">
         {data.criteria.map((criterion) => (
           <li
             key={criterion.key}
-            className="rounded-lg border border-white/70 bg-surface/60 p-3"
+            className="rounded-lg border border-border-subtle bg-surface p-3"
           >
             <div className="flex items-start justify-between gap-3">
-              <p className="font-medium text-slate-800">
+              <p className="font-medium text-foreground">
                 {criterion.label}
               </p>
               <PilotCriterionStatusBadge status={criterion.status} />
@@ -174,7 +165,12 @@ export function PilotDecisionCard({
           </li>
         ))}
       </ul>
-      <div className="mt-4 hidden overflow-x-auto sm:block">
+      <div
+        className="relative mt-4 hidden overflow-x-auto sm:block"
+        role="region"
+        aria-label="Critères go/no-go"
+        tabIndex={0}
+      >
         <table className="w-full min-w-[560px] text-sm">
           <thead className="bg-surface/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
@@ -186,14 +182,14 @@ export function PilotDecisionCard({
           </thead>
           <tbody>
             {data.criteria.map((criterion) => (
-              <tr key={criterion.key} className="border-t border-white/70">
-                <td className="px-3 py-2 font-medium text-slate-800">
+              <tr key={criterion.key} className="border-t border-border-subtle">
+                <td className="px-3 py-2 font-medium text-foreground">
                   {criterion.label}
                 </td>
-                <td className="px-3 py-2 text-slate-600">
+                <td className="px-3 py-2 text-muted-foreground">
                   {criterion.targetLabel}
                 </td>
-                <td className="px-3 py-2 text-slate-600">
+                <td className="px-3 py-2 text-muted-foreground">
                   {criterion.actualLabel}
                 </td>
                 <td className="px-3 py-2">

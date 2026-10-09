@@ -6,8 +6,15 @@ import useSWR from "swr";
 
 import { PlanFileCard, formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
-import { Button } from "@/components/ui-legacy/Button";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   deletePlanFile as apiDeletePlanFile,
   deletePlanSet as apiDeletePlanSet,
@@ -115,11 +122,10 @@ export function PlanSetCard({
       : null);
   const resolvedLaunchLabel = launchLabel ?? "Lancer l'extraction";
   const regionId = useId();
+  const confirm = useConfirm();
   const [expanded, setExpanded] = useState(false);
-  const [deleteSetModalOpen, setDeleteSetModalOpen] = useState(false);
   const [deletingSet, setDeletingSet] = useState(false);
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
-  const [deletingFile, setDeletingFile] = useState(false);
   const [editingSet, setEditingSet] = useState(false);
   const [editName, setEditName] = useState(planSet.name);
   const [editDescription, setEditDescription] = useState(planSet.description ?? "");
@@ -141,12 +147,20 @@ export function PlanSetCard({
   }, []);
 
   const handleDeleteSet = useCallback(async () => {
+    if (deletingSet) return;
+    const confirmed = await confirm({
+      title: "Supprimer le jeu de plans",
+      description: `« ${planSet.name} » et tous ses fichiers seront supprimés. Cette action est irréversible.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
     setDeletingSet(true);
     try {
       const deleteSet = deletePlanSetHandler ?? apiDeletePlanSet;
       await deleteSet(planSet.id);
-      setDeleteSetModalOpen(false);
-      setAnnouncement(`Jeu "${planSet.name}" supprime.`);
+      setAnnouncement(`Jeu « ${planSet.name} » supprimé.`);
       onDeleted();
     } catch (err) {
       const msg = isTakeoffApiError(err)
@@ -156,33 +170,36 @@ export function PlanSetCard({
     } finally {
       setDeletingSet(false);
     }
-  }, [deletePlanSetHandler, planSet.id, planSet.name, onDeleted]);
+  }, [confirm, deletePlanSetHandler, deletingSet, planSet.id, planSet.name, onDeleted]);
 
   const handleDeleteFile = useCallback(
     async (fileId: string) => {
-      setDeleteFileTarget(fileId);
-    },
-    []
-  );
+      if (deleteFileTarget) return;
+      const confirmed = await confirm({
+        title: "Supprimer le fichier",
+        description: "Le fichier sera retiré du jeu de plans. Cette action est irréversible.",
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      });
+      if (!confirmed) return;
 
-  const confirmDeleteFile = useCallback(async () => {
-    if (!deleteFileTarget) return;
-    setDeletingFile(true);
-    try {
-      await apiDeletePlanFile(planSet.id, deleteFileTarget);
-      setAnnouncement("Fichier supprime.");
-      await mutateFiles();
-      onFilesChanged();
-    } catch (err) {
-      const msg = isTakeoffApiError(err)
-        ? err.message
-        : "Impossible de supprimer le fichier.";
-      setAnnouncement(msg);
-    } finally {
-      setDeletingFile(false);
-      setDeleteFileTarget(null);
-    }
-  }, [deleteFileTarget, planSet.id, mutateFiles, onFilesChanged]);
+      setDeleteFileTarget(fileId);
+      try {
+        await apiDeletePlanFile(planSet.id, fileId);
+        setAnnouncement("Fichier supprimé.");
+        await mutateFiles();
+        onFilesChanged();
+      } catch (err) {
+        const msg = isTakeoffApiError(err)
+          ? err.message
+          : "Impossible de supprimer le fichier.";
+        setAnnouncement(msg);
+      } finally {
+        setDeleteFileTarget(null);
+      }
+    },
+    [confirm, deleteFileTarget, planSet.id, mutateFiles, onFilesChanged]
+  );
 
   const handleUploadsComplete = useCallback(() => {
     mutateFiles();
@@ -236,7 +253,7 @@ export function PlanSetCard({
   }, [editDescription, editName, onUpdated, planSet.id]);
 
   return (
-    <div className="dashboard-card overflow-hidden">
+    <Card className="overflow-hidden">
       {/* Header row */}
       <div className="flex w-full flex-wrap items-center gap-2 px-4 py-4 sm:flex-nowrap sm:gap-4 sm:px-5">
         {/* Accordion trigger */}
@@ -248,20 +265,18 @@ export function PlanSetCard({
           onClick={handleToggle}
         >
           {/* Chevron */}
-          <ChevronRightIcon className={`h-4 w-4 shrink-0 text-subtle-foreground transition-transform ${expanded ? "rotate-90" : ""}`} aria-hidden="true" />
+          <ChevronRightIcon className={`size-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} aria-hidden="true" />
 
           {/* Set info */}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="line-clamp-2 text-sm font-semibold text-slate-800 sm:truncate">
+              <h2 className="line-clamp-2 text-sm font-semibold text-foreground sm:truncate">
                 {planSet.name}
-              </h3>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${flowDescriptor.badgeClassName}`}
-              >
+              </h2>
+              <Badge size="sm" variant={flowDescriptor.kind === "legacy" ? "warning" : "success"}>
                 {flowDescriptor.label}
-              </span>
-              <span className="text-[11px] text-muted-foreground sm:hidden">
+              </Badge>
+              <span className="text-micro text-muted-foreground sm:hidden">
                 {planSet.file_count} {planSet.file_count === 1 ? "plan" : "plans"}
               </span>
             </div>
@@ -294,24 +309,21 @@ export function PlanSetCard({
 
         <div className="ml-auto flex items-center gap-1 sm:ml-0">
           {/* Edit set button */}
-          <button
-            type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-subtle-foreground transition hover:bg-muted hover:text-foreground-secondary sm:h-8 sm:w-8"
-            aria-label={`Modifier le jeu "${planSet.name}"`}
+          <IconButton
+            label={`Modifier le jeu "${planSet.name}"`}
+            icon={<PencilIcon aria-hidden="true" />}
+            className="size-11 sm:size-8"
             onClick={handleStartEdit}
-          >
-            <PencilIcon className="h-4 w-4" aria-hidden="true" />
-          </button>
+          />
 
           {/* Delete set button */}
-          <button
-            type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-subtle-foreground transition hover:bg-muted hover:text-danger sm:h-8 sm:w-8"
-            aria-label={`Supprimer le jeu "${planSet.name}"`}
-            onClick={() => setDeleteSetModalOpen(true)}
-          >
-            <Trash2Icon className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <IconButton
+            label={`Supprimer le jeu "${planSet.name}"`}
+            icon={<Trash2Icon aria-hidden="true" />}
+            className="size-11 hover:text-danger sm:size-8"
+            loading={deletingSet}
+            onClick={() => void handleDeleteSet()}
+          />
         </div>
       </div>
 
@@ -323,12 +335,12 @@ export function PlanSetCard({
         hidden={!expanded}
       >
         {expanded && (
-          <div className="border-t border-border px-5 pb-5 pt-4">
+          <div className="border-t border-border px-4 pb-5 pt-4 sm:px-5">
             <div
               className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
                 flowDescriptor.kind === "legacy"
-                  ? "border-warning/20 bg-warning/5 text-foreground-secondary"
-                  : "border-success/15 bg-success/5 text-foreground-secondary"
+                  ? "border-warning-border bg-warning-subtle text-foreground-secondary"
+                  : "border-success-border bg-success-subtle text-foreground-secondary"
               }`}
             >
               {flowDescriptor.summary}
@@ -338,17 +350,11 @@ export function PlanSetCard({
             {editingSet && (
               <div className="mb-4 rounded-lg border border-border bg-surface-subtle p-4">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <label
-                      htmlFor={`plan-set-name-${planSet.id}`}
-                      className="form-label"
-                    >
-                      Nom du jeu
-                    </label>
-                    <input
+                  <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <FieldLabel htmlFor={`plan-set-name-${planSet.id}`}>Nom du jeu</FieldLabel>
+                    <Input
                       id={`plan-set-name-${planSet.id}`}
                       type="text"
-                      className="form-input"
                       value={editName}
                       onChange={(event) => setEditName(event.target.value)}
                       maxLength={255}
@@ -356,16 +362,13 @@ export function PlanSetCard({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
-                    <label
-                      htmlFor={`plan-set-description-${planSet.id}`}
-                      className="form-label"
-                    >
+                  <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <FieldLabel htmlFor={`plan-set-description-${planSet.id}`}>
                       Description (optionnel)
-                    </label>
-                    <textarea
+                    </FieldLabel>
+                    <Textarea
                       id={`plan-set-description-${planSet.id}`}
-                      className="form-input min-h-[80px] resize-y"
+                      className="min-h-20 resize-y"
                       value={editDescription}
                       onChange={(event) => setEditDescription(event.target.value)}
                       maxLength={2000}
@@ -375,15 +378,15 @@ export function PlanSetCard({
                 </div>
 
                 {editError && (
-                  <div className="mt-3 alert alert-error" role="alert">
-                    {editError}
-                  </div>
+                  <Alert variant="danger" className="mt-3">
+                    <AlertDescription>{editError}</AlertDescription>
+                  </Alert>
                 )}
 
                 <div className="mt-3 flex justify-end gap-2">
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={handleCancelEdit}
                     disabled={savingSet}
@@ -392,6 +395,7 @@ export function PlanSetCard({
                   </Button>
                   <Button
                     type="button"
+                    variant="primary"
                     size="sm"
                     onClick={handleSaveEdit}
                     loading={savingSet}
@@ -411,11 +415,13 @@ export function PlanSetCard({
 
             {/* Files list */}
             {filesError && (
-              <div className="mt-4 alert alert-error" role="alert">
-                {isTakeoffApiError(filesError)
-                  ? filesError.message
-                  : "Impossible de charger les fichiers."}
-              </div>
+              <Alert variant="danger" className="mt-4">
+                <AlertDescription>
+                  {isTakeoffApiError(filesError)
+                    ? filesError.message
+                    : "Impossible de charger les fichiers."}
+                </AlertDescription>
+              </Alert>
             )}
 
             {files && files.length === 0 && !filesError && (
@@ -431,7 +437,7 @@ export function PlanSetCard({
                     key={file.id}
                     file={file}
                     onDelete={handleDeleteFile}
-                    deleting={deletingFile && deleteFileTarget === file.id}
+                    deleting={deleteFileTarget === file.id}
                   />
                 ))}
               </div>
@@ -442,7 +448,7 @@ export function PlanSetCard({
               <div className="mt-4 flex justify-end">
                 <Link
                   href={resolvedLaunchHref}
-                  className="btn btn-primary btn-sm"
+                  className={buttonVariants({ variant: "primary" })}
                 >
                   {resolvedLaunchLabel}
                 </Link>
@@ -452,32 +458,10 @@ export function PlanSetCard({
         )}
       </div>
 
-      {/* Delete set confirm modal */}
-      <ConfirmModal
-        open={deleteSetModalOpen}
-        title="Supprimer le jeu de plans"
-        message={`Etes-vous sur de vouloir supprimer "${planSet.name}" et tous ses fichiers ? Cette action est irreversible.`}
-        confirmLabel="Supprimer"
-        variant="danger"
-        onConfirm={handleDeleteSet}
-        onCancel={() => !deletingSet && setDeleteSetModalOpen(false)}
-      />
-
-      {/* Delete file confirm modal */}
-      <ConfirmModal
-        open={deleteFileTarget !== null}
-        title="Supprimer le fichier"
-        message="Etes-vous sur de vouloir supprimer ce fichier ? Cette action est irreversible."
-        confirmLabel="Supprimer"
-        variant="danger"
-        onConfirm={confirmDeleteFile}
-        onCancel={() => !deletingFile && setDeleteFileTarget(null)}
-      />
-
       {/* Live announcements */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
-    </div>
+    </Card>
   );
 }

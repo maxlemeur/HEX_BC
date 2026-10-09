@@ -56,7 +56,7 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
       "The critical E2E tenant must expose the takeoff module."
     ).toBe(true);
 
-    await page.getByRole("button", { name: /Creer.*jeu de plans/i }).first().click();
+    await page.getByRole("button", { name: /Cr[ée]er.*jeu de plans/i }).first().click();
     const createDialog = page.getByRole("dialog");
     await expect(createDialog).toBeVisible();
     await createDialog.getByLabel(/Nom/i).fill("Lot E2E Metre");

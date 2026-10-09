@@ -259,10 +259,10 @@ export function ConfidenceHeader({ globalConfidence, items }: ConfidenceHeaderPr
         {/* Text + distribution */}
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-800 text-pretty">
+            <h2 className="text-sm font-semibold text-foreground text-pretty">
               Confiance estimée de l’analyse
             </h2>
-            <p className="mt-0.5 text-sm text-slate-600">{label}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{label}</p>
             <p className="mt-2 text-xs text-muted-foreground">
               Ce score provient de l’analyse automatique. Il ne prouve ni la
               présence d’une source localisable ni une validation humaine.
@@ -279,13 +279,13 @@ export function ConfidenceHeader({ globalConfidence, items }: ConfidenceHeaderPr
           <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
             <div className="rounded-md bg-surface-subtle px-3 py-2">
               <dt className="text-muted-foreground">Preuves localisées</dt>
-              <dd className="mt-0.5 font-semibold text-slate-800 tabular-nums">
+              <dd className="mt-0.5 font-semibold text-foreground tabular-nums">
                 {trustSummary.localizedProofs}/{trustSummary.total}
               </dd>
             </div>
             <div className="rounded-md bg-surface-subtle px-3 py-2">
               <dt className="text-muted-foreground">Validés humainement</dt>
-              <dd className="mt-0.5 font-semibold text-slate-800 tabular-nums">
+              <dd className="mt-0.5 font-semibold text-foreground tabular-nums">
                 {trustSummary.verified}/{trustSummary.total}
               </dd>
             </div>

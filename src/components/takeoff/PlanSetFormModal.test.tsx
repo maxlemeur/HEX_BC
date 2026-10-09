@@ -17,9 +17,9 @@ describe("PlanSetFormModal", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Nom du jeu")).toHaveFocus());
 
-    expect(screen.getByRole("button", { name: "Fermer" })).toHaveClass("h-11");
+    expect(screen.getByRole("button", { name: "Fermer" })).toHaveClass("size-11");
     expect(screen.getByRole("button", { name: "Annuler" })).toHaveClass("h-11");
     expect(screen.getByRole("button", { name: "Créer" })).toHaveClass("h-11");
-    expect(screen.getByLabelText("Nom du jeu")).toHaveClass("form-input");
+    expect(screen.getByLabelText("Nom du jeu")).toHaveAttribute("data-slot", "input");
   });
 });

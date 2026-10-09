@@ -11,8 +11,8 @@ import {
   resubmitTakeoffJob,
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/layout/empty-state";
 import {
   CounterCard,
   PAGE_SIZE_OPTIONS,
@@ -27,6 +27,10 @@ import {
   isCoverageLow,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import { FileTextIcon } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Card } from "@/components/ui/card";
 
 type Props = {
   projectId: string;
@@ -133,14 +137,14 @@ export default function TakeoffJobsTable({
     <div className="flex flex-wrap gap-2">
       <Link
         href={`/dashboard/estimates/${job.estimateVersionId}/takeoff/${job.jobId}`}
-        className="btn btn-secondary btn-sm"
+        className={buttonVariants({ variant: "outline" })}
       >
         Détail
       </Link>
       {reviewEnabled ? (
         <Link
           href={`/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${job.estimateVersionId}`}
-          className="btn btn-secondary btn-sm"
+          className={buttonVariants({ variant: "outline" })}
         >
           Revue
         </Link>
@@ -148,41 +152,41 @@ export default function TakeoffJobsTable({
       {canReconcile ? (
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className={buttonVariants({ variant: "outline" })}
           onClick={() => {
             void handleAction(job.jobId, "reconcile");
           }}
           disabled={Boolean(pendingAction)}
         >
           {pendingAction === "reconcile"
-            ? "Réconciliation..."
+            ? "Réconciliation…"
             : "Relancer la réconciliation"}
         </button>
       ) : null}
       {canResubmit ? (
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className={buttonVariants({ variant: "outline" })}
           onClick={() => {
             void handleAction(job.jobId, "resubmit");
           }}
           disabled={Boolean(pendingAction)}
         >
           {pendingAction === "resubmit"
-            ? "Nouvelle soumission..."
+            ? "Nouvelle soumission…"
             : "Soumettre à nouveau"}
         </button>
       ) : null}
       {canCancel ? (
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className={buttonVariants({ variant: "outline" })}
           onClick={() => {
             void handleAction(job.jobId, "cancel");
           }}
           disabled={Boolean(pendingAction)}
         >
-          {pendingAction === "cancel" ? "Annulation..." : "Annuler"}
+          {pendingAction === "cancel" ? "Annulation…" : "Annuler"}
         </button>
       ) : null}
     </div>
@@ -222,7 +226,7 @@ export default function TakeoffJobsTable({
 
       {actionNotice ? (
         <div
-          className="mb-4 rounded-xl border border-warning/40 bg-warning-light p-3 text-sm text-foreground-secondary"
+          className="mb-4 rounded-xl border border-warning-border bg-warning-light p-3 text-sm text-foreground-secondary"
           role="status"
         >
           {actionNotice}
@@ -231,20 +235,32 @@ export default function TakeoffJobsTable({
 
       {jobs.length === 0 ? (
         <EmptyState
-          icon={
-            <FileTextIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-          }
+          headingLevel={2}
+          icon={<FileTextIcon aria-hidden="true" />}
           title={emptyState?.title ?? "Aucune analyse trouvée"}
           description={
             emptyState?.description ?? "Aucune analyse n’est disponible."
           }
-          actionLabel={emptyState?.actionLabel}
-          actionHref={emptyState?.actionHref}
-          onAction={emptyState?.onAction}
+          action={
+            emptyState?.actionLabel ? (
+              emptyState.onAction ? (
+                <Button variant="primary" className="min-h-11 sm:min-h-9" onClick={emptyState.onAction}>
+                  {emptyState.actionLabel}
+                </Button>
+              ) : emptyState.actionHref ? (
+                <Link
+                  href={emptyState.actionHref}
+                  className={cn(buttonVariants({ variant: "primary" }), "min-h-11 sm:min-h-9")}
+                >
+                  {emptyState.actionLabel}
+                </Link>
+              ) : null
+            ) : null
+          }
           className="px-4 py-10 sm:px-6 sm:py-12"
         />
       ) : (
-        <section className="dashboard-card overflow-hidden">
+        <Card className="overflow-hidden">
           <div className="space-y-3 p-4 md:hidden">
             {jobs.map((job) => {
               const pendingAction = pendingActions[job.jobId];
@@ -328,11 +344,11 @@ export default function TakeoffJobsTable({
                     {(job.dispatchStatus === "queued" ||
                       job.dispatchStatus === "trigger_failed") &&
                     job.dispatchCorrelationId ? (
-                      <div className="col-span-2 rounded-lg border border-warning/30 bg-warning-light p-2">
+                      <div className="col-span-2 rounded-lg border border-warning-border bg-warning-light p-2">
                         <dt className="text-xs font-semibold text-foreground-secondary">
                           Démarrage différé
                         </dt>
-                        <dd className="mt-1 text-xs text-slate-600">
+                        <dd className="mt-1 text-xs text-muted-foreground">
                           La demande est conservée. Suivi {job.dispatchCorrelationId}
                         </dd>
                       </div>
@@ -341,7 +357,7 @@ export default function TakeoffJobsTable({
                       <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Source
                       </dt>
-                      <dd className="mt-1 text-slate-800">
+                      <dd className="mt-1 text-foreground">
                         {job.planSetLabel ?? "-"}
                       </dd>
                     </div>
@@ -349,7 +365,7 @@ export default function TakeoffJobsTable({
                       <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Date
                       </dt>
-                      <dd className="mt-1 text-slate-800">
+                      <dd className="mt-1 text-foreground">
                         {formatTimestamp(job.createdAt)}
                       </dd>
                     </div>
@@ -357,7 +373,7 @@ export default function TakeoffJobsTable({
                       <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Éléments
                       </dt>
-                      <dd className="mt-1 text-slate-800">
+                      <dd className="mt-1 text-foreground">
                         {formatCount(job.itemCount)}
                       </dd>
                     </div>
@@ -366,7 +382,7 @@ export default function TakeoffJobsTable({
                         Couverture DPGF
                       </dt>
                       <dd
-                        className={`mt-1 ${isCoverageLow(job.coveragePercent) ? "text-danger" : "text-slate-800"}`}
+                        className={`mt-1 ${isCoverageLow(job.coveragePercent) ? "text-danger" : "text-foreground"}`}
                       >
                         {job.coveragePercent === null
                           ? "Aucun DPGF"
@@ -378,7 +394,7 @@ export default function TakeoffJobsTable({
                         Exceptions
                       </dt>
                       <dd
-                        className={`mt-1 ${job.exceptionCount > 0 ? "text-warning font-semibold" : "text-slate-800"}`}
+                        className={`mt-1 ${job.exceptionCount > 0 ? "text-warning font-semibold" : "text-foreground"}`}
                       >
                         {job.exceptionCount}
                       </dd>
@@ -400,7 +416,12 @@ export default function TakeoffJobsTable({
             })}
           </div>
 
-          <div className="hidden overflow-x-auto md:block">
+          <div
+            className="relative hidden overflow-x-auto md:block"
+            role="region"
+            aria-label="Analyses de plans"
+            tabIndex={0}
+          >
             <table className="data-table w-full">
               <thead>
                 <tr>
@@ -440,7 +461,7 @@ export default function TakeoffJobsTable({
                       <td>{job.planSetLabel ?? "-"}</td>
                       <td>
                         <div className="flex flex-col items-start gap-1.5">
-                          <span className="text-sm font-medium text-slate-800">
+                          <span className="text-sm font-medium text-foreground">
                             {job.levelLabel}
                           </span>
                           <Badge variant="neutral" size="sm">
@@ -548,9 +569,9 @@ export default function TakeoffJobsTable({
               >
                 Taille
               </label>
-              <select
+              <NativeSelect
                 id="ac-page-size"
-                className="form-input form-select form-input--sm h-9 min-w-[88px]"
+                size="sm" className="h-9 min-w-[88px]"
                 value={pageSize}
                 onChange={(e) => onPageSizeChange(Number(e.target.value))}
               >
@@ -559,9 +580,9 @@ export default function TakeoffJobsTable({
                     {s}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               <button
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
                 disabled={data.pagination.offset === 0}
                 onClick={() =>
                   onPageChange(Math.max(0, data.pagination.offset - pageSize))
@@ -570,7 +591,7 @@ export default function TakeoffJobsTable({
                 Précédent
               </button>
               <button
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
                 disabled={
                   data.pagination.offset + pageSize >= data.pagination.total
                 }
@@ -580,7 +601,7 @@ export default function TakeoffJobsTable({
               </button>
             </div>
           </div>
-        </section>
+        </Card>
       )}
     </div>
   );

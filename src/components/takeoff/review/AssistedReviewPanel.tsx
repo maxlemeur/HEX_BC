@@ -3,9 +3,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useMemo, useTransition } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { ReviewItemCard } from "@/components/takeoff/ReviewItemCard";
 import { ReviewProgressBar } from "@/components/takeoff/ReviewProgressBar";
@@ -116,10 +116,10 @@ export function AssistedReviewPanel({
       onReviewedIdsChange(allIds);
       const skipped = markedForReviewIds.size;
       toast.success({
-        title: `${items.length - skipped} items acceptes`,
+        title: `${items.length - skipped} items acceptés`,
         description: skipped > 0
-          ? `${skipped} item(s) "à revoir" non affecte(s).`
-          : "Tous les items ont été marques comme revus.",
+          ? `${skipped} item(s) "à revoir" non affecté(s).`
+          : "Tous les items ont été marqués comme revus.",
       });
     });
   }, [items, markedForReviewIds, onIncludeItems, onReviewedIdsChange, toast]);
@@ -127,11 +127,10 @@ export function AssistedReviewPanel({
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={
-          <FileTextIcon aria-hidden="true" strokeWidth={1.5} className="h-7 w-7" />
-        }
+        icon={<FileTextIcon aria-hidden="true" />}
         title="Aucun item à revoir"
-        description="Le releve ne contient aucun item à valider."
+        description="Le relevé ne contient aucun item à valider."
+        headingLevel={2}
       />
     );
   }
@@ -147,16 +146,16 @@ export function AssistedReviewPanel({
 
       {/* Business-language summary */}
       <div className="border-b border-border bg-surface-subtle px-4 py-2">
-        <p className="text-sm text-slate-600">
-          Parcourez chaque item et decidez de le conserver ou de l&apos;ecarter.
-          L&apos;IA a detecte {items.length} élément{items.length > 1 ? "s" : ""} dans les plans.
+        <p className="text-sm text-muted-foreground">
+          Parcourez chaque item et décidez de le conserver ou de l&apos;écarter.
+          L&apos;IA a détecté {items.length} élément{items.length > 1 ? "s" : ""} dans les plans.
         </p>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {acceptedCount > 0 && (
-            <Badge variant="success" size="sm">{acceptedCount} conserve{acceptedCount > 1 ? "s" : ""}</Badge>
+            <Badge variant="success" size="sm">{acceptedCount} conservé{acceptedCount > 1 ? "s" : ""}</Badge>
           )}
           {rejectedCount > 0 && (
-            <Badge variant="error" size="sm">{rejectedCount} ecarte{rejectedCount > 1 ? "s" : ""}</Badge>
+            <Badge variant="danger" size="sm">{rejectedCount} écarté{rejectedCount > 1 ? "s" : ""}</Badge>
           )}
           {markedForReviewCount > 0 && (
             <Badge variant="warning" size="sm">{markedForReviewCount} à revoir</Badge>
@@ -204,8 +203,8 @@ export function AssistedReviewPanel({
         })}
       </div>
 
-      <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-border bg-surface px-4 py-3">
-        <p className="text-sm text-slate-600">
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface px-4 py-3">
+        <p className="text-sm text-muted-foreground">
           {acceptedCount} item{acceptedCount !== 1 ? "s" : ""} prêt{acceptedCount !== 1 ? "s" : ""} à appliquer
         </p>
         <Button

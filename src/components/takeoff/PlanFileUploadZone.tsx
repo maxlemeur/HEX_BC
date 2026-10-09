@@ -276,7 +276,7 @@ export function PlanFileUploadZone({
         className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
           dragActive
             ? "border-primary bg-primary/5"
-            : "border-border-strong bg-surface-subtle hover:border-slate-400"
+            : "border-border-strong bg-surface-subtle hover:border-subtle-foreground"
         }`}
         role="button"
         tabIndex={hasActiveUploads ? -1 : 0}
@@ -345,7 +345,7 @@ export function PlanFileUploadZone({
               {entry.status === "uploading" && (
                 <div className="flex shrink-0 items-center gap-2">
                   <div
-                    className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-200"
+                    className="h-1.5 w-20 overflow-hidden rounded-full bg-border"
                     role="progressbar"
                     aria-valuenow={entry.progress}
                     aria-valuemin={0}

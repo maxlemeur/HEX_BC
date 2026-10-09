@@ -233,7 +233,7 @@ describe("MappingRulesManager", () => {
 
     expect(ruleAPriorityCalls).toEqual([35]);
     expect(
-      await screen.findByText(/Ordre des priorités enregistre/)
+      await screen.findByText(/Ordre des priorités enregistré/)
     ).toBeInTheDocument();
     expect(
       screen.queryByText("Impossible de sauvegarder l'ordre des priorités.")

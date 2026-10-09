@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui-legacy/Modal";
 import type {
   TakeoffDpgfComparisonRow,
@@ -15,6 +15,7 @@ import {
   formatNumber,
   formatProofConfidence,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
+import { Textarea } from "@/components/ui/textarea";
 
 type ManualLinkModalProps = {
   open: boolean;
@@ -65,7 +66,7 @@ export function ManualLinkModal({
             <p className="mt-1 text-sm font-semibold text-foreground">
               {row?.line_label ?? "Ligne inconnue"}
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-muted-foreground">
               Quantité DPGF : {formatNumber(row?.dpgf_quantity ?? null)} {row?.dpgf.unit ?? ""}
             </p>
           </div>
@@ -98,7 +99,7 @@ export function ManualLinkModal({
           {mode === "takeoff_items" ? (
             <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
               {candidates.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-6 text-sm text-slate-600">
+                <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-6 text-sm text-muted-foreground">
                   Aucun item takeoff disponible pour un lien manuel.
                 </div>
               ) : (
@@ -110,7 +111,7 @@ export function ManualLinkModal({
                       key={candidate.item_id}
                       className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
                         checked
-                          ? "border-sky-300 bg-sky-50/80"
+                          ? "border-info-border bg-info-subtle"
                           : "border-border bg-surface hover:bg-surface-subtle"
                       }`}
                     >
@@ -142,7 +143,7 @@ export function ManualLinkModal({
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-xs text-slate-600">
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {formatNumber(candidate.quantity)} {candidate.unit} ·{" "}
                           {candidate.source_file_name ?? "Source inconnue"}
                           {candidate.source_page ? ` · p.${candidate.source_page}` : ""}
@@ -151,7 +152,7 @@ export function ManualLinkModal({
                           {formatProofConfidence(candidate.confidence_score)}
                         </p>
                         {candidate.evidence ? (
-                          <p className="mt-2 text-xs text-slate-600">
+                          <p className="mt-2 text-xs text-muted-foreground">
                             {candidate.evidence}
                           </p>
                         ) : null}
@@ -163,14 +164,14 @@ export function ManualLinkModal({
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-muted-foreground">
                 Décrivez votre hypothèse de quantité ou de périmètre pour cette ligne. Elle sera
                 enregistrée comme décision « corriger manuellement » et apparaîtra dans le panneau
                 de preuves sous forme d&apos;hypothèse après rafraîchissement.
               </p>
-              <textarea
+              <Textarea
                 autoComplete="off"
-                className="form-input min-h-[160px] py-3"
+                className="min-h-[160px] py-3"
                 value={hypothesisText}
                 placeholder="Ex : La quantité DPGF semble inclure les réserves techniques non visibles sur les plans. Je retiens 120 m² en attendant confirmation du maître d'œuvre…"
                 onChange={(event) => setHypothesisText(event.target.value)}

@@ -6,8 +6,10 @@ import {
   useState,
 } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { EditableCell } from "@/components/estimates/EditableCell";
 import {
   useSpreadsheetNavigation,
@@ -17,6 +19,8 @@ import { detectAnomalies } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import type { TakeoffTable } from "@/lib/takeoff/types";
 import { ChevronDownIcon } from "lucide-react";
+
+import { EmptyState } from "@/components/layout/empty-state";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,17 +110,17 @@ function buildEditableColumnMap(headers: string[]) {
 }
 
 function getTableHealthBadge(tableItems: ReviewItem[]): {
-  variant: "success" | "warning" | "error";
+  variant: "success" | "warning" | "danger" | "neutral";
   label: string;
   pct: number;
 } {
   if (tableItems.length === 0) {
-    return { variant: "neutral" as never, label: "-", pct: 0 };
+    return { variant: "neutral", label: "—", pct: 0 };
   }
   const clean = tableItems.filter((i) => detectAnomalies(i).length === 0).length;
   const pct = Math.round((clean / tableItems.length) * 100);
-  const variant = pct >= 80 ? "success" : pct >= 50 ? "warning" : "error";
-  return { variant, label: `${pct}%`, pct };
+  const variant = pct >= 80 ? "success" : pct >= 50 ? "warning" : "danger";
+  return { variant, label: `${pct} % conformes`, pct };
 }
 
 function isTableExcluded(tableItems: ReviewItem[]): boolean {
@@ -194,24 +198,25 @@ function TableCard({
 
   return (
     <div
-      className={`rounded-lg border border-border bg-surface transition-opacity ${
-        excluded ? "opacity-60" : ""
+      className={`rounded-lg border border-border transition-colors ${
+        excluded ? "bg-surface-subtle" : "bg-surface"
       }`}
     >
       {/* Card header */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground-secondary"
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onToggleCollapse}
-          aria-label={collapsed ? "Deplier" : "Replier"}
+          aria-label={`${collapsed ? "Déplier" : "Replier"} ${title}`}
+          aria-expanded={!collapsed}
         >
-          <ChevronDownIcon aria-hidden="true" className={`h-5 w-5 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-        </button>
+          <ChevronDownIcon aria-hidden="true" className={`size-5 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        </Button>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-slate-800">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 truncate text-sm font-semibold text-foreground">
               {title}
             </span>
             <Badge variant={health.variant} size="sm">
@@ -223,7 +228,7 @@ function TableCard({
               </Badge>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Page {table.page}</span>
             <span>{table.headers.length} col</span>
             <span>{tableItems.length} lignes</span>
@@ -233,7 +238,7 @@ function TableCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
             size="sm"
@@ -256,7 +261,12 @@ function TableCard({
 
       {/* Card body */}
       {!collapsed && (
-        <div className="overflow-x-auto border-t border-border">
+        <div
+          className="relative overflow-x-auto border-t border-border"
+          role="region"
+          aria-label={title}
+          tabIndex={0}
+        >
           <table className="data-table w-full" role="grid">
             <thead>
               <tr>
@@ -281,7 +291,7 @@ function TableCard({
                   <tr
                     key={item.id}
                     className={[
-                      isExcluded && "opacity-50",
+                      isExcluded && "bg-surface-subtle text-muted-foreground",
                       item._error && "bg-danger-light",
                       anomalies.length > 0 && !isExcluded && "bg-warning-light",
                     ]
@@ -289,10 +299,8 @@ function TableCard({
                       .join(" ")}
                     title={
                       isExcluded && item.exclusion_reason
-                        ? `Exclu: ${item.exclusion_reason}`
-                        : anomalies.length > 0
-                          ? `Anomalies: ${anomalies.length}`
-                          : undefined
+                        ? `Exclu : ${item.exclusion_reason}`
+                        : undefined
                     }
                   >
                     {table.headers.map((_, ci) => {
@@ -302,7 +310,7 @@ function TableCard({
 
                       if (editableField === "designation") {
                         return (
-                          <td key={ci}>
+                          <td key={ci} role="presentation">
                             <EditableCell
                               cell={{ rowId: item.id, columnKey: colKey }}
                               navigation={navigation}
@@ -310,12 +318,16 @@ function TableCard({
                               onChange={(val) => onUpdateItem(item.id, "designation", val)}
                               onCommit={(val) => onUpdateItem(item.id, "designation", val)}
                               readOnly={isExcluded}
-                              placeholder="Désignation..."
+                              placeholder="Désignation…"
                               ariaLabel={`${table.headers[ci]} - ${item.designation}`}
                               className="editable-cell"
                             />
                             {item._saving && (
-                              <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border border-info border-t-transparent" />
+                              <span
+                                role="status"
+                                aria-label="Sauvegarde en cours"
+                                className="ml-1 inline-block size-3 animate-spin rounded-full border border-info border-t-transparent motion-reduce:animate-none"
+                              />
                             )}
                           </td>
                         );
@@ -323,7 +335,7 @@ function TableCard({
 
                       if (editableField === "quantity") {
                         return (
-                          <td key={ci}>
+                          <td key={ci} role="presentation">
                             <EditableCell
                               cell={{ rowId: item.id, columnKey: colKey }}
                               navigation={navigation}
@@ -353,7 +365,7 @@ function TableCard({
 
                       if (editableField === "unit") {
                         return (
-                          <td key={ci}>
+                          <td key={ci} role="presentation">
                             <EditableCell
                               cell={{ rowId: item.id, columnKey: colKey }}
                               navigation={navigation}
@@ -361,7 +373,7 @@ function TableCard({
                               onChange={(val) => onUpdateItem(item.id, "unit", val)}
                               onCommit={(val) => onUpdateItem(item.id, "unit", val)}
                               readOnly={isExcluded}
-                              placeholder="Unité..."
+                              placeholder="Unité…"
                               ariaLabel={table.headers[ci]}
                               className="editable-cell"
                             />
@@ -371,7 +383,7 @@ function TableCard({
 
                       if (editableField === "evidence") {
                         return (
-                          <td key={ci}>
+                          <td key={ci} role="presentation">
                             <EditableCell
                               cell={{ rowId: item.id, columnKey: colKey }}
                               navigation={navigation}
@@ -383,7 +395,7 @@ function TableCard({
                                 onUpdateItem(item.id, "evidence", val.trim() || null)
                               }
                               readOnly={isExcluded}
-                              placeholder="Evidence..."
+                              placeholder="Preuve…"
                               ariaLabel={table.headers[ci]}
                               className="editable-cell"
                             />
@@ -395,7 +407,7 @@ function TableCard({
                       return (
                         <td key={ci} className="text-sm text-foreground-secondary">
                           {cellValue || (
-                            <span className="text-subtle-foreground">-</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </td>
                       );
@@ -653,11 +665,10 @@ export function TakeoffTableView({
   // ---- Empty state
   if (tables.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-surface px-6 py-12 text-center">
-        <p className="text-sm text-muted-foreground">
-          Aucune table extraite pour cette extraction.
-        </p>
-      </div>
+      <EmptyState
+        title="Aucune table extraite"
+        description="Cette extraction ne contient aucune table structurée."
+      />
     );
   }
 
@@ -665,19 +676,21 @@ export function TakeoffTableView({
     <div className="space-y-4">
       {/* ---- Filters ---- */}
       <div className="flex flex-wrap items-center gap-3">
-        <input
+        <Input
           type="search"
-          placeholder="Rechercher par titre..."
+          size="sm"
+          placeholder="Rechercher par titre…"
           aria-label="Rechercher une table"
-          className="h-9 w-64 rounded-lg border border-border bg-surface px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full sm:w-64"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
 
         {allPages.length > 1 && (
-          <select
+          <NativeSelect
+            size="sm"
+            wrapperClassName="w-auto"
             aria-label="Filtrer par page"
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={pageFilter}
             onChange={(e) => setPageFilter(e.target.value)}
           >
@@ -687,13 +700,14 @@ export function TakeoffTableView({
                 Page {p}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         )}
 
         {allTableOptions.length > 1 && (
-          <select
+          <NativeSelect
+            size="sm"
+            wrapperClassName="w-auto"
             aria-label="Filtrer par table"
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={tableFilter}
             onChange={(e) => setTableFilter(e.target.value)}
           >
@@ -703,12 +717,13 @@ export function TakeoffTableView({
                 {tableOption.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         )}
 
-        <select
+        <NativeSelect
+          size="sm"
+          wrapperClassName="w-auto"
           aria-label="Filtrer par statut"
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as InclusionStatusFilter)}
         >
@@ -716,23 +731,15 @@ export function TakeoffTableView({
           <option value="included">Incluses</option>
           <option value="excluded">Exclues</option>
           <option value="mixed">Mixtes</option>
-        </select>
+        </NativeSelect>
 
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            className="text-xs text-slate-600 hover:underline"
-            onClick={collapseAll}
-          >
+        <div className="flex gap-2 sm:ml-auto">
+          <Button variant="ghost" size="xs" onClick={collapseAll}>
             Tout replier
-          </button>
-          <button
-            type="button"
-            className="text-xs text-slate-600 hover:underline"
-            onClick={expandAll}
-          >
-            Tout deplier
-          </button>
+          </Button>
+          <Button variant="ghost" size="xs" onClick={expandAll}>
+            Tout déplier
+          </Button>
         </div>
 
         <span className="text-xs text-muted-foreground">
@@ -742,11 +749,10 @@ export function TakeoffTableView({
 
       {/* ---- Grouped cards ---- */}
       {filteredCards.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface px-6 py-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            Aucune table ne correspond aux filtres.
-          </p>
-        </div>
+        <EmptyState
+          variant="compact"
+          title="Aucune table ne correspond aux filtres"
+        />
       ) : (
         groupedByPage.map(([page, pageCards]) => (
           <div key={page}>

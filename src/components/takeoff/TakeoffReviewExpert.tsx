@@ -8,6 +8,12 @@ import TakeoffReviewTable, {
 } from "@/components/takeoff/TakeoffReviewTable";
 import { TakeoffTableView } from "@/components/takeoff/TakeoffTableView";
 import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
+import { EmptyState } from "@/components/layout/empty-state";
+import { LoadingState } from "@/components/layout/loading-state";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import type {
   TakeoffDpgfComparisonResponse,
   TakeoffDpgfComparisonView,
@@ -21,9 +27,7 @@ const TakeoffDpgfCompareView = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-6 text-sm text-slate-600">
-        Chargement de la comparaison DPGF...
-      </div>
+      <LoadingState label="Chargement de la comparaison DPGF…" />
     ),
   }
 );
@@ -107,12 +111,12 @@ function SummaryStatsBar({
     <div className="flex flex-wrap gap-4 rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm">
       {tablesCount > 0 && (
         <span>
-          <span className="font-medium text-slate-800">{tablesCount}</span>{" "}
+          <span className="font-medium text-foreground">{tablesCount}</span>{" "}
           <span className="text-muted-foreground">Tables</span>
         </span>
       )}
       <span>
-        <span className="font-medium text-slate-800">{total}</span>{" "}
+        <span className="font-medium text-foreground">{total}</span>{" "}
         <span className="text-muted-foreground">Total</span>
       </span>
       <span>
@@ -125,7 +129,7 @@ function SummaryStatsBar({
       </span>
       <span>
         <span className="font-medium text-info">{verified}</span>{" "}
-        <span className="text-muted-foreground">Verifies</span>
+        <span className="text-muted-foreground">Vérifiés</span>
       </span>
       <span>
         <span className="font-medium text-warning">{withAnomalies}</span>{" "}
@@ -136,8 +140,8 @@ function SummaryStatsBar({
       {isLevelC && (
         <>
           <span className="border-l border-border pl-4">
-            <span className="font-medium text-slate-800">{evidencePct}%</span>{" "}
-            <span className="text-muted-foreground">Couverture evidence</span>
+            <span className="font-medium text-foreground">{evidencePct}%</span>{" "}
+            <span className="text-muted-foreground">Couverture preuve</span>
           </span>
           {lowConfidenceCount > 0 && (
             <span>
@@ -199,16 +203,16 @@ export function TakeoffReviewExpert({
       {/* ---- Tab bar ---- */}
       {(hasTables || hasCompareTab || hasDpgfTab) && (
         <div
-          className="flex gap-1 border-b border-border"
           role="tablist"
-          aria-label="Vues de review"
+          aria-label="Vues de la revue"
+          className="relative flex gap-1 overflow-x-auto border-b border-border"
         >
           {hasTables ? (
             <button
               type="button"
               role="tab"
               aria-selected={activeTab === "tables"}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "tables"
                   ? "border-b-2 border-info text-info"
                   : "text-muted-foreground hover:text-foreground-secondary"
@@ -222,7 +226,7 @@ export function TakeoffReviewExpert({
             type="button"
             role="tab"
             aria-selected={activeTab === "items"}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === "items"
                 ? "border-b-2 border-info text-info"
                 : "text-muted-foreground hover:text-foreground-secondary"
@@ -236,7 +240,7 @@ export function TakeoffReviewExpert({
               type="button"
               role="tab"
               aria-selected={activeTab === "compare"}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "compare"
                   ? "border-b-2 border-info text-info"
                   : "text-muted-foreground hover:text-foreground-secondary"
@@ -251,7 +255,7 @@ export function TakeoffReviewExpert({
               type="button"
               role="tab"
               aria-selected={activeTab === "dpgf"}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "dpgf"
                   ? "border-b-2 border-info text-info"
                   : "text-muted-foreground hover:text-foreground-secondary"
@@ -267,13 +271,14 @@ export function TakeoffReviewExpert({
       {/* ---- Content area ---- */}
       {activeTab === "dpgf" ? (
         dpgfCompareLoading ? (
-          <section className="dashboard-card p-6 text-sm text-slate-600">
-            Chargement de la comparaison DPGF vs Takeoff...
-          </section>
+          <LoadingState
+            className="rounded-lg border border-border bg-surface"
+            label="Chargement de la comparaison DPGF vs métré…"
+          />
         ) : dpgfCompareError ? (
-          <section className="dashboard-card p-6 text-sm text-danger">
-            {dpgfCompareError}
-          </section>
+          <Alert variant="danger">
+            <AlertDescription>{dpgfCompareError}</AlertDescription>
+          </Alert>
         ) : dpgfCompareData ? (
           <TakeoffDpgfCompareView
             data={dpgfCompareData}
@@ -282,24 +287,23 @@ export function TakeoffReviewExpert({
             onRefresh={onRefreshDpgfCompare}
           />
         ) : (
-          <section className="dashboard-card p-6 text-sm text-slate-600">
-            Aucune ligne DPGF ou aucun item takeoff disponible.
-          </section>
+          <EmptyState
+            variant="compact"
+            title="Rien à comparer"
+            description="Aucune ligne DPGF ou aucun item de métré disponible."
+          />
         )
       ) : activeTab === "compare" ? (
         <div className="space-y-4">
-          <section className="dashboard-card p-4">
+          <Card className="p-4">
             <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <label
-                  className="form-label"
-                  htmlFor="takeoff-compare-job-select"
-                >
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="takeoff-compare-job-select">
                   Extraction à comparer
-                </label>
-                <select
+                </FieldLabel>
+                <NativeSelect
                   id="takeoff-compare-job-select"
-                  className="form-input form-select form-input--sm"
+                  size="sm"
                   value={compareWithJobId ?? ""}
                   onChange={(event) => {
                     const nextValue = event.target.value.trim();
@@ -319,19 +323,16 @@ export function TakeoffReviewExpert({
                       {candidate.status}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
 
-              <div>
-                <label
-                  className="form-label"
-                  htmlFor="takeoff-compare-threshold-select"
-                >
-                  Seuil fuzzy
-                </label>
-                <select
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="takeoff-compare-threshold-select">
+                  Seuil de similarité
+                </FieldLabel>
+                <NativeSelect
                   id="takeoff-compare-threshold-select"
-                  className="form-input form-select form-input--sm"
+                  size="sm"
                   value={String(compareThreshold)}
                   onChange={(event) => {
                     const nextValue = Number(event.target.value);
@@ -344,19 +345,20 @@ export function TakeoffReviewExpert({
                   <option value="0.8">0.80</option>
                   <option value="0.85">0.85</option>
                   <option value="0.9">0.90</option>
-                </select>
+                </NativeSelect>
               </div>
             </div>
-          </section>
+          </Card>
 
           {compareLoading ? (
-            <section className="dashboard-card p-6 text-sm text-slate-600">
-              Chargement de la comparaison...
-            </section>
+            <LoadingState
+              className="rounded-lg border border-border bg-surface"
+              label="Chargement de la comparaison…"
+            />
           ) : compareError ? (
-            <section className="dashboard-card p-6 text-sm text-danger">
-              {compareError}
-            </section>
+            <Alert variant="danger">
+              <AlertDescription>{compareError}</AlertDescription>
+            </Alert>
           ) : compareData ? (
             <TakeoffDiffView
               key={`${compareData.base_job_id}:${compareData.other_job_id}:${compareData.threshold}`}
@@ -366,9 +368,11 @@ export function TakeoffReviewExpert({
               applySelectionError={applySelectionError}
             />
           ) : (
-            <section className="dashboard-card p-6 text-sm text-slate-600">
-              Sélectionnez une autre extraction pour afficher le diff.
-            </section>
+            <EmptyState
+              variant="compact"
+              title="Aucune comparaison"
+              description="Sélectionnez une autre extraction pour afficher les différences."
+            />
           )}
         </div>
       ) : activeTab === "tables" && hasTables ? (

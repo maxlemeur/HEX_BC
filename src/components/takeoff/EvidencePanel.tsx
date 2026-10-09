@@ -1,9 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import {
   detectAnomalies,
   ANOMALY_LABELS,
@@ -34,21 +44,21 @@ type EvidencePanelProps = {
 
 function getConfidenceLabel(confidence: number | null): {
   label: string;
-  variant: "success" | "warning" | "error" | "neutral";
+  variant: "success" | "warning" | "danger" | "neutral";
 } {
   if (confidence === null) return { label: "Non évaluée", variant: "neutral" };
   const pct = Math.round(confidence * 100);
   if (pct >= 80) return { label: "Élevée", variant: "success" };
   if (pct >= 50) return { label: "Moyenne", variant: "warning" };
-  return { label: "Faible", variant: "error" };
+  return { label: "Faible", variant: "danger" };
 }
 
-function getBarColor(confidence: number | null): string {
-  if (confidence === null) return "var(--slate-300)";
+function getBarClass(confidence: number | null): string {
+  if (confidence === null) return "bg-border-strong";
   const pct = confidence * 100;
-  if (pct >= 80) return "var(--success)";
-  if (pct >= 50) return "var(--warning)";
-  return "var(--danger)";
+  if (pct >= 80) return "bg-success";
+  if (pct >= 50) return "bg-warning";
+  return "bg-danger";
 }
 
 const SIGNED_DOCUMENT_URL_KEYS = [
@@ -175,48 +185,27 @@ export function EvidencePanel({
   const hasInvalidSourcePage =
     requiresLocalizedProof && getSourcePageError(editPageValue) !== null;
 
-  // Focus panel on open, restore focus to the trigger on close
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-    return () => {
-      previouslyFocused?.focus?.();
-    };
-  }, []);
-
-  // Keyboard navigation
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      // Piège de focus : Tab reste confiné au tiroir modal (sinon le focus
-      // s'échappe vers la table sous-jacente, incohérent avec aria-modal).
-      if (e.key === "Tab") {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const focusable = Array.from(
-          panel.querySelectorAll<HTMLElement>(
-            'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
-          )
-        );
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const active = document.activeElement;
-        if (e.shiftKey && (active === first || active === panel)) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && active === last) {
-          e.preventDefault();
-          first.focus();
-        }
+  // Focus trap, Escape and focus restoration come from the Sheet (Base UI dialog).
+  // Escape is ignored while editing so an unsaved proof is not lost.
+  const handleOpenChange = useCallback(
+    (open: boolean, details: { reason: string; cancel: () => void }) => {
+      if (open) return;
+      if (isEditing && details.reason === "escape-key") {
+        details.cancel();
         return;
       }
+      onClose();
+    },
+    [isEditing, onClose]
+  );
 
-      if (isEditing) return; // Don't navigate while editing
+  // Arrow keys move between items (not while editing)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (isEditing) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "ArrowLeft") {
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
         onNavigate("prev");
       } else if (e.key === "ArrowRight") {
@@ -224,7 +213,7 @@ export function EvidencePanel({
         onNavigate("next");
       }
     },
-    [isEditing, onClose, onNavigate]
+    [isEditing, onNavigate]
   );
 
   // Evidence edit handlers
@@ -294,7 +283,7 @@ export function EvidencePanel({
   const anomalies = detectAnomalies(item);
   const { label: confLabel, variant: confVariant } = getConfidenceLabel(item.confidence);
   const pct = item.confidence !== null ? Math.round(item.confidence * 100) : null;
-  const barColor = getBarColor(item.confidence);
+  const barClass = getBarClass(item.confidence);
   const signedDocumentUrl = resolveSignedDocumentUrl(item.metadata);
   const signedDocumentHref = signedDocumentUrl
     ? buildSignedDocumentHref(signedDocumentUrl, item.source_page)
@@ -306,73 +295,57 @@ export function EvidencePanel({
     requiresLocalizedProof && item.is_verified && !verificationReadiness.canVerify;
 
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 z-40 bg-black/20"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Drawer */}
-      <div
+    <Sheet open onOpenChange={handleOpenChange}>
+      <SheetContent
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Preuve de l’item : ${item.designation}`}
-        tabIndex={-1}
+        side="right"
+        showCloseButton={false}
         onKeyDown={handleKeyDown}
-        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border bg-surface shadow-xl outline-none"
+        className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md"
       >
         {/* ---- Header ---- */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-800">
-              Preuve de l’item
-            </h2>
-            <span className="text-xs text-muted-foreground">
-              {itemIndex + 1}/{totalItems}
-            </span>
+        <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <SheetTitle className="text-sm font-semibold">Preuve de l’item</SheetTitle>
+              <span className="text-xs text-muted-foreground">
+                {itemIndex + 1}/{totalItems}
+              </span>
+            </div>
+            <SheetDescription className="truncate text-xs">
+              {item.designation || "Item sans désignation"}
+            </SheetDescription>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary disabled:opacity-30"
+          <div className="flex shrink-0 items-center gap-1">
+            <IconButton
+              label="Item précédent (flèche gauche)"
+              icon={<ChevronLeftIcon aria-hidden="true" />}
               onClick={() => onNavigate("prev")}
               disabled={itemIndex === 0}
-              aria-label="Item précédent (flèche gauche)"
-            >
-              <ChevronLeftIcon aria-hidden="true" className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary disabled:opacity-30"
+            />
+            <IconButton
+              label="Item suivant (flèche droite)"
+              icon={<ChevronRightIcon aria-hidden="true" />}
               onClick={() => onNavigate("next")}
               disabled={itemIndex === totalItems - 1}
-              aria-label="Item suivant (flèche droite)"
+            />
+            <SheetClose
+              render={<Button variant="ghost" size="icon-sm" aria-label="Fermer (Échap)" />}
             >
-              <ChevronRightIcon aria-hidden="true" className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary"
-              onClick={onClose}
-              aria-label="Fermer (Échap)"
-            >
-              <XIcon aria-hidden="true" className="h-4 w-4" />
-            </button>
+              <XIcon aria-hidden="true" />
+            </SheetClose>
           </div>
         </div>
 
         {/* ---- Scrollable body ---- */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
           {/* Designation */}
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">
               Désignation
             </p>
-            <p className="mt-1 text-sm text-slate-800">
-              {item.designation || <span className="italic text-subtle-foreground">Vide</span>}
+            <p className="mt-1 break-words text-sm text-foreground">
+              {item.designation || <span className="italic text-muted-foreground">Vide</span>}
             </p>
           </div>
 
@@ -382,19 +355,16 @@ export function EvidencePanel({
               Confiance
             </p>
             <div className="mt-2 flex items-center gap-3">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
                 <div
-                  className="h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
-                  style={{
-                    width: pct !== null ? `${pct}%` : "0%",
-                    backgroundColor: barColor,
-                  }}
+                  className={`h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none ${barClass}`}
+                  style={{ width: pct !== null ? `${pct}%` : "0%" }}
                 />
               </div>
               <Badge variant={confVariant} size="sm">
-                {pct !== null ? `${pct}%` : "-"}
+                {pct !== null ? `${pct} %` : "—"}
               </Badge>
-              <span className="text-xs text-slate-600">{confLabel}</span>
+              <span className="text-xs text-muted-foreground">{confLabel}</span>
             </div>
           </div>
 
@@ -404,12 +374,12 @@ export function EvidencePanel({
               <p className="text-xs font-medium uppercase text-muted-foreground">
                 Source
               </p>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 break-words text-sm text-muted-foreground">
                 {item.source_file_name && (
                   <span>{item.source_file_name}</span>
                 )}
                 {item.source_page !== null && (
-                  <span className="ml-1 text-subtle-foreground">
+                  <span className="ml-1">
                     page {item.source_page}
                   </span>
                 )}
@@ -422,6 +392,7 @@ export function EvidencePanel({
                   className="mt-2 inline-flex text-xs font-medium text-info hover:underline"
                 >
                   Ouvrir le document source
+                  <span className="sr-only"> (nouvel onglet)</span>
                 </a>
               )}
             </div>
@@ -429,14 +400,14 @@ export function EvidencePanel({
 
           {/* Anomalies */}
           {anomalies.length > 0 && (
-            <div className="rounded-lg border border-warning/30 bg-warning-light p-3">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-warning">
-                <TriangleAlertIcon aria-hidden="true" className="h-4 w-4" />
+            <div className="rounded-lg border border-warning-border bg-warning-subtle p-3">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
+                <TriangleAlertIcon aria-hidden="true" className="size-4" />
                 Anomalies détectées
-              </div>
-              <ul className="mt-2 space-y-1 text-xs text-foreground-secondary">
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground-secondary">
                 {anomalies.map((a) => (
-                  <li key={a}>• {ANOMALY_LABELS[a]}</li>
+                  <li key={a}>{ANOMALY_LABELS[a]}</li>
                 ))}
               </ul>
             </div>
@@ -444,7 +415,7 @@ export function EvidencePanel({
 
           {/* Evidence text */}
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               {isEditing ? (
                 <label
                   htmlFor={evidenceInputId}
@@ -458,25 +429,21 @@ export function EvidencePanel({
                 </p>
               )}
               {!isEditing && (
-                <button
-                  type="button"
-                  className="text-xs font-medium text-info hover:underline"
-                  onClick={handleStartEdit}
-                >
+                <Button variant="link" size="xs" onClick={handleStartEdit}>
                   {requiresLocalizedProof
                     ? "Modifier la preuve et la page"
                     : "Modifier"}
-                </button>
+                </Button>
               )}
             </div>
 
             {isEditing ? (
               <div className="mt-2 space-y-2">
-                <textarea
+                <Textarea
                   id={evidenceInputId}
                   ref={textareaRef}
                   name="takeoff-item-evidence"
-                  className="block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="text-sm"
                   rows={5}
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
@@ -492,10 +459,11 @@ export function EvidencePanel({
                     >
                       Page source
                     </label>
-                    <input
+                    <Input
                       id={sourcePageInputId}
                       name="takeoff-item-source-page"
                       type="number"
+                      size="sm"
                       inputMode="numeric"
                       min={1}
                       step={1}
@@ -511,7 +479,7 @@ export function EvidencePanel({
                           ? `${sourcePageHelpId} ${sourcePageErrorId}`
                           : sourcePageHelpId
                       }
-                      className="mt-1 block w-28 rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="mt-1 w-28"
                       placeholder="Ex. 3"
                       autoComplete="off"
                     />
@@ -532,12 +500,12 @@ export function EvidencePanel({
                     ) : null}
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-subtle-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
                     {editValue.length}/2000
                   </span>
                   <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" onClick={handleCancelEdit}>
+                    <Button variant="outline" size="sm" onClick={handleCancelEdit}>
                       Annuler
                     </Button>
                     <Button
@@ -554,11 +522,11 @@ export function EvidencePanel({
             ) : (
               <div className="mt-2">
                 {item.evidence ? (
-                  <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2.5 text-sm leading-relaxed text-foreground-secondary whitespace-pre-wrap">
+                  <div className="whitespace-pre-wrap rounded-lg border border-border bg-surface-subtle px-3 py-2.5 text-sm leading-relaxed text-foreground-secondary">
                     {item.evidence}
                   </div>
                 ) : (
-                  <p className="text-sm italic text-subtle-foreground">
+                  <p className="text-sm italic text-muted-foreground">
                     Aucune preuve disponible.
                   </p>
                 )}
@@ -570,7 +538,7 @@ export function EvidencePanel({
         {requiresLocalizedProof && !verificationReadiness.canVerify ? (
           <div
             id={verificationStatusId}
-            className="mx-4 mb-3 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary"
+            className="mx-4 mb-3 rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-foreground-secondary"
             role="status"
           >
             <span className="font-semibold">
@@ -583,9 +551,9 @@ export function EvidencePanel({
         ) : null}
 
         {/* ---- Footer ---- */}
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
-          <span className="text-[10px] text-subtle-foreground">
-            ← → naviguer &middot; Échap fermer
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
+          <span className="text-micro text-muted-foreground">
+            ← → naviguer · Échap fermer
           </span>
 
           {item.is_verified ? (
@@ -604,7 +572,7 @@ export function EvidencePanel({
             </Button>
           )}
         </div>
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }

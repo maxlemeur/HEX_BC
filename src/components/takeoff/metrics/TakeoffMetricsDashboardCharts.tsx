@@ -119,7 +119,7 @@ export function JobTrendChart({ trend }: { trend: TakeoffMetricsTrendPoint[] }) 
             x={point.x}
             y={chartHeight + 12}
             textAnchor="middle"
-            className="fill-slate-500"
+            className="fill-muted-foreground"
             fontSize="10"
           >
             {point.label}
@@ -127,7 +127,7 @@ export function JobTrendChart({ trend }: { trend: TakeoffMetricsTrendPoint[] }) 
         </g>
       ))}
 
-      <text x={8} y={20} className="fill-slate-500" fontSize="10">
+      <text x={8} y={20} className="fill-muted-foreground" fontSize="10">
         {maxValue}
       </text>
     </svg>
@@ -143,7 +143,7 @@ export function TokenBreakdownBar({
   if (total === 0) {
     return (
       <div className="flex h-20 items-center justify-center text-sm text-muted-foreground">
-        Aucun token enregistre.
+        Aucun token enregistré.
       </div>
     );
   }
@@ -186,7 +186,7 @@ export function TokenBreakdownBar({
           fill="var(--success)"
         />
       </svg>
-      <div className="flex flex-wrap gap-4 text-xs text-slate-600">
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-primary" />
           Input: {formatNumber(data.inputTokens)}

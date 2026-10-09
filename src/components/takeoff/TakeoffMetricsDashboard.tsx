@@ -3,6 +3,11 @@
 import { useState } from "react";
 import useSWR from "swr";
 
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+
 import {
   MetricCard,
   PilotDecisionCard,
@@ -59,22 +64,26 @@ async function fetcher<T>(url: string): Promise<T> {
   return json.data as T;
 }
 
-function LoadingState() {
+const PAGE_TITLE = "Suivi des métrés";
+const PAGE_DESCRIPTION =
+  "Observabilité des extractions, des coûts, des corrections humaines et du pilote client.";
+
+function MetricsLoadingState() {
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-primary" />
-      </div>
+    <div className="mx-auto min-w-0 max-w-6xl">
+      <PageHeader eyebrow="Administration" title={PAGE_TITLE} description={PAGE_DESCRIPTION} />
+      <LoadingState label="Chargement des métriques…" className="py-24" />
     </div>
   );
 }
 
-function ErrorState({ message }: { message: string }) {
+function MetricsErrorState({ message }: { message: string }) {
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
-      <div className="dashboard-card p-6 text-center text-sm text-danger">
-        {message}
-      </div>
+    <div className="mx-auto min-w-0 max-w-6xl">
+      <PageHeader eyebrow="Administration" title={PAGE_TITLE} description={PAGE_DESCRIPTION} />
+      <Alert variant="danger">
+        <AlertDescription>{message}</AlertDescription>
+      </Alert>
     </div>
   );
 }
@@ -91,37 +100,33 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
   );
 
   if (isLoading) {
-    return <LoadingState />;
+    return <MetricsLoadingState />;
   }
 
   if (error || !data) {
-    return <ErrorState message={error?.message ?? "Impossible de charger les metriques."} />;
+    return <MetricsErrorState message={error?.message ?? "Impossible de charger les métriques."} />;
   }
 
   return (
     <div className="mx-auto min-w-0 max-w-6xl space-y-6">
-      <section className="dashboard-card p-6 animate-slide-in stagger-1">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-slate-800">
-              Métriques takeoff
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Observabilité des extractions, des coûts, des corrections humaines et du pilote client.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
+      <PageHeader
+        className="mb-0 sm:mb-0"
+        eyebrow="Administration"
+        title={PAGE_TITLE}
+        description={PAGE_DESCRIPTION}
+        actions={
+          <>
             <PeriodSelector value={period} onChange={setPeriod} />
             <LevelSelector value={level} onChange={setLevel} />
-            <p className="text-xs text-muted-foreground">
+            <p className="w-full text-xs text-muted-foreground md:w-auto">
               {formatGeneratedAt(data.generatedAt)}
             </p>
-          </div>
-        </div>
-      </section>
+          </>
+        }
+      />
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.3fr] animate-slide-in stagger-2">
-        <div className="dashboard-card min-w-0 p-5">
+        <Card className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-foreground-secondary">
@@ -150,12 +155,12 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
               <dd className="mt-1 text-foreground-secondary">
                 {data.pilot.satisfactionLabel}
               </dd>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <dd className="mt-1 text-xs text-muted-foreground">
                 {data.pilot.satisfactionDefinition}
-              </p>
+              </dd>
             </div>
           </dl>
-        </div>
+        </Card>
 
         <PilotDecisionCard data={data.pilot.goNoGo} />
       </section>
@@ -271,26 +276,26 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1.25fr] animate-slide-in stagger-3">
-        <div className="dashboard-card min-w-0 overflow-hidden">
+        <Card className="overflow-hidden">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-sm font-semibold text-foreground-secondary">
               Corrections enregistrées
             </h2>
           </div>
           <CorrectionEventsTable events={data.corrections.eventCounts} />
-        </div>
+        </Card>
 
-        <div className="dashboard-card min-w-0 overflow-hidden">
+        <Card className="overflow-hidden">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-sm font-semibold text-foreground-secondary">
               Lecture métier par niveau
             </h2>
           </div>
           <CorrectionByLevelTable rows={data.corrections.byLevel} />
-        </div>
+        </Card>
       </section>
 
-      <section className="dashboard-card overflow-hidden animate-slide-in stagger-3">
+      <Card className="overflow-hidden animate-slide-in stagger-3">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground-secondary">
             Suivi hebdo pilote
@@ -299,69 +304,74 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
             Volume, coût moyen, temps moyen, taux de correction et satisfaction par semaine.
           </p>
         </div>
-        <div className="overflow-x-auto">
+        <div
+          className="relative overflow-x-auto"
+          role="region"
+          aria-label="Suivi hebdo pilote"
+          tabIndex={0}
+        >
           <PilotWeeklyTable rows={data.pilot.weeklySnapshots} />
         </div>
-      </section>
+      </Card>
 
       <section className="grid gap-6 xl:grid-cols-[1.6fr_1fr] animate-slide-in stagger-3">
-        <div className="dashboard-card min-w-0 p-5">
-          <div className="mb-3 flex items-center gap-4 text-xs font-semibold text-slate-600">
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-4 text-xs font-semibold text-muted-foreground">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-primary" />
+              <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
               Créés
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-danger" />
+              <span aria-hidden="true" className="size-2 rounded-full bg-danger" />
               Échoués
             </span>
           </div>
           <JobTrendChart trend={data.trend} />
-        </div>
+        </Card>
 
-        <div className="dashboard-card min-w-0 overflow-hidden">
+        <Card className="overflow-hidden">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-sm font-semibold text-foreground-secondary">
               Coût par niveau
             </h2>
           </div>
           <CostByLevelTable data={data.costByLevel} />
-        </div>
+        </Card>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2 animate-fade-in stagger-3">
-        <div className="dashboard-card p-5">
+        <Card className="p-5">
           <h2 className="mb-4 text-sm font-semibold text-foreground-secondary">
             Répartition des tokens
           </h2>
           <TokenBreakdownBar data={data.tokenBreakdown} />
-        </div>
+        </Card>
 
-        <div className="dashboard-card p-5">
+        <Card className="p-5">
           <h2 className="mb-4 text-sm font-semibold text-foreground-secondary">
             Fiabilité technique
           </h2>
           <ReliabilityCards data={data.reliability} />
-        </div>
+        </Card>
       </section>
 
-      <section className="dashboard-card overflow-hidden animate-fade-in stagger-4">
+      <Card className="overflow-hidden animate-fade-in stagger-4">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground-secondary">
             Top codes erreur
           </h2>
         </div>
         <ErrorsTable errors={data.topErrors} />
-      </section>
+      </Card>
 
-      <section className="dashboard-card overflow-hidden animate-fade-in stagger-4">
+      <Card className="overflow-hidden animate-fade-in stagger-4">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground-secondary">
             Extractions récentes
           </h2>
         </div>
         <RecentJobsTable jobs={data.recentJobs} />
-      </section>
+      </Card>
     </div>
   );
 }

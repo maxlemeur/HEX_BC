@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useUserContext } from "@/components/UserContext";
 import {
   TakeoffApplyWizard,
@@ -67,9 +71,9 @@ const STATUS_LABEL_MAP: Record<string, string> = {
   pending: "En attente",
   processing: "En cours",
   completed: "Terminé",
-  failed: "Echoue",
-  canceled: "Annule",
-  applied: "Applique",
+  failed: "Échoué",
+  canceled: "Annulé",
+  applied: "Appliqué",
 };
 
 const STRATEGY_LABEL_MAP: Record<TakeoffApplyStrategy, string> = {
@@ -182,20 +186,20 @@ function SkeletonCard({ versionId }: { versionId: string }) {
             { label: "Extraction" },
           ]}
           title="Extraction"
-          description="Chargement..."
+          description="Chargement…"
         />
       </ProductionRibbon>
-      <section className="dashboard-card p-6">
+      <Card className="p-6" role="status" aria-label="Chargement de l’extraction">
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div
+            <Skeleton
               key={i}
-              className="h-4 animate-pulse rounded bg-slate-200"
+              className="h-4"
               style={{ width: `${60 + (i % 3) * 15}%` }}
             />
           ))}
         </div>
-      </section>
+      </Card>
     </div>
   );
 }
@@ -213,12 +217,12 @@ function FatalError({
     errorStatus === 404
       ? "Extraction introuvable"
       : errorStatus === 403
-        ? "Accès refuse"
+        ? "Accès refusé"
         : errorStatus === 401
-          ? "Session expiree"
+          ? "Session expirée"
         : "Erreur";
   const message =
-    errorMessage ?? "Une erreur est survenue lors du chargement de l&apos;extraction.";
+    errorMessage ?? "Une erreur est survenue lors du chargement de l’extraction.";
 
   return (
     <div className="animate-fade-in">
@@ -236,13 +240,13 @@ function FatalError({
       <div className="mt-4 flex flex-wrap gap-3">
         <Link
           href={`/dashboard/estimates/${versionId}`}
-          className="btn btn-secondary btn-sm"
+          className={buttonVariants({ variant: "outline" })}
         >
           Retour au chiffrage
         </Link>
         <Link
           href={`/dashboard/estimates/${versionId}/takeoff/new`}
-          className="btn btn-primary btn-sm"
+          className={buttonVariants({ variant: "primary" })}
         >
           Nouvelle extraction
         </Link>
@@ -256,7 +260,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
   const hasDuration = job.metrics.duration_ms !== null;
 
   return (
-    <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+    <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
       <div>
         <dt className="text-xs font-medium text-muted-foreground">Fichier</dt>
         <dd className="mt-1 text-sm">
@@ -319,24 +323,24 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
       </div>
       <div>
         <dt className="text-xs font-medium text-muted-foreground">
-          Cree le
+          Créé le
         </dt>
         <dd className="mt-1 text-sm">{formatTimestamp(job.created_at)}</dd>
       </div>
       <div>
         <dt className="text-xs font-medium text-muted-foreground">
-          Demarre le
+          Démarré le
         </dt>
         <dd className="mt-1 text-sm">{formatTimestamp(job.started_at)}</dd>
       </div>
       <div>
         <dt className="text-xs font-medium text-muted-foreground">
-          Termine le
+          Terminé le
         </dt>
         <dd className="mt-1 text-sm">{formatTimestamp(job.completed_at)}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-muted-foreground">Duree</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Durée</dt>
         <dd className="mt-1 text-sm">
           {isProcessing && !hasDuration ? (
             <LiveDuration startedAt={job.started_at} />
@@ -371,7 +375,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
           </dd>
         </div>
       )}
-    </div>
+    </dl>
   );
 }
 
@@ -379,14 +383,14 @@ function JobErrorSection({ job }: { job: TakeoffJobSummary }) {
   if (!job.error_code && !job.error_message) return null;
 
   return (
-    <div className="mt-4 rounded-md border border-danger bg-danger-light p-4">
-      <p className="text-sm font-medium text-danger">
+    <Alert variant="danger" className="mt-4">
+      <AlertDescription className="font-medium">
         {job.error_code && (
           <span className="mr-2 font-mono text-xs">[{job.error_code}]</span>
         )}
         {job.error_message ?? "Une erreur est survenue."}
-      </p>
-    </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -484,7 +488,7 @@ export default function TakeoffJobMonitor({
     } catch (err) {
       setCancelState("error");
       setActionError(
-        isTakeoffApiError(err) ? err.message : "Impossible d&apos;annuler cette extraction."
+        isTakeoffApiError(err) ? err.message : "Impossible d’annuler cette extraction."
       );
     }
   }, [jobId, refetch]);
@@ -600,7 +604,7 @@ export default function TakeoffJobMonitor({
               {job.operator_state && job.operator_state !== "none" ? (
                 <span
                   className={`status-badge status-inline ${
-                    getOperatorStateBadgeVariant(job.operator_state) === "error"
+                    getOperatorStateBadgeVariant(job.operator_state) === "danger"
                       ? "status-canceled"
                       : getOperatorStateBadgeVariant(job.operator_state) === "warning"
                         ? "status-warning"
@@ -612,7 +616,7 @@ export default function TakeoffJobMonitor({
               ) : null}
               <Link
                 href={`/dashboard/estimates/${versionId}/takeoff/new`}
-                className="btn btn-secondary btn-sm"
+                className={buttonVariants({ variant: "outline" })}
               >
                 Nouvelle extraction
               </Link>
@@ -644,79 +648,72 @@ export default function TakeoffJobMonitor({
         </nav>
       </ProductionRibbon>
 
-      <section className="dashboard-card p-6">
-        <dl>
-          <JobDetailsGrid job={job} />
-        </dl>
+      <Card className="p-4 sm:p-6">
+        <JobDetailsGrid job={job} />
         <JobErrorSection job={job} />
         {(job.dispatch_status === "queued" ||
           job.dispatch_status === "trigger_failed") && (
           <div
-            className="mt-4 rounded-md border border-warning/40 bg-warning-light p-3"
+            className="mt-4 rounded-md border border-warning-border bg-warning-light p-3"
             role="status"
           >
-            <p className="text-sm font-medium text-slate-800">
+            <p className="text-sm font-medium text-foreground">
               Démarrage immédiat indisponible, reprise automatique active.
             </p>
             {job.dispatch_correlation_id ? (
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Identifiant de suivi : {job.dispatch_correlation_id}
               </p>
             ) : null}
           </div>
         )}
-      </section>
+      </Card>
 
       {actionError && (
-        <div className="mt-4 rounded-md border border-danger bg-danger-light p-3">
-          <p className="text-sm text-danger">{actionError}</p>
-        </div>
+        <Alert variant="danger" className="mt-4">
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
       )}
       {actionNotice && (
-        <div
-          className="mt-4 rounded-md border border-warning/40 bg-warning-light p-3"
-          role="status"
-        >
-          <p className="text-sm text-foreground-secondary">{actionNotice}</p>
-        </div>
+        <Alert variant="warning" className="mt-4">
+          <AlertDescription className="text-foreground-secondary">{actionNotice}</AlertDescription>
+        </Alert>
       )}
       {applySuccess && (
-        <div className="mt-4 rounded-md border border-success/30 bg-success-light p-3">
-          <p className="text-sm font-medium text-success">
-            Application au devis terminée.
-          </p>
-          <p className="mt-1 text-xs text-slate-600">
-            Version: {applySuccess.versionId} · Section: {applySuccess.sectionLabel} ·
-            Stratégie: {getStrategyLabel(applySuccess.strategy)} · Créés:{" "}
-            {applySuccess.createdCount} · Maj: {applySuccess.updatedCount} · Ignores:{" "}
+        <Alert variant="success" className="mt-4">
+          <AlertTitle>Application au devis terminée.</AlertTitle>
+          <AlertDescription className="mt-1 break-words text-xs text-muted-foreground">
+            Version : {applySuccess.versionId} · Section : {applySuccess.sectionLabel} ·
+            Stratégie : {getStrategyLabel(applySuccess.strategy)} · Créés :{" "}
+            {applySuccess.createdCount} · Mis à jour : {applySuccess.updatedCount} · Ignorés :{" "}
             {applySuccess.ignoredCount} · {formatTimestamp(applySuccess.appliedAt)}
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
       {!isApplyWizardOpen && applyError && (
-        <div className="mt-4 rounded-md border border-danger bg-danger-light p-3">
-          <p className="text-sm text-danger">{applyError}</p>
-        </div>
+        <Alert variant="danger" className="mt-4">
+          <AlertDescription>{applyError}</AlertDescription>
+        </Alert>
       )}
 
       <div className="mt-4 flex flex-wrap gap-3">
         {isCompleted && (
           <Link
             href={`/dashboard/estimates/${versionId}`}
-            className="btn btn-primary btn-sm"
+            className={buttonVariants({ variant: "primary" })}
           >
             Voir les résultats
           </Link>
         )}
         {isCompleted && (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={!canOpenApplyWizard || applyState === "loading"}
+          <Button
+            variant="outline"
+            disabled={!canOpenApplyWizard}
+            loading={applyState === "loading"}
             onClick={() => handleApplyWizardOpenChange(true)}
           >
-            {applyState === "loading" ? "Application..." : "Appliquer au devis"}
-          </button>
+            Appliquer au devis
+          </Button>
         )}
         {isCompleted && !canOpenApplyWizard && (
           <span className="self-center text-xs text-muted-foreground">
@@ -725,27 +722,23 @@ export default function TakeoffJobMonitor({
         )}
 
         {canReconcile && (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={reconcileState === "loading"}
+          <Button
+            variant="primary"
+            loading={reconcileState === "loading"}
             onClick={handleReconcile}
           >
-            {reconcileState === "loading"
-              ? "Reconcile..."
-              : "Relancer reconcile"}
-          </button>
+            Relancer reconcile
+          </Button>
         )}
 
         {canResubmit ? (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={resubmitState === "loading"}
+          <Button
+            variant="outline"
+            loading={resubmitState === "loading"}
             onClick={handleResubmit}
           >
-            {resubmitState === "loading" ? "Resoumission..." : "Resoumettre"}
-          </button>
+            Resoumettre
+          </Button>
         ) : status === "failed" && job.can_resubmit === false ? (
           <span className="text-xs text-muted-foreground self-center">
             Aucune resoumission disponible pour ce job.
@@ -753,20 +746,19 @@ export default function TakeoffJobMonitor({
         ) : null}
 
         {canCancel && (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={cancelState === "loading"}
+          <Button
+            variant="outline"
+            loading={cancelState === "loading"}
             onClick={handleCancel}
           >
-            {cancelState === "loading" ? "Annulation..." : "Annuler"}
-          </button>
+            Annuler l’extraction
+          </Button>
         )}
 
         {!isCompleted && (
           <Link
             href={`/dashboard/estimates/${versionId}`}
-            className="btn btn-secondary btn-sm"
+            className={buttonVariants({ variant: "outline" })}
           >
             Retour au chiffrage
           </Link>
@@ -775,7 +767,7 @@ export default function TakeoffJobMonitor({
 
       {isPolling && (
         <p className="mt-3 text-xs text-muted-foreground">
-          Actualisation automatique en cours...
+          Actualisation automatique en cours…
         </p>
       )}
 

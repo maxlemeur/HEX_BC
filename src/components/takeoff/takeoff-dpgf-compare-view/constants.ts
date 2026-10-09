@@ -21,21 +21,21 @@ export const STATUS_LABELS: Record<ReviewStatusFilter, string> = {
 
 export const STATUS_BADGE_VARIANT: Record<
   TakeoffDpgfReviewStatus,
-  "success" | "warning" | "error" | "neutral" | "info"
+  "success" | "warning" | "danger" | "neutral" | "info"
 > = {
   reliable_match: "success",
   to_confirm: "warning",
-  significant_gap: "error",
+  significant_gap: "danger",
   unlinked: "neutral",
   forced_manual: "info",
 };
 
 export const STATUS_PANEL_CSS: Record<TakeoffDpgfReviewStatus, string> = {
-  reliable_match: "border-emerald-200 bg-emerald-50/70",
-  to_confirm: "border-amber-200 bg-amber-50/70",
-  significant_gap: "border-rose-200 bg-rose-50/70",
+  reliable_match: "border-success-border bg-success-subtle",
+  to_confirm: "border-warning-border bg-warning-subtle",
+  significant_gap: "border-danger-border bg-danger-subtle",
   unlinked: "border-border bg-surface-subtle/80",
-  forced_manual: "border-sky-200 bg-sky-50/70",
+  forced_manual: "border-info-border bg-info-subtle",
 };
 
 export const DECISION_LABELS: Record<TakeoffDpgfReviewDecision, string> = {
@@ -69,16 +69,16 @@ export const RISK_SEVERITY_LABELS: Record<TakeoffRiskSeverity, string> = {
 
 export const RISK_SEVERITY_VARIANT: Record<
   TakeoffRiskSeverity,
-  "info" | "warning" | "error"
+  "info" | "warning" | "danger"
 > = {
   info: "info",
   warning: "warning",
-  critical: "error",
+  critical: "danger",
 };
 
 export const RISK_STATUS_LABELS: Record<TakeoffRiskStatus, string> = {
   to_process: "À traiter",
-  assumed: "Assume",
+  assumed: "Assumé",
   false_positive: "Faux positif",
 };
 
@@ -101,12 +101,12 @@ export const PROOF_TYPE_LABELS: Record<TakeoffDpgfComparisonProof["type"], strin
 };
 
 export const PROOF_TYPE_BORDER: Record<TakeoffDpgfComparisonProof["type"], string> = {
-  dpgf: "border-l-slate-400",
-  takeoff: "border-l-sky-400",
-  plan_zone: "border-l-violet-400",
-  formula: "border-l-amber-400",
-  price_source: "border-l-emerald-500",
-  comment: "border-l-emerald-400",
+  dpgf: "border-l-subtle-foreground",
+  takeoff: "border-l-info",
+  plan_zone: "border-l-primary",
+  formula: "border-l-warning",
+  price_source: "border-l-success",
+  comment: "border-l-success-border",
 };
 
 export const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [

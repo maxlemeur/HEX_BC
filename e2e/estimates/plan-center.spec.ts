@@ -81,7 +81,7 @@ test.describe("V3-006 — Plan Center affaire", () => {
     await expect(page.getByText("Aucun jeu de plans")).toBeVisible();
 
     // 5. Create a plan set
-    await page.getByRole("button", { name: /Creer.*jeu de plans/i }).first().click();
+    await page.getByRole("button", { name: /Cr[ée]er.*jeu de plans/i }).first().click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByLabel(/Nom/i).fill("Jeu de test E2E");
@@ -108,7 +108,7 @@ test.describe("V3-006 — Plan Center affaire", () => {
     await fileDeleteBtn.click();
 
     // Confirm deletion in the modal
-    const confirmDialog = page.getByRole("dialog", {
+    const confirmDialog = page.getByRole("alertdialog", {
       name: /Supprimer le fichier/i,
     });
     await expect(confirmDialog).toBeVisible();
@@ -125,7 +125,7 @@ test.describe("V3-006 — Plan Center affaire", () => {
     });
     await setDeleteButton.click();
 
-    const setConfirmDialog = page.getByRole("dialog", {
+    const setConfirmDialog = page.getByRole("alertdialog", {
       name: /Supprimer le jeu de plans/i,
     });
     await expect(setConfirmDialog).toBeVisible();

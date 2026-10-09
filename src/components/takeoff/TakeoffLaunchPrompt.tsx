@@ -16,6 +16,7 @@ import {
 } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
 import { CheckIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 
 type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
 
@@ -309,8 +310,8 @@ export function TakeoffLaunchPrompt({
             <LoaderCircleIcon className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
             <span className="text-xs font-medium text-primary">
               {launchMode === "create_draft_from_current"
-                ? "Création du brouillon et lancement de l'analyse..."
-                : "Lancement de l'analyse..."}
+                ? "Création du brouillon et lancement de l'analyse…"
+                : "Lancement de l'analyse…"}
             </span>
           </div>
         )}
@@ -327,7 +328,7 @@ export function TakeoffLaunchPrompt({
                     : "Analyse transmise au traitement"}
               </span>
             </div>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted-foreground">
               {launchedVersionLabel ?? resolvedVersionLabel} — {planFileCount} fichier
               {planFileCount > 1 ? "s" : ""} concerné
               {planFileCount > 1 ? "s" : ""}.
@@ -350,14 +351,14 @@ export function TakeoffLaunchPrompt({
 
         {state === "error" && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 rounded border border-danger/20 bg-danger/5 px-3 py-2">
+            <div className="flex items-center gap-2 rounded border border-danger-border bg-danger-subtle px-3 py-2">
               <span className="text-xs text-danger">
                 {errorMessage ?? "Une erreur est survenue."}
               </span>
             </div>
             <button
               type="button"
-              className="btn btn-secondary text-xs"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
               onClick={handleRetry}
             >
               Réessayer
@@ -370,36 +371,36 @@ export function TakeoffLaunchPrompt({
         <>
           <div className="flex items-center gap-2">
             <FileTextIcon className="shrink-0 text-primary" aria-hidden="true" size={16} />
-            <span className="text-sm font-semibold text-slate-800">
+            <span className="text-sm font-semibold text-foreground">
               {promptTitle}
             </span>
           </div>
 
           <div className="mt-2 space-y-1">
             {planSetName ? (
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-muted-foreground">
                 Jeu de plans :{" "}
-                <span className="font-medium text-slate-800">
+                <span className="font-medium text-foreground">
                   {planSetName}
                 </span>{" "}
                 ({planFileCount} fichier{planFileCount > 1 ? "s" : ""})
               </p>
             ) : (
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-muted-foreground">
                 {planFileCount} fichier{planFileCount > 1 ? "s" : ""} seront analysés.
               </p>
             )}
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted-foreground">
               Niveau recommandé :{" "}
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-micro font-medium text-primary">
                 {launchRecommendation.recommendedLevel
                   ? TAKEOFF_LEVEL_BUSINESS_LABELS[launchRecommendation.recommendedLevel]
                   : "Choix manuel"}
               </span>
             </p>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted-foreground">
               Version cible :{" "}
-              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground-secondary">
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-micro font-medium text-foreground-secondary">
                 {resolvedVersionLabel}
               </span>
             </p>
@@ -410,7 +411,7 @@ export function TakeoffLaunchPrompt({
               Bénéfice attendu : les quantités seront extraites de vos plans pour alimenter le chiffrage.
             </p>
             <fieldset className="pt-1">
-              <legend className="text-xs font-medium text-slate-600">
+              <legend className="text-xs font-medium text-muted-foreground">
                 Niveau à lancer
               </legend>
               <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
@@ -438,7 +439,7 @@ export function TakeoffLaunchPrompt({
               <div
                 className={`rounded border px-3 py-2 text-xs ${
                   levelWarning.severity === "critical"
-                    ? "border-warning/30 bg-warning-subtle text-warning"
+                    ? "border-warning-border bg-warning-subtle text-warning"
                     : "border-primary/15 bg-surface/80 text-foreground-secondary"
                 }`}
                 role={levelWarning.severity === "critical" ? "alert" : "status"}
@@ -451,7 +452,7 @@ export function TakeoffLaunchPrompt({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="btn btn-primary text-xs"
+              className={buttonVariants({ variant: "primary", size: "sm" })}
               onClick={() => void handleLaunch()}
               disabled={!selectedLevel || !launchMode}
             >
@@ -460,7 +461,7 @@ export function TakeoffLaunchPrompt({
             {onDismissTemporary && (
               <button
                 type="button"
-                className="btn btn-secondary text-xs"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
                 onClick={onDismissTemporary}
               >
                 Me rappeler plus tard

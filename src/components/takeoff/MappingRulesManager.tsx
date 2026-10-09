@@ -7,7 +7,15 @@ import {
   MappingRuleEditor,
   type MappingRuleEditorSubmitPayload,
 } from "@/components/takeoff/MappingRuleEditor";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   fetchEstimateAssemblies,
   type EstimateAssemblySummary,
@@ -26,17 +34,17 @@ import type {
 } from "@/lib/takeoff/types";
 
 const ACTION_LABELS: Record<TakeoffMappingRule["action"], string> = {
-  rename: "Rename",
-  set_price: "Set price",
-  set_category: "Set category",
-  apply_assembly: "Apply assembly",
-  skip: "Skip",
+  rename: "Renommer",
+  set_price: "Fixer le prix",
+  set_category: "Fixer la catégorie",
+  apply_assembly: "Appliquer un ouvrage",
+  skip: "Ignorer",
 };
 
 const MATCH_LABELS: Record<TakeoffMappingRule["match_type"], string> = {
   exact: "Exact",
-  contains: "Contains",
-  regex: "Regex",
+  contains: "Contient",
+  regex: "Expression régulière",
 };
 
 type EditorState =
@@ -126,7 +134,7 @@ export function MappingRulesManager() {
   const [priorityErrorById, setPriorityErrorById] = useState<Record<string, string>>(
     {}
   );
-  const [deletingRule, setDeletingRule] = useState<TakeoffMappingRule | null>(null);
+  const confirm = useConfirm();
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const priorityDirtyByIdRef = useRef<Record<string, boolean>>({});
@@ -417,11 +425,11 @@ export function MappingRulesManager() {
 
       try {
         await mutate();
-        setSuccessMessage("Ordre des priorités enregistre.");
+        setSuccessMessage("Ordre des priorités enregistré.");
       } catch {
         setActionError(null);
         setSuccessMessage(
-          "Ordre des priorités enregistre. Impossible d'actualiser la liste pour le moment."
+          "Ordre des priorités enregistré. Impossible d'actualiser la liste pour le moment."
         );
       }
     } catch (writeError) {
@@ -445,12 +453,17 @@ export function MappingRulesManager() {
     }
   }, [filteredRules, isEditorSubmitting, isReordering, mutate, priorityDraftById]);
 
-  const confirmDelete = useCallback(async () => {
-    if (!deletingRule) return;
+  const confirmDelete = useCallback(async (targetRule: TakeoffMappingRule) => {
     if (busyRuleId || isReordering || isEditorSubmitting) return;
 
-    const targetRule = deletingRule;
-    setDeletingRule(null);
+    const confirmed = await confirm({
+      title: "Supprimer la règle",
+      description: `La règle « ${targetRule.name} » sera supprimée définitivement.`,
+      confirmLabel: "Supprimer la règle",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
     setActionError(null);
     setSuccessMessage(null);
     setBusyRuleId(targetRule.id);
@@ -466,56 +479,66 @@ export function MappingRulesManager() {
     } finally {
       setBusyRuleId(null);
     }
-  }, [busyRuleId, deletingRule, isEditorSubmitting, isReordering, mutate]);
+  }, [busyRuleId, confirm, isEditorSubmitting, isReordering, mutate]);
 
   return (
     <div className="animate-fade-in space-y-6">
-      <header className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Règles d&apos;enrichissement de l&apos;extraction</h1>
-          <p className="page-description">
-            Créez, testez et priorisez les règles d&apos;enrichissement automatique.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              setEditorState({ mode: "create", rule: null });
-              setActionError(null);
-              setSuccessMessage(null);
-            }}
-            disabled={Boolean(editorState) || isEditorSubmitting || isReordering}
-          >
-            Nouvelle règle
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => void mutate()}
-            disabled={isRulesRefreshing}
-          >
-            {isRulesRefreshing ? "Actualisation..." : "Actualiser"}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        className="mb-0 sm:mb-0"
+        eyebrow="Administration"
+        title="Règles d’enrichissement de l’extraction"
+        description="Créez, testez et priorisez les règles d’enrichissement automatique des métrés."
+        actions={
+          <>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setEditorState({ mode: "create", rule: null });
+                setActionError(null);
+                setSuccessMessage(null);
+              }}
+              disabled={Boolean(editorState) || isEditorSubmitting || isReordering}
+            >
+              Nouvelle règle
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void mutate()}
+              loading={isRulesRefreshing}
+            >
+              Actualiser
+            </Button>
+          </>
+        }
+      />
 
       {rulesLoadError && rules.length === 0 ? (
-        <div className="alert alert-error">
-          {toErrorMessage(rulesLoadError, "Impossible de charger les règles de mapping.")}
-        </div>
+        <Alert variant="danger">
+          <AlertDescription>
+            {toErrorMessage(rulesLoadError, "Impossible de charger les règles de mapping.")}
+          </AlertDescription>
+        </Alert>
       ) : null}
       {assembliesLoadError ? (
-        <div className="alert alert-error">
-          {toErrorMessage(
-            assembliesLoadError,
-            "Impossible de charger les ouvrages pour apply_assembly."
-          )}
-        </div>
+        <Alert variant="danger">
+          <AlertDescription>
+            {toErrorMessage(
+              assembliesLoadError,
+              "Impossible de charger les ouvrages pour l’action « Appliquer un ouvrage »."
+            )}
+          </AlertDescription>
+        </Alert>
       ) : null}
-      {actionError ? <div className="alert alert-error">{actionError}</div> : null}
-      {successMessage ? <div className="alert alert-success">{successMessage}</div> : null}
+      {actionError ? (
+        <Alert variant="danger">
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      ) : null}
+      {successMessage ? (
+        <Alert variant="success">
+          <AlertDescription>{successMessage}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {editorState ? (
         <MappingRuleEditor
@@ -530,41 +553,42 @@ export function MappingRulesManager() {
         />
       ) : null}
 
-      <section className="dashboard-card overflow-hidden">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border px-6 py-4">
-          <div className="w-full max-w-md">
-            <label className="form-label" htmlFor="mapping-rules-search">
-              Rechercher
-            </label>
-            <input
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+          <div className="flex w-full max-w-md flex-col gap-1.5">
+            <FieldLabel htmlFor="mapping-rules-search">Rechercher</FieldLabel>
+            <Input
               id="mapping-rules-search"
-              className="form-input"
+              type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Nom, pattern ou action"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
+            <Button
+              variant="outline"
               onClick={() => void handleSaveOrder()}
-              disabled={!hasPriorityChanges || isReordering || isEditorSubmitting}
+              disabled={!hasPriorityChanges || isEditorSubmitting}
+              loading={isReordering}
             >
-              {isReordering ? "Sauvegarde..." : "Enregistrer l'ordre"}
-            </button>
+              Enregistrer l&apos;ordre
+            </Button>
             <span className="text-xs text-muted-foreground">
-              {isAssembliesLoading ? "Ouvrages: chargement..." : `${assemblies.length} ouvrage(s)`}
+              {isAssembliesLoading ? "Ouvrages : chargement…" : `${assemblies.length} ouvrage(s)`}
             </span>
           </div>
         </div>
 
         {isRulesLoading ? (
-          <div className="px-6 py-8 text-sm text-muted-foreground">
-            Chargement des règles de mapping...
-          </div>
+          <LoadingState label="Chargement des règles de mapping…" />
         ) : (
-          <div className="table-scroll">
+          <div
+            className="table-scroll"
+            role="region"
+            aria-label="Règles de mapping"
+            tabIndex={0}
+          >
             <table className="data-table">
               <thead>
                 <tr>
@@ -573,7 +597,7 @@ export function MappingRulesManager() {
                   <th>Nom</th>
                   <th>Match</th>
                   <th>Action</th>
-                  <th>Cree le</th>
+                  <th>Créée le</th>
                   <th>Opérations</th>
                 </tr>
               </thead>
@@ -592,15 +616,17 @@ export function MappingRulesManager() {
                       <tr key={rule.id}>
                         <td>
                           <div className="w-[110px]">
-                            <input
+                            <Input
                               type="number"
+                              size="sm"
                               min={0}
                               max={100000}
                               step={1}
                               inputMode="numeric"
-                              className={`form-input form-input--sm ${
-                                priorityErrorById[rule.id] ? "border-danger" : ""
-                              }`}
+                              aria-invalid={priorityErrorById[rule.id] ? true : undefined}
+                              aria-describedby={
+                                priorityErrorById[rule.id] ? `mapping-rule-priority-error-${rule.id}` : undefined
+                              }
                               aria-label={`Priorité de ${rule.name}`}
                               value={draftPriority}
                               onChange={(event) => {
@@ -627,25 +653,22 @@ export function MappingRulesManager() {
                               disabled={isBusy || isReordering}
                             />
                             {priorityErrorById[rule.id] ? (
-                              <p className="mt-1 text-[11px] text-rose-700">
+                              <p
+                                id={`mapping-rule-priority-error-${rule.id}`}
+                                className="mt-1 text-micro text-danger"
+                              >
                                 {priorityErrorById[rule.id]}
                               </p>
                             ) : null}
                           </div>
                         </td>
                         <td>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                              rule.is_active
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-muted text-slate-600"
-                            }`}
-                          >
+                          <Badge size="sm" variant={rule.is_active ? "success" : "neutral"} dot>
                             {rule.is_active ? "Active" : "Inactive"}
-                          </span>
+                          </Badge>
                         </td>
                         <td>
-                          <div className="font-semibold text-slate-800">{rule.name}</div>
+                          <div className="font-semibold text-foreground">{rule.name}</div>
                         </td>
                         <td>
                           <div className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -666,9 +689,10 @@ export function MappingRulesManager() {
                         <td>{formatDate(rule.created_at)}</td>
                         <td>
                           <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`Modifier ${rule.name}`}
                               onClick={() => {
                                 setEditorState({ mode: "edit", rule });
                                 setActionError(null);
@@ -676,25 +700,26 @@ export function MappingRulesManager() {
                               }}
                               disabled={isBusy || isEditorSubmitting || isReordering}
                             >
-                              Éditer
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
+                              Modifier
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`${rule.is_active ? "Désactiver" : "Activer"} ${rule.name}`}
                               onClick={() => void handleToggleActive(rule)}
                               disabled={isBusy || isEditorSubmitting || isReordering}
                             >
                               {rule.is_active ? "Désactiver" : "Activer"}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-danger btn-sm"
+                            </Button>
+                            <Button
+                              variant="danger"
+                              size="sm"
                               aria-label={`Supprimer ${rule.name}`}
-                              onClick={() => setDeletingRule(rule)}
+                              onClick={() => void confirmDelete(rule)}
                               disabled={isBusy || isEditorSubmitting || isReordering}
                             >
                               Supprimer
-                            </button>
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -705,21 +730,7 @@ export function MappingRulesManager() {
             </table>
           </div>
         )}
-      </section>
-
-      <ConfirmModal
-        open={deletingRule !== null}
-        title="Supprimer la règle"
-        message={
-          deletingRule
-            ? `Confirmez la suppression definitive de la règle "${deletingRule.name}" ?`
-            : ""
-        }
-        confirmLabel="Supprimer la règle"
-        variant="danger"
-        onCancel={() => setDeletingRule(null)}
-        onConfirm={() => void confirmDelete()}
-      />
+      </Card>
     </div>
   );
 }

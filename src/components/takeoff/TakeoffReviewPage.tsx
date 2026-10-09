@@ -12,10 +12,11 @@ import {
 } from "react";
 
 import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { LoadingState } from "@/components/layout/loading-state";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
+import { cn } from "@/lib/utils";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
@@ -24,6 +25,13 @@ import {
   type ReviewMode,
 } from "@/components/takeoff/review/TakeoffReviewModeSwitch";
 import { AssistedReviewPanel } from "@/components/takeoff/review/AssistedReviewPanel";
+import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
+import {
+  TakeoffApplyReadinessBar,
+  TakeoffApplySuccessBanner,
+  TakeoffReviewErrorState,
+  TakeoffReviewLoadingState,
+} from "@/components/takeoff/review/TakeoffReviewChrome";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
   hasBlockingAnomaly,
@@ -41,7 +49,7 @@ const TakeoffApplyWizard = dynamic(
   () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
   {
     ssr: false,
-    loading: () => <div role="status" className="dashboard-card p-8">Chargement des options d’application…</div>,
+    loading: () => <LoadingState label="Chargement des options d’application…" />,
   }
 );
 
@@ -52,11 +60,7 @@ const LazyTakeoffReviewExpert = dynamic(
     })),
   {
     ssr: false,
-    loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
-        Chargement de la vue avancee...
-      </div>
-    ),
+    loading: () => <LoadingState label="Chargement de la vue avancée…" />,
   }
 );
 
@@ -67,11 +71,7 @@ const LazyValidationReviewPanel = dynamic(
     })),
   {
     ssr: false,
-    loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
-        Chargement de la vue validation...
-      </div>
-    ),
+    loading: () => <LoadingState label="Chargement de la vue validation…" />,
   }
 );
 import {
@@ -101,7 +101,6 @@ import type {
   TakeoffTable,
 } from "@/lib/takeoff/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { CircleCheckIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -155,73 +154,6 @@ function parseLowConfidenceThreshold(value: string | null): number {
 }
 
 // ---------------------------------------------------------------------------
-// Exclusion reason modal
-// ---------------------------------------------------------------------------
-
-function ExclusionReasonModal({
-  open,
-  onOpenChange,
-  count,
-  onConfirm,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  count: number;
-  onConfirm: (reason: string) => void;
-}) {
-  const [reason, setReason] = useState("");
-  const canConfirm = reason.trim().length > 0;
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (!nextOpen) {
-        setReason("");
-      }
-      onOpenChange(nextOpen);
-    },
-    [onOpenChange]
-  );
-
-  return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content>
-        <Modal.Header>
-          <Modal.Title>
-            Exclure {count} item{count > 1 ? "s" : ""}
-          </Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <label className="block text-sm font-medium text-foreground-secondary">
-            Motif d&apos;exclusion (obligatoire)
-          </label>
-          <textarea
-            className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-            rows={3}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Indiquer le motif d'exclusion..."
-            maxLength={500}
-          />
-        </Modal.Body>
-        <Modal.Footer>
-          <Modal.Close>Annuler</Modal.Close>
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={!canConfirm}
-            onClick={() => {
-              onConfirm(reason.trim());
-              handleOpenChange(false);
-            }}
-          >
-            Exclure
-          </Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main orchestrator
 // ---------------------------------------------------------------------------
 
@@ -250,7 +182,7 @@ export default function TakeoffReviewPage({
     [isLowConfidenceThresholdEnabled, lowConfidenceThresholdRaw]
   );
 
-  // ---- Review mode from URL (V3-012: Assiste / Production / Validation)
+  // ---- Review mode from URL (V3-012: Assisté / Production / Validation)
   const reviewModeParam = searchParams.get("reviewMode");
   const fromParam = searchParams.get("from");
   const isAffaireContext = typeof projectId === "string" && projectId.length > 0;
@@ -971,7 +903,7 @@ export default function TakeoffReviewPage({
       setActiveTab("items");
       toast.info({
         title: "Synchronisation vers items",
-        description: `${itemIds.length} item(s) synchronise(s) dans la vue Items.`,
+        description: `${itemIds.length} item(s) synchronisé(s) dans la vue Items.`,
         durationMs: 2500,
       });
     },
@@ -1085,12 +1017,12 @@ export default function TakeoffReviewPage({
           );
           toast.warning({
             title: "Cherry-pick partiel",
-            description: "Certains items n'ont pas pu être synchronises.",
+            description: "Certains items n'ont pas pu être synchronisés.",
           });
         } else {
           toast.success({
-            title: "Cherry-pick applique",
-            description: `${selectedBaseItemIds.length} item(s) gardes pour l'apply.`,
+            title: "Cherry-pick appliqué",
+            description: `${selectedBaseItemIds.length} item(s) gardé(s) pour l'apply.`,
           });
         }
       } catch (error) {
@@ -1163,7 +1095,7 @@ export default function TakeoffReviewPage({
     }
 
     if (!hasIncluded) {
-      return "Aucun item retenu. Reintegrez au moins une ligne avant l'apply.";
+      return "Aucun item retenu. Réintégrez au moins une ligne avant l'apply.";
     }
 
     if (hasDirtyOrSaving) {
@@ -1225,7 +1157,7 @@ export default function TakeoffReviewPage({
         if (!lockResult.acquired) {
           setApplyError(
             lockResult.errorMessage ??
-              "Impossible d'acquerir le verrou de brouillon de la version cible."
+              "Impossible d'acquérir le verrou de brouillon de la version cible."
           );
           return;
         }
@@ -1251,7 +1183,7 @@ export default function TakeoffReviewPage({
         setJobStatus("applied");
         toast.success({
           title: "Apply contrôlé terminé",
-          description: `${response.summary.created_count} cree(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignore(s).`,
+          description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).`,
         });
         if (!isAffaireContext) {
           router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
@@ -1270,50 +1202,28 @@ export default function TakeoffReviewPage({
     [jobId, isAffaireContext, router, toast, versionId]
   );
 
-  // ---- Loading state
+  const reviewTitle = isAffaireContext
+    ? "Revue des exceptions & preuves"
+    : "Revue d’extraction";
+  const backHref = isAffaireContext
+    ? `/dashboard/affaires/${projectId}/takeoff`
+    : `/dashboard/estimates/${versionId}/takeoff/${jobId}`;
+  const backLabel = isAffaireContext
+    ? "Centre d'activité métrés"
+    : "Retour à l'extraction";
+
   if (loading) {
-    return (
-      <div className="animate-fade-in">
-        <div className="page-header flex items-start gap-3">
-          <div>
-            <h1 className="page-title">Revue d&apos;extraction</h1>
-            <p className="page-description">Chargement...</p>
-          </div>
-        </div>
-        <div className="dashboard-card p-6">
-          <div className="space-y-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-4 animate-pulse rounded bg-slate-200"
-                style={{ width: `${60 + (i % 3) * 15}%` }}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+    return <TakeoffReviewLoadingState title={reviewTitle} />;
   }
 
-  // ---- Error state
   if (loadError) {
     return (
-      <div className="animate-fade-in">
-        <div className="page-header flex items-start gap-3">
-          <div>
-            <h1 className="page-title">Revue d&apos;extraction</h1>
-            <p className="page-description">{loadError}</p>
-          </div>
-        </div>
-        <div className="mt-4 flex gap-3">
-          <Link
-            href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
-            className="btn btn-secondary btn-sm"
-          >
-            Retour à l&apos;extraction
-          </Link>
-        </div>
-      </div>
+      <TakeoffReviewErrorState
+        title={reviewTitle}
+        message={loadError}
+        backHref={backHref}
+        backLabel={backLabel}
+      />
     );
   }
 
@@ -1348,11 +1258,7 @@ export default function TakeoffReviewPage({
                   { label: "Revue" },
                 ]
           }
-          title={
-            isAffaireContext
-              ? "Revue des exceptions & preuves"
-              : "Revue d'extraction"
-          }
+          title={reviewTitle}
           description={
             <>
               {jobFileName ?? "Extraction"} · {tables.length} table
@@ -1373,16 +1279,13 @@ export default function TakeoffReviewPage({
                 </Badge>
               ) : null}
               <Link
-                href={
-                  isAffaireContext
-                    ? `/dashboard/affaires/${projectId}/takeoff`
-                    : `/dashboard/estimates/${versionId}/takeoff/${jobId}`
-                }
-                className="btn btn-secondary btn-sm"
+                href={backHref}
+                className={cn(
+                  buttonVariants({ variant: "outline" }),
+                  "h-auto min-h-9 shrink whitespace-normal py-1.5 text-center"
+                )}
               >
-                {isAffaireContext
-                  ? "Centre d'activité métrés"
-                  : "Retour à l'extraction"}
+                {backLabel}
               </Link>
             </>
           }
@@ -1405,35 +1308,16 @@ export default function TakeoffReviewPage({
       )}
 
       {applySuccess && isAffaireContext ? (
-        <section className="rounded-2xl border border-success/20 bg-success/5 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-success">
-                Apply contrôle confirme
-              </p>
-              <h2 className="mt-1 text-lg font-semibold text-foreground">
-                Le devis a été enrichi depuis le métré source
-              </h2>
-              <p className="mt-2 text-sm text-foreground-secondary">
-                Source: {jobFileName ?? "job takeoff"} · Section: {applySuccess.targetSectionLabel}
-              </p>
-              <p className="mt-1 text-sm text-foreground-secondary">
-                Stratégie: {applySuccess.strategy} · créés {applySuccess.createdCount} · mis à jour {applySuccess.updatedCount} · ignores {applySuccess.ignoredCount}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Link href={`/dashboard/estimates/${versionId}`} className="btn btn-primary btn-sm">
-                Ouvrir le chiffrage
-              </Link>
-              <Link
-                href={`/dashboard/affaires/${projectId}/takeoff`}
-                className="btn btn-secondary btn-sm"
-              >
-                Centre d&apos;activité métrés
-              </Link>
-            </div>
-          </div>
-        </section>
+        <TakeoffApplySuccessBanner
+          sourceFileName={jobFileName}
+          targetSectionLabel={applySuccess.targetSectionLabel}
+          strategy={applySuccess.strategy}
+          createdCount={applySuccess.createdCount}
+          updatedCount={applySuccess.updatedCount}
+          ignoredCount={applySuccess.ignoredCount}
+          estimateHref={`/dashboard/estimates/${versionId}`}
+          activityHref={`/dashboard/affaires/${projectId}/takeoff`}
+        />
       ) : null}
 
       {/* ---- Mode-conditional content ---- */}
@@ -1501,40 +1385,18 @@ export default function TakeoffReviewPage({
       )}
 
       {/* ---- Apply readiness bar (production mode only, others have built-in bars) ---- */}
-      {currentReviewMode === "production" && <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm">
-          {isApplyReady ? (
-            <span className="flex items-center gap-2 text-success">
-              <CircleCheckIcon aria-hidden="true" className="h-4 w-4" />
-              Prêt à appliquer ({includedItems.length} items)
-            </span>
-          ) : (
-            <span className="flex items-center gap-2 text-muted-foreground">
-              {applyReadinessMessage}
-            </span>
-          )}
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          className="w-full justify-center sm:w-auto"
-          disabled={!isApplyReady}
-          onClick={handleOpenApplyWizard}
-          title={
-            hasGuardBlocks
-              ? "Complétez les preuves localisées ou la validation humaine avant d'appliquer"
-              : !canOpenApplyWizard
-                ? "Resolves les problèmes avant d'appliquer"
-                : "Appliquer les items au chiffrage"
-          }
-        >
-          Appliquer au chiffrage
-        </Button>
-      </div>}
+      {currentReviewMode === "production" ? (
+        <TakeoffApplyReadinessBar
+          isApplyReady={isApplyReady}
+          includedCount={includedItems.length}
+          readinessMessage={applyReadinessMessage}
+          onOpenApplyWizard={handleOpenApplyWizard}
+        />
+      ) : null}
       </div>
 
       {/* ---- Exclusion modal ---- */}
-      <ExclusionReasonModal
+      <ExclusionReasonDialog
         open={exclusionModalOpen}
         onOpenChange={setExclusionModalOpen}
         count={exclusionTargetIds.length}

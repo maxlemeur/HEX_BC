@@ -354,11 +354,11 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
-    // Mode switch shows Assiste as selected (default for simplified users)
+    // Mode switch shows Assisté as selected (default for simplified users)
     expect(
-      screen.getByRole("tab", { name: /Assiste/ })
+      screen.getByRole("tab", { name: /Assisté/ })
     ).toBeDefined();
-    expect(screen.queryByPlaceholderText("Rechercher par titre...")).toBeNull();
+    expect(screen.queryByPlaceholderText("Rechercher par titre…")).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
@@ -511,11 +511,11 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
-    // Mode switch shows Assiste as selected (default for simplified users)
+    // Mode switch shows Assisté as selected (default for simplified users)
     expect(
-      screen.getByRole("tab", { name: /Assiste/ })
+      screen.getByRole("tab", { name: /Assisté/ })
     ).toBeDefined();
-    expect(screen.queryByText("Resume des changements")).toBeNull();
+    expect(screen.queryByText("Résumé des changements")).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
@@ -531,10 +531,10 @@ describe("TakeoffReviewPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Ouvrir l'apply contrôle" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Ouvrir l'apply contrôlé" })).toBeDefined();
     });
 
-    const applyButton = screen.getByRole("button", { name: "Ouvrir l'apply contrôle" });
+    const applyButton = screen.getByRole("button", { name: "Ouvrir l'apply contrôlé" });
     expect(applyButton).toBeDisabled();
     expect(
       screen.getAllByText(
@@ -570,7 +570,7 @@ describe("TakeoffReviewPage", () => {
     );
 
     const applyButton = await screen.findByRole("button", {
-      name: "Ouvrir l'apply contrôle",
+      name: "Ouvrir l'apply contrôlé",
     });
 
     await waitFor(() => {
@@ -654,10 +654,10 @@ describe("TakeoffReviewPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Resume des changements")).toBeDefined();
+      expect(screen.getByText("Résumé des changements")).toBeDefined();
     });
 
-    fireEvent.click(screen.getByRole("tab", { name: /Assiste/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Assisté/ }));
 
     expect(mockReplace).toHaveBeenLastCalledWith(
       "?reviewMode=assisted&view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",
@@ -698,7 +698,7 @@ describe("TakeoffReviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accepter" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Accepte" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Accepté" })).toBeDefined();
     });
 
     mockSearchParams = new URLSearchParams("reviewMode=production");
@@ -712,7 +712,7 @@ describe("TakeoffReviewPage", () => {
     rerender(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Accepte" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Accepté" })).toBeDefined();
     });
   });
 });

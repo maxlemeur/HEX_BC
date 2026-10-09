@@ -6,16 +6,29 @@ import {
   useRef,
   useState,
 } from "react";
+import { ArrowDownIcon, ArrowUpIcon, FileTextIcon, TriangleAlertIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { EditableCell } from "@/components/estimates/EditableCell";
 import {
   useSpreadsheetNavigation,
   type SpreadsheetNavigationRow,
 } from "@/hooks/useSpreadsheetNavigation";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
-import { FileTextIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  DEFAULT_REVIEW_TABLE_FILTERS,
+  TakeoffReviewFilters,
+  type ReviewTableFilters,
+  type SortDirection,
+  type SortField,
+} from "@/components/takeoff/review/TakeoffReviewFilters";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,13 +48,6 @@ export type AnomalyType =
   | "zero_quantity"
   | "empty_designation";
 
-type InclusionFilter = "all" | "included" | "excluded";
-type VerificationFilter = "all" | "verified" | "unverified";
-type AnomalyFilter = "all" | "with_anomalies" | "without_anomalies";
-type ConfidenceFilter = "all" | "high" | "medium" | "low" | "missing";
-type SortField = "designation" | "quantity" | "category" | "confidence";
-type SortDirection = "asc" | "desc";
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -49,8 +55,8 @@ type SortDirection = "asc" | "desc";
 const EDITABLE_COLUMNS = ["designation", "quantity", "unit"] as const;
 
 export const ANOMALY_LABELS: Record<AnomalyType, string> = {
-  low_confidence: "Confiance faible (< 50%)",
-  missing_evidence: "Aucune evidence/source",
+  low_confidence: "Confiance faible (< 50 %)",
+  missing_evidence: "Aucune preuve ni source",
   zero_quantity: "Quantité nulle ou négative",
   empty_designation: "Désignation vide",
 };
@@ -67,6 +73,10 @@ function compareConfidence(
 
   const cmp = a - b;
   return sortDirection === "asc" ? cmp : -cmp;
+}
+
+function getCategory(item: ReviewItem): string | null {
+  return typeof item.metadata.category === "string" ? item.metadata.category : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,20 +104,64 @@ export function hasBlockingAnomaly(item: ReviewItem): boolean {
   return !item.designation.trim() || item.quantity <= 0;
 }
 
+function matchesFilters(item: ReviewItem, filters: ReviewTableFilters): boolean {
+  const query = filters.search.trim().toLowerCase();
+  if (query && !item.designation.toLowerCase().includes(query)) return false;
+
+  if (filters.inclusion === "included" && item.is_excluded) return false;
+  if (filters.inclusion === "excluded" && !item.is_excluded) return false;
+
+  if (filters.verification === "verified" && !item.is_verified) return false;
+  if (filters.verification === "unverified" && item.is_verified) return false;
+
+  if (filters.category !== "all" && getCategory(item) !== filters.category) return false;
+  if (filters.page !== "all" && item.source_page !== Number(filters.page)) return false;
+  if (
+    filters.table !== "all" &&
+    item.metadata.table_index !== Number(filters.table)
+  ) {
+    return false;
+  }
+
+  if (filters.anomaly !== "all") {
+    const hasAnomalies = detectAnomalies(item).length > 0;
+    if (filters.anomaly === "with_anomalies" && !hasAnomalies) return false;
+    if (filters.anomaly === "without_anomalies" && hasAnomalies) return false;
+  }
+
+  const confidence = item.confidence;
+  switch (filters.confidence) {
+    case "high":
+      return confidence !== null && confidence >= 0.8;
+    case "medium":
+      return confidence !== null && confidence >= 0.5 && confidence < 0.8;
+    case "low":
+      return confidence !== null && confidence < 0.5;
+    case "missing":
+      return confidence === null;
+    default:
+      return true;
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Confidence badge
+// Cells
 // ---------------------------------------------------------------------------
 
 function ConfidenceBadge({ confidence }: { confidence: number | null }) {
   if (confidence === null) {
-    return <Badge variant="neutral" size="sm">-</Badge>;
+    return (
+      <Badge variant="neutral" size="sm">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Non évaluée</span>
+      </Badge>
+    );
   }
   const pct = Math.round(confidence * 100);
-  const variant =
-    pct >= 80 ? "success" : pct >= 50 ? "warning" : "error";
+  const variant = pct >= 80 ? "success" : pct >= 50 ? "warning" : "danger";
   return (
     <Badge variant={variant} size="sm">
-      {pct}%
+      {pct} %
     </Badge>
   );
 }
@@ -122,69 +176,88 @@ function ClickableConfidenceBadge({
   onClick?: () => void;
 }) {
   const pct = confidence !== null ? Math.round(confidence * 100) : null;
-  const barColor =
+  const barClass =
     pct === null
-      ? "var(--slate-300)"
+      ? "bg-border-strong"
       : pct >= 80
-        ? "var(--success)"
+        ? "bg-success"
         : pct >= 50
-          ? "var(--warning)"
-          : "var(--danger)";
-  const barWidth = pct !== null ? `${pct}%` : "0%";
-  const tooltip = pct !== null
-    ? `Confiance: ${pct}% — Cliquer pour voir l'evidence`
-    : "Confiance non evaluee — Cliquer pour voir l'evidence";
+          ? "bg-warning"
+          : "bg-danger";
+  const label = `${pct !== null ? `Confiance ${pct} %` : "Confiance non évaluée"}, ${
+    hasEvidence ? "preuve disponible" : "aucune preuve"
+  } — ouvrir la preuve`;
 
   return (
     <button
       type="button"
-      className="group flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-muted"
+      className="group flex items-center gap-1.5 rounded-control px-1 py-0.5 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       onClick={onClick}
-      title={tooltip}
+      aria-label={label}
     >
-      <ConfidenceBadge confidence={confidence} />
-      {/* Mini confidence bar */}
-      <div className="h-1.5 w-8 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full transition-all duration-300"
-          style={{ width: barWidth, backgroundColor: barColor }}
+      <span aria-hidden="true" className="contents">
+        <ConfidenceBadge confidence={confidence} />
+        <span className="h-1.5 w-8 overflow-hidden rounded-full bg-muted">
+          <span
+            className={`block h-full rounded-full transition-all duration-300 ${barClass}`}
+            style={{ width: pct !== null ? `${pct}%` : "0%" }}
+          />
+        </span>
+        <FileTextIcon
+          className={`size-3.5 ${hasEvidence ? "text-info" : "text-subtle-foreground"}`}
         />
-      </div>
-      {/* Evidence icon */}
-      <FileTextIcon className={`h-3.5 w-3.5 ${hasEvidence ? "text-info" : "text-slate-300"}`} aria-label={hasEvidence ? "Evidence disponible" : "Pas d'evidence"} />
+      </span>
     </button>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Anomaly warnings
-// ---------------------------------------------------------------------------
-
-function AnomalyWarnings({ anomalies }: { anomalies: AnomalyType[] }) {
+/** Anomaly count with an accessible, clickable detail list (was a title tooltip only). */
+function AnomalyDetails({
+  anomalies,
+  designation,
+}: {
+  anomalies: AnomalyType[];
+  designation: string;
+}) {
   if (anomalies.length === 0) return null;
+  const countLabel = `${anomalies.length} anomalie${anomalies.length > 1 ? "s" : ""}`;
   return (
-    <span className="inline-flex gap-0.5" title={anomalies.map((a) => ANOMALY_LABELS[a]).join(", ")}>
-      {anomalies.length > 0 && (
-        <TriangleAlertIcon className="h-4 w-4 text-warning" aria-label={`${anomalies.length} anomalie(s)`} />
-      )}
-    </span>
+    <Popover>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`${countLabel} pour ${designation || "cet item"} : voir le détail`}
+            className="inline-flex items-center gap-1 rounded-control px-1 py-0.5 text-xs font-semibold text-warning hover:bg-warning-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          />
+        }
+      >
+        <TriangleAlertIcon aria-hidden="true" className="size-4" />
+        <span aria-hidden="true">{anomalies.length}</span>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64">
+        <PopoverTitle className="text-sm">{countLabel}</PopoverTitle>
+        <ul className="list-disc space-y-1 pl-4 text-sm text-foreground-secondary">
+          {anomalies.map((anomaly) => (
+            <li key={anomaly}>{ANOMALY_LABELS[anomaly]}</li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Category tag
-// ---------------------------------------------------------------------------
-
-function CategoryTag({ metadata }: { metadata: Record<string, unknown> }) {
-  const category =
-    typeof metadata.category === "string" ? metadata.category : null;
-  if (!category) return <span className="text-xs text-subtle-foreground">-</span>;
+function CategoryTag({ category }: { category: string | null }) {
+  if (!category) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Sans catégorie</span>
+      </span>
+    );
+  }
   return <Badge variant="neutral" size="sm">{category}</Badge>;
 }
-
-// ---------------------------------------------------------------------------
-// Source reference
-// ---------------------------------------------------------------------------
 
 function SourceReference({
   sourceFileName,
@@ -194,20 +267,66 @@ function SourceReference({
   sourcePage: number | null;
 }) {
   if (!sourceFileName && sourcePage === null) {
-    return <span className="text-xs text-subtle-foreground">-</span>;
+    return (
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Source non localisée</span>
+      </span>
+    );
   }
   return (
-    <span className="text-xs text-slate-600" title={sourceFileName ?? undefined}>
-      {sourceFileName ? sourceFileName.slice(0, 20) : ""}
-      {sourcePage !== null && (
-        <span className="ml-1 text-subtle-foreground">p.{sourcePage}</span>
-      )}
+    <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+      {sourceFileName ? (
+        <span className="block max-w-[9rem] truncate" title={sourceFileName}>
+          {sourceFileName}
+        </span>
+      ) : null}
+      {sourcePage !== null && <span className="shrink-0">p. {sourcePage}</span>}
     </span>
   );
 }
 
+function SortableHeader({
+  field,
+  label,
+  sortField,
+  sortDirection,
+  onSort,
+  className,
+}: {
+  field: SortField;
+  label: string;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  onSort: (field: SortField) => void;
+  className?: string;
+}) {
+  const isActive = sortField === field;
+  return (
+    <th
+      className={className}
+      aria-sort={isActive ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-control hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        onClick={() => onSort(field)}
+      >
+        {label}
+        {isActive ? (
+          sortDirection === "asc" ? (
+            <ArrowUpIcon aria-hidden="true" className="size-3.5" />
+          ) : (
+            <ArrowDownIcon aria-hidden="true" className="size-3.5" />
+          )
+        ) : null}
+      </button>
+    </th>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Main component (now controlled)
+// Main component (controlled)
 // ---------------------------------------------------------------------------
 
 export default function TakeoffReviewTable({
@@ -218,35 +337,26 @@ export default function TakeoffReviewTable({
   onOpenEvidencePanel,
 }: TakeoffReviewTableProps) {
   // ---- Filter/sort state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [inclusionFilter, setInclusionFilter] = useState<InclusionFilter>("all");
-  const [verificationFilter, setVerificationFilter] =
-    useState<VerificationFilter>("all");
-  const [anomalyFilter, setAnomalyFilter] = useState<AnomalyFilter>("all");
-  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
+  const [filters, setFilters] = useState<ReviewTableFilters>(DEFAULT_REVIEW_TABLE_FILTERS);
   const [sortField, setSortField] = useState<SortField>("confidence");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [pageFilter, setPageFilter] = useState<string>("all");
-  const [tableFilter, setTableFilter] = useState<string>("all");
+  const updateFilters = useCallback((patch: Partial<ReviewTableFilters>) => {
+    setFilters((current) => ({ ...current, ...patch }));
+  }, []);
 
   // ---- Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // ---- Category filter
+  // ---- Filter options
   const allCategories = useMemo(() => {
     const cats = new Set<string>();
     for (const item of items) {
-      const cat =
-        typeof item.metadata.category === "string"
-          ? item.metadata.category
-          : null;
+      const cat = getCategory(item);
       if (cat) cats.add(cat);
     }
     return Array.from(cats).sort();
   }, [items]);
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  // ---- Unique pages for filter
   const allPages = useMemo(() => {
     const pages = new Set<number>();
     for (const item of items) {
@@ -255,7 +365,6 @@ export default function TakeoffReviewTable({
     return Array.from(pages).sort((a, b) => a - b);
   }, [items]);
 
-  // ---- Unique table indices for filter
   const allTableIndices = useMemo(() => {
     const indices = new Set<number>();
     for (const item of items) {
@@ -267,102 +376,22 @@ export default function TakeoffReviewTable({
 
   // ---- Filter + sort
   const filteredItems = useMemo(() => {
-    let result = items;
-
-    // Search
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      result = result.filter((i) =>
-        i.designation.toLowerCase().includes(q)
-      );
-    }
-
-    // Inclusion filter
-    if (inclusionFilter === "included") {
-      result = result.filter((i) => !i.is_excluded);
-    } else if (inclusionFilter === "excluded") {
-      result = result.filter((i) => i.is_excluded);
-    }
-
-    // Verification filter
-    if (verificationFilter === "verified") {
-      result = result.filter((i) => i.is_verified);
-    } else if (verificationFilter === "unverified") {
-      result = result.filter((i) => !i.is_verified);
-    }
-
-    // Category filter
-    if (categoryFilter !== "all") {
-      result = result.filter(
-        (i) =>
-          typeof i.metadata.category === "string" &&
-          i.metadata.category === categoryFilter
-      );
-    }
-
-    // Page filter
-    if (pageFilter !== "all") {
-      const pageNum = Number(pageFilter);
-      result = result.filter((i) => i.source_page === pageNum);
-    }
-
-    // Table filter
-    if (tableFilter !== "all") {
-      const tableIdx = Number(tableFilter);
-      result = result.filter(
-        (i) => typeof i.metadata.table_index === "number" && i.metadata.table_index === tableIdx
-      );
-    }
-
-    // Anomaly filter
-    if (anomalyFilter === "with_anomalies") {
-      result = result.filter((i) => detectAnomalies(i).length > 0);
-    } else if (anomalyFilter === "without_anomalies") {
-      result = result.filter((i) => detectAnomalies(i).length === 0);
-    }
-
-    // Confidence filter
-    if (confidenceFilter === "high") {
-      result = result.filter((i) => i.confidence !== null && i.confidence >= 0.8);
-    } else if (confidenceFilter === "medium") {
-      result = result.filter((i) => i.confidence !== null && i.confidence >= 0.5 && i.confidence < 0.8);
-    } else if (confidenceFilter === "low") {
-      result = result.filter((i) => i.confidence !== null && i.confidence < 0.5);
-    } else if (confidenceFilter === "missing") {
-      result = result.filter((i) => i.confidence === null);
-    }
-
-    // Sort
-    result = [...result].sort((a, b) => {
+    const result = items.filter((item) => matchesFilters(item, filters));
+    return result.sort((a, b) => {
+      if (sortField === "confidence") {
+        return compareConfidence(a.confidence, b.confidence, sortDirection);
+      }
       let cmp = 0;
       if (sortField === "designation") {
         cmp = a.designation.localeCompare(b.designation, "fr");
       } else if (sortField === "quantity") {
         cmp = a.quantity - b.quantity;
       } else if (sortField === "category") {
-        const ca = (typeof a.metadata.category === "string" ? a.metadata.category : "") as string;
-        const cb = (typeof b.metadata.category === "string" ? b.metadata.category : "") as string;
-        cmp = ca.localeCompare(cb, "fr");
-      } else if (sortField === "confidence") {
-        return compareConfidence(a.confidence, b.confidence, sortDirection);
+        cmp = (getCategory(a) ?? "").localeCompare(getCategory(b) ?? "", "fr");
       }
       return sortDirection === "asc" ? cmp : -cmp;
     });
-
-    return result;
-  }, [
-    items,
-    searchQuery,
-    inclusionFilter,
-    verificationFilter,
-    categoryFilter,
-    pageFilter,
-    tableFilter,
-    anomalyFilter,
-    confidenceFilter,
-    sortField,
-    sortDirection,
-  ]);
+  }, [items, filters, sortField, sortDirection]);
 
   // ---- Spreadsheet navigation
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
@@ -395,19 +424,14 @@ export default function TakeoffReviewTable({
   const toggleSelectAll = useCallback(() => {
     const filteredIds = new Set(filteredItems.map((i) => i.id));
     const allSelected = filteredItems.every((i) => selectedIds.has(i.id));
-    if (allSelected) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        for (const id of filteredIds) next.delete(id);
-        return next;
-      });
-    } else {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        for (const id of filteredIds) next.add(id);
-        return next;
-      });
-    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
   }, [filteredItems, selectedIds]);
 
   const clearSelection = useCallback(() => {
@@ -435,7 +459,7 @@ export default function TakeoffReviewTable({
     clearSelection();
   }, [selectedIds, items, onIncludeItems, clearSelection]);
 
-  // ---- Sort toggle
+  // ---- Sort
   const handleSortChange = useCallback(
     (field: SortField) => {
       if (field === sortField) {
@@ -495,144 +519,27 @@ export default function TakeoffReviewTable({
     [navigation.editingCell, navigation.activeCell, items, onIncludeItems, onExcludeItems, onUpdateItem, onOpenEvidencePanel]
   );
 
+  const sortHeaderProps = { sortField, sortDirection, onSort: handleSortChange };
+
   return (
-    <div className="space-y-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg" ref={containerRef} tabIndex={0} onKeyDown={handleKeyDown}>
-      {/* ---- Filters ---- */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Search */}
-        <input
-          type="search"
-          placeholder="Rechercher par désignation..."
-          className="h-9 w-64 rounded-lg border border-border bg-surface px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-
-        {/* Inclusion filter */}
-        <select
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-          value={inclusionFilter}
-          onChange={(e) => setInclusionFilter(e.target.value as InclusionFilter)}
-        >
-          <option value="all">Toutes</option>
-          <option value="included">Incluses</option>
-          <option value="excluded">Exclues</option>
-        </select>
-
-        {/* Verification filter */}
-        <select
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-          value={verificationFilter}
-          onChange={(e) =>
-            setVerificationFilter(e.target.value as VerificationFilter)
-          }
-        >
-          <option value="all">Tous statuts verif</option>
-          <option value="verified">Verifies</option>
-          <option value="unverified">Non vérifiés</option>
-        </select>
-
-        {/* Category filter */}
-        {allCategories.length > 0 && (
-          <select
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            <option value="all">Toutes catégories</option>
-            {allCategories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* Page filter */}
-        {allPages.length > 1 && (
-          <select
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-            value={pageFilter}
-            onChange={(e) => setPageFilter(e.target.value)}
-          >
-            <option value="all">Toutes pages</option>
-            {allPages.map((p) => (
-              <option key={p} value={String(p)}>
-                Page {p}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* Table filter */}
-        {allTableIndices.length > 1 && (
-          <select
-            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-            value={tableFilter}
-            onChange={(e) => setTableFilter(e.target.value)}
-          >
-            <option value="all">Toutes tables</option>
-            {allTableIndices.map((ti) => (
-              <option key={ti} value={String(ti)}>
-                Table {ti + 1}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* Anomaly filter */}
-        <select
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-          value={anomalyFilter}
-          onChange={(e) => setAnomalyFilter(e.target.value as AnomalyFilter)}
-        >
-          <option value="all">Toutes</option>
-          <option value="with_anomalies">Avec anomalies</option>
-          <option value="without_anomalies">Sans anomalies</option>
-        </select>
-
-        {/* Confidence filter */}
-        <select
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-          value={confidenceFilter}
-          onChange={(e) => setConfidenceFilter(e.target.value as ConfidenceFilter)}
-        >
-          <option value="all">Toute confiance</option>
-          <option value="high">Fiable (&gt;80%)</option>
-          <option value="medium">À vérifier (50-80%)</option>
-          <option value="low">Problematique (&lt;50%)</option>
-          <option value="missing">Non evaluee</option>
-        </select>
-
-        {/* Sort */}
-        <select
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
-          value={sortField}
-          onChange={(e) => handleSortFieldSelect(e.target.value as SortField)}
-        >
-          <option value="designation">Tri: Designation</option>
-          <option value="quantity">Tri: Quantité</option>
-          <option value="category">Tri: Catégorie</option>
-          <option value="confidence">Tri: Confiance</option>
-        </select>
-        <button
-          type="button"
-          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm hover:bg-surface-subtle"
-          onClick={() =>
-            setSortDirection((d) => (d === "asc" ? "desc" : "asc"))
-          }
-          title={sortDirection === "asc" ? "Croissant" : "Decroissant"}
-        >
-          {sortDirection === "asc" ? "\u2191" : "\u2193"}
-        </button>
-
-        <span className="ml-auto text-xs text-muted-foreground">
-          {filteredItems.length} / {items.length} affiche(s)
-        </span>
-      </div>
+    // Row shortcuts (E/V/P) bubble up from the focused grid cell.
+    <div className="space-y-4" ref={containerRef} onKeyDown={handleKeyDown}>
+      <TakeoffReviewFilters
+        filters={filters}
+        onFiltersChange={updateFilters}
+        categories={allCategories}
+        pages={allPages}
+        tableIndices={allTableIndices}
+        sortField={sortField}
+        sortDirection={sortDirection}
+        onSortFieldChange={handleSortFieldSelect}
+        onToggleSortDirection={() => setSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+        filteredCount={filteredItems.length}
+        totalCount={items.length}
+      />
 
       {/* ---- Keyboard shortcuts hint ---- */}
-      <p className="text-xs text-subtle-foreground">
+      <p className="text-xs text-muted-foreground">
         Raccourcis : <kbd className="rounded border border-border px-1">E</kbd> exclure/inclure,{" "}
         <kbd className="rounded border border-border px-1">V</kbd> vérifier,{" "}
         <kbd className="rounded border border-border px-1">P</kbd> preuve
@@ -640,36 +547,29 @@ export default function TakeoffReviewTable({
 
       {/* ---- Bulk actions bar ---- */}
       {selectedCount > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-info bg-info-light px-4 py-2 text-sm">
-          <span className="font-medium">
-            {filteredSelectedCount} selectionne(s)
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-info-border bg-info-subtle px-4 py-2 text-sm">
+          <span className="font-medium text-foreground">
+            {filteredSelectedCount} sélectionné{filteredSelectedCount > 1 ? "s" : ""}
           </span>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={handleExcludeSelected}
-          >
+          <Button variant="danger" size="sm" onClick={handleExcludeSelected}>
             Exclure
           </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleIncludeSelected}
-          >
+          <Button variant="secondary" size="sm" onClick={handleIncludeSelected}>
             Inclure
           </Button>
-          <button
-            type="button"
-            className="text-xs text-slate-600 hover:underline"
-            onClick={clearSelection}
-          >
-            Tout deselectionner
-          </button>
+          <Button variant="link" size="sm" onClick={clearSelection}>
+            Tout désélectionner
+          </Button>
         </div>
       )}
 
       {/* ---- Table ---- */}
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div
+        className="relative overflow-x-auto rounded-lg border border-border"
+        role="region"
+        aria-label="Items extraits"
+        tabIndex={0}
+      >
         <table role="grid" className="data-table w-full">
           <thead>
             <tr>
@@ -684,38 +584,14 @@ export default function TakeoffReviewTable({
                   aria-label="Tout sélectionner"
                 />
               </th>
-              <th
-                className="cursor-pointer select-none"
-                onClick={() => handleSortChange("designation")}
-              >
-                Designation
-                {sortField === "designation" && (
-                  <span className="ml-1">{sortDirection === "asc" ? "\u2191" : "\u2193"}</span>
-                )}
-              </th>
-              <th
-                className="w-[100px] cursor-pointer select-none"
-                onClick={() => handleSortChange("quantity")}
-              >
-                Quantité
-                {sortField === "quantity" && (
-                  <span className="ml-1">{sortDirection === "asc" ? "\u2191" : "\u2193"}</span>
-                )}
-              </th>
+              <SortableHeader field="designation" label="Désignation" {...sortHeaderProps} />
+              <SortableHeader field="quantity" label="Quantité" className="w-[100px]" {...sortHeaderProps} />
               <th className="w-[80px]">Unité</th>
-              <th className="w-[70px]">Confiance</th>
-              <th className="w-[50px]">Alertes</th>
-              <th
-                className="w-[120px] cursor-pointer select-none"
-                onClick={() => handleSortChange("category")}
-              >
-                Catégorie
-                {sortField === "category" && (
-                  <span className="ml-1">{sortDirection === "asc" ? "\u2191" : "\u2193"}</span>
-                )}
-              </th>
-              <th className="w-[120px]">Source</th>
-              <th className="w-[100px]">Statut</th>
+              <SortableHeader field="confidence" label="Confiance" className="w-[90px]" {...sortHeaderProps} />
+              <th className="w-[60px]">Alertes</th>
+              <SortableHeader field="category" label="Catégorie" className="w-[120px]" {...sortHeaderProps} />
+              <th className="w-[140px]">Source</th>
+              <th className="w-[120px]">Statut</th>
               <th className="w-[80px]">Actions</th>
             </tr>
           </thead>
@@ -731,22 +607,14 @@ export default function TakeoffReviewTable({
                 const anomalies = detectAnomalies(item);
                 const isExcluded = item.is_excluded;
                 const rowClassName = [
-                  isExcluded && "opacity-50",
+                  isExcluded && "bg-surface-subtle",
                   item._error && "bg-danger-light",
                 ]
                   .filter(Boolean)
                   .join(" ");
 
                 return (
-                  <tr
-                    key={item.id}
-                    className={rowClassName}
-                    title={
-                      isExcluded && item.exclusion_reason
-                        ? `Exclu: ${item.exclusion_reason}`
-                        : undefined
-                    }
-                  >
+                  <tr key={item.id} className={rowClassName}>
                     {/* Checkbox */}
                     <td className="text-center">
                       <input
@@ -757,8 +625,8 @@ export default function TakeoffReviewTable({
                       />
                     </td>
 
-                    {/* Designation */}
-                    <td>
+                    {/* Editable cells: the inner element is the grid cell. */}
+                    <td role="presentation">
                       <EditableCell
                         cell={{ rowId: item.id, columnKey: "designation" }}
                         navigation={navigation}
@@ -770,17 +638,20 @@ export default function TakeoffReviewTable({
                           onUpdateItem(item.id, "designation", val)
                         }
                         readOnly={isExcluded}
-                        placeholder="Désignation..."
+                        placeholder="Désignation…"
                         ariaLabel="Désignation"
                         className="editable-cell"
                       />
                       {item._saving && (
-                        <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border border-info border-t-transparent" />
+                        <span
+                          role="status"
+                          aria-label="Sauvegarde en cours"
+                          className="ml-1 inline-block size-3 animate-spin rounded-full border border-info border-t-transparent motion-reduce:animate-none"
+                        />
                       )}
                     </td>
 
-                    {/* Quantity */}
-                    <td>
+                    <td role="presentation">
                       <EditableCell
                         cell={{ rowId: item.id, columnKey: "quantity" }}
                         navigation={navigation}
@@ -806,8 +677,7 @@ export default function TakeoffReviewTable({
                       />
                     </td>
 
-                    {/* Unit */}
-                    <td>
+                    <td role="presentation">
                       <EditableCell
                         cell={{ rowId: item.id, columnKey: "unit" }}
                         navigation={navigation}
@@ -840,12 +710,12 @@ export default function TakeoffReviewTable({
 
                     {/* Anomalies */}
                     <td>
-                      <AnomalyWarnings anomalies={anomalies} />
+                      <AnomalyDetails anomalies={anomalies} designation={item.designation} />
                     </td>
 
                     {/* Category */}
                     <td>
-                      <CategoryTag metadata={item.metadata} />
+                      <CategoryTag category={getCategory(item)} />
                     </td>
 
                     {/* Source */}
@@ -870,30 +740,38 @@ export default function TakeoffReviewTable({
                         )}
                         {item.is_verified && (
                           <Badge variant="info" size="sm">
-                            Verifie
+                            Vérifié
                           </Badge>
                         )}
                       </div>
+                      {isExcluded && item.exclusion_reason ? (
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          Motif : {item.exclusion_reason}
+                        </p>
+                      ) : null}
                     </td>
 
                     {/* Actions */}
                     <td>
                       {isExcluded ? (
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-info hover:underline"
+                        <Button
+                          variant="link"
+                          size="xs"
+                          aria-label={`Inclure ${item.designation || "cet item"}`}
                           onClick={() => onIncludeItems([item.id])}
                         >
                           Inclure
-                        </button>
+                        </Button>
                       ) : (
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-danger hover:underline"
+                        <Button
+                          variant="link"
+                          size="xs"
+                          className="text-danger"
+                          aria-label={`Exclure ${item.designation || "cet item"}`}
                           onClick={() => onExcludeItems([item.id])}
                         >
                           Exclure
-                        </button>
+                        </Button>
                       )}
                     </td>
                   </tr>

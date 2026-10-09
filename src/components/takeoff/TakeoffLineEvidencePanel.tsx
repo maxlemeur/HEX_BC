@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui-legacy/Modal";
 import {
   fetchTakeoffLineEvidencePanel,
@@ -29,7 +29,7 @@ type TakeoffLineEvidencePanelProps = {
 const EVIDENCE_KIND_LABELS: Record<TakeoffLineEvidence["kind"], string> = {
   fact: "Fait",
   hypothesis: "Hypothèse",
-  inference: "Inference",
+  inference: "Inférence",
 };
 
 const EVIDENCE_TYPE_LABELS: Record<TakeoffLineEvidence["type"], string> = {
@@ -43,7 +43,7 @@ const EVIDENCE_TYPE_LABELS: Record<TakeoffLineEvidence["type"], string> = {
 
 const EVIDENCE_TYPE_VARIANTS: Record<
   TakeoffLineEvidence["type"],
-  "neutral" | "info" | "success" | "warning" | "error"
+  "neutral" | "info" | "success" | "warning" | "danger"
 > = {
   dpgf: "neutral",
   takeoff: "info",
@@ -55,13 +55,13 @@ const EVIDENCE_TYPE_VARIANTS: Record<
 
 const EVIDENCE_STATUS_LABELS: Record<TakeoffLineEvidence["status"], string> = {
   active: "Active",
-  invalidated: "Invalidee",
-  replaced: "Remplacee",
+  invalidated: "Invalidée",
+  replaced: "Remplacée",
 };
 
 const EVIDENCE_STATUS_VARIANTS: Record<
   TakeoffLineEvidence["status"],
-  "neutral" | "info" | "success" | "warning" | "error"
+  "neutral" | "info" | "success" | "warning" | "danger"
 > = {
   active: "success",
   invalidated: "warning",
@@ -76,7 +76,7 @@ const EVIDENCE_KIND_ORDER: TakeoffLineEvidence["kind"][] = [
 
 function formatEvidenceConfidence(value: number | null) {
   if (value === null) {
-    return "Confiance non renseignee";
+    return "Confiance non renseignée";
   }
 
   return `Confiance ${Math.round(value * 100)}%`;
@@ -121,7 +121,7 @@ function EvidenceCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-950">{evidence.label}</p>
+            <p className="text-sm font-semibold text-foreground">{evidence.label}</p>
             <Badge variant={EVIDENCE_TYPE_VARIANTS[evidence.type]} size="sm">
               {EVIDENCE_TYPE_LABELS[evidence.type]}
             </Badge>
@@ -318,10 +318,10 @@ export function TakeoffLineEvidencePanel({
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 {surfaceLabel}
               </p>
-              <Modal.Title className="mt-2 text-xl text-slate-950">
+              <Modal.Title className="mt-2 text-xl text-foreground">
                 {lineLabel}
               </Modal.Title>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {buildLineContextLabel({ sourceFileName, sourcePage })}
               </p>
             </div>
@@ -333,7 +333,7 @@ export function TakeoffLineEvidencePanel({
                 onClick={() => void loadPanel(true)}
                 disabled={isLoading}
               >
-                {isLoading ? "Actualisation..." : "Actualiser"}
+                {isLoading ? "Actualisation…" : "Actualiser"}
               </Button>
               <Modal.Close />
             </div>
@@ -342,19 +342,19 @@ export function TakeoffLineEvidencePanel({
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
               <p className="text-xs text-muted-foreground">Actives</p>
-              <p className="mt-1 text-lg font-semibold text-slate-950">
+              <p className="mt-1 text-lg font-semibold text-foreground">
                 {panelData?.evidences.length ?? 0}
               </p>
             </div>
             <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
               <p className="text-xs text-muted-foreground">Historique</p>
-              <p className="mt-1 text-lg font-semibold text-slate-950">
+              <p className="mt-1 text-lg font-semibold text-foreground">
                 {panelData?.history.length ?? 0}
               </p>
             </div>
             <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
               <p className="text-xs text-muted-foreground">Job</p>
-              <p className="mt-1 text-sm font-semibold text-slate-950">
+              <p className="mt-1 text-sm font-semibold text-foreground">
                 {jobId.slice(0, 8)}
               </p>
             </div>
@@ -363,19 +363,19 @@ export function TakeoffLineEvidencePanel({
 
         <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
           {isLoading && panelData === null ? (
-            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
+            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
               Chargement des preuves detaillees...
             </div>
           ) : null}
 
           {error ? (
-            <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-3xl border border-danger-border bg-danger-subtle px-4 py-3 text-sm text-danger">
               {error}
             </div>
           ) : null}
 
           {hasNoEvidence ? (
-            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
+            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
               Aucune preuve détaillée n&apos;est disponible pour cette ligne.
             </div>
           ) : null}
@@ -384,7 +384,7 @@ export function TakeoffLineEvidencePanel({
             <>
               <section className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold text-slate-950">
+                  <h3 className="text-base font-semibold text-foreground">
                     Preuves actives
                   </h3>
                   <p className="text-xs text-muted-foreground">
@@ -402,7 +402,7 @@ export function TakeoffLineEvidencePanel({
                     ) : null
                   )}
                   {panelData.evidences.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
+                    <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
                       Aucune preuve active.
                     </div>
                   ) : null}
@@ -411,7 +411,7 @@ export function TakeoffLineEvidencePanel({
 
               <section className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold text-slate-950">
+                  <h3 className="text-base font-semibold text-foreground">
                     Historique
                   </h3>
                   <p className="text-xs text-muted-foreground">
@@ -419,7 +419,7 @@ export function TakeoffLineEvidencePanel({
                   </p>
                 </div>
                 {panelData.history.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
+                  <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground">
                     Aucun historique sur cette ligne.
                   </div>
                 ) : (

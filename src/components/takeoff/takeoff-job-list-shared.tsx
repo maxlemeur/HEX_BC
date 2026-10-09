@@ -7,6 +7,7 @@ import {
   getTakeoffVisibleJobStatusLabel,
   TAKEOFF_VISIBLE_JOB_STATUSES,
 } from "@/lib/takeoff/visible-status";
+import { Card } from "@/components/ui/card";
 
 export const TAKEOFF_MAX_LIST_OFFSET = 10_000;
 export const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
@@ -147,7 +148,7 @@ export function CounterCard({
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="mt-1 text-xl font-black text-slate-800">
+      <p className="mt-1 text-xl font-black text-foreground">
         {formatCount(value)}
       </p>
     </article>
@@ -240,10 +241,10 @@ export function getProviderBatchStateLabel(input: {
 
 export function getProviderBatchStateBadgeVariant(
   state: TakeoffProviderBatchState | null | undefined
-): "neutral" | "info" | "success" | "warning" | "error" {
+): "neutral" | "info" | "success" | "warning" | "danger" {
   if (state === "succeeded") return "success";
   if (state === "failed" || state === "cancelled" || state === "expired") {
-    return "error";
+    return "danger";
   }
   if (state === "unknown") return "warning";
   if (state === "submitted" || state === "pending" || state === "running") {
@@ -254,8 +255,8 @@ export function getProviderBatchStateBadgeVariant(
 
 export function getOperatorStateBadgeVariant(
   state: TakeoffJobOperatorState | null | undefined
-): "neutral" | "info" | "success" | "warning" | "error" {
-  if (state === "provider_failed") return "error";
+): "neutral" | "info" | "success" | "warning" | "danger" {
+  if (state === "provider_failed") return "danger";
   if (state === "orphan_to_reconcile") return "warning";
   if (state === "submitted_to_provider" || state === "awaiting_provider_result") {
     return "info";
@@ -272,10 +273,10 @@ export function getConfidenceLabel(confidence: number | null): string {
 
 export function getConfidenceBadgeVariant(
   label: string
-): "success" | "warning" | "error" | "neutral" {
+): "success" | "warning" | "danger" | "neutral" {
   if (label === "Élevée") return "success";
   if (label === "Moyenne") return "warning";
-  if (label === "Faible") return "error";
+  if (label === "Faible") return "danger";
   return "neutral";
 }
 
@@ -285,16 +286,16 @@ export function isCoverageLow(percent: number | null): boolean {
 
 export function JobsTableSkeleton() {
   return (
-    <section className="dashboard-card mt-4 p-6">
+    <Card className="mt-4 p-6">
       <div className="space-y-3">
         {Array.from({ length: 6 }).map((_, index) => (
           <div
             key={index}
-            className="h-4 animate-pulse rounded bg-slate-200"
+            className="h-4 animate-pulse rounded bg-border"
             style={{ width: `${65 + (index % 3) * 10}%` }}
           />
         ))}
       </div>
-    </section>
+    </Card>
   );
 }

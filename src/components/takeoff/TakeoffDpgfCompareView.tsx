@@ -11,7 +11,7 @@ import {
   useTransition,
 } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { DpgfRowList } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfRowList";
 import { ManualLinkModal } from "@/components/takeoff/takeoff-dpgf-compare-view/ManualLinkModal";
@@ -48,6 +48,9 @@ import type {
   TakeoffRiskAlert,
   TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
+import { NativeSelect } from "@/components/ui/native-select";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type TakeoffDpgfCompareViewProps = {
   data: TakeoffDpgfComparisonResponse;
@@ -360,12 +363,12 @@ export default function TakeoffDpgfCompareView({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
             <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Review preuves / prix / risque
+              Revue preuves / prix / risque
             </p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+            <h2 className="mt-2 text-2xl font-semibold text-foreground">
               Comparaison DPGF explicable
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Les suggestions restent visibles mais ne sont jamais appliquées sans validation
               humaine explicite.
             </p>
@@ -400,17 +403,17 @@ export default function TakeoffDpgfCompareView({
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <SummaryCard label="Fiables" value={data.summary.reliable_matches} accent="text-emerald-700" />
-          <SummaryCard label="À confirmer" value={data.summary.to_confirm} accent="text-amber-700" />
+          <SummaryCard label="Fiables" value={data.summary.reliable_matches} accent="text-success" />
+          <SummaryCard label="À confirmer" value={data.summary.to_confirm} accent="text-warning" />
           <SummaryCard
             label="Écarts forts"
             value={data.summary.significant_gaps}
-            accent="text-rose-700"
+            accent="text-danger"
           />
           <SummaryCard
             label="Revue manuelle"
             value={data.summary.forced_manual}
-            accent="text-sky-700"
+            accent="text-info"
           />
           <SummaryCard
             label="Sans preuve"
@@ -441,12 +444,12 @@ export default function TakeoffDpgfCompareView({
       <section className="rounded-[28px] border border-border bg-surface p-4 shadow-sm">
         <div className="grid gap-3 lg:grid-cols-[minmax(220px,260px)_minmax(220px,260px)_1fr_auto]">
           <div>
-            <label className="form-label" htmlFor="dpgf-status-filter">
+            <FieldLabel className="mb-1.5" htmlFor="dpgf-status-filter">
               Statut
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="dpgf-status-filter"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={statusFilter}
               onChange={(event) => {
                 const nextValue = event.target.value as ReviewStatusFilter;
@@ -460,16 +463,16 @@ export default function TakeoffDpgfCompareView({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label className="form-label" htmlFor="dpgf-sort-key">
+            <FieldLabel className="mb-1.5" htmlFor="dpgf-sort-key">
               Tri
-            </label>
-            <select
+            </FieldLabel>
+            <NativeSelect
               id="dpgf-sort-key"
-              className="form-input form-select form-input--sm"
+              size="sm"
               value={sortKey}
               onChange={(event) => {
                 const nextValue = event.target.value as SortKey;
@@ -483,21 +486,21 @@ export default function TakeoffDpgfCompareView({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           <div>
-            <label className="form-label" htmlFor="dpgf-search-query">
+            <FieldLabel className="mb-1.5" htmlFor="dpgf-search-query">
               Recherche
-            </label>
-            <input
+            </FieldLabel>
+            <Input
               id="dpgf-search-query"
               name="dpgf_search_query"
               type="search"
               autoComplete="off"
-              className="form-input form-input--sm"
+              size="sm"
               value={searchQuery}
-              placeholder="Ligne DPGF, preuve, item takeoff…"
+              placeholder="Ligne DPGF, preuve, item de métré…"
               onChange={(event) => {
                 startToolbarTransition(() => {
                   setSearchQuery(event.target.value);
@@ -524,7 +527,7 @@ export default function TakeoffDpgfCompareView({
         <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
           {filteredRows.length} ligne(s) visibles sur {data.pagination.total} pour la vue{" "}
           {currentView === "all" ? "Tout" : "Exceptions seulement"}
-          {isToolbarPending ? " · filtrage..." : ""}
+          {isToolbarPending ? " · filtrage…" : ""}
         </p>
 
         {currentView === "exceptions_only" ? (
@@ -538,13 +541,13 @@ export default function TakeoffDpgfCompareView({
               }}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "significant_gap"
-                  ? "bg-rose-100 text-rose-800"
-                  : "bg-muted text-slate-600 hover:bg-slate-200"
+                  ? "bg-danger-light text-danger"
+                  : "bg-muted text-muted-foreground hover:bg-border"
               }`}
             >
               {exceptionCounts.significant_gap} écarts forts
             </button>
-            <span className="text-slate-300">·</span>
+            <span className="text-subtle-foreground">·</span>
             <button
               type="button"
               onClick={() => {
@@ -554,13 +557,13 @@ export default function TakeoffDpgfCompareView({
               }}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "to_confirm"
-                  ? "bg-amber-100 text-amber-800"
-                  : "bg-muted text-slate-600 hover:bg-slate-200"
+                  ? "bg-warning-light text-warning"
+                  : "bg-muted text-muted-foreground hover:bg-border"
               }`}
             >
               {exceptionCounts.to_confirm} à confirmer
             </button>
-            <span className="text-slate-300">·</span>
+            <span className="text-subtle-foreground">·</span>
             <button
               type="button"
               onClick={() => {
@@ -570,8 +573,8 @@ export default function TakeoffDpgfCompareView({
               }}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "unlinked"
-                  ? "bg-slate-200 text-slate-800"
-                  : "bg-muted text-slate-600 hover:bg-slate-200"
+                  ? "bg-border text-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-border"
               }`}
             >
               {exceptionCounts.unlinked} sans preuve
@@ -580,7 +583,7 @@ export default function TakeoffDpgfCompareView({
         ) : null}
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
         <DpgfRowList
           filteredRows={filteredRows}
           selectedRowId={selectedRow?.line_id ?? null}

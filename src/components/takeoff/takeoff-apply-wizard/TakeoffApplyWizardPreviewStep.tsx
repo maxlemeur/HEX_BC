@@ -14,6 +14,8 @@ import {
   strategyLabel,
   type TakeoffApplyStrategy,
 } from "./shared";
+import { buttonVariants } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 
 export function TakeoffApplyWizardPreviewStep({
   strategy,
@@ -60,10 +62,10 @@ export function TakeoffApplyWizardPreviewStep({
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               Preview d&apos;impact
             </p>
-            <p className="mt-2 text-sm font-semibold text-slate-800">
+            <p className="mt-2 text-sm font-semibold text-foreground">
               {strategyLabel(strategy)}
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-muted-foreground">
               {strategyDescription(strategy)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -72,11 +74,11 @@ export function TakeoffApplyWizardPreviewStep({
           </div>
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
+            className={buttonVariants({ variant: "outline" })}
             onClick={onRefreshPreview}
             disabled={isLoadingPreview || isSubmitting}
           >
-            {isLoadingPreview ? "Calcul..." : "Recalculer la preview"}
+            {isLoadingPreview ? "Calcul…" : "Recalculer la preview"}
           </button>
         </div>
       </div>
@@ -99,17 +101,17 @@ export function TakeoffApplyWizardPreviewStep({
       </div>
 
       {isLoadingPreview && (
-        <div className="alert alert-info">Calcul de la preview de conversion...</div>
+        <Alert variant="info">Calcul de la preview de conversion…</Alert>
       )}
 
       {previewError && (
-        <div className="alert alert-error">{previewError}</div>
+        <Alert variant="danger">{previewError}</Alert>
       )}
 
       {isPreviewStale && (
-        <div className="alert alert-info" role="status">
-          Les ajustements ont change. Recalculez la preview avant de continuer.
-        </div>
+        <Alert variant="info">
+          Les ajustements ont changé. Recalculez la preview avant de continuer.
+        </Alert>
       )}
 
       {previewData && (
@@ -143,11 +145,11 @@ export function TakeoffApplyWizardPreviewStep({
             </p>
             <p className="mt-2 text-sm text-foreground-secondary">
               Source du métré :{" "}
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-foreground">
                 {sourceFileName ?? "job takeoff"}
               </span>
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-muted-foreground">
               Chaque ligne garde sa référence takeoff quand elle est disponible.
             </p>
           </div>

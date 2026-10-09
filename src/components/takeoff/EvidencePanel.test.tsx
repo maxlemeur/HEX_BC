@@ -1,4 +1,4 @@
-import { cleanup,fireEvent,render,screen } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 // Mock toast (required by TakeoffReviewTable import chain)
@@ -63,19 +63,19 @@ describe("EvidencePanel", () => {
     cleanup();
   });
 
-  it("piège le focus clavier dans le tiroir (Shift+Tab depuis le tiroir revient au dernier élément)", () => {
-    render(<EvidencePanel item={makeItem()} {...defaultProps} />);
-
-    const dialog = screen.getByRole("dialog");
-    const focusable = dialog.querySelectorAll<HTMLElement>(
-      'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+  it("isole le tiroir modal du reste de la page (le focus ne peut pas s'échapper vers la table)", async () => {
+    render(
+      <>
+        <button type="button">Ligne sous le tiroir</button>
+        <EvidencePanel item={makeItem()} {...defaultProps} />
+      </>
     );
-    expect(focusable.length).toBeGreaterThan(0);
-    const last = focusable[focusable.length - 1];
 
-    dialog.focus();
-    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last);
+    expect(screen.getByRole("dialog", { name: "Preuve de l’item" })).toBeInTheDocument();
+    const outside = screen.getByText("Ligne sous le tiroir");
+    await waitFor(() => {
+      expect(outside.closest("[inert], [aria-hidden='true']")).not.toBeNull();
+    });
   });
 
   it("displays signed document link even when source file/page are absent", () => {

@@ -10,6 +10,9 @@ import type {
   TakeoffJobCompareResponse,
   TakeoffJobItem,
 } from "@/lib/takeoff/types";
+import { buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Card } from "@/components/ui/card";
 
 type TakeoffDiffViewProps = {
   compare: TakeoffJobCompareResponse;
@@ -49,16 +52,16 @@ const CHANGE_TYPE_LABELS: Record<DiffEntryChangeType, string> = {
 };
 
 const CHANGE_TYPE_CARD_CSS: Record<DiffEntryChangeType, string> = {
-  added: "border-emerald-200 bg-emerald-50/40",
-  removed: "border-rose-200 bg-rose-50/40",
-  changed: "border-warning/30 bg-amber-50/40",
+  added: "border-success-border bg-success-subtle",
+  removed: "border-danger-border bg-danger-subtle",
+  changed: "border-warning-border bg-warning-subtle",
   unchanged: "border-border bg-surface",
 };
 
 const CHANGE_TYPE_BADGE_CSS: Record<DiffEntryChangeType, string> = {
-  added: "border border-emerald-200 bg-emerald-50 text-emerald-700",
-  removed: "border border-rose-200 bg-rose-50 text-rose-700",
-  changed: "border border-warning/30 bg-warning-light text-warning",
+  added: "border border-success-border bg-success-subtle text-success",
+  removed: "border border-danger-border bg-danger-subtle text-danger",
+  changed: "border border-warning-border bg-warning-light text-warning",
   unchanged: "border border-border bg-muted text-foreground-secondary",
 };
 
@@ -200,7 +203,7 @@ function InlineDiffEntry({
           <p className="mt-1 text-sm font-medium text-foreground">
             {formatItemTitle(entry.baseItem)}
           </p>
-          <p className="mt-1 text-xs text-slate-600">{formatItemMeta(entry.baseItem)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{formatItemMeta(entry.baseItem)}</p>
         </section>
 
         <section className="rounded-lg border border-border bg-surface p-3">
@@ -210,7 +213,7 @@ function InlineDiffEntry({
           <p className="mt-1 text-sm font-medium text-foreground">
             {formatItemTitle(entry.otherItem)}
           </p>
-          <p className="mt-1 text-xs text-slate-600">{formatItemMeta(entry.otherItem)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{formatItemMeta(entry.otherItem)}</p>
         </section>
       </div>
 
@@ -279,7 +282,12 @@ function SideBySideDiffEntry({
         ) : null}
       </header>
 
-      <div className="mt-4 overflow-hidden rounded-lg border border-border bg-surface">
+      <div
+        className="relative mt-4 overflow-x-auto rounded-lg border border-border bg-surface"
+        role="region"
+        aria-label="Détail des champs comparés"
+        tabIndex={0}
+      >
         <table className="data-table w-full">
           <thead>
             <tr>
@@ -290,7 +298,7 @@ function SideBySideDiffEntry({
           </thead>
           <tbody>
             <tr>
-              <td className="font-medium">Designation</td>
+              <td className="font-medium">Désignation</td>
               <td>{formatItemTitle(entry.baseItem)}</td>
               <td>{formatItemTitle(entry.otherItem)}</td>
             </tr>
@@ -390,16 +398,16 @@ export default function TakeoffDiffView({
 
   return (
     <div className="space-y-4">
-      <section className="dashboard-card p-4">
-        <h2 className="text-sm font-semibold text-slate-800">Resume des changements</h2>
+      <Card className="p-4">
+        <h2 className="text-sm font-semibold text-foreground">Résumé des changements</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-lg border border-border bg-surface px-3 py-2">
             <p className="text-xs text-muted-foreground">Ajouts</p>
-            <p className="text-lg font-semibold text-emerald-700">{compare.summary.added}</p>
+            <p className="text-lg font-semibold text-success">{compare.summary.added}</p>
           </div>
           <div className="rounded-lg border border-border bg-surface px-3 py-2">
             <p className="text-xs text-muted-foreground">Suppressions</p>
-            <p className="text-lg font-semibold text-rose-700">{compare.summary.removed}</p>
+            <p className="text-lg font-semibold text-danger">{compare.summary.removed}</p>
           </div>
           <div className="rounded-lg border border-border bg-surface px-3 py-2">
             <p className="text-xs text-muted-foreground">Modifications</p>
@@ -424,16 +432,16 @@ export default function TakeoffDiffView({
             </p>
           </div>
         </div>
-      </section>
+      </Card>
 
-      <section className="dashboard-card p-4">
+      <Card className="p-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs font-semibold text-muted-foreground" htmlFor="takeoff-diff-filter">
             Filtre
           </label>
-          <select
+          <NativeSelect
             id="takeoff-diff-filter"
-            className="form-input form-select form-input--sm w-[180px]"
+            size="sm" className="w-[180px]"
             value={filter}
             onChange={(event) => setFilter(event.target.value as DiffFilter)}
           >
@@ -442,7 +450,7 @@ export default function TakeoffDiffView({
                 {option.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
 
           <div className="ml-2 inline-flex overflow-hidden rounded-lg border border-border bg-surface">
             <button
@@ -450,7 +458,7 @@ export default function TakeoffDiffView({
               className={`px-3 py-1.5 text-xs font-semibold ${
                 mode === "inline"
                   ? "bg-info text-white"
-                  : "text-slate-600 hover:bg-muted"
+                  : "text-muted-foreground hover:bg-muted"
               }`}
               onClick={() => setMode("inline")}
             >
@@ -461,7 +469,7 @@ export default function TakeoffDiffView({
               className={`border-l border-border px-3 py-1.5 text-xs font-semibold ${
                 mode === "side-by-side"
                   ? "bg-info text-white"
-                  : "text-slate-600 hover:bg-muted"
+                  : "text-muted-foreground hover:bg-muted"
               }`}
               onClick={() => setMode("side-by-side")}
             >
@@ -486,26 +494,26 @@ export default function TakeoffDiffView({
           </span>
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className={buttonVariants({ variant: "primary" })}
             onClick={() => {
               void onApplySelection(selectedIdsArray);
             }}
             disabled={isApplyingSelection || selectableIds.length === 0}
           >
-            {isApplyingSelection ? "Application..." : "Appliquer la sélection"}
+            {isApplyingSelection ? "Application…" : "Appliquer la sélection"}
           </button>
         </div>
 
         {applySelectionError ? (
           <p className="mt-2 text-sm text-danger">{applySelectionError}</p>
         ) : null}
-      </section>
+      </Card>
 
       <section className="space-y-3">
         {filteredEntries.length === 0 ? (
-          <div className="dashboard-card p-6 text-sm text-slate-600">
+          <Card className="p-6 text-sm text-muted-foreground">
             Aucun changement pour ce filtre.
-          </div>
+          </Card>
         ) : (
           filteredEntries.map((entry) => {
             const selectableId = entry.baseItem?.id ?? "";

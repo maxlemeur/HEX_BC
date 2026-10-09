@@ -76,7 +76,7 @@ describe("TakeoffReviewTable (controlled)", () => {
       />
     );
 
-    fireEvent.click(screen.getByTitle("Croissant"));
+    fireEvent.click(screen.getByRole("button", { name: "Ordre de tri : Croissant" }));
 
     const rows = screen.getAllByRole("row").slice(1);
     const firstRow = rows[0]?.textContent ?? "";

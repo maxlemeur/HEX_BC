@@ -2,8 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { formatEUR } from "@/lib/money";
 import {
   fetchTakeoffPriceSuggestion,
@@ -66,11 +75,11 @@ const SOURCE_KIND_VARIANT: Record<
 
 const CONFIDENCE_VARIANT: Record<
   TakeoffPriceSuggestionConfidenceLabel,
-  "success" | "warning" | "error"
+  "success" | "warning" | "danger"
 > = {
   high: "success",
   medium: "warning",
-  low: "error",
+  low: "danger",
 };
 
 const CONFIDENCE_LABELS: Record<TakeoffPriceSuggestionConfidenceLabel, string> = {
@@ -82,7 +91,7 @@ const CONFIDENCE_LABELS: Record<TakeoffPriceSuggestionConfidenceLabel, string> =
 const EVIDENCE_KIND_LABELS: Record<string, string> = {
   fact: "Fait",
   hypothesis: "Hypothèse",
-  inference: "Inference",
+  inference: "Inférence",
 };
 
 const ACTION_LABELS: Record<TakeoffPriceSuggestionAction, string> = {
@@ -108,14 +117,14 @@ function getConfidenceBarWidth(label: TakeoffPriceSuggestionConfidenceLabel): st
   }
 }
 
-function getConfidenceBarColor(label: TakeoffPriceSuggestionConfidenceLabel): string {
+function getConfidenceBarClass(label: TakeoffPriceSuggestionConfidenceLabel): string {
   switch (label) {
     case "high":
-      return "var(--success)";
+      return "bg-success";
     case "medium":
-      return "var(--warning)";
+      return "bg-warning";
     case "low":
-      return "var(--danger)";
+      return "bg-danger";
   }
 }
 
@@ -152,22 +161,22 @@ function BoundsDisplay({
       action: "apply_low",
       label: "Borne basse",
       cents: suggestion.low_cents,
-      accent: "text-sky-700",
-      selectedAccent: "border-sky-400 bg-sky-50/80",
+      accent: "text-info",
+      selectedAccent: "border-info bg-info-subtle",
     },
     {
       action: "apply_target",
       label: "Prix cible",
       cents: suggestion.target_cents,
-      accent: "text-emerald-700",
-      selectedAccent: "border-emerald-400 bg-emerald-50/80",
+      accent: "text-success",
+      selectedAccent: "border-success bg-success-subtle",
     },
     {
       action: "apply_high",
       label: "Borne haute",
       cents: suggestion.high_cents,
-      accent: "text-amber-700",
-      selectedAccent: "border-amber-400 bg-amber-50/80",
+      accent: "text-warning",
+      selectedAccent: "border-warning bg-warning-subtle",
     },
   ];
 
@@ -180,16 +189,17 @@ function BoundsDisplay({
             key={action}
             type="button"
             onClick={() => onSelectAction(action)}
-            className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            aria-pressed={isSelected}
+            className={`min-w-0 rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:hover:translate-y-0 ${
               isSelected
                 ? selectedAccent
                 : "border-border bg-surface"
             }`}
           >
-            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted-foreground">
               {label}
             </p>
-            <p className={`mt-1 text-sm font-semibold ${accent}`}>
+            <p className={`mt-1 break-words text-sm font-semibold ${accent}`}>
               {formatEUR(cents)}
             </p>
           </button>
@@ -210,8 +220,8 @@ function SourceItem({ source }: { source: TakeoffPriceSuggestionSource }) {
           {EVIDENCE_KIND_LABELS[source.kind] ?? source.kind}
         </Badge>
         {source.is_outlier ? (
-          <Badge variant="error" size="sm">
-            Outlier
+          <Badge variant="danger" size="sm">
+            Valeur aberrante
           </Badge>
         ) : null}
         {source.freshness_label ? (
@@ -221,14 +231,14 @@ function SourceItem({ source }: { source: TakeoffPriceSuggestionSource }) {
         ) : null}
       </div>
       <div className="mt-2 flex items-baseline justify-between gap-2">
-        <p className="text-sm font-medium text-foreground">
+        <p className="min-w-0 break-words text-sm font-medium text-foreground">
           {source.label}
         </p>
-        <p className={`text-sm font-semibold tabular-nums ${source.is_outlier ? "text-subtle-foreground line-through" : "text-foreground"}`}>
+        <p className={`shrink-0 text-sm font-semibold tabular-nums ${source.is_outlier ? "text-muted-foreground line-through" : "text-foreground"}`}>
           {formatEUR(source.price_cents)}
         </p>
       </div>
-      <p className="mt-1 text-xs text-slate-600">
+      <p className="mt-1 text-xs text-muted-foreground">
         {source.source_ref}
         {source.confidence_score !== null
           ? ` · Confiance ${Math.round(source.confidence_score * 100)}%`
@@ -251,7 +261,6 @@ export function PriceSuggestionPanel({
   lineLabel,
   onReviewComplete,
 }: PriceSuggestionPanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const reviewCompletedRef = useRef(false);
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [selectedAction, setSelectedAction] = useState<TakeoffPriceSuggestionAction | null>(null);
@@ -333,13 +342,6 @@ export function PriceSuggestionPanel({
     };
   }, [open, jobId, versionId, estimateItemId]);
 
-  // Focus on open
-  useEffect(() => {
-    if (open) {
-      panelRef.current?.focus();
-    }
-  }, [open]);
-
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
 
@@ -355,21 +357,7 @@ export function PriceSuggestionPanel({
     };
   }, [open]);
 
-  // Keyboard
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        if (reviewCompletedRef.current) {
-          reviewCompletedRef.current = false;
-          onReviewComplete();
-        }
-        onOpenChange(false);
-      }
-    },
-    [onOpenChange, onReviewComplete]
-  );
-
+  // Escape, overlay click and the close buttons all go through the Sheet.
   const handleClose = useCallback(() => {
     if (reviewCompletedRef.current) {
       reviewCompletedRef.current = false;
@@ -480,80 +468,62 @@ export function PriceSuggestionPanel({
     reviewNote.trim().length > 0;
 
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 z-40 bg-black/20"
-        onClick={handleClose}
-        aria-hidden="true"
-      />
-
-      {/* Drawer */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Suggestion de prix : ${lineLabel}`}
-        tabIndex={-1}
-        onKeyDown={handleKeyDown}
-        className="animate-slide-in-right fixed inset-0 z-50 flex min-w-0 flex-col bg-surface shadow-xl outline-none sm:inset-y-0 sm:left-auto sm:w-full sm:max-w-lg sm:border-l sm:border-border"
+    <Sheet open onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="min-w-0 gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg"
       >
         {/* ---- Header ---- */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-800">
-              Suggestion de prix
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+        <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
+          <div className="min-w-0">
+            <SheetTitle className="text-sm font-semibold">Suggestion de prix</SheetTitle>
+            <SheetDescription className="mt-0.5 line-clamp-1 text-xs">
               {lineLabel}
-            </p>
+            </SheetDescription>
           </div>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary"
+          <IconButton
+            label="Fermer le panneau (Échap)"
+            icon={<XIcon aria-hidden="true" />}
             onClick={handleClose}
-            title="Fermer le panneau (Echap)"
-            aria-label="Fermer le panneau"
-          >
-            <XIcon aria-hidden="true" className="h-4 w-4" />
-          </button>
+          />
         </div>
 
         {/* ---- Scrollable body ---- */}
         <div className="min-w-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
           {/* Loading */}
           {state.kind === "loading" ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-12">
+            <div className="flex flex-col items-center justify-center gap-3 py-12" role="status">
               <span
                 aria-hidden="true"
-                className="size-6 animate-spin rounded-full border-2 border-border-strong border-t-slate-700"
+                className="size-6 animate-spin rounded-full border-2 border-border-strong border-t-foreground-secondary motion-reduce:animate-none"
               />
-              <p className="text-sm text-slate-600" aria-live="polite">
-                Calcul de la suggestion en cours...
+              <p className="text-sm text-muted-foreground">
+                Calcul de la suggestion en cours…
               </p>
             </div>
           ) : null}
 
           {/* Error */}
           {state.kind === "error" ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-              <p className="text-sm font-medium text-rose-800">Erreur</p>
-              <p className="mt-1 text-sm text-rose-700">{state.message}</p>
+            <Alert variant="danger">
+              <AlertTitle>Erreur</AlertTitle>
+              <AlertDescription>{state.message}</AlertDescription>
               <Button
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 className="mt-3"
                 onClick={() => void handleRecalculate()}
               >
                 Réessayer
               </Button>
-            </div>
+            </Alert>
           ) : null}
 
           {/* Empty */}
           {state.kind === "empty" ? (
             <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-6 text-center">
-              <p className="text-sm font-medium text-slate-800">
+              <p className="text-sm font-medium text-foreground">
                 Aucune suggestion calculable pour cette ligne.
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -569,30 +539,30 @@ export function PriceSuggestionPanel({
               {/* Recalculating banner */}
               {isRecalculating ? (
                 <div
-                  className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2"
-                  aria-live="polite"
+                  className="flex items-center gap-2 rounded-xl border border-info-border bg-info-subtle px-3 py-2"
+                  role="status"
                 >
                   <span
                     aria-hidden="true"
-                    className="size-4 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700"
+                    className="size-4 animate-spin rounded-full border-2 border-info-border border-t-info motion-reduce:animate-none"
                   />
-                  <p className="text-xs text-sky-800">Recalcul en cours...</p>
+                  <p className="text-xs text-info">Recalcul en cours…</p>
                 </div>
               ) : null}
 
               {/* Reviewed banner */}
               {isReviewed ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                  <p className="text-xs font-medium text-emerald-800">
+                <div className="rounded-xl border border-success-border bg-success-subtle px-3 py-2">
+                  <p className="text-xs font-medium text-success">
                     Décision enregistrée : {ACTION_LABELS[suggestion.selected_action!]}
                   </p>
                   {suggestion.selected_price_cents !== null ? (
-                    <p className="mt-1 text-xs text-emerald-700">
-                      Prix applique : {formatEUR(suggestion.selected_price_cents)}
+                    <p className="mt-1 text-xs text-success">
+                      Prix appliqué : {formatEUR(suggestion.selected_price_cents)}
                     </p>
                   ) : null}
                   {suggestion.review_note ? (
-                    <p className="mt-1 text-xs text-emerald-700">
+                    <p className="mt-1 text-xs text-success">
                       Note : {suggestion.review_note}
                     </p>
                   ) : null}
@@ -604,7 +574,7 @@ export function PriceSuggestionPanel({
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Prix actuel
                 </p>
-                <p className="mt-1 text-lg font-semibold text-slate-950">
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {suggestion.current_price_cents !== null
                     ? formatEUR(suggestion.current_price_cents)
                     : "Non renseigné"}
@@ -630,7 +600,7 @@ export function PriceSuggestionPanel({
                 <div className="mt-3 space-y-1">
                   <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
                     <div
-                      className="absolute inset-y-0 rounded-full bg-gradient-to-r from-sky-400 via-emerald-400 to-amber-400 opacity-80"
+                      className="absolute inset-y-0 rounded-full bg-gradient-to-r from-info via-success to-warning opacity-80"
                       style={{
                         left: "0%",
                         right: "0%",
@@ -639,7 +609,7 @@ export function PriceSuggestionPanel({
                     {suggestion.current_price_cents !== null &&
                       suggestion.high_cents > suggestion.low_cents ? (
                       <div
-                        className="absolute top-0 h-full w-0.5 bg-slate-800"
+                        className="absolute top-0 h-full w-0.5 bg-foreground"
                         style={{
                           left: `${Math.min(
                             100,
@@ -655,7 +625,7 @@ export function PriceSuggestionPanel({
                       />
                     ) : null}
                   </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <div className="flex justify-between text-micro text-muted-foreground">
                     <span>{formatEUR(suggestion.low_cents)}</span>
                     <span>{formatEUR(suggestion.high_cents)}</span>
                   </div>
@@ -668,23 +638,20 @@ export function PriceSuggestionPanel({
                   Confiance
                 </p>
                 <div className="mt-2 flex items-center gap-3">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
                     <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{
-                        width: getConfidenceBarWidth(suggestion.confidence_label),
-                        backgroundColor: getConfidenceBarColor(suggestion.confidence_label),
-                      }}
+                      className={`h-full rounded-full transition-all duration-300 ${getConfidenceBarClass(suggestion.confidence_label)}`}
+                      style={{ width: getConfidenceBarWidth(suggestion.confidence_label) }}
                     />
                   </div>
                   <Badge variant={CONFIDENCE_VARIANT[suggestion.confidence_label]} size="sm">
                     {CONFIDENCE_LABELS[suggestion.confidence_label]}
                   </Badge>
                 </div>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {suggestion.candidate_count} source{suggestion.candidate_count > 1 ? "s" : ""}
                   {suggestion.outlier_count > 0
-                    ? ` · ${suggestion.outlier_count} outlier${suggestion.outlier_count > 1 ? "s" : ""} signale${suggestion.outlier_count > 1 ? "s" : ""}`
+                    ? ` · ${suggestion.outlier_count} valeur${suggestion.outlier_count > 1 ? "s" : ""} aberrante${suggestion.outlier_count > 1 ? "s" : ""} signalée${suggestion.outlier_count > 1 ? "s" : ""}`
                     : ""}
                 </p>
               </div>
@@ -715,11 +682,11 @@ export function PriceSuggestionPanel({
                           <Badge variant="neutral" size="sm">
                             {EVIDENCE_KIND_LABELS[factor.kind] ?? factor.kind}
                           </Badge>
-                          <span className="text-xs font-medium text-slate-800">
+                          <span className="text-xs font-medium text-foreground">
                             {factor.label}
                           </span>
                         </div>
-                        <p className="mt-1 text-xs text-slate-600">
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {factor.value}
                         </p>
                       </div>
@@ -776,22 +743,27 @@ export function PriceSuggestionPanel({
                     >
                       Note de revue (obligatoire)
                     </label>
-                    <textarea
+                    <Textarea
                       id="price-suggestion-review-note"
-                      className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="mt-1 min-h-20 text-sm"
                       rows={3}
                       value={reviewNote}
                       onChange={(e) => setReviewNote(e.target.value)}
                       maxLength={2000}
-                      placeholder="Justifiez votre choix..."
+                      placeholder="Justifiez votre choix…"
+                      aria-invalid={selectedAction && reviewNote.trim().length === 0 ? true : undefined}
+                      aria-describedby="price-suggestion-review-note-hint"
                       disabled={isRecalculating || isSubmitting}
                     />
-                    <div className="mt-1 flex items-center justify-between">
-                      <span className="text-[10px] text-subtle-foreground">
+                    <div
+                      id="price-suggestion-review-note-hint"
+                      className="mt-1 flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <span className="text-micro text-muted-foreground">
                         {reviewNote.length}/2000
                       </span>
                       {selectedAction && reviewNote.trim().length === 0 ? (
-                        <span className="text-[10px] text-rose-500">
+                        <span className="text-micro text-danger">
                           Une note est requise avant validation.
                         </span>
                       ) : null}
@@ -799,9 +771,9 @@ export function PriceSuggestionPanel({
                   </div>
 
                   {submitError ? (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                      {submitError}
-                    </div>
+                    <Alert variant="danger">
+                      <AlertDescription className="text-xs">{submitError}</AlertDescription>
+                    </Alert>
                   ) : null}
                 </div>
               ) : null}
@@ -811,13 +783,13 @@ export function PriceSuggestionPanel({
 
         {/* ---- Footer ---- */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <span className="text-[10px] text-subtle-foreground">
-            Echap fermer
+          <span className="text-micro text-muted-foreground">
+            Échap fermer
           </span>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={handleClose}
               disabled={isSubmitting}
@@ -855,7 +827,7 @@ export function PriceSuggestionPanel({
             )}
           </div>
         </div>
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }
